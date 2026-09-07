@@ -1475,6 +1475,11 @@ namespace MphRead
                 // where PlayerEntity.Main is somebody else's hunter.
                 Mods.Input.GamepadDesktop.Poll();
                 Mods.Input.GamepadInput.BeginFrame();
+                // Straight after the edges are worked out and before anything
+                // consumes them. A pad has no key events to hook, so the
+                // results screen's picker has to be polled, and it takes the
+                // d-pad presses it acts on so nothing downstream sees them.
+                Mods.EndScreen.PollGamepad();
                 bool noPlayerInput = _inputMode == InputMode.CameraOnly
                     || Mods.PauseMenu.Open || Mods.Chat.ChatBox.Composing;
                 PlayerEntity.ProcessInput(_keyboardState, _mouseState, noPlayerInput);
@@ -1489,6 +1494,10 @@ namespace MphRead
             if (ProcessFrame && _room != null)
             {
                 GameState.ProcessFrame(this);
+                // Turned once a step, never in a draw: a picture with no step
+                // behind it must not advance anything, or the hunter spins at
+                // the frame rate rather than at 45 degrees a second.
+                ModStepPreview();
                 if (GameState.MatchState == MatchState.InProgress && !GameState.MenuPause)
                 {
                     UpdateScene();
@@ -2298,6 +2307,10 @@ namespace MphRead
             GL.Disable(EnableCap.StencilTest);
             GL.PolygonMode(TriangleFace.FrontAndBack, OpenTK.Graphics.OpenGL.PolygonMode.Fill);
 
+            // After the world and before the window: the preview is a corner
+            // of the scene target with its own camera in it, so the HUD's own
+            // panel is drawn over it afterwards with a hole where this lands.
+            ModDrawPreview();
             if (PlayerEntity.Main.LoadFlags.TestFlag(LoadFlags.Active) && CameraMode == CameraMode.Player)
             {
                 SetHudLayerUniforms();
@@ -3630,6 +3643,15 @@ namespace MphRead
 
         private void AddRenderItem(RenderItem item)
         {
+            // The results screen's hunter preview is drawn in a pass of its
+            // own, with its own camera and its own depth buffer, so its items
+            // must not join the world's three lists. See ModCollectPreview.
+            if (_collectingPreview)
+            {
+                _previewItems.Add(item);
+                _usedRenderItems.Enqueue(item);
+                return;
+            }
             if (item.RenderMode == RenderMode.Decal)
             {
                 _decalItems.Add(item);
@@ -3822,6 +3844,9 @@ namespace MphRead
                     single.AddRenderItem(this);
                 }
             }
+            // Last, and on its own: nothing else may add an item while the
+            // preview is being collected.
+            ModCollectPreview();
         }
 
         private void UpdateUniforms()
@@ -4607,8 +4632,11 @@ namespace MphRead
             GL.Uniform1(_shaderLocations.LayerAlpha, inst.Alpha);
             GL.Uniform1(_shaderLocations.UseMask, inst.UseMask ? 1 : 0);
             GL.BindTexture(TextureTarget.Texture2D, inst.BindingId);
-            int minParameter = (int)TextureMinFilter.Nearest;
-            int magParameter = (int)TextureMagFilter.Nearest;
+            // Nearest, which is what the DS did and what every sprite in this
+            // game is drawn for -- except the supersampled ones, whose texture
+            // arrives bigger than the box it goes in. See HudObjectInstance.Smooth.
+            int minParameter = (int)(inst.Smooth ? TextureMinFilter.Linear : TextureMinFilter.Nearest);
+            int magParameter = (int)(inst.Smooth ? TextureMagFilter.Linear : TextureMagFilter.Nearest);
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, minParameter);
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, magParameter);
             GL.TexParameter(TextureTarget.Texture2D,
@@ -6188,8 +6216,32 @@ namespace MphRead
         /// </summary>
         private bool _sceneReady;
 
+        /// <summary>
+        /// Say that the window is about to be created, before it is.
+        ///
+        /// The base constructor is where GLFW opens a window and makes a GL
+        /// context current, and on a machine whose GL or X11 libraries are
+        /// wrong that is a *native* crash: the process dies inside libglfw or
+        /// the driver, .NET reports a `PAL_SEHException` with no stack, and
+        /// nothing managed runs afterwards -- so the last line in the log is
+        /// whatever happened to be printed before. Reported from NixOS as a
+        /// crash "on joining a match", where the log ended on the join and the
+        /// [gl] lines (written in Scene.OnLoad, after the context exists)
+        /// never appeared at all.
+        ///
+        /// This line and <see cref="LogWindowCreated"/> put a boundary either
+        /// side of that, so the next such log says which side of it the
+        /// process died on rather than leaving it to be inferred.
+        /// </summary>
+        public static void LogCreatingWindow()
+        {
+            Mods.DebugLog.Line("render", "creating the game window and GL context "
+                + $"({Mods.Launcher.LauncherPrefs.WindowMode})");
+        }
+
         public RenderWindow() : base(_gameWindowSettings, _nativeWindowSettings)
         {
+            Mods.DebugLog.Line("render", $"game window created, {Size.X}x{Size.Y}");
             // The scene first, and the size floor after it: applying size
             // limits to a window smaller than the floor makes GLFW resize it
             // on the spot, which calls the size callback -- and that reached
@@ -6332,12 +6384,19 @@ namespace MphRead
 
         protected override void OnRenderFrame(FrameEventArgs args)
         {
-            // The pause menu wants the pointer back.
+            // The pause menu wants the pointer back, and so does the results
+            // screen: its hunter picker is something you click, and a grabbed
+            // cursor has no position on screen to click with.
             CursorState = (Scene.CameraMode == CameraMode.Player || Scene.IsFreeCam) && !Scene.FrameAdvance
-                && !Mods.PauseMenu.Open
+                && !Mods.PauseMenu.Open && !Mods.EndScreen.Available
                 && !Scene.ShowCursor && !GameState.DialogPause && !GameState.MenuPause
                 ? CursorState.Grabbed
                 : CursorState.Normal;
+            // Where the pointer is, for the picker to light up what it is
+            // over, and in the same units its hit boxes are kept in.
+            Mods.EndScreen.NotePointer(
+                MouseState.X / (float)Math.Max(Size.X, 1),
+                MouseState.Y / (float)Math.Max(Size.Y, 1));
             GameState.ApplyPause();
             ApplyFrameRateSettings();
             // The simulation runs at 60 Hz and the picture runs at the
@@ -6412,6 +6471,15 @@ namespace MphRead
         {
             if (e.Button == MouseButton.Button1)
             {
+                // The results screen's picker first, and only while it is up.
+                // It is the reason the cursor is released at all there, and a
+                // click that also reached the game would fire the gun of a
+                // player who is standing in an ended match.
+                if (Mods.EndScreen.HandleClick())
+                {
+                    base.OnMouseDown(e);
+                    return;
+                }
                 if (Mods.SpectatorMode.IsSpectating)
                 {
                     Mods.SpectatorMode.CycleNext();
@@ -6470,6 +6538,15 @@ namespace MphRead
             if (Mods.Chat.ChatBox.HandleKeyDown(e,
                 canOpen: !Mods.Network.DemoPlayback.IsActive
                     && (Scene.CameraMode == CameraMode.Player || Scene.IsFreeCam)))
+            {
+                base.OnKeyDown(e);
+                return;
+            }
+            // The results screen's hunter picker, which owns the arrow keys
+            // for as long as it is up and nothing at any other time. Before
+            // the window-mode keys only because it is cheaper to ask; the two
+            // cannot want the same key.
+            if (Mods.EndScreen.HandleKeyDown(e.Key))
             {
                 base.OnKeyDown(e);
                 return;

@@ -449,9 +449,23 @@ namespace MphRead.Mods.Network
         /// <see cref="DedicatedServer.FriendlyFire"/>.
         /// </summary>
         public const byte FlagFriendlyFire = 1 << 2;
+        /// <summary>
+        /// The shadow freeze glitch is switched **off** on this server, so an
+        /// affinity Judicator's ice wave freezes what is in front of it rather
+        /// than everything within 60 degrees at any height. Server-decided for
+        /// the same reason friendly fire is: the machine resolving a shot
+        /// decides who it hit.
+        ///
+        /// Stated as the negative deliberately. Zero is the cartridge's own
+        /// behaviour, so a packet from anything that does not know about this
+        /// rule -- a demo recorded before it, a server built before it --
+        /// plays exactly as it always did.
+        /// </summary>
+        public const byte FlagNoShadowFreeze = 1 << 3;
 
         public readonly bool Ending => (Flags & FlagEnding) != 0;
         public readonly bool FriendlyFire => (Flags & FlagFriendlyFire) != 0;
+        public readonly bool ShadowFreeze => (Flags & FlagNoShadowFreeze) == 0;
 
         public void Write(Span<byte> dest)
         {
@@ -624,19 +638,23 @@ namespace MphRead.Mods.Network
     {
         public const int MaxNameBytes = 16;
         public const int MaxSlots = PlayerEntity.SlotCapacity;
-        // Slot, hunter, round trip time and name per entry. The hunter travels
-        // with the name because both answer the same question -- who is in
-        // this slot -- and because a client that never learns it draws every
-        // other player as whichever hunter this machine happens to have
-        // picked. The ping rides along for the same reason: it is a property
-        // of who is in the slot, the server is the only party that can measure
-        // it for everybody, and it already sends this packet every second.
-        public const int EntrySize = 1 + 1 + 2 + MaxNameBytes;
+        // Slot, hunter, suit colour, round trip time and name per entry. The
+        // hunter travels with the name because both answer the same question
+        // -- who is in this slot -- and because a client that never learns it
+        // draws every other player as whichever hunter this machine happens to
+        // have picked. The colour is the same fact one step further: without
+        // it every client picked its own, so two people on the same hunter
+        // were the same figure in the same suit on every screen. The ping
+        // rides along for the same reason: it is a property of who is in the
+        // slot, the server is the only party that can measure it for
+        // everybody, and it already sends this packet every second.
+        public const int EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes;
         public const int Size = 1 + MaxSlots * EntrySize;
 
         public byte Count;
         public byte[] Slots;      // slot index per entry
         public byte[] Hunters;    // Hunter enum value per entry
+        public byte[] Colors;     // suit palette asked for, 0-3
         public ushort[] Pings;    // round trip to the server, milliseconds
         public string[] Names;
 
@@ -647,6 +665,7 @@ namespace MphRead.Mods.Network
                 Count = 0,
                 Slots = new byte[MaxSlots],
                 Hunters = new byte[MaxSlots],
+                Colors = new byte[MaxSlots],
                 Pings = new ushort[MaxSlots],
                 Names = new string[MaxSlots]
             };
@@ -661,8 +680,9 @@ namespace MphRead.Mods.Network
             {
                 dest[offset] = Slots[i];
                 dest[offset + 1] = Hunters[i];
-                BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 2)..], Pings[i]);
-                WriteName(dest.Slice(offset + 4, MaxNameBytes), Names[i]);
+                dest[offset + 2] = Colors[i];
+                BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 3)..], Pings[i]);
+                WriteName(dest.Slice(offset + 5, MaxNameBytes), Names[i]);
                 offset += EntrySize;
             }
         }
@@ -676,8 +696,9 @@ namespace MphRead.Mods.Network
             {
                 roster.Slots[i] = src[offset];
                 roster.Hunters[i] = src[offset + 1];
-                roster.Pings[i] = BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 2)..]);
-                roster.Names[i] = ReadName(src.Slice(offset + 4, MaxNameBytes));
+                roster.Colors[i] = src[offset + 2];
+                roster.Pings[i] = BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 3)..]);
+                roster.Names[i] = ReadName(src.Slice(offset + 5, MaxNameBytes));
                 offset += EntrySize;
             }
             return roster;
@@ -1037,6 +1058,41 @@ namespace MphRead.Mods.Network
         /// and an older authority simply never sets it.
         /// </summary>
         public const byte FlagFrozen = 1 << 5;
+        /// <summary>
+        /// Disrupted by an affinity Volt Driver's charged shot.
+        ///
+        /// The same fault as the freeze, one weapon along, and the last bit of
+        /// it that was still showing: the disruption is applied inside
+        /// <c>TakeDamage</c> from the beam that landed the hit, so on every
+        /// machine but the authority's the victim was hit by a charged Volt
+        /// Driver and nothing happened at all -- no aim disruption and, above
+        /// all, none of the screen distortion the weapon is *known* by. The
+        /// shooter watched their charge land and the target play on, and the
+        /// target had no idea what had hit them. Reported as "the Volt
+        /// Driver's charged shot is missing the screen-distortion effect".
+        ///
+        /// The distortion itself was never missing: the shader, the shift
+        /// table and the four-state machine that drives it are all there in
+        /// <c>PlayerHud</c> and <c>Renderer</c>, and they work perfectly for
+        /// whoever happens to be the authority. Nothing was ever setting them
+        /// off for anybody else.
+        /// </summary>
+        public const byte FlagDisrupted = 1 << 6;
+        /// <summary>
+        /// Burning, from an affinity Magmaul's charged shot.
+        ///
+        /// Third of the same three, and the same story: the flames are spawned
+        /// in <c>TakeDamage</c> from the beam, so a victim on any machine but
+        /// the authority's took the damage over time -- which is relayed like
+        /// any other hit -- while standing there not on fire. "Hunters taking
+        /// burn damage do not display the burning visual effect".
+        ///
+        /// Cosmetic on arrival, and deliberately so: the burn's own tick calls
+        /// TakeDamage, and <see cref="NetDamage.Suppress"/> drops that on
+        /// every machine that is not resolving the match. What travels is the
+        /// fire; the damage keeps coming the way all damage does.
+        /// </summary>
+        public const byte FlagBurning = 1 << 7;
 
         public void Write(Span<byte> dest)
         {
@@ -1166,8 +1222,25 @@ namespace MphRead.Mods.Network
         /// the present, which is the fault this exists to fix. The layout
         /// change is what forces the refusal; the behaviour is why it is
         /// worth forcing.
+        ///
+        /// Version 6 puts a suit colour beside the hunter, in Identify and in
+        /// the roster, so that two people playing the same hunter are two
+        /// different figures on every screen (see
+        /// <see cref="Mods.Network.PlayerColors"/>). Both packets are
+        /// *inserted* into rather than appended to: the roster's entries grow
+        /// from 20 bytes to 21 and every name after the first moves, which a
+        /// version 5 client would read as garbage rather than notice. This is
+        /// the same shape of change version 2 was, and it is refused the same
+        /// way.
+        ///
+        /// Version 6 also spends the last two bits of the player state's flag
+        /// byte on <see cref="PlayerState.FlagDisrupted"/> and
+        /// <see cref="PlayerState.FlagBurning"/>, which cost no space and
+        /// would not have needed a bump of their own -- an older build ignores
+        /// a bit it does not know. They are mentioned here because the byte is
+        /// now full: the next flag needs somewhere to live.
         /// </summary>
-        public const int ProtocolVersion = 5;
+        public const int ProtocolVersion = 6;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///

@@ -154,8 +154,10 @@ namespace MphRead.Mods.Launcher.Gui
         private ToggleRow _friendlyFire = null!;
         private ToggleRow _radar = null!;
         private ToggleRow _affinity = null!;
+        private ToggleRow _shadowFreeze = null!;
         private FieldRow _playerName = null!;
         private ChoiceRow _hunterRow = null!;
+        private ChoiceRow _colorRow = null!;
         private FieldRow _serverRow = null!;
         private FieldRow _masterRow = null!;
         private ToggleRow _autoUpdate = null!;
@@ -724,6 +726,11 @@ namespace MphRead.Mods.Launcher.Gui
             _radar = Add(page, new ToggleRow("Hunter radar", _settings.HunterRadar == "on"));
             _affinity = Add(page, new ToggleRow("Affinity weapons",
                 _settings.AffinityWeapons == "on"));
+            // The cartridge's own behaviour is on, so the row is worded for
+            // what turning it off does rather than as a bug fix: what a player
+            // wants to say here is "no freezing me through the floor".
+            _shadowFreeze = Add(page, new ToggleRow("Shadow freeze",
+                _settings.ShadowFreeze != "off"));
         }
 
         /// <summary>
@@ -749,6 +756,16 @@ namespace MphRead.Mods.Launcher.Gui
                 .Append(Hunter.Random.ToString()).ToArray();
             _hunterRow = Add(page, new ChoiceRow("Hunter", hunters,
                 Math.Max(0, Array.IndexOf(hunters, LauncherPrefs.LastHunter.ToString()))));
+            // Every hunter model carries four suits, and until now the game
+            // used the first for everybody. Numbered rather than named: each
+            // hunter's four are their own colours, so "2" is the only label
+            // that means the same thing on all seven. See PlayerColors, which
+            // also moves two players off the same suit when they turn up on
+            // the same hunter.
+            string[] colors = Enumerable.Range(1, Mods.Network.PlayerColors.Count)
+                .Select(i => i.ToString()).ToArray();
+            _colorRow = Add(page, new ChoiceRow("Suit colour", colors,
+                Mods.Network.PlayerColors.Clamp(LauncherPrefs.LastColor)));
 
             Heading(page, "Servers");
             _serverRow = Add(page, new FieldRow("Default server",
@@ -902,12 +919,24 @@ namespace MphRead.Mods.Launcher.Gui
             _settings.FriendlyFire = _friendlyFire.On ? "on" : "off";
             _settings.HunterRadar = _radar.On ? "on" : "off";
             _settings.AffinityWeapons = _affinity.On ? "on" : "off";
+            _settings.ShadowFreeze = _shadowFreeze.On ? "on" : "off";
             // Launcher preferences
             if (_playerName.Value.Trim().Length > 0)
             {
                 LauncherPrefs.PlayerName = _playerName.Value.Trim();
             }
             LauncherPrefs.LastHunter = Enum.Parse<Hunter>(_hunterRow.Value);
+            if (Int32.TryParse(_colorRow.Value, out int suit))
+            {
+                LauncherPrefs.LastColor = Mods.Network.PlayerColors.Clamp(suit - 1);
+            }
+            // These two rows are reachable from the pause menu as well as from
+            // the front screen, so answering them during a match has to mean
+            // something. It means the same as the pause menu's own pair: at
+            // the next respawn. Outside a match it is queued and then cleared
+            // when the next one is built, which is when the launcher's answer
+            // -- the same one -- is applied anyway.
+            RespawnChoice.Request(LauncherPrefs.LastHunter, LauncherPrefs.LastColor);
             string host = LauncherPrefs.ServerAddress;
             int port = LauncherPrefs.ServerPort;
             if (ParseEndpoint(_serverRow.Value, ref host, ref port))

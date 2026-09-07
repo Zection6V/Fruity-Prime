@@ -15,10 +15,21 @@ namespace MphRead.Entities
     /// one call site.
     ///
     /// Quake 3's shape, because it is the one every player already knows how
-    /// to read: small text, hard into the top left, three lines deep, each
-    /// one aging out on its own. Green, and on nothing -- no plate behind it.
-    /// The frame rate counter used to live in that corner and now sits
-    /// opposite; see <c>DrawFps</c>.
+    /// to read: small text, three lines deep, each one aging out on its own,
+    /// with the line you are typing under them. Green, and on nothing -- no
+    /// plate behind it.
+    ///
+    /// In the **bottom** left, which is where Quake, Counter-Strike, Team
+    /// Fortress and every game that took the shape from them put it. It was
+    /// in the top left first, and that is a corner nobody looks at in a
+    /// shooter: messages went by unread, which is the whole failure of a chat
+    /// log, and it was reported as one. Moving it down also gave two things
+    /// back. The mode score is drawn in that same corner on most hunters and
+    /// used to be pushed out of the way by a log that might have nothing in
+    /// it (there was a <c>ModChatClearance</c> for exactly that, now gone),
+    /// and Android's MENU, SCOREBOARD and SAY buttons sit along the top edge,
+    /// which is why the log used to start 30 units in on that platform and
+    /// no longer needs to.
     ///
     /// It does not use <c>DrawText2D</c>, and that is the whole reason
     /// <see cref="ChatFont"/> exists: the game's font is capitals-only, so
@@ -37,41 +48,72 @@ namespace MphRead.Entities
         /// </summary>
         private const float ChatScale = 0.45f;
         private const float ChatLineHeight = 7 * ChatScale + 1.2f;
-        private const float ChatTop = 3;
 
         /// <summary>
-        /// The lowest the log can reach: three lines and the prompt under
-        /// them. Reserved whether or not anybody is talking, because a score
-        /// that moved when a message arrived would be worse than one sitting
-        /// slightly lower than the DS put it.
+        /// The bottom of the block, which is the bottom of the line being
+        /// typed -- everything else is measured up from here.
+        ///
+        /// Not the bottom of the screen. Pro mode's energy panel is drawn at
+        /// 170 and runs to the edge, and it is the one readout a player looks
+        /// at more often than the chat; the stock HUD's own bottom-left is
+        /// helmet moulding. 168 clears both, and is still far enough down to
+        /// read as the corner rather than as the middle of the screen.
         /// </summary>
-        private const float ChatBottom = ChatTop + (ChatBox.VisibleLines + 1) * ChatLineHeight;
+        private const float ChatBottom = 168;
 
         /// <summary>
-        /// Where a readout drawn in the top-left corner has to start so the
-        /// chat log does not land on top of it.
+        /// Where the line being typed sits. The log stacks upwards from just
+        /// above it, so the newest message is always the one nearest the
+        /// prompt and the one your eye is already on.
         ///
-        /// The mode score is the one that does: most hunters' HUD layouts put
-        /// it between 4 and 18 units down, which is inside the log, and the
-        /// two were drawn over each other -- green text on white, both
-        /// unreadable. It moves rather than the log, because the log is three
-        /// lines and the score is one number: pushing the log below the score
-        /// would put it across the middle of the screen.
-        ///
-        /// Only in a match, where there is chat at all. The adventure's own
-        /// readouts stay exactly where the game put them.
+        /// Its row is reserved whether or not anybody is typing, so the log
+        /// does not jump up by a line the moment the prompt opens.
         /// </summary>
-        internal float ModChatClearance(float posY)
+        private const float ChatPromptY = ChatBottom - ChatLineHeight;
+
+        /// <summary>
+        /// The margin from the left edge. The same on every platform now that
+        /// the log is at the bottom: Android's fixed buttons -- MENU,
+        /// SCOREBOARD, SAY -- are all along the top, and the movement stick
+        /// below them is drawn wherever the thumb lands rather than in a
+        /// corner this could be kept out of.
+        /// </summary>
+        private const float ChatMargin = 3;
+
+        /// <summary>
+        /// Where a line starts: hard left, or past the weapon column when
+        /// there is one.
+        ///
+        /// The modern HUD -- which Pro mode always turns on, at 170% -- draws
+        /// one row per weapon you are carrying down the left edge from y 46.
+        /// Nine of them at that size reach y 168, which is exactly where the
+        /// prompt sits, so a player holding a full loadout had the log written
+        /// through their own weapon list. Under it are Pro mode's energy panel
+        /// (y 170 to the bottom edge) and, in the stock HUD, the helmet's
+        /// moulding: there is no room lower down to move to, and the log
+        /// cannot climb without ending up in the middle of the screen.
+        ///
+        /// So it steps right, past the panel, by the panel's own width. A
+        /// fixed step rather than one that measures how many weapons are
+        /// actually held: the list grows as you pick things up, and a chat log
+        /// that slid sideways when somebody collected a Battlehammer would be
+        /// worse than one that sits slightly further in. Still the bottom-left
+        /// corner; just not on top of the one column that is already spoken
+        /// for.
+        /// </summary>
+        private static float ChatLeft(float aspect)
         {
-            return ChatBox.Available ? Math.Max(posY, ChatBottom) : posY;
+            float margin = ChatMargin * aspect;
+            if (!Features.ModernHud)
+            {
+                return margin;
+            }
+            // DrawWeaponList's own geometry: the panel starts 2 units in and
+            // is 26 wide, both scaled and both measured off the screen's
+            // height. Kept in step with it by being the same two numbers.
+            float scale = Math.Clamp(Features.WeaponListScale, 0.6f, 2f);
+            return 2 * aspect + 26f * scale * aspect + margin;
         }
-
-        /// <summary>
-        /// Clear of the top-left corner on Android, which draws its MENU
-        /// button over the scene there -- the same reason and the same number
-        /// the frame counter used before it moved to the other side.
-        /// </summary>
-        private static readonly float ChatMargin = OperatingSystem.IsAndroid() ? 30 : 3;
 
         // All green, with a hierarchy inside it: who said it stands out from
         // what they said, and the game's own notices are dimmer than either.
@@ -120,8 +162,13 @@ namespace MphRead.Entities
             }
             ChatBox.CollectVisible(_chatVisible);
             float aspect = HudAspectFix;
-            float x = ChatMargin * aspect;
-            float y = ChatTop;
+            float x = ChatLeft(aspect);
+            // Up from the prompt by however many lines there actually are, so
+            // a single message sits just above the prompt and a full log
+            // grows towards the middle of the screen. The oldest is drawn
+            // first and each one after it a row lower, which is the order
+            // CollectVisible hands them over in.
+            float y = ChatPromptY - _chatVisible.Count * ChatLineHeight;
             for (int i = 0; i < _chatVisible.Count; i++)
             {
                 (ChatLine line, float alpha) = _chatVisible[i];
@@ -138,6 +185,7 @@ namespace MphRead.Entities
             }
             if (ChatBox.Composing)
             {
+                y = ChatPromptY;
                 float at = ChatDraw(x, y, aspect, alpha: 1, ChatPrompt, ChatPromptInk);
                 // The tail rather than the head once the line is long: what
                 // somebody is typing is what they have just typed, and a
@@ -192,10 +240,14 @@ namespace MphRead.Entities
             return ChatFont.Measure(text) * ChatScale * aspect;
         }
 
-        /// <summary>The screen's width, less what is already spoken for.</summary>
+        /// <summary>
+        /// The screen's width, less what is already spoken for: the indent on
+        /// the left, the margin on the right, and whatever of this line has
+        /// been drawn already.
+        /// </summary>
         private static float ChatRoom(float aspect, float used)
         {
-            return 256 - ChatMargin * aspect * 2 - used;
+            return 256 - ChatLeft(aspect) - ChatMargin * aspect - used;
         }
 
         /// <summary>As much of a received line as fits, from the start.</summary>

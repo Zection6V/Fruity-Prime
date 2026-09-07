@@ -1,6 +1,7 @@
 using System;
 using MphRead.Formats;
 using MphRead.Hud;
+using MphRead.Mods.Render;
 using MphRead.Text;
 using OpenTK.Mathematics;
 
@@ -66,10 +67,7 @@ namespace MphRead.Entities
             ProNumber(6 * aspect, 172, Align.Left, _health.ToString(), ProInk(health), 1.5f);
             ProBar(4 * aspect, 186, 40, 3, ProHealthFraction(), health);
             DrawProAmmo();
-            // Below the chat log: the pro score sits in the same corner the
-            // log is drawn into, and at 12 units down it was underneath the
-            // second line of it. See ModChatClearance.
-            ProScore(4 * aspect, ModChatClearance(12), Align.Left, 1.1f);
+            ProScore(4 * aspect, 12, Align.Left, 1.1f);
         }
 
         /// <summary>
@@ -144,7 +142,7 @@ namespace MphRead.Entities
             float aspect = HudAspectFix;
             IconBounds bounds = _weaponListIconBounds[index];
             float scale = side / Math.Max(bounds.Width, bounds.Height);
-            icon.SetData(index, _weaponListColors[index], _scene);
+            SmoothHudIcon.Tint(icon, _weaponListSheetData, index, _weaponListColors[index], _scene);
             icon.Alpha = Features.HudOpacity;
             // The ink's centre put in the centre of a box `side` across and
             // `side` down -- across being measured off the height too, hence

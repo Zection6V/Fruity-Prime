@@ -37,6 +37,13 @@ namespace MphRead
 
     public static class GameState
     {
+        /// <summary>
+        /// How long the results screen is left up, in seconds. Paired with
+        /// <c>Mods.Network.DedicatedServer.EndSequenceSeconds</c>, which has
+        /// to cover this and the three seconds of winner's camera before it.
+        /// </summary>
+        public const float MatchEndingSeconds = 10;
+
         public static GameMode Mode { get; set; } = GameMode.SinglePlayer;
         public static bool SinglePlayer => Mode == GameMode.SinglePlayer;
         public static bool Multiplayer => Mode != GameMode.SinglePlayer;
@@ -80,6 +87,26 @@ namespace MphRead
         public static bool OctolithReset { get; set; } = false;
         public static bool RadarPlayers { get; set; } = false;
         public static bool AffinityWeapons { get; set; } = false;
+
+        /// <summary>
+        /// Whether the Judicator's ice wave keeps the cartridge's own reach.
+        ///
+        /// On is the DS's behaviour, glitch and all -- see
+        /// <c>BeamProjectileEntity.CheckIceWaveCollision</c>, where the beam's
+        /// own up axis is divided out of the distance check and then used in
+        /// the angle check anyway, so what is tested is not a 60-degree cone
+        /// but a 60-degree wedge of a cylinder of infinite height. That is the
+        /// shadow freeze: an affinity Judicator charge freezes people three
+        /// floors up or down, through everything in between, and they never
+        /// see what did it.
+        ///
+        /// Off makes it the cone it was meant to be. A rule and not a
+        /// preference, for the reason FriendlyFire is one: the machine that
+        /// resolves a shot decides who it hit, so two clients disagreeing
+        /// about this would be two clients playing different games. The
+        /// server holds it and broadcasts it in the match state.
+        /// </summary>
+        public static bool ShadowFreeze { get; set; } = true;
 
         public static float MatchTime { get; set; } = -1;
         public static bool ForceEndGame { get; set; } = false;
@@ -472,7 +499,19 @@ namespace MphRead
                 if (MatchTime == 0)
                 {
                     MatchState = MatchState.Ending;
-                    MatchTime = 150 / 30f;
+                    // Ten seconds of results, where the DS gave five.
+                    //
+                    // Five was long enough to read a scoreboard and nothing
+                    // else, and the screen now has something to do on it:
+                    // the next hunter, the next suit and the next map all
+                    // live here (see Mods.EndScreen), and a choice somebody
+                    // has to make in five seconds is a choice they make by
+                    // accident. DedicatedServer.EndSequenceSeconds is the
+                    // other half of this number -- the server holds its
+                    // intermission open for the whole sequence, and the two
+                    // have to be changed together or the map changes out
+                    // from under the screen.
+                    MatchTime = MatchEndingSeconds;
                     // todo: update license info, stop SFX
                 }
             }
@@ -1728,6 +1767,10 @@ namespace MphRead
             OctolithReset = false;
             RadarPlayers = false;
             AffinityWeapons = false;
+            // Back to the cartridge's behaviour, like every other rule here
+            // goes back to its own default: a match that has not said
+            // otherwise is the game as the DS played it.
+            ShadowFreeze = true;
             MatchTime = -1;
             PlayerEntity.Reset();
             CamSeqEntity.Current = null;

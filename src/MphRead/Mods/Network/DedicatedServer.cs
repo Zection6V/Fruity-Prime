@@ -33,6 +33,8 @@ namespace MphRead.Mods.Network
             public uint LastIntentFrame;
             public string Name = "";
             public byte Hunter;
+            /// <summary>The suit this player asked for, 0-3. See PlayerColors.</summary>
+            public byte Color;
             /// <summary>Round trip in milliseconds, smoothed. 0 = not measured yet.</summary>
             public int Ping;
             public double PingSentAt;
@@ -88,11 +90,16 @@ namespace MphRead.Mods.Network
         /// How long the results are left on screen before the map changes.
         ///
         /// The client's own end-of-match sequence is three seconds of the
-        /// winner's camera and five of the scoreboard; a second on top of
-        /// that means the fade to black belongs to the rotation rather than
-        /// cutting the results short.
+        /// winner's camera and <see cref="GameState.MatchEndingSeconds"/> of
+        /// the results; a second on top of that means the fade to black
+        /// belongs to the rotation rather than cutting the results short.
+        ///
+        /// It has to cover the whole sequence, because the results screen is
+        /// where the next hunter and the next suit are chosen now (see
+        /// Mods.EndScreen) -- a server that rotated early would take the
+        /// question away mid-answer.
         /// </summary>
-        private const double EndSequenceSeconds = 9.0;
+        private const double EndSequenceSeconds = 3.0 + GameState.MatchEndingSeconds + 1.0;
 
         /// <summary>
         /// What this server calls itself on a browser's list. Defaults to the
@@ -142,6 +149,14 @@ namespace MphRead.Mods.Network
         /// it on in Match rules never reached anyone else.
         /// </summary>
         public bool FriendlyFire { get; set; }
+
+        /// <summary>
+        /// Whether the shadow freeze glitch is allowed here. On by default,
+        /// because it is what the cartridge does and a server that quietly
+        /// changed the game would be a surprising one; <c>-noshadowfreeze</c>
+        /// turns it off for the room. See GameState.ShadowFreeze.
+        /// </summary>
+        public bool ShadowFreeze { get; set; } = true;
 
         /// <summary>
         /// Whether this server keeps itself on the newest release.
@@ -338,7 +353,8 @@ namespace MphRead.Mods.Network
                 TimeElapsed = elapsed,
                 PlayerCount = (byte)_peers.Count,
                 Flags = (byte)((ending ? MatchStatePacket.FlagEnding : MatchStatePacket.FlagInProgress)
-                    | (FriendlyFire ? MatchStatePacket.FlagFriendlyFire : 0)),
+                    | (FriendlyFire ? MatchStatePacket.FlagFriendlyFire : 0)
+                    | (ShadowFreeze ? 0 : MatchStatePacket.FlagNoShadowFreeze)),
                 PointGoal = (ushort)Math.Clamp(entry.PointGoal, 0, UInt16.MaxValue),
                 MatchId = _matchId,
                 RoomKey = entry.RoomKey,
@@ -663,9 +679,14 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            if (packet.Payload.Length < 2)
+            {
+                return;
+            }
             byte hunter = packet.Payload[0];
+            byte color = packet.Payload[1];
             string name = System.Text.Encoding.ASCII
-                .GetString(packet.Payload[1..])
+                .GetString(packet.Payload[2..])
                 .TrimEnd('\0')
                 .Trim();
             if (name.Length == 0)
@@ -676,14 +697,16 @@ namespace MphRead.Mods.Network
             {
                 name = name[..RosterPacket.MaxNameBytes];
             }
-            if (peer.Name == name && peer.Hunter == hunter)
+            if (peer.Name == name && peer.Hunter == hunter && peer.Color == color)
             {
                 return;
             }
             bool firstName = peer.Name.Length == 0;
             peer.Name = name;
             peer.Hunter = hunter;
-            Log($"slot {peer.SlotIndex} is \"{name}\" playing {(Hunter)hunter}");
+            peer.Color = color;
+            Log($"slot {peer.SlotIndex} is \"{name}\" playing {(Hunter)hunter} "
+                + $"in suit {color + 1}");
             if (firstName)
             {
                 // The first line anybody sees in a match, and the only one
@@ -780,6 +803,7 @@ namespace MphRead.Mods.Network
             {
                 roster.Slots[roster.Count] = (byte)_peers[i].SlotIndex;
                 roster.Hunters[roster.Count] = _peers[i].Hunter;
+                roster.Colors[roster.Count] = _peers[i].Color;
                 roster.Pings[roster.Count] = (ushort)Math.Clamp(_peers[i].Ping, 0, 9999);
                 roster.Names[roster.Count] = _peers[i].Name.Length > 0
                     ? _peers[i].Name

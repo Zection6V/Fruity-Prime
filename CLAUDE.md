@@ -82,6 +82,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 
 | Command | Use |
 |---|---|
+| `MphRead -server ... -noshadowfreeze` | run the room with the Judicator's ice wave as a cone rather than as a column of infinite height. A rule, broadcast to every client in the match state, because the machine resolving a shot decides who it hit |
 | `MphRead -server -port N -players 8` | dedicated relay server; needs no game files. `-servername "NAME"` is what a browser shows; it announces itself to `net.livetek.fr` unless `-nomaster` is passed, and `-master HOST -masterport N` points it elsewhere |
 | `MphReadServer.exe -server ...` | the same server on Windows, as its own console binary. `MphRead.exe` can also do it, but it is a GUI binary: a shell will not wait for it and its exit code never reaches `%ERRORLEVEL%`. Run with no arguments it prints what it is for |
 | `MphRead -masterserver [-port N] [-public HOST] [-hostports A-B]` | the server directory the launcher's browser asks, and the machine that runs matches for players who cannot open a port. Same binary, no game files, keeps nothing on disk. `-public` is the address to publish for servers registering from this same machine, whose heartbeats arrive over the loopback |
@@ -100,6 +101,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `~/mph-net-test/run-lag.sh MS SECONDS hunter...` | the same check against a loopback server behind `udp-lag.py`, which holds every datagram for `MS` before passing it on. A latency bug reproduced at a number you chose, rather than at whatever the internet is doing -- and the Pi answers in 7-17 ms, so it is the *worse* instrument for one |
 | `MphRead -maptest "ROOM" -players 8 -seconds 22` | load one room with a full house, drive every player, and report what the map holds and whether it survived |
 | `MphRead -maptest "ROOM" -players 8 -bots` | the same, but AI bots instead of the scripted tour -- a different code path, the only one that finds what only `PlayerAi` touches |
+| `MphRead -maptest "ROOM" -hunter H -hudshots` | put that hunter in slot 0, whose eyes and whose HUD every capture is taken through. Each of the eight lays its readouts out differently, so a HUD picture with no hunter named is a picture of Samus's and of nobody else's |
 | `MphRead -maptest "ROOM" -renderprobe` | stand on every spawn point in the room in turn, read the frame, walk forward five seconds, read the worst. Catches a room that draws nothing -- the failure no other check can see, because everything else about it passes. `-shots DIR` writes the PNGs, `-allnodes` draws without room-part culling (which separates "the geometry is missing" from "the cull lost it"), `-hudshots` uses a real visible window and reads *its* buffer, which is the only capture that includes the HUD, and `-size WxH` sets that window's shape -- the HUD is laid out in a 4:3 space and stretched, so how it looks is partly a question about the window. Under WSL a HUD capture needs the X11 backend: `WAYLAND_DISPLAY=` `DISPLAY=:0`, or every window read comes back black |
 | `MphRead -maptest "TEST ARENA" -players 8` | the harness's own room (`maps/arena/`): forty units square, eight spawns on a ring looking inward, nothing far from anything. Where damage, hit registration and the affliction states are actually measurable -- a real map's corridors mean most of the tour's shots land on a wall |
 | `MphRead -rooms` | list every multiplayer room, one per line, for a shell loop. **27** is the whole cartridge and the right answer with no custom map source present; anything more is a custom map |
@@ -157,6 +159,56 @@ Gotchas worth keeping in view without opening another file:
 - Offline matches can hold eight players; `PlayerEntity.MaxPlayers` defaults
   to four (a DS match's cap), so the launcher raises it before creating
   players or asking for seven opponents silently produces three.
+- **The weapon icons are supersampled, and they are the only thing in the
+  program that is.** `Mods/Render/SmoothHudIcon.cs`: the art is one texel per
+  DS pixel and lands in a box two or three times that size (more in pro mode,
+  which draws the list at 170%), so nearest magnification gave every icon a
+  staircase with two-pixel steps in some rows and three in others -- reported
+  as "the icons are blurry", which it is not; it is a wobbly edge. These
+  frame is replicated **hard-edged at 8x**, no interpolation, and
+  `HudObjectInstance.Smooth` asks `DrawHudObject` for linear filtering on that
+  one texture: the GPU is then *minifying* sharp squares, which is those same
+  squares with a hairline of anti-aliasing. Everything else stays nearest,
+  because everything else is meant to look like the DS. **Two traps.** The
+  factor has to stay above the largest magnification in play (about seven, at
+  4K with the list at 170%) or the GPU magnifies instead and the icon goes
+  soft -- 4x did exactly that at 1440p and got the same word back. And
+  resampling the mask (bilinear, then a smoothstep) rounds every corner into a
+  blob: sharp is the goal, the anti-aliasing only stops the edge wobbling.
+  `DrawWeaponList` reuses the instances rather than rebuilding them, because
+  the HUD is set up again on every rotation and nine 256x256 textures a map
+  is a leak.
+- **Changing hunter is asked on the results screen, not in the pause menu.**
+  The two rows that used to sit there ("Respawn as", "Suit colour") are gone:
+  a pause menu is opened instead of playing, so the one screen where the
+  change is free was the one screen that never offered it. `Mods/EndScreen.cs`
+  puts it in the top right corner of the ten-second results screen instead --
+  the hunter's own portrait with an arrow either side, four suit swatches
+  whose colours are read out of that hunter's model (`Mods/HunterSuits.cs`,
+  nothing is written down), and the next map's name off
+  `MatchStatePacket.NextRoomKey`, which had been on the wire since the
+  rotation was written and never read. **The hunter is the real model, not a
+  sprite** (`Mods/Render/HunterPreview.cs`): it is an `EntityBase` that is
+  *never inserted into the scene* -- so it takes no slot, runs no Process,
+  holds no NodeRef and cannot outlive a room change -- whose items are
+  collected last and drawn in a pass of their own
+  (`Mods/Render/PreviewPass.cs`) into a scissored corner with its own camera,
+  its own fixed lighting and its own cleared depth buffer, so nothing in the
+  level can occlude, light or cull it. It stands still, facing the camera
+  (these models are authored facing -Z, hence the half turn) in the `Idle`
+  animation, because with no animation set the skeleton draws as authored,
+  which is a T-pose. The panel is drawn in four boxes with a hole where the
+  model lands, since the model reaches the frame before the HUD does. The
+  sprite portrait is still there as the fallback for a model that will not
+  load. Arrow keys or the d-pad. The answer is
+  still `RespawnChoice`'s and is still cashed in at the next spawn.
+  `GameState.MatchEndingSeconds` and `DedicatedServer.EndSequenceSeconds`
+  are one number in two places and have to move together. The cursor is
+  released for the length of the results screen (`Renderer.OnRenderFrame`
+  reads `EndScreen.Available`) because the picker is something you click:
+  arrows for the hunter, the swatches directly for the suit. The hit boxes are
+  published by the draw (`EndScreen.NoteLayout`) rather than worked out twice,
+  so they cannot drift from the picture.
 - `PacketType.StatusQuery` answers "what map, what mode, how many players"
   without claiming a slot, which is what lets the browser poll idly. A server
   built before it falls back to a slot-taking Hello/Bye probe — redeploy the
@@ -326,7 +378,7 @@ doing it carefully.
 | Launcher window | in the background once the window is up | opens the release page; badge shows the address if there's no browser |
 | Text launcher | at startup, waiting up to 2 s | prints the address, opens a browser if there is one |
 | `-update` | when asked | prints the address and opens it |
-| Server and directory | at startup before binding, then every 6 h | **installs it**, and restarts — but only once nobody is connected (a server) or no hosted match is running (the directory), so a busy one keeps playing and swaps when the last person leaves. `-noautoupdate` opts out |
+| Server and directory | at startup before binding, then every 10 min | **installs it**, and restarts — but only once nobody is connected (a server) or no hosted match is running (the directory), so a busy one keeps playing and swaps when the last person leaves. `-noautoupdate` opts out |
 
 A server updating itself is the one place the "no unsigned installs" rule is
 traded away, and it is traded for a bigger one: `NetConfig.ProtocolVersion`
@@ -347,6 +399,15 @@ rename at a time, and then it exits. Under a supervisor (`INVOCATION_ID`)
 exiting *is* the restart; with none, it starts its successor itself — **with
 the command line it was given**, since a dedicated server restarted bare opens
 a launcher on a machine with nobody at it.
+
+Windows will not delete a running image, and that used to end the swap
+half-done: a Windows server downloaded every release and applied none of them,
+which stopped being cosmetic the moment a protocol bump made a stale server one
+nobody can join. It *will* rename a running image, so the old build is moved
+aside to `.fp-old` and deleted by the next start, which is the first moment
+nothing is running out of it. Both platforms now take the same path with one
+step different, and a `-server` start sweeps whatever a previous update left
+behind whether or not updating is still switched on.
 
 `launcher.txt` carries `auto_update`, on by default; `-noupdate` turns it off
 anywhere, including the server's. A local build without the release workflow's version stamp reports
@@ -457,6 +518,26 @@ another, and a transport queue that dropped the newest packets under load
 instead of the oldest. None of it was actually latency; all of it reproduced
 at single-digit-millisecond pings on loopback or the Pi.
 
+A round from real matches on 2026-09-07: **every client died on the map
+rotation, and MP2 HARVESTER's results screen came up black.** One cause.
+`CameraSequence.Intro` is a static loaded only by `SceneSetup.LoadNewRoom`,
+and **a rotation does not go through it** -- it is a room *transition* -- so
+after the first map of a session the results screen flew the sequence
+belonging to the map the session started on, and every `NodeRef` in its
+keyframes named a level no longer in memory. Out of range that is an
+`ArgumentOutOfRangeException` in `RoomEntity.DrawRoomParts` that kills every
+client in the match on the same frame; in range it is a room drawn from a
+part the camera is not in. Three changes:
+`NetRoomChange.ReloadIntroCamSeq` gives each map its own sequence and
+`Initialize`s it; `RoomEntity.ModCanPlace` refuses to cull against a ref this
+room cannot place (indices in range **and** `NodeRef.RoomName` this room or
+one of its connectors); and nothing culls at all while `MatchState` is not
+`InProgress`, because the end-of-match camera is an authored orbit that is
+free to sit outside every room part in the level -- which is the black
+results screen and is not a stale ref at all. Reproduced and confirmed fixed
+with `run-rotate.sh`: six rotations over four maps, zero crashes, and the
+backstop never fires now that the cause is gone.
+
 A second round, from reports out of real matches on 2026-09-04: a freeze that
 existed on one machine only, players who went invisible at the top of one map,
 a gun that fell off the bottom of the screen on a pad and could not be raised
@@ -473,7 +554,27 @@ Shapes worth keeping without opening anything else:
   walked around normally on their own screen while the machine running the
   simulation, which pins a puppet wherever its owner last said it was, drew a
   block of ice sliding across the room. `PlayerState.FlagFrozen` carries the
-  state instead of the cause, and the countdown still runs locally.
+  state instead of the cause, and the countdown still runs locally. The same
+  was then reported of the other two: the Volt Driver's screen distortion and
+  the Magmaul's flames reached nobody but the authority either
+  (`FlagDisrupted`, `FlagBurning`, and the flags byte is now full). A frozen
+  puppet also stopped taking its owner's reported positions, since those
+  describe a moment before the ice.
+- **A puppet is moved after the movement step, and only the position moved.**
+  `Move` set the position, the previous position and the node ref -- not the
+  collision volume, which the engine recomputes inside the step this
+  correction comes *after*. The blob shadow and the burn effect are drawn from
+  that volume, and shots are tested against it, so for every remote player all
+  three described where this machine had guessed they were while the model was
+  drawn where they are. "The shadow is behind the character" was the visible
+  third of it.
+- **A press can be lost; a state cannot.** The alt form was replicated by
+  replaying the morph press and nothing else, so one press that did not take
+  left the authority's copy in the wrong form for the rest of the life -- and
+  every other client agreed with it, since `FlagAltForm` is read off that
+  copy. `IntentButtons.AltFormState` had been in the packet all along, used
+  only to convert reported positions between forms; the authority now
+  reconciles against it, and only the authority does.
 - **A lookup that fails is not the same as a lookup that is stale.**
   `GetNodeRefByPosition` returns nothing for a position no room part contains
   -- the top of AD2 ALINOS PERCH, among others -- and the fallback kept the
@@ -535,9 +636,12 @@ against the same puppets. Measured at 156 ms of rewind against 150 ms injected,
 with 0 mismatches on the 3-client instrument. `-nounlagged` is the control.
 `.claude/multiplayer/NETWORK-UNLAGGED.md`.
 
-**Chat is T**, three lines top left in green on nothing, gone ten seconds
-after they arrive -- which is why the frame counter now sits in the right-hand
-corner. It draws with a font of its own (`Mods/Chat/ChatFont.cs`, pixel art in
+**Chat is T**, three lines bottom left in green on nothing, gone ten seconds
+after they arrive -- the frame counter sits in the right-hand corner, which is
+where it went when the log was still in the top-left one. Bottom left because
+that is where every game that took Quake's shape puts it and where players
+look; the block is anchored at y 168, above Pro mode's energy panel, and steps
+right past the weapon column when the modern HUD is drawing one. It draws with a font of its own (`Mods/Chat/ChatFont.cs`, pixel art in
 the file, no asset): the game's has one alphabet, so every line typed came out
 shouted and half as wide again as it needed to be. `PacketType.Chat` is additive and needs no protocol bump, so an older
 server drops it silently and chat simply does nothing there until it is

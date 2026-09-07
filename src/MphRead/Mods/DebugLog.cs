@@ -94,8 +94,136 @@ namespace MphRead.Mods
                 return;
             }
             Hook();
+            CaptureNativeErrors();
             WriteHeader();
         }
+
+        /// <summary>Where native stderr was sent, if it was.</summary>
+        public static string? NativePath { get; private set; }
+
+        /// <summary>
+        /// Held open for the life of the process: the redirection below is a
+        /// file descriptor, and closing the stream would take it with it.
+        /// </summary>
+        private static FileStream? _nativeStream;
+
+        /// <summary>
+        /// Send the process's *native* standard error into a file of its own.
+        ///
+        /// The log above is a tee of <see cref="Console.Out"/>, which catches
+        /// everything this program prints and nothing the runtime underneath
+        /// it does. The report this exists for is a crash on Linux that read,
+        /// in the player's terminal and nowhere else:
+        ///
+        ///   terminate called after throwing an instance of 'PAL_SEHException'
+        ///
+        /// That line is written by libstdc++'s terminate handler, straight to
+        /// file descriptor 2, from native code, immediately before abort().
+        /// Nothing managed sees it: not the tee, not
+        /// <c>AppDomain.UnhandledException</c> -- a hardware fault the PAL
+        /// cannot unwind never becomes a managed exception -- and not
+        /// <c>ProcessExit</c>, which abort() does not run. The log simply
+        /// stopped, and the one line saying what happened existed only on a
+        /// screen the player had to think to copy.
+        ///
+        /// So the descriptor itself is pointed at a file. Everything written
+        /// to stderr afterwards lands there whoever writes it -- the C++
+        /// runtime, the CLR's own fatal-error text, a driver, and managed
+        /// <c>Console.Error</c> along with them -- and it survives an abort
+        /// because the kernel has already written it. Its own file rather than
+        /// this one: two writers with independent offsets on one file
+        /// overwrite each other, and the point of the exercise is to still
+        /// have the last line.
+        ///
+        /// Only when logging is on, which is a switch somebody chose.
+        /// </summary>
+        private static void CaptureNativeErrors()
+        {
+            if (Path == null)
+            {
+                return;
+            }
+            try
+            {
+                string path = System.IO.Path.ChangeExtension(Path, null) + "-native.txt";
+                // Append, and never buffered: this stream is only ever the
+                // *destination*, and every write to it comes through the
+                // descriptor rather than through here.
+                _nativeStream = new FileStream(path, FileMode.Create, FileAccess.Write,
+                    FileShare.ReadWrite);
+                if (!Redirect(_nativeStream))
+                {
+                    _nativeStream.Dispose();
+                    _nativeStream = null;
+                    return;
+                }
+                NativePath = path;
+                Line("crash", $"native stderr is being captured to {path}");
+                // The console's own copy of the news, because this is the one
+                // change here a player watching a terminal would otherwise
+                // notice as "the errors stopped appearing".
+                Console.WriteLine($"[debug] standard error is being written to {path}");
+                if (String.IsNullOrEmpty(Environment.GetEnvironmentVariable("DOTNET_DbgEnableMiniDump")))
+                {
+                    // The next thing to ask for when that file turns out to
+                    // hold a fault with no stack under it. Written out as the
+                    // line to paste rather than as three variable names,
+                    // because the person who reads this log is not the person
+                    // who has to type it.
+                    //
+                    // Type 4 is not a preference here: createdump refuses
+                    // every other kind in a single-file app ("Only full dumps
+                    // are supported by single file apps"), which is what this
+                    // build is on every platform. Measured on the published
+                    // linux-x64 package: type 2 refused, type 4 wrote a
+                    // 113 MB core from an abort -- the same signal 6 a
+                    // `terminate called after throwing ...` ends on.
+                    string directory = System.IO.Path.GetDirectoryName(Path) ?? ".";
+                    Line("crash", "no crash dump is configured. For a native stack from the "
+                        + "next crash, start the game with these three set (type 4 is "
+                        + "required -- a single-file app supports no other kind, and the "
+                        + "file is around 110 MB, which zips well):");
+                    Line("crash", "  DOTNET_DbgEnableMiniDump=1 DOTNET_DbgMiniDumpType=4 "
+                        + $"DOTNET_DbgMiniDumpName={System.IO.Path.Combine(directory, "crash-%p.dmp")}");
+                }
+            }
+            catch (Exception ex)
+            {
+                // A log that cannot capture stderr is still a log.
+                Line("crash", $"native stderr could not be captured: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Point the operating system's standard error at this stream. Unix
+        /// hands out file descriptors, so the stream's own handle *is* one and
+        /// <c>dup2</c> is the whole of it; Windows keeps a handle table and
+        /// wants <c>SetStdHandle</c>. Either may refuse, and neither is worth
+        /// failing a session for.
+        /// </summary>
+        private static bool Redirect(FileStream stream)
+        {
+            IntPtr handle = stream.SafeFileHandle.DangerousGetHandle();
+            if (OperatingSystem.IsWindows())
+            {
+                return SetStdHandle(StdErrorHandle, handle);
+            }
+            if (OperatingSystem.IsAndroid())
+            {
+                // logcat is where a phone's stderr already goes, and it is a
+                // better place for it than a file nobody can reach.
+                return false;
+            }
+            return dup2(handle.ToInt32(), 2) != -1;
+        }
+
+        private const int StdErrorHandle = -12;
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetStdHandle(int which, IntPtr handle);
+
+        [System.Runtime.InteropServices.DllImport("libc", SetLastError = true)]
+        private static extern int dup2(int oldFd, int newFd);
 
         /// <summary>
         /// Stop, and put the console back the way it was. Called when the
@@ -121,17 +249,26 @@ namespace MphRead.Mods
         {
             try
             {
-                var files = new List<FileInfo>(new DirectoryInfo(directory).GetFiles("*.log"));
-                files.Sort((a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
-                for (int i = KeepFiles - 1; i < files.Count; i++)
-                {
-                    files[i].Delete();
-                }
+                // Both kinds, counted separately: a run leaves a log and the
+                // file its native stderr went to, and pruning them as one list
+                // would keep four runs' worth of pairs where it says eight.
+                Prune(directory, "*.log");
+                Prune(directory, "*-native.txt");
             }
             catch (Exception)
             {
                 // A directory that cannot be tidied is still a directory that
                 // can be written to.
+            }
+        }
+
+        private static void Prune(string directory, string pattern)
+        {
+            var files = new List<FileInfo>(new DirectoryInfo(directory).GetFiles(pattern));
+            files.Sort((a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
+            for (int i = KeepFiles - 1; i < files.Count; i++)
+            {
+                files[i].Delete();
             }
         }
 
@@ -193,6 +330,7 @@ namespace MphRead.Mods
                 Line("paths", $"game files could not be checked: {ex.Message}");
             }
             Line("args", String.Join(' ', Environment.GetCommandLineArgs()));
+            WriteDisplay();
             Line("render", $"cel={RenderOptions.OnOff(RenderOptions.CelShading)} "
                 + $"fog={RenderOptions.OnOff(RenderOptions.Fog)} "
                 + $"window={LauncherPrefs.WindowMode}");
@@ -200,6 +338,36 @@ namespace MphRead.Mods
             {
                 Line("net", $"simulated line: {Network.NetLag.Describe()}");
             }
+        }
+
+        /// <summary>
+        /// What kind of desktop this is, on the platforms where that is a
+        /// question.
+        ///
+        /// Every graphical failure reported from Linux so far has come down to
+        /// which display server is running and which client libraries the
+        /// binary could find: the launcher falls back to text when Avalonia
+        /// cannot bind them, and the game window is created by GLFW, which
+        /// binds a different set and dies in native code rather than throwing
+        /// when they are wrong. Neither says so, and both are answered by
+        /// these four values -- which nobody thinks to include in a report and
+        /// which cost nothing to record.
+        /// </summary>
+        private static void WriteDisplay()
+        {
+            if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+            {
+                return;
+            }
+            static string Value(string name)
+            {
+                string? value = Environment.GetEnvironmentVariable(name);
+                return String.IsNullOrEmpty(value) ? "(unset)" : value;
+            }
+            Line("display", $"session={Value("XDG_SESSION_TYPE")} "
+                + $"desktop={Value("XDG_CURRENT_DESKTOP")}");
+            Line("display", $"DISPLAY={Value("DISPLAY")} "
+                + $"WAYLAND_DISPLAY={Value("WAYLAND_DISPLAY")}");
         }
 
         private static string RuntimeArchitecture()

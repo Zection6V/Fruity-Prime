@@ -385,6 +385,10 @@ namespace MphRead.Mods
                 ServerName = ValueAfter(args, "servername") ?? ValueAfter(args, "name")
                     ?? Environment.MachineName,
                 FriendlyFire = HasFlag(args, "friendlyfire"),
+                // The one rule here that is a fix rather than a preference:
+                // -noshadowfreeze makes the Judicator's ice wave a cone
+                // instead of a column, for everybody in the room.
+                ShadowFreeze = !HasFlag(args, "noshadowfreeze"),
                 // This process is the server, so it is the one that may
                 // replace itself. See DedicatedServer.AutoUpdate.
                 AutoUpdate = true
@@ -766,6 +770,13 @@ namespace MphRead.Mods
                 // target every other capture reads, so seeing it needs a real
                 // window and a read from its buffer.
                 Network.MapAudit.ShowWindow = HasFlag(args, "hudshots");
+                // -hunter H puts that hunter in slot 0, whose HUD every
+                // capture is taken through. Each of the eight lays its
+                // readouts out differently, so a HUD picture with no hunter
+                // named is a picture of Samus's and of nobody else's.
+                Network.MapAudit.MainHunter = ValueAfter(args, "hunter") != null
+                    ? ParseHunter(args)
+                    : null;
                 // -drawrate N draws each simulation step N times, which is
                 // what a 144 Hz screen does to a 60 Hz game. It is how the
                 // decoupled loop is checked from a box with no display.
@@ -884,7 +895,11 @@ namespace MphRead.Mods
                 Environment.ExitCode = Network.NetCheckClient.Run(check, ParsePort(args),
                     ParseName(args), ParseHunter(args), seconds, shots, width, height,
                     recordDemo: HasFlag(args, "recorddemo"),
-                    spectateAt: spectateAt, rejoinAt: rejoinAt);
+                    spectateAt: spectateAt, rejoinAt: rejoinAt,
+                    // -recolor N is a suit, and the harness needs to be able to
+                    // ask for one: two clients asking for the same suit on the
+                    // same hunter is precisely the case PlayerColors exists for.
+                    color: ValueAfter(args, "recolor") != null ? ParseRecolor(args) : -1);
                 return true;
             }
 

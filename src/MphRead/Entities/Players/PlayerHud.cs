@@ -31,6 +31,12 @@ namespace MphRead.Entities
         private readonly HudObjectInstance[] _weaponListIcons = new HudObjectInstance[9];
         /// <summary>Where the drawing actually is inside each of those frames. See ModIconBounds.</summary>
         private readonly IconBounds[] _weaponListIconBounds = new IconBounds[9];
+        /// <summary>
+        /// The weapon-select sheet these icons are cut from, kept because the
+        /// smooth build needs it again whenever a colour changes. See
+        /// <c>Mods.Render.SmoothHudIcon</c>.
+        /// </summary>
+        private IReadOnlyList<byte> _weaponListSheetData = Array.Empty<byte>();
         private HudObjectInstance _boostInst = null!;
         private HudObjectInstance _bombInst = null!;
         private HudMeter _enemyHealthMeter = null!;
@@ -368,12 +374,31 @@ namespace MphRead.Entities
             // Frame index is the BeamType either way (see the select ring
             // above, which reads _availableWeapons[inst.CurrentFrame]).
             HudObject listSheet = HudInfo.GetHudObject(_hudObjects.WeaponSelect);
+            _weaponListSheetData = listSheet.CharacterData;
             for (int i = 0; i < _weaponListIcons.Length; i++)
             {
-                var listIcon = new HudObjectInstance(listSheet.Width, listSheet.Height);
-                listIcon.SetCharacterData(listSheet.CharacterData, i, _scene);
-                listIcon.SetPaletteData(listSheet.PaletteData, _scene);
-                listIcon.Enabled = true;
+                // Supersampled rather than taken at face value: these land in
+                // a box two or three times the size they were drawn at, and a
+                // whole-texel staircase at that magnification is what the
+                // icons being "blurry" actually was. See Mods.Render.SmoothHudIcon,
+                // which also explains why the instance keeps the sheet's own
+                // width and height while its texture is four times that.
+                // Reused across a map rotation rather than rebuilt. The HUD is
+                // set up again on every Initialize -- which a rotation does --
+                // and PlayerEntity.Create hands back pooled objects, so these
+                // slots survive it. A fresh instance would bind a fresh
+                // texture every rotation and never free the last one, and at
+                // 8x supersampling that is 2.4 MB a map rather than 150 KB.
+                // Tint rebuilds the picture in place when the hunter (and so
+                // the sheet) has actually changed.
+                HudObjectInstance listIcon = _weaponListIcons[i];
+                if (listIcon == null || listIcon.Width != listSheet.Width
+                    || listIcon.Height != listSheet.Height)
+                {
+                    listIcon = Mods.Render.SmoothHudIcon.Create(listSheet);
+                }
+                Mods.Render.SmoothHudIcon.Tint(listIcon, listSheet.CharacterData, i,
+                    _weaponListColors[i], _scene);
                 _weaponListIcons[i] = listIcon;
                 // Once, here, because it is a fact about the art and never
                 // changes: which part of the frame the weapon is drawn in.
@@ -1259,6 +1284,11 @@ namespace MphRead.Entities
             // of the point, and a message that arrives while the scoreboard
             // is up has still arrived.
             ModDrawChat();
+            // With the chat and before every early return below it, for the
+            // same reason: the results screen is drawn during MatchState
+            // GameOver *and* Ending, and the block further down handles those
+            // two in separate branches. This is one panel across both.
+            ModDrawEndScreen();
             if (Mods.SpectatorMode.FreeCamera)
             {
                 // Looking at the map, not out of anybody's eyes: there is no
@@ -1822,9 +1852,14 @@ namespace MphRead.Entities
             DrawMeter(_hudObjects.AmmoBarPosX + _objShiftX, _hudObjects.AmmoBarPosY + _objShiftY, amount, amount,
                 _ammoBarPalette, _ammoBarMeter, drawText: false, drawTanks: false, Features.HudOpacity);
             amount /= info.AmmoCost;
-            DrawText2D(_hudObjects.AmmoBarPosX + _ammoBarMeter.BarOffsetX + _objShiftX,
-                _hudObjects.AmmoBarPosY + _ammoBarMeter.BarOffsetY + _objShiftY,
-                _ammoBarMeter.Align, _ammoBarPalette, $"{amount:00}", alpha: Features.HudOpacity);
+            string ammoText = $"{amount:00}";
+            float ammoTextX = _hudObjects.AmmoBarPosX + _ammoBarMeter.BarOffsetX + _objShiftX;
+            float ammoTextY = _hudObjects.AmmoBarPosY + _ammoBarMeter.BarOffsetY + _objShiftY;
+            // Out from under the weapon icon, which is drawn after this and
+            // over the top of it on Spire. See ModAmmoTextX.
+            ammoTextX = ModAmmoTextX(ammoTextX, ammoTextY, _ammoBarMeter.Align, ammoText);
+            DrawText2D(ammoTextX, ammoTextY, _ammoBarMeter.Align, _ammoBarPalette, ammoText,
+                alpha: Features.HudOpacity);
         }
 
         /// <summary>
@@ -1988,7 +2023,7 @@ namespace MphRead.Entities
                 // Cheap to call every frame: it rebuilds the texture only when
                 // the frame or the colour has actually changed, and neither
                 // does after the first one.
-                icon.SetData(i, tint, _scene);
+                Mods.Render.SmoothHudIcon.Tint(icon, _weaponListSheetData, i, tint, _scene);
                 // Sized and placed on the *drawing*, not on the frame around
                 // it. The select sheet's frames come off the touchscreen
                 // weapon wheel, where each weapon sits wherever it sits on
@@ -2608,8 +2643,7 @@ namespace MphRead.Entities
                 return;
             }
             float posX = _hudObjects.ScorePosX + _objShiftX;
-            // Below the chat log rather than under it: see ModChatClearance.
-            float posY = ModChatClearance(_hudObjects.ScorePosY) + _objShiftY;
+            float posY = _hudObjects.ScorePosY + _objShiftY;
             _textSpacingY = 8;
             string message = Strings.GetHudMessage(messageId);
             // the game wraps text here, but the text used will never wrap (and doesn't have newlines)
@@ -3062,9 +3096,25 @@ namespace MphRead.Entities
             string nickname = GameState.Nicknames[_opponentIndex];
             DrawText2D(posX, posY, Align.Center, 0, nickname);
             HudObjectInstance portrait = _hunterInsts[(int)opponent.Hunter];
-            portrait.PositionX = (posX - 16) / 256f;
+            // Mode 1, and the offset corrected across, so the portrait is 32
+            // units square on any window.
+            //
+            // The default mode 0 sizes a sprite off the window's *width* and
+            // then keeps it square in pixels, which on a 4:3 screen is the
+            // same 32x32 the DS drew and on nothing else: the portrait comes
+            // out 43 units tall on 16:9 and 56 on 21:9, growing downwards
+            // from a top edge 33 units above the name. At 16:9 it reaches
+            // y 192 -- straight over the name it is a picture of, which is
+            // exactly how it was reported ("the icon covers the name"), and
+            // on wider screens it leaves the bottom of the screen entirely.
+            // Mode 1 sizes both from the height, so the frame keeps the shape
+            // and the size it was drawn in; the half-width the offset moves
+            // it by then has to be measured across as well, or the picture no
+            // longer sits over the middle of the name. Same reasoning as the
+            // weapon list, see DrawWeaponList.
+            portrait.PositionX = (posX - 16 * HudAspectFix) / 256f;
             portrait.PositionY = (posY - 33) / 192f;
-            _scene.DrawHudObject(portrait);
+            _scene.DrawHudObject(portrait, mode: 1);
             posX += 18;
             posY -= 26;
             int remainingAmount = opponent.Health >= Values.EnergyTank ? opponent.Health - Values.EnergyTank : 0;

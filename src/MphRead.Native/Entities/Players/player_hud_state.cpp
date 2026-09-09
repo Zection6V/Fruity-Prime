@@ -167,4 +167,57 @@ int PlayerHudState::double_damage_icon_frame() const noexcept {
     return past >= pulse.lit ? 1 : 0;
 }
 
+int PlayerHudState::weapon_wheel_selection(
+    const float pointer_x, const float pointer_y, const float width,
+    const float height, const std::span<const bool, 6> available) noexcept {
+    if (width <= 0.0F || height <= 0.0F) {
+        return -1;
+    }
+    // The wheel is laid out in the DS's own 256x192 and stretched with the
+    // window, so the pointer offset is measured in that space too.
+    const float ratio_x = width / 256.0F;
+    const float ratio_y = height / 192.0F;
+    // Left of and below the hub, which sits near the top right corner.
+    const float distance_x = 224.0F * ratio_x - pointer_x;
+    const float distance_y = pointer_y - 38.0F * ratio_y;
+    const float dead_zone = 20.0F * ratio_y;
+    if (distance_x <= 0.0F || distance_y <= 0.0F
+        || distance_x * distance_x + distance_y * distance_y
+            <= dead_zone * dead_zone) {
+        // Inside the hub, or outside the quadrant the wheel occupies.
+        return -1;
+    }
+    // The five boundaries between the six wedges, as the cartridge's own
+    // fixed-point sines and cosines.  Each pair is one boundary's slope.
+    struct Boundary {
+        float run;
+        float rise;
+    };
+    static constexpr std::array<Boundary, 5> boundaries{{
+        {1060.0F, 3956.0F},
+        {2048.0F, 3547.0F},
+        {2896.0F, 2896.0F},
+        {3547.0F, 2048.0F},
+        {3956.0F, 1060.0F},
+    }};
+    const float slope = distance_x / distance_y;
+    // Walking outwards: the first boundary the pointer is past decides the
+    // wedge, and a beam the player does not have is simply not selectable
+    // rather than selecting the one beside it.
+    int wedge = -1;
+    for (std::size_t i = 0; i < boundaries.size(); ++i) {
+        const float bound = boundaries[i].run * ratio_x
+            / (boundaries[i].rise * ratio_y);
+        if (slope < bound) {
+            wedge = static_cast<int>(i);
+            break;
+        }
+    }
+    if (wedge < 0) {
+        wedge = static_cast<int>(boundaries.size());
+    }
+    const auto index = static_cast<std::size_t>(wedge);
+    return index < available.size() && available[index] ? wedge : -1;
+}
+
 } // namespace fruityprime::players

@@ -248,9 +248,10 @@ COMMON_SOURCES := \
 	$(CPP_ROOT)/Mods/Network/NetLaunch.cpp \
 	$(CPP_ROOT)/Mods/Network/PlayerEntityNetAim.cpp \
 	$(CPP_ROOT)/Mods/Network/PlayerEntityNetHud.cpp \
-	$(CPP_ROOT)/Utility/rng.cpp \
-	$(CPP_ROOT)/Utility/parser.cpp \
-	$(CPP_ROOT)/Utility/Compress.cpp \
+    $(CPP_ROOT)/Utility/rng.cpp \
+    $(CPP_ROOT)/Utility/parser.cpp \
+    $(CPP_ROOT)/Utility/command_line.cpp \
+    $(CPP_ROOT)/Utility/Compress.cpp \
 	$(CPP_ROOT)/Utility/Output.cpp \
 	$(CPP_ROOT)/Sound/sound.cpp \
     $(CPP_ROOT)/Sound/sdat.cpp \
@@ -328,6 +329,7 @@ TEST_SOURCES := \
     $(CPP_ROOT)/Testing/player_hud_locator_tests.cpp \
     $(CPP_ROOT)/Testing/player_hud_mode_tests.cpp \
     $(CPP_ROOT)/Testing/player_hud_pickup_tests.cpp \
+    $(CPP_ROOT)/Testing/player_hud_wheel_tests.cpp \
     $(CPP_ROOT)/Testing/enemy_helper_tests.cpp \
     $(CPP_ROOT)/Testing/player_statics_tests.cpp \
     $(CPP_ROOT)/Testing/hud_message_tests.cpp \

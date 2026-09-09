@@ -13,6 +13,7 @@
 // a timer, ramps out, and then waits before it can start again.
 
 #include <array>
+#include <span>
 #include <cstdint>
 
 namespace fruityprime::players {
@@ -265,6 +266,83 @@ public:
         return opponent_healthbar_timer_;
     }
 
+    // ---- the weapon wheel -------------------------------------------
+    // Six wedges around a point near the top right of the touch screen.
+    // Which one the pointer is in is decided by the slope of the offset to
+    // it, against five fixed-point ratios the cartridge carries -- so the
+    // wedges are equal in angle and not in area.
+
+    // PlayerHud.UpdateWeaponSelect's geometry.  Returns the wedge under the
+    // pointer, 0 to 5, or -1 for none; `available` says which beams the
+    // player actually has, in wheel order.
+    [[nodiscard]] static int weapon_wheel_selection(
+        float pointer_x, float pointer_y, float width, float height,
+        std::span<const bool, 6> available) noexcept;
+
+    // Whether the wheel selection changed this pass, which is what makes
+    // the click.
+    [[nodiscard]] bool note_weapon_selection(int selection) noexcept {
+        if (selection == previous_weapon_selection_) {
+            return false;
+        }
+        previous_weapon_selection_ = selection;
+        return true;
+    }
+
+    // ---- the boost bomb readout -------------------------------------
+    // PlayerHud.UpdateBoostBombs: the bomb row slides up into view as the
+    // player morphs and back off the bottom as they stand up.
+    void update_boost_bombs(bool alt_form, bool morphing) noexcept {
+        const float target = alt_form || morphing ? 160.0F : 208.0F;
+        if (boost_bombs_y_offset_ > target) {
+            boost_bombs_y_offset_ -= 1.0F;
+        } else if (boost_bombs_y_offset_ < target) {
+            boost_bombs_y_offset_ += 1.0F;
+        }
+    }
+    [[nodiscard]] float boost_bombs_y_offset() const noexcept {
+        return boost_bombs_y_offset_;
+    }
+
+    // ---- the damage arrows ------------------------------------------
+    // Eight directions; each blinks for as long as its timer runs.
+    static constexpr std::size_t DamageIndicatorCount = 8;
+
+    // PlayerHud.UpdateDamageIndicators.
+    void update_damage_indicators() noexcept {
+        for (std::size_t i = 0; i < DamageIndicatorCount; ++i) {
+            if (damage_indicator_timers_[i] > 0) {
+                --damage_indicator_timers_[i];
+            }
+            // Four frames on, four off, which is what makes it read as a
+            // warning rather than as part of the helmet.
+            damage_indicator_shown_[i] =
+                (damage_indicator_timers_[i] & (4u * 2u)) != 0;
+        }
+    }
+    void set_damage_indicator(std::size_t direction,
+                              std::uint16_t frames) noexcept {
+        if (direction < DamageIndicatorCount) {
+            damage_indicator_timers_[direction] = frames;
+        }
+    }
+    [[nodiscard]] bool damage_indicator_shown(
+        std::size_t direction) const noexcept {
+        return direction < DamageIndicatorCount
+            && damage_indicator_shown_[direction];
+    }
+
+    // PlayerHud.HudAspectFix.  The HUD is laid out in the DS's 256x192 and
+    // stretched to the window, so anything that has to stay square -- an
+    // icon, a circle -- is scaled back by this.
+    [[nodiscard]] static constexpr float hud_aspect_fix(
+        float width, float height) noexcept {
+        if (width <= 0.0F || height <= 0.0F) {
+            return 1.0F;
+        }
+        return height / 192.0F * (256.0F / width);
+    }
+
 private:
     bool small_reticle_ = false;
     // The cartridge counts at half this rate, so sixty of its frames are
@@ -280,6 +358,11 @@ private:
     float cloak_text_timer_ = 0.0F;
     float opponent_healthbar_timer_ = 0.0F;
     int opponent_index_ = -1;
+    int previous_weapon_selection_ = -1;
+    float boost_bombs_y_offset_ = 208.0F;
+    std::array<std::uint16_t, DamageIndicatorCount>
+        damage_indicator_timers_{};
+    std::array<bool, DamageIndicatorCount> damage_indicator_shown_{};
 
     // PlayerHud.UpdateWhiteoutTable
     void update_whiteout_table(float value) noexcept;

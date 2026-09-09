@@ -401,6 +401,16 @@ std::optional<HudObjectImage> g_hud_font_mask;
 std::array<std::optional<HudObjectImage>,
            fruityprime::metadata::HunterCount> g_hud_hunters;
 std::optional<HudObjectImage> g_hud_stars;
+// The mode HUDs' own artwork.  Nodes has two sets -- orange/green for a
+// team match and red/blue otherwise -- because in a team match the colours
+// have to mean the two sides rather than "mine" and "theirs".
+std::optional<HudObjectImage> g_hud_octolith;
+std::optional<HudObjectImage> g_hud_nodes;
+std::optional<HudObjectImage> g_hud_double_damage;
+std::optional<HudObjectImage> g_hud_cloak;
+std::optional<HudObjectImage> g_hud_prime_hunter;
+std::optional<HudObjectImage> g_hud_bomb;
+std::optional<HudObjectImage> g_hud_boost;
 // Scene.ElapsedTime, for the HUD's own animations: the scoreboard's pulse on
 // the local player's row, and the rules screen's typing.
 float g_hud_elapsed_seconds = 0.0F;
@@ -1940,6 +1950,20 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
                         "hunter-portrait");
     }
     load_hud_object(assets, g_hud_stars, elements.stars, "stars");
+    load_hud_object(assets, g_hud_octolith, elements.octolith, "octolith");
+    load_hud_object(assets, g_hud_nodes,
+                    g_game_state.teams ? elements.nodes_og
+                                       : elements.nodes_rb,
+                    "nodes");
+    load_hud_object(assets, g_hud_bomb, elements.bombs, "bombs");
+    load_hud_object(assets, g_hud_boost, elements.boost, "boost");
+    const auto& hunter_objects =
+        elements.hunter_objects[std::min<std::size_t>(hunter, 7)];
+    load_hud_object(assets, g_hud_double_damage,
+                    hunter_objects.double_damage, "double-damage");
+    load_hud_object(assets, g_hud_cloak, hunter_objects.cloaking, "cloak");
+    load_hud_object(assets, g_hud_prime_hunter,
+                    hunter_objects.prime_hunter, "prime-hunter");
 }
 
 void create_hud_texture(HudImage& image) {
@@ -3909,110 +3933,57 @@ void draw_hud_filter(float multiplier, int width, int height) {
                  static_cast<float>(height));
 }
 
-// PlayerHud's renderer seam, implemented against this head's GL.  The layout
-// is all in PlayerHud.cpp, in the counterpart of the file it came from; this
-// only turns a DS-space request into a textured quad.
-class GlHudBackend final : public fruityprime::players::HudBackend {
-public:
-    GlHudBackend(const MphReadNative::Hud::Rect& area, float scale,
-                 int width, int height) noexcept
-        : area_(area), scale_(scale), width_(width), height_(height) {}
-
-    [[nodiscard]] bool draw_hud_object(Object object, std::size_t variant,
-                                       std::size_t frame,
-                                       std::size_t palette, float x, float y,
-                                       float scale, float alpha,
-                                       const Color* color) override {
-        const HudObjectImage* image = nullptr;
-        switch (object) {
-        case Object::Font:
-            image = g_hud_font.has_value() ? &*g_hud_font : nullptr;
-            break;
-        case Object::FontMask:
-            image = g_hud_font_mask.has_value() ? &*g_hud_font_mask : nullptr;
-            break;
-        case Object::HealthBar:
-            image = g_hud_health_bar.has_value() ? &*g_hud_health_bar
-                                                 : nullptr;
-            break;
-        case Object::HealthBarSub:
-            image = g_hud_health_bar_sub.has_value() ? &*g_hud_health_bar_sub
-                                                     : nullptr;
-            break;
-        case Object::AmmoBar:
-            image = g_hud_ammo_bar.has_value() ? &*g_hud_ammo_bar : nullptr;
-            break;
-        case Object::WeaponIcon:
-            image = g_hud_weapon_icon.has_value() ? &*g_hud_weapon_icon
-                                                  : nullptr;
-            break;
-        case Object::Stars:
-            image = g_hud_stars.has_value() ? &*g_hud_stars : nullptr;
-            break;
-        case Object::HunterPortrait:
-            image = variant < g_hud_hunters.size()
-                    && g_hud_hunters[variant].has_value()
-                ? &*g_hud_hunters[variant] : nullptr;
-            break;
-        }
-        if (image == nullptr || scale_ <= 0.0F) {
-            return false;
-        }
-        const HudTint tint = color == nullptr
-            ? HudTint{}
-            : HudTint{color->red, color->green, color->blue};
-        return draw_hud_object_image(*image, frame, palette,
-                                     area_.left + x * scale_,
-                                     area_.top + y * scale_,
-                                     scale_ * scale, alpha, tint);
-    }
-
-    void draw_hud_filter_model(float alpha) override {
-        draw_hud_filter(alpha, width_, height_);
-    }
-
-private:
-    MphReadNative::Hud::Rect area_;
-    float scale_ = 0.0F;
-    int width_ = 0;
-    int height_ = 0;
-};
-
-// Everything PlayerHud reads that lives on GameState and the scene here.
-[[nodiscard]] fruityprime::players::HudContext hud_context(
-    fruityprime::players::HudBackend& backend) {
-    fruityprime::players::HudContext context;
-    context.backend = &backend;
-    context.session = g_session.has_value() ? &*g_session : nullptr;
-    context.state = &g_game_state;
-    context.local_slot = g_local_slot;
-    context.hunter = g_local_hunter;
-    context.elapsed_seconds = g_hud_elapsed_seconds;
-    context.intro_seconds = g_intro_seconds;
-    context.frames_per_second = g_display_fps;
-    context.match_time_remaining = g_match_flow.has_value()
-        ? g_match_flow->state().time_remaining : -1.0F;
-    context.mode = g_match_flow.has_value()
-        ? static_cast<fruityprime::game::Mode>(g_match_flow->state().mode)
-        : g_game_state.mode;
-    context.match_over = g_match_flow.has_value()
-        && g_match_flow->phase() != fruityprime::match::Phase::InProgress;
-    context.networked = g_net_client != nullptr && g_net_client->connected();
-    context.hud_message = [](int id) {
-        return hud_message(static_cast<std::uint32_t>(id));
-    };
-    context.rules_message = [](int id) {
-        if (g_hud_msgs_multi.empty()) {
-            return std::string{};
-        }
-        return fruityprime::strings::get_message(
-            g_hud_msgs_multi, 'S', static_cast<std::uint32_t>(id));
-    };
-    context.nickname = [](std::uint8_t slot) { return roster_name(slot); };
-    context.ping = [](std::uint8_t slot) { return roster_ping(slot); };
-    return context;
-}
-
+// PlayerHud's renderer seam, implemented against this head's GL.  The layout// is all in PlayerHud.cpp, in the counterpart of the file it came from; this// only turns a DS-space request into a textured quad.class GlHudBackend final : public fruityprime::players::HudBackend {public:    GlHudBackend(const MphReadNative::Hud::Rect& area, float scale,                 int width, int height) noexcept        : area_(area), scale_(scale), width_(width), height_(height) {}
+    [[nodiscard]] bool draw_hud_object(Object object, std::size_t variant,                                       std::size_t frame,                                       std::size_t palette, float x, float y,                                       float scale, float alpha,                                       const Color* color) override {        const HudObjectImage* image = nullptr;        switch (object) {        case Object::Font:            image = g_hud_font.has_value() ? &*g_hud_font : nullptr;            break;        case Object::FontMask:            image = g_hud_font_mask.has_value() ? &*g_hud_font_mask : nullptr;            break;        case Object::HealthBar:            image = g_hud_health_bar.has_value() ? &*g_hud_health_bar                                                 : nullptr;            break;        case Object::HealthBarSub:            image = g_hud_health_bar_sub.has_value() ? &*g_hud_health_bar_sub                                                     : nullptr;            break;        case Object::AmmoBar:            image = g_hud_ammo_bar.has_value() ? &*g_hud_ammo_bar : nullptr;            break;        case Object::WeaponIcon:            image = g_hud_weapon_icon.has_value() ? &*g_hud_weapon_icon                                                  : nullptr;            break;        case Object::Stars:            image = g_hud_stars.has_value() ? &*g_hud_stars : nullptr;            break;        case Object::HunterPortrait:            image = variant < g_hud_hunters.size()                    && g_hud_hunters[variant].has_value()                ? &*g_hud_hunters[variant] : nullptr;            break;        case Object::Octolith:
+            image = g_hud_octolith.has_value() ? &*g_hud_octolith : nullptr;
+            break;
+        case Object::Nodes:
+            image = g_hud_nodes.has_value() ? &*g_hud_nodes : nullptr;
+            break;
+        case Object::DoubleDamage:
+            image = g_hud_double_damage.has_value() ? &*g_hud_double_damage
+                                                    : nullptr;
+            break;
+        case Object::Cloak:
+            image = g_hud_cloak.has_value() ? &*g_hud_cloak : nullptr;
+            break;
+        case Object::PrimeHunter:
+            image = g_hud_prime_hunter.has_value() ? &*g_hud_prime_hunter
+                                                   : nullptr;
+            break;
+        case Object::Bomb:
+            image = g_hud_bomb.has_value() ? &*g_hud_bomb : nullptr;
+            break;
+        case Object::Boost:
+            image = g_hud_boost.has_value() ? &*g_hud_boost : nullptr;
+            break;
+        case Object::NodeLocator:
+        case Object::OctolithLocator:
+        case Object::PlayerLocator:
+        case Object::ArrowLocator:
+            // Locators are models rather than sprites; draw_icon_model
+            // below is their path.
+            image = nullptr;
+            break;
+        }        if (image == nullptr || scale_ <= 0.0F) {            return false;        }        const HudTint tint = color == nullptr            ? HudTint{}            : HudTint{color->red, color->green, color->blue};        return draw_hud_object_image(*image, frame, palette,                                     area_.left + x * scale_,                                     area_.top + y * scale_,                                     scale_ * scale, alpha, tint);    }
+    void draw_hud_filter_model(float alpha) override {        draw_hud_filter(alpha, width_, height_);    }
+    void draw_icon_model(Object object, float x, float y, float angle,
+                         const Color& color, float alpha) override {
+        // The locator models are not extracted yet, so nothing is drawn.
+        // The decision of what to draw, where and in what colour is made
+        // and tested in PlayerHud; only the artwork is missing, and
+        // pretending otherwise with a nearby sprite would put a marker on
+        // screen that points the wrong way.
+        static_cast<void>(object);
+        static_cast<void>(x);
+        static_cast<void>(y);
+        static_cast<void>(angle);
+        static_cast<void>(color);
+        static_cast<void>(alpha);
+    }
+
+private:    MphReadNative::Hud::Rect area_;    float scale_ = 0.0F;    int width_ = 0;    int height_ = 0;};
+// Everything PlayerHud reads that lives on GameState and the scene here.[[nodiscard]] fruityprime::players::HudContext hud_context(    fruityprime::players::HudBackend& backend) {    fruityprime::players::HudContext context;    context.backend = &backend;    context.session = g_session.has_value() ? &*g_session : nullptr;    context.state = &g_game_state;    context.local_slot = g_local_slot;    context.hunter = g_local_hunter;    context.elapsed_seconds = g_hud_elapsed_seconds;    context.intro_seconds = g_intro_seconds;    context.frames_per_second = g_display_fps;    context.match_time_remaining = g_match_flow.has_value()        ? g_match_flow->state().time_remaining : -1.0F;    context.mode = g_match_flow.has_value()        ? static_cast<fruityprime::game::Mode>(g_match_flow->state().mode)        : g_game_state.mode;    context.match_over = g_match_flow.has_value()        && g_match_flow->phase() != fruityprime::match::Phase::InProgress;    context.networked = g_net_client != nullptr && g_net_client->connected();    context.hud_message = [](int id) {        return hud_message(static_cast<std::uint32_t>(id));    };    context.rules_message = [](int id) {        if (g_hud_msgs_multi.empty()) {            return std::string{};        }        return fruityprime::strings::get_message(            g_hud_msgs_multi, 'S', static_cast<std::uint32_t>(id));    };    context.nickname = [](std::uint8_t slot) { return roster_name(slot); };    context.ping = [](std::uint8_t slot) { return roster_ping(slot); };    return context;}
 // PlayerEntity.SetGunAnimation, for the one animation this head needs so
 // far: the cannon at rest with the equipped weapon's own barrels out.
 //

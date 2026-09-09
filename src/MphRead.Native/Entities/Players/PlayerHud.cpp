@@ -1719,4 +1719,102 @@ void PlayerHud::DrawOpponent(const HudContext& context,
         FormatModeScore(context, static_cast<std::uint8_t>(slot))));
 }
 
+void PlayerHud::DrawHudPrimeHunter(const HudContext& context,
+                                   const ModeHudState& state,
+                                   const float shift_x,
+                                   const float shift_y) {
+    if (context.backend != nullptr && state.is_prime_hunter) {
+        const auto& objects = objects_for(context);
+        const float x = static_cast<float>(objects.prime_pos_x) + shift_x;
+        const float y = static_cast<float>(objects.prime_pos_y) + shift_y;
+        static_cast<void>(context.backend->draw_hud_object(
+            HudBackend::Object::PrimeHunter, 0, 0, 0, x - 16.0F, y - 16.0F,
+            1.0F, 1.0F, nullptr));
+        if (state.prime_hunter_text_timer > 0.0F) {
+            // Three seconds, typed out a character a frame.
+            const float elapsed =
+                90.0F / 30.0F - state.prime_hunter_text_timer;
+            const int length =
+                static_cast<int>(std::ceil(elapsed / (1.0F / 30.0F)));
+            static_cast<void>(DrawText2D(
+                context, x + static_cast<float>(objects.prime_text_pos_x),
+                y + static_cast<float>(objects.prime_text_pos_y),
+                objects.prime_align, 0,
+                call(context.hud_message, PrimeHunterMessageId), nullptr,
+                1.0F, 1.0F, length));
+        }
+    }
+    DrawModeScore(context, PrimeTimeMessageId,
+                  FormatModeScore(context, context.local_slot));
+}
+
+void PlayerHud::DrawBoostBombs(const HudContext& context,
+                               const AltFormReadout& readout,
+                               const float y_offset) {
+    if (context.backend == nullptr) {
+        return;
+    }
+    if (readout.has_bombs && !readout.is_kanden) {
+        // Three bombs, right to left, lit ones first.
+        float x = 244.0F;
+        for (int i = 3; i > 0; --i) {
+            const std::size_t frame = readout.bomb_ammo < i ? 1u : 0u;
+            static_cast<void>(context.backend->draw_hud_object(
+                HudBackend::Object::Bomb, 0, frame, 0, x - 8.0F, y_offset,
+                1.0F, 1.0F, nullptr));
+            x -= 14.0F;
+        }
+        static_cast<void>(DrawText2D(
+            context, 230.0F, y_offset + 18.0F, Align::Center, 0,
+            call(context.hud_message, BombsMessageId)));
+    }
+    if (readout.has_boost) {
+        static_cast<void>(context.backend->draw_hud_object(
+            HudBackend::Object::Boost, 0, readout.boost_ready ? 0u : 1u, 0,
+            29.0F - 8.0F, y_offset - 16.0F, 1.0F, 1.0F, nullptr));
+        static_cast<void>(DrawText2D(
+            context, 29.0F, y_offset + 18.0F, Align::Center, 0,
+            call(context.hud_message, BoostMessageId)));
+    }
+}
+
+void PlayerHud::DrawLocatorIcons(
+    const HudContext& context, const ModeHudState& state,
+    const float width, const float height,
+    const std::function<ProjectedPoint(const net::Vec3&)>& project) {
+    if (context.backend == nullptr || !project) {
+        return;
+    }
+    for (const auto& info : state.locators) {
+        const ProjectedPoint point = project(info.position);
+        const LocatorPlacement placement = PlaceLocatorIcon(
+            point.view, point.x, point.y, width, height);
+        // A marker off the screen is replaced by an arrow pointing at it,
+        // rather than being clamped and left looking like the thing is at
+        // the edge of the room.
+        const LocatorIcon icon = placement.arrow ? LocatorIcon::Arrow
+                                                 : info.icon;
+        HudBackend::Object object = HudBackend::Object::NodeLocator;
+        switch (icon) {
+        case LocatorIcon::Octolith:
+            object = HudBackend::Object::OctolithLocator;
+            break;
+        case LocatorIcon::Enemy:
+            object = HudBackend::Object::PlayerLocator;
+            break;
+        case LocatorIcon::Arrow:
+            object = HudBackend::Object::ArrowLocator;
+            break;
+        case LocatorIcon::Node:
+            break;
+        }
+        // A locator is a model rather than a sprite, because the arrow has
+        // to point somewhere -- which is what separates this from every
+        // other thing the HUD draws.
+        context.backend->draw_icon_model(object, placement.x, placement.y,
+                                         placement.angle, info.color,
+                                         info.alpha);
+    }
+}
+
 } // namespace fruityprime::players

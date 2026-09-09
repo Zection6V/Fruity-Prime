@@ -51,6 +51,17 @@ public:
         // The two timed pickups that announce themselves.
         DoubleDamage,
         Cloak,
+        // The crown the prime hunter wears, and the alt-form readouts that
+        // slide up with the ball.
+        PrimeHunter,
+        Bomb,
+        Boost,
+        // The markers the mode HUDs place, and the arrow that stands in for
+        // one that is off the screen.
+        NodeLocator,
+        OctolithLocator,
+        PlayerLocator,
+        ArrowLocator,
     };
 
     // HudObjectInstance.SetData's explicit-colour form: every lit pixel
@@ -65,6 +76,14 @@ public:
         Object object, std::size_t variant, std::size_t frame,
         std::size_t palette, float x, float y, float scale, float alpha,
         const Color* color) = 0;
+
+    // Scene.DrawIconModel: a locator, which is a model rather than a
+    // sprite because the arrow that stands in for an off-screen marker has
+    // to point at it.  Position is in 0..1 of the viewport and the angle is
+    // in degrees.
+    virtual void draw_icon_model(Object object, float x, float y,
+                                 float angle, const Color& color,
+                                 float alpha) = 0;
 
     virtual void draw_hud_filter_model(float alpha) = 0;
 };
@@ -408,6 +427,46 @@ public:
                              const PlayerHudState& hud,
                              std::uint16_t energy_tank, float shift_x,
                              float shift_y);
+
+    // PlayerHud.DrawHudPrimeHunter: the crown, and the countdown that is
+    // this mode's score.
+    static void DrawHudPrimeHunter(const HudContext& context,
+                                   const ModeHudState& state,
+                                   float shift_x, float shift_y);
+
+    // PlayerHud.DrawBoostBombs: the bomb and boost readouts either side of
+    // the screen, which slide up with the ball.
+    struct AltFormReadout {
+        bool has_bombs = false;
+        bool has_boost = false;
+        int bomb_ammo = 0;
+        bool boost_ready = true;
+        // Kanden's bombs are laid rather than dropped, so he has no row.
+        bool is_kanden = false;
+    };
+    static void DrawBoostBombs(const HudContext& context,
+                               const AltFormReadout& readout,
+                               float y_offset);
+
+    // PlayerHud.DrawLocatorIcons: every marker the mode HUD asked for.
+    // `project` turns a world position into the view-space point and the
+    // screen point PlaceLocatorIcon needs, which is the renderer's half.
+    struct ProjectedPoint {
+        net::Vec3 view;
+        float x = 0.0F;
+        float y = 0.0F;
+    };
+    static void DrawLocatorIcons(
+        const HudContext& context, const ModeHudState& state,
+        float width, float height,
+        const std::function<ProjectedPoint(const net::Vec3&)>& project);
+
+    // Strings.GetHudMessage(11): "prime hunter"; (214) is its score
+    // heading, "prime time"; (1): "bombs"; (2): "boost".
+    static constexpr int PrimeHunterMessageId = 11;
+    static constexpr int PrimeTimeMessageId = 214;
+    static constexpr int BombsMessageId = 1;
+    static constexpr int BoostMessageId = 2;
 
     // Strings.GetHudMessage(3): "double damage"; (4): "cloak".
     static constexpr int DoubleDamageMessageId = 3;

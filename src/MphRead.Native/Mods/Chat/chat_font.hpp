@@ -7,15 +7,22 @@
 
 namespace fruityprime::chat::font {
 
-inline constexpr int Cell = 8;
-inline constexpr char First = ' ';
-inline constexpr char Last = '~';
-inline constexpr std::size_t Count =
-    static_cast<std::size_t>(Last - First + 1);
+inline constexpr std::int32_t Cell = 8;
+inline constexpr char16_t First = u' ';
+inline constexpr char16_t Last = u'~';
 
-const std::array<std::uint8_t, Count * Cell * Cell>& pixels() noexcept;
-const std::array<int, Count>& widths() noexcept;
-int index(char ch) noexcept;
-int measure(std::string_view text) noexcept;
+using PixelArray = std::array<
+    std::uint8_t,
+    static_cast<std::size_t>(Last - First + 1) * Cell * Cell>;
+using WidthArray = std::array<
+    std::int32_t,
+    static_cast<std::size_t>(Last - First + 1)>;
+
+PixelArray& pixels() noexcept;
+WidthArray& widths() noexcept;
+std::int32_t index(char16_t ch) noexcept;
+std::int32_t index(char ch) noexcept;
+std::int32_t measure(std::u16string_view text) noexcept;
+std::int32_t measure(std::string_view text) noexcept;
 
 } // namespace fruityprime::chat::font

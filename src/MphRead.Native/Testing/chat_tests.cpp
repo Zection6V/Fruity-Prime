@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -27,22 +28,55 @@ std::int64_t test_tick_count64() noexcept { return now_milliseconds; }
 
 int main() {
     using fruityprime::chat::font::Cell;
-    using fruityprime::chat::font::Count;
     using fruityprime::chat::font::First;
     using fruityprime::chat::font::index;
     using fruityprime::chat::font::measure;
     using fruityprime::chat::font::pixels;
     using fruityprime::chat::font::widths;
-    assert(Count == 95);
     assert(Cell == 8);
+    assert(widths().size() == 95);
+    assert(pixels().size() == 95 * 8 * 8);
     assert(index(First) == 0);
     assert(index('~') == 94);
+    assert(index(u'\u00a0') == -1);
     assert(index('\n') == -1);
+    for (std::uint32_t value = 0; value <= 0xffff; ++value) {
+        const std::int32_t expected = value >= 0x20 && value <= 0x7e
+            ? static_cast<std::int32_t>(value - 0x20)
+            : -1;
+        assert(index(static_cast<char16_t>(value)) == expected);
+    }
     assert(widths()[static_cast<std::size_t>(index(' '))] == 3);
     assert(widths()[static_cast<std::size_t>(index('i'))] == 2);
     assert(widths()[static_cast<std::size_t>(index('A'))] == 6);
     assert(measure("Aim") == 14);
+    assert(measure(u"A\u00a0im") == 14);
+    std::u16string all_glyphs;
+    std::int32_t all_widths = 0;
+    for (std::int32_t glyph = 0; glyph < 95; ++glyph) {
+        const char16_t ch = static_cast<char16_t>(First + glyph);
+        all_glyphs.push_back(ch);
+        assert(index(ch) == glyph);
+        const auto expected_width =
+            widths()[static_cast<std::size_t>(glyph)];
+        assert(measure(std::u16string_view(&ch, 1)) == expected_width);
+        all_widths += expected_width;
+    }
+    assert(measure(all_glyphs) == all_widths);
     const auto& glyphs = pixels();
+    for (const std::uint8_t pixel : glyphs) {
+        assert(pixel == 0 || pixel == 1);
+    }
+    auto& mutable_widths = widths();
+    const std::int32_t saved_space_width = mutable_widths[0];
+    mutable_widths[0] = saved_space_width + 1;
+    assert(measure(u" ") == saved_space_width + 1);
+    mutable_widths[0] = saved_space_width;
+    auto& mutable_pixels = pixels();
+    const std::uint8_t saved_pixel = mutable_pixels[0];
+    mutable_pixels[0] = saved_pixel == 0 ? 1 : 0;
+    assert(mutable_pixels[0] != saved_pixel);
+    mutable_pixels[0] = saved_pixel;
     const std::size_t space = static_cast<std::size_t>(index(' ')) *
                               static_cast<std::size_t>(Cell * Cell);
     for (int pixel = 0; pixel < Cell * Cell; ++pixel) {

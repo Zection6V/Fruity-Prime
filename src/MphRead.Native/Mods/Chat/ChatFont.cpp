@@ -1,36 +1,39 @@
 #include "Mods/Chat/chat_font.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <initializer_list>
 #include <string_view>
 
 namespace fruityprime::chat::font {
 namespace {
 
-struct FontData {
-    std::array<std::uint8_t, Count * Cell * Cell> pixels{};
-    std::array<int, Count> widths{};
+constexpr std::size_t Count =
+    static_cast<std::size_t>(Last - First + 1);
 
-    void define(char ch, int advance) noexcept {
+struct FontData {
+    PixelArray pixels{};
+    WidthArray widths{};
+
+    void define(char16_t ch, std::int32_t advance) noexcept {
         widths[static_cast<std::size_t>(ch - First)] = advance;
     }
 
-    void define(char ch, int top,
+    void define(char16_t ch, std::int32_t top,
                 std::initializer_list<std::string_view> rows) noexcept {
         const std::size_t glyph =
             static_cast<std::size_t>(ch - First) * Cell * Cell;
-        int width = 0;
-        int row_index = 0;
+        std::int32_t width = 0;
+        std::int32_t row_index = 0;
         for (const std::string_view row : rows) {
             for (std::size_t column = 0;
                  column < row.size() && column < Cell; ++column) {
                 if (row[column] == '#') {
-                    const int pixel_row = top + row_index;
-                    if (pixel_row >= 0 && pixel_row < Cell) {
-                        pixels[glyph + static_cast<std::size_t>(pixel_row) *
-                                            Cell + column] = 1;
-                    }
-                    width = std::max(width, static_cast<int>(column + 1));
+                    const std::int32_t pixel_row = top + row_index;
+                    pixels[glyph + static_cast<std::size_t>(pixel_row) *
+                                       Cell + column] = 1;
+                    width = std::max(
+                        width, static_cast<std::int32_t>(column + 1));
                 }
             }
             ++row_index;
@@ -139,34 +142,51 @@ FontData make_font() {
     return font;
 }
 
-const FontData& data() noexcept {
-    static const FontData font = make_font();
+FontData& data() noexcept {
+    static FontData font = make_font();
     return font;
+}
+
+template <typename Char>
+std::int32_t measure_text(const std::basic_string_view<Char> text) noexcept {
+    std::uint32_t width = 0;
+    for (const Char ch : text) {
+        const std::int32_t glyph = index(ch);
+        if (glyph >= 0) {
+            width += static_cast<std::uint32_t>(
+                data().widths[static_cast<std::size_t>(glyph)]);
+        }
+    }
+    return std::bit_cast<std::int32_t>(width);
 }
 
 } // namespace
 
-const std::array<std::uint8_t, Count * Cell * Cell>& pixels() noexcept {
+PixelArray& pixels() noexcept {
     return data().pixels;
 }
 
-const std::array<int, Count>& widths() noexcept {
+WidthArray& widths() noexcept {
     return data().widths;
 }
 
-int index(char ch) noexcept {
-    return ch < First || ch > Last ? -1 : ch - First;
+std::int32_t index(char16_t ch) noexcept {
+    (void)data();
+    return ch < First || ch > Last
+        ? -1
+        : static_cast<std::int32_t>(ch - First);
 }
 
-int measure(const std::string_view text) noexcept {
-    int width = 0;
-    for (const char ch : text) {
-        const int glyph = index(ch);
-        if (glyph >= 0) {
-            width += data().widths[static_cast<std::size_t>(glyph)];
-        }
-    }
-    return width;
+std::int32_t index(char ch) noexcept {
+    return index(static_cast<char16_t>(static_cast<unsigned char>(ch)));
+}
+
+std::int32_t measure(const std::u16string_view text) noexcept {
+    return measure_text(text);
+}
+
+std::int32_t measure(const std::string_view text) noexcept {
+    return measure_text(text);
 }
 
 } // namespace fruityprime::chat::font

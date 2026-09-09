@@ -20,6 +20,14 @@ template <typename Flags>
         & ~static_cast<std::uint32_t>(bit));
 }
 
+
+// A Data5 parameter is a fixed-point number wherever it is
+// compared against a position.
+[[nodiscard]] constexpr float param_float(
+    std::int32_t value) noexcept {
+    return static_cast<float>(value) / 4096.0F;
+}
+
 } // namespace
 
 using utility::get_random_int2;

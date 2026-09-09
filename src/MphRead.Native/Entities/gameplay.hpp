@@ -703,6 +703,10 @@ public:
         return players_;
     }
     [[nodiscard]] bool team_mode() const noexcept { return config_.team_mode; }
+    // Formats.GameMode, as GameState.Mode reports it.
+    [[nodiscard]] std::uint8_t match_mode() const noexcept {
+        return config_.mode;
+    }
     [[nodiscard]] bool has_player(std::uint8_t slot) const noexcept;
     [[nodiscard]] std::uint32_t respawn_ticks(std::uint8_t slot) const noexcept;
     void set_respawn_ticks(std::uint8_t slot, std::uint32_t value) noexcept;

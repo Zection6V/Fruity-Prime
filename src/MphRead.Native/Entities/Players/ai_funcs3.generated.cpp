@@ -19,6 +19,14 @@ template <typename Flags>
         & ~static_cast<std::uint32_t>(bit));
 }
 
+
+// A Data5 parameter is a fixed-point number wherever it is
+// compared against a position.
+[[nodiscard]] constexpr float param_float(
+    std::int32_t value) noexcept {
+    return static_cast<float>(value) / 4096.0F;
+}
+
 } // namespace
 
 using utility::get_random_int2;
@@ -44,12 +52,9 @@ int PlayerAiData::func3_213A660(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return param.Param1 + (int)Rng.GetRandomInt2(param.Param2 - param.Param1);
-    return 0;
+    return parameters.param1 + static_cast<int>(
+        utility::get_random_int2(
+            parameters.param2 - parameters.param1));
 }
 
 int PlayerAiData::func3_213A688(
@@ -532,12 +537,7 @@ int PlayerAiData::func3_213AC38(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _player.Position.Z < param.Param1 / 4096f ? 1 : 0;
-    return 0;
+    return session.player(bot_slot).position.z < param_float(parameters.param1) ? 1 : 0;
 }
 
 int PlayerAiData::func3_213AC54(
@@ -549,12 +549,7 @@ int PlayerAiData::func3_213AC54(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _player.Position.Z > param.Param1 / 4096f ? 1 : 0;
-    return 0;
+    return session.player(bot_slot).position.z > param_float(parameters.param1) ? 1 : 0;
 }
 
 int PlayerAiData::func3_213AC70(
@@ -566,12 +561,7 @@ int PlayerAiData::func3_213AC70(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _player.Position.X < param.Param1 / 4096f ? 1 : 0;
-    return 0;
+    return session.player(bot_slot).position.x < param_float(parameters.param1) ? 1 : 0;
 }
 
 int PlayerAiData::func3_213AC8C(
@@ -583,12 +573,7 @@ int PlayerAiData::func3_213AC8C(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _player.Position.X > param.Param1 / 4096f ? 1 : 0;
-    return 0;
+    return session.player(bot_slot).position.x > param_float(parameters.param1) ? 1 : 0;
 }
 
 int PlayerAiData::func3_213ACA8(
@@ -600,12 +585,7 @@ int PlayerAiData::func3_213ACA8(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _player.Position.Y >= param.Param1 / 4096f ? 1 : 0;
-    return 0;
+    return session.player(bot_slot).position.y >= param_float(parameters.param1) ? 1 : 0;
 }
 
 int PlayerAiData::func3_213ACCC(
@@ -617,12 +597,7 @@ int PlayerAiData::func3_213ACCC(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _player.Position.Y < param.Param1 / 4096f ? 1 : 0;
-    return 0;
+    return session.player(bot_slot).position.y < param_float(parameters.param1) ? 1 : 0;
 }
 
 int PlayerAiData::func3_213ACE8(
@@ -670,12 +645,8 @@ int PlayerAiData::func3_213AD64(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return Func3_213AD88(context, param) ^ 1;
-    return 0;
+    return func3_213AD88(session, bot_slot, context,
+                      parameters) ^ 1;
 }
 
 int PlayerAiData::func3_213AD88(
@@ -687,12 +658,7 @@ int PlayerAiData::func3_213AD88(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _field30 == param.Param1 ? 1 : 0;
-    return 0;
+    return field30_ == parameters.param1 ? 1 : 0;
 }
 
 int PlayerAiData::func3_213ADA0(
@@ -738,12 +704,7 @@ int PlayerAiData::func3_213ADF8(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return GameState.Mode != GameMode.Capture ? 1 : 0;
-    return 0;
+    return session.match_mode() != 7 ? 1 : 0;
 }
 
 int PlayerAiData::func3_213AE14(
@@ -755,12 +716,7 @@ int PlayerAiData::func3_213AE14(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return GameState.Mode == GameMode.Capture ? 1 : 0;
-    return 0;
+    return session.match_mode() == 7 ? 1 : 0;
 }
 
 int PlayerAiData::func3_213AE30(
@@ -1983,13 +1939,8 @@ int PlayerAiData::func3_213BE48(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // FindEntityRef(AiEntRefType.Type56);
-    // return _entityRefs.Field56 != null && Func3_213BEA0(context, param) == 1 ? 1 : 0;
-    return 0;
+    find_entity_ref(AiEntRefType::Type56);
+    return (entity_refs_.entity(56) >= 0) && (func3_213BEA0(session, bot_slot, context, parameters) == 1) ? 1 : 0;
 }
 
 int PlayerAiData::func3_213BEA0(
@@ -2419,12 +2370,7 @@ int PlayerAiData::func3_213C75C(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return (int)DamageFromHalfturret;
-    return 0;
+    return static_cast<int>(damage_from_halfturret_);
 }
 
 int PlayerAiData::func3_213C764(
@@ -2453,12 +2399,7 @@ int PlayerAiData::func3_213C88C(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _slotDamage[_player.SlotIndex];
-    return 0;
+    return static_cast<int>(slot_damage_[bot_slot]);
 }
 
 int PlayerAiData::func3_213C89C(
@@ -2502,12 +2443,7 @@ int PlayerAiData::func3_213C9C4(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _slotHits[_player.SlotIndex];
-    return 0;
+    return static_cast<int>(slot_hits_[bot_slot]);
 }
 
 int PlayerAiData::func3_213C9D4(
@@ -2570,12 +2506,7 @@ int PlayerAiData::func3_213CA58(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return Field118 > param.Param1 * 2 ? 1 : 0;
-    return 0;
+    return field118_ > parameters.param1 * 2 ? 1 : 0;
 }
 
 int PlayerAiData::func3_213CA70(
@@ -2587,12 +2518,7 @@ int PlayerAiData::func3_213CA70(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return Field118 >= 151 * 2 ? 1 : 0;
-    return 0;
+    return field118_ >= 302 ? 1 : 0;
 }
 
 int PlayerAiData::func3_213CA84(
@@ -2759,12 +2685,7 @@ int PlayerAiData::func3_213CCB0(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _player._health;
-    return 0;
+    return session.player(bot_slot).health;
 }
 
 int PlayerAiData::func3_213CCBC(
@@ -2776,12 +2697,7 @@ int PlayerAiData::func3_213CCBC(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _player._health > param.Param1 ? 1 : 0;
-    return 0;
+    return session.player(bot_slot).health > parameters.param1 ? 1 : 0;
 }
 
 int PlayerAiData::func3_213CCD8(
@@ -2793,12 +2709,7 @@ int PlayerAiData::func3_213CCD8(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _player._health < param.Param1 ? 1 : 0;
-    return 0;
+    return session.player(bot_slot).health < parameters.param1 ? 1 : 0;
 }
 
 int PlayerAiData::func3_213CCF4(
@@ -2875,12 +2786,7 @@ int PlayerAiData::func3_213CDA4(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return DamageFromHalfturret != 0 ? 1 : 0;
-    return 0;
+    return damage_from_halfturret_ != 0 ? 1 : 0;
 }
 
 int PlayerAiData::func3_213CDB8(
@@ -2986,12 +2892,7 @@ int PlayerAiData::func3_213CFA4(
     static_cast<void>(bot_slot);
     static_cast<void>(context);
     static_cast<void>(parameters);
-    // NOT PORTED.  The managed body has lines the converter did not
-    // understand, or calls something that is itself not ported, and a
-    // half-converted behaviour would run the parts it did understand
-    // without the parts it did not.  The managed source follows.
-    // return _slotHits[_player.SlotIndex] != 0 ? 1 : 0;
-    return 0;
+    return slot_hits_[bot_slot] != 0 ? 1 : 0;
 }
 
 int PlayerAiData::func3_213CFC0(
@@ -3848,11 +3749,17 @@ int PlayerAiData::dispatch_funcs3(
     case 44:
         return func3_213CFC0(session, bot_slot, context,
                   parameters);
+    case 45:
+        return func3_213CFA4(session, bot_slot, context,
+                  parameters);
     case 49:
         return func3_213CF94(session, bot_slot, context,
                   parameters);
     case 50:
         return func3_213CF7C(session, bot_slot, context,
+                  parameters);
+    case 51:
+        return func3_213CDA4(session, bot_slot, context,
                   parameters);
     case 53:
         return func3_213CD58(session, bot_slot, context,
@@ -3866,11 +3773,35 @@ int PlayerAiData::dispatch_funcs3(
     case 56:
         return func3_213CCF4(session, bot_slot, context,
                   parameters);
+    case 57:
+        return func3_213CCD8(session, bot_slot, context,
+                  parameters);
+    case 58:
+        return func3_213CCBC(session, bot_slot, context,
+                  parameters);
+    case 59:
+        return func3_213CCB0(session, bot_slot, context,
+                  parameters);
     case 66:
         return func3_213CAA8(session, bot_slot, context,
                   parameters);
     case 67:
         return func3_213CA84(session, bot_slot, context,
+                  parameters);
+    case 68:
+        return func3_213CA70(session, bot_slot, context,
+                  parameters);
+    case 69:
+        return func3_213CA58(session, bot_slot, context,
+                  parameters);
+    case 73:
+        return func3_213C9C4(session, bot_slot, context,
+                  parameters);
+    case 75:
+        return func3_213C88C(session, bot_slot, context,
+                  parameters);
+    case 77:
+        return func3_213C75C(session, bot_slot, context,
                   parameters);
     case 86:
         return func3_213C0D0(session, bot_slot, context,
@@ -3883,6 +3814,9 @@ int PlayerAiData::dispatch_funcs3(
                   parameters);
     case 93:
         return func3_213BEA0(session, bot_slot, context,
+                  parameters);
+    case 94:
+        return func3_213BE48(session, bot_slot, context,
                   parameters);
     case 134:
         return func3_213B1D8(session, bot_slot, context,
@@ -3998,6 +3932,36 @@ int PlayerAiData::dispatch_funcs3(
     case 171:
         return func3_213AE30(session, bot_slot, context,
                   parameters);
+    case 172:
+        return func3_213AE14(session, bot_slot, context,
+                  parameters);
+    case 173:
+        return func3_213ADF8(session, bot_slot, context,
+                  parameters);
+    case 176:
+        return func3_213AD88(session, bot_slot, context,
+                  parameters);
+    case 177:
+        return func3_213AD64(session, bot_slot, context,
+                  parameters);
+    case 179:
+        return func3_213ACCC(session, bot_slot, context,
+                  parameters);
+    case 180:
+        return func3_213ACA8(session, bot_slot, context,
+                  parameters);
+    case 181:
+        return func3_213AC8C(session, bot_slot, context,
+                  parameters);
+    case 182:
+        return func3_213AC70(session, bot_slot, context,
+                  parameters);
+    case 183:
+        return func3_213AC54(session, bot_slot, context,
+                  parameters);
+    case 184:
+        return func3_213AC38(session, bot_slot, context,
+                  parameters);
     case 195:
         return func3_213A938(session, bot_slot, context,
                   parameters);
@@ -4006,6 +3970,9 @@ int PlayerAiData::dispatch_funcs3(
                   parameters);
     case 209:
         return func3_213A688(session, bot_slot, context,
+                  parameters);
+    case 210:
+        return func3_213A660(session, bot_slot, context,
                   parameters);
     case 211:
         return func3_213A650(session, bot_slot, context,

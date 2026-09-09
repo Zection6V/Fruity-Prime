@@ -164,6 +164,48 @@ HEALTH_FULL = re.compile(
 HEALTH_FRACTION = re.compile(
     r"^_player\._health (==|!=|<=|>=|<|>) _player\._healthMax / (\d+)$")
 HUNTER = re.compile(r"^_player\.Hunter (==|!=) Hunter\.(\w+)$")
+OPERATOR = "(==|!=|<=|>=|<|>)"
+# param.Param1 is a fixed-point number when it is compared against a
+# position and a plain count when it is compared against a timer, which is
+# why the two forms are separate patterns rather than one.
+POSITION = re.compile(
+    r"^_player\.Position\.([XYZ]) %s param\.Param1 / 4096f$" % OPERATOR)
+SLOT_TABLE = re.compile(
+    r"^_(slotHits|slotDamage)\[_player\.SlotIndex\] %s ([0-9 *+()-]+)$"
+    % OPERATOR)
+HALFTURRET_DAMAGE = re.compile(
+    r"^DamageFromHalfturret %s ([0-9 *+()-]+)$" % OPERATOR)
+FIELD_EXPRESSION = re.compile(
+    r"^_?(\w+) %s ([0-9 *+()-]+)$" % OPERATOR)
+FIELD_PARAM = re.compile(
+    r"^_?(\w+) %s param\.Param1( \* \d+)?$" % OPERATOR)
+HEALTH_PARAM = re.compile(
+    r"^_player\._health %s param\.Param1$" % OPERATOR)
+CALL_COUNT = re.compile(
+    r"^_executionTree\[context\.Depth \+ 1\]\.CallCount %s "
+    r"\(?([0-9 *+()-]+)\)?$" % OPERATOR)
+GAME_MODE = re.compile(r"^GameState\.Mode (==|!=) GameMode\.(\w+)$")
+PREDICATE_COMPARE = re.compile(
+    r"^(Func3_\w+)\(context, param\) %s (\d+)$" % OPERATOR)
+
+# Formats.GameMode, which is not contiguous: 0 and 1 are not modes.
+GAME_MODES = {
+    "None": 0, "SinglePlayer": 2, "Battle": 3, "BattleTeams": 4,
+    "Survival": 5, "SurvivalTeams": 6, "Capture": 7, "Bounty": 8,
+    "BountyTeams": 9, "Nodes": 10, "NodesTeams": 11, "Defender": 12,
+    "DefenderTeams": 13, "PrimeHunter": 14,
+}
+
+SLOT_TABLES = {"slotHits": "slot_hits_", "slotDamage": "slot_damage_"}
+
+RETURN_HEALTH = re.compile(r"^return _player\._health;$")
+RETURN_SLOT_TABLE = re.compile(
+    r"^return _(slotHits|slotDamage)\[_player\.SlotIndex\];$")
+RETURN_HALFTURRET = re.compile(
+    r"^return \(int\)DamageFromHalfturret;$")
+RETURN_RANDOM_RANGE = re.compile(
+    r"^return param\.Param1 \+ \(int\)Rng\.GetRandomInt2"
+    r"\(param\.Param2 - param\.Param1\);$")
 
 # Formats.Hunter, in the cartridge's order.
 HUNTERS = {
@@ -309,6 +351,53 @@ def convert_condition_atom(text: str) -> str | None:
     if matched:
         return "session.player(bot_slot).health %s %s" % (matched.group(1),
                                                           matched.group(2))
+    matched = POSITION.match(text)
+    if matched:
+        return "session.player(bot_slot).position.%s %s param_float(%s)" % (
+            matched.group(1).lower(), matched.group(2), "parameters.param1")
+    matched = SLOT_TABLE.match(text)
+    if matched:
+        bound = integer(matched.group(3))
+        if bound is not None:
+            return "%s[bot_slot] %s %s" % (SLOT_TABLES[matched.group(1)],
+                                           matched.group(2), bound)
+    matched = HALFTURRET_DAMAGE.match(text)
+    if matched:
+        bound = integer(matched.group(2))
+        if bound is not None:
+            return "damage_from_halfturret_ %s %s" % (matched.group(1),
+                                                      bound)
+    matched = CALL_COUNT.match(text)
+    if matched:
+        bound = integer(matched.group(2))
+        if bound is not None:
+            return ("execution_tree_[context.depth + 1].call_count %s %su"
+                    % (matched.group(1), bound))
+    matched = GAME_MODE.match(text)
+    if matched and matched.group(2) in GAME_MODES:
+        return "session.match_mode() %s %d" % (matched.group(1),
+                                               GAME_MODES[matched.group(2)])
+    matched = PREDICATE_COMPARE.match(text)
+    if matched:
+        member = matched.group(1)
+        member = member[0].lower() + member[1:]
+        return "%s(session, bot_slot, context, parameters) %s %s" % (
+            member, matched.group(2), matched.group(3))
+    matched = HEALTH_PARAM.match(text)
+    if matched:
+        return "session.player(bot_slot).health %s parameters.param1" % (
+            matched.group(1))
+    matched = FIELD_PARAM.match(text)
+    if matched and matched.group(1) in FIELDS:
+        return "%s %s parameters.param1%s" % (
+            FIELDS[matched.group(1)], matched.group(2),
+            matched.group(3) or "")
+    matched = FIELD_EXPRESSION.match(text)
+    if matched and matched.group(1) in FIELDS:
+        bound = integer(matched.group(3))
+        if bound is not None:
+            return "%s %s %s" % (FIELDS[matched.group(1)],
+                                 matched.group(2), bound)
     matched = HUNTER.match(text)
     if matched and matched.group(2) in HUNTERS:
         return "session.player_hunter(bot_slot) %s %d" % (
@@ -387,6 +476,24 @@ def convert(lines: list[str], known: set[str]) -> tuple[list[str], bool]:
         matched = RETURN_INT.match(line)
         if matched:
             out.append(indent + "return %s;" % matched.group(1))
+            continue
+        if RETURN_HEALTH.match(line):
+            out.append(indent + "return session.player(bot_slot).health;")
+            continue
+        matched = RETURN_SLOT_TABLE.match(line)
+        if matched:
+            out.append(indent + "return static_cast<int>(%s[bot_slot]);"
+                       % SLOT_TABLES[matched.group(1)])
+            continue
+        if RETURN_HALFTURRET.match(line):
+            out.append(indent
+                       + "return static_cast<int>(damage_from_halfturret_);")
+            continue
+        if RETURN_RANDOM_RANGE.match(line):
+            out.append(indent + "return parameters.param1 + static_cast<int>(")
+            out.append(indent + "    utility::get_random_int2(")
+            out.append(indent + "        parameters.param2"
+                       " - parameters.param1));")
             continue
         matched = RETURN_PREDICATE.match(line)
         if matched and matched.group(1) in known:

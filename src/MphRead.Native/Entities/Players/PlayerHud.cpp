@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <limits>
 
 namespace fruityprime::players {
 namespace {
@@ -27,26 +29,8 @@ namespace {
 // PlayerHud's scoreboard geometry.  The stock 28 fits the four players a DS
 // match could hold; with more the list runs off both ends of a 192-unit
 // screen, so it tightens to whatever fits and stops at the height of a
-// hunter portrait.
-constexpr float ScoreStartSpace = 13.0F;
-constexpr float ScorePlayerSpace = 28.0F;
-constexpr float ScoreMinPlayerSpace = 19.0F;
-
-[[nodiscard]] float scoreboard_row_space(const HudContext& context) {
-    const int rows = static_cast<int>(context.state->active_players);
-    if (rows <= 4) {
-        return ScorePlayerSpace;
-    }
-    const float available = 168.0F - ScoreStartSpace;
-    return std::max(ScoreMinPlayerSpace,
-                    available / static_cast<float>(rows));
-}
-
-[[nodiscard]] float scoreboard_height(const HudContext& context) {
-    return ScoreStartSpace
-        + scoreboard_row_space(context)
-            * static_cast<float>(context.state->active_players);
-}
+// hunter portrait.  The spacing constants are PlayerHud's own; the two
+// methods that use them are below, beside the rest of the file's members.
 
 [[nodiscard]] std::string call(
     const std::function<std::string(int)>& lookup, int id) {
@@ -208,8 +192,8 @@ void PlayerHud::DrawScoreboard(const HudContext& context) {
         return;
     }
     const auto columns = net::hud::score_columns(context.networked);
-    const float row_space = scoreboard_row_space(context);
-    float y = 104.0F - scoreboard_height(context) / 2.0F;
+    const float row_space = GetScoreboardRowSpace(context);
+    float y = 104.0F - GetScoreboardHeight(context) / 2.0F;
     const HudBackend::Color header_color = from_bgr555(0x3FEF);
     if (context.match_over) {
         const std::string over = call(context.hud_message, GameOverMessageId);
@@ -855,6 +839,151 @@ void HudMessageQueue::DrawQueuedHudMessages(const HudContext& context,
             context, message.x, message.y, message.align, 0, message.text,
             &message.color, message.alpha, message.font_size / 8.0F));
     }
+}
+
+float PlayerHud::GetScoreboardRowSpace(const HudContext& context) {
+    if (context.state == nullptr) {
+        return ScorePlayerSpace;
+    }
+    const int rows = static_cast<int>(context.state->active_players);
+    if (rows <= 4) {
+        return ScorePlayerSpace;
+    }
+    float available = 168.0F - ScoreStartSpace;
+    if (context.match_over) {
+        // GAME OVER takes a row of its own above the list.
+        available -= ScoreStartSpace;
+    }
+    if (context.state->teams) {
+        available -= 2.0F * ScoreTeamLineSpace;
+    }
+    return std::clamp(available / static_cast<float>(rows),
+                      ScoreMinPlayerSpace, ScorePlayerSpace);
+}
+
+float PlayerHud::GetScoreboardHeight(const HudContext& context) {
+    if (context.state == nullptr) {
+        return ScoreStartSpace;
+    }
+    const float row_space = GetScoreboardRowSpace(context);
+    float height = ScoreStartSpace;
+    if (context.match_over) {
+        height *= 2.0F;
+    }
+    // Four is "no team yet": the first player always opens one.
+    int current_team = 4;
+    const std::size_t count = std::min<std::size_t>(
+        context.state->active_players, context.state->result_slots.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        const std::int32_t slot = context.state->result_slots[index];
+        if (slot < 0 || context.session == nullptr
+            || !context.session->has_player(
+                static_cast<std::uint8_t>(slot))) {
+            continue;
+        }
+        if (context.state->teams) {
+            const int team = static_cast<int>(
+                context.state->player_teams[static_cast<std::size_t>(slot)]);
+            if (team != current_team) {
+                if (current_team != 4) {
+                    height -= ScoreTeamHeaderSpace;
+                }
+                height += ScoreTeamLineSpace;
+                current_team = team;
+            }
+        }
+        height += row_space;
+    }
+    return height;
+}
+
+void PlayerHud::DrawEscapeTime(const HudContext& context,
+                               const float seconds, const float shift_x,
+                               const float shift_y) {
+    if (seconds < 0.0F) {
+        return;
+    }
+    const int total = static_cast<int>(seconds);
+    const int minutes = total / 60;
+    const int remainder = total % 60;
+    // Hundredths, truncated the way the managed division is.
+    const int hundredths = static_cast<int>(
+        (seconds - static_cast<float>(total)) * 100.0F);
+    char text[32];
+    std::snprintf(text, sizeof(text), "%d:%02d:%02d", minutes, remainder,
+                  hundredths);
+    // The last ten seconds turn red.
+    const std::size_t palette = seconds < 10.0F ? 2u : 0u;
+    static_cast<void>(DrawText2D(context, 128.0F + shift_x,
+                                 180.0F + shift_y, Align::Center, palette,
+                                 text));
+}
+
+PlayerHud::LocatorPlacement PlayerHud::PlaceLocatorIcon(
+    const net::Vec3& view, const float projected_x, const float projected_y,
+    const float width, const float height) noexcept {
+    // The HUD is laid out in the DS's 256x192 space and stretched to the
+    // window, so every constant below is converted through these two.
+    const auto w = [width](float value) {
+        return value / 256.0F * width;
+    };
+    const auto h = [height](float value) {
+        return value / 192.0F * height;
+    };
+    LocatorPlacement placement;
+    float x = 0.0F;
+    float y = 0.0F;
+    bool behind = false;
+    float px = 0.0F;
+    float py = 0.0F;
+    if (view.z < -1.0F) {
+        px = projected_x * width;
+        py = projected_y * height;
+        x = px - w(128.0F);
+        y = py - h(106.0F);
+    } else {
+        // Behind the camera, where a projection means nothing: the view
+        // space offsets stand in for it and the marker is always pinned.
+        x = w(view.x);
+        y = -h(view.y);
+        behind = true;
+    }
+    const float abs_x = std::fabs(x);
+    const float abs_y = std::fabs(y);
+    if (!behind && abs_x <= w(100.0F) && abs_y <= h(60.0F)) {
+        placement.x = px / width;
+        placement.y = py / height;
+        return placement;
+    }
+    if (abs_y >= 1.0F / 4096.0F) {
+        // Where the line out to the marker crosses the box: the top or
+        // bottom edge first, and the left or right one if it leaves through
+        // there instead.
+        const float crossing_x =
+            abs_x + std::trunc((h(60.0F) - abs_y) * abs_x / abs_y);
+        if (crossing_x > w(100.0F)) {
+            const float crossing_y =
+                abs_y + std::trunc((w(100.0F) - abs_x) * abs_y / abs_x);
+            px = x <= 0.0F ? w(28.0F) : w(228.0F);
+            py = y <= 0.0F ? h(106.0F) - crossing_y
+                           : crossing_y + h(106.0F);
+        } else {
+            px = x <= 0.0F ? w(128.0F) - crossing_x
+                           : crossing_x + w(128.0F);
+            py = y <= 0.0F ? h(46.0F) : h(166.0F);
+        }
+    } else {
+        // Level with the middle of the box, so only the side matters and
+        // the height is left wherever the projection put it -- which is
+        // zero when the marker is behind the camera.
+        px = x <= 0.0F ? w(28.0F) : w(228.0F);
+    }
+    placement.x = px / width;
+    placement.y = py / height;
+    placement.angle = std::atan2(-y, x) * 180.0F
+        / 3.14159265358979323846F;
+    placement.arrow = true;
+    return placement;
 }
 
 } // namespace fruityprime::players

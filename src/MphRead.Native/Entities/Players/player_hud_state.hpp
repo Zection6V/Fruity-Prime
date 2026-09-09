@@ -75,7 +75,116 @@ public:
     // PlayerHud.UpdateDisruptedState
     void update_disrupted_state() noexcept;
 
+    // ---- the reticle -----------------------------------------------
+    // PlayerHud's target circle contracts the moment a shot is fired and
+    // expands again two seconds later.  The Imperialist's own reticle
+    // replaces it entirely and never animates, which is why the sniper
+    // flag gates the timer rather than only the artwork.
+
+    // What a pass asked the target-circle model to do.  The state machine
+    // lives here; playing the animation is the renderer's half.
+    struct ReticleAnimation {
+        bool requested = false;
+        int start = 0;
+        int target = 0;
+        int frames = 0;
+    };
+
+    // Which artwork the circle should be drawn from.  ResetReticle and the
+    // weapon switch are the only two things that change it.
+    enum class ReticleArt : std::uint8_t { TargetCircle, SniperCircle };
+
+    // PlayerHud.HudOnFiredShot.  A fixed crosshair does not animate at all,
+    // and neither does the scan visor, which has no reticle.
+    ReticleAnimation hud_on_fired_shot(bool scan_visor,
+                                       bool fixed_crosshair) noexcept;
+
+    // PlayerHud.ResetReticle: back to the target circle, uncontracted.
+    void reset_reticle() noexcept {
+        reticle_art_ = ReticleArt::TargetCircle;
+        small_reticle_ = false;
+        small_reticle_timer_ = 0;
+    }
+
+    // PlayerHud.UpdateReticle's state half.  The cartridge's expansion is
+    // stuck at full contraction for four frames, has one frame of starting
+    // to open, and then jumps to fully open; the four-frame animation is
+    // what produces that.
+    ReticleAnimation update_reticle() noexcept;
+
+    // PlayerHud.HudOnMorphStart, which puts the circle back to its first
+    // frame without touching the artwork.
+    void hud_on_morph_start() noexcept {
+        small_reticle_ = false;
+        small_reticle_timer_ = 0;
+    }
+
+    // BeamType.Imperialist, the one beam with a reticle of its own.
+    static constexpr int ImperialistBeam = 4;
+
+    // What a weapon switch asked for: the icon spins to the beam picked,
+    // and the reticle artwork may have changed under it.
+    struct WeaponSwitch {
+        ReticleAnimation icon;
+        bool art_changed = false;
+    };
+
+    // PlayerHud.HudOnWeaponSwitch.  Only the Imperialist has a reticle of
+    // its own; every other beam goes back to the target circle.
+    WeaponSwitch hud_on_weapon_switch(int beam, bool scan_visor) noexcept;
+
+    // PlayerHud.HudOnZoom.
+    ReticleAnimation hud_on_zoom(bool zoom) noexcept;
+
+    // PlayerHud.HudOnDisrupted.  A cutscene running is the one thing that
+    // suppresses it.
+    void hud_on_disrupted(bool cutscene_running,
+                          std::uint16_t duration) noexcept {
+        if (!cutscene_running) {
+            disrupted_state_ = 1;
+            disrupted_timer_ = duration;
+        }
+    }
+
+    // PlayerHud.GetCrosshairColor: green, amber, red.  The thresholds are
+    // absolute health, not a fraction of the maximum, so a hunter with an
+    // energy tank goes amber at the same reading Samus does.
+    struct CrosshairColor {
+        float red = 0.0F;
+        float green = 0.0F;
+        float blue = 0.0F;
+    };
+    [[nodiscard]] static constexpr CrosshairColor get_crosshair_color(
+        int health) noexcept {
+        if (health > 60) {
+            return {0.0F, 1.0F, 0.0F};
+        }
+        if (health > 33) {
+            return {1.0F, 0.65F, 0.0F};
+        }
+        return {1.0F, 0.0F, 0.0F};
+    }
+
+    [[nodiscard]] bool small_reticle() const noexcept {
+        return small_reticle_;
+    }
+    [[nodiscard]] bool sniper_reticle() const noexcept {
+        return sniper_reticle_;
+    }
+    [[nodiscard]] ReticleArt reticle_art() const noexcept {
+        return reticle_art_;
+    }
+    [[nodiscard]] bool hud_zoom() const noexcept { return hud_zoom_; }
+
 private:
+    bool small_reticle_ = false;
+    // The cartridge counts at half this rate, so sixty of its frames are
+    // a hundred and twenty here.
+    std::uint16_t small_reticle_timer_ = 0;
+    bool sniper_reticle_ = false;
+    bool hud_zoom_ = false;
+    ReticleArt reticle_art_ = ReticleArt::TargetCircle;
+
     // PlayerHud.UpdateWhiteoutTable
     void update_whiteout_table(float value) noexcept;
 

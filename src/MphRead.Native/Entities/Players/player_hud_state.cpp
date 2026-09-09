@@ -92,4 +92,57 @@ void PlayerHudState::update_disrupted_state() noexcept {
     }
 }
 
+PlayerHudState::ReticleAnimation PlayerHudState::hud_on_fired_shot(
+    const bool scan_visor, const bool fixed_crosshair) noexcept {
+    ReticleAnimation animation;
+    if (scan_visor || fixed_crosshair) {
+        return animation;
+    }
+    if (!small_reticle_ && !sniper_reticle_) {
+        small_reticle_ = true;
+        animation = {true, 0, 3, 4};
+    }
+    small_reticle_timer_ = 60 * 2;
+    return animation;
+}
+
+PlayerHudState::ReticleAnimation PlayerHudState::update_reticle() noexcept {
+    ReticleAnimation animation;
+    if (small_reticle_timer_ > 0 && !sniper_reticle_) {
+        --small_reticle_timer_;
+        if (small_reticle_timer_ == 0 && small_reticle_) {
+            animation = {true, 3, 0, 4};
+            small_reticle_ = false;
+        }
+    }
+    return animation;
+}
+
+PlayerHudState::WeaponSwitch PlayerHudState::hud_on_weapon_switch(
+    const int beam, const bool scan_visor) noexcept {
+    const ReticleArt before = reticle_art_;
+    if (beam != ImperialistBeam || sniper_reticle_) {
+        sniper_reticle_ = false;
+        reset_reticle();
+    } else {
+        sniper_reticle_ = true;
+        if (!scan_visor) {
+            reticle_art_ = ReticleArt::SniperCircle;
+        }
+    }
+    // The weapon icon spins through nineteen frames to the beam picked.
+    return {ReticleAnimation{true, 9, 27, 19}, reticle_art_ != before};
+}
+
+PlayerHudState::ReticleAnimation PlayerHudState::hud_on_zoom(
+    const bool zoom) noexcept {
+    ReticleAnimation animation;
+    if (hud_zoom_ != zoom) {
+        hud_zoom_ = zoom;
+        animation = hud_zoom_ ? ReticleAnimation{true, 0, 2, 2}
+                              : ReticleAnimation{true, 2, 0, 2};
+    }
+    return animation;
+}
+
 } // namespace fruityprime::players

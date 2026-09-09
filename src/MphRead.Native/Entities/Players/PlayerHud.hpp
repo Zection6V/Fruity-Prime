@@ -233,6 +233,61 @@ public:
     static float UpdateHealthbarOffset(const HudContext& context,
                                        float current, bool alt_form) noexcept;
 
+    // PlayerHud's scoreboard geometry.  The stock 28 units a row fits
+    // the four players a DS match could hold; with more the list runs off
+    // both ends of a 192-unit screen, so it tightens to whatever fits and
+    // stops at the height of a hunter icon.
+    static constexpr float ScoreStartSpace = 13.0F;
+    static constexpr float ScoreTeamHeaderSpace = 4.0F;
+    static constexpr float ScoreTeamLineSpace = 18.0F;
+    static constexpr float ScorePlayerSpace = 28.0F;
+    static constexpr float ScoreMinPlayerSpace = 19.0F;
+
+    // PlayerHud.GetScoreboardRowSpace and GetScoreboardHeight.
+    [[nodiscard]] static float GetScoreboardRowSpace(
+        const HudContext& context);
+    [[nodiscard]] static float GetScoreboardHeight(const HudContext& context);
+
+    // PlayerHud.DrawEscapeTime.  The escape timer counts hundredths, which
+    // is why it has a format of its own rather than sharing FormatTime.
+    static void DrawEscapeTime(const HudContext& context, float seconds,
+                               float shift_x, float shift_y);
+
+    // PlayerHud.LocatorInfo: one marker the mode HUD asked for this frame.
+    // The icon is named rather than carried as a model, because which model
+    // draws it is the renderer's half of the seam.
+    enum class LocatorIcon : std::uint8_t {
+        Node,
+        Octolith,
+        Enemy,
+        Arrow
+    };
+
+    struct LocatorInfo {
+        net::Vec3 position;
+        LocatorIcon icon = LocatorIcon::Node;
+        HudBackend::Color color{};
+        float alpha = 1.0F;
+    };
+
+    // Where DrawLocatorIcon put a marker, in 0..1 of the viewport.  A
+    // marker outside the box is pinned to its edge and drawn as an arrow
+    // pointing at where the thing actually is.
+    struct LocatorPlacement {
+        float x = 0.0F;
+        float y = 0.0F;
+        float angle = 0.0F;
+        bool arrow = false;
+    };
+
+    // PlayerHud.DrawLocatorIcon's geometry.  `view` is the position through
+    // the view matrix and `projected` is its screen position, which only
+    // means anything when the point is actually in front of the camera --
+    // view.z < -1, which is what the cartridge tests.
+    [[nodiscard]] static LocatorPlacement PlaceLocatorIcon(
+        const net::Vec3& view, float projected_x, float projected_y,
+        float width, float height) noexcept;
+
     // Strings.GetHudMessage(219): "GAME OVER".
     static constexpr int GameOverMessageId = 219;
 };

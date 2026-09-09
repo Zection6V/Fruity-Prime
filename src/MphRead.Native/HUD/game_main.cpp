@@ -1,7 +1,7 @@
 #include "Metadata/room_metadata.hpp"
 #include "Mods/Launcher/Portable/adventure_save.hpp"
 #include "Assets/game_assets.hpp"
-#include "Mods/chat.hpp"
+#include "Mods/Chat/ChatBox.hpp"
 #include "Mods/Chat/chat_font.hpp"
 #include "Mods/Chat/chat_hud.hpp"
 #include "Formats/collision_query.hpp"
@@ -187,7 +187,6 @@ bool g_scan_button_was_held = false;
 bool g_scan_dialog_active = false;
 bool g_scan_dialog_confirm_was_down = false;
 std::uint16_t g_scan_dialog_scan_id = 0;
-fruityprime::chat::Log g_chat;
 std::string g_local_name = "FruityPrime";
 std::chrono::steady_clock::time_point g_started_at;
 std::chrono::steady_clock::time_point g_fps_window_started;
@@ -2655,11 +2654,6 @@ float draw_chat_run(std::string_view text, float x, float y, float aspect,
     return 0;
 }
 
-[[nodiscard]] double chat_now() {
-    return std::chrono::duration<double>(
-        std::chrono::steady_clock::now() - g_started_at).count();
-}
-
 void snapshot_net_log() {
     if (!g_net_log.enabled() || g_net_client == nullptr
         || !g_net_client->connected()) {
@@ -2744,9 +2738,95 @@ void record_and_repair_network_players(std::uint32_t frame) {
     }
 }
 
-[[nodiscard]] bool chat_available() {
-    return g_session.has_value() && g_match_flow.has_value()
-        && g_match_flow->state().mode != 2; // story is single-player
+[[nodiscard]] bool chat_single_player() noexcept {
+    return g_game_state.single_player;
+}
+
+[[nodiscard]] bool chat_net_active() noexcept {
+    return g_net_client != nullptr && g_net_client->connected();
+}
+
+[[nodiscard]] std::string chat_player_name() {
+    return g_local_name;
+}
+
+void send_chat_packet(std::string_view text) {
+    if (!chat_net_active()) {
+        return;
+    }
+    fruityprime::net::ChatPacket packet;
+    packet.slot = g_local_slot;
+    packet.kind = fruityprime::net::ChatPacket::KindSay;
+    packet.name = g_local_name;
+    packet.text = std::string(text);
+    const auto encoded = packet.encode();
+    g_net_client->send(fruityprime::net::PacketType::Chat, encoded);
+}
+
+[[nodiscard]] int chat_key_from_windows(WPARAM key, LPARAM key_data) {
+    if (key >= 32 && key <= 126) {
+        return static_cast<int>(key);
+    }
+    if (key >= VK_F1 && key <= VK_F24) {
+        return 290 + static_cast<int>(key - VK_F1);
+    }
+    if (key >= VK_NUMPAD0 && key <= VK_NUMPAD9) {
+        return 320 + static_cast<int>(key - VK_NUMPAD0);
+    }
+    switch (key) {
+    case VK_ESCAPE: return 256;
+    case VK_RETURN: return (key_data & (1LL << 24)) != 0 ? 335 : 257;
+    case VK_TAB: return 258;
+    case VK_BACK: return 259;
+    case VK_INSERT: return 260;
+    case VK_DELETE: return 261;
+    case VK_RIGHT: return 262;
+    case VK_LEFT: return 263;
+    case VK_DOWN: return 264;
+    case VK_UP: return 265;
+    case VK_PRIOR: return 266;
+    case VK_NEXT: return 267;
+    case VK_HOME: return 268;
+    case VK_END: return 269;
+    case VK_CAPITAL: return 280;
+    case VK_SCROLL: return 281;
+    case VK_NUMLOCK: return 282;
+    case VK_SNAPSHOT: return 283;
+    case VK_PAUSE: return 284;
+    case VK_DECIMAL: return 330;
+    case VK_DIVIDE: return 331;
+    case VK_MULTIPLY: return 332;
+    case VK_SUBTRACT: return 333;
+    case VK_ADD: return 334;
+    case VK_LSHIFT: return 340;
+    case VK_LCONTROL: return 341;
+    case VK_LMENU: return 342;
+    case VK_LWIN: return 343;
+    case VK_RSHIFT: return 344;
+    case VK_RCONTROL: return 345;
+    case VK_RMENU: return 346;
+    case VK_RWIN: return 347;
+    case VK_APPS: return 348;
+    case VK_OEM_1: return 59;
+    case VK_OEM_PLUS: return 61;
+    case VK_OEM_COMMA: return 44;
+    case VK_OEM_MINUS: return 45;
+    case VK_OEM_PERIOD: return 46;
+    case VK_OEM_2: return 47;
+    case VK_OEM_3: return 96;
+    case VK_OEM_4: return 91;
+    case VK_OEM_5: return 92;
+    case VK_OEM_6: return 93;
+    case VK_OEM_7: return 39;
+    case VK_SHIFT: {
+        const UINT scan = static_cast<UINT>((key_data >> 16) & 0xFF);
+        const UINT side = MapVirtualKeyW(scan, MAPVK_VSC_TO_VK_EX);
+        return side == VK_RSHIFT ? 344 : 340;
+    }
+    case VK_CONTROL: return (key_data & (1LL << 24)) != 0 ? 345 : 341;
+    case VK_MENU: return (key_data & (1LL << 24)) != 0 ? 346 : 342;
+    default: return 0;
+    }
 }
 
 [[nodiscard]] std::uint32_t demo_frame() noexcept {
@@ -2760,24 +2840,6 @@ void record_demo_bytes(std::span<const std::uint8_t> data) {
 void record_demo_packet(fruityprime::net::PacketType type,
                         std::span<const std::uint8_t> payload) {
     g_demo_recorder.record_packet(demo_frame(), type, payload);
-}
-
-void submit_chat() {
-    const std::string text = g_chat.submit();
-    if (text.empty()) {
-        return;
-    }
-    const std::string name = g_local_name.empty() ? "You" : g_local_name;
-    g_chat.add(name, text, fruityprime::net::ChatPacket::KindSay, chat_now());
-    if (g_net_client != nullptr && g_net_client->connected()) {
-        fruityprime::net::ChatPacket packet;
-        packet.slot = g_local_slot;
-        packet.kind = fruityprime::net::ChatPacket::KindSay;
-        packet.name = name;
-        packet.text = text;
-        const auto encoded = packet.encode();
-        g_net_client->send(fruityprime::net::PacketType::Chat, encoded);
-    }
 }
 
 [[nodiscard]] std::string match_time_text(float seconds) {
@@ -4629,39 +4691,40 @@ void draw_hud(int width, int height) {
     const float margin = 16.0F * ui_scale;
 
 
-    const bool chat_visible = chat_available();
+    const bool chat_visible = fruityprime::chat::ChatBox::Visible();
     const float chat_aspect = fruityprime::chat::hud::aspect_fix(
         safe_width, safe_height);
     const float chat_x = fruityprime::chat::hud::margin(false) * chat_aspect;
     float chat_y = fruityprime::chat::hud::Top;
     if (chat_visible) {
-        const auto chat_lines = g_chat.visible(chat_now());
+        std::vector<fruityprime::chat::VisibleChatLine> chat_lines;
+        fruityprime::chat::ChatBox::CollectVisible(chat_lines);
         for (const auto& visible : chat_lines) {
-            const bool system = visible.line.kind
+            const bool system = visible.Line.Kind
                 == fruityprime::net::ChatPacket::KindSystem;
-            const std::string name = system || visible.line.name.empty()
+            const std::string name = system || visible.Line.Name.empty()
                 ? std::string()
-                : visible.line.name + ": ";
+                : visible.Line.Name + ": ";
             const std::uint8_t name_red = system ? 110 : 110;
             const std::uint8_t name_green = system ? 205 : 255;
             const std::uint8_t name_blue = system ? 125 : 130;
             const float at = draw_chat_run(
-                name, chat_x, chat_y, chat_aspect, visible.alpha,
+                name, chat_x, chat_y, chat_aspect, visible.Alpha,
                 safe_width, safe_height, name_red, name_green, name_blue);
             const std::string text = fruityprime::chat::hud::fit(
-                visible.line.text, chat_aspect, at - chat_x);
+                visible.Line.Text, chat_aspect, at - chat_x);
             static_cast<void>(draw_chat_run(
-                text, at, chat_y, chat_aspect, visible.alpha,
+                text, at, chat_y, chat_aspect, visible.Alpha,
                 safe_width, safe_height, system ? 110 : 170,
                 system ? 205 : 255, system ? 125 : 175));
             chat_y += fruityprime::chat::hud::LineHeight;
         }
-        if (g_chat.composing()) {
+        if (fruityprime::chat::ChatBox::Composing()) {
             const float at = draw_chat_run(
                 "Says: ", chat_x, chat_y, chat_aspect, 1.0F,
                 safe_width, safe_height, 110, 205, 125);
-            const std::string prompt = std::string(g_chat.compose_text())
-                + "_";
+            const std::string prompt
+                = fruityprime::chat::ChatBox::ComposeText() + "_";
             static_cast<void>(draw_chat_run(
                 fruityprime::chat::hud::tail(
                     prompt, chat_aspect, at - chat_x),
@@ -7040,8 +7103,8 @@ void poll_network() {
         case fruityprime::net::PacketType::Chat: {
             const auto chat = fruityprime::net::ChatPacket::decode(
                 packet.payload());
-            if (chat && chat_available()) {
-                g_chat.receive(*chat, chat_now());
+            if (chat) {
+                fruityprime::chat::ChatBox::Receive(*chat);
             }
             break;
         }
@@ -7129,8 +7192,8 @@ void pump_replay_frame() {
         case fruityprime::net::PacketType::Chat: {
             const auto chat = fruityprime::net::ChatPacket::decode(
                 packet.subspan(1));
-            if (chat && chat_available()) {
-                g_chat.receive(*chat, chat_now());
+            if (chat) {
+                fruityprime::chat::ChatBox::Receive(*chat);
             }
             break;
         }
@@ -7326,17 +7389,18 @@ void update_game(HWND window) {
     g_hud_elapsed_seconds += 1.0F / 60.0F;
     poll_network();
     if (g_replay_playback.active()) {
-        if (!g_paused && !g_chat.composing()) {
+        if (!g_paused && !fruityprime::chat::ChatBox::Composing()) {
             pump_replay_frame();
         }
         g_show_scoreboard = key_down(VK_TAB)
             || gamepad_binding_down(g_input_config.pad_bindings.scoreboard);
         return;
     }
-    if (!chat_available() && g_chat.composing()) {
-        g_chat.cancel();
+    if (!fruityprime::chat::ChatBox::Available()
+        && fruityprime::chat::ChatBox::Composing()) {
+        fruityprime::chat::ChatBox::Cancel();
     }
-    if (g_chat.consume_just_closed()) {
+    if (fruityprime::chat::ChatBox::ConsumeJustClosed()) {
         // Do not apply mouse travel accumulated while the text prompt was up.
         center_mouse(window);
     }
@@ -7344,7 +7408,7 @@ void update_game(HWND window) {
         update_scan_dialog(window);
         return;
     }
-    if (g_chat.composing()) {
+    if (fruityprime::chat::ChatBox::Composing()) {
         g_input.clear();
         g_input.set_aim(aim_from_angles());
         g_session->set_input(g_local_slot, fruityprime::gameplay::Input{
@@ -7533,32 +7597,22 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam,
         PostQuitMessage(0);
         return 0;
     }
-    if (message == WM_KEYDOWN && g_chat.composing()) {
-        const bool repeated = (lparam & (1LL << 30)) != 0;
-        if (wparam == VK_ESCAPE && !repeated) {
-            g_chat.cancel();
+    if (message == WM_KEYDOWN) {
+        const bool can_open = g_session.has_value()
+            && g_match_flow.has_value() && !g_replay_playback.active()
+            && !g_paused;
+        if (fruityprime::chat::ChatBox::HandleKeyDown(
+                chat_key_from_windows(wparam, lparam), key_down(VK_CONTROL),
+                key_down(VK_MENU), can_open)) {
             if (g_mouse_look) {
                 ReleaseCapture();
                 g_mouse_look = false;
             }
             return 0;
         }
-        if (wparam == VK_RETURN && !repeated) {
-            submit_chat();
-            if (g_mouse_look) {
-                ReleaseCapture();
-                g_mouse_look = false;
-            }
-            return 0;
-        }
-        if (wparam == VK_BACK) {
-            g_chat.backspace();
-            return 0;
-        }
-        return 0;
     }
-    if (message == WM_CHAR && g_chat.composing()) {
-        g_chat.handle_text(static_cast<int>(wparam));
+    if (message == WM_CHAR && fruityprime::chat::ChatBox::Composing()) {
+        fruityprime::chat::ChatBox::HandleText(static_cast<int>(wparam));
         return 0;
     }
     if (message == WM_KEYDOWN && (lparam & (1LL << 30)) == 0
@@ -7575,16 +7629,6 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam,
     if (message == WM_KEYDOWN && (lparam & (1LL << 30)) == 0
         && wparam == VK_F7) {
         rejoin_spectating();
-        return 0;
-    }
-    if (message == WM_KEYDOWN && wparam == 'T'
-        && (lparam & (1LL << 30)) == 0
-        && chat_available() && !g_paused) {
-        g_chat.open(true);
-        if (g_mouse_look) {
-            ReleaseCapture();
-            g_mouse_look = false;
-        }
         return 0;
     }
     if (message == WM_KEYDOWN && g_scan_dialog_active
@@ -7710,7 +7754,14 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
     fruityprime::utility::console::run();
     initialize_command_arguments();
     g_started_at = std::chrono::steady_clock::now();
-    g_chat.clear();
+    fruityprime::chat::detail::BindRuntime({
+        &chat_single_player,
+        &chat_net_active,
+        &chat_player_name,
+        &send_chat_packet,
+        nullptr
+    });
+    fruityprime::chat::ChatBox::Clear();
     double run_seconds = 0.0;
     bool adventure_argument = false;
     std::uint8_t story_save_slot = 1;

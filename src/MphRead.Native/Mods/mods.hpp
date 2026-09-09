@@ -2,7 +2,7 @@
 
 #include "Mods/branding.hpp"
 #include "Mods/Update/build_version.hpp"
-#include "Mods/chat.hpp"
+#include "Mods/Chat/ChatBox.hpp"
 #include "Mods/debug_log.hpp"
 #include "Mods/Network/demo.hpp"
 #include "Mods/Network/dedicated_server.hpp"

@@ -509,9 +509,6 @@ int main() {
                 "thumbnail log content did not match the managed format");
         thumbnail_log_file.close();
 
-        require(fruityprime::branding::executable_name(
-                    "C:/games/FruityPrime.exe") == "FruityPrime",
-                "branding executable name was not normalized");
         require(fruityprime::branding::name_and_version().find(
                     "Fruity Prime") != std::string::npos,
                 "branding display name was not used");
@@ -520,8 +517,9 @@ int main() {
                     && std::string(fruityprime::mods::Branding::FileName)
                         == fruityprime::branding::FileName,
                 "managed Branding constants were not exposed");
-        require(!fruityprime::mods::Branding::Executable().empty(),
-                "managed Branding executable name was empty");
+        require(fruityprime::mods::Branding::Executable()
+                    == "mods_portable_tests",
+                "managed Branding executable name did not use ProcessPath");
         require(fruityprime::mods::Branding::NameAndVersion().find(
                     fruityprime::mods::Branding::Name) == 0,
                 "managed Branding version text was not reproduced");

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <filesystem>
 #include <string>
 
 namespace fruityprime::branding {
@@ -10,8 +9,6 @@ inline constexpr const char* FileName = "FruityPrime";
 inline constexpr const char* Upstream = "MphRead";
 inline constexpr const char* Repository = "liveteklol/Fruity-Prime";
 
-[[nodiscard]] std::string executable_name(
-    const std::filesystem::path& executable_path);
 [[nodiscard]] std::string name_and_version();
 
 } // namespace fruityprime::branding

@@ -8,28 +8,26 @@
 #include <string_view>
 #include <vector>
 
-namespace fruityprime::input {
-class State;
-}
-
 namespace fruityprime::chat::player_entity_chat_hud {
 
 // The fields correspond to PlayerEntityChatHud.cs's _chatInst and
 // _chatVisible. They belong to one PlayerEntity, not to the process-wide
 // ChatBox or to the native window host.
+using DrawText = void (*)(std::u16string_view text, float left, float top,
+                          float aspect, int viewport_width,
+                          int viewport_height, float alpha,
+                          std::uint8_t red, std::uint8_t green,
+                          std::uint8_t blue);
+
 struct State {
     std::array<std::array<std::uint8_t, 4>, 2> palette{};
     bool palette_ready = false;
     bool character_ready = false;
     bool enabled = false;
     std::vector<VisibleChatLine> visible;
-};
 
-using DrawText = void (*)(std::u16string_view text, float left, float top,
-                          float aspect, int viewport_width,
-                          int viewport_height, float alpha,
-                          std::uint8_t red, std::uint8_t green,
-                          std::uint8_t blue);
+    void draw(int viewport_width, int viewport_height, DrawText draw_text);
+};
 
 // These values are the managed PlayerEntityChatHud constants. Coordinates
 // remain in the game's 256x192 HUD space until the renderer maps them.
@@ -58,15 +56,5 @@ inline constexpr float Bottom = Top + 4.0F * LineHeight;
 // the managed lazy palette/character initialization boundary explicit for one
 // PlayerEntity instance.
 void ensure_renderer(State& state) noexcept;
-
-// Native entry-point glue calls this one method for ModDrawChat. The chat
-// layout, text conversion, clipping, and glyph drawing all stay in this
-// PlayerEntityChatHud counterpart rather than in the native WinMain host.
-void draw(State& state, int viewport_width, int viewport_height,
-          DrawText draw_text);
-
-// Native input state is the adapter behind the four nullable managed input
-// snapshots. Clearing it is the native equivalent of ModForgetInputDeltas.
-void forget_input_deltas(input::State& state) noexcept;
 
 } // namespace fruityprime::chat::player_entity_chat_hud

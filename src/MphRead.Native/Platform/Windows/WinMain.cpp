@@ -2,7 +2,6 @@
 #include "Mods/Launcher/Portable/adventure_save.hpp"
 #include "Assets/game_assets.hpp"
 #include "Mods/Chat/ChatBox.hpp"
-#include "Mods/Chat/PlayerEntityChatHud.hpp"
 #include "Renderer/OpenGL/PlayerEntityChatHudRenderer.hpp"
 #include "Formats/collision_query.hpp"
 #include "Utility/console_setup.hpp"
@@ -4593,6 +4592,12 @@ void draw_hud(int width, int height) {
         fruityprime::players::PlayerHud::DrawFps(hud_context(backend));
         glDisable(GL_TEXTURE_2D);
     }
+    if (auto* main_player = fruityprime::players::PlayerEntity::Main();
+        main_player != nullptr) {
+        fruityprime::players::PlayerHud::DrawChat(
+            *main_player, safe_width, safe_height,
+            fruityprime::renderer::opengl::draw_chat_text);
+    }
     if (g_intro.has_value()) {
         // PlayerHud: while the intro plays, the helmet, the readouts and the
         // reticle are all absent -- the screen belongs to the rules.
@@ -4620,12 +4625,6 @@ void draw_hud(int width, int height) {
         1.0F, 3.0F);
     const float margin = 16.0F * ui_scale;
 
-    if (auto* main_player = fruityprime::players::PlayerEntity::Main();
-        main_player != nullptr) {
-        fruityprime::chat::player_entity_chat_hud::draw(
-            main_player->ChatHudState(), safe_width, safe_height,
-            fruityprime::renderer::opengl::draw_chat_text);
-    }
     // PlayerEntityChatHud only clears the score/readout it explicitly owns;
     // moving spectator and fallback HUD elements here was native-only drift.
     const float status_top = margin;
@@ -4698,9 +4697,7 @@ void draw_hud(int width, int height) {
                     g_session->player_hunter(g_local_slot)).energy_tank;
                 const auto frame = fruityprime::mods::render::pro_hud::build(
                     hud_player, inventory, g_game_state, g_local_slot,
-                    energy_tank,
-                    fruityprime::chat::player_entity_chat_hud::clearance(
-                        fruityprime::chat::ChatBox::Available(), 12.0F));
+                    energy_tank);
                 draw_pro_hud(frame, hud_area, hud_scale);
             }
         } else {
@@ -7300,8 +7297,6 @@ void update_game(HWND window) {
             main_player != nullptr) {
             main_player->ModForgetInputDeltas();
         }
-        fruityprime::chat::player_entity_chat_hud::forget_input_deltas(
-            g_input);
     }
     if (g_scan_dialog_active) {
         update_scan_dialog(window);

@@ -117,14 +117,6 @@ public:
     [[nodiscard]] const PlayerSoundState& SoundState() const noexcept {
         return sound_state_;
     }
-    [[nodiscard]] fruityprime::chat::player_entity_chat_hud::State&
-        ChatHudState() noexcept {
-        return chat_hud_;
-    }
-    [[nodiscard]] const fruityprime::chat::player_entity_chat_hud::State&
-        ChatHudState() const noexcept {
-        return chat_hud_;
-    }
     [[nodiscard]] runtime::HalfturretEntity& Halfturret() noexcept;
     [[nodiscard]] const runtime::HalfturretEntity& Halfturret() const noexcept;
     void CreateHalfturret();
@@ -277,6 +269,9 @@ public:
                     PlayerEntity* source = nullptr);
     void SaveStatus(game::StorySave& save, bool fade_active) const;
     void ResetReferences() noexcept;
+    void ModDrawChat(
+        int viewport_width, int viewport_height,
+        fruityprime::chat::player_entity_chat_hud::DrawText draw_text);
     void ModForgetInputDeltas() noexcept;
 
     static void LoadWeaponNames() noexcept;

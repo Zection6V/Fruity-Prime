@@ -2,6 +2,7 @@
 
 #include "HUD/hud.hpp"
 #include "Metadata/metadata.hpp"
+#include "Mods/Chat/PlayerEntityChatHud.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -123,7 +124,7 @@ constexpr float HealthDanger = 33.0F / 99.0F;
 Frame build(const MphReadNative::Hud::PlayerState& player,
             const gameplay::InventoryState& inventory,
             const game::State& state, const std::uint8_t slot,
-            const std::uint16_t energy_tank, const float score_y) {
+            const std::uint16_t energy_tank) {
     Frame result;
     result.health_text = std::to_string(player.health);
     const bool multiplayer = state.mode != game::Mode::SinglePlayer;
@@ -160,7 +161,8 @@ Frame build(const MphReadNative::Hud::PlayerState& player,
     result.score_message_id = message_id;
     result.score_label = label;
     result.score_text = format_score(state, state.mode, slot);
-    result.score_y = score_y;
+    result.score_y = fruityprime::chat::player_entity_chat_hud::clearance(
+        fruityprime::chat::ChatBox::Available(), 12.0F);
     return result;
 }
 

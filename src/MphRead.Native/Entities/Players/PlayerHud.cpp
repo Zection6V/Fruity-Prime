@@ -7,6 +7,7 @@
 #include "Mods/Network/player_entity_net_hud.hpp"
 #include "Strings.hpp"
 #include "Metadata/metadata.hpp"
+#include "PlayerEntity.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -53,6 +54,13 @@ constexpr float ScoreMinPlayerSpace = 19.0F;
 }
 
 } // namespace
+
+void PlayerHud::DrawChat(
+    PlayerEntity& player, const int viewport_width,
+    const int viewport_height,
+    const fruityprime::chat::player_entity_chat_hud::DrawText draw_text) {
+    player.ModDrawChat(viewport_width, viewport_height, draw_text);
+}
 
 float PlayerHud::DrawText2D(const HudContext& context, float x, float y,
                             Align align, std::size_t palette,

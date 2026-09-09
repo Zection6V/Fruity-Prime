@@ -167,7 +167,7 @@ void test_pro_hud_model() {
     inventory.ammo[1] = 100;
 
     const auto full = fruityprime::mods::render::pro_hud::build(
-        player, inventory, state, 0, 99, 20.4F);
+        player, inventory, state, 0, 99);
     assert(full.health_text == "98");
     assert(full.health_fraction == 1.0F);
     assert(full.health_tone
@@ -179,7 +179,7 @@ void test_pro_hud_model() {
     assert(full.score_message_id == 212);
     assert(full.score_label == "POINTS");
     assert(full.score_text == "3 / 7");
-    assert(full.score_y == 20.4F);
+    assert(full.score_y == 12.0F);
 
     player.health = 59;
     auto warning = fruityprime::mods::render::pro_hud::build(

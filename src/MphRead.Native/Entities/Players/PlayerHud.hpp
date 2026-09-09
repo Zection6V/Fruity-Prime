@@ -3,6 +3,7 @@
 #include "GameState.hpp"
 #include "Entities/gameplay.hpp"
 #include "../../HUD/hud.hpp"
+#include "Mods/Chat/PlayerEntityChatHud.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -10,6 +11,8 @@
 #include <string_view>
 
 namespace fruityprime::players {
+
+class PlayerEntity;
 
 // Native counterpart of PlayerHud.cs.  Keeping this adapter in the same
 // source folder makes the partial PlayerEntity boundary explicit while the
@@ -120,6 +123,13 @@ public:
 
     // PlayerHud.UpdateHud
     [[nodiscard]] static HudUpdate update_hud(const HudFrame& frame) noexcept;
+
+    // PlayerHud.DrawHudObjects calls PlayerEntity.ModDrawChat before its
+    // pause, spectator, and intro branches. The host supplies only the
+    // native glyph backend; chat ownership remains on PlayerEntity.
+    static void DrawChat(
+        PlayerEntity& player, int viewport_width, int viewport_height,
+        fruityprime::chat::player_entity_chat_hud::DrawText draw_text);
 
     // PlayerHud.ProcessModeHud: which mode-specific HUD runs.  Every mode
     // clears the locator list and processes the opponent marker first,

@@ -3,7 +3,6 @@
 #include "Entities/Players/PlayerEntity.hpp"
 #include "Mods/Chat/ChatBox.hpp"
 #include "Mods/Chat/chat_font.hpp"
-#include "Mods/Input/input.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -167,8 +166,8 @@ float draw_chat_run(State& state, const std::u16string_view text,
 
 } // namespace
 
-void draw(State& state, const int viewport_width, const int viewport_height,
-          const DrawText draw_text) {
+void State::draw(const int viewport_width, const int viewport_height,
+                 const DrawText draw_text) {
     if (!ChatBox::Visible()) {
         return;
     }
@@ -184,8 +183,8 @@ void draw(State& state, const int viewport_width, const int viewport_height,
     const float x = margin(chat_android) * aspect;
     float y = Top;
 
-    ChatBox::CollectVisible(state.visible);
-    for (const auto& line : state.visible) {
+    ChatBox::CollectVisible(visible);
+    for (const auto& line : visible) {
         const bool system = line.Line.Kind
             == fruityprime::net::ChatPacket::KindSystem;
         const std::string name_utf8 = system || line.Line.Name.empty()
@@ -193,36 +192,38 @@ void draw(State& state, const int viewport_width, const int viewport_height,
             : line.Line.Name + ": ";
         const std::u16string name = utf8_to_utf16(name_utf8);
         const float at = draw_chat_run(
-            state, name, x, y, aspect, line.Alpha, safe_width, safe_height,
+            *this, name, x, y, aspect, line.Alpha, safe_width, safe_height,
             110, system ? 205 : 255, system ? 125 : 130, draw_text);
         const std::u16string text = fit(
             utf8_to_utf16(line.Line.Text), aspect, at - x, chat_android);
         static_cast<void>(draw_chat_run(
-            state, text, at, y, aspect, line.Alpha, safe_width, safe_height,
+            *this, text, at, y, aspect, line.Alpha, safe_width, safe_height,
             system ? 110 : 170, system ? 205 : 255,
             system ? 125 : 175, draw_text));
         y += LineHeight;
     }
     if (ChatBox::Composing()) {
         const float at = draw_chat_run(
-            state, u"Says: ", x, y, aspect, 1.0F, safe_width, safe_height,
+            *this, u"Says: ", x, y, aspect, 1.0F, safe_width, safe_height,
             110, 205, 125, draw_text);
         const std::u16string prompt = tail(
             utf8_to_utf16(ChatBox::ComposeText() + "_"), aspect, at - x,
             chat_android);
         static_cast<void>(draw_chat_run(
-            state, prompt, at, y, aspect, 1.0F, safe_width, safe_height,
+            *this, prompt, at, y, aspect, 1.0F, safe_width, safe_height,
             170, 255, 175, draw_text));
     }
-}
-
-void forget_input_deltas(input::State& state) noexcept {
-    state.clear();
 }
 
 } // namespace fruityprime::chat::player_entity_chat_hud
 
 namespace fruityprime::players {
+
+void PlayerEntity::ModDrawChat(
+    const int viewport_width, const int viewport_height,
+    const fruityprime::chat::player_entity_chat_hud::DrawText draw_text) {
+    chat_hud_.draw(viewport_width, viewport_height, draw_text);
+}
 
 void PlayerEntity::ModForgetInputDeltas() noexcept {
     input_.MouseState = nullptr;

@@ -47,13 +47,12 @@ struct Frame {
 // Build the values drawn by PlayerEntityProHud.DrawProHud.  `energy_tank` is
 // the selected hunter's authored tank size; multiplayer measures the bar
 // against EnergyTank - 1, while story mode measures it against the current
-// inventory maximum.  The caller supplies the chat-adjusted score Y so this
-// module does not depend on a particular chat renderer.
+// inventory maximum.  The chat-adjusted score Y is calculated here, at the
+// same ModChatClearance call site as the managed partial.
 [[nodiscard]] Frame build(const MphReadNative::Hud::PlayerState& player,
                           const gameplay::InventoryState& inventory,
                           const game::State& state, std::uint8_t slot,
-                          std::uint16_t energy_tank,
-                          float score_y = 12.0F);
+                          std::uint16_t energy_tank);
 
 [[nodiscard]] Color tone_color(Tone tone) noexcept;
 

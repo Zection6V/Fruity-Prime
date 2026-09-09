@@ -2,6 +2,8 @@
 #include "PlayerHud.hpp"
 
 #include "HUD/hud.hpp"
+#include "Mods/Chat/ChatBox.hpp"
+#include "Mods/Chat/chat_hud.hpp"
 #include "Mods/Network/player_entity_net_hud.hpp"
 #include "Strings.hpp"
 #include "Metadata/metadata.hpp"
@@ -532,7 +534,9 @@ void PlayerHud::DrawModeScore(const HudContext& context, int message_id,
     const auto& objects = MphReadNative::Hud::elements().hunter_objects[
         std::min<std::size_t>(context.hunter, 7)];
     const float x = static_cast<float>(objects.score_pos_x);
-    float y = static_cast<float>(objects.score_pos_y);
+    float y = fruityprime::chat::hud::clearance(
+        fruityprime::chat::ChatBox::Available(),
+        static_cast<float>(objects.score_pos_y));
     const std::string message = call(context.hud_message, message_id);
     // The game wraps here, but the text used never wraps.
     static_cast<void>(DrawText2D(context, x, y, objects.score_align, 0,

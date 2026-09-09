@@ -96,15 +96,23 @@ int main() {
            == fruityprime::chat::hud::Bottom);
     assert(std::fabs(fruityprime::chat::hud::LineHeight - 4.35F)
            < 0.0001F);
-    const std::string long_line(120, 'x');
-    const std::string fitted = fruityprime::chat::hud::fit(long_line, 1.0F,
-                                                            0.0F);
-    const std::string tailed = fruityprime::chat::hud::tail(long_line, 1.0F,
-                                                             0.0F);
+    const std::u16string long_line(120, u'x');
+    const std::u16string fitted = fruityprime::chat::hud::fit(long_line, 1.0F,
+                                                               0.0F);
+    const std::u16string tailed = fruityprime::chat::hud::tail(long_line, 1.0F,
+                                                                0.0F);
     assert(fruityprime::chat::hud::width(fitted, 1.0F) <= 250.0F);
     assert(fruityprime::chat::hud::width(tailed, 1.0F) <= 250.0F);
     assert(fitted.size() < long_line.size());
     assert(tailed.size() < long_line.size());
+    const std::u16string unicode_line = fruityprime::chat::hud::utf8_to_utf16(
+        std::string("A") + "\xC3\xA9" + "\xF0\x9F\x98\x80" + "B");
+    assert(unicode_line.size() == 5);
+    assert(fruityprime::chat::hud::width(unicode_line, 1.0F)
+           == fruityprime::chat::hud::width(u"AB", 1.0F));
+    assert(fruityprime::chat::hud::room(1.0F, 0.0F, false) == 250.0F);
+    assert(fruityprime::chat::hud::room(1.0F, 0.0F, true) == 196.0F);
+    fruityprime::chat::hud::ensure_renderer();
 
     using fruityprime::chat::ChatBox;
     using fruityprime::chat::VisibleChatLine;

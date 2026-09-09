@@ -31,7 +31,15 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void Sync()
         {
-            if (!NetSession.Active || NetSession.LocalSlot < 0)
+            // A client waits to be told which slot is its own before it
+            // touches any of them. A server that simulates the match is never
+            // told, because none of them is: it has no player, so LocalSlot
+            // stays -1 for the whole match and this guard -- which is a
+            // client's "not admitted yet" -- would hold forever and activate
+            // nobody. That is exactly what it did, and a server that
+            // activates nobody simulates an empty room and publishes a
+            // snapshot with no players in it.
+            if (!NetSession.Active || (NetSession.LocalSlot < 0 && !NetSession.IsServer))
             {
                 return;
             }
@@ -95,6 +103,7 @@ namespace MphRead.Mods.Network
             NetDamage.ForgetSlot(slot);
             NetSession.ForgetSlot(slot);
             NetScoreboard.ForgetSlot(slot);
+            NetHitPrediction.ForgetSlot(slot);
             // The same flags Scene.AddPlayer sets, minus the bot marking:
             // a networked player is driven by relayed intent, not by AI.
             player.LoadFlags |= LoadFlags.SlotActive;
@@ -108,9 +117,27 @@ namespace MphRead.Mods.Network
             // throws the moment a Battle match is actually simulated. The
             // arrays hold four entries, so free-for-all can give each slot its
             // own index, exactly as PlayerEntity.Initialize does.
-            if (player.TeamIndex < 0 || player.TeamIndex >= PlayerEntity.MaxPlayers)
+            //
+            // Corrected against the mode, not merely filled in when missing.
+            // A free-for-all in which two slots share a team index is not a
+            // cosmetic fault: "same team" is what a bomb, a homing beam and
+            // the Shock Coil's life drain all test before they do anything,
+            // so a room where everybody is on team 0 is a room where no bomb
+            // ever hurts anyone and the Shock Coil never heals its owner --
+            // which is precisely the report about those weapons doing
+            // nothing. It happened because the players were built from this
+            // machine's own menu rather than from the server's mode (see
+            // MatchStart), and a rule that only spoke up when the value was
+            // out of range had nothing to say about eight players all
+            // correctly holding zero.
+            int wanted = GameState.Teams ? slot % 2 : slot;
+            if (player.TeamIndex != wanted
+                && (GameState.Teams
+                    ? player.TeamIndex < 0 || player.TeamIndex > 1
+                    : player.TeamIndex < 0 || player.TeamIndex >= PlayerEntity.MaxPlayers
+                        || TeamIndexTaken(player.TeamIndex, slot)))
             {
-                player.TeamIndex = GameState.Teams ? slot % 2 : slot;
+                player.TeamIndex = wanted;
                 player.Team = player.TeamIndex % 2 == 0 ? Team.Orange : Team.Green;
             }
             // The hunter comes from the server's roster, not from this
@@ -154,6 +181,48 @@ namespace MphRead.Mods.Network
             return count;
         }
 
+        /// <summary>
+        /// Empty a slot this machine has stopped being.
+        ///
+        /// Only one caller, and a narrow one: a client that reconnected and
+        /// was given a different slot from the one it was playing. The player
+        /// it left behind is nobody's now -- no intent will ever arrive for
+        /// it, because the client that was sending them is this one -- and
+        /// leaving it standing is the frozen twin the reconnection bug is
+        /// named after. Everything else about slots is decided by whether
+        /// intents keep arriving, which is right for every case but this one.
+        /// </summary>
+        public static void ReleaseSlot(int slot)
+        {
+            if (slot < 0 || slot >= PlayerEntity.SlotCapacity
+                || slot >= PlayerEntity.Players.Count || !_activated[slot])
+            {
+                return;
+            }
+            Deactivate(PlayerEntity.Players[slot], slot);
+        }
+
+        /// <summary>
+        /// Whether another active slot already holds this team index. Only
+        /// asked in a free-for-all, where every player is their own team and
+        /// two slots sharing one is the fault above.
+        /// </summary>
+        private static bool TeamIndexTaken(int teamIndex, int slot)
+        {
+            for (int i = 0; i < PlayerEntity.MaxPlayers && i < PlayerEntity.Players.Count; i++)
+            {
+                if (i == slot || !_activated[i])
+                {
+                    continue;
+                }
+                if (PlayerEntity.Players[i].TeamIndex == teamIndex)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private static void Deactivate(PlayerEntity player, int slot)
         {
             _activated[slot] = false;
@@ -163,6 +232,7 @@ namespace MphRead.Mods.Network
             NetPlayerBridge.ForgetSlot(slot);
             NetDamage.ForgetSlot(slot);
             NetSession.ForgetSlot(slot);
+            NetHitPrediction.ForgetSlot(slot);
             // The score goes when they go, not only when somebody takes the
             // slot: a player who left is not on the board, and the board is
             // drawn from these while the slot stands empty.

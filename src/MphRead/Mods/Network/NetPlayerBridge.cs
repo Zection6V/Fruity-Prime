@@ -32,6 +32,32 @@ namespace MphRead.Mods.Network
         private static readonly bool[] _authoritySpawned = new bool[PlayerEntity.SlotCapacity];
 
         /// <summary>
+        /// Placements refused because they did not belong to this room. Zero
+        /// on a healthy session; any number at all means a rotation where one
+        /// machine was still loading, which is worth seeing in the netdbg
+        /// line rather than inferring from a player's account of falling out
+        /// of the world.
+        /// </summary>
+        public static int PlacementsRefused;
+
+        /// <summary>
+        /// What the last snapshot said each slot's form was, so the netdbg
+        /// line can print it beside what this machine actually has. 0 not
+        /// said, 1 biped, 2 alt.
+        /// </summary>
+        private static readonly byte[] _formSaid = new byte[PlayerEntity.SlotCapacity];
+
+        public static string FormSaidByAuthority()
+        {
+            var text = new System.Text.StringBuilder(PlayerEntity.SlotCapacity);
+            for (int i = 0; i < PlayerEntity.MaxPlayers && i < _formSaid.Length; i++)
+            {
+                text.Append(_formSaid[i] == 0 ? '-' : _formSaid[i] == 2 ? 'A' : 'b');
+            }
+            return text.ToString();
+        }
+
+        /// <summary>
         /// Beyond this a remote player is placed outright, not eased. Well
         /// past anything a lost burst of updates can account for, so what is
         /// left is a respawn or a teleporter -- where a jump is correct.
@@ -234,6 +260,13 @@ namespace MphRead.Mods.Network
             {
                 buttons |= IntentButtons.SpectatingState;
             }
+            // Ready for the next match. Only the server reads it, and only
+            // while the results screen is up -- see DedicatedServer's end
+            // sequence.
+            if (Mods.EndScreen.Ready)
+            {
+                buttons |= IntentButtons.ReadyState;
+            }
             return new IntentPacket
             {
                 Buttons = buttons,
@@ -281,7 +314,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         private const IntentButtons PressedButtons = ~(IntentButtons.ZoomedState
             | IntentButtons.AltFormState | IntentButtons.InPlayState
-            | IntentButtons.SpectatingState);
+            | IntentButtons.SpectatingState | IntentButtons.ReadyState);
 
         /// <summary>Newest press frame already applied, per slot.</summary>
         private static readonly uint[] _lastPressFrame = new uint[PlayerEntity.SlotCapacity];
@@ -475,6 +508,10 @@ namespace MphRead.Mods.Network
             bool spawned = (state.Flags & PlayerState.FlagSpawned) != 0;
             bool wasInPlay = player.LoadFlags.TestFlag(LoadFlags.Spawned) && player.Health > 0;
             int slot = player.SlotIndex;
+            if (slot >= 0 && slot < _formSaid.Length)
+            {
+                _formSaid[slot] = (byte)((state.Flags & PlayerState.FlagAltForm) != 0 ? 2 : 1);
+            }
             // The frame the authority put this player back on the map.
             bool justPlaced = spawned && slot >= 0 && slot < _authoritySpawned.Length
                 && !_authoritySpawned[slot];
@@ -521,10 +558,39 @@ namespace MphRead.Mods.Network
                     player.ModNetDie();
                 }
                 player.Health = state.Health;
+                if (state.Health == 0)
+                {
+                    // The authority agrees this player is down, so whatever
+                    // this machine predicted about the life that just ended is
+                    // answered. Left standing, a predicted self-kill would go
+                    // on refusing the respawn that follows it a moment later.
+                    // NetHitPrediction.NoteDeath.
+                    NetHitPrediction.NoteDeath(slot);
+                }
                 return;
             }
             if (!wasInPlay)
             {
+                if (NetHitPrediction.HeldDead(slot))
+                {
+                    // Killed here a moment ago and the authority has not
+                    // caught up. Its copy of this player is a round trip
+                    // behind and still walking about, so spawning them from
+                    // this snapshot would stand the corpse back up for one
+                    // snapshot and then kill it again when the confirmation
+                    // arrives. Left down until the kill is confirmed, or until
+                    // the hold expires and the next snapshot spawns them the
+                    // way it always did. NetHitPrediction.HeldDead.
+                    return;
+                }
+                // A life is ending here as far as the prediction is
+                // concerned: anything still outstanding for this slot is about
+                // the body, not about whoever is standing up. It also counts
+                // the kill if this machine showed one the authority never
+                // confirmed. For the local slot too, where what is outstanding
+                // is this player's own splash on themselves -- a debit from
+                // the last life must not come off the health of the new one.
+                NetHitPrediction.NoteRespawn(slot);
                 // The authority has this player on the map and this machine
                 // does not. Spawn() rather than a position write: it is what
                 // clears HideModel, so a player that skipped it tracked
@@ -596,8 +662,34 @@ namespace MphRead.Mods.Network
                     // Spawning locally first is kept: it is what makes a
                     // respawn feel immediate rather than arrive a round trip
                     // later, and it is what still works if snapshots stall.
-                    // Only the placement is handed over.
-                    Move(player, state.Position);
+                    // Only the placement is handed over -- and only when it
+                    // is a placement this room could have made.
+                    //
+                    // The settling window above covers a client that loaded
+                    // faster than the authority, but only for a second, and
+                    // loading a room is not a bounded thing: on a phone, or
+                    // off a slow disk, the authority can still be in the map
+                    // before the rotation long after that. Its snapshot then
+                    // places this player at coordinates that meant a spawn
+                    // point *there*, and here they are somewhere outside the
+                    // level -- which is the report about spawning into a
+                    // black world and falling out of it. See
+                    // ModPlacementBelongsHere.
+                    if (player.ModPlacementBelongsHere(state.Position))
+                    {
+                        Move(player, state.Position);
+                    }
+                    else
+                    {
+                        PlacementsRefused++;
+                        NetLog.Event($"slot {player.SlotIndex} kept its own spawn: the "
+                            + $"authority placed it at {state.Position}, which is not "
+                            + "near any spawn point in this room");
+                        // Keep the local spawn and let the next divergence
+                        // check settle the two, which it will as soon as the
+                        // authority is describing this room.
+                        _authoritySpawned[slot] = false;
+                    }
                     // Not the authority's speed: a player that has just been
                     // put on a spawn point is standing still, and whatever the
                     // snapshot carries here was derived across the teleport
@@ -612,7 +704,14 @@ namespace MphRead.Mods.Network
                     player.Speed = state.Speed;
                     _divergedFrames[slot] = 0;
                 }
-                player.Health = state.Health;
+                // Plus whatever this machine's own beam has drained out of
+                // somebody since the authority last spoke. Everything else
+                // about this number is the authority's, including every point
+                // of damage taken: the credit is added to what it says rather
+                // than replacing it, so a rocket that lands while the Shock
+                // Coil is running still shows up the moment it is reported.
+                // NetHitPrediction.LocalHealthFor.
+                player.Health = NetHitPrediction.LocalHealthFor(player, state.Health);
                 // Including for this machine's own player: being frozen is
                 // part of the match, like health and the score, and a victim
                 // who kept walking about while the authority held them still
@@ -628,7 +727,12 @@ namespace MphRead.Mods.Network
             Move(player, InForm(player, state.Position,
                 (state.Flags & PlayerState.FlagAltForm) != 0));
             player.Speed = state.Speed;
-            player.Health = state.Health;
+            // Less whatever this machine has already landed on them and not
+            // yet had confirmed. The authority's health is correct and a round
+            // trip old, and assigning it raw is what made a predicted hit last
+            // exactly one frame: the victim flinched instantly and their bar
+            // sprang straight back up. NetHitPrediction.HealthFor.
+            player.Health = NetHitPrediction.HealthFor(slot, state.Health);
             player.ModSetFacing(state.Facing);
             player.ModSetWeapon((BeamType)state.CurrentWeapon);
             player.EquipInfo.Zoomed = (state.Flags & PlayerState.FlagZoomed) != 0;
@@ -784,6 +888,8 @@ namespace MphRead.Mods.Network
             Snaps = 0;
             WorstSnap = 0;
             NodeLookupsUnresolved = 0;
+            PlacementsRefused = 0;
+            Array.Clear(_formSaid);
             Array.Clear(_formAttempts);
             Array.Clear(_lastPressFrame);
             Array.Clear(_pressSeen);

@@ -603,8 +603,18 @@ namespace MphRead.Entities
                                 var ownerPlayer = (PlayerEntity)Owner;
                                 if (!ownerPlayer.IsPrimeHunter && ownerPlayer.TeamIndex != player.TeamIndex)
                                 {
+                                    int before = ownerPlayer.Health;
                                     // GainHealth checks if the player is alive
                                     ownerPlayer.GainHealth(wholeDamage);
+                                    // What it actually gained, not what it was
+                                    // offered: the halfturret splits a heal in
+                                    // two and a full tank takes none of it, and
+                                    // a credit for health that was never
+                                    // granted would float the bar above what
+                                    // the authority is about to report. See
+                                    // Mods.Network.NetHitPrediction.NoteDrain.
+                                    Mods.Network.NetHitPrediction.NoteDrain(ownerPlayer,
+                                        ownerPlayer.Health - before);
                                 }
                             }
                             if (!player.IsMainPlayer || player.IsAltForm || player.IsMorphing)
@@ -1544,7 +1554,7 @@ namespace MphRead.Entities
                 hsDamage = 150 * hsDamage / 100;
                 splashDmg = 150 * splashDmg / 100;
             }
-            if (weapon.Beam == BeamType.Imperialist && !equip.Zoomed)
+            if (Features.HalfDamageUnscoped && weapon.Beam == BeamType.Imperialist && !equip.Zoomed)
             {
                 damage /= 2;
                 hsDamage /= 2;
@@ -1765,6 +1775,18 @@ namespace MphRead.Entities
                                 beam.HeadshotDamage += timer / (30 * 2);
                             }
                         }
+                    }
+                }
+                // A continuous homing beam with no target does nothing at all,
+                // and says nothing about it: no hit, no miss, no entry in any
+                // count this file already keeps. Recorded here, at the one
+                // moment the answer is known.
+                if (beam.Beam == BeamType.ShockCoil && owner.Type == EntityType.Player)
+                {
+                    NetDamage.ShockCoilSpawned++;
+                    if (beam.Target != null)
+                    {
+                        NetDamage.ShockCoilAcquired++;
                     }
                 }
                 beam._soundSource.Update(beam.Position, rangeIndex: 0);

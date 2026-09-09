@@ -96,6 +96,57 @@ namespace MphRead.Mods.Network
         public static readonly double[] AimDrift = new double[Slots];
         public static readonly double[] WorstDrift = new double[Slots];
 
+        /// <summary>
+        /// The weapons that carry their damage somewhere other than a plain
+        /// beam hit, counted where they decide whether to hurt anybody.
+        ///
+        /// A continuous homing beam does nothing at all without a target, and
+        /// a bomb walks the player list itself and skips whoever it thinks is
+        /// a team mate. Both refusals look identical from
+        /// <see cref="Resolved"/> -- zero -- and neither is distinguishable
+        /// there from a shot that simply missed, which is why the Shock Coil
+        /// and the two bomb types could be reported dead in a live match
+        /// while every count this file already kept looked healthy.
+        /// </summary>
+        public static int ShockCoilSpawned;
+        public static int ShockCoilAcquired;
+        public static int BombPlayerChecks;
+        public static int BombTeamSkips;
+        public static int BombHits;
+
+        /// <summary>
+        /// Damage the authority resolved, split by what delivered it.
+        ///
+        /// <see cref="Resolved"/> counts hits per victim, which answers
+        /// "is damage working" and nothing finer. It cannot answer the
+        /// question a player actually asks -- "does the Shock Coil hurt
+        /// anybody?" -- and neither could any check in this project, which is
+        /// why a weapon could be reported dead in a live match while every
+        /// harness run came back PASS. Indexed by <see cref="BeamType"/>;
+        /// bombs carry no beam and are counted on their own.
+        /// </summary>
+        public static readonly int[] DamageByBeam = new int[(int)BeamType.Enemy + 1];
+        public static readonly int[] HitsByBeam = new int[(int)BeamType.Enemy + 1];
+        public static int BombDamageDealt;
+        public static int BombDamageHits;
+
+        /// <summary>Why a press to lay a bomb did or did not produce one.</summary>
+        public static int BombSpawnCalls;
+        public static int BombSpawnMade;
+        public static int BombSpawnDetonated;
+        public static int BombSpawnStaleCount;
+        public static int BombSpawnPoolEmpty;
+
+        /// <summary>
+        /// The closest any bomb came to somebody it could have hurt, and the
+        /// radius it needed. Without these a run of "no bomb ever hit" cannot
+        /// be told from "no bomb was ever near anybody", which is the whole
+        /// difference between a broken weapon and a harness that never walked
+        /// onto one.
+        /// </summary>
+        public static float BombNearest = Single.MaxValue;
+        public static float BombRadiusSeen;
+
         /// <summary>Called wherever a beam is spawned, for <see cref="Fired"/>.</summary>
         public static void NoteFired(PlayerEntity shooter, Vector3 shotVec, Vector3 aimVec)
         {
@@ -167,6 +218,22 @@ namespace MphRead.Mods.Network
             Array.Clear(PlayerOverlapsByShooter);
             Array.Clear(AimDrift);
             Array.Clear(WorstDrift);
+            ShockCoilSpawned = 0;
+            ShockCoilAcquired = 0;
+            BombPlayerChecks = 0;
+            BombTeamSkips = 0;
+            BombHits = 0;
+            Array.Clear(DamageByBeam);
+            Array.Clear(HitsByBeam);
+            BombDamageDealt = 0;
+            BombDamageHits = 0;
+            BombSpawnCalls = 0;
+            BombSpawnMade = 0;
+            BombSpawnDetonated = 0;
+            BombSpawnStaleCount = 0;
+            BombSpawnPoolEmpty = 0;
+            BombNearest = Single.MaxValue;
+            BombRadiusSeen = 0;
             Replaying = false;
             ReplayBeam = BeamType.None;
         }
@@ -216,6 +283,22 @@ namespace MphRead.Mods.Network
             Array.Clear(PlayerOverlapsByShooter);
             Array.Clear(AimDrift);
             Array.Clear(WorstDrift);
+            ShockCoilSpawned = 0;
+            ShockCoilAcquired = 0;
+            BombPlayerChecks = 0;
+            BombTeamSkips = 0;
+            BombHits = 0;
+            Array.Clear(DamageByBeam);
+            Array.Clear(HitsByBeam);
+            BombDamageDealt = 0;
+            BombDamageHits = 0;
+            BombSpawnCalls = 0;
+            BombSpawnMade = 0;
+            BombSpawnDetonated = 0;
+            BombSpawnStaleCount = 0;
+            BombSpawnPoolEmpty = 0;
+            BombNearest = Single.MaxValue;
+            BombRadiusSeen = 0;
             Replaying = false;
             ReplayBeam = BeamType.None;
         }
@@ -229,22 +312,46 @@ namespace MphRead.Mods.Network
         /// same hit twice on the scoreboard and produced kills that never
         /// happened anywhere else.
         /// </summary>
-        public static bool Suppress(PlayerEntity victim)
+        public static bool Suppress(PlayerEntity victim, EntityBase? source, DamageFlags flags)
         {
             if (!NetSession.Active || Replaying)
             {
                 return false;
             }
-            return !NetSession.IsHost && !NetSession.IsAuthority;
+            if (NetSession.IsHost || NetSession.IsAuthority)
+            {
+                return false;
+            }
+            // Except for this machine's own shots on somebody else, which are
+            // resolved here and now and reconciled against the authority's
+            // answer when it arrives. NetHitPrediction.
+            return !NetHitPrediction.Predicts(victim, source, flags);
         }
 
         /// <summary>Called by the authority for every hit it resolves.</summary>
         public static void Note(PlayerEntity victim, PlayerEntity? attacker, BeamType beam,
-            DamageFlags flags, Vector3? direction)
+            DamageFlags flags, Vector3? direction, uint amount = 0, bool fromBomb = false)
         {
-            if (!NetSession.Active || Replaying)
+            if (!NetSession.Active || Replaying || NetHitPrediction.Predicting)
             {
+                // A predicted hit is not a resolution. Letting it through here
+                // would put a damage sequence, and a Resolved count, on a
+                // machine that decides nothing -- and the whole damage
+                // pipeline measurement is the comparison between the one
+                // machine that resolves and the ones that replay.
                 return;
+            }
+            // Before the slot check: what hurt somebody is worth knowing even
+            // for a victim this table cannot index.
+            if (fromBomb)
+            {
+                BombDamageDealt += (int)amount;
+                BombDamageHits++;
+            }
+            else if (beam >= 0 && (int)beam < DamageByBeam.Length)
+            {
+                DamageByBeam[(int)beam] += (int)amount;
+                HitsByBeam[(int)beam]++;
             }
             int slot = victim.SlotIndex;
             if (slot < 0 || slot >= Slots)
@@ -415,6 +522,26 @@ namespace MphRead.Mods.Network
             // reporting. The health that ends up on screen is the
             // authority's, which already accounts for every one of them.
             Replayed[slot] += landed;
+            bool lethal = state.Health == 0;
+            // Consumed before the "already down" return below, not after it.
+            //
+            // A kill predicted here leaves the victim at zero health on this
+            // machine, so the authority's confirmation of that very kill would
+            // hit that return and never retire the prediction -- which would
+            // both count a hit that landed as denied and hold the corpse down
+            // for the whole of the hold window rather than until the answer
+            // arrived. Retiring it here is the answer arriving.
+            // Including a hit on this machine's own player that its own
+            // player dealt -- your splash, on you. That used to be excluded
+            // here, on the grounds that nothing was ever predicted onto the
+            // local player and asking would report every splash from one's own
+            // bomb as a prediction that had missed. Self-damage is predicted
+            // now, so the opposite is true: not asking would replay a hit this
+            // machine has already applied, and a rocket jump would cost its
+            // health twice. Damage from anybody else still names another
+            // attacker and is replayed exactly as before.
+            bool mine = state.AttackerSlot == NetHooks.LocalSlot;
+            bool predicted = mine && NetHitPrediction.Confirm(slot, landed);
             if (player.Health <= 0)
             {
                 return; // already down here; the respawn is what matters next
@@ -422,7 +549,28 @@ namespace MphRead.Mods.Network
             PlayerEntity? attacker = state.AttackerSlot < PlayerEntity.Players.Count
                 ? PlayerEntity.Players[state.AttackerSlot]
                 : null;
-            bool lethal = state.Health == 0;
+            // Already shown here, the moment the trigger was pulled: the
+            // flinch, the sound, the knockback and the mark over the
+            // crosshair all ran when this machine resolved the shot for
+            // itself. Only the health is still owed, and ApplyState assigns
+            // that from this same snapshot immediately after.
+            //
+            // A lethal confirmation still replays, even when the hit itself
+            // was predicted: reaching here with a lethal snapshot means this
+            // machine's prediction did *not* kill them -- either it was
+            // clamped (-nodeathprediction) or the killing blow was somebody
+            // else's -- and returning early would leave a player alive here
+            // and dead on every other screen. A kill this machine did predict
+            // never reaches this line; it is the "already down" return above.
+            //
+            // Not for a hit on this machine's own player, even one it dealt
+            // itself: nothing is ever predicted onto the local player, so
+            // asking would only report every splash from one's own bomb as a
+            // hit the prediction had missed.
+            if (predicted && !lethal)
+            {
+                return;
+            }
             // Never let the replay decide the outcome: the authority already
             // has. A non-fatal hit is clamped so local rounding cannot kill,
             // and a fatal one carries the Death flag so it cannot fail to.

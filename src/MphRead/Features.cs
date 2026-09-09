@@ -80,6 +80,22 @@ namespace MphRead
         public static bool AlternateHunters1P { get; set; } = true; // false
 
         /// <summary>
+        /// Whether firing the Imperialist without the scope up costs half the
+        /// damage. The cartridge says yes; this build says no.
+        ///
+        /// It is the only weapon in the game whose damage depends on whether
+        /// you were zoomed, and the penalty is what makes a quick-scope
+        /// necessary rather than optional -- on a touchscreen and on a pad,
+        /// where holding a zoom and tracking are the same thumb, that is a
+        /// tax on the input device rather than on the shot. Off by default
+        /// here: an Imperialist hit does what an Imperialist hit does.
+        ///
+        /// A damage rule, so only the machine resolving the shot reads it,
+        /// which in a networked match is the authority and nobody else.
+        /// </summary>
+        public static bool HalfDamageUnscoped { get; set; } = false; // true
+
+        /// <summary>
         /// Pro mode HUD: the whole competitive layout as one switch, instead
         /// of the seven separate questions below that had to be answered the
         /// same way to get it.
@@ -181,13 +197,30 @@ namespace MphRead
         private static float _weaponListScale = 1f;
 
         /// <summary>Rides rigidly with the camera instead of lagging behind aim, and stops the mouse-driven HUD shift too -- Quake's static weapon.</summary>
+        /// <remarks>
+        /// The one thing Pro mode brings a default to rather than an answer.
+        ///
+        /// The settings above it are forced because under Pro mode there is
+        /// only one sane answer -- nobody who turned the helmet off wants it
+        /// back, or wants the reticle animating. Where the gun sits is not
+        /// like that. It is the difference between Quake's rigid weapon and
+        /// Metroid's drifting one, and a player who arrived from either wants
+        /// the one they arrived with. So Pro mode still starts it Static,
+        /// which is what it has always drawn, and then lets it be changed.
+        /// </remarks>
         public static bool FixedWeapon
         {
-            get => ProHud || _fixedWeapon;
+            get => ProHud ? ProHudFixedWeapon : _fixedWeapon;
             set => _fixedWeapon = value;
         }
 
         private static bool _fixedWeapon = false;
+
+        /// <summary>
+        /// Static (true) or dynamic (false) weapon while <see cref="ProHud"/>
+        /// is on. Persisted, and only asked about while it is on.
+        /// </summary>
+        public static bool ProHudFixedWeapon { get; set; } = true;
 
         public static void Load(IReadOnlyDictionary<string, string> values)
         {
@@ -199,6 +232,10 @@ namespace MphRead
             if (values.TryGetValue(nameof(ProHud), out value) && Boolean.TryParse(value, out bool boolean))
             {
                 ProHud = boolean;
+            }
+            if (values.TryGetValue(nameof(ProHudFixedWeapon), out value) && Boolean.TryParse(value, out boolean))
+            {
+                ProHudFixedWeapon = boolean;
             }
             // Pro mode's crosshair: which shape, and how big. Both persist,
             // because a crosshair is a thing a player picks once and then does
@@ -232,6 +269,7 @@ namespace MphRead
             [
                 new(nameof(ReticleOpacity), ReticleOpacity.ToString(CultureInfo.InvariantCulture)),
                 new(nameof(ProHud), ProHud.ToString().ToLower()),
+                new(nameof(ProHudFixedWeapon), ProHudFixedWeapon.ToString().ToLower()),
                 new("CrosshairStyle", Mods.Render.Crosshair.Style.ToString()),
                 new("CrosshairSize", Mods.Render.Crosshair.Size.ToString())
             ]);

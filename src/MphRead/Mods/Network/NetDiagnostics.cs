@@ -115,6 +115,118 @@ namespace MphRead.Mods.Network
                 line.Append("  !! ").Append(botRemotes).Append(" remote slot(s) still AI-driven");
             }
 
+            // The team index every weapon that refuses to hurt a team mate
+            // reads, printed as the number it actually is rather than as the
+            // mode it was supposed to come from. In a free-for-all these must
+            // all differ: a bomb and a homing beam both treat "same team" as
+            // "not a target", so one repeated value here is a whole class of
+            // weapons silently doing nothing.
+            line.Append(" team=[");
+            for (int i = 0; i < PlayerEntity.MaxPlayers; i++)
+            {
+                PlayerEntity? p = PlayerEntity.Players[i];
+                if (i > 0)
+                {
+                    line.Append(',');
+                }
+                line.Append(p == null ? "-" : p.TeamIndex.ToString());
+            }
+            line.Append(']');
+            // And say so when they do not. A repeated index in a free-for-all
+            // is every bomb in the room refusing to hurt anybody and the
+            // Shock Coil refusing to heal, and it is not something anybody
+            // reads out of a list of numbers unprompted.
+            if (!GameState.Teams)
+            {
+                int shared = 0;
+                for (int i = 0; i < PlayerEntity.MaxPlayers; i++)
+                {
+                    PlayerEntity? a = PlayerEntity.Players[i];
+                    if (a == null || !a.LoadFlags.TestFlag(LoadFlags.Active))
+                    {
+                        continue;
+                    }
+                    for (int j = i + 1; j < PlayerEntity.MaxPlayers; j++)
+                    {
+                        PlayerEntity? b = PlayerEntity.Players[j];
+                        if (b != null && b.LoadFlags.TestFlag(LoadFlags.Active)
+                            && a.TeamIndex == b.TeamIndex)
+                        {
+                            shared++;
+                        }
+                    }
+                }
+                if (shared > 0)
+                {
+                    line.Append("  !! ").Append(shared)
+                        .Append(" pair(s) share a team index in a free-for-all: "
+                            + "bombs and life drain will do nothing between them");
+                }
+            }
+            // What form each slot is in on this machine, beside what the
+            // authority last said it was. Two clients disagreeing about a
+            // player's form is a hunter drawn as a ball that cannot be shot
+            // where it appears to be, and nothing else in this line would
+            // show it.
+            line.Append(" alt=[");
+            for (int i = 0; i < PlayerEntity.MaxPlayers; i++)
+            {
+                PlayerEntity? p = PlayerEntity.Players[i];
+                line.Append(p == null || !p.LoadFlags.TestFlag(LoadFlags.Active) ? '-'
+                    : p.IsAltForm ? 'A' : p.IsMorphing ? 'm' : p.IsUnmorphing ? 'u' : 'b');
+            }
+            line.Append("] altSaid=[").Append(NetPlayerBridge.FormSaidByAuthority()).Append(']');
+            line.Append(" shockcoil=").Append(NetDamage.ShockCoilAcquired)
+                .Append('/').Append(NetDamage.ShockCoilSpawned);
+            line.Append(" bomb=").Append(NetDamage.BombHits)
+                .Append('/').Append(NetDamage.BombPlayerChecks)
+                .Append(" bombTeamSkips=").Append(NetDamage.BombTeamSkips);
+            // What actually hurt somebody, by weapon. Only the weapons that
+            // landed anything, so the line stays readable and a name missing
+            // from it is the finding.
+            line.Append(" dmg[");
+            bool first = true;
+            for (int i = 0; i < NetDamage.HitsByBeam.Length; i++)
+            {
+                if (NetDamage.HitsByBeam[i] == 0)
+                {
+                    continue;
+                }
+                if (!first)
+                {
+                    line.Append(' ');
+                }
+                first = false;
+                line.Append((BeamType)i).Append('=').Append(NetDamage.DamageByBeam[i])
+                    .Append('/').Append(NetDamage.HitsByBeam[i]);
+            }
+            if (NetDamage.BombDamageHits > 0)
+            {
+                if (!first)
+                {
+                    line.Append(' ');
+                }
+                line.Append("Bomb=").Append(NetDamage.BombDamageDealt)
+                    .Append('/').Append(NetDamage.BombDamageHits);
+            }
+            line.Append(']');
+            line.Append(" bombSpawn=").Append(NetDamage.BombSpawnMade)
+                .Append('/').Append(NetDamage.BombSpawnCalls)
+                .Append(" det=").Append(NetDamage.BombSpawnDetonated)
+                .Append(" stale=").Append(NetDamage.BombSpawnStaleCount)
+                .Append(" poolEmpty=").Append(NetDamage.BombSpawnPoolEmpty);
+            line.Append(" bombNearest=")
+                .Append(NetDamage.BombNearest == Single.MaxValue ? "n/a"
+                    : NetDamage.BombNearest.ToString("0.00"))
+                .Append(" bombRadius=").Append(NetDamage.BombRadiusSeen.ToString("0.00"));
+            // Zero on a healthy session. Anything else is a rotation where
+            // one machine was still loading and this client refused to be put
+            // where the previous room said. See NetPlayerBridge.
+            if (NetPlayerBridge.PlacementsRefused > 0)
+            {
+                line.Append(" placementsRefused=").Append(NetPlayerBridge.PlacementsRefused);
+            }
+
             MatchStatePacket? match = NetSession.ServerMatch;
             if (match != null)
             {

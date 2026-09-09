@@ -24,11 +24,12 @@ area is the one being touched.
 
 | Path | What |
 |---|---|
-| `~/MphRead-dev` | the source. Upstream is NoneGiven/MphRead; everything added lives under `src/MphRead/Mods/` so pulling upstream stays a fast-forward |
+| `~/GIT/Fruity-Prime` | the source. Upstream is NoneGiven/MphRead; everything added lives under `src/MphRead/Mods/` so pulling upstream stays a fast-forward. (It was `~/MphRead-dev` before the rename, and that path is gone) |
 | `src/MphRead.Android/` | the Android head: the same sources, an APK, a front screen and a match, over GL ES and touch controls |
 | `src/MphRead/Mods/Network/` | the whole multiplayer feature |
 | `src/MphRead/Mods/Launcher/` | the launcher: `Gui/` is every window (Avalonia, all platforms), `Portable/` is the logic and the text screen |
-| `~/mph-net-test/` | the test rig: a copy of the build in `bin/`, extracted game files, `run-check.sh`, `compare-reports.py` |
+| `~/mph-test/` | the extracted game files and `paths.txt`. **`paths.txt` has to sit next to the DLL** you are running, so copy it into `src/MphRead/bin/Release/net9.0/` and run `dotnet FruityPrime.dll` from there |
+| `~/mph-net-test/` | the test rig -- `bin/`, `run-check.sh`, `compare-reports.py`, `hard/`, and every `run-*.sh` named in the table below. **It does not exist on this box** and every command that names it has to be rebuilt before it can be run; the game files in `~/mph-test/` are what survived. A two-client run against a real server needs nothing more than two `-netcheck` processes and the game files |
 | `C:\Users\livetek\Desktop\MPH\MphRead-develop\` | the Windows deliverable |
 | `net.livetek.fr:27888` | the dedicated server on the user's Pi (systemd unit `mphread-server`) |
 
@@ -38,9 +39,16 @@ Three things will waste an hour each if you do not know them:
 
 ```bash
 export PATH="$HOME/.dotnet:$PATH"          # dotnet is not on PATH
+export DOTNET_ROOT="$HOME/.dotnet"         # else the apphost cannot find a runtime
 export MESA_GL_VERSION_OVERRIDE=4.5COMPAT  # else Mesa hands out a Core profile
 export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 ```
+
+- **`DOTNET_ROOT` is what the built `./FruityPrime` needs, and `PATH` is not.**
+  The apphost looks for `libhostfxr.so` under `DOTNET_ROOT` or a system install,
+  neither of which exists here, so running the binary directly dies with *"You
+  must install .NET to run this application"* while `dotnet FruityPrime.dll`
+  from the same directory works. Either export it or run through `dotnet`.
 
 - If `~/.dotnet` is empty, the SDK is not installed at all:
   `curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 9.0`
@@ -84,6 +92,8 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 |---|---|
 | `MphRead -server ... -noshadowfreeze` | run the room with the Judicator's ice wave as a cone rather than as a column of infinite height. A rule, broadcast to every client in the match state, because the machine resolving a shot decides who it hit |
 | `MphRead -server -port N -players 8` | dedicated relay server; needs no game files. `-servername "NAME"` is what a browser shows; it announces itself to `net.livetek.fr` unless `-nomaster` is passed, and `-master HOST -masterport N` points it elsewhere |
+| `MphRead -server ... -simulate` | the same server, simulating the match itself instead of pointing the authority at the first client to connect. It is then the only machine that resolves a shot, so nobody plays at zero latency and the match survives any player leaving. Needs game files on that machine -- without them it says so and relays as before. `.claude/multiplayer/NETWORK-SERVERAUTH.md` |
+| `MphRead -simcheck "ROOM" [-players N] [-seconds N]` | what a room costs a server: peak memory, milliseconds a simulation step, and whether every slot spawned. Runs the headless engine with nobody connected. The measurement that decides whether a given box can be the authority for a given map |
 | `MphReadServer.exe -server ...` | the same server on Windows, as its own console binary. `MphRead.exe` can also do it, but it is a GUI binary: a shell will not wait for it and its exit code never reaches `%ERRORLEVEL%`. Run with no arguments it prints what it is for |
 | `MphRead -masterserver [-port N] [-public HOST] [-hostports A-B]` | the server directory the launcher's browser asks, and the machine that runs matches for players who cannot open a port. Same binary, no game files, keeps nothing on disk. `-public` is the address to publish for servers registering from this same machine, whose heartbeats arrive over the loopback |
 | `MphRead -hostgame "ROOM" [-mode M] [-master HOST]` | ask the directory to run a match and join it. No port forwarding anywhere; the only way to host from a machine with no launcher |
@@ -92,6 +102,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -netcheck HOST -port N -name X -hunter H -seconds N [-shots DIR] [-size WxH]` | a real client driven by a script, which reports what it saw. Exit code 0 = pass. `-spectate [SEC]` makes it stop playing and watch, `-rejoin SEC` puts it back in -- the one player state the tour cannot reach on its own |
 | `MphRead -netlag MS[:JITTER]` / `-netloss PCT` | play, or run any check, over a line this client makes up: `-netlag 200` adds 200 ms to the round trip (half each way), `-netlag 200:40` gives it jitter, `-netloss 5` eats one datagram in twenty. Works against the real server, on any platform, with no proxy and no `sudo` -- and unlike `hard/run-latency.sh`'s netem it can be given to **one** client while the others stay fast, which is the case a player with a bad line actually is. Every report says so when it is on |
 | `MphRead -nounlagged` | resolve shots against the present, the way every build before lag compensation did. The control for measuring it; on by default. `.claude/multiplayer/NETWORK-UNLAGGED.md` |
+| `MphRead -nohitprediction` / `-nohitmarker` / `-deathprediction` | wait for the authority before a hit lands, the way every build before instant hit registration did; drop the mark over the crosshair that says one has; and let a prediction kill **somebody else**, which it does not by default -- a predicted hit is clamped to leave the victim standing on one point of health and the dying waits for the authority. Hit prediction and the mark are on by default, predicted kills on other players are **off** (`-nodeathprediction` is still accepted and is what the default already does), and a **self**-kill is predicted whatever any of them say. `.claude/multiplayer/NETWORK-PREDICTION.md` |
 | `MphRead -debuglog` | write the file the launcher's corner switch writes, for one run. `.claude/DEBUG-LOGS.md` |
 | `~/mph-net-test/probe-chat.py [HOST] [PORT]` | what the server does with chat, asked the way no real client can: a spoofed sender, and a flood. `.claude/multiplayer/NETWORK-CHAT.md` |
 | `~/mph-net-test/run-remote.sh HOST PORT SECONDS hunter...` | the same check against a server that is not on this machine -- which is the one that matters, since eight clients on one box measure the box |
@@ -112,6 +123,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -cel on\|off [-celbands N] [-celedge N]` / `-fog on\|off` / `-prohud on\|off` | render options for every path that never opens a launcher, which is every screenshot command. `.claude/render/CEL-SHADING.md` |
 | `MphRead -fpscap N\|display` | how fast the picture is drawn. The simulation is pinned at 60 Hz on every setting, so this does not touch what the game does. `.claude/render/FRAME-PACING.md` |
 | `MphRead -crosshair STYLE` / `-crosshairsize Small\|Medium\|Big` | which crosshair the pro HUD draws, for the screenshot commands that open no launcher. Styles are Cross, Dot, CrossDot, Circle, Brackets |
+| `MphRead -weaponstyle static\|dynamic` | where the gun and the crosshair sit -- Quake's welded pair or the DS game's drifting one, which is the settings screen's Weapon row. For the same paths, and a sharper reason: the two answers differ mainly in what the middle of the picture is doing, so a screenshot is how the difference is checked at all. `quake` and `metroid` are accepted as the same two answers |
 | `MphRead -frametimingcheck` | the fixed-step accumulator on its own, against frame times chosen rather than measured: does the game still run at 60.000 Hz when the screen runs at 144, at 165, at a jitter, or at 40. Needs no game files and no display |
 | `MphRead -maptest "ROOM" -drawrate N` | draw each simulation step N times, which is what a 144 Hz screen does to a 60 Hz game. Asserts that drawing did not advance the world. How the decoupled loop is checked from a box with no monitor |
 | `MphRead -uishot DIR` | pictures of the launcher's own screens -- home, settings, the map picker, the pause menu -- rendered without anyone looking at a display. The one part of the program that could not otherwise be checked from a headless box |
@@ -208,7 +220,14 @@ Gotchas worth keeping in view without opening another file:
   reads `EndScreen.Available`) because the picker is something you click:
   arrows for the hunter, the swatches directly for the suit. The hit boxes are
   published by the draw (`EndScreen.NoteLayout`) rather than worked out twice,
-  so they cannot drift from the picture.
+  so they cannot drift from the picture. **The panel's height is derived from
+  the stack inside it** (`EndRow`/`EndStackHeight`), not stated: it was a
+  constant 92 that the content did not fit, so READY hung out of the bottom
+  edge and the "NEXT: ROOM" line -- placed by measuring *up* from that same
+  edge -- was drawn straight through the middle of it, which at the 1.45x the
+  picker used to be drawn at on a phone was the whole button. The suit caption
+  and the colour's name are one line now ("SUIT: ORANGE") rather than two on
+  either side of the swatches, and `EndScale` is 1.3 on Android.
 - `PacketType.StatusQuery` answers "what map, what mode, how many players"
   without claiming a slot, which is what lets the browser poll idly. A server
   built before it falls back to a slot-taking Hello/Bye probe — redeploy the
@@ -495,7 +514,7 @@ MPH_SERVER_HOST=net.livetek.fr MPH_SERVER_USER=livetek \
 
 The exe is often locked by a running game: write `MphRead.new.exe`, then `mv`.
 
-**`NetConfig.ProtocolVersion` is 5.** Any protocol change means server **and**
+**`NetConfig.ProtocolVersion` is 6.** Any protocol change means server **and**
 every client must be the same build — a mismatched client is refused outright
 at Hello with a line in the server log, which is the intended outcome and not
 a layout issue: the wire format doesn't move, an old client would read every
@@ -503,6 +522,10 @@ byte correctly and then simulate a different game (frozen in place, shooting
 from its ankles) with nothing in the protocol to notice. Deploy the server
 before handing out a client built against a new protocol. Publish commands and
 the deploy script's env vars: `.claude/build-deploy/DEPLOY-SERVERS.md`.
+
+`-simulate` is the one server option that needs game files on the server box.
+It changes nothing on the wire, so it can be turned on and off between
+restarts without touching a single client.
 
 ## Multiplayer: bugs found and fixed
 
@@ -620,6 +643,24 @@ Shapes worth keeping without opening anything else:
   real-world one, and must not be reported as one** — it has none of the
   reordering, jitter or CPU load the bugs above were found under.
 
+**The server can be the simulation authority** -- `-simulate`. The authority
+was never a property of being a player: it is the property of being the
+machine every other player's intent is pointed at, and until now that was
+whichever client joined first. The engine's simulation needs no GL context at
+all (the frame split had already put every GL call in `OnDrawFrame`), so the
+server runs the *real* engine rather than a model of it -- which is what
+answers the old objection that a reimplementation would be a second answer
+free to disagree with the first. What it buys is fairness and resilience:
+nobody is at zero latency any more, no handover when the authority leaves, and
+`HandleSnapshot` refuses every client's world outright. What it does **not**
+buy is a shorter wait for your own hit to register -- that is a round trip
+wherever the authority sits, and shortening it is client-side prediction,
+which is not implemented. The wire does not move: a client is told it is the
+authority by receiving `PacketType.Authority` and in no other way, so a
+simulating server simply never sends it. Measured at **110 MB and 0.31 ms a
+step** for an 8-player room, against 337 MB for a full client, by dropping
+work whose only output was a picture. `.claude/multiplayer/NETWORK-SERVERAUTH.md`.
+
 **Shots are resolved against the world the shooter was looking at**, not the
 one that exists by the time their trigger arrives -- backwards reconciliation,
 ported from Q-Zandronum's `unlagged.cpp`. The error it removes is one-sided and
@@ -635,6 +676,55 @@ The authority itself is rewound by zero, because it already aims and resolves
 against the same puppets. Measured at 156 ms of rewind against 150 ms injected,
 with 0 mismatches on the 3-client instrument. `-nounlagged` is the control.
 `.claude/multiplayer/NETWORK-UNLAGGED.md`.
+
+**A client's own hits land the frame it fires them**, rather than a round trip
+later -- which is the half the rewind deliberately did not buy, and the only
+thing that gives anybody an instant hit when a *server* is simulating the
+match and nobody is the authority. It is sound only because the rewind is
+there: the authority puts everyone back to the snapshot frame the shooter had
+applied, which is the world the shooter's own machine is holding when it
+fires, so the local resolution and the authority's are the same test on the
+same positions -- run earlier, on the machine that already has the inputs.
+Two rules keep a prediction from becoming a lie: it **never scores and never
+ends a match** -- the scoreboard is assigned from the snapshot for every slot
+and `EndIfPointGoalReached` is already refused on a machine that is not
+keeping the score -- and it is **only your own shot**, on somebody else or on
+yourself, since incoming damage is a question about a shot fired on another
+machine and this one has a worse answer to it than the authority does. **Your
+own splash on yourself is predicted** -- a rocket jump is not damage that
+arrives late, it is a jump that does not happen, and the push comes out of
+`TakeDamage` with the damage. Source, target and input are all on this machine,
+so it is arithmetic rather than a bet on a rewind; it is counted apart from the
+rest for that reason, and **it is the one prediction that is still allowed to
+kill** -- a rocket jump at low health, a recoil, a crusher, and above all a
+fall into the void, which is the one death a player has already watched happen.
+
+**The prediction is held rather than assigned over.** A victim's health is the
+authority's number less what this machine has landed on them and not yet had
+confirmed, a victim predicted dead stays down instead of being stood back up
+by a snapshot that has not heard about it yet, and the health this machine's
+own Shock Coil drains is credited on top of the authority's until it catches
+up. The hold lasts one measured round trip and a margin -- not the two seconds
+a prediction is kept for the statistics -- because a mispredicted hit is a
+wrong health bar and a wrong health bar has to right itself in the time the
+answer takes. **Killing somebody else is not predicted**, and that is a change
+made on the strength of a real line rather than a loopback: against Japan a
+client could kill the same opponent twice for one kill on the scoreboard,
+because the authority disagreed and the next snapshot stood the body back up.
+The damage is clamped to leave the victim on one point of health, so the flinch
+and the mark are still instant and only the body falling is owed a round trip;
+`-deathprediction` puts it back for measuring. **A self-kill is predicted**,
+whatever that switch says. Nothing is rolled back because nothing durable is
+written -- health, the score and a wrongly killed puppet's spawn all come off
+the next snapshot on the lines that always carried them.
+Confirmation is a white X around the crosshair, drawn on every machine and in
+every match, offline included -- `.claude/multiplayer/NETWORK-PREDICTION.md`.
+Measured at **86-98% of predictions confirmed** across runs -- 86% on the
+largest sample, with 150 ms injected -- and at zero mismatches with a
+simulating server, where all three clients predict. Quote the range: the
+scripted tour does not fire the same shots twice. `-nohitprediction` is the
+control, `-deathprediction` turns the lethal half back on for measuring, and
+`-nohitmarker` turns off just the mark. No protocol change.
 
 **Chat is T**, three lines bottom left in green on nothing, gone ten seconds
 after they arrive -- the frame counter sits in the right-hand corner, which is

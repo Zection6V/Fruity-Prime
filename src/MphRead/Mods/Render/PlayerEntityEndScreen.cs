@@ -30,18 +30,68 @@ namespace MphRead.Entities
         private static readonly ColorRgba _endArrow = new ColorRgba(255, 215, 90, 255);
         private static readonly Vector4 _endSwatchHover = new Vector4(1, 1, 1, 0.28f);
 
+        /// <summary>
+        /// How much bigger the picker is drawn than the size it was designed
+        /// at.
+        ///
+        /// One number for the whole panel, because the panel is a picture
+        /// with a shape and scaling half of it would break the shape. It is
+        /// larger on a touchscreen for the two reasons a touchscreen is
+        /// different from a mouse: a fingertip is about nine millimetres and
+        /// the arrows and the four suit swatches were laid out for a pointer
+        /// a pixel wide, and a phone is held far closer to the eye but has
+        /// far fewer of them to spend on a panel this size. Not a setting --
+        /// nobody wants to tune the size of a screen they see for thirty
+        /// seconds between matches.
+        /// </summary>
+        private static float EndScale => OperatingSystem.IsAndroid() ? 1.3f : 1f;
+
         /// <summary>Panel geometry, in HUD units measured off the screen's height.</summary>
-        private const float EndPanelWidth = 74;
+        private static float EndPanelWidth => 74 * EndScale;
         private const float EndPanelTop = 4;
-        private const float EndPanelHeight = 92;
-        private const float EndPortrait = 26;
+
+        /// <summary>
+        /// How tall the panel is, worked out from what goes in it rather than
+        /// stated on its own.
+        ///
+        /// It was a constant 92, and the stack inside it did not fit: READY
+        /// alone ran to 98 and hung out of the bottom edge, and the NEXT line
+        /// -- placed by measuring *up* from that same bottom edge -- was drawn
+        /// straight through the middle of it. At 1x that was two readouts
+        /// sharing six units; at the size the picker is drawn on a phone it
+        /// was the whole button. Deriving the height is what stops the two
+        /// from ever disagreeing again: everything below is placed by
+        /// <see cref="EndRow"/> from one running cursor, and the panel is
+        /// however tall that cursor ended up.
+        /// </summary>
+        private static float EndPanelHeight => EndStackHeight * EndScale;
+
+        /// <summary>
+        /// The vertical stack, in design units before <see cref="EndScale"/>,
+        /// as offsets from <see cref="EndPanelTop"/>. One list, read top to
+        /// bottom, so a change to any row moves everything under it and the
+        /// panel with it.
+        /// </summary>
+        private const float EndRowTitle = 3;        // "CHOOSE HUNTER", 8 tall
+        private const float EndRowPreview = 13;     // the 3D window, EndPreview tall
+        private const float EndRowName = 53.5f;     // the hunter's name, 9.6 tall
+        private const float EndRowSuits = 67.5f;    // the four swatches, 8 tall + a 1.5 ring
+        private const float EndRowSuitName = 79.5f; // "SUIT: ORANGE", 7.2 tall
+        private const float EndRowReady = 90;       // the button, EndReadyHeight tall
+        private const float EndRowNext = 107.5f;    // "NEXT: ROOM", 7.2 tall
+        private const float EndStackHeight = 118;   // and three units of floor under it
+
+        /// <summary>One row's top edge, in HUD units.</summary>
+        private static float EndRow(float offset) => EndPanelTop + offset * EndScale;
+
+        private static float EndPortrait => 26 * EndScale;
 
         /// <summary>
         /// Side of the 3D preview window. Square, because the camera behind it
         /// is square and a hunter standing up fits a square better than the
         /// panel's own shape does.
         /// </summary>
-        private const float EndPreview = 38;
+        private static float EndPreview => 38 * EndScale;
 
         internal void ModDrawEndScreen()
         {
@@ -50,13 +100,14 @@ namespace MphRead.Entities
                 return;
             }
             float aspect = HudAspectFix;
+            float scale = EndScale;
             float right = 254;
             float left = right - EndPanelWidth * aspect;
             float centre = left + EndPanelWidth / 2 * aspect;
             float bottom = EndPanelTop + EndPanelHeight;
             // Where the 3D preview goes, asked for before the panel is drawn
             // so the hole and the model agree even on the first frame.
-            float previewTop = EndPanelTop + 8;
+            float previewTop = EndRow(EndRowPreview);
             float previewBottom = previewTop + EndPreview;
             float previewLeft = centre - EndPreview / 2 * aspect;
             float previewRight = centre + EndPreview / 2 * aspect;
@@ -90,8 +141,8 @@ namespace MphRead.Entities
             // a dark patch of the map rather than as something to look at.
             _scene.DrawHudFlatBox(left, EndPanelTop, left + 0.6f * aspect, bottom, _endPanelEdge);
 
-            DrawText2D(centre, EndPanelTop + 2, Align.Center, palette: 0, "CHOOSE HUNTER",
-                color: _endDim, fontSpacing: 8, scale: 0.5f);
+            DrawText2D(centre, EndRow(EndRowTitle), Align.Center, palette: 0, "CHOOSE HUNTER",
+                color: _endDim, fontSpacing: 8, scale: 0.5f * scale);
 
             int hunter = Math.Clamp((int)EndScreen.Hunter, 0, Mods.Launcher.Hunters.Playable - 1);
             // The sprite portrait, only when the model could not be drawn --
@@ -124,35 +175,44 @@ namespace MphRead.Entities
             // Drawn on a box each rather than as bare glyphs: they are
             // clickable now, and a target you can hit has to look like one.
             // The box is also the hit area, published below.
-            float arrowY = previewTop + EndPreview / 2 - 6;
+            float arrowY = previewTop + EndPreview / 2 - 6 * scale;
             EndScreen.Hit prev = DrawEndArrow(left + 2 * aspect, arrowY, "<",
                 EndScreen.HoveredPrev, aspect);
             EndScreen.Hit forward = DrawEndArrow(right - (2 + EndArrowBox) * aspect, arrowY, ">",
                 EndScreen.HoveredNext, aspect);
 
-            DrawText2D(centre, previewBottom + 2, Align.Center, palette: 0,
+            DrawText2D(centre, EndRow(EndRowName), Align.Center, palette: 0,
                 ((Hunter)hunter).ToString().ToUpperInvariant(),
-                color: _endInk, fontSpacing: 8, scale: 0.6f);
+                color: _endInk, fontSpacing: 8, scale: 0.6f * scale);
 
-            float suitTop = previewBottom + 12;
-            DrawText2D(centre, suitTop, Align.Center, palette: 0, "SUIT",
-                color: _endDim, fontSpacing: 8, scale: 0.45f);
             int suit = EndScreen.Suit;
-            DrawEndSuits((Hunter)hunter, suit, left, suitTop + 6, aspect);
+            DrawEndSuits((Hunter)hunter, suit, left, EndRow(EndRowSuits), aspect);
+            // One line where there were two. "SUIT" on its own row above the
+            // swatches and the colour's name on its own row below them cost
+            // ten units to say one thing, on the panel that had the least room
+            // to spare; said together they still label the row and the row
+            // above them gets to breathe.
+            DrawText2D(centre, EndRow(EndRowSuitName), Align.Center, palette: 0,
+                $"SUIT: {Mods.HunterSuits.Name(Mods.HunterSuits.Color((Hunter)hunter, suit))}",
+                color: _endInk, fontSpacing: 8, scale: 0.45f * scale);
+
+            // Under the picker, because it is the answer to everything above
+            // it: the hunter, the suit, and "I have finished reading".
             // What was just drawn, in the window's own coordinates, so a click
             // is tested against the picture rather than against a second copy
             // of this arithmetic. See EndScreen.NoteLayout.
-            EndScreen.NoteLayout(prev, forward, _endSuitHits);
-            DrawText2D(centre, suitTop + 16, Align.Center, palette: 0,
-                Mods.HunterSuits.Name(Mods.HunterSuits.Color((Hunter)hunter, suit)),
-                color: _endInk, fontSpacing: 8, scale: 0.45f);
+            EndScreen.Hit ready = DrawEndReady(centre, EndRow(EndRowReady), aspect);
+            EndScreen.NoteLayout(prev, forward, _endSuitHits, ready);
 
             string next = EndScreen.NextRoomName;
             if (next.Length > 0)
             {
-                DrawText2D(centre, bottom - 7, Align.Center, palette: 0,
+                // Below the button, not measured up from the panel's floor:
+                // measuring up from the floor is what put this line inside
+                // READY.
+                DrawText2D(centre, EndRow(EndRowNext), Align.Center, palette: 0,
                     $"NEXT: {next.ToUpperInvariant()}",
-                    color: _endDim, fontSpacing: 8, scale: 0.45f);
+                    color: _endDim, fontSpacing: 8, scale: 0.45f * scale);
             }
         }
 
@@ -167,7 +227,38 @@ namespace MphRead.Entities
         }
 
         /// <summary>Side of an arrow's clickable box, in HUD height units.</summary>
-        private const float EndArrowBox = 12;
+        private static float EndArrowBox => 12 * EndScale;
+
+        private static float EndReadyWidth => 68 * EndScale;
+        private static float EndReadyHeight => 14 * EndScale;
+
+        /// <summary>
+        /// The Ready button, lit once this player has pressed it.
+        ///
+        /// It says what it is for rather than only what it is: on a screen
+        /// where every other control changes what you will be next life, a
+        /// button that changes how long everyone waits has to say so, and
+        /// "WAITING FOR OTHERS" is the only feedback there is that the press
+        /// landed -- the countdown itself belongs to the server and this
+        /// machine only sees it get shorter.
+        /// </summary>
+        private EndScreen.Hit DrawEndReady(float centre, float top, float aspect)
+        {
+            float half = EndReadyWidth / 2 * aspect;
+            float left = centre - half;
+            float right = centre + half;
+            float bottom = top + EndReadyHeight;
+            bool on = EndScreen.Ready;
+            _scene.DrawHudFlatBox(left, top, right, bottom,
+                on ? _endReadyOn : EndScreen.HoveredReady ? _endArrowHover : _endArrowWell);
+            // 0.42 rather than 0.45: "WAITING FOR OTHERS" is eighteen
+            // characters and at the larger size it ran out of both ends of its
+            // own box.
+            DrawText2D(centre, top + 3.5f * EndScale, Align.Center, palette: 0,
+                on ? "WAITING FOR OTHERS" : "READY",
+                color: on ? _endReadyInk : _endArrow, fontSpacing: 8, scale: 0.42f * EndScale);
+            return ModHudHit(left, top, right, bottom);
+        }
 
         /// <summary>
         /// One arrow on its own box, lit while the pointer is over it, and the
@@ -179,8 +270,8 @@ namespace MphRead.Entities
             float bottomEdge = y + EndArrowBox;
             _scene.DrawHudFlatBox(x, y, rightEdge, bottomEdge,
                 hovered ? _endArrowHover : _endArrowWell);
-            DrawText2D(x + EndArrowBox / 2 * aspect, y + 2, Align.Center, palette: 0, glyph,
-                color: _endArrow, fontSpacing: 8, scale: 0.9f);
+            DrawText2D(x + EndArrowBox / 2 * aspect, y + 2 * EndScale, Align.Center, palette: 0,
+                glyph, color: _endArrow, fontSpacing: 8, scale: 0.9f * EndScale);
             return ModHudHit(x, y, rightEdge, bottomEdge);
         }
 
@@ -199,6 +290,8 @@ namespace MphRead.Entities
             return new EndScreen.Hit(left / 256f, top / 192f, right / 256f, bottom / 192f);
         }
 
+        private static readonly Vector4 _endReadyOn = new Vector4(0.35f, 0.85f, 0.4f, 0.42f);
+        private static readonly ColorRgba _endReadyInk = new ColorRgba(217, 255, 222, 255);
         private static readonly Vector4 _endArrowWell = new Vector4(1, 1, 1, 0.10f);
         private static readonly Vector4 _endArrowHover = new Vector4(1, 0.84f, 0.35f, 0.32f);
 
@@ -216,9 +309,9 @@ namespace MphRead.Entities
         /// </summary>
         private void DrawEndSuits(Hunter hunter, int chosen, float left, float top, float aspect)
         {
-            const float slot = 16;
-            const float box = 11;
-            const float height = 8;
+            float slot = 16 * EndScale;
+            float box = 11 * EndScale;
+            float height = 8 * EndScale;
             int hoveredSuit = EndScreen.HoveredSuit();
             float startX = left + (EndPanelWidth - slot * Mods.Network.PlayerColors.Count) / 2 * aspect;
             for (int i = 0; i < Mods.Network.PlayerColors.Count; i++)

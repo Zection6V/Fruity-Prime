@@ -22,7 +22,17 @@ namespace MphRead.Mods.Network
         /// LocalSlot at -1 for the whole session, on purpose, because there
         /// is no local player to misidentify slot 0 as.
         /// </summary>
-        public static int LocalSlot => DemoPlayback.IsActive ? -1
+        /// <remarks>
+        /// A dedicated server that simulates the match is the second case
+        /// with no local player at all, and it needs -1 for the same reason
+        /// playback does: falling through to 0 would make slot 0 -- a real
+        /// player's slot, on somebody else's machine -- the one slot on the
+        /// server exempt from every "this one belongs to somebody else" test
+        /// in the engine. Its intent would be dropped, its keyboard read from
+        /// a keyboard nobody is holding, and its shots fired from the origin.
+        /// </remarks>
+        public static int LocalSlot => DemoPlayback.IsActive
+            || NetSession.Role == NetRole.Server ? -1
             : NetSession.Active && NetSession.LocalSlot >= 0
             ? NetSession.LocalSlot
             : 0;
@@ -44,6 +54,21 @@ namespace MphRead.Mods.Network
         /// active players) and does no work (PlayerProcess returns before
         /// simulating), so keeping it costs a list entry.
         /// </summary>
+        /// <summary>
+        /// Whether this player is driven from the network rather than by
+        /// whoever is at this keyboard.
+        ///
+        /// True for every other player in a live match, and for *every*
+        /// player during a demo, since LocalSlot is -1 there on purpose --
+        /// which is the case that matters: watching a recording is watching
+        /// puppets, including the one the camera is behind.
+        /// </summary>
+        public static bool IsPuppet(PlayerEntity player)
+        {
+            return (NetSession.Active || DemoPlayback.IsActive)
+                && player.SlotIndex != LocalSlot;
+        }
+
         public static bool KeepSlotAlive(PlayerEntity player)
         {
             return NetSession.Active;

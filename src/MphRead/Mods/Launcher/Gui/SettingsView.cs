@@ -73,6 +73,7 @@ namespace MphRead.Mods.Launcher.Gui
         public event EventHandler? GameFilesRequested;
 
         private ChoiceRow? _windowRow;
+        private ChoiceRow? _clipSecondsRow;
         private SliderRow _resolutionScale = null!;
         private ToggleRow _lightingRow = null!;
         private ToggleRow _fogRow = null!;
@@ -137,12 +138,14 @@ namespace MphRead.Mods.Launcher.Gui
         private ToggleRow _proHud = null!;
         private ChoiceRow _crosshairSizeRow = null!;
         private ChoiceRow _crosshairStyleRow = null!;
+        private ChoiceRow _weaponStyleRow = null!;
         private SliderRow _sfxVolume = null!;
         private SliderRow _musicVolume = null!;
         private ChoiceRow _languageRow = null!;
         private SliderRow _sensitivity = null!;
         private ToggleRow _invertY = null!;
         private ToggleRow _invertX = null!;
+        private ToggleRow _penTablet = null!;
         private ToggleRow _scrollAllWeapons = null!;
         private SliderRow _gamepadLook = null!;
         private SliderRow _gamepadDeadZone = null!;
@@ -518,6 +521,25 @@ namespace MphRead.Mods.Launcher.Gui
             // The preview lives on the type row and answers both rows, so the
             // size row has to ask for it to be repainted.
             _crosshairSizeRow.Changed += (_, _) => _crosshairStyleRow.InvalidateVisual();
+            // Where the gun sits, which is the one Pro-mode question with two
+            // real answers rather than a right one. Static is Quake's: the
+            // weapon is welded to the camera, the crosshair sits dead centre
+            // and the HUD stops sliding around under the mouse. Dynamic is the
+            // DS game's: the gun lags behind the aim point and settles after
+            // it, and the crosshair moves around the screen with the aim while
+            // the camera follows. Pro mode has always drawn the first, so that
+            // stays the default -- this only makes the second reachable
+            // without giving up the rest of the HUD.
+            //
+            // The crosshair is the half that used not to move. It was drawn
+            // wherever Features.FixedCrosshair said, which Pro mode forces on
+            // for a different reason -- the DS reticle animates as you fire
+            // and a crosshair must not -- so answering Dynamic moved the gun
+            // and left the thing the player is actually looking at welded to
+            // the middle of the screen. See PlayerHud.UpdateReticle.
+            _weaponStyleRow = Add(page, new ChoiceRow("Weapon",
+                new[] { "Static (Quake)", "Dynamic (Metroid)" },
+                Features.ProHudFixedWeapon ? 0 : 1));
             _proHud.Changed += (_, _) => ShowCrosshairRows();
             ShowCrosshairRows();
         }
@@ -526,6 +548,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _crosshairSizeRow.IsVisible = _proHud.On;
             _crosshairStyleRow.IsVisible = _proHud.On;
+            _weaponStyleRow.IsVisible = _proHud.On;
         }
 
         // --------------------------------------------------------------- audio
@@ -564,6 +587,15 @@ namespace MphRead.Mods.Launcher.Gui
             _invertX = Add(page, new ToggleRow("Invert horizontal aim", InputSettings.InvertMouseX));
             _scrollAllWeapons = Add(page, new ToggleRow("Wheel cycles every weapon",
                 InputSettings.ScrollAllWeapons));
+            // On by default and worth leaving on with a mouse: no mouse
+            // movement reaches the threshold, so it does nothing at all until
+            // a pen is used. The switch is here for the one case it could get
+            // wrong -- a very high-DPI mouse flicked at a very high
+            // sensitivity -- and for anybody who would rather find out than
+            // be protected. See Mods.Input.PointerInput.
+            _penTablet = Add(page, new ToggleRow("Pen tablet: ignore pointer jumps",
+                Mods.Input.PointerInput.GuardJumps));
+            BuildStylusZone(page);
 
             BuildTouchControls(page);
 
@@ -594,6 +626,24 @@ namespace MphRead.Mods.Launcher.Gui
 
             Heading(page, "Keys");
             var rows = new List<KeyRow>();
+            // Chat first, and by hand. It is the one key this project added
+            // rather than inherited, so it is not a Keybind on PlayerControls
+            // and the reflection below cannot find it -- which is why it was
+            // the one key in the game with no row, settable only by editing
+            // the file.
+            KeyRow chatRow = Add(page, new KeyRow("Chat",
+                () => InputSettings.ChatKey, k => InputSettings.ChatKey = k));
+            rows.Add(chatRow);
+            // The clip button and how much it saves, together: the length is
+            // the only thing anybody wants to know about that key, and putting
+            // it on the far side of the settings from the bind would make them
+            // two unrelated questions.
+            rows.Add(Add(page, new KeyRow("Save clip",
+                () => InputSettings.ClipKey, k => InputSettings.ClipKey = k)));
+            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
+                Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
+                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
+                    Mods.Network.DemoClip.Seconds))));
             foreach (PropertyInfo property in InputSettings.Bindings)
             {
                 rows.Add(Add(page, new KeyRow(property)));
@@ -610,6 +660,12 @@ namespace MphRead.Mods.Launcher.Gui
                 _sensitivity.Value = SensitivityToSlider(InputSettings.MouseSensitivity);
                 _invertY.On = InputSettings.InvertMouseY;
                 _invertX.On = InputSettings.InvertMouseX;
+                _penTablet.On = Mods.Input.PointerInput.GuardJumps;
+                if (_stylusZone != null && _stylusOpacity != null)
+                {
+                    _stylusZone.On = Mods.Input.StylusZone.Enabled;
+                    _stylusOpacity.Value = (int)MathF.Round(Mods.Input.StylusZone.Opacity * 100);
+                }
                 _scrollAllWeapons.On = InputSettings.ScrollAllWeapons;
                 _gamepadLook.Value = LookToSlider(InputSettings.GamepadLookSensitivity);
                 _gamepadDeadZone.Value = DeadZoneToSlider(InputSettings.GamepadDeadZone);
@@ -624,7 +680,10 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     row.InvalidateVisual();
                 }
-                _touchButtonsRow!.On = Mods.Input.TouchSettings.ButtonsVisible;
+                if (_touchButtonsRow != null)
+                {
+                    _touchButtonsRow.On = Mods.Input.TouchSettings.ButtonsVisible;
+                }
                 foreach ((Mods.Input.TouchControl control, ToggleRow row) in _touchRows)
                 {
                     row.On = Mods.Input.TouchSettings.IsEnabled(control);
@@ -636,6 +695,65 @@ namespace MphRead.Mods.Launcher.Gui
         private ToggleRow? _touchButtonsRow;
 
         private readonly List<(Mods.Input.TouchControl Control, ToggleRow Row)> _touchRows = new();
+
+        private ToggleRow? _stylusZone;
+        private SliderRow? _stylusOpacity;
+
+        /// <summary>
+        /// The DS's bottom screen, for a tablet.
+        ///
+        /// One button, as asked: the rest of it is done on the screen itself.
+        /// Pressing it closes the settings, shows the rectangle over the
+        /// running match and lets the player drag out where the bottom screen
+        /// should be -- which is both the position and the size, and cannot
+        /// produce a shape the layout does not fit, since the height follows
+        /// the DS's. A pair of numbers in a settings screen could do neither
+        /// of those things.
+        /// </summary>
+        private void BuildStylusZone(StackPanel page)
+        {
+            // A pen tablet is a desktop device, and this is only ever driven
+            // from RenderWindow's frame -- nothing on the phone updates the
+            // zone, so every row here would be inert. The button is worse
+            // than inert: only SettingsWindow answers
+            // StylusPlacementRequested, so on a phone, whose settings are a
+            // view inside HomeView, pressing it would start a placement that
+            // nothing gets out of the way for and that only Escape ends.
+            if (OperatingSystem.IsAndroid())
+            {
+                return;
+            }
+            _stylusZone = Add(page, new ToggleRow("DS bottom screen for a pen tablet",
+                Mods.Input.StylusZone.Enabled));
+            // How faint. "Barely visible" is the design, but how faint that
+            // has to be to stay out of the way and still be findable depends
+            // on the screen and the eyes in front of it.
+            _stylusOpacity = Add(page, new SliderRow("Bottom screen opacity",
+                (int)MathF.Round(Mods.Input.StylusZone.Opacity * 100),
+                v => $"{v}%", min: 4, max: 60, keyStep: 2));
+            var place = new MenuEntry("Place the bottom screen", titleSize: 13)
+            {
+                Height = 30,
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+            place.Click += (_, _) =>
+            {
+                Mods.Input.StylusZone.BeginPlacement();
+                StylusPlacementRequested?.Invoke(this, EventArgs.Empty);
+            };
+            page.Children.Add(place);
+            page.Children.Add(new Note(
+                "Drag a rectangle where the DS's touch screen should be, then map "
+                + "your tablet to it. Escape leaves it as it was."));
+        }
+
+        /// <summary>
+        /// The settings asking to be closed so the player can draw on the
+        /// game. Raised by the one button above, which is built on the
+        /// desktop only, so SettingsWindow closing itself is the whole of
+        /// what answering this means.
+        /// </summary>
+        public event EventHandler? StylusPlacementRequested;
 
         /// <summary>
         /// Which on-screen buttons the phone draws.
@@ -872,6 +990,11 @@ namespace MphRead.Mods.Launcher.Gui
                     : WindowStartMode.Windowed;
                 WindowMode.Startup = LauncherPrefs.WindowMode;
             }
+            if (_clipSecondsRow != null)
+            {
+                Mods.Network.DemoClip.Seconds = Mods.Network.DemoClip.Lengths[
+                    Math.Clamp(_clipSecondsRow.Index, 0, Mods.Network.DemoClip.Lengths.Length - 1)];
+            }
             _settings.ResolutionScale = Math.Max(RenderOptions.MinScale, _resolutionScale.Value)
                 .ToString(CultureInfo.InvariantCulture);
             _settings.Lighting = RenderOptions.OnOff(_lightingRow.On);
@@ -888,6 +1011,7 @@ namespace MphRead.Mods.Launcher.Gui
             Features.ProHud = _proHud.On;
             Crosshair.Size = (CrosshairSize)_crosshairSizeRow.Index;
             Crosshair.Style = (CrosshairStyle)_crosshairStyleRow.Index;
+            Features.ProHudFixedWeapon = _weaponStyleRow.Index == 0;
             // Audio
             _settings.SfxVolume = (_sfxVolume.Value / 100f).ToString(CultureInfo.InvariantCulture);
             _settings.MusicVolume = (_musicVolume.Value / 100f).ToString(CultureInfo.InvariantCulture);
@@ -896,6 +1020,12 @@ namespace MphRead.Mods.Launcher.Gui
             InputSettings.MouseSensitivity = SliderToSensitivity(_sensitivity.Value);
             InputSettings.InvertMouseY = _invertY.On;
             InputSettings.InvertMouseX = _invertX.On;
+            Mods.Input.PointerInput.GuardJumps = _penTablet.On;
+            if (_stylusZone != null && _stylusOpacity != null)
+            {
+                Mods.Input.StylusZone.Enabled = _stylusZone.On;
+                Mods.Input.StylusZone.Opacity = Math.Clamp(_stylusOpacity.Value / 100f, 0.02f, 1f);
+            }
             InputSettings.ScrollAllWeapons = _scrollAllWeapons.On;
             InputSettings.GamepadLookSensitivity = SliderToLook(_gamepadLook.Value);
             InputSettings.GamepadDeadZone = SliderToDeadZone(_gamepadDeadZone.Value);

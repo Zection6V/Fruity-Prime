@@ -122,6 +122,47 @@ namespace MphRead.Mods
                     + "against the present");
             }
 
+            // Client-side hit resolution, off. The other half of the same
+            // measurement: -nounlagged asks what the authority's answer is
+            // worth, this asks what not waiting for it is worth. On by
+            // default, and inert on the machine running the match, which
+            // never waited for anybody.
+            if (HasFlag(args, "nohitprediction"))
+            {
+                Network.NetHitPrediction.Enabled = false;
+                Console.WriteLine("[net] hit prediction off: a client's hits "
+                    + "land when the authority says so");
+            }
+            if (HasFlag(args, "nohitmarker"))
+            {
+                Network.NetHitPrediction.MarkerEnabled = false;
+                Console.WriteLine("[hud] hit marker off");
+            }
+            // The lethal half of the same measurement. Off by default now:
+            // measured against Japan, a client could kill the same opponent
+            // twice for one kill on the scoreboard, because the authority
+            // disagreed and the next snapshot stood the body back up. A
+            // prediction is clamped to leave the victim standing on one point
+            // of health and the dying waits for the authority.
+            //
+            // A self-kill -- a rocket jump, a recoil, a fall into the void --
+            // is predicted whatever this says, and this does not turn it off:
+            // there is nothing to disagree about when the source, the target
+            // and the input are all on this machine.
+            if (HasFlag(args, "deathprediction"))
+            {
+                Network.NetHitPrediction.DeathEnabled = true;
+                Console.WriteLine("[net] death prediction on: a client's "
+                    + "kills land the frame it lands them");
+            }
+            if (HasFlag(args, "nodeathprediction"))
+            {
+                // Still accepted, and now what the default already does.
+                Network.NetHitPrediction.DeathEnabled = false;
+                Console.WriteLine("[net] death prediction off: a client's "
+                    + "kills land when the authority says so");
+            }
+
             if (HasFlag(args, "credits"))
             {
                 Credits.Print();
@@ -389,9 +430,17 @@ namespace MphRead.Mods
                 // -noshadowfreeze makes the Judicator's ice wave a cone
                 // instead of a column, for everybody in the room.
                 ShadowFreeze = !HasFlag(args, "noshadowfreeze"),
+                // Players may change the map by voting unless the admin says
+                // otherwise. See DedicatedServer.AllowMapVotes.
+                AllowMapVotes = !HasFlag(args, "novote"),
                 // This process is the server, so it is the one that may
                 // replace itself. See DedicatedServer.AutoUpdate.
-                AutoUpdate = true
+                AutoUpdate = true,
+                // -simulate makes this server the match's simulation
+                // authority instead of pointing it at the first client to
+                // connect. It needs game files on this machine; without them
+                // it says so and relays as before. See Mods/Network/ServerSim.
+                Simulate = HasFlag(args, "simulate") || HasFlag(args, "authority")
             };
             // Listed by default. A dedicated server exists to be found, and a
             // server that has to be told to advertise itself is a server
@@ -614,7 +663,10 @@ namespace MphRead.Mods
                 {
                     dpsDistance = parsedDpsDistance;
                 }
-                Environment.ExitCode = Network.WeaponDps.Run(dpsTest, dpsHunter, dpsBeam, dpsSeconds, dpsDistance);
+                // -bombs measures the alt-form bombs instead of a beam: the
+                // one damage source the scripted tour cannot aim.
+                Environment.ExitCode = Network.WeaponDps.Run(dpsTest, dpsHunter, dpsBeam, dpsSeconds,
+                    dpsDistance, HasFlag(args, "bombs"));
                 return true;
             }
             // Generate the binaries for the custom maps in `maps/`. The
@@ -744,6 +796,38 @@ namespace MphRead.Mods
                 return true;
             }
 
+            // The headless simulation on its own, with nobody connected: what
+            // a room costs a server in memory and in milliseconds a step. The
+            // one measurement that decides whether a given box can be the
+            // authority for a given map. See Mods/Network/ServerSimCheck.cs.
+            string? simCheck = ValueAfter(args, "simcheck");
+            if (simCheck != null)
+            {
+                int simPlayers = 8;
+                string? simPlayerValue = ValueAfter(args, "players");
+                if (simPlayerValue != null && Int32.TryParse(simPlayerValue, out int parsedSimPlayers))
+                {
+                    simPlayers = parsedSimPlayers;
+                }
+                double simSeconds = 10;
+                string? simSecondsValue = ValueAfter(args, "seconds");
+                if (simSecondsValue != null && Double.TryParse(simSecondsValue,
+                    System.Globalization.CultureInfo.InvariantCulture, out double parsedSimSeconds))
+                {
+                    simSeconds = parsedSimSeconds;
+                }
+                GameMode simMode = GameMode.Battle;
+                string? simModeValue = ValueAfter(args, "mode");
+                if (simModeValue != null
+                    && Enum.TryParse(simModeValue, ignoreCase: true, out GameMode parsedSimMode))
+                {
+                    simMode = parsedSimMode;
+                }
+                Environment.ExitCode = Network.ServerSimCheck.Run(simCheck, simPlayers,
+                    simSeconds, simMode);
+                return true;
+            }
+
             string? mapTest = ValueAfter(args, "maptest");
             if (mapTest != null)
             {
@@ -802,7 +886,8 @@ namespace MphRead.Mods
                 Environment.ExitCode = Network.MapAudit.Run(mapTest, players, seconds, mapMode,
                     bots: HasFlag(args, "bots"), shotDirectory: ValueAfter(args, "shots"),
                     renderProbe: HasFlag(args, "renderprobe"),
-                    allNodes: HasFlag(args, "allnodes"));
+                    allNodes: HasFlag(args, "allnodes"),
+                    itemProbe: HasFlag(args, "itemshots"));
                 return true;
             }
 
@@ -1071,6 +1156,27 @@ namespace MphRead.Mods
             else if (HasFlag(args, "prohud"))
             {
                 Features.ProHud = true;
+            }
+            // Where the gun and the crosshair sit under it -- Quake's static
+            // pair or the DS game's drifting one. The same reason again, and a
+            // sharper one: the two answers differ mainly in what the middle of
+            // the picture is doing, so a screenshot is how the difference is
+            // checked at all.
+            string? weaponStyle = ValueAfter(args, "weaponstyle");
+            if (weaponStyle != null && !weaponStyle.StartsWith('-'))
+            {
+                if (weaponStyle.Equals("static", StringComparison.OrdinalIgnoreCase)
+                    || weaponStyle.Equals("quake", StringComparison.OrdinalIgnoreCase))
+                {
+                    Features.ProHudFixedWeapon = true;
+                    Features.FixedWeapon = true;
+                }
+                else if (weaponStyle.Equals("dynamic", StringComparison.OrdinalIgnoreCase)
+                    || weaponStyle.Equals("metroid", StringComparison.OrdinalIgnoreCase))
+                {
+                    Features.ProHudFixedWeapon = false;
+                    Features.FixedWeapon = false;
+                }
             }
             // Which crosshair that HUD draws, and how big. Same reason again:
             // a screenshot command opens no launcher, and the crosshair is the

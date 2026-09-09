@@ -146,7 +146,7 @@ namespace MphRead.Mods.Network
                 _remotes[i] = new RemoteView();
             }
             Scene = new Scene(Size, KeyboardState, MouseState, _ => { }, Close);
-            NetLaunch.BuildPlayers(Scene, hunter, color);
+            NetLaunch.BuildPlayers(Scene, hunter, color, teams: GameState.IsTeamMode(mode));
             Scene.AddRoom(roomKey, mode, playerCount: NetLaunch.RoomPlayerCount);
         }
 
@@ -172,6 +172,8 @@ namespace MphRead.Mods.Network
             }
             _frame++;
             UpdateSpectating();
+            DriveVoteTest();
+            DriveRebindTest();
             Observe();
             _features.Observe(Scene);
             SampleScoreboardOnServerClock();
@@ -299,6 +301,72 @@ namespace MphRead.Mods.Network
         /// spawns and is immediately snapped back to the origin looks fine in
         /// a single final reading.
         /// </summary>
+        /// <summary>
+        /// Hold a map vote with nobody at a keyboard.
+        ///
+        /// MPHREAD_VOTE_TEST=ROOM makes this client propose that map once,
+        /// and every client with the variable set answers yes to whatever is
+        /// on the table. Proposing and voting are both key presses in a real
+        /// game, so without this the whole path -- packet, threshold, map
+        /// change -- has no check that does not involve two people and two
+        /// keyboards.
+        /// </summary>
+        private void DriveVoteTest()
+        {
+            string? room = Environment.GetEnvironmentVariable("MPHREAD_VOTE_TEST");
+            if (room == null)
+            {
+                return;
+            }
+            if (MapVote.Active && !MapVote.Answered)
+            {
+                Console.WriteLine($"[votetest] {_name} sees {MapVote.Proposer} propose "
+                    + $"{MapVote.RoomKey} ({MapVote.Yes}/{MapVote.Needed} of {MapVote.Eligible})");
+                MapVote.Cast(yes: true);
+                return;
+            }
+            // Long enough in that both clients are connected -- the threshold
+            // counts everybody, so a vote called before the second one
+            // arrives is a vote of one.
+            if (!_votedOnce && room.Length > 0 && _frame == 600)
+            {
+                _votedOnce = true;
+                Console.WriteLine($"[votetest] {_name} proposes {room}");
+                MapVote.Propose(room);
+            }
+        }
+
+        private bool _votedOnce;
+
+        /// <summary>
+        /// MPHREAD_NET_REBIND=seconds moves this client to a new source port
+        /// at that moment, which is what a line that drops and comes back
+        /// does to it. The server should recognise the same player rather
+        /// than admit a new one -- see NetSession.ClientId.
+        /// </summary>
+        private void DriveRebindTest()
+        {
+            if (_rebound)
+            {
+                return;
+            }
+            string? at = Environment.GetEnvironmentVariable("MPHREAD_NET_REBIND");
+            if (at == null || !Double.TryParse(at,
+                System.Globalization.CultureInfo.InvariantCulture, out double seconds))
+            {
+                return;
+            }
+            if (_frame < seconds * 60)
+            {
+                return;
+            }
+            _rebound = true;
+            Console.WriteLine($"[rebindtest] {_name} was slot {NetSession.LocalSlot}");
+            NetSession.RebindSocket();
+        }
+
+        private bool _rebound;
+
         private void Observe()
         {
             _opponentInView = false;
@@ -521,6 +589,7 @@ namespace MphRead.Mods.Network
             // this line reads "nothing to compensate" and says so honestly
             // rather than looking like a zero.
             Console.WriteLine($"  {NetUnlagged.Describe()}");
+            Console.WriteLine($"  {NetHitPrediction.Describe()}");
             Console.WriteLine($"  room: {Metadata.GetRoomById(Scene.RoomId, noThrow: true)?.Name ?? "?"} "
                 + $"(server says {NetSession.ServerMatch?.RoomKey ?? "?"}), "
                 + $"{_roomChanges} rotation(s) followed");
@@ -701,6 +770,19 @@ namespace MphRead.Mods.Network
                 {
                     Console.WriteLine($"[netcheck] {name} recorded {DemoRecorder.CurrentPath}");
                     DemoRecorder.Stop();
+                }
+                // MPHREAD_CLIP_TEST saves the rolling buffer on the way out.
+                // The button that normally does it is a key press, which this
+                // harness has no way to make, so without this the clip path
+                // has no check at all.
+                if (Environment.GetEnvironmentVariable("MPHREAD_CLIP_TEST") != null)
+                {
+                    // Twice, deliberately: two presses must make two files
+                    // rather than one overwriting the other.
+                    Console.WriteLine($"[netcheck] {name} clip held {DemoClip.Held:0.0} s, "
+                        + (DemoClip.Save() ?? "nothing saved"));
+                    Console.WriteLine($"[netcheck] {name} clip again -> "
+                        + (DemoClip.Save() ?? "nothing saved"));
                 }
                 window?.Dispose();
                 SpectatorMode.Reset();

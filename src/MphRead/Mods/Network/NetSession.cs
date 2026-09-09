@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
@@ -10,8 +11,26 @@ namespace MphRead.Mods.Network
     {
         Offline,
         Host,
-        Client
+        Client,
+        /// <summary>
+        /// This process is a dedicated server that simulates the match
+        /// itself. It owns no socket of its own -- <see cref="DedicatedServer"/>
+        /// owns the one every packet arrives on -- and it has no local
+        /// player, so <see cref="NetSession.LocalSlot"/> stays -1 and every
+        /// slot is a puppet driven by a relayed intent.
+        ///
+        /// Deliberately not <see cref="Host"/>: a host is a player whose
+        /// machine also relays, and half the role checks in this file mean
+        /// "there is somebody at this keyboard" when they say Host.
+        /// </summary>
+        Server
     }
+
+    /// <summary>
+    /// Where a finished snapshot goes when this process has no socket to send
+    /// it on. See <see cref="NetSession.StartServerAuthority"/>.
+    /// </summary>
+    public delegate void SnapshotSink(ReadOnlySpan<byte> payload);
 
     internal sealed class RemotePeer
     {
@@ -20,6 +39,9 @@ namespace MphRead.Mods.Network
         public IntentPacket LatestIntent;
         public uint LastIntentFrame;
         public double LastSeenTime;
+        /// <summary>Who this peer says it is, across address changes. See
+        /// <see cref="NetSession.ClientId"/>. Zero from an older client.</summary>
+        public uint ClientId;
     }
 
     /// <summary>
@@ -42,6 +64,16 @@ namespace MphRead.Mods.Network
         public static bool Active => Role != NetRole.Offline;
         public static bool IsHost => Role == NetRole.Host;
         public static bool IsClient => Role == NetRole.Client;
+
+        /// <summary>
+        /// This process simulates the match and has no player in it. See
+        /// <see cref="NetRole.Server"/>.
+        ///
+        /// Read wherever a guard says "wait until this machine has been given
+        /// a slot": a server never will be, and every one of those guards
+        /// would otherwise hold for the whole match.
+        /// </summary>
+        public static bool IsServer => Role == NetRole.Server;
         public static int LocalSlot { get; private set; } = 0;
         public static uint NetFrame { get; private set; }
         public static uint LastSnapshotFrame => _lastSnapshotFrame;
@@ -99,6 +131,54 @@ namespace MphRead.Mods.Network
         public static long IntentsReceived { get; private set; }
 
         public static void NoteStatesApplied() => StatesApplied++;
+
+        private static SnapshotSink? _snapshotSink;
+
+        /// <summary>
+        /// What "the match this process is simulating is over" does when the
+        /// simulation and the server are the same program. See
+        /// <see cref="SendMatchEnd"/>.
+        /// </summary>
+        private static Action? _serverMatchEnded;
+
+        /// <summary>
+        /// Run this process's simulation as the match's authority, with no
+        /// socket and no local player.
+        ///
+        /// The one caller is <see cref="DedicatedServer"/> in simulate mode.
+        /// Everything the authority already did as a client -- driving every
+        /// slot from relayed intent, rewinding for lag compensation,
+        /// resolving damage, publishing a snapshot a frame -- is unchanged and
+        /// runs from the same code; what changes is that the machine doing it
+        /// is not also playing, so <see cref="LocalSlot"/> is -1 and every
+        /// slot without exception is a puppet.
+        ///
+        /// That is the whole of the refactor on this side. The authority was
+        /// never a property of being a player; it was a property of being the
+        /// machine the server pointed at, and the server can now point at
+        /// itself.
+        /// </summary>
+        /// <param name="sink">
+        /// Where a finished snapshot goes. The relay is in this same process,
+        /// so it is handed the bytes rather than sent a datagram.
+        /// </param>
+        public static void StartServerAuthority(SnapshotSink sink, Action matchEnded)
+        {
+            Stop();
+            Role = NetRole.Server;
+            _snapshotSink = sink;
+            _serverMatchEnded = matchEnded;
+            IsAuthority = true;
+            // Not 0. Slot 0 is a player's slot like any other here, and a
+            // server that called itself slot 0 would exempt that slot from
+            // every "this one is somebody else's" test in the engine -- which
+            // is precisely the set of tests that makes a puppet a puppet.
+            LocalSlot = -1;
+            NetFrame = 0;
+            LastError = null;
+            NetUnlagged.Reset();
+            NetHitPrediction.Reset();
+        }
 
         public static void StartHost(int port = NetConfig.DefaultPort)
         {
@@ -191,6 +271,7 @@ namespace MphRead.Mods.Network
         public static void RewindPlayback()
         {
             NetUnlagged.Reset();
+            NetHitPrediction.Reset();
             _lastSnapshotFrame = 0;
             Array.Clear(_lastSlotIntentFrame);
             Array.Clear(RemoteStateValid);
@@ -248,6 +329,8 @@ namespace MphRead.Mods.Network
             Chat.ChatBox.Clear();
             IsAuthority = false;
             _authorityNeedsStateApply = false;
+            _snapshotSink = null;
+            _serverMatchEnded = null;
             if (_transport != null)
             {
                 if (Role == NetRole.Client && _hostEndPoint != null)
@@ -260,6 +343,11 @@ namespace MphRead.Mods.Network
             _peers.Clear();
             _hostEndPoint = null;
             Role = NetRole.Offline;
+            // Whatever the last server was being asked, it was not this one's
+            // question: a vote left standing here would draw a prompt over
+            // the next match.
+            MapVote.Reset();
+            ConnectionLost = false;
             LocalSlot = 0;
             Array.Clear(RemoteStateValid);
             Array.Clear(RemoteIntentValid);
@@ -289,6 +377,7 @@ namespace MphRead.Mods.Network
             // stamped with the same number from the previous match, which is
             // a shot resolved against a room nobody is standing in.
             NetUnlagged.Reset();
+            NetHitPrediction.Reset();
         }
 
         /// <summary>
@@ -345,6 +434,35 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static readonly int[] SlotPing = new int[PlayerEntity.SlotCapacity];
 
+        /// <summary>
+        /// Who this client is, for as long as the program runs.
+        ///
+        /// A server tells its peers apart by the address a datagram came
+        /// from, and that is not stable across a dropped connection: a line
+        /// that comes back comes back through a new NAT binding, so the same
+        /// player says hello from a source port the server has never seen.
+        /// Every one of those looked like somebody new arriving -- a second
+        /// slot, a second hunter -- while the slot the player actually had
+        /// sat there receiving nothing until it timed out thirty seconds
+        /// later. That is the frozen twin standing in the room.
+        ///
+        /// So the client says who it is as well as where it is, and the
+        /// server matches on this first. Random per process rather than
+        /// derived from anything: it has to survive a reconnection and must
+        /// not survive the program, or two people sharing a settings file
+        /// would be one player.
+        /// </summary>
+        public static readonly uint ClientId = NewClientId();
+
+        private static uint NewClientId()
+        {
+            Span<byte> bytes = stackalloc byte[4];
+            System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+            uint id = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+            // Zero means "did not say", which is what an older client sends.
+            return id == 0 ? 1u : id;
+        }
+
         private static void SendHello()
         {
             if (_transport == null || _hostEndPoint == null)
@@ -357,7 +475,37 @@ namespace MphRead.Mods.Network
             // as a different player would swap two people's scores, names and
             // hunters mid-match.
             _scratch[1] = LocalSlot >= 0 && LocalSlot < 0xFF ? (byte)LocalSlot : (byte)0xFF;
-            _transport.Send(_hostEndPoint, PacketType.Hello, _scratch.AsSpan(0, 2));
+            // Appended rather than inserted: a server built before this
+            // reads the first two bytes and ignores the rest, so a new
+            // client still joins an old server -- it simply gets the old
+            // behaviour when its connection drops.
+            BinaryPrimitives.WriteUInt32LittleEndian(_scratch.AsSpan(2, 4), ClientId);
+            _transport.Send(_hostEndPoint, PacketType.Hello, _scratch.AsSpan(0, 6));
+        }
+
+        /// <summary>
+        /// Throw this client's socket away and open another, keeping
+        /// everything else -- the slot, the identity, the match.
+        ///
+        /// What a dropped connection does to a client that comes back: the
+        /// address the server knows it by is gone and the packets now arrive
+        /// from a port nobody has seen. It is the whole reason
+        /// <see cref="ClientId"/> exists, and it cannot be provoked from a
+        /// test machine any other way, so the harness can ask for it
+        /// (MPHREAD_NET_REBIND=seconds).
+        /// </summary>
+        public static void RebindSocket()
+        {
+            if (Role != NetRole.Client || _transport == null)
+            {
+                return;
+            }
+            int wasPort = _transport.LocalPort;
+            _transport.Dispose();
+            _transport = new NetTransport(0);
+            Console.WriteLine($"[net] rebound the socket: {wasPort} -> {_transport.LocalPort}");
+            SendHello();
+            SendIdentify();
         }
 
         /// <summary>
@@ -367,6 +515,16 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void Update(double time)
         {
+            if (Role == NetRole.Server)
+            {
+                // No socket here: DedicatedServer owns it, drains it on its
+                // own thread and hands this session the intents that arrived.
+                // All this role owes the frame is the clock every snapshot,
+                // every ack and the whole rewind history are numbered by.
+                NetFrame++;
+                AuthorityFrames++;
+                return;
+            }
             if (_transport == null)
             {
                 return;
@@ -401,6 +559,18 @@ namespace MphRead.Mods.Network
                 // packets to a server that ignored every one of them.
                 ReAnnouncements++;
                 _reAnnounced = true;
+                // Say so on screen, once per outage rather than once per
+                // attempt. A player whose line has gone sees a match that has
+                // stopped moving and no reason for it -- and, before the peer
+                // identity fix above, a second hunter walking out of their own
+                // frozen body a moment later. Saying "this is the network, we
+                // are still trying" is the difference between a bug and a
+                // wait.
+                if (!ConnectionLost)
+                {
+                    ConnectionLost = true;
+                    Chat.ChatBox.System("Connection lost, retrying...");
+                }
                 Console.WriteLine("[net] no word from the server; re-announcing "
                     + $"(#{ReAnnouncements}, silent for {time - _lastServerPacket:0.0} s)");
                 NetLog.Event("server silent, re-announcing");
@@ -418,6 +588,15 @@ namespace MphRead.Mods.Network
                 SendIdentify();
             }
         }
+
+        /// <summary>
+        /// The server has stopped answering and this client is still trying.
+        ///
+        /// Read by the HUD, and cleared by the first packet that arrives from
+        /// the server again -- whatever it is, since anything arriving means
+        /// the line is back.
+        /// </summary>
+        public static bool ConnectionLost { get; private set; }
 
         /// <summary>Seconds of silence from the server before saying hello again.</summary>
         private const double SilenceBeforeRejoin = 5.0;
@@ -475,6 +654,11 @@ namespace MphRead.Mods.Network
                         time - _lastServerPacket);
                 }
                 _lastServerPacket = time;
+                if (ConnectionLost)
+                {
+                    ConnectionLost = false;
+                    Chat.ChatBox.System("Reconnected.");
+                }
             }
             switch (packet.Type)
             {
@@ -514,7 +698,26 @@ namespace MphRead.Mods.Network
                     }
                     if (packet.Payload.Length >= 1)
                     {
-                        LocalSlot = packet.Payload[0];
+                        int assigned = packet.Payload[0];
+                        // A different slot from the one we were playing is
+                        // the server having failed to recognise us -- an
+                        // older server, which cannot match a reconnection to
+                        // the peer that made it. The player we were is still
+                        // standing in the room from everybody's point of
+                        // view, and the one thing that must not happen is
+                        // this machine driving a second one beside it. So the
+                        // slot we left is emptied here rather than waited
+                        // out: NetSlotManager builds the player for whatever
+                        // LocalSlot says, and two live players from one
+                        // client is the frozen twin.
+                        if (LocalSlot >= 0 && assigned != LocalSlot)
+                        {
+                            Console.WriteLine($"[net] came back as slot {assigned}, "
+                                + $"was slot {LocalSlot}; releasing the old one");
+                            NetLog.Event($"reconnected into slot {assigned}, was {LocalSlot}");
+                            NetSlotManager.ReleaseSlot(LocalSlot);
+                        }
+                        LocalSlot = assigned;
                         Console.WriteLine($"[net] joined as slot {LocalSlot}");
                         NetLog.Event($"server assigned slot {LocalSlot}");
                     }
@@ -568,6 +771,12 @@ namespace MphRead.Mods.Network
                     break;
                 case PacketType.Chat:
                     HandleChat(packet, time);
+                    break;
+                case PacketType.VoteState when Role == NetRole.Client:
+                    if (packet.Payload.Length >= VoteStatePacket.Size)
+                    {
+                        MapVote.Apply(VoteStatePacket.Read(packet.Payload));
+                    }
                     break;
                 case PacketType.Bye:
                     HandleBye(packet);
@@ -663,13 +872,52 @@ namespace MphRead.Mods.Network
             }
         }
 
+        /// <summary>
+        /// A proposal or a ballot, upstream.
+        ///
+        /// Client only. A listen host is its own server and its
+        /// <see cref="DedicatedServer"/> is in the same process, but nothing
+        /// routes a vote to it yet -- and a vote of one player, held by that
+        /// player, is not a vote. So this sends where there is somebody to
+        /// send to and does nothing otherwise, rather than pretending.
+        /// </summary>
+        public static void SendVote(byte kind, string roomKey)
+        {
+            if (_transport == null || _hostEndPoint == null || Role != NetRole.Client)
+            {
+                return;
+            }
+            var vote = new VotePacket { Kind = kind, RoomKey = roomKey ?? "" };
+            vote.Write(_scratch);
+            _transport.Send(_hostEndPoint, PacketType.Vote,
+                _scratch.AsSpan(0, VotePacket.Size));
+        }
+
         private static void HandleHello(ReceivedPacket packet, double time)
         {
             if (packet.Payload.Length < 1 || packet.Payload[0] != NetConfig.ProtocolVersion)
             {
                 return;
             }
+            uint clientId = packet.Payload.Length >= 6
+                ? BinaryPrimitives.ReadUInt32LittleEndian(packet.Payload.Slice(2, 4))
+                : 0;
             RemotePeer? peer = FindPeer(packet.Sender);
+            if (peer == null && clientId != 0)
+            {
+                // The same player from a new address. See NetSession.ClientId.
+                for (int i = 0; i < _peers.Count; i++)
+                {
+                    if (_peers[i].ClientId == clientId)
+                    {
+                        peer = _peers[i];
+                        Console.WriteLine($"[net] slot {peer.SlotIndex} came back on "
+                            + $"{packet.Sender} (was {peer.EndPoint})");
+                        peer.EndPoint = packet.Sender;
+                        break;
+                    }
+                }
+            }
             if (peer == null)
             {
                 int slot = NextFreeSlot();
@@ -685,6 +933,7 @@ namespace MphRead.Mods.Network
                 _peers.Add(peer);
                 Console.WriteLine($"[net] peer {packet.Sender} -> slot {slot}");
             }
+            peer.ClientId = clientId;
             peer.LastSeenTime = time;
             // Re-answered on every Hello: the first Welcome may have been lost.
             _scratch[0] = (byte)peer.SlotIndex;
@@ -740,7 +989,24 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            IntentPacket intent = IntentPacket.Read(packet.Payload[1..]);
+            AcceptSlotIntent(slot, IntentPacket.Read(packet.Payload[1..]));
+        }
+
+        /// <summary>
+        /// Take one peer's input for one slot, whatever carried it here.
+        ///
+        /// A client gets these as <see cref="PacketType.SlotIntent"/> from the
+        /// server. A server that simulates the match reads the very same
+        /// intents straight off its own socket, one hop earlier, and hands
+        /// them here -- so the ordering rule below, which is the part with the
+        /// history behind it, is written once and applied to both.
+        /// </summary>
+        public static void AcceptSlotIntent(int slot, IntentPacket intent)
+        {
+            if (slot < 0 || slot >= RemoteIntents.Length || slot == LocalSlot)
+            {
+                return;
+            }
             // UDP reorders; an older frame must not overwrite a newer one.
             //
             // "Older", though, means older than what this peer was sending a
@@ -857,7 +1123,20 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            RosterPacket roster = RosterPacket.Read(packet.Payload);
+            ApplyRoster(RosterPacket.Read(packet.Payload));
+        }
+
+        /// <summary>
+        /// Adopt a roster, however it got here.
+        ///
+        /// A client reads one off the wire. A server that simulates the match
+        /// builds the very same packet to broadcast and applies it to itself,
+        /// so its scene learns who is in which slot, playing which hunter, by
+        /// exactly the path every client's does -- rather than by a second
+        /// implementation that would be free to disagree with the first.
+        /// </summary>
+        public static void ApplyRoster(RosterPacket roster)
+        {
             Array.Clear(SlotOccupied);
             for (int i = 0; i < roster.Count; i++)
             {
@@ -887,7 +1166,15 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            MatchStatePacket state = MatchStatePacket.Read(packet.Payload);
+            ApplyMatchState(MatchStatePacket.Read(packet.Payload), rotated);
+        }
+
+        /// <summary>
+        /// Adopt the running match -- map, mode, clock -- however it got here.
+        /// See <see cref="ApplyRoster"/>: same reason, same shape.
+        /// </summary>
+        public static void ApplyMatchState(MatchStatePacket state, bool rotated)
+        {
             string? previous = ServerMatch?.RoomKey;
             ServerMatch = state;
             // Fire on an actual map change, whether the server announced it
@@ -1103,6 +1390,15 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void SendMatchEnd()
         {
+            if (Role == NetRole.Server)
+            {
+                // No datagram: the server that keeps the rotation is this
+                // process. Without this the sim reached the point goal, had
+                // nobody to tell, and the match ran on until the clock did --
+                // which on a rotation entry with no time limit is for ever.
+                _serverMatchEnded?.Invoke();
+                return;
+            }
             if (_transport == null || Role != NetRole.Client || _hostEndPoint == null)
             {
                 return;
@@ -1113,13 +1409,14 @@ namespace MphRead.Mods.Network
         /// <summary>Host -> clients: authoritative state for every active player.</summary>
         public static void BroadcastSnapshot()
         {
-            if (_transport == null)
+            bool asServer = Role == NetRole.Server && _snapshotSink != null;
+            if (_transport == null && !asServer)
             {
                 return;
             }
             bool asHost = Role == NetRole.Host && _peers.Count > 0;
             bool asAuthority = Role == NetRole.Client && IsAuthority && _hostEndPoint != null;
-            if (!asHost && !asAuthority)
+            if (!asHost && !asAuthority && !asServer)
             {
                 return;
             }
@@ -1191,15 +1488,27 @@ namespace MphRead.Mods.Network
             // at all, which is every spawn, every hit and the whole
             // scoreboard. Same trick as the intent below.
             DemoRecorder.RecordOwnSnapshot(_scratch.AsSpan(0, offset));
+            if (asServer)
+            {
+                // Straight to the relay in this same process, which fans it
+                // out to every peer. No loopback datagram: the sender and the
+                // sender's server are the same program.
+                _snapshotSink!(_scratch.AsSpan(0, offset));
+                return;
+            }
+            // Past the server branch there is always a socket: asHost and
+            // asAuthority both require one. Said with a local rather than a
+            // `!` at each use, because the reason is the same both times.
+            NetTransport transport = _transport!;
             if (asAuthority)
             {
                 // One send to the server, which relays to every other peer.
-                _transport.Send(_hostEndPoint!, PacketType.Snapshot, _scratch.AsSpan(0, offset));
+                transport.Send(_hostEndPoint!, PacketType.Snapshot, _scratch.AsSpan(0, offset));
                 return;
             }
             for (int i = 0; i < _peers.Count; i++)
             {
-                _transport.Send(_peers[i].EndPoint, PacketType.Snapshot, _scratch.AsSpan(0, offset));
+                transport.Send(_peers[i].EndPoint, PacketType.Snapshot, _scratch.AsSpan(0, offset));
             }
         }
     }

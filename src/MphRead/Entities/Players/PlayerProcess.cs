@@ -12,6 +12,44 @@ namespace MphRead.Entities
 {
     public partial class PlayerEntity
     {
+        /// <summary>
+        /// MPHREAD_BOMB_CHECK reports Sylux's bomb count disagreeing with the
+        /// three slots it indexes.
+        ///
+        /// The disagreement is the whole Lockjaw fault and it is invisible
+        /// while it happens: no exception, no missing bomb, just a tether that
+        /// never forms and a weapon that stops hurting anybody. Off by
+        /// default, because this runs once a frame for every Sylux in the
+        /// room.
+        /// </summary>
+        private static bool? _bombCountCheck;
+
+        private static bool BombCountCheck
+            => _bombCountCheck ??= Environment.GetEnvironmentVariable("MPHREAD_BOMB_CHECK") != null;
+
+        private int _lastBombCountReport = -1;
+
+        private void CheckSyluxBombCount()
+        {
+            int placed = 0;
+            for (int i = 0; i < SyluxBombs.Length; i++)
+            {
+                if (SyluxBombs[i] != null)
+                {
+                    placed++;
+                }
+            }
+            if (SyluxBombCount == placed || _lastBombCountReport == SyluxBombCount)
+            {
+                return;
+            }
+            // Once per value, not once per frame: a stuck count would otherwise
+            // print sixty identical lines a second for the rest of the match.
+            _lastBombCountReport = SyluxBombCount;
+            Console.WriteLine($"[bombcheck] slot {SlotIndex} count={SyluxBombCount} "
+                + $"but {placed} bomb(s) placed -- Lockjaw is now inert for this player");
+        }
+
         public override bool Process()
         {
             bool result = ProcessPlayer();
@@ -356,6 +394,10 @@ namespace MphRead.Entities
             }
             else if (Hunter == Hunter.Sylux)
             {
+                if (BombCountCheck)
+                {
+                    CheckSyluxBombCount();
+                }
                 if (_bombCooldown > 0)
                 {
                     _bombAmmo = 0;
@@ -531,7 +573,30 @@ namespace MphRead.Entities
             {
                 Flags1 &= ~PlayerFlags1.Boosting;
             }
-            if (Flags1.TestFlag(PlayerFlags1.Walking))
+            // Whether this player is walking, for the head and gun bob only.
+            //
+            // The flag itself is the answer for anybody at a keyboard. It is
+            // not for a puppet: a puppet's position is written in from the
+            // network rather than produced by the movement step, so the
+            // ground check underneath the flag (`Standing`) is being asked
+            // about a body that teleports every frame, and it flickers. The
+            // bob ramps up and down with it, which is the weapon "moving
+            // abnormally up and down" in a replay -- where every player on
+            // screen is a puppet, the one being watched included.
+            //
+            // The owner's own movement is the stable answer, and it is
+            // already here: NetPlayerBridge derives Speed from the positions
+            // that were reported, so a puppet that is moving along the ground
+            // is walking whatever the local ground check makes of it. Only
+            // the bob reads this -- everything else the flag drives is about
+            // simulating a player, which a puppet is not doing.
+            bool bobWalking = Flags1.TestFlag(PlayerFlags1.Walking);
+            if (Mods.Network.NetHooks.IsPuppet(this))
+            {
+                bobWalking = !IsAltForm && !IsMorphing && !IsUnmorphing
+                    && Speed.X * Speed.X + Speed.Z * Speed.Z > BobWalkSpeedSquared;
+            }
+            if (bobWalking)
             {
                 _gunViewBob += 14 / 2f; // todo: FPS stuff
                 if (_gunViewBob > 450)
@@ -1890,6 +1955,14 @@ namespace MphRead.Entities
                 UpdateForm(altForm: false);
             }
         }
+
+        /// <summary>
+        /// How fast a puppet has to be going along the ground before the bob
+        /// treats it as walking, squared. Well under a walk -- the slowest
+        /// hunter covers several times this in a frame -- and well over the
+        /// jitter left by two reported positions a frame apart.
+        /// </summary>
+        private const float BobWalkSpeedSquared = 0.0004f;
 
         private void UpdateForm(bool altForm)
         {

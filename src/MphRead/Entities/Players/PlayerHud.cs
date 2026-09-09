@@ -165,6 +165,12 @@ namespace MphRead.Entities
             _targetCircleInst.SetCharacterData(_targetCircleObj.CharacterData, _scene);
             _targetCircleInst.SetPaletteData(_targetCircleObj.PaletteData, _scene);
             _targetCircleInst.Center = true;
+            // Middle of the screen until UpdateReticle has run once. It is
+            // read for where to draw the flat crosshair and the hit mark now,
+            // and a default of zero puts both in the top-left corner for the
+            // frames before the first aim update.
+            _targetCircleInst.PositionX = 0.5f;
+            _targetCircleInst.PositionY = 0.5f;
             HudObject cloak = HudInfo.GetHudObject(_hudObjects.Cloaking);
             _cloakInst = new HudObjectInstance(cloak.Width, cloak.Height);
             _cloakInst.SetCharacterData(cloak.CharacterData, _scene);
@@ -1036,13 +1042,25 @@ namespace MphRead.Entities
                     _smallReticle = false;
                 }
             }
-            if (Features.FixedCrosshair)
+            if (Features.FixedWeapon)
             {
                 // Screen-dead-centre, not reprojected from _aimPosition: aim
                 // and camera facing are smoothed at different rates (see
                 // UpdateAimVecs), so the reprojected point visibly drifts
                 // off-centre on its own even with the fire animation off.
                 // Quake's crosshair doesn't do that.
+                //
+                // FixedWeapon and not FixedCrosshair, which is what this used
+                // to ask. The two are different questions and Pro mode answers
+                // them differently: it forces FixedCrosshair, because a
+                // reticle that shrinks and expands as you fire is not a
+                // crosshair, but it only *defaults* FixedWeapon -- where the
+                // gun sits is the one Pro-mode setting with two real answers.
+                // Asking the wrong one welded the reticle to the middle of the
+                // screen whatever the Weapon row said, which is the whole of
+                // what "Dynamic (Metroid) does nothing under Pro mode" was:
+                // the gun drifted, and the thing the player actually looks at
+                // did not.
                 _targetCircleInst.PositionX = 0.5f;
                 _targetCircleInst.PositionY = 0.5f;
             }
@@ -1283,7 +1301,15 @@ namespace MphRead.Entities
             // one position where reading what the players are saying is most
             // of the point, and a message that arrives while the scoreboard
             // is up has still arrived.
+            // Under everything else, because it is a thing to reach for
+            // rather than a thing to read: it must never sit on top of the
+            // chat, the results screen or the vote prompt.
+            ModDrawStylusZone();
             ModDrawChat();
+            // With the chat, and above the results screen for the reason the
+            // comment below gives about that one: a vote is asked during a
+            // running match and answered from wherever the player is looking.
+            ModDrawVote();
             // With the chat and before every early return below it, for the
             // same reason: the results screen is drawn during MatchState
             // GameOver *and* Ending, and the block further down handles those
@@ -1376,14 +1402,32 @@ namespace MphRead.Entities
                                 _weaponIconInst.Alpha = Features.HudOpacity;
                                 _scene.DrawHudObject(_weaponIconInst);
                             }
+                            // Wherever UpdateReticle put it: dead centre under
+                            // a static weapon, and the reprojected aim point
+                            // under a dynamic one. The flat crosshair used to
+                            // be drawn at the middle of the screen whatever
+                            // the reticle was doing, which is why Pro mode
+                            // looked like Quake even after the Weapon row was
+                            // set to Dynamic.
+                            float reticleX = _targetCircleInst.PositionX;
+                            float reticleY = _targetCircleInst.PositionY;
                             if (Features.CustomCrosshair)
                             {
-                                _scene.DrawCustomCrosshair(GetCrosshairColor());
+                                _scene.DrawCustomCrosshair(GetCrosshairColor(), reticleX, reticleY);
                             }
                             else
                             {
                                 _targetCircleInst.Alpha = Features.ReticleOpacity;
                                 _scene.DrawHudObject(_targetCircleInst);
+                            }
+                            // Over whichever of the two is drawn: the mark is
+                            // the answer to "did that land", and that question
+                            // does not depend on which reticle a player picked.
+                            float hitMarker = Mods.Network.NetHitPrediction.MarkerAlpha;
+                            if (hitMarker > 0)
+                            {
+                                _scene.DrawHitMarker(new Vector4(1f, 1f, 1f, hitMarker),
+                                    reticleX, reticleY);
                             }
                             if (Features.ModernHud)
                             {

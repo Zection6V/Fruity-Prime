@@ -183,6 +183,45 @@ namespace MphRead.Entities
             ModRefreshNodeRef(previous);
         }
 
+        /// <summary>
+        /// Whether a position the authority sent is somewhere this room could
+        /// actually have put a player.
+        ///
+        /// Every placement the authority makes is a spawn point: it runs
+        /// GetRespawnPoint and publishes where that put the player. So a
+        /// placement nowhere near any spawn point in the room this client has
+        /// loaded did not come from this room at all -- it is the authority
+        /// still standing in the map before the rotation, describing
+        /// coordinates that mean something there and nothing here.
+        ///
+        /// Taking one is the report about spawning outside the level: the
+        /// player is teleported to wherever those coordinates land, which is
+        /// usually nowhere, and then falls out of the world in the dark until
+        /// the kill plane catches them. Refusing it costs nothing -- the
+        /// local spawn that is already in place is a real spawn point of this
+        /// room, chosen a moment earlier by the same rule.
+        /// </summary>
+        internal bool ModPlacementBelongsHere(OpenTK.Mathematics.Vector3 position)
+        {
+            // Generous: the authority may have published a frame or two after
+            // the placement, by which time the player has begun to fall to
+            // the floor, and a spawn point sits above it.
+            const float reach = 12;
+            bool any = false;
+            foreach (PlayerSpawnEntity spawn in _scene.GetPlayerSpawnEntities())
+            {
+                any = true;
+                OpenTK.Mathematics.Vector3 between = spawn.Position - position;
+                if (between.LengthSquared <= reach * reach)
+                {
+                    return true;
+                }
+            }
+            // A room with no spawn points at all is not a room this rule can
+            // say anything about, so it says nothing.
+            return !any;
+        }
+
         internal void ModRefreshNodeRef(OpenTK.Mathematics.Vector3 previousPosition)
         {
             _volume = CollisionVolume.Move(_volumeUnxf, Position);
@@ -319,7 +358,7 @@ namespace MphRead.Entities
 
         /// <summary>
         /// Hidden and non-solid on this machine, whether this is the real
-        /// local player (set directly by <see cref="SpectatorMode"/>) or a
+        /// local player (set directly by <see cref="Mods.SpectatorMode"/>) or a
         /// puppet (set from the FlagSpectating bit in its snapshot).
         /// </summary>
         internal void ModSetSpectating(bool value)
@@ -498,6 +537,23 @@ namespace MphRead.Entities
         /// </summary>
         internal void ModSetHunter(Hunter hunter)
         {
+            if (hunter != Hunter)
+            {
+                // Sylux's three bomb slots and the count that indexes them
+                // belong to the hunter, not to the player, and this is the one
+                // place a player stops being that hunter. Spawn clears them
+                // when somebody comes back *as* Sylux; leaving here is the
+                // other direction, and the one the respawn hunter picker made
+                // ordinary -- lay a bomb, come back as somebody else, and the
+                // count stayed behind describing bombs that are now nobody's.
+                // BombEntity.Destroy checks that it is still the bomb
+                // registered at its own index, so the ones left in the world
+                // pass over this cleanly rather than decrementing it.
+                SyluxBombs[0] = null;
+                SyluxBombs[1] = null;
+                SyluxBombs[2] = null;
+                SyluxBombCount = 0;
+            }
             Hunter = hunter;
         }
 
@@ -569,6 +625,29 @@ namespace MphRead.Entities
             Flags1 &= ~PlayerFlags1.Morphing;
             Flags1 &= ~PlayerFlags1.Unmorphing;
             UpdateForm(altForm);
+            // And the camera, which UpdateForm does not touch.
+            //
+            // The camera type is switched by EnterAltForm and ExitAltForm, and
+            // this path is neither: it skips the transition, so it skipped the
+            // switch too. A player put into alt form this way kept the
+            // first-person camera, and the moment anybody looked through it --
+            // spectating them, or watching a demo, where every player on
+            // screen is a puppet -- the morph ball was filmed from inside its
+            // own head instead of from the third-person camera the game uses
+            // for it. That is the "alt form does not reproduce the original
+            // view" half of the replay report.
+            //
+            // Exactly the switch the two real transitions make, so a forced
+            // form and a walked one end in the same state.
+            if (altForm)
+            {
+                SwitchCamera(Values.AltFormStrafe != 0 ? CameraType.Third2 : CameraType.Third1,
+                    new Vector3(_field70, 0, _field74));
+            }
+            else
+            {
+                SwitchCamera(CameraType.First, _facingVector);
+            }
         }
 
         /// <summary>

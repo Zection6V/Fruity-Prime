@@ -104,6 +104,57 @@ namespace MphRead.Entities
             /* 8 */ BeamType.OmegaCannon
         };
 
+        /// <summary>
+        /// The DS bottom screen's buttons, pressed with a pen.
+        ///
+        /// Written straight into the binds rather than synthesised as key
+        /// presses: there is no keyboard here to put a key into, and a bind
+        /// is what every one of these actions is actually read from. Only
+        /// while the tip is on a button -- everywhere else in the zone is the
+        /// map, which is to say aiming, which the ordinary pointer path
+        /// already does.
+        /// </summary>
+        private static void ApplyStylusZone(PlayerEntity player)
+        {
+            if (!Mods.Input.StylusZone.OnButton)
+            {
+                return;
+            }
+            PlayerControls controls = player.Controls;
+            // Neither aiming nor firing while the tip is on a button. On the
+            // DS the stylus aims and a shoulder button fires, so a touch on a
+            // button was never a shot; here the tip is the fire bind, and
+            // without this, choosing a weapon fires it.
+            controls.Shoot.IsDown = false;
+            controls.Shoot.IsPressed = false;
+            controls.Shoot.IsReleased = false;
+            Mods.Input.StylusRegion pressed = Mods.Input.StylusZone.Pressed;
+            if (pressed == Mods.Input.StylusRegion.None)
+            {
+                return;
+            }
+            Keybind? bind = pressed switch
+            {
+                Mods.Input.StylusRegion.PowerBeam => controls.PowerBeam,
+                Mods.Input.StylusRegion.Missile => controls.Missile,
+                // The big one is the weapon itself, which on the DS steps to
+                // the next; the small one beside it opens the select.
+                Mods.Input.StylusRegion.Weapons => controls.NextWeapon,
+                Mods.Input.StylusRegion.WeaponSelect => controls.WeaponMenu,
+                Mods.Input.StylusRegion.AltForm => controls.Morph,
+                _ => null
+            };
+            // Pattern match, not "!= null": Keybind's own != dereferences both
+            // sides, so comparing one against null threw rather than answering.
+            if (bind is not null)
+            {
+                bind.IsDown = true;
+                bind.IsPressed = true;
+                bind.IsReleased = false;
+                player.Input.HasInput = true;
+            }
+        }
+
         private void ProcessTouchInput()
         {
             // the game explicitly checks for Samus, and doesn't check if the weapon menu is open
@@ -1755,6 +1806,7 @@ namespace MphRead.Entities
 
         private void SpawnBomb()
         {
+            Mods.Network.NetDamage.BombSpawnCalls++;
             // todo?: wi-fi condition and alternate function for spawning Lockjaw bombs
             Matrix4 transform = Matrix4.Identity;
             if (Hunter == Hunter.Kanden)
@@ -1766,16 +1818,44 @@ namespace MphRead.Entities
             {
                 if (Hunter == Hunter.Sylux && SyluxBombCount >= 3)
                 {
-                    SyluxBombs[2]!.Countdown = 0;
-                    SyluxBombs[1]!.Countdown = 0;
-                    SyluxBombs[0]!.Countdown = 0;
-                    return;
+                    // Detonate what is actually there, newest first.
+                    //
+                    // The three entries were dereferenced with `!` on a count
+                    // that nothing kept in step with them, so the one state
+                    // this used to reach -- a full count over an emptied array
+                    // -- was a null dereference here rather than a dud press.
+                    // The reset on respawn and the guarded decrement in
+                    // BombEntity.Destroy are what stop that state arising;
+                    // clearing a count that turns out to describe nothing is
+                    // what stops it lasting the whole match if it ever does.
+                    bool detonated = false;
+                    for (int i = SyluxBombs.Length - 1; i >= 0; i--)
+                    {
+                        BombEntity? placed = SyluxBombs[i];
+                        if (placed != null)
+                        {
+                            placed.Countdown = 0;
+                            detonated = true;
+                        }
+                    }
+                    if (detonated)
+                    {
+                        Mods.Network.NetDamage.BombSpawnDetonated++;
+                        return;
+                    }
+                    Mods.Network.NetDamage.BombSpawnStaleCount++;
+                    SyluxBombCount = 0;
                 }
                 transform = GetTransformMatrix(Vector3.UnitZ, Vector3.UnitY, Position.AddY(Fixed.ToFloat(-1000)));
             }
             var bomb = BombEntity.Spawn(this, transform, _scene);
+            if (bomb == null)
+            {
+                Mods.Network.NetDamage.BombSpawnPoolEmpty++;
+            }
             if (bomb != null)
             {
+                Mods.Network.NetDamage.BombSpawnMade++;
                 if (Hunter == Hunter.Sylux)
                 {
                     SyluxBombs[SyluxBombCount] = bomb;
@@ -2345,6 +2425,14 @@ namespace MphRead.Entities
                         }
                     }
                 }
+                if (player.LoadFlags.TestFlag(LoadFlags.Active))
+                {
+                    // After the hardware has been read, because it overrides
+                    // what the hardware said: a pen tip resting on the weapon
+                    // button is the left mouse button held down, which is the
+                    // fire bind. See Mods.Input.StylusZone.
+                    ApplyStylusZone(player);
+                }
                 player._ignoreClick = false;
                 if (mouseSnap.IsButtonDown(MouseButton.Left) && prevMouseSnap?.IsButtonDown(MouseButton.Left) != true)
                 {
@@ -2404,8 +2492,14 @@ namespace MphRead.Entities
             public MouseState? PrevMouseState { get; set; }
             public MouseState? MouseState { get; set; }
 
-            public float MouseDeltaX => (MouseState?.X - PrevMouseState?.X) ?? 0;
-            public float MouseDeltaY => (MouseState?.Y - PrevMouseState?.Y) ?? 0;
+            // Filtered, so a pointer that teleports does not turn the view.
+            // See Mods.Input.PointerInput: a mouse never reaches the
+            // threshold, and a pen reaches it every time it is lifted off the
+            // tablet and set down somewhere else.
+            public float MouseDeltaX => Mods.Input.StylusZone.OnButton ? 0
+                : Mods.Input.PointerInput.Filter((MouseState?.X - PrevMouseState?.X) ?? 0);
+            public float MouseDeltaY => Mods.Input.StylusZone.OnButton ? 0
+                : Mods.Input.PointerInput.Filter((MouseState?.Y - PrevMouseState?.Y) ?? 0);
             public float ClickX { get; set; } = -1;
             public float ClickY { get; set; } = -1;
 

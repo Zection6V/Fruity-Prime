@@ -220,4 +220,39 @@ int PlayerHudState::weapon_wheel_selection(
     return index < available.size() && available[index] ? wedge : -1;
 }
 
+void PlayerHudState::update_healthbars(const BarFrame& frame) noexcept {
+    if (frame.health < 25) {
+        // Checked before either flash, so being hit while nearly dead does
+        // not recolour the bar to something gentler.
+        if (!healthbar_changed_color_) {
+            healthbar_palette_ = 2;
+            healthbar_changed_color_ = true;
+        }
+    } else if (frame.since_heal < 10U * 2U) {
+        if (!healthbar_changed_color_) {
+            healthbar_palette_ = 1;
+            healthbar_changed_color_ = true;
+        }
+    } else if (frame.since_damage < 6U * 2U) {
+        if (!healthbar_changed_color_) {
+            healthbar_palette_ = 2;
+            healthbar_changed_color_ = true;
+        }
+    } else if (healthbar_changed_color_) {
+        healthbar_palette_ = 0;
+        healthbar_changed_color_ = false;
+    }
+    // The bar slides to the helmet's own resting offset, half a unit a
+    // frame, and further still as a ball.
+    float target = frame.health_offset_y;
+    if (frame.alt_form || frame.morphing) {
+        target += frame.health_offset_y_alt;
+    }
+    if (healthbar_y_offset_ > target) {
+        healthbar_y_offset_ -= 0.5F;
+    } else if (healthbar_y_offset_ < target) {
+        healthbar_y_offset_ += 0.5F;
+    }
+}
+
 } // namespace fruityprime::players

@@ -28,8 +28,8 @@ public:
     [[nodiscard]] float whiteout_factor() const noexcept {
         return whiteout_factor_;
     }
-    [[nodiscard]] const std::array<float, WhiteoutTableSize>& whiteout_table()
-        const noexcept {
+    [[nodiscard]] const std::array<float, WhiteoutTableSize>&
+    hud_whiteout_table() const noexcept {
         return whiteout_table_;
     }
 
@@ -279,6 +279,21 @@ public:
         float pointer_x, float pointer_y, float width, float height,
         std::span<const bool, 6> available) noexcept;
 
+    struct WeaponSelect {
+        int selection = -1;
+        // The wheel clicks when the selection changes, not every frame.
+        bool clicked = false;
+    };
+
+    // PlayerHud.UpdateWeaponSelect.
+    [[nodiscard]] WeaponSelect update_weapon_select(
+        float pointer_x, float pointer_y, float width, float height,
+        std::span<const bool, 6> available) noexcept {
+        const int selection = weapon_wheel_selection(
+            pointer_x, pointer_y, width, height, available);
+        return {selection, note_weapon_selection(selection)};
+    }
+
     // Whether the wheel selection changed this pass, which is what makes
     // the click.
     [[nodiscard]] bool note_weapon_selection(int selection) noexcept {
@@ -332,6 +347,54 @@ public:
             && damage_indicator_shown_[direction];
     }
 
+    // ---- the two bars' colours ---------------------------------------
+    // Both bars flash to say something happened, and the flag is what stops
+    // them flashing again every frame while the reason still holds.
+
+    // What UpdateHealthbars and UpdateAmmoBar are told about the frame.
+    struct BarFrame {
+        int health = 0;
+        // Frames since the last heal, hit and ammo pickup, in this head's
+        // own frames -- the cartridge counts at half the rate.
+        std::uint32_t since_heal = 0xffffffffU;
+        std::uint32_t since_damage = 0xffffffffU;
+        std::uint32_t since_pickup = 0xffffffffU;
+        bool alt_form = false;
+        bool morphing = false;
+        // HudObjects.HealthOffsetY and HealthOffsetYAlt.
+        float health_offset_y = 0.0F;
+        float health_offset_y_alt = 0.0F;
+    };
+
+    // PlayerHud.UpdateHealthbars.  Low health and a hit both turn the bar
+    // red; a heal turns it green.  Low health is checked first, so being
+    // hit while nearly dead does not briefly recolour it to something
+    // gentler.
+    void update_healthbars(const BarFrame& frame) noexcept;
+
+    // PlayerHud.UpdateAmmoBar.
+    void update_ammo_bar(const BarFrame& frame) noexcept {
+        if (frame.since_pickup < 10U * 2U) {
+            if (!ammo_bar_changed_color_) {
+                ammo_bar_palette_ = 1;
+                ammo_bar_changed_color_ = true;
+            }
+        } else if (ammo_bar_changed_color_) {
+            ammo_bar_palette_ = 0;
+            ammo_bar_changed_color_ = false;
+        }
+    }
+
+    [[nodiscard]] int healthbar_palette() const noexcept {
+        return healthbar_palette_;
+    }
+    [[nodiscard]] int ammo_bar_palette() const noexcept {
+        return ammo_bar_palette_;
+    }
+    [[nodiscard]] float healthbar_y_offset() const noexcept {
+        return healthbar_y_offset_;
+    }
+
     // PlayerHud.HudAspectFix.  The HUD is laid out in the DS's 256x192 and
     // stretched to the window, so anything that has to stay square -- an
     // icon, a circle -- is scaled back by this.
@@ -363,6 +426,11 @@ private:
     std::array<std::uint16_t, DamageIndicatorCount>
         damage_indicator_timers_{};
     std::array<bool, DamageIndicatorCount> damage_indicator_shown_{};
+    int healthbar_palette_ = 0;
+    bool healthbar_changed_color_ = false;
+    float healthbar_y_offset_ = 0.0F;
+    int ammo_bar_palette_ = 0;
+    bool ammo_bar_changed_color_ = false;
 
     // PlayerHud.UpdateWhiteoutTable
     void update_whiteout_table(float value) noexcept;

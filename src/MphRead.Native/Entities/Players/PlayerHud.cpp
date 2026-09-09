@@ -1719,6 +1719,13 @@ void PlayerHud::DrawOpponent(const HudContext& context,
         FormatModeScore(context, static_cast<std::uint8_t>(slot))));
 }
 
+PlayerHud::HudFont PlayerHud::SetUpFont(const char first_character,
+                                         const bool japanese) noexcept {
+    const auto lead = static_cast<unsigned char>(first_character);
+    return japanese && (lead & 0xA0u) == 0xA0u ? HudFont::Kanji
+                                               : HudFont::Normal;
+}
+
 void PlayerHud::DrawHudPrimeHunter(const HudContext& context,
                                    const ModeHudState& state,
                                    const float shift_x,
@@ -1786,7 +1793,18 @@ void PlayerHud::DrawLocatorIcons(
         return;
     }
     for (const auto& info : state.locators) {
-        const ProjectedPoint point = project(info.position);
+        DrawLocatorIcon(context, info, project(info.position), width, height);
+    }
+}
+
+void PlayerHud::DrawLocatorIcon(const HudContext& context,
+                                const LocatorInfo& info,
+                                const ProjectedPoint& point,
+                                const float width, const float height) {
+    if (context.backend == nullptr) {
+        return;
+    }
+    {
         const LocatorPlacement placement = PlaceLocatorIcon(
             point.view, point.x, point.y, width, height);
         // A marker off the screen is replaced by an arrow pointing at it,

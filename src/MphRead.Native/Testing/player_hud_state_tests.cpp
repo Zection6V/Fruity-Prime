@@ -34,7 +34,7 @@ int main() {
     h.hud_end_disrupted();
     std::printf("native player HUD state: ramp_frames=%d fade=%d direct=%d held=%d ended=%d table=%zu\n",
         ramp_frames, reached_fade, direct, held, h.disrupted_state() == 0,
-        h.whiteout_table().size());
+        h.hud_whiteout_table().size());
     return (ramp_frames > 1 && reached_fade && direct && held
             && h.disrupted_state() == 0 && h.disruption_factor() == 0.0F) ? 0 : 1;
 }

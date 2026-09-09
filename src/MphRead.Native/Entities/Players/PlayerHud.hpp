@@ -461,6 +461,21 @@ public:
         float width, float height,
         const std::function<ProjectedPoint(const net::Vec3&)>& project);
 
+    // PlayerHud.DrawLocatorIcon: one marker, placed and handed to the
+    // renderer.  A marker outside the HUD box becomes an arrow pointing at
+    // where the thing actually is.
+    static void DrawLocatorIcon(const HudContext& context,
+                                const LocatorInfo& info,
+                                const ProjectedPoint& point, float width,
+                                float height);
+
+    // PlayerHud.SetUpFont: which of the two fonts a run of text is
+    // measured and drawn with.  Only a Japanese or Korean cartridge has the
+    // second one, and only a lead byte in its range asks for it.
+    enum class HudFont : std::uint8_t { Normal, Kanji };
+    [[nodiscard]] static HudFont SetUpFont(char first_character,
+                                           bool japanese) noexcept;
+
     // Strings.GetHudMessage(11): "prime hunter"; (214) is its score
     // heading, "prime time"; (1): "bombs"; (2): "boost".
     static constexpr int PrimeHunterMessageId = 11;

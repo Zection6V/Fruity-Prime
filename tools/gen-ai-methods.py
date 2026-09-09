@@ -84,8 +84,11 @@ class Method:
 
     def signature(self, qualified: bool) -> list[str]:
         kind = "int" if self.predicate else "void"
+        # Only a predicate returns anything, so only a predicate can have
+        # its answer thrown away.
+        attribute = "[[nodiscard]] " if self.predicate else ""
         head = ("%s PlayerAiData::%s(" % (kind, self.member) if qualified
-                else "    [[nodiscard]] %s %s(" % (kind, self.member))
+                else "    %s%s %s(" % (attribute, kind, self.member))
         pad = "    " if qualified else "            "
         lines = [head,
                  pad + "const gameplay::Session& session,",

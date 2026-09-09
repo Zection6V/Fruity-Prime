@@ -128,6 +128,16 @@ void State::set_aim(net::Vec3 aim) noexcept {
             aim.z * inverse_length};
 }
 
+void State::invalidate_mouse_delta() noexcept {
+    mouse_delta_invalid_ = true;
+}
+
+bool State::consume_mouse_delta_invalidation() noexcept {
+    const bool invalid = mouse_delta_invalid_;
+    mouse_delta_invalid_ = false;
+    return invalid;
+}
+
 void apply_gamepad(State& state, const GamepadState& gamepad,
                    GamepadConfig config) noexcept {
     state.clear_gamepad();

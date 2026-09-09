@@ -138,6 +138,10 @@ public:
     void clear_gamepad() noexcept;
     void set_gamepad(Action action, bool held) noexcept;
     void set_aim(net::Vec3 aim) noexcept;
+    // PlayerEntityChatHud.ModForgetInputDeltas invalidates the next native
+    // relative-mouse sample as well as the managed snapshots.
+    void invalidate_mouse_delta() noexcept;
+    [[nodiscard]] bool consume_mouse_delta_invalidation() noexcept;
 
     [[nodiscard]] net::IntentButtons buttons() const noexcept {
         return buttons_;
@@ -158,6 +162,7 @@ private:
     net::Vec3 aim_{0.0F, 0.0F, 1.0F};
     bool scan_keyboard_ = false;
     bool scan_gamepad_ = false;
+    bool mouse_delta_invalid_ = false;
 };
 
 // Translate a platform-neutral XInput sample into logical actions. This is

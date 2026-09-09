@@ -52,6 +52,11 @@ int main() {
                 "clear did not reset buttons");
         require(state.aim().z == 1.0F, "clear did not reset aim");
         require(!state.scan(), "clear did not reset local scan state");
+        state.invalidate_mouse_delta();
+        require(state.consume_mouse_delta_invalidation(),
+                "mouse delta invalidation was not recorded");
+        require(!state.consume_mouse_delta_invalidation(),
+                "mouse delta invalidation was not consumed once");
         std::cout << "input state tests passed\n";
         return 0;
     } catch (const std::exception& error) {

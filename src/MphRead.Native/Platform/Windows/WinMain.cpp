@@ -6642,6 +6642,13 @@ void update_mouse_aim(HWND window) {
     };
     POINT center_screen = center;
     ClientToScreen(window, &center_screen);
+    if (g_input.consume_mouse_delta_invalidation()) {
+        // Re-establish the Win32 relative-motion baseline. This is the native
+        // adapter for PlayerEntityChatHud.ModForgetInputDeltas, not a second
+        // chat behavior: the next sample must contribute zero aim delta.
+        SetCursorPos(center_screen.x, center_screen.y);
+        return;
+    }
     POINT cursor{};
     if (GetCursorPos(&cursor) == FALSE) {
         return;
@@ -7297,6 +7304,7 @@ void update_game(HWND window) {
             main_player != nullptr) {
             main_player->ModForgetInputDeltas();
         }
+        g_input.invalidate_mouse_delta();
     }
     if (g_scan_dialog_active) {
         update_scan_dialog(window);

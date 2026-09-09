@@ -18,6 +18,13 @@
 namespace fruityprime::players {
 namespace {
 
+// PlayerHud's own object layout for the hunter being drawn.
+[[nodiscard]] const MphReadNative::Hud::ObjectPaths& objects_for(
+    const HudContext& context) {
+    return MphReadNative::Hud::elements().hunter_objects[
+        std::min<std::size_t>(context.hunter, 7)];
+}
+
 // The managed HUD writes its colours as BGR555 literals.
 [[nodiscard]] constexpr HudBackend::Color from_bgr555(
     std::uint16_t value) noexcept {
@@ -1323,6 +1330,393 @@ bool PlayerHud::ProcessModeHud(const HudContext& context,
     // One is "somebody just gave themselves away", which is the only case
     // the taunt fires on; two means they were already showing.
     return reveal == 1;
+}
+
+void PlayerHud::DrawOctolithInst(
+    const HudContext& context, const gameplay::ObjectiveState& objectives,
+    const ModeHudFrame& frame, const int icon_frame) {
+    if (context.backend == nullptr || context.state == nullptr) {
+        return;
+    }
+    const bool carrying = std::any_of(
+        objectives.flags.begin(), objectives.flags.end(),
+        [&context](const gameplay::FlagObjectiveState& flag) {
+            return flag.carrier_slot == context.local_slot;
+        });
+    bool draw = false;
+    float alpha = 1.0F;
+    if (carrying) {
+        // Carrying one: the icon flashes, so a player cannot miss it.
+        draw = (frame.frame_count & (16u * 2u)) != 0;
+    } else if (context.state->teams) {
+        const int own_team = static_cast<int>(
+            context.state->player_teams[context.local_slot]);
+        for (const auto& flag : objectives.flags) {
+            if (flag.carrier_slot != 0xff
+                && static_cast<int>(
+                    context.state->player_teams[flag.carrier_slot])
+                    == own_team) {
+                // A team mate has one: shown, but at half light, because it
+                // is not this player who has to get it home.
+                draw = true;
+                alpha = 0.5F;
+                break;
+            }
+        }
+    }
+    if (!draw) {
+        return;
+    }
+    const auto& objects = objects_for(context);
+    static_cast<void>(context.backend->draw_hud_object(
+        HudBackend::Object::Octolith, 0,
+        static_cast<std::size_t>(std::max(0, icon_frame)), 0,
+        static_cast<float>(objects.octolith_pos_x),
+        static_cast<float>(objects.octolith_pos_y), 1.0F, alpha, nullptr));
+}
+
+void PlayerHud::DrawHudBattle(const HudContext& context) {
+    DrawModeScore(context, BattleScoreMessageId,
+                  FormatModeScore(context, context.local_slot));
+}
+
+void PlayerHud::DrawHudSurvival(const HudContext& context) {
+    DrawModeScore(context, SurvivalScoreMessageId,
+                  FormatModeScore(context, context.local_slot));
+}
+
+void PlayerHud::DrawHudBounty(const HudContext& context,
+                              const gameplay::ObjectiveState& objectives,
+                              const ModeHudFrame& frame) {
+    DrawModeScore(context, BountyScoreMessageId,
+                  FormatModeScore(context, context.local_slot));
+    DrawOctolithInst(context, objectives, frame, 0);
+}
+
+void PlayerHud::DrawHudCapture(const HudContext& context,
+                               const gameplay::ObjectiveState& objectives,
+                               const ModeHudFrame& frame) {
+    DrawModeScore(context, CaptureScoreMessageId,
+                  FormatModeScore(context, context.local_slot));
+    // Each side's octolith has its own frame.
+    const int own_team = context.state == nullptr ? 0
+        : static_cast<int>(context.state->player_teams[context.local_slot]);
+    DrawOctolithInst(context, objectives, frame, own_team == 0 ? 4 : 3);
+}
+
+void PlayerHud::DrawHudDefender(const HudContext& context) {
+    DrawModeScore(context, DefenderScoreMessageId,
+                  FormatModeScore(context, context.local_slot));
+}
+
+void PlayerHud::DrawNodesBonuses(const HudContext& context,
+                                 const ModeHudState& state) {
+    if (context.backend == nullptr || context.state == nullptr) {
+        return;
+    }
+    const auto& objects = objects_for(context);
+    const std::string message = call(context.hud_message,
+                                     NodesBonusMessageId);
+    const int own_team = static_cast<int>(
+        context.state->player_teams[context.local_slot]);
+    if (state.main_node_bonus) {
+        const std::size_t icon =
+            context.state->teams && own_team == 0 ? 2u : 4u;
+        static_cast<void>(context.backend->draw_hud_object(
+            HudBackend::Object::Nodes, 0, icon, 0,
+            static_cast<float>(objects.node_bonus_pos_x),
+            static_cast<float>(objects.node_bonus_pos_y), 1.0F, 1.0F,
+            nullptr));
+        const std::string count = "x " + std::to_string(
+            state.team_node_counts[static_cast<std::size_t>(
+                std::clamp(own_team, 0, 3))]);
+        static_cast<void>(DrawText2D(
+            context, static_cast<float>(objects.node_bonus_pos_x + 12),
+            static_cast<float>(objects.node_bonus_pos_y + 2), Align::Left, 0,
+            count));
+        static_cast<void>(DrawText2D(
+            context, static_cast<float>(objects.node_bonus_pos_x),
+            static_cast<float>(objects.node_bonus_pos_y + 10), Align::Left, 0,
+            message));
+    }
+    // An opponent's bonus blinks: twelve frames on out of every sixteen.
+    const float period = 16.0F / 30.0F;
+    float past = std::fmod(context.elapsed_seconds, period);
+    if (past < 0.0F) {
+        past += period;
+    }
+    if (state.node_bonus_opponent != -1 && past < 12.0F / 30.0F) {
+        const std::size_t icon =
+            context.state->teams && state.node_bonus_opponent == 1 ? 4u : 2u;
+        static_cast<void>(context.backend->draw_hud_object(
+            HudBackend::Object::Nodes, 0, icon, 0,
+            static_cast<float>(objects.enemy_bonus_pos_x),
+            static_cast<float>(objects.enemy_bonus_pos_y), 1.0F, 1.0F,
+            nullptr));
+        const std::string count = "x " + std::to_string(
+            state.team_node_counts[static_cast<std::size_t>(
+                std::clamp(state.node_bonus_opponent, 0, 3))]);
+        // Palette two is the red one: an opponent's bonus is a warning.
+        static_cast<void>(DrawText2D(
+            context, static_cast<float>(objects.enemy_bonus_pos_x + 12),
+            static_cast<float>(objects.enemy_bonus_pos_y + 2), Align::Left, 2,
+            count));
+        static_cast<void>(DrawText2D(
+            context, static_cast<float>(objects.enemy_bonus_pos_x),
+            static_cast<float>(objects.enemy_bonus_pos_y + 10), Align::Left,
+            2, message));
+    }
+}
+
+void PlayerHud::DrawNodesIcons(const HudContext& context,
+                               const gameplay::ObjectiveState& objectives) {
+    if (context.backend == nullptr || context.state == nullptr) {
+        return;
+    }
+    const auto& objects = objects_for(context);
+    const auto count = objectives.nodes.size();
+    // Four icons sit centred on the layout position; fewer are centred on
+    // themselves instead.
+    float start_x = 12.0F;
+    if (count < 4) {
+        start_x = static_cast<float>(16 * count) / 2.0F - 12.0F;
+    }
+    const int own_team = static_cast<int>(
+        context.state->player_teams[context.local_slot]);
+    float offset = 0.0F;
+    for (const auto& node : objectives.nodes) {
+        const int current = static_cast<int>(node.current_team);
+        const int occupying = static_cast<int>(node.occupying_team);
+        const bool blinking = node.contested || node.progress > 0.0F;
+        // Zero is the unclaimed icon, two the hostile one and four the
+        // friendly one -- the same three the locators use.
+        std::size_t icon = 0;
+        if (current == gameplay::NeutralObjectiveTeam) {
+            if (blinking) {
+                icon = context.state->teams
+                    ? (occupying == 0 ? 2u : 4u)
+                    : (occupying == own_team ? 4u : 2u);
+            }
+        } else if (context.state->teams) {
+            icon = (blinking ? occupying : current) == 0 ? 2u : 4u;
+        } else if (current == own_team) {
+            icon = !blinking || occupying == own_team ? 4u : 2u;
+        } else {
+            icon = blinking && occupying == own_team ? 4u : 2u;
+        }
+        static_cast<void>(context.backend->draw_hud_object(
+            HudBackend::Object::Nodes, 0, icon, 0,
+            static_cast<float>(objects.node_icon_pos_x) + start_x - offset,
+            static_cast<float>(objects.node_icon_pos_y - 8), 1.0F, 1.0F,
+            nullptr));
+        offset += 16.0F;
+    }
+    static_cast<void>(DrawText2D(
+        context, static_cast<float>(objects.node_text_pos_x),
+        static_cast<float>(objects.node_text_pos_y), Align::Center, 0,
+        call(context.hud_message, NodesLabelMessageId)));
+}
+
+void PlayerHud::DrawHudNodes(const HudContext& context,
+                             const gameplay::ObjectiveState& objectives,
+                             const ModeHudFrame& frame,
+                             const ModeHudState& state) {
+    static_cast<void>(frame);
+    DrawModeScore(context, NodesScoreMessageId,
+                  FormatModeScore(context, context.local_slot));
+    DrawNodesBonuses(context, state);
+    DrawNodesIcons(context, objectives);
+    if (state.nodes_hud_state != 1) {
+        return;
+    }
+    // The progress bar takes the place of the "acquiring node" line once
+    // that line has run its course.
+    MphReadNative::Hud::Meter meter =
+        MphReadNative::Hud::elements().node_progress_bar;
+    meter.tank_amount = 40;
+    meter.tank_count = 0;
+    static_cast<void>(DrawMeter(context, HudBackend::Object::AmmoBar, 108.0F,
+                                143.0F, state.nodes_progress_amount,
+                                state.nodes_progress_amount, meter, 0,
+                                false));
+    static_cast<void>(DrawText2D(
+        context, 128.0F, 133.0F, Align::Center, 0,
+        call(context.hud_message, NodesProgressMessageId)));
+}
+
+void PlayerHud::DrawModeHud(const HudContext& context,
+                            const gameplay::ObjectiveState& objectives,
+                            const ModeHudFrame& frame,
+                            const ModeHudState& state) {
+    switch (context.mode) {
+    case game::Mode::Battle:
+    case game::Mode::BattleTeams:
+        DrawHudBattle(context);
+        break;
+    case game::Mode::Survival:
+    case game::Mode::SurvivalTeams:
+        DrawHudSurvival(context);
+        break;
+    case game::Mode::Bounty:
+    case game::Mode::BountyTeams:
+        DrawHudBounty(context, objectives, frame);
+        break;
+    case game::Mode::Capture:
+        DrawHudCapture(context, objectives, frame);
+        break;
+    case game::Mode::Defender:
+    case game::Mode::DefenderTeams:
+        DrawHudDefender(context);
+        break;
+    case game::Mode::Nodes:
+    case game::Mode::NodesTeams:
+        DrawHudNodes(context, objectives, frame, state);
+        break;
+    default:
+        // Prime Hunter draws its own countdown, and the story mode's HUD is
+        // the scan visor's, which is not this file's.
+        break;
+    }
+}
+
+void PlayerHud::DrawDoubleDamageHud(const HudContext& context,
+                                    const PlayerHudState& hud,
+                                    const float remaining,
+                                    const float shift_x,
+                                    const float shift_y) {
+    if (context.backend == nullptr || remaining <= 0.0F) {
+        return;
+    }
+    const auto& objects = objects_for(context);
+    const float x = static_cast<float>(objects.dbl_dmg_pos_x) + shift_x;
+    const float y = static_cast<float>(objects.dbl_dmg_pos_y) + shift_y;
+    // The icon is drawn from its middle, which is sixteen units in.
+    static_cast<void>(context.backend->draw_hud_object(
+        HudBackend::Object::DoubleDamage, 0,
+        static_cast<std::size_t>(hud.double_damage_icon_frame()), 0,
+        x - 16.0F, y - 16.0F, 1.0F, 0.5F, nullptr));
+    if (hud.double_damage_text_timer() <= 0.0F) {
+        return;
+    }
+    // The name types itself out at a character a frame.
+    const float elapsed = 60.0F / 30.0F - hud.double_damage_text_timer();
+    const int length = static_cast<int>(std::ceil(elapsed / (1.0F / 30.0F)));
+    static_cast<void>(DrawText2D(
+        context, x + static_cast<float>(objects.dbl_dmg_text_pos_x),
+        y + static_cast<float>(objects.dbl_dmg_text_pos_y),
+        objects.dbl_dmg_align, 0,
+        call(context.hud_message, DoubleDamageMessageId), nullptr, 1.0F,
+        1.0F, length));
+}
+
+void PlayerHud::DrawCloakHud(const HudContext& context,
+                             const PlayerHudState& hud, const bool cloaking,
+                             const float shift_x, const float shift_y) {
+    if (context.backend == nullptr || !cloaking) {
+        return;
+    }
+    const auto& objects = objects_for(context);
+    const float x = static_cast<float>(objects.cloak_pos_x) + shift_x;
+    const float y = static_cast<float>(objects.cloak_pos_y) + shift_y;
+    static_cast<void>(context.backend->draw_hud_object(
+        HudBackend::Object::Cloak, 0, 0, 0, x - 16.0F, y - 16.0F, 1.0F, 0.5F,
+        nullptr));
+    if (hud.cloak_text_timer() <= 0.0F) {
+        return;
+    }
+    const float elapsed = 45.0F / 30.0F - hud.cloak_text_timer();
+    const int length = static_cast<int>(std::ceil(elapsed / (1.0F / 30.0F)));
+    static_cast<void>(DrawText2D(
+        context, x + static_cast<float>(objects.cloak_text_pos_x),
+        y + static_cast<float>(objects.cloak_text_pos_y),
+        objects.cloak_align, 0, call(context.hud_message, CloakMessageId),
+        nullptr, 1.0F, 1.0F, length));
+}
+
+bool PlayerHud::DrawTargetHealthbar(const HudContext& context,
+                                    const TargetHealth& target,
+                                    const float shift_x,
+                                    const float shift_y) {
+    if (context.backend == nullptr || target.max <= 0) {
+        return false;
+    }
+    const auto& objects = objects_for(context);
+    // Palette two is the red one.
+    const std::size_t palette = target.current > target.low_health ? 0u : 2u;
+    MphReadNative::Hud::Meter meter =
+        MphReadNative::Hud::elements().enemy_healthbar;
+    meter.tank_amount = target.max;
+    meter.tank_count = 0;
+    // The bar's length is the sub-healthbar's and does not follow the
+    // hunter's own values, which is why it is taken from index zero.
+    meter.length = MphReadNative::Hud::elements().sub_healthbars[0].length;
+    static_cast<void>(DrawMeter(
+        context, HudBackend::Object::HealthBarSub,
+        static_cast<float>(objects.enemy_health_pos_x) + shift_x,
+        static_cast<float>(objects.enemy_health_pos_y) + shift_y,
+        target.max, target.current, meter, palette, false));
+    if (!target.text.empty()) {
+        static_cast<void>(DrawText2D(
+            context,
+            static_cast<float>(objects.enemy_health_text_pos_x) + shift_x,
+            static_cast<float>(objects.enemy_health_text_pos_y) + shift_y,
+            Align::Center, palette, target.text));
+    }
+    // False means the target is dead, which is how the caller knows to stop
+    // drawing it.
+    return target.current > 0;
+}
+
+void PlayerHud::DrawOpponent(const HudContext& context,
+                             const PlayerHudState& hud,
+                             const std::uint16_t energy_tank,
+                             const float shift_x, const float shift_y) {
+    const int slot = hud.opponent_index();
+    if (slot < 0 || hud.opponent_healthbar_timer() <= 0.0F
+        || context.backend == nullptr || context.session == nullptr
+        || energy_tank == 0
+        || !context.session->has_player(static_cast<std::uint8_t>(slot))) {
+        return;
+    }
+    const auto& opponent = context.session->player(
+        static_cast<std::uint8_t>(slot));
+    float x = 93.0F + shift_x;
+    float y = 182.0F + shift_y;
+    const std::string nickname = context.nickname
+        ? context.nickname(static_cast<std::uint8_t>(slot)) : std::string{};
+    if (!nickname.empty()) {
+        static_cast<void>(DrawText2D(context, x, y, Align::Center, 0,
+                                     nickname));
+    }
+    const std::size_t hunter = std::min<std::size_t>(
+        context.session->player_hunter(static_cast<std::uint8_t>(slot)), 7);
+    static_cast<void>(context.backend->draw_hud_object(
+        HudBackend::Object::HunterPortrait, hunter, 0, 0, x - 16.0F,
+        y - 33.0F, 1.0F, 1.0F, nullptr));
+    x += 18.0F;
+    y -= 26.0F;
+    // Two bars: the first tank, and everything past it.  A hunter with no
+    // tanks shows an empty second bar rather than none at all.
+    const int health = static_cast<int>(opponent.health);
+    const int remaining = health >= static_cast<int>(energy_tank)
+        ? health - static_cast<int>(energy_tank) : 0;
+    MphReadNative::Hud::Meter meter =
+        MphReadNative::Hud::elements().enemy_healthbar;
+    meter.tank_amount = static_cast<int>(energy_tank);
+    meter.tank_count = static_cast<int>(
+        context.session->inventory(static_cast<std::uint8_t>(slot))
+            .health_max / energy_tank);
+    meter.length = 72;
+    static_cast<void>(DrawMeter(context, HudBackend::Object::HealthBarSub, x,
+                                y, static_cast<int>(energy_tank) - 1, health,
+                                meter, 0, false));
+    static_cast<void>(DrawMeter(context, HudBackend::Object::HealthBarSub, x,
+                                y + 5.0F,
+                                static_cast<int>(energy_tank) - 1, remaining,
+                                meter, 0, false));
+    static_cast<void>(DrawText2D(
+        context, x + 5.0F, y + 14.0F, Align::Left, 0,
+        FormatModeScore(context, static_cast<std::uint8_t>(slot))));
 }
 
 } // namespace fruityprime::players

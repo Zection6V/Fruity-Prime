@@ -145,4 +145,26 @@ PlayerHudState::ReticleAnimation PlayerHudState::hud_on_zoom(
     return animation;
 }
 
+int PlayerHudState::double_damage_icon_frame() const noexcept {
+    // Each speed has its own period and its own share of it lit: a third of
+    // a second at speed one, a sixth at speed three.  The pickup running
+    // out is a thing a player has to be able to see coming.
+    struct Pulse {
+        float period;
+        float lit;
+    };
+    Pulse pulse;
+    switch (double_damage_speed_) {
+    case 1: pulse = {35.0F / 30.0F, 30.0F / 30.0F}; break;
+    case 2: pulse = {25.0F / 30.0F, 20.0F / 30.0F}; break;
+    case 3: pulse = {10.0F / 30.0F, 5.0F / 30.0F}; break;
+    default: return 0;
+    }
+    float past = std::fmod(double_damage_icon_timer_, pulse.period);
+    if (past < 0.0F) {
+        past += pulse.period;
+    }
+    return past >= pulse.lit ? 1 : 0;
+}
+
 } // namespace fruityprime::players

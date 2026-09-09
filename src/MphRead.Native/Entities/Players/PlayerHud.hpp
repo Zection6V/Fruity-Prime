@@ -4,6 +4,7 @@
 #include "Entities/gameplay.hpp"
 #include "../../HUD/hud.hpp"
 #include "Mods/Chat/PlayerEntityChatHud.hpp"
+#include "Entities/Players/player_hud_state.hpp"
 
 #include <array>
 #include <cstdint>
@@ -43,6 +44,13 @@ public:
         WeaponIcon,
         Stars,
         HunterPortrait,
+        // The octolith carried in Bounty and Capture, and the node icons
+        // along the bottom in Nodes.
+        Octolith,
+        Nodes,
+        // The two timed pickups that announce themselves.
+        DoubleDamage,
+        Cloak,
     };
 
     // HudObjectInstance.SetData's explicit-colour form: every lit pixel
@@ -368,6 +376,86 @@ public:
                                LocatorIcon icon,
                                const HudBackend::Color& color,
                                float alpha = 1.0F);
+
+    // PlayerHud.DrawDoubleDamageHud and DrawCloakHud.  Both put an icon
+    // in a corner and spell their name out a character at a time under it,
+    // which is what `text_timer` counts down.
+    static void DrawDoubleDamageHud(const HudContext& context,
+                                    const PlayerHudState& hud,
+                                    float remaining, float shift_x,
+                                    float shift_y);
+    static void DrawCloakHud(const HudContext& context,
+                             const PlayerHudState& hud, bool cloaking,
+                             float shift_x, float shift_y);
+
+    // PlayerHud.DrawTargetHealthbar.  What the target is -- an enemy, a
+    // player, half a turret -- decides these four numbers, and deciding it
+    // belongs with the entity rather than here.
+    struct TargetHealth {
+        int max = 0;
+        int current = 0;
+        // Below this the bar and its label turn red.
+        int low_health = 0;
+        std::string text;
+    };
+    static bool DrawTargetHealthbar(const HudContext& context,
+                                    const TargetHealth& target,
+                                    float shift_x, float shift_y);
+
+    // PlayerHud.DrawOpponent: whoever was last hit, or last did the
+    // hitting, along the bottom of the screen.
+    static void DrawOpponent(const HudContext& context,
+                             const PlayerHudState& hud,
+                             std::uint16_t energy_tank, float shift_x,
+                             float shift_y);
+
+    // Strings.GetHudMessage(3): "double damage"; (4): "cloak".
+    static constexpr int DoubleDamageMessageId = 3;
+    static constexpr int CloakMessageId = 4;
+
+    // PlayerHud.DrawModeHud and the seven DrawHud* methods under it.
+    // Every multiplayer mode draws its score the same way and then adds
+    // whatever else it has: an octolith, node icons, a countdown.
+    static void DrawModeHud(const HudContext& context,
+                            const gameplay::ObjectiveState& objectives,
+                            const ModeHudFrame& frame,
+                            const ModeHudState& state);
+    static void DrawHudBattle(const HudContext& context);
+    static void DrawHudSurvival(const HudContext& context);
+    static void DrawHudBounty(const HudContext& context,
+                              const gameplay::ObjectiveState& objectives,
+                              const ModeHudFrame& frame);
+    static void DrawHudCapture(const HudContext& context,
+                               const gameplay::ObjectiveState& objectives,
+                               const ModeHudFrame& frame);
+    static void DrawHudDefender(const HudContext& context);
+    static void DrawHudNodes(const HudContext& context,
+                             const gameplay::ObjectiveState& objectives,
+                             const ModeHudFrame& frame,
+                             const ModeHudState& state);
+
+    // PlayerHud.DrawOctolithInst: the octolith in the corner, shown solid
+    // while this player carries one and half lit while a team mate does.
+    static void DrawOctolithInst(const HudContext& context,
+                                 const gameplay::ObjectiveState& objectives,
+                                 const ModeHudFrame& frame, int icon_frame);
+
+    // PlayerHud.DrawNodesBonuses and DrawNodesIcons.
+    static void DrawNodesBonuses(const HudContext& context,
+                                 const ModeHudState& state);
+    static void DrawNodesIcons(const HudContext& context,
+                               const gameplay::ObjectiveState& objectives);
+
+    // The mode score headings: points, lives left, octoliths, ring time.
+    static constexpr int BattleScoreMessageId = 212;
+    static constexpr int SurvivalScoreMessageId = 213;
+    static constexpr int BountyScoreMessageId = 215;
+    static constexpr int CaptureScoreMessageId = 216;
+    static constexpr int DefenderScoreMessageId = 217;
+    static constexpr int NodesScoreMessageId = 218;
+    static constexpr int NodesProgressMessageId = 204;
+    static constexpr int NodesBonusMessageId = 210;
+    static constexpr int NodesLabelMessageId = 8;
 
     // Strings.GetHudMessage(234): "COWARD DETECTED!"; (205): "acquiring
     // node".  The categories are the cartridge's own message masks.

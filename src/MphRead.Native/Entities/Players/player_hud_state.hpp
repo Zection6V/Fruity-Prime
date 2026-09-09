@@ -176,6 +176,95 @@ public:
     }
     [[nodiscard]] bool hud_zoom() const noexcept { return hud_zoom_; }
 
+    // ---- the pickups the HUD announces ------------------------------
+    // Double damage and cloak each put an icon in a corner and spell their
+    // name out a character at a time under it.  The icon pulses; how fast
+    // is the timer running out, which is what makes it a warning.
+
+    // PlayerHud.UpdateDoubleDamageSpeed.  Speed 1 is when it is picked up,
+    // which is the only time the name is spelled out.
+    void update_double_damage_speed(int speed) noexcept {
+        double_damage_speed_ = speed;
+        double_damage_icon_timer_ = 0.0F;
+        if (speed == 1) {
+            double_damage_text_timer_ = 60.0F / 30.0F;
+        }
+    }
+
+    // PlayerHud.ProcessDoubleDamageHud.
+    void process_double_damage_hud(float remaining,
+                                   float frame_time) noexcept {
+        if (remaining <= 0.0F) {
+            return;
+        }
+        if (double_damage_text_timer_ > 0.0F) {
+            double_damage_text_timer_ -= frame_time;
+        }
+        double_damage_icon_timer_ += frame_time;
+    }
+
+    // Which of the icon's two frames is showing.  The pulse gets shorter as
+    // the speed goes up, so a player can see the pickup running out.
+    [[nodiscard]] int double_damage_icon_frame() const noexcept;
+
+    [[nodiscard]] float double_damage_text_timer() const noexcept {
+        return double_damage_text_timer_;
+    }
+    [[nodiscard]] int double_damage_speed() const noexcept {
+        return double_damage_speed_;
+    }
+
+    // PlayerHud.ProcessCloakHud.
+    void process_cloak_hud(bool cloaking, float frame_time) noexcept {
+        if (!cloaking) {
+            hud_cloaking_ = false;
+            return;
+        }
+        if (!hud_cloaking_) {
+            hud_cloaking_ = true;
+            cloak_text_timer_ = 45.0F / 30.0F;
+        }
+        if (cloak_text_timer_ > 0.0F) {
+            cloak_text_timer_ -= frame_time;
+        }
+    }
+
+    [[nodiscard]] float cloak_text_timer() const noexcept {
+        return cloak_text_timer_;
+    }
+    [[nodiscard]] bool hud_cloaking() const noexcept { return hud_cloaking_; }
+
+    // ---- the opponent readout ---------------------------------------
+    // Hitting somebody, or being hit by them, puts their name, portrait and
+    // energy on the bottom of the screen for two seconds.
+
+    // PlayerHud.UpdateOpponent.
+    void update_opponent(int slot, int own_slot, bool multiplayer) noexcept {
+        if (multiplayer && slot != own_slot) {
+            opponent_healthbar_timer_ = 60.0F / 30.0F;
+            opponent_index_ = slot;
+        }
+    }
+
+    // PlayerHud.ProcessOpponent.
+    void process_opponent(float frame_time) noexcept {
+        if (opponent_index_ == -1 || opponent_healthbar_timer_ <= 0.0F) {
+            return;
+        }
+        opponent_healthbar_timer_ -= frame_time;
+        if (opponent_healthbar_timer_ <= 0.0F) {
+            opponent_healthbar_timer_ = 0.0F;
+            opponent_index_ = -1;
+        }
+    }
+
+    [[nodiscard]] int opponent_index() const noexcept {
+        return opponent_index_;
+    }
+    [[nodiscard]] float opponent_healthbar_timer() const noexcept {
+        return opponent_healthbar_timer_;
+    }
+
 private:
     bool small_reticle_ = false;
     // The cartridge counts at half this rate, so sixty of its frames are
@@ -184,6 +273,13 @@ private:
     bool sniper_reticle_ = false;
     bool hud_zoom_ = false;
     ReticleArt reticle_art_ = ReticleArt::TargetCircle;
+    int double_damage_speed_ = 0;
+    float double_damage_icon_timer_ = 0.0F;
+    float double_damage_text_timer_ = 0.0F;
+    bool hud_cloaking_ = false;
+    float cloak_text_timer_ = 0.0F;
+    float opponent_healthbar_timer_ = 0.0F;
+    int opponent_index_ = -1;
 
     // PlayerHud.UpdateWhiteoutTable
     void update_whiteout_table(float value) noexcept;

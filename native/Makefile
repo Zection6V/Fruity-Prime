@@ -324,6 +324,7 @@ TEST_SOURCES := \
     $(CPP_ROOT)/Testing/room_node_ref_tests.cpp \
     $(CPP_ROOT)/Testing/room_connector_tests.cpp \
     $(CPP_ROOT)/Testing/player_hud_state_tests.cpp \
+    $(CPP_ROOT)/Testing/player_hud_message_tests.cpp \
     $(CPP_ROOT)/Testing/enemy_helper_tests.cpp \
     $(CPP_ROOT)/Testing/player_statics_tests.cpp \
     $(CPP_ROOT)/Testing/hud_message_tests.cpp \

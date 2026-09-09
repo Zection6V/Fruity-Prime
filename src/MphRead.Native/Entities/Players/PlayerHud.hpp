@@ -5,6 +5,7 @@
 #include "../../HUD/hud.hpp"
 #include "Mods/Chat/PlayerEntityChatHud.hpp"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -234,6 +235,84 @@ public:
 
     // Strings.GetHudMessage(219): "GAME OVER".
     static constexpr int GameOverMessageId = 219;
+};
+
+// PlayerHud's private HudMessage.
+struct HudMessage {
+    float x = 0.0F;
+    float y = 0.0F;
+    float font_size = 0.0F;
+    HudBackend::Color color{};
+    float lifetime = 0.0F;
+    float alpha = 0.0F;
+    std::uint8_t category = 0;
+    int max_width = 0;
+    Align align = Align::Left;
+    // The managed message holds a fixed 256-character buffer; the wrapping
+    // is what matters and a string carries that unchanged.
+    std::string text;
+    bool dialog_hide = false;
+};
+
+class HudMessageQueue final {
+public:
+    // The cartridge keeps exactly twenty and reuses whichever has the least
+    // life left, so a message is never refused and never allocates.
+    static constexpr std::size_t Capacity = 20;
+
+    // ColorRgba(0x3FEF), which every convenience overload passes.
+    static constexpr HudBackend::Color DefaultColor{
+        15.0F / 31.0F, 31.0F / 31.0F, 15.0F / 31.0F};
+
+    // What DrawQueuedHudMessages reads off GameState and the scene.
+    struct DrawFrame {
+        bool menu_pause = false;
+        bool dialog_pause = false;
+        std::uint64_t frame_count = 0;
+    };
+
+    // PlayerHud.WrapText: copy `text` into `destination`, breaking it at
+    // spaces so no line measures wider than `max_width`, and return how many
+    // lines that took.  A line with no space to break at breaks after the
+    // character that overflowed.
+    [[nodiscard]] static int WrapText(std::string_view text, int max_width,
+                                      std::string& destination,
+                                      bool japanese = false);
+
+    // PlayerHud.QueueHudMessage, in its three shapes.  The two short ones
+    // are the managed convenience overloads; the message-id forms belong to
+    // the caller, which is the only side that has the string table.
+    void QueueHudMessage(float x, float y, float duration,
+                         std::uint8_t category, std::string_view text,
+                         bool dialog_hide = false);
+    void QueueHudMessage(float x, float y, int max_width, float duration,
+                         std::uint8_t category, std::string_view text,
+                         bool dialog_hide = false);
+    void QueueHudMessage(float x, float y, Align align, int max_width,
+                         float font_size, const HudBackend::Color& color,
+                         float alpha, float duration, std::uint8_t category,
+                         std::string_view text, bool dialog_hide = false);
+
+    // PlayerHud.ClearHudMessage and IsHudMessageQueued.
+    void ClearHudMessage(int mask) noexcept;
+    [[nodiscard]] bool IsHudMessageQueued(int mask) const noexcept;
+
+    // PlayerHud.ProcessHudMessageQueue and DrawQueuedHudMessages.
+    void ProcessHudMessageQueue(float frame_time) noexcept;
+    void DrawQueuedHudMessages(const HudContext& context,
+                               const DrawFrame& frame) const;
+
+    [[nodiscard]] const std::array<HudMessage, Capacity>&
+    messages() const noexcept {
+        return messages_;
+    }
+
+    // Scene.Language: which font WrapText measures with.
+    void set_japanese(bool value) noexcept { japanese_ = value; }
+
+private:
+    std::array<HudMessage, Capacity> messages_{};
+    bool japanese_ = false;
 };
 
 } // namespace fruityprime::players

@@ -641,4 +641,220 @@ PlayerHud::HudDraw PlayerHud::draw_hud_objects(
     return draw;
 }
 
+namespace {
+
+// PlayerHud.SetUpFont, minus the half that swaps the drawing font over:
+// wrapping only needs to know which set of widths to measure with.
+[[nodiscard]] const strings::Font& font_for(char first,
+                                            bool japanese) noexcept {
+    const auto lead = static_cast<unsigned char>(first);
+    if (japanese && (lead & 0xA0u) == 0xA0u) {
+        return strings::Font::kanji();
+    }
+    return strings::Font::normal();
+}
+
+} // namespace
+
+int HudMessageQueue::WrapText(std::string_view text, int max_width,
+                              std::string& destination, bool japanese) {
+    destination.clear();
+    int lines = 1;
+    if (max_width <= 0) {
+        return lines;
+    }
+    if (text.empty()) {
+        return 1;
+    }
+    // The managed method writes into a caller's buffer twice the length of
+    // the text, because a break can be inserted rather than replacing a
+    // space.  Reserving that much up front keeps the indices below meaning
+    // the same thing they do there.
+    destination.assign(text.size() * 2 + 1, '\0');
+
+    int line_width = 0;
+    // How much width the line after a break already holds.  Zeroed when we
+    // break without a space to break at, since the new line then starts
+    // empty.
+    int width_after_break = 0;
+    std::size_t break_position = 0;
+    std::size_t c = 0;
+    const auto& font = font_for(text[0], japanese);
+    const auto& widths = font.widths();
+
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char letter = text[i];
+        const auto raw = static_cast<unsigned char>(letter);
+        destination[c] = letter;
+        if (letter == '\n') {
+            line_width = 0;
+            break_position = 0;
+            width_after_break = 0;
+            ++lines;
+        } else {
+            if (letter == ' ') {
+                break_position = c;
+                width_after_break = 0;
+            }
+            if (raw >= static_cast<unsigned char>(' ')) {
+                int index = static_cast<int>(raw);
+                if ((raw & 0x80u) != 0 && i + 1 < text.size()) {
+                    // A two-byte character: the pair is copied through and
+                    // measured as the one glyph it is.
+                    const char next = text[++i];
+                    destination[++c] = next;
+                    index = (static_cast<unsigned char>(next) & 0x3F)
+                        | ((raw & 0x1F) << 6);
+                }
+                index -= font.min_character();
+                if (index >= 0
+                    && static_cast<std::size_t>(index) < widths.size()) {
+                    const int width = widths[static_cast<std::size_t>(index)];
+                    line_width += width;
+                    if (letter != ' ') {
+                        width_after_break += width;
+                    }
+                }
+            }
+            if (i + 1 < text.size() && line_width > max_width) {
+                if (break_position == 0 && max_width >= 8) {
+                    // No space to break at, so the break goes after the
+                    // character just written and the new line starts empty.
+                    break_position = c + 1;
+                    ++c;
+                    width_after_break = 0;
+                }
+                if (break_position > 0) {
+                    destination[break_position] = '\n';
+                    line_width = width_after_break;
+                    width_after_break = 0;
+                    break_position = 0;
+                    ++lines;
+                }
+            }
+        }
+        ++c;
+    }
+    destination.resize(c);
+    return lines;
+}
+
+void HudMessageQueue::QueueHudMessage(float x, float y, float duration,
+                                      std::uint8_t category,
+                                      std::string_view text,
+                                      bool dialog_hide) {
+    QueueHudMessage(x, y, Align::Center, 256, 8.0F, DefaultColor, 1.0F,
+                    duration, category, text, dialog_hide);
+}
+
+void HudMessageQueue::QueueHudMessage(float x, float y, int max_width,
+                                      float duration, std::uint8_t category,
+                                      std::string_view text,
+                                      bool dialog_hide) {
+    QueueHudMessage(x, y, Align::Center, max_width, 8.0F, DefaultColor, 1.0F,
+                    duration, category, text, dialog_hide);
+}
+
+void HudMessageQueue::QueueHudMessage(float x, float y, Align align,
+                                      int max_width, float font_size,
+                                      const HudBackend::Color& color,
+                                      float alpha, float duration,
+                                      std::uint8_t category,
+                                      std::string_view text,
+                                      bool dialog_hide) {
+    std::string wrapped;
+    const int line_count = WrapText(text, max_width, wrapped, japanese_);
+    // The slot with the least life left is the one reused, which is how the
+    // cartridge keeps a fixed twenty without ever refusing a message.
+    float least = std::numeric_limits<float>::max();
+    HudMessage* target = nullptr;
+    for (auto& existing : messages_) {
+        if (existing.lifetime > 0.0F) {
+            if ((category & existing.category & 14) != 0) {
+                // Messages in the same stack push each other up rather than
+                // overlapping.
+                existing.y -= static_cast<float>(line_count)
+                    * existing.font_size;
+            } else if (existing.y == y) {
+                existing.lifetime = 0.0F;
+            }
+        }
+        if (existing.lifetime < least) {
+            least = existing.lifetime;
+            target = &existing;
+        }
+    }
+    if (target == nullptr) {
+        return;
+    }
+    if ((category & 14) != 0) {
+        y -= static_cast<float>(line_count - 1) * font_size;
+    }
+    target->text = std::move(wrapped);
+    target->x = x;
+    target->y = y;
+    target->max_width = max_width;
+    target->font_size = font_size;
+    target->color = color;
+    target->alpha = alpha;
+    target->align = align;
+    target->category = category;
+    target->lifetime = duration;
+    target->dialog_hide = dialog_hide;
+}
+
+void HudMessageQueue::ClearHudMessage(int mask) noexcept {
+    for (auto& message : messages_) {
+        if ((mask & message.category) != 0) {
+            message.lifetime = 0.0F;
+        }
+    }
+}
+
+bool HudMessageQueue::IsHudMessageQueued(int mask) const noexcept {
+    for (const auto& message : messages_) {
+        if ((mask & message.category) != 0 && message.lifetime > 0.0F) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void HudMessageQueue::ProcessHudMessageQueue(float frame_time) noexcept {
+    for (auto& message : messages_) {
+        if (message.lifetime > 0.0F) {
+            message.lifetime -= frame_time;
+            if (message.lifetime < 0.0F) {
+                message.lifetime = 0.0F;
+            }
+        }
+    }
+}
+
+void HudMessageQueue::DrawQueuedHudMessages(const HudContext& context,
+                                            const DrawFrame& frame) const {
+    if (frame.menu_pause) {
+        return;
+    }
+    for (const auto& message : messages_) {
+        if (message.lifetime <= 0.0F) {
+            continue;
+        }
+        // Category bit 0 blinks: shown for four frames out of every
+        // fourteen.  The cartridge counts at half this rate.
+        if ((message.category & 1) != 0
+            && (frame.frame_count & (7u * 2u)) > 3u * 2u) {
+            continue;
+        }
+        if (frame.dialog_pause && message.dialog_hide) {
+            continue;
+        }
+        // The font size is the scale the run is drawn at; eight is one to
+        // one, which is what every caller but the mode announcements uses.
+        static_cast<void>(PlayerHud::DrawText2D(
+            context, message.x, message.y, message.align, 0, message.text,
+            &message.color, message.alpha, message.font_size / 8.0F));
+    }
+}
+
 } // namespace fruityprime::players

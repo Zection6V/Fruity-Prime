@@ -1,6 +1,6 @@
 #include "Mods/Chat/ChatBox.hpp"
 #include "Mods/Chat/chat_font.hpp"
-#include "Mods/Chat/chat_hud.hpp"
+#include "Mods/Chat/PlayerEntityChatHud.hpp"
 #include "Mods/InputSettings.hpp"
 
 #include <cassert>
@@ -87,32 +87,45 @@ int main() {
     assert(glyphs[a + 1] == 1); // row 0, column 1 of the authored A.
     assert(glyphs[a + 0] == 0);
 
-    assert(std::fabs(fruityprime::chat::hud::aspect_fix(1920, 1080)
+    assert(std::fabs(fruityprime::chat::player_entity_chat_hud::aspect_fix(
+                         1920, 1080)
                      - 0.75F) < 0.0001F);
-    assert(fruityprime::chat::hud::margin(false) == 3.0F);
-    assert(fruityprime::chat::hud::margin(true) == 30.0F);
-    assert(fruityprime::chat::hud::clearance(false, 12.0F) == 12.0F);
-    assert(fruityprime::chat::hud::clearance(true, 12.0F)
-           == fruityprime::chat::hud::Bottom);
-    assert(std::fabs(fruityprime::chat::hud::LineHeight - 4.35F)
+    assert(fruityprime::chat::player_entity_chat_hud::margin(false) == 3.0F);
+    assert(fruityprime::chat::player_entity_chat_hud::margin(true) == 30.0F);
+    assert(fruityprime::chat::player_entity_chat_hud::clearance(false, 12.0F)
+           == 12.0F);
+    assert(fruityprime::chat::player_entity_chat_hud::clearance(true, 12.0F)
+           == fruityprime::chat::player_entity_chat_hud::Bottom);
+    assert(std::fabs(fruityprime::chat::player_entity_chat_hud::LineHeight
+                     - 4.35F)
            < 0.0001F);
     const std::u16string long_line(120, u'x');
-    const std::u16string fitted = fruityprime::chat::hud::fit(long_line, 1.0F,
-                                                               0.0F);
-    const std::u16string tailed = fruityprime::chat::hud::tail(long_line, 1.0F,
-                                                                0.0F);
-    assert(fruityprime::chat::hud::width(fitted, 1.0F) <= 250.0F);
-    assert(fruityprime::chat::hud::width(tailed, 1.0F) <= 250.0F);
+    const std::u16string fitted =
+        fruityprime::chat::player_entity_chat_hud::fit(long_line, 1.0F, 0.0F);
+    const std::u16string tailed = fruityprime::chat::player_entity_chat_hud::tail(
+        long_line, 1.0F, 0.0F);
+    assert(fruityprime::chat::player_entity_chat_hud::width(fitted, 1.0F)
+           <= 250.0F);
+    assert(fruityprime::chat::player_entity_chat_hud::width(tailed, 1.0F)
+           <= 250.0F);
     assert(fitted.size() < long_line.size());
     assert(tailed.size() < long_line.size());
-    const std::u16string unicode_line = fruityprime::chat::hud::utf8_to_utf16(
+    const std::u16string unicode_line =
+        fruityprime::chat::player_entity_chat_hud::utf8_to_utf16(
         std::string("A") + "\xC3\xA9" + "\xF0\x9F\x98\x80" + "B");
     assert(unicode_line.size() == 5);
-    assert(fruityprime::chat::hud::width(unicode_line, 1.0F)
-           == fruityprime::chat::hud::width(u"AB", 1.0F));
-    assert(fruityprime::chat::hud::room(1.0F, 0.0F, false) == 250.0F);
-    assert(fruityprime::chat::hud::room(1.0F, 0.0F, true) == 196.0F);
-    fruityprime::chat::hud::ensure_renderer();
+    assert(fruityprime::chat::player_entity_chat_hud::width(
+               unicode_line, 1.0F)
+           == fruityprime::chat::player_entity_chat_hud::width(u"AB", 1.0F));
+    assert(fruityprime::chat::player_entity_chat_hud::room(
+               1.0F, 0.0F, false) == 250.0F);
+    assert(fruityprime::chat::player_entity_chat_hud::room(
+               1.0F, 0.0F, true) == 196.0F);
+    fruityprime::chat::player_entity_chat_hud::State hud_state;
+    fruityprime::chat::player_entity_chat_hud::ensure_renderer(hud_state);
+    assert(hud_state.palette_ready);
+    assert(hud_state.character_ready);
+    assert(hud_state.enabled);
 
     using fruityprime::chat::ChatBox;
     using fruityprime::chat::VisibleChatLine;

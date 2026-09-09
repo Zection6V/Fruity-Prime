@@ -2,8 +2,8 @@
 #include "Mods/Launcher/Portable/adventure_save.hpp"
 #include "Assets/game_assets.hpp"
 #include "Mods/Chat/ChatBox.hpp"
-#include "Mods/Chat/chat_font.hpp"
-#include "Mods/Chat/chat_hud.hpp"
+#include "Mods/Chat/PlayerEntityChatHud.hpp"
+#include "Renderer/OpenGL/PlayerEntityChatHudRenderer.hpp"
 #include "Formats/collision_query.hpp"
 #include "Utility/console_setup.hpp"
 #include "Utility/extract.hpp"
@@ -72,7 +72,7 @@
 #include "Entities/Players/PlayerEntity.hpp"
 #include "Entities/Players/player_profile.hpp"
 #include "HUD/hud.hpp"
-#include "../Mods/MapGen/custom_rooms.hpp"
+#include "Mods/MapGen/custom_rooms.hpp"
 
 #include <algorithm>
 #include <array>
@@ -2557,77 +2557,6 @@ void draw_hud_text(std::string_view text, float left, float top,
     glEnd();
 }
 
-// PlayerEntityChatHud uses a separate proportional 8x8 font. Keep this
-// renderer in the same 256x192 coordinate contract as the managed code:
-// vertical pixels determine the glyph size, while the aspect correction only
-// affects horizontal advances and the anchor.
-void draw_chat_text(std::u16string_view text, float left, float top,
-                    float aspect, int viewport_width, int viewport_height,
-                    float alpha, std::uint8_t red, std::uint8_t green,
-                    std::uint8_t blue) {
-    if (viewport_width <= 0 || viewport_height <= 0
-        || fruityprime::chat::hud::Scale <= 0.0F) {
-        return;
-    }
-    const float pixel_scale = static_cast<float>(viewport_height) / 192.0F
-        * fruityprime::chat::hud::Scale;
-    const float horizontal_scale = static_cast<float>(viewport_width) / 256.0F
-        * aspect * fruityprime::chat::hud::Scale;
-    float cursor = left / 256.0F * static_cast<float>(viewport_width);
-    const float screen_top = top / 192.0F
-        * static_cast<float>(viewport_height);
-    const auto& glyph_pixels = fruityprime::chat::font::pixels();
-    const auto& glyph_widths = fruityprime::chat::font::widths();
-    fruityprime::chat::hud::ensure_renderer();
-
-    glColor4f(static_cast<float>(red) / 255.0F,
-              static_cast<float>(green) / 255.0F,
-              static_cast<float>(blue) / 255.0F, alpha);
-    glBegin(GL_QUADS);
-    for (const char16_t value : text) {
-        const std::int32_t glyph = fruityprime::chat::font::index(value);
-        if (glyph < 0) {
-            continue;
-        }
-        const std::size_t base = static_cast<std::size_t>(glyph)
-            * static_cast<std::size_t>(fruityprime::chat::font::Cell
-                                        * fruityprime::chat::font::Cell);
-        if (value != u' ') {
-            for (int row = 0; row < fruityprime::chat::font::Cell; ++row) {
-                for (int column = 0;
-                     column < fruityprime::chat::font::Cell; ++column) {
-                    const std::size_t pixel = base
-                        + static_cast<std::size_t>(row
-                            * fruityprime::chat::font::Cell + column);
-                    if (glyph_pixels[pixel] == 0) {
-                        continue;
-                    }
-                    const float x = cursor
-                        + static_cast<float>(column) * pixel_scale;
-                    const float y = screen_top
-                        + static_cast<float>(row) * pixel_scale;
-                    glVertex2f(x, y);
-                    glVertex2f(x + pixel_scale, y);
-                    glVertex2f(x + pixel_scale, y + pixel_scale);
-                    glVertex2f(x, y + pixel_scale);
-                }
-            }
-        }
-        cursor += static_cast<float>(glyph_widths[
-            static_cast<std::size_t>(glyph)]) * horizontal_scale;
-    }
-    glEnd();
-}
-
-float draw_chat_run(std::u16string_view text, float x, float y, float aspect,
-                    float alpha, int viewport_width, int viewport_height,
-                    std::uint8_t red, std::uint8_t green,
-                    std::uint8_t blue) {
-    draw_chat_text(text, x, y, aspect, viewport_width, viewport_height,
-                   alpha, red, green, blue);
-    return x + fruityprime::chat::hud::width(text, aspect);
-}
-
 [[nodiscard]] std::string roster_name(std::uint8_t slot) {
     if (g_roster.has_value()) {
         for (std::size_t i = 0; i < g_roster->count
@@ -4691,57 +4620,11 @@ void draw_hud(int width, int height) {
         1.0F, 3.0F);
     const float margin = 16.0F * ui_scale;
 
-#if defined(__ANDROID__)
-    constexpr bool chat_android = true;
-#else
-    constexpr bool chat_android = false;
-#endif
-
-
-    const bool chat_visible = fruityprime::chat::ChatBox::Visible();
-    const float chat_aspect = fruityprime::chat::hud::aspect_fix(
-        safe_width, safe_height);
-    const float chat_x = fruityprime::chat::hud::margin(chat_android)
-        * chat_aspect;
-    float chat_y = fruityprime::chat::hud::Top;
-    if (chat_visible) {
-        std::vector<fruityprime::chat::VisibleChatLine> chat_lines;
-        fruityprime::chat::ChatBox::CollectVisible(chat_lines);
-        for (const auto& visible : chat_lines) {
-            const bool system = visible.Line.Kind
-                == fruityprime::net::ChatPacket::KindSystem;
-            const std::string name_utf8 = system || visible.Line.Name.empty()
-                ? std::string()
-                : visible.Line.Name + ": ";
-            const std::u16string name = fruityprime::chat::hud::utf8_to_utf16(
-                name_utf8);
-            const std::uint8_t name_red = system ? 110 : 110;
-            const std::uint8_t name_green = system ? 205 : 255;
-            const std::uint8_t name_blue = system ? 125 : 130;
-            const float at = draw_chat_run(
-                name, chat_x, chat_y, chat_aspect, visible.Alpha,
-                safe_width, safe_height, name_red, name_green, name_blue);
-            const std::u16string text = fruityprime::chat::hud::fit(
-                fruityprime::chat::hud::utf8_to_utf16(visible.Line.Text),
-                chat_aspect, at - chat_x, chat_android);
-            static_cast<void>(draw_chat_run(
-                text, at, chat_y, chat_aspect, visible.Alpha,
-                safe_width, safe_height, system ? 110 : 170,
-                system ? 205 : 255, system ? 125 : 175));
-            chat_y += fruityprime::chat::hud::LineHeight;
-        }
-        if (fruityprime::chat::ChatBox::Composing()) {
-            const float at = draw_chat_run(
-                u"Says: ", chat_x, chat_y, chat_aspect, 1.0F,
-                safe_width, safe_height, 110, 205, 125);
-            const std::u16string prompt = fruityprime::chat::hud::tail(
-                fruityprime::chat::hud::utf8_to_utf16(
-                    fruityprime::chat::ChatBox::ComposeText() + "_"),
-                chat_aspect, at - chat_x, chat_android);
-            static_cast<void>(draw_chat_run(
-                prompt, at, chat_y, chat_aspect, 1.0F, safe_width, safe_height,
-                170, 255, 175));
-        }
+    if (auto* main_player = fruityprime::players::PlayerEntity::Main();
+        main_player != nullptr) {
+        fruityprime::chat::player_entity_chat_hud::draw(
+            main_player->ChatHudState(), safe_width, safe_height,
+            fruityprime::renderer::opengl::draw_chat_text);
     }
     // PlayerEntityChatHud only clears the score/readout it explicitly owns;
     // moving spectator and fallback HUD elements here was native-only drift.
@@ -4816,7 +4699,7 @@ void draw_hud(int width, int height) {
                 const auto frame = fruityprime::mods::render::pro_hud::build(
                     hud_player, inventory, g_game_state, g_local_slot,
                     energy_tank,
-                    fruityprime::chat::hud::clearance(
+                    fruityprime::chat::player_entity_chat_hud::clearance(
                         fruityprime::chat::ChatBox::Available(), 12.0F));
                 draw_pro_hud(frame, hud_area, hud_scale);
             }
@@ -7413,10 +7296,12 @@ void update_game(HWND window) {
     }
     if (fruityprime::chat::ChatBox::ConsumeJustClosed()) {
         // ModForgetInputDeltas clears the managed mouse/keyboard snapshots.
-        // Native has no snapshot pointers, so clear the transient logical
-        // state as well as discarding the accumulated cursor travel.
-        g_input.clear();
-        center_mouse(window);
+        if (auto* main_player = fruityprime::players::PlayerEntity::Main();
+            main_player != nullptr) {
+            main_player->ModForgetInputDeltas();
+        }
+        fruityprime::chat::player_entity_chat_hud::forget_input_deltas(
+            g_input);
     }
     if (g_scan_dialog_active) {
         update_scan_dialog(window);

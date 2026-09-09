@@ -1,25 +1,15 @@
-#include "Mods/Chat/chat_hud.hpp"
+#include "Mods/Chat/PlayerEntityChatHud.hpp"
 
+#include "Entities/Players/PlayerEntity.hpp"
+#include "Mods/Chat/ChatBox.hpp"
 #include "Mods/Chat/chat_font.hpp"
+#include "Mods/Input/input.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 
-namespace fruityprime::chat::hud {
+namespace fruityprime::chat::player_entity_chat_hud {
 namespace {
-
-struct ChatRendererState {
-    std::array<std::array<std::uint8_t, 4>, 2> palette{};
-    bool palette_ready = false;
-    bool character_ready = false;
-    bool enabled = false;
-};
-
-ChatRendererState& renderer_state() noexcept {
-    static ChatRendererState state;
-    return state;
-}
 
 [[nodiscard]] bool decode_utf8(std::string_view text, std::size_t& offset,
                                std::uint32_t& code_point) noexcept {
@@ -144,8 +134,7 @@ std::u16string tail(const std::u16string_view text, const float aspect,
     return std::u16string(text.substr(start));
 }
 
-void ensure_renderer() noexcept {
-    auto& state = renderer_state();
+void ensure_renderer(State& state) noexcept {
     if (state.enabled) {
         return;
     }
@@ -160,4 +149,86 @@ void ensure_renderer() noexcept {
     state.enabled = true;
 }
 
-} // namespace fruityprime::chat::hud
+namespace {
+
+float draw_chat_run(State& state, const std::u16string_view text,
+                    const float x, const float y, const float aspect,
+                    const float alpha, const int viewport_width,
+                    const int viewport_height, const std::uint8_t red,
+                    const std::uint8_t green, const std::uint8_t blue,
+                    const DrawText draw_text) {
+    ensure_renderer(state);
+    if (draw_text != nullptr) {
+        draw_text(text, x, y, aspect, viewport_width, viewport_height,
+                  alpha, red, green, blue);
+    }
+    return x + width(text, aspect);
+}
+
+} // namespace
+
+void draw(State& state, const int viewport_width, const int viewport_height,
+          const DrawText draw_text) {
+    if (!ChatBox::Visible()) {
+        return;
+    }
+
+    const int safe_width = std::max(viewport_width, 1);
+    const int safe_height = std::max(viewport_height, 1);
+#if defined(__ANDROID__)
+    constexpr bool chat_android = true;
+#else
+    constexpr bool chat_android = false;
+#endif
+    const float aspect = aspect_fix(safe_width, safe_height);
+    const float x = margin(chat_android) * aspect;
+    float y = Top;
+
+    ChatBox::CollectVisible(state.visible);
+    for (const auto& line : state.visible) {
+        const bool system = line.Line.Kind
+            == fruityprime::net::ChatPacket::KindSystem;
+        const std::string name_utf8 = system || line.Line.Name.empty()
+            ? std::string()
+            : line.Line.Name + ": ";
+        const std::u16string name = utf8_to_utf16(name_utf8);
+        const float at = draw_chat_run(
+            state, name, x, y, aspect, line.Alpha, safe_width, safe_height,
+            110, system ? 205 : 255, system ? 125 : 130, draw_text);
+        const std::u16string text = fit(
+            utf8_to_utf16(line.Line.Text), aspect, at - x, chat_android);
+        static_cast<void>(draw_chat_run(
+            state, text, at, y, aspect, line.Alpha, safe_width, safe_height,
+            system ? 110 : 170, system ? 205 : 255,
+            system ? 125 : 175, draw_text));
+        y += LineHeight;
+    }
+    if (ChatBox::Composing()) {
+        const float at = draw_chat_run(
+            state, u"Says: ", x, y, aspect, 1.0F, safe_width, safe_height,
+            110, 205, 125, draw_text);
+        const std::u16string prompt = tail(
+            utf8_to_utf16(ChatBox::ComposeText() + "_"), aspect, at - x,
+            chat_android);
+        static_cast<void>(draw_chat_run(
+            state, prompt, at, y, aspect, 1.0F, safe_width, safe_height,
+            170, 255, 175, draw_text));
+    }
+}
+
+void forget_input_deltas(input::State& state) noexcept {
+    state.clear();
+}
+
+} // namespace fruityprime::chat::player_entity_chat_hud
+
+namespace fruityprime::players {
+
+void PlayerEntity::ModForgetInputDeltas() noexcept {
+    input_.MouseState = nullptr;
+    input_.PrevMouseState = nullptr;
+    input_.KeyboardState = nullptr;
+    input_.PrevKeyboardState = nullptr;
+}
+
+} // namespace fruityprime::players

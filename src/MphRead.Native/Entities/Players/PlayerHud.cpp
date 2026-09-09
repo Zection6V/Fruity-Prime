@@ -3,7 +3,7 @@
 
 #include "HUD/hud.hpp"
 #include "Mods/Chat/ChatBox.hpp"
-#include "Mods/Chat/chat_hud.hpp"
+#include "Mods/Chat/PlayerEntityChatHud.hpp"
 #include "Mods/Network/player_entity_net_hud.hpp"
 #include "Strings.hpp"
 #include "Metadata/metadata.hpp"
@@ -534,7 +534,7 @@ void PlayerHud::DrawModeScore(const HudContext& context, int message_id,
     const auto& objects = MphReadNative::Hud::elements().hunter_objects[
         std::min<std::size_t>(context.hunter, 7)];
     const float x = static_cast<float>(objects.score_pos_x);
-    float y = fruityprime::chat::hud::clearance(
+    float y = fruityprime::chat::player_entity_chat_hud::clearance(
         fruityprime::chat::ChatBox::Available(),
         static_cast<float>(objects.score_pos_y));
     const std::string message = call(context.hud_message, message_id);

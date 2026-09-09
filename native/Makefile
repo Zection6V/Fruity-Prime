@@ -111,6 +111,7 @@ COMMON_SOURCES := \
     $(CPP_ROOT)/Mods/RenderOptions.cpp \
 	$(CPP_ROOT)/Mods/Chat/ChatFont.cpp \
 	$(CPP_ROOT)/Mods/Chat/PlayerEntityChatHud.cpp \
+	$(CPP_ROOT)/Renderer/OpenGL/PlayerEntityChatHudRenderer.cpp \
 	$(CPP_ROOT)/Mods/Credits.cpp \
 	$(CPP_ROOT)/Mods/branding.cpp \
 	$(CPP_ROOT)/Mods/Update/DesktopUpdate.cpp \
@@ -361,7 +362,7 @@ TESTS := $(patsubst $(CPP_ROOT)/Testing/%.cpp,$(BUILD)/%.exe,$(TEST_SOURCES))
 TEST_OBJECTS := $(patsubst $(CPP_ROOT)/Testing/%.cpp,$(BUILD)/tests/%.o,$(TEST_SOURCES))
 TESTS_WIN := $(subst /,\,$(TESTS))
 BUILD_WIN := $(subst /,\,$(BUILD))
-PROGRAM_OBJECTS := $(BUILD)/obj/Utility/main.o $(BUILD)/obj/HUD/game_main.o
+PROGRAM_OBJECTS := $(BUILD)/obj/Utility/main.o $(BUILD)/obj/Platform/Windows/WinMain.o
 DEPFILES := $(COMMON_OBJECTS:.o=.d) \
     $(TEST_OBJECTS:.o=.d) \
     $(PROGRAM_OBJECTS:.o=.d)
@@ -389,7 +390,7 @@ $(SERVER): $(BUILD)/obj/Utility/main.o $(LIBRARY)
 	@if not exist "$(BUILD)" mkdir "$(BUILD)"
 	$(CXX) $(LDFLAGS) -o "$@" "$<" "$(LIBRARY)" $(LDLIBS)
 
-$(GAME): $(BUILD)/obj/HUD/game_main.o $(LIBRARY)
+$(GAME): $(BUILD)/obj/Platform/Windows/WinMain.o $(LIBRARY)
 	@if not exist "$(BUILD)" mkdir "$(BUILD)"
 	$(CXX) $(LDFLAGS) -mwindows -o "$@" "$<" "$(LIBRARY)" \
 		-lopengl32 $(LDLIBS)

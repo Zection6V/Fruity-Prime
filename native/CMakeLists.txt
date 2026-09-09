@@ -608,6 +608,7 @@ add_library(fruity_prime_chat STATIC
     "${FRUITY_PRIME_CPP_ROOT}/Mods/Chat/ChatBox.cpp"
     "${FRUITY_PRIME_CPP_ROOT}/Mods/Chat/ChatFont.cpp"
     "${FRUITY_PRIME_CPP_ROOT}/Mods/Chat/PlayerEntityChatHud.cpp"
+    "${FRUITY_PRIME_CPP_ROOT}/Renderer/OpenGL/PlayerEntityChatHudRenderer.cpp"
 )
 target_include_directories(fruity_prime_chat
     PUBLIC
@@ -647,7 +648,7 @@ target_link_libraries(FruityPrimeServer PRIVATE fruity_prime_net fruity_prime_sc
 
 if(WIN32)
     add_executable(FruityPrime WIN32
-        "${FRUITY_PRIME_CPP_ROOT}/HUD/game_main.cpp"
+        "${FRUITY_PRIME_CPP_ROOT}/Platform/Windows/WinMain.cpp"
         "${FRUITY_PRIME_CPP_ROOT}/HUD/HudInfo.cpp")
     target_include_directories(FruityPrime PRIVATE
         "${FRUITY_PRIME_CPP_ROOT}")

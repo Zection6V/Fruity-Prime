@@ -13,6 +13,7 @@
 #include "GameState.hpp"
 #include "Metadata/player_values.hpp"
 #include "Strings.hpp"
+#include "Mods/Chat/PlayerEntityChatHud.hpp"
 
 #include <array>
 #include <cstdint>
@@ -115,6 +116,14 @@ public:
     }
     [[nodiscard]] const PlayerSoundState& SoundState() const noexcept {
         return sound_state_;
+    }
+    [[nodiscard]] fruityprime::chat::player_entity_chat_hud::State&
+        ChatHudState() noexcept {
+        return chat_hud_;
+    }
+    [[nodiscard]] const fruityprime::chat::player_entity_chat_hud::State&
+        ChatHudState() const noexcept {
+        return chat_hud_;
     }
     [[nodiscard]] runtime::HalfturretEntity& Halfturret() noexcept;
     [[nodiscard]] const runtime::HalfturretEntity& Halfturret() const noexcept;
@@ -268,6 +277,7 @@ public:
                     PlayerEntity* source = nullptr);
     void SaveStatus(game::StorySave& save, bool fade_active) const;
     void ResetReferences() noexcept;
+    void ModForgetInputDeltas() noexcept;
 
     static void LoadWeaponNames() noexcept;
     static void WeaponNameTable(std::vector<strings::TableEntry> entries);
@@ -326,6 +336,7 @@ private:
     PlayerCamera camera_{};
     PlayerScan scan_state_{};
     PlayerSoundState sound_state_{};
+    fruityprime::chat::player_entity_chat_hud::State chat_hud_{};
     net::Vec3 up_vector_{0.0F, 1.0F, 0.0F};
     std::optional<net::Vec3> forced_spawn_pos_{};
     std::unique_ptr<runtime::HalfturretEntity> halfturret_;

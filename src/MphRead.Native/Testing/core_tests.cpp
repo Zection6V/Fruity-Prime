@@ -845,21 +845,11 @@ int main() {
                         == "Einstellungen",
                 "string catalog mismatch");
 
-        MphReadNative::ProgramArguments arguments(
-            std::vector<std::string>{"FruityPrime", "-mapgen"});
-        require(arguments.action() == MphReadNative::Program::Action::MapGen,
-                "program argument dispatch mismatch");
-        MphReadNative::ProgramArguments movie_arguments(
-            std::vector<std::string>{"FruityPrime", "-export", "movie"});
-        require(movie_arguments.action()
-                    == MphReadNative::Program::Action::MovieInfo,
-                "movie export argument dispatch mismatch");
-
         const std::vector<std::string> managed_args{
             "noise", "-alpha", "one", "two", "-beta", "-gamma",
             "-delta", "last", "-", "--double"};
         const auto parsed_args =
-            MphReadNative::Program::parse_arguments(managed_args);
+            MphReadNative::Program::detail::parse_arguments(managed_args);
         require(parsed_args.size() == 5
                     && parsed_args[0].Name == "alpha"
                     && parsed_args[0].ValueOne == "one"
@@ -878,30 +868,30 @@ int main() {
             "-model", "Ship", "  -2147483648 ", "-model", "Crate",
             "overflow"};
         const auto duplicate_parsed =
-            MphReadNative::Program::parse_arguments(duplicate_args);
-        require(!MphReadNative::Program::try_get_string(
+            MphReadNative::Program::detail::parse_arguments(duplicate_args);
+        require(!MphReadNative::Program::detail::try_get_string(
                     duplicate_parsed, "room", "r")
                     .has_value()
-                && MphReadNative::Program::try_get_int(
+                && MphReadNative::Program::detail::try_get_int(
                        duplicate_parsed, "room", "r")
                        == std::nullopt,
                 "Program.cs first-match argument behavior mismatch");
-        require(MphReadNative::Program::try_get_int(
+        require(MphReadNative::Program::detail::try_get_int(
                     duplicate_parsed, "room", "r")
                     == std::nullopt,
                 "Program.cs Int32.TryParse null behavior mismatch");
-        const auto models = MphReadNative::Program::get_pairs(
+        const auto models = MphReadNative::Program::detail::get_pairs(
             duplicate_parsed, "model", "m");
         require(models.size() == 2 && models[0].first == "Ship"
                     && models[0].second == -2147483648
                     && models[1].first == "Crate"
                     && models[1].second == 0,
                 "Program.cs model pair parsing mismatch");
-        require(MphReadNative::Program::check_version("0.19.0.0")
-                    && MphReadNative::Program::check_version("0.35.1.0")
-                    && !MphReadNative::Program::check_version("0.18.9.0")
-                    && MphReadNative::Program::check_version("0.35")
-                    && MphReadNative::Program::parse_version("0.35.1.0")
+        require(MphReadNative::Program::detail::check_version("0.19.0.0")
+                    && MphReadNative::Program::detail::check_version("0.35.1.0")
+                    && !MphReadNative::Program::detail::check_version("0.18.9.0")
+                    && MphReadNative::Program::detail::check_version("0.35")
+                    && MphReadNative::Program::detail::parse_version("0.35.1.0")
                            == MphReadNative::Program::CurrentVersion,
                 "program setup version check mismatch");
         require(MphReadNative::SceneSetup::find_room("MP1 SANCTORUS") != nullptr,

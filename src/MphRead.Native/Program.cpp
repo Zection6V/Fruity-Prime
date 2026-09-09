@@ -1,7 +1,5 @@
 #include "Program.hpp"
-#include "Program.hpp"
 
-#include <algorithm>
 #include <charconv>
 #include <cctype>
 #include <fstream>
@@ -68,6 +66,14 @@ namespace {
 } // namespace
 
 namespace MphReadNative::Program {
+
+namespace {
+
+constexpr Version MinimumExtractVersion{{0, 19, 0, 0}};
+
+} // namespace
+
+namespace detail {
 
 std::optional<Version> parse_version(std::string_view value) {
     value = trim(value);
@@ -204,75 +210,6 @@ std::vector<std::pair<std::string, int>> get_pairs(
     return pairs;
 }
 
+} // namespace detail
+
 } // namespace MphReadNative::Program
-
-namespace fruityprime::program {
-
-Arguments::Arguments(int argc, char** argv) {
-    if (argc < 0 || argv == nullptr) {
-        return;
-    }
-    values_.reserve(static_cast<std::size_t>(argc));
-    for (int index = 0; index < argc; ++index) {
-        values_.emplace_back(argv[index] == nullptr ? "" : argv[index]);
-    }
-}
-
-bool Arguments::has(std::string_view flag) const noexcept {
-    return std::any_of(values_.begin(), values_.end(), [flag](const auto& value) {
-        return value == flag;
-    });
-}
-
-std::string Arguments::value_after(std::string_view flag) const {
-    for (std::size_t index = 0; index + 1 < values_.size(); ++index) {
-        if (values_[index] == flag) {
-            return values_[index + 1];
-        }
-    }
-    return {};
-}
-
-Action Arguments::action() const noexcept {
-    if (has("-launcher")) {
-        return Action::Launcher;
-    }
-    if (has("-server")) {
-        return Action::Server;
-    }
-    if (has("-masterserver")) {
-        return Action::MasterServer;
-    }
-    if (has("-netcheck")) {
-        return Action::NetCheck;
-    }
-    if (has("-connect")) {
-        return Action::Connect;
-    }
-    if (has("-q3convert")) {
-        return Action::Q3Convert;
-    }
-    if (has("-mapgen")) {
-        return Action::MapGen;
-    }
-    if (has("-model-export-obj") || has("-model-export-collada")
-        || has("-model-export-textures")) {
-        return Action::Export;
-    }
-    if (has("-soundinfo")) {
-        return Action::SoundInfo;
-    }
-    if (has("-movieinfo") || has("-movieexport")
-        || (has("-export") && value_after("-export") == "movie")) {
-        return Action::MovieInfo;
-    }
-    if (has("-rooms")) {
-        return Action::Rooms;
-    }
-    if (has("-help") || has("--help") || has("-h")) {
-        return Action::Help;
-    }
-    return Action::Default;
-}
-
-} // namespace fruityprime::program

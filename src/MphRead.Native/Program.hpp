@@ -2,67 +2,31 @@
 
 #include <array>
 #include <filesystem>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-
-namespace fruityprime::program {
-
-enum class Action {
-    Default,
-    Launcher,
-    Server,
-    MasterServer,
-    Connect,
-    NetCheck,
-    MapGen,
-    Q3Convert,
-    Export,
-    SoundInfo,
-    MovieInfo,
-    Rooms,
-    Help
-};
-
-class Arguments {
-public:
-    Arguments() = default;
-    Arguments(int argc, char** argv);
-    explicit Arguments(std::vector<std::string> values)
-        : values_(std::move(values)) {}
-
-    [[nodiscard]] bool has(std::string_view flag) const noexcept;
-    [[nodiscard]] std::string value_after(std::string_view flag) const;
-    [[nodiscard]] Action action() const noexcept;
-    [[nodiscard]] const std::vector<std::string>& values() const noexcept {
-        return values_;
-    }
-
-private:
-    std::vector<std::string> values_;
-};
-
-} // namespace fruityprime::program
-
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace MphReadNative {
-using ProgramArguments = ::fruityprime::program::Arguments;
+
+// The managed ProgramException is the only public exception type declared by
+// Program.cs.  Keep its native counterpart at the same source boundary; the
+// entry adapters may translate it to their platform's exit path.
+class ProgramException : public std::runtime_error {
+public:
+    explicit ProgramException(const std::string& message)
+        : std::runtime_error(message) {}
+};
 
 // The managed Program.Argument is private to Program.cs.  Keep the native
-// counterpart next to its source pair and expose only the operations that the
-// managed implementation uses.  In particular, an argument consumes at most
-// two following non-option tokens; a token beginning with '-' is always the
-// next option, even when it is just '-'.
+// counterpart next to its source pair.  The helper surface is under `detail`
+// because ParseArguments/TryGetArgument/TryGetString/TryGetInt/GetPairs and
+// CheckVersion are private implementation details in the C# source.  Tests
+// use this namespace as a native oracle seam; it is not a second CLI API.
 namespace Program {
-
-using Action = ::fruityprime::program::Action;
 
 struct Version {
     std::array<int, 4> parts{{0, 0, -1, -1}};
@@ -73,7 +37,8 @@ struct Version {
 };
 
 inline constexpr Version CurrentVersion{{0, 35, 1, 0}};
-inline constexpr Version MinimumExtractVersion{{0, 19, 0, 0}};
+
+namespace detail {
 
 [[nodiscard]] std::optional<Version> parse_version(std::string_view value);
 [[nodiscard]] bool check_version(std::string_view value) noexcept;
@@ -106,6 +71,8 @@ using ArgumentList = std::vector<Argument>;
 [[nodiscard]] std::vector<std::pair<std::string, int>> get_pairs(
     std::span<const Argument> arguments, std::string_view full_name,
     std::string_view short_name) noexcept;
+
+} // namespace detail
 
 } // namespace Program
 }

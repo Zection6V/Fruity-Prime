@@ -18,6 +18,22 @@ perform the requested local work yourself.
   creation tool as a substitute. If available controls cannot create a new
   ChatGPT conversation, ask the user to create one and provide or open it.
 
+## Recover from a stopped or stalled response
+
+- Treat a visible stopped state (for example, the UI says that thinking was
+  stopped) as an interrupted response, not as a completed review.
+- Re-observe the ChatGPT tab before acting and verify that it is the intended
+  conversation. Send one short continuation message such as `続けて` to the
+  same conversation, then wait for the response. Do not repeat the message in a
+  loop.
+- If the same conversation stops again, remains stalled, or its context is no
+  longer reliable, start a new ChatGPT conversation. Set Sol to `high` again
+  and resend the repository link plus the exact task, paths, authoritative
+  source, and constraints. Do not paste a large file merely to recover context.
+- Mark the old conversation as interrupted in your working notes and continue
+  from its last usable response. Apply the normal review rules below: the
+  returned text is a proposal, and local authoritative sources decide the work.
+
 ## Supply the task efficiently
 
 - Give ChatGPT a directly accessible repository, document, page, or artifact link

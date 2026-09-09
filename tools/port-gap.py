@@ -54,6 +54,22 @@ def normalise(name: str) -> str:
     return name.replace("_", "").lower()
 
 
+def unported_symbols() -> set[str]:
+    """Names the native tree declares but does not implement.
+
+    A generated behaviour whose body says NOT PORTED is a name with
+    nothing behind it.  Counting it would make this tool report progress
+    that has not happened, so tools/gen-ai-methods.py writes the list and
+    it is subtracted here.
+    """
+    path = pathlib.Path(__file__).resolve().parent / "ai_unported.txt"
+    if not path.exists():
+        return set()
+    return {normalise(line.strip())
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")}
+
+
 def native_symbols() -> set[str]:
     found: set[str] = set()
     for path in NATIVE.rglob("*"):
@@ -68,7 +84,7 @@ def native_symbols() -> set[str]:
         text = LINE_COMMENT.sub(" ", text)
         for word in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text):
             found.add(normalise(word))
-    return found
+    return found - unported_symbols()
 
 
 def managed_symbols(path: pathlib.Path) -> list[str]:

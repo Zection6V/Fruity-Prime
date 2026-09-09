@@ -12,6 +12,12 @@
 
 namespace {
 
+bool has_button(const fruityprime::gameplay::Input& input,
+                fruityprime::net::IntentButtons button) {
+    return (static_cast<std::uint32_t>(input.buttons)
+            & static_cast<std::uint32_t>(button)) != 0;
+}
+
 std::string environment_value(const char* name) {
     const char* value = std::getenv(name);
     return value == nullptr ? std::string{} : std::string(value);
@@ -69,17 +75,34 @@ int main() {
         fruityprime::ai::Personality personality{root, 3};
         fruityprime::players::PlayerAiData ai_state;
         ai_state.initialize(&personality);
-        fruityprime::gameplay::Input held_input;
-        held_input.buttons = static_cast<fruityprime::net::IntentButtons>(
-            static_cast<std::uint32_t>(
-                fruityprime::net::IntentButtons::Shoot)
-            | static_cast<std::uint32_t>(
-                fruityprime::net::IntentButtons::Jump));
-        ai_state.process_input(held_input);
-        assert(ai_state.buttons()[fruityprime::players::AiButtonId::Shoot]
+        // ProcessInput reads what the behaviours pressed and produces an
+        // input, the way the managed pass does, so the buttons go down
+        // first and the intents come back out.
+        ai_state.button(fruityprime::players::AiButtonId::R).is_down = true;
+        ai_state.button(fruityprime::players::AiButtonId::L).is_down = true;
+        const auto held = ai_state.process_input();
+        assert(has_button(held.input, fruityprime::net::IntentButtons::Shoot));
+        assert(has_button(held.input, fruityprime::net::IntentButtons::Jump));
+        assert(ai_state.buttons()[fruityprime::players::AiButtonId::R]
                    .frames_down == 1);
-        assert(ai_state.buttons()[fruityprime::players::AiButtonId::Jump]
+        assert(ai_state.buttons()[fruityprime::players::AiButtonId::L]
                    .frames_down == 1);
+        // As a ball the same two buttons boost and attack instead.
+        ai_state.button(fruityprime::players::AiButtonId::R).is_down = true;
+        ai_state.button(fruityprime::players::AiButtonId::L).is_down = true;
+        const auto rolled = ai_state.process_input(true);
+        assert(has_button(rolled.input,
+                          fruityprime::net::IntentButtons::Boost));
+        assert(has_button(rolled.input,
+                          fruityprime::net::IntentButtons::AltAttack));
+        assert(!has_button(rolled.input,
+                           fruityprime::net::IntentButtons::Shoot));
+        // A touched weapon icon is a weapon selection, not a button, and
+        // Judicator is the sixth beam.
+        ai_state.touch_button(
+            fruityprime::players::AiTouchButtonId::Judicator).is_down = true;
+        const auto touched = ai_state.process_input();
+        assert(touched.input.weapon_select == 5);
         ai_state.notify_damage(1, 12);
         ai_state.process(session, 0);
         assert(ai_state.target_slot() == 1);
@@ -88,9 +111,12 @@ int main() {
         assert(ai_state.aggro_count() >= 2);
         assert(ai_state.execution_tree()[1].data1 == second_child.get());
         assert(ai_state.unknown_func3_calls() == 0);
-        ai_state.process_input({});
-        assert(ai_state.buttons()[fruityprime::players::AiButtonId::Shoot]
-                   .frames_up == 1);
+        // A button nobody pressed ages by one on every pass.
+        const auto before = ai_state.buttons()[
+            fruityprime::players::AiButtonId::R].frames_up;
+        static_cast<void>(ai_state.process_input());
+        assert(ai_state.buttons()[fruityprime::players::AiButtonId::R]
+                   .frames_up == before + 1);
 
         fruityprime::gameplay::Config team_config;
         team_config.team_mode = true;

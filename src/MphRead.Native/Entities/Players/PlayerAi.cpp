@@ -51,37 +51,44 @@ void add_button(gameplay::Input& input, net::IntentButtons button) noexcept {
     return 0;
 }
 
-[[nodiscard]] bool input_button(gameplay::Input input,
-                                AiButtonId id) noexcept {
+[[nodiscard]] bool input_button(gameplay::Input input, AiButtonId id,
+                                bool alt_form) noexcept {
     const auto bits = static_cast<std::uint32_t>(input.buttons);
     const auto has = [bits](net::IntentButtons button) {
         return (bits & static_cast<std::uint32_t>(button)) != 0;
     };
+    // PlayerAi.ProcessInput's mapping.  Four of the twelve mean one thing
+    // on foot and another as a ball, which is why the form is needed here.
     switch (id) {
+    // The d-pad rolls the ball, and aims on foot.  Aim is an analogue
+    // vector on this head rather than four bits, so the on-foot half is
+    // carried by Input::aim and has no button to read back.
     case AiButtonId::Up:
-        return has(net::IntentButtons::MoveUp);
+        return alt_form && has(net::IntentButtons::RollUp);
     case AiButtonId::Down:
-        return has(net::IntentButtons::MoveDown);
+        return alt_form && has(net::IntentButtons::RollDown);
     case AiButtonId::Left:
-        return has(net::IntentButtons::MoveLeft);
+        return alt_form && has(net::IntentButtons::RollLeft);
     case AiButtonId::Right:
+        return alt_form && has(net::IntentButtons::RollRight);
+    case AiButtonId::A:
         return has(net::IntentButtons::MoveRight);
-    case AiButtonId::Jump:
-        return has(net::IntentButtons::Jump);
-    case AiButtonId::Morph:
-        return has(net::IntentButtons::Morph);
-    case AiButtonId::Shoot:
-        return has(net::IntentButtons::Shoot);
-    case AiButtonId::AltAttack:
-        return has(net::IntentButtons::AltAttack);
-    case AiButtonId::Boost:
-        return has(net::IntentButtons::Boost);
-    case AiButtonId::Zoom:
+    case AiButtonId::B:
+        return has(net::IntentButtons::MoveDown);
+    case AiButtonId::X:
+        return has(net::IntentButtons::MoveUp);
+    case AiButtonId::Y:
+        return has(net::IntentButtons::MoveLeft);
+    case AiButtonId::L:
+        return has(alt_form ? net::IntentButtons::AltAttack
+                            : net::IntentButtons::Jump);
+    case AiButtonId::R:
+        return has(alt_form ? net::IntentButtons::Boost
+                            : net::IntentButtons::Shoot);
+    case AiButtonId::Start:
+        return false;  // Pause, which a bot never presses.
+    case AiButtonId::Select:
         return has(net::IntentButtons::Zoom);
-    case AiButtonId::NextWeapon:
-        return has(net::IntentButtons::NextWeapon);
-    case AiButtonId::PrevWeapon:
-        return has(net::IntentButtons::PrevWeapon);
     case AiButtonId::Count:
         break;
     }
@@ -119,6 +126,7 @@ void PlayerAiData::reset() noexcept {
     flags3_ = AiFlags3::None;
     flags4_ = AiFlags4::None;
     buttons_.clear();
+    touch_buttons_.clear();
     for (auto& entry : player_aggro_) {
         entry.clear();
     }
@@ -156,31 +164,136 @@ void PlayerAiData::set_bot_level(int level) noexcept {
     bot_level_ = static_cast<std::uint8_t>(std::clamp(level, 0, 2));
 }
 
-void PlayerAiData::process_input(const gameplay::Input& input) noexcept {
+// PlayerAi.ProcessInput.  The managed pass runs at the top of the input
+// frame and turns what the behaviours pressed *last* frame into the
+// player's controls, so this reads the accumulated button state and
+// produces an input rather than consuming one.
+//
+// Two things the cartridge does are not represented here.  The alt-form
+// strafe exception on A/B/X/Y needs Values.AltFormStrafe, which this head
+// does not carry yet; and UpdateNodeDataSetSelection, which the managed
+// pass calls last, has no native counterpart.  Both are noted rather than
+// approximated.
+AiInputResult PlayerAiData::process_input(bool alt_form) noexcept {
+    AiInputResult result;
+    const auto press = [&result](net::IntentButtons button) {
+        result.input.buttons = static_cast<net::IntentButtons>(
+            static_cast<std::uint32_t>(result.input.buttons)
+            | static_cast<std::uint32_t>(button));
+    };
     flags3_ |= AiFlags3::NoInput;
     constexpr auto count = static_cast<std::size_t>(AiButtonId::Count);
     for (std::size_t i = 0; i < count; ++i) {
         const auto id = static_cast<AiButtonId>(i);
         auto& button = buttons_[id];
-        if (input_button(input, id)) {
-            flags3_ &= ~AiFlags3::NoInput;
-            button.frames_up = 0;
-            if (button.frames_down < 6000) {
-                ++button.frames_down;
-            }
-            button.is_down = true;
-        } else {
+        if (!button.is_down) {
             button.frames_down = 0;
             if (button.frames_up < 6000) {
                 ++button.frames_up;
             }
-            button.is_down = false;
+            continue;
+        }
+        flags3_ &= ~AiFlags3::NoInput;
+        button.frames_up = 0;
+        if (button.frames_down < 6000) {
+            ++button.frames_down;
+        }
+        button.is_down = false;
+        switch (id) {
+        // The d-pad rolls the ball, and aims on foot.  Aim is not a bit on
+        // the wire, so the on-foot half is reported beside the input.
+        case AiButtonId::Up:
+            if (alt_form) { press(net::IntentButtons::RollUp); }
+            else { result.aim_up = true; }
+            break;
+        case AiButtonId::Down:
+            if (alt_form) { press(net::IntentButtons::RollDown); }
+            else { result.aim_down = true; }
+            break;
+        case AiButtonId::Left:
+            if (alt_form) { press(net::IntentButtons::RollLeft); }
+            else { result.aim_left = true; }
+            break;
+        case AiButtonId::Right:
+            if (alt_form) { press(net::IntentButtons::RollRight); }
+            else { result.aim_right = true; }
+            break;
+        case AiButtonId::A: press(net::IntentButtons::MoveRight); break;
+        case AiButtonId::B: press(net::IntentButtons::MoveDown); break;
+        case AiButtonId::X: press(net::IntentButtons::MoveUp); break;
+        case AiButtonId::Y: press(net::IntentButtons::MoveLeft); break;
+        case AiButtonId::L:
+            press(alt_form ? net::IntentButtons::AltAttack
+                           : net::IntentButtons::Jump);
+            break;
+        case AiButtonId::R:
+            press(alt_form ? net::IntentButtons::Boost
+                           : net::IntentButtons::Shoot);
+            break;
+        case AiButtonId::Start:
+            break;  // Pause, which a bot never means to press.
+        case AiButtonId::Select:
+            press(net::IntentButtons::Zoom);
+            break;
+        case AiButtonId::Count:
+            break;
         }
     }
-    if (input.weapon_select != 0xff) {
-        weapon2_ = input.weapon_select;
-        find_weapon_index_ = input.weapon_select;
+    if (has_touch_) {
+        flags3_ &= ~AiFlags3::NoInput;
+        frames_without_touch_ = 0;
+        if (frames_with_touch_ < 6000) {
+            ++frames_with_touch_;
+        }
+        has_touch_ = false;
+    } else {
+        frames_with_touch_ = 0;
+        if (frames_without_touch_ < 6000) {
+            ++frames_without_touch_;
+        }
     }
+    constexpr auto touch_count =
+        static_cast<std::size_t>(AiTouchButtonId::Count);
+    for (std::size_t i = 0; i < touch_count; ++i) {
+        const auto id = static_cast<AiTouchButtonId>(i);
+        auto& button = touch_buttons_[id];
+        if (!button.is_down) {
+            button.frames_down = 0;
+            if (button.frames_up < 6000) {
+                ++button.frames_up;
+            }
+            continue;
+        }
+        flags3_ &= ~AiFlags3::NoInput;
+        if (id == AiTouchButtonId::Morph || id == AiTouchButtonId::Unmorph) {
+            press(net::IntentButtons::Morph);
+        } else {
+            // The remaining nine are the weapon icons, in beam order after
+            // the two form icons.  The managed pass also updates the
+            // affinity slot for the seven that have one; that is the
+            // player's own bookkeeping and follows the selection.
+            result.input.weapon_select = static_cast<std::uint8_t>(
+                i - static_cast<std::size_t>(AiTouchButtonId::PowerBeam));
+        }
+        button.frames_up = 0;
+        if (button.frames_down < 6000) {
+            ++button.frames_down;
+        }
+        button.is_down = false;
+    }
+    if (button_aim_x_ != 0.0F) {
+        flags3_ &= ~AiFlags3::NoInput;
+        result.aim_degrees_x = button_aim_x_;
+    }
+    if (button_aim_y_ != 0.0F) {
+        flags3_ &= ~AiFlags3::NoInput;
+        result.aim_degrees_y = button_aim_y_;
+    }
+    button_aim_x_ = 0.0F;
+    button_aim_y_ = 0.0F;
+    node_data_sel_off_ = 0;
+    node_data_sel_on_ = 0;
+    return result;
 }
 
 void PlayerAiData::notify_damage(std::uint8_t source_slot,
@@ -605,6 +718,32 @@ void PlayerAiData::execute_funcs1(const gameplay::Session& session,
                     table[static_cast<std::size_t>(func_id)]);
 }
 
+void PlayerAiData::execute_funcs2(const gameplay::Session& session,
+                                  std::uint8_t bot_slot,
+                                  AiContext& context) noexcept {
+    const auto& table = ai_dispatch::funcs2_table;
+    const int func_id = context.func24_id;
+    if (func_id < 0
+        || static_cast<std::size_t>(func_id) >= std::size(table)) {
+        return;
+    }
+    dispatch_funcs2(session, bot_slot, context,
+                    table[static_cast<std::size_t>(func_id)]);
+}
+
+void PlayerAiData::execute_funcs4(const gameplay::Session& session,
+                                  std::uint8_t bot_slot,
+                                  AiContext& context) noexcept {
+    const auto& table = ai_dispatch::funcs4_table;
+    const int func_id = context.func24_id;
+    if (func_id < 0
+        || static_cast<std::size_t>(func_id) >= std::size(table)) {
+        return;
+    }
+    dispatch_funcs4(session, bot_slot, context,
+                    table[static_cast<std::size_t>(func_id)]);
+}
+
 int PlayerAiData::evaluate_func3(const gameplay::Session& session,
                                   std::uint8_t bot_slot,
                                   const AiContext& context,
@@ -612,6 +751,16 @@ int PlayerAiData::evaluate_func3(const gameplay::Session& session,
                                   const ai::Parameters& parameters) noexcept {
     if (!session.has_player(bot_slot)) {
         return 0;
+    }
+    // The transliterated predicates answer first.  What is left below is
+    // the earlier hand-written approximation, which still covers the
+    // identifiers whose managed bodies have not converted yet -- dropping
+    // it would make bots worse, not more faithful.
+    bool handled = false;
+    const int answer = dispatch_funcs3(session, bot_slot, context,
+                                       parameters, func_id, handled);
+    if (handled) {
+        return answer;
     }
     const auto& bot = session.player(bot_slot);
     const net::PlayerState* target =
@@ -825,6 +974,10 @@ void PlayerAiData::update_execution_path(const gameplay::Session* session,
         }
     }
     context.func24_id = node->func24_id;
+    // ExecuteFuncs4 is what a node runs on the way in.
+    if (session != nullptr) {
+        execute_funcs4(*session, bot_slot, context);
+    }
     const auto count = std::min(node->data1.size(), context.weights.size() - 1);
     for (std::size_t i = 0; i < count; ++i) {
         context.weights[i] = 0;
@@ -845,10 +998,11 @@ void PlayerAiData::execute(const gameplay::Session& session,
     if (context.data1 == nullptr || !session.has_player(bot_slot)) {
         return;
     }
-    // Execute runs the node's Data3b behaviours.
+    // Execute runs the node's Data3b behaviours, then its Funcs2 one.
     for (const std::int32_t func_id : context.data1->data3b) {
         execute_funcs1(session, bot_slot, func_id);
     }
+    execute_funcs2(session, bot_slot, context);
     context.field34 = session.player(bot_slot).position;
     if (context.call_count < std::numeric_limits<std::uint32_t>::max()) {
         ++context.call_count;
@@ -1032,8 +1186,18 @@ BotDecision BotAi::decide(const gameplay::Session& session,
                           int level) noexcept {
     BotDecision result = decide(session, bot_slot, level);
     state.set_bot_level(level);
-    state.process_input(result.input);
+    const AiInputResult decided = state.process_input(
+        session.has_player(bot_slot)
+        && (session.player(bot_slot).flags
+            & net::PlayerState::FlagAltForm) != 0);
     state.process(session, bot_slot);
+    // The personality tree's own input wins the moment it produces one.
+    // Most Func2 behaviours are not ported yet, so until they are the
+    // scripted fallback above is what actually moves the bot; NoInput says
+    // which of the two happened rather than blending them.
+    if (!has_flag(state.flags3(), AiFlags3::NoInput)) {
+        result.input = decided.input;
+    }
     result.target_slot = state.target_slot();
     result.aggro_score = state.aggro_score();
     result.personality_func24_id = state.personality_func24_id();
@@ -1089,6 +1253,16 @@ void PlayerAiData::initialize_sub(std::uint8_t hunter, int bot_level,
 
 void PlayerAiData::clear_input() noexcept {
     buttons_ = AiButtons{};
+    touch_buttons_ = AiTouchButtons{};
+    touch_aim_x_ = 0;
+    touch_aim_y_ = 0;
+    has_touch_ = false;
+    frames_with_touch_ = 0;
+    frames_without_touch_ = 0;
+    button_aim_x_ = 0.0F;
+    button_aim_y_ = 0.0F;
+    node_data_sel_off_ = 0;
+    node_data_sel_on_ = 0;
 }
 
 void PlayerAiData::initialize_at_load(const ai::Personality* personality,

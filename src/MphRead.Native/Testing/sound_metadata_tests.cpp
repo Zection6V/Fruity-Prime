@@ -193,12 +193,19 @@ void test_real_rom(const std::filesystem::path& path) {
     require(std::filesystem::is_regular_file(path),
             "configured NDS ROM is not a regular file: " + path.string());
 
-    const auto metadata = fruityprime::sound::SoundMetadata::load(
-        fruityprime::assets::Store::from_rom(path));
+    const auto store = fruityprime::assets::Store::from_rom(path);
+    const auto key = store.game_key();
+    require(key.has_value(), "the configured ROM has no game key");
+    const auto metadata = fruityprime::sound::SoundMetadata::load(store);
     require(metadata.has_value(),
             "sound metadata did not recognize the configured ROM version");
-    require(metadata->game_key == "AMHE1",
-            "sound metadata selected the wrong ROM layout");
+    // Eight cartridge revisions have their own ARM9 offsets, so the layout
+    // has to be the one this ROM actually is.  Naming a single revision
+    // here made the test a statement about which cartridge the developer
+    // owned rather than about the lookup.
+    require(metadata->game_key == *key,
+            "sound metadata selected the wrong ROM layout: wanted "
+            + *key + ", got " + metadata->game_key);
 
     std::size_t hunter_values = 0;
     std::size_t beam_values = 0;

@@ -179,6 +179,9 @@ COMMON_SOURCES := \
     $(CPP_ROOT)/Entities/Enemies/51_CarnivorousPlant.cpp \
     $(CPP_ROOT)/Entities/Players/PlayerAi.cpp \
     $(CPP_ROOT)/Entities/Players/ai_funcs1.generated.cpp \
+    $(CPP_ROOT)/Entities/Players/ai_funcs24.generated.cpp \
+    $(CPP_ROOT)/Entities/Players/ai_funcs3.generated.cpp \
+    $(CPP_ROOT)/Entities/Players/ai_helpers.generated.cpp \
     $(CPP_ROOT)/Entities/Players/player_profile.cpp \
     $(CPP_ROOT)/Entities/Players/PlayerEntity.cpp \
     $(CPP_ROOT)/Entities/Players/PlayerInput.cpp \

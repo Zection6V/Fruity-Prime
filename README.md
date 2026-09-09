@@ -72,7 +72,27 @@ map list next time you open the launcher, picture and all. **de_dust2** comes wi
 - **Adventure co-op.** The launcher's toggle is a placeholder; the story is one player.
 - **Gamepads**, on any platform.
 
-## Building
+## Building the native C++ port
+
+The native Windows build uses MinGW from `C:\mingw64`:
+
+```powershell
+.\native\build-mingw.ps1 -RomPath 'C:\DSMPH\melonPrimeDS\all roms\allRoms\0367 - Metroid Prime - Hunters (USA) (Rev 1).nds'
+```
+
+For a direct build without the CMake orchestrator:
+
+```powershell
+C:\mingw64\bin\mingw32-make.exe -C native all --jobs=4
+```
+
+The native migration status and the current parity boundary are documented in
+[`native/README.md`](native/README.md) and [`native/PORTING.md`](native/PORTING.md).
+The C++ source-facing tree mirrors the managed `src/MphRead` categories under
+[`src/MphRead.Native`](src/MphRead.Native/README.md); `cmake -S src` is its
+MinGW build entry point.
+
+## Managed reference build
 
 ```bash
 dotnet publish src/MphRead/MphRead.csproj -c Release \

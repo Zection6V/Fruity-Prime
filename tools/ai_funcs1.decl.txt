@@ -1,0 +1,168 @@
+    void func1_214A39C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214A098(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149D3C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149C98(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149C80(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149C68(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149C50(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149C38(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149C20(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149C08(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149BF0(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149BD8(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149BC0(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149BA8(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149B98(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149AD8(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149AC8(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149ABC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149AB0(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149AA4(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149A98(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149A64(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149824(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21497F0(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149570(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21494FC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149488(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149414(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21493A0(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214932C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21495A4(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149530(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21494BC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149448(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21493D4(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149360(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21492EC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21492DC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21492CC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21492BC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21492AC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214929C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214928C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214927C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214926C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214925C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214924C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214923C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214922C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214921C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214920C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21491FC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21491E4(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21491CC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21491B4(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214919C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149184(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214916C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149154(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214913C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149124(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_214910C(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21490F4(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21490DC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21490C4(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_21490AC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149094(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149088(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2149034(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148F10(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148EDC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148ECC(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148EB8(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148EA8(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148E98(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148E88(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148E74(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148E64(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148E54(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148DF8(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148DE8(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_2148D50(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_UnlockEchoHallForceField(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;
+    void func1_SetInvulnerable(const gameplay::Session& session,
+            std::uint8_t bot_slot) noexcept;

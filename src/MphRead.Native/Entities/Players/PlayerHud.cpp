@@ -7,6 +7,7 @@
 #include "Mods/Network/player_entity_net_hud.hpp"
 #include "Strings.hpp"
 #include "Metadata/metadata.hpp"
+#include "Metadata/metadata_values.hpp"
 #include "PlayerEntity.hpp"
 
 #include <algorithm>
@@ -984,6 +985,344 @@ PlayerHud::LocatorPlacement PlayerHud::PlaceLocatorIcon(
         / 3.14159265358979323846F;
     placement.arrow = true;
     return placement;
+}
+
+namespace {
+
+// The three colours the mode HUDs mark things with, in the cartridge's own
+// BGR555.  "Good" is the blue-white a friendly marker gets; a hostile one
+// is plain red.
+constexpr HudBackend::Color LocatorNeutral{1.0F, 1.0F, 1.0F};
+constexpr HudBackend::Color LocatorGood{
+    15.0F / 31.0F, 15.0F / 31.0F, 1.0F};
+constexpr HudBackend::Color LocatorHostile{1.0F, 0.0F, 0.0F};
+
+// Metadata.TeamColors, converted the same way.
+[[nodiscard]] HudBackend::Color team_color(int team) noexcept {
+    const auto index = static_cast<std::size_t>(team);
+    if (index >= metadata::TeamColors.size()) {
+        return LocatorNeutral;
+    }
+    const auto& color = metadata::TeamColors[index];
+    return {static_cast<float>(color.red) / 31.0F,
+            static_cast<float>(color.green) / 31.0F,
+            static_cast<float>(color.blue) / 31.0F};
+}
+
+// The team a slot is on, or 4 for "none".
+[[nodiscard]] int team_of(const HudContext& context,
+                          std::uint8_t slot) noexcept {
+    if (context.state == nullptr
+        || slot >= context.state->player_teams.size()) {
+        return 4;
+    }
+    return static_cast<int>(context.state->player_teams[slot]);
+}
+
+// Whichever of a flag's two positions is the live one.
+[[nodiscard]] net::Vec3 point_of(
+    const scene::VolumePoint& point) noexcept {
+    return {point.x, point.y, point.z};
+}
+
+[[nodiscard]] float lerp(float first, float second, float by) noexcept {
+    return first * (1.0F - by) + second * by;
+}
+
+} // namespace
+
+void PlayerHud::AddLocatorInfo(ModeHudState& state,
+                               const net::Vec3& position,
+                               const LocatorIcon icon,
+                               const HudBackend::Color& color,
+                               const float alpha) {
+    state.locators.push_back({position, icon, color, alpha});
+}
+
+void PlayerHud::ProcessHudSurvival(const HudContext& context,
+                                   const ModeHudFrame& frame,
+                                   ModeHudState& state, int& reveal) {
+    if (context.session == nullptr) {
+        return;
+    }
+    const int own_team = team_of(context, context.local_slot);
+    for (const auto& player : context.session->players()) {
+        if (player.health == 0
+            || team_of(context, player.slot_index) == own_team) {
+            continue;
+        }
+        float alpha = 1.0F;
+        const std::size_t slot = player.slot_index;
+        if (frame.radar_players) {
+            // Every opponent is on the radar, pulsing in and out over
+            // thirty-two of the cartridge's frames.
+            if (slot < frame.reveal_elapsed.size()) {
+                const float past = frame.reveal_elapsed[slot];
+                const float period = 32.0F / 30.0F;
+                float fraction = std::fmod(past / period, 1.0F);
+                if (fraction < 0.0F) {
+                    fraction += 1.0F;
+                }
+                alpha = fraction <= 0.5F
+                    ? lerp(0.0F, 1.0F, fraction * 2.0F)
+                    : lerp(1.0F, 0.0F, (fraction - 0.5F) * 2.0F);
+            }
+        } else {
+            const bool revealed = slot < frame.radar_reveal.size()
+                && frame.radar_reveal[slot];
+            if (!revealed) {
+                continue;
+            }
+            if (slot < frame.radar_reveal_previous.size()
+                && frame.radar_reveal_previous[slot]) {
+                reveal = 2;
+            } else if (reveal == 0) {
+                // Newly revealed, which is what earns the taunt.
+                reveal = 1;
+            }
+        }
+        net::Vec3 position = player.position;
+        if ((player.flags & net::PlayerState::FlagAltForm) == 0) {
+            position.y += 0.75F;
+        }
+        AddLocatorInfo(state, position, LocatorIcon::Enemy, LocatorNeutral,
+                       alpha);
+    }
+}
+
+void PlayerHud::ProcessHudBounty(const HudContext& context,
+                   const gameplay::ObjectiveState& objectives,
+                                 const ModeHudFrame& frame,
+                                 ModeHudState& state) {
+    const int own_team = team_of(context, context.local_slot);
+    // Carrying one: the marker points at where it has to be taken.
+    const bool carrying = std::any_of(
+        objectives.flags.begin(), objectives.flags.end(),
+        [&context](const gameplay::FlagObjectiveState& flag) {
+            return flag.carrier_slot == context.local_slot;
+        });
+    if (carrying) {
+        for (const auto& flag : objectives.flags) {
+            AddLocatorInfo(state, point_of(flag.base_position),
+                           LocatorIcon::Node, LocatorGood);
+        }
+        return;
+    }
+    for (const auto& flag : objectives.flags) {
+        HudBackend::Color color = LocatorNeutral;
+        if (flag.carrier_slot != 0xff
+            && (frame.frame_count & (4u * 2u)) != 0) {
+            // A carried octolith blinks between white and whose it is.
+            color = team_of(context, flag.carrier_slot) == own_team
+                ? LocatorGood : LocatorHostile;
+        }
+        AddLocatorInfo(state, point_of(flag.position), LocatorIcon::Octolith,
+                       color);
+    }
+}
+
+void PlayerHud::ProcessHudCapture(const HudContext& context,
+                   const gameplay::ObjectiveState& objectives,
+                                  const ModeHudFrame& frame,
+                                  ModeHudState& state) {
+    const int own_team = team_of(context, context.local_slot);
+    const bool carrying = std::any_of(
+        objectives.flags.begin(), objectives.flags.end(),
+        [&context](const gameplay::FlagObjectiveState& flag) {
+            return flag.carrier_slot == context.local_slot;
+        });
+    for (const auto& flag : objectives.flags) {
+        if (flag.carrier_slot == context.local_slot) {
+            continue;
+        }
+        HudBackend::Color color = team_color(flag.team_id);
+        if (flag.carrier_slot != 0xff
+            && (frame.frame_count & (4u * 2u)) != 0) {
+            color = team_of(context, flag.carrier_slot) == own_team
+                ? LocatorGood : LocatorHostile;
+        }
+        AddLocatorInfo(state, point_of(flag.position), LocatorIcon::Octolith,
+                       color);
+        if (carrying && static_cast<int>(flag.team_id) == own_team) {
+            // Carrying theirs, so our own base is where it goes.
+            AddLocatorInfo(state, point_of(flag.base_position),
+                           LocatorIcon::Node, LocatorGood);
+        }
+    }
+}
+
+void PlayerHud::ProcessHudDefender(
+    const HudContext& context, const gameplay::ObjectiveState& objectives,
+    ModeHudState& state) {
+    if (context.state == nullptr) {
+        return;
+    }
+    const int own_team = team_of(context, context.local_slot);
+    for (const auto& node : objectives.nodes) {
+        const int current = static_cast<int>(node.current_team);
+        HudBackend::Color color;
+        if (current == gameplay::NeutralObjectiveTeam) {
+            color = LocatorNeutral;
+        } else if (context.state->teams) {
+            color = team_color(current);
+        } else if (current == own_team) {
+            color = LocatorGood;
+        } else {
+            color = LocatorHostile;
+        }
+        // The managed entity's Position is the middle of its volume.
+        AddLocatorInfo(state, point_of(node.volume.center()),
+                       LocatorIcon::Node, color);
+    }
+}
+
+void PlayerHud::ProcessHudNodes(
+    const HudContext& context, const gameplay::ObjectiveState& objectives,
+    ModeHudState& state) {
+    state.node_bonus_opponent = -1;
+    state.main_node_bonus = false;
+    state.team_node_counts.fill(0);
+    state.queue_acquiring_node = false;
+    state.clear_node_messages = false;
+    if (context.state == nullptr) {
+        return;
+    }
+    const int own_team = team_of(context, context.local_slot);
+    bool show_bar = false;
+    for (const auto& node : objectives.nodes) {
+        const int current = static_cast<int>(node.current_team);
+        const int occupying = static_cast<int>(node.occupying_team);
+        // A node being taken blinks in the colour of whoever is taking it.
+        const bool blinking = node.contested || node.progress > 0.0F;
+        HudBackend::Color color;
+        if (current == gameplay::NeutralObjectiveTeam) {
+            if (!blinking) {
+                color = LocatorNeutral;
+            } else if (context.state->teams) {
+                color = team_color(occupying);
+            } else {
+                color = occupying == own_team ? LocatorGood : LocatorHostile;
+            }
+        } else if (context.state->teams) {
+            color = team_color(blinking ? occupying : current);
+        } else if (current == own_team) {
+            color = !blinking || occupying == own_team ? LocatorGood
+                                                       : LocatorHostile;
+        } else if (blinking && occupying == own_team) {
+            color = LocatorGood;
+        } else {
+            color = LocatorHostile;
+        }
+        // The managed entity's Position is the middle of its volume.
+        AddLocatorInfo(state, point_of(node.volume.center()),
+                       LocatorIcon::Node, color);
+        if (current != gameplay::NeutralObjectiveTeam
+            && occupying == gameplay::NeutralObjectiveTeam
+            && current >= 0
+            && static_cast<std::size_t>(current)
+                < state.team_node_counts.size()) {
+            // Holding more than one node at once is worth a bonus, and the
+            // HUD says which team is running one.
+            const int count =
+                ++state.team_node_counts[static_cast<std::size_t>(current)];
+            if (count > 1) {
+                if (current == own_team) {
+                    state.main_node_bonus = true;
+                } else if (state.node_bonus_opponent == -1
+                           || count > state.team_node_counts[
+                               static_cast<std::size_t>(
+                                   state.node_bonus_opponent)]) {
+                    state.node_bonus_opponent = current;
+                }
+            }
+        }
+        if (node.captured_by_slot == context.local_slot
+            || (node.progress > 0.0F && occupying == own_team)) {
+            show_bar = true;
+            if (state.nodes_hud_state == 0) {
+                state.queue_acquiring_node = true;
+                state.nodes_progress_amount = 0;
+                state.nodes_hud_state = 1;
+            } else if (state.nodes_hud_state == 1) {
+                // The bar fills over three hundred of the cartridge's
+                // frames, in forty steps.
+                state.nodes_progress_amount = static_cast<int>(std::lround(
+                    lerp(0.0F, 40.0F, node.progress / (300.0F / 30.0F))));
+            }
+        }
+    }
+    if (!show_bar && state.nodes_hud_state != 0) {
+        state.clear_node_messages = true;
+        state.nodes_hud_state = 0;
+    }
+}
+
+void PlayerHud::ProcessHudPrimeHunter(const HudContext& context,
+                   const gameplay::ObjectiveState& objectives,
+                                      const ModeHudFrame& frame,
+                                      ModeHudState& state) {
+    state.restart_prime_hunter_animation = false;
+    const auto prime = objectives.prime_hunter;
+    if (prime >= 0
+        && static_cast<std::uint8_t>(prime) == context.local_slot) {
+        if (!state.is_prime_hunter) {
+            state.restart_prime_hunter_animation = true;
+            state.prime_hunter_text_timer = 90.0F / 30.0F;
+            state.is_prime_hunter = true;
+        }
+        if (state.prime_hunter_text_timer > 0.0F) {
+            state.prime_hunter_text_timer -= frame.frame_time;
+        }
+        return;
+    }
+    state.is_prime_hunter = false;
+    if (prime < 0) {
+        return;
+    }
+    const auto slot = static_cast<std::uint8_t>(prime);
+    if (context.session == nullptr || !context.session->has_player(slot)) {
+        return;
+    }
+    // Everyone else gets a marker pointing at whoever is winning.
+    const auto& player = context.session->player(slot);
+    net::Vec3 position = player.position;
+    if ((player.flags & net::PlayerState::FlagAltForm) == 0) {
+        position.y += 0.75F;
+    }
+    AddLocatorInfo(state, position, LocatorIcon::Enemy, LocatorHostile);
+}
+
+bool PlayerHud::ProcessModeHud(const HudContext& context,
+                               const gameplay::ObjectiveState& objectives,
+                               const ModeHudFrame& frame,
+                               ModeHudState& state) {
+    state.locators.clear();
+    int reveal = 0;
+    switch (process_mode_hud(context.mode)) {
+    case ModeHud::Survival:
+        ProcessHudSurvival(context, frame, state, reveal);
+        break;
+    case ModeHud::Bounty:
+        ProcessHudBounty(context, objectives, frame, state);
+        break;
+    case ModeHud::Capture:
+        ProcessHudCapture(context, objectives, frame, state);
+        break;
+    case ModeHud::Defender:
+        ProcessHudDefender(context, objectives, state);
+        break;
+    case ModeHud::Nodes:
+        ProcessHudNodes(context, objectives, state);
+        break;
+    case ModeHud::PrimeHunter:
+        ProcessHudPrimeHunter(context, objectives, frame, state);
+        break;
+    case ModeHud::None:
+        break;
+    }
+    // One is "somebody just gave themselves away", which is the only case
+    // the taunt fires on; two means they were already showing.
+    return reveal == 1;
 }
 
 } // namespace fruityprime::players

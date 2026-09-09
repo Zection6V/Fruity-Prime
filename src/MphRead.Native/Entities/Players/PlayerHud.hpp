@@ -7,6 +7,8 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
+#include <vector>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -287,6 +289,92 @@ public:
     [[nodiscard]] static LocatorPlacement PlaceLocatorIcon(
         const net::Vec3& view, float projected_x, float projected_y,
         float width, float height) noexcept;
+    // What the mode HUDs keep between frames, and what one pass of them
+    // produced.  The managed class holds all of this as fields on the
+    // player; a struct is the same thing with the ownership written down.
+    struct ModeHudState {
+        // PlayerHud._locatorInfo, rebuilt every frame.
+        std::vector<LocatorInfo> locators;
+        // Nodes: which opponent team is running a multi-node bonus, and
+        // whether this player's own team is.
+        int node_bonus_opponent = -1;
+        bool main_node_bonus = false;
+        std::array<int, 4> team_node_counts{};
+        // The acquiring-node message and the bar under it.
+        int nodes_hud_state = 0;
+        int nodes_progress_amount = 0;
+        // Prime Hunter: whether this player is it, and how long the
+        // announcement stays up.
+        bool is_prime_hunter = false;
+        float prime_hunter_text_timer = 0.0F;
+        // Set when ProcessHudNodes wants the "acquiring node" line queued,
+        // or the node messages cleared: queueing is the caller's, because
+        // the queue is the caller's.
+        bool queue_acquiring_node = false;
+        bool clear_node_messages = false;
+        // Set when ProcessHudPrimeHunter wants the prime-hunter halo
+        // animation restarted.
+        bool restart_prime_hunter_animation = false;
+    };
+
+    // What ProcessModeHud has to know about the frame and the players in it.
+    struct ModeHudFrame {
+        // GameState.RadarPlayers: every opponent shows on the radar, fading
+        // in and out rather than only when they fire.
+        bool radar_players = false;
+        // PlayerFlags2.RadarReveal and RadarRevealPrevious, per slot.  They
+        // are player state this head does not replicate, so they are handed
+        // in rather than guessed: an empty span means nobody is revealed.
+        std::span<const bool> radar_reveal;
+        std::span<const bool> radar_reveal_previous;
+        // Scene.FrameCount, which the flag and node colours blink on.
+        std::uint64_t frame_count = 0;
+        float frame_time = 1.0F / 60.0F;
+        // How long each opponent has been revealed, for the fade.
+        std::span<const float> reveal_elapsed;
+    };
+
+    // PlayerHud.ProcessModeHud and the six ProcessHud* methods under it.
+    // Returns whether the "COWARD DETECTED" line should be queued, which
+    // ProcessHudSurvival decides and the caller acts on.
+    static bool ProcessModeHud(const HudContext& context,
+                               const gameplay::ObjectiveState& objectives,
+                               const ModeHudFrame& frame,
+                               ModeHudState& state);
+    static void ProcessHudSurvival(const HudContext& context,
+                                   const ModeHudFrame& frame,
+                                   ModeHudState& state, int& reveal);
+    static void ProcessHudBounty(const HudContext& context,
+                   const gameplay::ObjectiveState& objectives,
+                                 const ModeHudFrame& frame,
+                                 ModeHudState& state);
+    static void ProcessHudCapture(const HudContext& context,
+                   const gameplay::ObjectiveState& objectives,
+                                  const ModeHudFrame& frame,
+                                  ModeHudState& state);
+    static void ProcessHudDefender(
+        const HudContext& context,
+        const gameplay::ObjectiveState& objectives, ModeHudState& state);
+    static void ProcessHudNodes(
+        const HudContext& context,
+        const gameplay::ObjectiveState& objectives, ModeHudState& state);
+    static void ProcessHudPrimeHunter(const HudContext& context,
+                   const gameplay::ObjectiveState& objectives,
+                                      const ModeHudFrame& frame,
+                                      ModeHudState& state);
+
+    // PlayerHud.AddLocatorInfo and DrawLocatorIcons' list half.
+    static void AddLocatorInfo(ModeHudState& state, const net::Vec3& position,
+                               LocatorIcon icon,
+                               const HudBackend::Color& color,
+                               float alpha = 1.0F);
+
+    // Strings.GetHudMessage(234): "COWARD DETECTED!"; (205): "acquiring
+    // node".  The categories are the cartridge's own message masks.
+    static constexpr int CowardMessageId = 234;
+    static constexpr int AcquiringNodeMessageId = 205;
+    static constexpr int NodeMessageMask = 16;
+
 
     // Strings.GetHudMessage(219): "GAME OVER".
     static constexpr int GameOverMessageId = 219;

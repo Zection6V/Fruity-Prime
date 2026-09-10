@@ -7,6 +7,7 @@
 #include "Messaging.hpp"
 #include "Entities/runtime_entities.hpp"
 #include "Entities/static_entities.hpp"
+#include "Renderer.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -80,6 +81,12 @@ public:
     [[nodiscard]] const camera::CameraState* camera_state() const noexcept {
         return camera_state_.has_value() ? &*camera_state_ : nullptr;
     }
+    [[nodiscard]] renderer::CameraMode camera_mode() const noexcept {
+        return camera_mode_;
+    }
+    [[nodiscard]] const formats::Vector3& camera_position() const noexcept {
+        return camera_position_;
+    }
     [[nodiscard]] const std::optional<FadeRequest>& fade_request()
         const noexcept {
         return fade_request_;
@@ -95,6 +102,12 @@ public:
         std::int16_t type, std::int16_t id) const;
 
 private:
+    enum class InputMode : std::uint8_t {
+        All,
+        PlayerOnly,
+        CameraOnly
+    };
+
     void create_camera_sequence_entities();
     void process_room_transition(
         const gameplay::RoomTransitionRequest& request);
@@ -106,6 +119,17 @@ private:
     std::optional<camera::File> camera_file_;
     std::optional<camera::Playback> camera_playback_;
     std::optional<camera::CameraState> camera_state_;
+    // Renderer.cs fields shared by the Scene partials.  PreviewCamera.cs
+    // writes these directly; camera_state_ remains the separate adapter used
+    // by the native camera-sequence implementation.
+    renderer::CameraMode camera_mode_ = renderer::CameraMode::Pivot;
+    InputMode input_mode_ = InputMode::All;
+    formats::Vector3 camera_position_{};
+    formats::Vector3 camera_facing_{0.0F, 0.0F, -1.0F};
+    formats::Vector3 camera_up_{0.0F, 1.0F, 0.0F};
+    formats::Vector3 camera_right_{1.0F, 0.0F, 0.0F};
+    float camera_fov_radians_ =
+        78.0F * 0.01745329251994329577F;
     game::State state_;
     messaging::Queue messages_;
     runtime::EntityPool dynamic_entities_;

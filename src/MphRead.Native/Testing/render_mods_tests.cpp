@@ -37,8 +37,13 @@ int main() {
 
         scene.set_preview_camera({0.0F, 0.0F, 0.0F},
                                  {0.0F, 0.0F, 1.0F});
+        assert(scene.camera_mode() == fruityprime::renderer::CameraMode::Roam);
+        assert(scene.camera_position().x == 0.0F
+               && scene.camera_position().y == 0.0F
+               && scene.camera_position().z == 0.0F);
         const auto* camera = scene.camera_state();
         assert(camera != nullptr);
+        assert(std::fabs(camera->fov - 78.0F) < 0.001F);
         assert(std::fabs(camera->facing.z - 1.0F) < 0.001F);
         assert(std::fabs(camera->up_vector.y - 1.0F) < 0.001F);
 

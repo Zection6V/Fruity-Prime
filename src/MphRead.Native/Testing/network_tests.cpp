@@ -37,6 +37,12 @@ void require(bool condition, const char* message) {
     }
 }
 
+bool room_fade_started = false;
+
+void note_room_fade() noexcept {
+    room_fade_started = true;
+}
+
 template <typename Predicate>
 void wait_until(Predicate&& predicate) {
     for (int i = 0; i < 200 && !predicate(); ++i) {
@@ -325,19 +331,43 @@ void test_match_state_boundaries() {
     assert(local.match_state == fruityprime::game::MatchState::InProgress);
     assert(local.match_time == state.time_remaining);
 
-    fruityprime::net::RoomChange rooms;
-    state.room_key = "TEST ARENA";
+    fruityprime::net::NetRoomChange::Reset();
+    fruityprime::game::State room_state;
+    room_state.room_name = "MP1 SANCTORUS";
+    state.room_key = "MP3 PROVING GROUND";
     state.match_id = 1;
-    assert(rooms.observe("TEST ARENA", state, 1).decision
-           == fruityprime::net::RoomChangeDecision::AdoptCurrent);
+    room_fade_started = false;
+    fruityprime::net::NetRoomChange::Sync({
+        true, false, room_state.room_name, &state, 1, &room_state,
+        &note_room_fade, nullptr
+    });
+    assert(room_fade_started);
+    assert(fruityprime::net::NetRoomChange::Requested()
+           == "MP3 PROVING GROUND");
+    room_fade_started = false;
+    fruityprime::net::NetRoomChange::Sync({
+        true, true, room_state.room_name, &state, 2, &room_state,
+        &note_room_fade, nullptr
+    });
+    assert(!room_fade_started);
+
+    room_state.room_name = "MP3 PROVING GROUND";
+    room_state.transition_state = fruityprime::game::TransitionState::None;
+    fruityprime::net::NetRoomChange::Sync({
+        true, false, room_state.room_name, &state, 3, &room_state,
+        &note_room_fade, nullptr
+    });
+    assert(fruityprime::net::NetRoomChange::Requested().empty());
     state.match_id = 2;
-    const auto load = rooms.observe("TEST ARENA", state, 10);
-    assert(load.decision == fruityprime::net::RoomChangeDecision::Load);
-    assert(rooms.observe("OLD ROOM", state, 11).decision
-           == fruityprime::net::RoomChangeDecision::WaitForPreviousRequest);
-    rooms.mark_loaded(2, 20);
-    assert(rooms.settling(20));
-    assert(!rooms.settling(80));
+    room_fade_started = false;
+    fruityprime::net::NetRoomChange::Sync({
+        true, false, room_state.room_name, &state, 10, &room_state,
+        &note_room_fade, nullptr
+    });
+    assert(room_fade_started);
+    fruityprime::net::NetRoomChange::AfterRebuild({20, nullptr, nullptr});
+    assert(fruityprime::net::NetRoomChange::Settling(20));
+    assert(!fruityprime::net::NetRoomChange::Settling(80));
 }
 
 void test_net_log() {

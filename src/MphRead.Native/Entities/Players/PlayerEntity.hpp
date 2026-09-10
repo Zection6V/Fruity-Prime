@@ -76,6 +76,7 @@ public:
     [[nodiscard]] int SlotIndex() const noexcept { return slot_index_; }
     [[nodiscard]] metadata::Hunter Hunter() const noexcept { return hunter_; }
     [[nodiscard]] int Recolor() const noexcept { return recolor_; }
+    void Recolor(int value) noexcept { recolor_ = value; }
     [[nodiscard]] bool IsBot() const noexcept { return is_bot_; }
     void IsBot(bool value) noexcept { is_bot_ = value; }
     [[nodiscard]] formats::LoadFlags LoadFlags() const noexcept {

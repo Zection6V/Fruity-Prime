@@ -15,6 +15,7 @@
 #include "Formats/effects.hpp"
 #include "Formats/effect_runtime.hpp"
 #include "GameState.hpp"
+#include "Renderer.hpp"
 #include "Entities/gameplay.hpp"
 #include "Mods/Input/input.hpp"
 #include "Mods/Launcher/Portable/launcher_prefs.hpp"
@@ -201,7 +202,7 @@ fruityprime::net::NetPlayerBridge g_net_player_bridge;
 fruityprime::net::DamageBridge g_net_damage;
 fruityprime::net::MatchEnd g_net_match_end;
 fruityprime::net::MatchSync g_net_match_sync;
-fruityprime::net::RoomChange g_net_room_change;
+fruityprime::renderer::FadeController g_net_room_fade;
 fruityprime::net::NetLog g_net_log;
 fruityprime::net::NetDiagnostics g_net_diagnostics;
 std::optional<fruityprime::net::MatchStatePacket> g_server_match_state;
@@ -1554,6 +1555,9 @@ void populate_story_hunters(
     }
 }
 
+void load_hud_assets(const fruityprime::assets::Store& assets,
+                     std::uint8_t hunter);
+
 [[nodiscard]] bool transition_game_room(
     const fruityprime::gameplay::RoomTransitionRequest& request) {
     if (!g_assets || !g_session.has_value()
@@ -1664,6 +1668,145 @@ void populate_story_hunters(
         fruityprime::players::PlayerEntity::Reset();
         g_session.reset();
         g_room.reset();
+        return false;
+    }
+}
+
+[[nodiscard]] bool transition_network_room() {
+    if (!g_assets || !g_gameplay_config.has_value()
+        || !g_server_match_state.has_value()
+        || !g_net_client || !g_net_client->connected()) {
+        return false;
+    }
+    const fruityprime::net::MatchStatePacket& server =
+        *g_server_match_state;
+    if (server.room_key.empty()) {
+        return false;
+    }
+    const auto* catalog_entry = fruityprime::scene::find_room(
+        server.room_key);
+    if (catalog_entry == nullptr) {
+        g_error = "native network room is unknown: " + server.room_key;
+        return false;
+    }
+
+    const auto mode = static_cast<fruityprime::game::Mode>(server.mode);
+    g_game_state.loading = true;
+    try {
+        // The old Session and every renderer pointer into its room must be
+        // gone before the new Room owns the replacement model buffers.
+        clear_room_render_resources();
+        g_intro.reset();
+        g_intro_file.reset();
+        g_intro_seconds = 0.0F;
+        g_spectator.reset();
+        g_session.reset();
+        g_room.reset();
+
+        fruityprime::scene::RoomDefinition definition =
+            catalog_entry->definition;
+        if (const auto* metadata = fruityprime::metadata::find_room_metadata(
+                catalog_entry->name);
+            metadata != nullptr && !metadata->node_path.empty()) {
+            definition.node_path = metadata->node_path;
+        }
+        definition.node_path = fruityprime::scene_setup::resolve_node_data_path(
+            definition.node_path, catalog_entry->id, mode);
+        g_room.emplace(fruityprime::scene::Room::load(*g_assets, definition));
+        name_window_after_room(*catalog_entry);
+        set_room_lights(catalog_entry->id);
+        apply_room_node_layers(
+            *g_room, /*single_player=*/false,
+            fruityprime::net::NetRoomChange::RoomPlayerCount(true),
+            mode == fruityprime::game::Mode::Capture);
+        g_room_instance.emplace(g_room->model());
+        update_model_instance(*g_room_instance,
+                              /*use_node_transform=*/false);
+        append_model_geometry(g_room->model(), DrawLayer::Room);
+        load_entity_models(*g_assets);
+        load_hunter_models(*g_assets);
+        load_hud_assets(*g_assets, g_local_hunter);
+
+        // MatchState is authoritative for the rules. The initial launcher
+        // options are only defaults and must not leak into a rotated match.
+        g_gameplay_config->mode = server.mode;
+        g_gameplay_config->point_goal = server.point_goal;
+        g_gameplay_config->team_mode =
+            fruityprime::game::State::is_team_mode(mode);
+        g_gameplay_config->friendly_fire = server.friendly_fire();
+        g_gameplay_config->survival_mode = server.mode == 5
+            || server.mode == 6;
+        g_gameplay_config->survival_lives = server.point_goal;
+        g_gameplay_config->objective_authority = g_is_authority;
+
+        g_session.emplace(*g_room, *g_gameplay_config);
+        fruityprime::players::PlayerEntity::Reset();
+        fruityprime::players::PlayerEntity::Construct(*g_session,
+                                                       &g_game_state);
+        bind_gorea_model_to_session();
+        attach_gameplay_message_sink();
+
+        fruityprime::match::Rules rules;
+        rules.mode = server.mode;
+        rules.point_goal = server.point_goal;
+        rules.team_mode = fruityprime::match::is_team_mode(server.mode);
+        rules.room_key = server.room_key;
+        rules.time_limit_seconds = std::max(
+            0.0F, server.time_remaining + server.time_elapsed);
+        g_match_flow.emplace(rules);
+        g_match_flow->apply_server_state(server);
+
+        g_game_state.begin_room(
+            catalog_entry->name, static_cast<std::uint32_t>(catalog_entry->id),
+            true, mode);
+        g_game_state.local_slot = g_local_slot;
+        g_game_state.player_count = server.player_count;
+        g_game_state.friendly_fire = server.friendly_fire();
+        g_game_state.match_time = server.time_remaining;
+        g_game_state.match_clock_enabled = rules.time_limit_seconds > 0.0F;
+        g_game_state.point_goal = server.point_goal;
+        g_game_state.teams = rules.team_mode;
+
+        fruityprime::net::NetRoomChange::RebuildContext rebuild;
+        rebuild.game_state = &g_game_state;
+        rebuild.session = &*g_session;
+        rebuild.roster = g_roster.has_value() ? &*g_roster : nullptr;
+        rebuild.local_slot = static_cast<int>(g_local_slot);
+        rebuild.local_hunter = g_local_hunter;
+        rebuild.local_recolor = 0;
+        rebuild.slot_manager = &g_slot_manager;
+        rebuild.damage = &g_net_damage;
+        rebuild.match_end = &g_net_match_end;
+        rebuild.log = &g_net_log;
+        if (fruityprime::net::NetRoomChange::RebuildPlayers(rebuild)
+            == nullptr) {
+            throw std::runtime_error(
+                "network room rebuild did not create the local player");
+        }
+        fruityprime::net::NetRoomChange::AfterRebuild({
+            g_net_frame, &g_net_player_bridge, &g_net_log
+        });
+
+        if (g_music_controller != nullptr && g_music_runtime != nullptr) {
+            fruityprime::sound::Music::TryPlayRoomMusic(catalog_entry->id, 0);
+            g_music_runtime->update(0.0F);
+        }
+        if (g_effect_runtime != nullptr) {
+            g_effect_runtime->clear();
+            g_effect_runtime_seen.clear();
+        }
+        g_model_animation_tick = std::numeric_limits<std::uint64_t>::max();
+        g_game_state.loading = false;
+        sync_process_game_state();
+        return true;
+    } catch (const std::exception& error) {
+        g_error = std::string("native network room transition failed: ")
+            + error.what();
+        fruityprime::players::PlayerEntity::Reset();
+        g_session.reset();
+        g_room.reset();
+        g_game_state.loading = false;
+        g_game_state.transition_state = fruityprime::game::TransitionState::None;
         return false;
     }
 }
@@ -6331,6 +6474,41 @@ void draw_movie_frame(HWND window) {
     }
 }
 
+void draw_fade_overlay(int width, int height) {
+    const auto& fade = g_net_room_fade.state();
+    if (!fade.active || fade.opacity <= 0.0F) {
+        return;
+    }
+    glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT);
+    glViewport(0, 0, width, height);
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+    glOrtho(0.0, static_cast<double>(width),
+            static_cast<double>(height), 0.0, -1.0, 1.0);
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_FOG);
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(fade.color, fade.color, fade.color, fade.opacity);
+    glBegin(GL_QUADS);
+    glVertex2f(0.0F, 0.0F);
+    glVertex2f(static_cast<float>(width), 0.0F);
+    glVertex2f(static_cast<float>(width), static_cast<float>(height));
+    glVertex2f(0.0F, static_cast<float>(height));
+    glEnd();
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glPopAttrib();
+}
+
 void draw_frame(HWND window) {
     if (g_movie_player.has_value()) {
         draw_movie_frame(window);
@@ -6493,6 +6671,7 @@ void draw_frame(HWND window) {
         draw_scene_scale_quad(width, height, scene_width, scene_height);
     }
     draw_hud(width, height);
+    draw_fade_overlay(width, height);
     SwapBuffers(g_device_context);
     // Keep one device-sized block per rendered frame. Simulation ticks update
     // voice lifetimes; this is the only place that advances the PCM output
@@ -6888,6 +7067,13 @@ void feed_match_objectives() {
     sync_process_game_state();
 }
 
+void start_network_room_fade() noexcept {
+    g_net_room_fade.set(
+        fruityprime::formats::FadeType::FadeOutBlack,
+        10.0F / 30.0F, true,
+        fruityprime::renderer::AfterFade::LoadRoom);
+}
+
 void poll_network() {
     if (!g_net_client || !g_net_client->connected() || !g_session.has_value()) {
         return;
@@ -6907,12 +7093,17 @@ void poll_network() {
                     g_game_state, *state,
                     fruityprime::net::MatchEnd::in_intermission(
                         true, g_game_state, &*state)));
-                // Keep packet-loss-safe room bookkeeping separate from the
-                // asset loader. The loader consumes this state at its own
-                // transition point; observing it here makes repeated state
-                // packets idempotent instead of restarting a fade every frame.
-                static_cast<void>(g_net_room_change.observe(
-                    g_game_state.room_name, *state, g_net_frame));
+                fruityprime::net::NetRoomChange::Sync({
+                    true,
+                    g_game_state.in_room_transition()
+                        || g_net_room_fade.state().active,
+                    g_game_state.room_name,
+                    &*state,
+                    g_net_frame,
+                    &g_game_state,
+                    &start_network_room_fade,
+                    &g_net_log
+                });
                 g_match_flow->apply_server_state(*state);
                 if (g_session.has_value()) {
                     g_session->set_match_mode(state->mode, state->point_goal);
@@ -6950,7 +7141,9 @@ void poll_network() {
                         static_cast<void>(fruityprime::net::NetHooks::try_apply_remote_input(
                             *g_session, g_net_player_bridge, slot, *intent,
                             fruityprime::net::NetHookContext{
-                                true, g_is_authority, false, false,
+                                true, g_is_authority, false,
+                                fruityprime::net::NetRoomChange::Settling(
+                                    g_net_frame),
                                 static_cast<int>(g_local_slot)}));
                     }
                 }
@@ -6965,7 +7158,9 @@ void poll_network() {
                         *g_session, g_net_player_bridge, *snapshot,
                         g_net_damage,
                         fruityprime::net::NetHookContext{
-                            true, g_is_authority, false, false,
+                            true, g_is_authority, false,
+                            fruityprime::net::NetRoomChange::Settling(
+                                g_net_frame),
                             static_cast<int>(g_local_slot)}));
                 }
             }
@@ -7045,7 +7240,9 @@ void pump_replay_frame() {
                         static_cast<void>(fruityprime::net::NetHooks::try_apply_remote_input(
                             *g_session, g_net_player_bridge, slot, *intent,
                             fruityprime::net::NetHookContext{
-                                true, false, true, false,
+                                true, false, true,
+                                fruityprime::net::NetRoomChange::Settling(
+                                    g_net_frame),
                                 static_cast<int>(g_local_slot)}));
                     }
                 }
@@ -7091,12 +7288,16 @@ void pump_replay_frame() {
         static_cast<void>(fruityprime::net::NetHooks::apply_authority_snapshot(
             *g_session, g_net_player_bridge, snapshot, g_net_damage,
             fruityprime::net::NetHookContext{
-                true, false, true, false, static_cast<int>(g_local_slot)}));
+                true, false, true,
+                fruityprime::net::NetRoomChange::Settling(g_net_frame),
+                static_cast<int>(g_local_slot)}));
     }
     fruityprime::net::NetHooks::after_simulation(
         *g_session, g_net_player_bridge,
         fruityprime::net::NetHookContext{
-            true, false, true, false, static_cast<int>(g_local_slot)});
+            true, false, true,
+            fruityprime::net::NetRoomChange::Settling(g_net_frame),
+            static_cast<int>(g_local_slot)});
     record_and_repair_network_players(g_replay_frame);
     if (g_match_flow.has_value()) {
         g_match_flow->tick(1.0F / 60.0F, g_session->players(), false, false);
@@ -7238,6 +7439,16 @@ void update_bot_inputs() {
 }
 
 void update_game(HWND window) {
+    g_net_room_fade.update(1.0F / 60.0F);
+    if (const auto action = g_net_room_fade.consume_action();
+        action.has_value()
+        && *action == fruityprime::renderer::AfterFade::LoadRoom) {
+        if (!transition_network_room()) {
+            g_paused = true;
+            g_net_room_fade.clear();
+        }
+        return;
+    }
     if (g_movie_player.has_value()) {
         if (!g_paused) {
             g_movie_player->update(1.0 / 60.0);
@@ -7258,6 +7469,9 @@ void update_game(HWND window) {
     ++g_demo_frame;
     g_hud_elapsed_seconds += 1.0F / 60.0F;
     poll_network();
+    if (g_game_state.in_room_transition()) {
+        return;
+    }
     // NetHooks.AfterInput invokes NetPlayerSetup.ApplyOnce every frame.
     // Keep the same retry point here so a Reset made while rebuilding a room
     // is applied after the players have been materialized, even when no new
@@ -7330,7 +7544,8 @@ void update_game(HWND window) {
         fruityprime::net::NetHooks::after_simulation(
             *g_session, g_net_player_bridge,
             fruityprime::net::NetHookContext{
-                true, g_is_authority, false, false,
+                true, g_is_authority, false,
+                fruityprime::net::NetRoomChange::Settling(g_net_frame),
                 static_cast<int>(g_local_slot)});
         record_and_repair_network_players(g_net_frame);
         update_static_entities();
@@ -7425,7 +7640,8 @@ void update_game(HWND window) {
     fruityprime::net::NetHooks::after_simulation(
         *g_session, g_net_player_bridge,
         fruityprime::net::NetHookContext{
-            true, g_is_authority, false, false,
+            true, g_is_authority, false,
+            fruityprime::net::NetRoomChange::Settling(g_net_frame),
             static_cast<int>(g_local_slot)});
     record_and_repair_network_players(g_net_frame);
     if (g_game_state.single_player
@@ -8278,7 +8494,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
             g_net_damage.reset();
             g_net_match_end.reset();
             g_net_match_sync.reset();
-            g_net_room_change.reset();
+            fruityprime::net::NetRoomChange::Reset();
             g_server_match_state.reset();
             g_spectator.reset();
             fruityprime::net::NetPlayerSetup::Reset();

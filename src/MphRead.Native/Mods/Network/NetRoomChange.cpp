@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 
 namespace fruityprime::net {
@@ -163,12 +164,12 @@ bool NetRoomChange::Settling(std::uint32_t net_frame) noexcept {
     return loaded_frame_ != 0 && net_frame - loaded_frame_ < SettleFrames;
 }
 
-int NetRoomChange::RoomPlayerCount(bool active) noexcept {
-    return active ? NetLaunch::RoomPlayerCount : 0;
+int NetRoomChange::RoomPlayerCount() noexcept {
+    return NetLaunch::active() ? NetLaunch::RoomPlayerCount : 0;
 }
 
-bool NetRoomChange::Rebuilding(bool active) noexcept {
-    return active;
+bool NetRoomChange::Rebuilding() noexcept {
+    return NetLaunch::active();
 }
 
 players::PlayerEntity* NetRoomChange::RebuildPlayers(
@@ -177,19 +178,18 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
         return nullptr;
     }
 
-    const int local_slot = std::clamp(
-        std::max(context.local_slot, 0), 0,
-        static_cast<int>(players::PlayerEntity::SlotCapacity - 1));
-    // NetLaunch.Join sets this before the managed BuildPlayers call. Keep the
-    // same capacity when a native room is rebuilt after a rotation.
-    players::PlayerEntity::MaxPlayers(
-        players::PlayerEntity::SlotCapacity);
+    const int local_slot = std::max(context.local_slot, 0);
+    if (local_slot >= players::PlayerEntity::SlotCapacity) {
+        throw std::out_of_range("network local player slot is out of range");
+    }
+    const int max_players = players::PlayerEntity::MaxPlayers();
+    if (max_players > players::PlayerEntity::SlotCapacity) {
+        throw std::out_of_range("network player count is out of range");
+    }
 
     std::array<players::PlayerEntity*, players::PlayerEntity::SlotCapacity>
         created{};
-    for (int slot = 0;
-         slot < players::PlayerEntity::MaxPlayers()
-         && slot < players::PlayerEntity::SlotCapacity; ++slot) {
+    for (int slot = 0; slot < max_players; ++slot) {
         const RosterSlot roster = roster_slot(
             context.roster, static_cast<std::size_t>(slot));
         const std::uint8_t hunter = slot == local_slot

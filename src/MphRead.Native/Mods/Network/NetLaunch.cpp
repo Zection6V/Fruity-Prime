@@ -1,6 +1,7 @@
 #include "Mods/Network/net_launch.hpp"
 
 #include "Metadata/metadata.hpp"
+#include "Entities/Players/PlayerEntity.hpp"
 #include "Mods/Network/net_protocol.hpp"
 
 #include <algorithm>
@@ -85,6 +86,11 @@ void retain_packet(const ReceivedPacket& packet, LaunchState& current) {
 
 bool NetLaunch::join(const JoinOptions& options) {
     disconnect();
+    // NetLaunch.Join raises the player construction limit before opening the
+    // network session. Room changes reuse the same limit; they must not own
+    // this unrelated launch-side effect.
+    players::PlayerEntity::MaxPlayers(
+        players::PlayerEntity::SlotCapacity);
     LaunchState& current = state();
     current.last_error.clear();
     if (options.address.empty()) {

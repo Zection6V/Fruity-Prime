@@ -1717,7 +1717,7 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
         set_room_lights(catalog_entry->id);
         apply_room_node_layers(
             *g_room, /*single_player=*/false,
-            fruityprime::net::NetRoomChange::RoomPlayerCount(true),
+            fruityprime::net::NetRoomChange::RoomPlayerCount(),
             mode == fruityprime::game::Mode::Capture);
         g_room_instance.emplace(g_room->model());
         update_model_instance(*g_room_instance,

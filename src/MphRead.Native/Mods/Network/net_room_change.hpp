@@ -72,8 +72,8 @@ public:
     static void Sync(const SyncContext& context) noexcept;
 
     [[nodiscard]] static bool Settling(std::uint32_t net_frame) noexcept;
-    [[nodiscard]] static int RoomPlayerCount(bool active) noexcept;
-    [[nodiscard]] static bool Rebuilding(bool active) noexcept;
+    [[nodiscard]] static int RoomPlayerCount() noexcept;
+    [[nodiscard]] static bool Rebuilding() noexcept;
 
     // RoomEntity.LoadRoom calls this after PlayerEntity.Construct and before
     // the new room's normal fixed-step processing begins.

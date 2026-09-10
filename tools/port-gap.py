@@ -87,6 +87,33 @@ def native_symbols() -> set[str]:
     return found - unported_symbols()
 
 
+def counterpart_symbols(managed: pathlib.Path) -> set[str]:
+    """The names in the native translation of one managed file.
+
+    A managed X.cs is answered by a native X.cpp and X.hpp at the same
+    path.  Anything named in those is this file's own work; anything named
+    only elsewhere in the tree belongs to some other file, however useful
+    it is.
+    """
+    relative = managed.relative_to(MANAGED)
+    found: set[str] = set()
+    for suffix in (".cpp", ".hpp"):
+        candidate = NATIVE / relative.with_suffix(suffix)
+        if not candidate.exists():
+            # The native tree spells a few files in lower case.
+            candidate = NATIVE / relative.parent / (
+                relative.stem.lower() + suffix)
+            if not candidate.exists():
+                continue
+        body = candidate.read_text(encoding="utf-8", errors="ignore")
+        body = RAW_STRING.sub(" ", body)
+        body = STRING.sub(" ", body)
+        body = LINE_COMMENT.sub(" ", body)
+        for word in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", body):
+            found.add(normalise(word))
+    return found - unported_symbols()
+
+
 def managed_symbols(path: pathlib.Path) -> list[str]:
     text = path.read_text(encoding="utf-8", errors="ignore")
     names: list[str] = []
@@ -101,6 +128,23 @@ def managed_symbols(path: pathlib.Path) -> list[str]:
     return names
 
 
+def split(managed: pathlib.Path, native: set[str]):
+    """This file's symbols, as (in its own file, elsewhere, missing)."""
+    own = counterpart_symbols(managed)
+    here: list[str] = []
+    elsewhere: list[str] = []
+    missing: list[str] = []
+    for name in managed_symbols(managed):
+        key = normalise(name)
+        if key in own:
+            here.append(name)
+        elif key in native:
+            elsewhere.append(name)
+        else:
+            missing.append(name)
+    return here, elsewhere, missing
+
+
 def main(argv: list[str]) -> int:
     native = native_symbols()
     if len(argv) > 1:
@@ -108,11 +152,15 @@ def main(argv: list[str]) -> int:
         if not target.exists():
             print("no such managed file: %s" % target)
             return 1
-        missing = [name for name in managed_symbols(target)
-                   if normalise(name) not in native]
-        present = len(managed_symbols(target)) - len(missing)
-        print("%s: %d of %d symbols present" % (argv[1], present,
-                                                present + len(missing)))
+        here, elsewhere, missing = split(target, native)
+        total = len(here) + len(elsewhere) + len(missing)
+        print("%s: %d of %d symbols present" % (argv[1], len(here), total))
+        if elsewhere:
+            # Named somewhere else in the tree: a shared helper, or a name
+            # another file happens to use too.  Not this file's work.
+            print("  (%d named elsewhere in the native tree: %s)"
+                  % (len(elsewhere), ", ".join(elsewhere[:6])
+                     + (" ..." if len(elsewhere) > 6 else "")))
         for name in missing:
             print("  missing %s" % name)
         return 0
@@ -122,7 +170,7 @@ def main(argv: list[str]) -> int:
         names = managed_symbols(path)
         if not names:
             continue
-        missing = [name for name in names if normalise(name) not in native]
+        _, _, missing = split(path, native)
         if missing:
             rows.append((len(missing), len(names),
                          str(path.relative_to(MANAGED)).replace("\\", "/")))

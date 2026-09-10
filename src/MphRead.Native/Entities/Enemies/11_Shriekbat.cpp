@@ -3,214 +3,284 @@
 // This member definition lives in its enemy module; Session only dispatches it.
 #include "11_Shriekbat.hpp"
 #include "enemy_common.hpp"
+#include "enemy_scene.hpp"
+#include "Metadata/enemy_subroutines.hpp"
 
 namespace fruityprime::gameplay {
+namespace {
 
-void Session::update_shriekbat(EnemyState& agent) {
-    const float seconds = config_.tick_seconds;
-    const float frames = std::max(0.0F, seconds * 60.0F);
-    const std::uint32_t frame_step = static_cast<std::uint32_t>(std::max(
-        1.0F, std::round(frames)));
-    agent.attack_timer = std::max(0.0F, agent.attack_timer - seconds);
+// Enemy11Entity's own numbers, in the order the managed file gives them.
+constexpr float DescendSpeed = 0.3F;
+constexpr float LungeSpeed = 0.6F;
+constexpr std::uint32_t PauseFrames = 20u * 2u;  // todo: FPS stuff
+constexpr std::uint32_t ContactDamageAmount = 20u;
+// Metadata's shriekBatTrail.
+constexpr std::uint32_t TrailEffect = 29u;
+// The managed contact test is a volume overlap; this head has the enemy's
+// body radius and the player's, which come to about this.
+constexpr float ContactRadius = 1.6F;
 
-    // Enemy11Entity is driven by a five-state metadata subroutine.  Keep the
-    // same state numbers here: wait for the range volume, wait for the active
-    // volume, descend to the authored path point, pause, then make the dive.
-    // The native session can have more than one player, so the first four
-    // states choose the nearest live player that satisfies the current volume
-    // gate; once the dive has started, target_slot keeps that choice stable.
-    std::size_t target_index = players_.size();
-    if (agent.state >= 2 && agent.target_slot != 0xff) {
-        const auto found = std::find_if(
-            players_.begin(), players_.end(), [&agent](
-                const net::PlayerState& player) {
-                return player.slot_index == agent.target_slot
-                    && objective_player(player);
-            });
-        if (found != players_.end()) {
-            target_index = static_cast<std::size_t>(
-                std::distance(players_.begin(), found));
-        }
+// Native counterpart of Enemy11Entity.
+//
+// The managed class is an entity in a scene.  Here it is a view over the
+// session's EnemyState for the frame being processed, carrying the same
+// method names and the same bodies: the state is somebody else's storage,
+// which is the one shape change the architecture forces.
+//
+// A Shriekbat hangs on the ceiling, drops to an authored point when a
+// player enters its outer volume, pauses -- which is what makes it
+// dodgeable -- and then dives at where the player is about to be.  It dies
+// on whatever it hits, player or wall.  That is the whole enemy.
+class Enemy11Entity final {
+public:
+    Enemy11Entity(const EnemyScene& scene, EnemyState& agent,
+                  const net::PlayerState& main) noexcept
+        : scene_(scene), agent_(agent), main_(main) {}
+
+    // Enemy11Entity.EnemyProcess.
+    void EnemyProcess();
+
+private:
+    // The five states, all of which run the subroutine.  The managed file
+    // says so itself: "really no need for these to be separate functions".
+    void State0();
+    void State1() { State0(); }
+    void State2() { State0(); }
+    void State3() { State0(); }
+    void State4() { State0(); }
+
+    [[nodiscard]] bool Behavior00() const noexcept;
+    [[nodiscard]] bool Behavior01();
+    [[nodiscard]] bool Behavior02();
+    [[nodiscard]] bool Behavior03();
+    [[nodiscard]] bool Behavior04() const;
+
+    void Die();
+    void CallStateProcess();
+    void StartMove(net::Vec3 destination, float per_frame);
+
+    // EnemyInstanceEntity._moveTimer, which the descent and the dive share:
+    // one covers both because the enemy is never doing them at once.
+    [[nodiscard]] std::uint32_t& MoveTimer() const noexcept {
+        return agent_.shriekbat_timer;
     }
-    if (target_index == players_.size()) {
-        float nearest_squared = std::numeric_limits<float>::max();
-        for (std::size_t index = 0; index < players_.size(); ++index) {
-            const auto& player = players_[index];
-            if (!objective_player(player)) {
-                continue;
-            }
-            const bool gated = agent.state == 0
-                ? agent.shriekbat.range_volume.contains(
-                    to_volume_point(player.position))
-                : agent.state == 1
-                    ? agent.shriekbat.active_volume.contains(
-                        to_volume_point(player.position))
-                    : true;
-            if (!gated) {
-                continue;
-            }
-            const float distance = distance_squared(
-                player.position, agent.position);
-            if (distance < nearest_squared) {
-                nearest_squared = distance;
-                target_index = index;
-            }
-        }
-    }
 
-    if (target_index == players_.size()) {
-        if (agent.state < 2) {
-            agent.state = 0;
-            agent.target_slot = 0xff;
-            agent.velocity = {};
-        }
+    const EnemyScene& scene_;
+    EnemyState& agent_;
+    const net::PlayerState& main_;
+};
+
+void Enemy11Entity::StartMove(const net::Vec3 destination,
+                              const float per_frame) {
+    agent_.shriekbat_target = destination;
+    const net::Vec3 delta = subtract(destination, agent_.position);
+    const float magnitude = std::sqrt(std::max(0.0F, length_squared(delta)));
+    if (magnitude <= 0.0001F) {
+        MoveTimer() = 1u;
+        agent_.velocity = {};
         return;
     }
+    // The cartridge's own `(int)(mag / speed) + 1`, doubled because this
+    // head runs at twice its rate -- and the speed halved to match, which
+    // is the managed multiply-then-halve written once.
+    MoveTimer() = (static_cast<std::uint32_t>(magnitude / per_frame) + 1u)
+        * 2u;
+    agent_.velocity = multiply(delta, per_frame / magnitude / 2.0F);
+}
 
-    auto& target = players_[target_index];
-    agent.target_slot = target.slot_index;
-    agent.facing = normalized_or(
-        subtract(target.position, agent.position), agent.facing);
-
-    bool blocked = false;
-    const auto move_for_frames = [this, &agent, frames, &blocked](
-                                     net::Vec3 destination, float per_frame,
-                                     bool check_collision) {
-        const net::Vec3 delta = subtract(destination, agent.position);
-        const float distance = std::sqrt(std::max(0.0F, length_squared(delta)));
-        if (distance <= 0.0001F) {
-            agent.position = destination;
-            agent.velocity = {};
-            return true;
-        }
-        const net::Vec3 direction = multiply(delta, 1.0F / distance);
-        agent.facing = direction;
-        agent.velocity = multiply(direction, per_frame);
-        const net::Vec3 next = add(agent.position,
-                                   multiply(agent.velocity, frames));
-        if (check_collision) {
-            const auto hit = collision::sweep_sphere(
-                room_.collision(), to_collision(agent.position),
-                to_collision(next), agent.body_radius, 0x2000);
-            if (hit.has_value()) {
-                agent.position = {hit->center.x + hit->normal.x * 0.001F,
-                                  hit->center.y + hit->normal.y * 0.001F,
-                                  hit->center.z + hit->normal.z * 0.001F};
-                agent.velocity = {};
-                blocked = true;
-                return true;
-            }
-        }
-        agent.position = next;
-        return distance <= per_frame * frames;
-    };
-
-    switch (agent.state) {
-    case 0:
-        // Behavior04: range-volume gate.
-        agent.velocity = {};
-        if (agent.shriekbat.range_volume.contains(to_volume_point(
-                target.position))) {
-            agent.state = 1;
-        }
-        break;
-    case 1: {
-        // Behavior03: active-volume gate followed by the descent to S02's
-        // path vector.  The managed code uses a half-step at 60 Hz.
-        agent.velocity = {};
-        if (!agent.shriekbat.active_volume.contains(to_volume_point(
-                target.position))) {
-            break;
-        }
-        agent.shriekbat_target = add(agent.behavior_origin,
-                                     agent.shriekbat.path_vector);
-        const float distance = std::sqrt(std::max(0.0F, distance_squared(
-            agent.position, agent.shriekbat_target)));
-        agent.shriekbat_timer = static_cast<std::uint32_t>(
-            std::max(1.0F, std::ceil(distance / 0.3F) + 1.0F)) * 2u;
-        agent.state = 2;
-        spawn_effect(29, agent.position, {1.0F, 0.0F, 0.0F}, agent.id,
-                     0.75F);
-        break;
+void Enemy11Entity::Die() {
+    if (scene_.Damage) {
+        scene_.Damage(agent_.id, std::max<std::uint32_t>(agent_.health, 1u));
     }
-    case 2:
-        // Behavior02: move toward the authored pre-attack point, then pause.
-        if (agent.shriekbat_timer > 0) {
-            const bool arrived = move_for_frames(
-                agent.shriekbat_target, 0.15F, false);
-            agent.shriekbat_timer = agent.shriekbat_timer > frame_step
-                ? agent.shriekbat_timer - frame_step : 0;
-            if (!arrived && agent.shriekbat_timer != 0) {
+}
+
+bool Enemy11Entity::Behavior00() const noexcept {
+    // Attacking.  Never passes, which is why a Shriekbat that misses stays
+    // in its dive rather than climbing back to the ceiling.
+    return false;
+}
+
+bool Enemy11Entity::Behavior01() {
+    // Start the dive, at where the player is about to be rather than where
+    // they are: one unit behind their facing, half a unit up.
+    if (MoveTimer() > 0) {
+        --MoveTimer();
+        return false;
+    }
+    StartMove({main_.position.x - main_.facing.x,
+               main_.position.y + 0.5F,
+               main_.position.z - main_.facing.z},
+              LungeSpeed);
+    return true;
+}
+
+bool Enemy11Entity::Behavior02() {
+    // The pause before the dive.
+    if (MoveTimer() > 0) {
+        --MoveTimer();
+        return false;
+    }
+    MoveTimer() = PauseFrames;
+    agent_.velocity = {};
+    return true;
+}
+
+bool Enemy11Entity::Behavior03() {
+    // Drop to the authored attack position once the player is inside the
+    // inner volume, trailing an effect on the way down.
+    if (!agent_.shriekbat.active_volume.contains(
+            to_volume_point(main_.position))) {
+        return false;
+    }
+    if (scene_.SpawnEffect) {
+        scene_.SpawnEffect(TrailEffect, agent_.position, agent_.id);
+    }
+    StartMove(add(agent_.behavior_origin, agent_.shriekbat.path_vector),
+              DescendSpeed);
+    return true;
+}
+
+bool Enemy11Entity::Behavior04() const {
+    // Hang on the ceiling until the player is inside the outer volume.
+    return agent_.shriekbat.range_volume.contains(
+        to_volume_point(main_.position));
+}
+
+void Enemy11Entity::State0() {
+    static_cast<void>(metadata::call_subroutine(
+        metadata::Enemy11Subroutines, agent_.sub_id, agent_.next_state,
+        [this](std::uint8_t index) {
+            switch (index) {
+            case 0: return Behavior00();
+            case 1: return Behavior01();
+            case 2: return Behavior02();
+            case 3: return Behavior03();
+            case 4: return Behavior04();
+            default: return false;
+            }
+        }));
+}
+
+void Enemy11Entity::CallStateProcess() {
+    switch (agent_.state) {
+    case 0: State0(); break;
+    case 1: State1(); break;
+    case 2: State2(); break;
+    case 3: State3(); break;
+    case 4: State4(); break;
+    default: break;
+    }
+}
+
+void Enemy11Entity::EnemyProcess() {
+    agent_.facing = normalized_or(
+        subtract(main_.position, agent_.position), agent_.facing);
+    if (distance_squared(main_.position, agent_.position)
+            <= ContactRadius * ContactRadius) {
+        if (scene_.ContactDamage) {
+            scene_.ContactDamage(agent_, main_.slot_index,
+                                 ContactDamageAmount);
+        }
+        Die();
+        return;
+    }
+    if (agent_.state == 4 && scene_.Blocked
+        && scene_.Blocked(agent_.position,
+                          add(agent_.position, agent_.velocity),
+                          agent_.body_radius)) {
+        Die();
+        return;
+    }
+    CallStateProcess();
+}
+
+} // namespace
+
+void Session::update_shriekbat(EnemyState& agent) {
+    if (!agent.shriekbat.supported) {
+        return;
+    }
+    // A Shriekbat aims at one player and keeps aiming at them.  The managed
+    // game has only PlayerEntity.Main; here the nearest live player stands
+    // in for it, chosen once and then held, because a dive that changes its
+    // mind halfway is not a dive the cartridge ever makes.
+    const net::PlayerState* main = nullptr;
+    if (agent.target_slot != 0xff) {
+        for (const auto& player : players_) {
+            if (player.slot_index == agent.target_slot
+                && objective_player(player)) {
+                main = &player;
                 break;
             }
         }
-        agent.position = agent.shriekbat_target;
-        agent.velocity = {};
-        agent.shriekbat_timer = 40u;
-        agent.state = 3;
-        break;
-    case 3:
-        // Behavior02's pause completes here; Behavior01 starts the lunge at
-        // the player's rear-facing position.
-        if (agent.shriekbat_timer > frame_step) {
-            agent.shriekbat_timer -= frame_step;
-            agent.velocity = {};
-            break;
-        }
-        agent.shriekbat_timer = 0;
-        agent.shriekbat_target = {
-            target.position.x - target.facing.x,
-            target.position.y + 0.5F,
-            target.position.z - target.facing.z};
-        {
-            const float distance = std::sqrt(std::max(0.0F,
-                distance_squared(agent.position, agent.shriekbat_target)));
-            agent.shriekbat_timer = static_cast<std::uint32_t>(
-                std::max(1.0F, std::ceil(distance / 0.6F) + 1.0F)) * 2u;
-        }
-        agent.state = 4;
-        break;
-    case 4:
-        // Behavior01/00: lunge.  Enemy11Entity remains in state 4 after the
-        // move; a blocking collision is lethal to the Shriekbat.
-        if (agent.shriekbat_timer > 0) {
-            const bool arrived = move_for_frames(
-                agent.shriekbat_target, 0.3F, true);
-            agent.shriekbat_timer = agent.shriekbat_timer > frame_step
-                ? agent.shriekbat_timer - frame_step : 0;
-            if (arrived || agent.shriekbat_timer == 0) {
-                agent.position = agent.shriekbat_target;
-                agent.velocity = {};
-            }
-        } else {
-            agent.velocity = {};
-        }
-        break;
-    default:
-        agent.state = 0;
-        agent.shriekbat_timer = 0;
-        agent.velocity = {};
-        break;
     }
-
-    if (blocked && agent.state == 4) {
-        const auto id = agent.id;
-        static_cast<void>(damage_enemy(
-            id, std::max<std::uint32_t>(agent.health, 1u)));
+    if (main == nullptr) {
+        float nearest = std::numeric_limits<float>::max();
+        for (const auto& player : players_) {
+            if (!objective_player(player)) {
+                continue;
+            }
+            const float distance = distance_squared(player.position,
+                                                    agent.position);
+            if (distance < nearest) {
+                nearest = distance;
+                main = &player;
+            }
+        }
+    }
+    if (main == nullptr) {
         return;
     }
+    agent.target_slot = main->slot_index;
 
-    // ContactDamagePlayer(20, knockback: false), with a short native cooldown
-    // to represent the managed hit-player gating across fixed frames.
-    constexpr float contact_radius = 1.6F;
-    if (agent.attack_timer <= 0.0F
-        && distance_squared(target.position, agent.position)
-            <= contact_radius * contact_radius) {
-        apply_enemy_contact_damage(agent, target, 20);
-        agent.attack_timer = 0.5F;
-    }
+    // EnemyInstanceEntity.BaseProcess: the transition decided last frame is
+    // taken now, and then the enemy moves by the speed a behaviour set.
+    agent.state = agent.next_state;
+    agent.sub_id = agent.state;
+    agent.position = add(agent.position, agent.velocity);
+
+    EnemyScene scene;
+    scene.Damage = [this](std::uint32_t id, std::uint32_t damage) {
+        static_cast<void>(damage_enemy(id, damage));
+    };
+    scene.SpawnEffect = [this](std::uint32_t effect, net::Vec3 position,
+                               std::uint32_t owner) {
+        static_cast<void>(spawn_effect(effect, position, {1.0F, 0.0F, 0.0F},
+                                       owner, 0.75F));
+    };
+    scene.ContactDamage = [this](EnemyState& target, std::uint8_t slot,
+                                 std::uint32_t damage) {
+        for (auto& player : players_) {
+            if (player.slot_index == slot) {
+                apply_enemy_contact_damage(target, player, damage);
+                return;
+            }
+        }
+    };
+    scene.Blocked = [this](net::Vec3 from, net::Vec3 to, float radius) {
+        return collision::sweep_sphere(room_.collision(), to_collision(from),
+                                       to_collision(to), radius, 0x2000)
+            .has_value();
+    };
+
+    Enemy11Entity(scene, agent, *main).EnemyProcess();
 }
 } // namespace fruityprime::gameplay
+
+namespace fruityprime::enemy::module_11_shriekbat {
+
+void EnemyInitialize(gameplay::EnemyState& agent) noexcept {
+    // Twelve energy, which one charged shot covers: a Shriekbat is meant
+    // to be killed on the way in or not at all.
+    agent.health = agent.health_max = 12;
+    agent.body_radius = 1.0F;
+    agent.state = agent.next_state = agent.sub_id = 0;
+    agent.shriekbat_timer = 0;
+    agent.shriekbat_target = agent.position;
+    agent.behavior_origin = agent.position;
+}
+
+} // namespace fruityprime::enemy::module_11_shriekbat
 
 namespace fruityprime::enemy {
 
@@ -233,4 +303,3 @@ ShriekbatProfile decode_shriekbat_profile(
 }
 
 } // namespace fruityprime::enemy
-

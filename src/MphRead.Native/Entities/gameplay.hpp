@@ -197,6 +197,12 @@ struct EnemyState {
     std::uint16_t health = 20;
     std::uint16_t health_max = 20;
     std::uint8_t state = 0;
+    // EnemyInstanceEntity._state2 and _subId: what the enemy will be doing
+    // next frame, and which state's behaviour list to read.  A transition
+    // is decided during a frame and taken at the start of the next one,
+    // which is why these are not the same field as `state`.
+    std::uint8_t next_state = 0;
+    std::uint8_t sub_id = 0;
     std::uint8_t target_slot = 0xff;
     float attack_timer = 0.0F;
     float body_radius = 0.65F;

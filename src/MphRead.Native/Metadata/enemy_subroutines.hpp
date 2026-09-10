@@ -13,6 +13,9 @@
 // explicit one; `count` is taken from what the initialiser actually holds, so
 // the two spellings produce the same state.
 
+#include <span>
+#include <functional>
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -31,6 +34,37 @@ struct EnemySubroutine {
     std::array<EnemyBehaviorEntry, 8> behaviors{};
     std::uint8_t count = 0;
 };
+
+// EnemyInstanceEntity.CallSubroutine, as a free function.
+//
+// The first behaviour in this state's list whose predicate passes names
+// the next state -- first, not best, and not last, so the order in the
+// table is load-bearing and nothing past the one that passed is asked.
+// A state with an empty list, or one where none pass, leaves the enemy
+// where it is rather than falling through to the first entry.
+//
+// `next_state` is the managed _state2: what the enemy will be doing on
+// the next frame, not this one.
+[[nodiscard]] inline bool call_subroutine(
+    std::span<const EnemySubroutine> subroutines, std::uint8_t sub_id,
+    std::uint8_t& next_state,
+    const std::function<bool(std::uint8_t)>& behavior) noexcept {
+    if (!behavior || sub_id >= subroutines.size()) {
+        return false;
+    }
+    const auto& subroutine = subroutines[sub_id];
+    const std::size_t count = std::min<std::size_t>(
+        subroutine.count, subroutine.behaviors.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& entry = subroutine.behaviors[index];
+        if (!behavior(entry.behavior)) {
+            continue;
+        }
+        next_state = entry.next_state;
+        return true;
+    }
+    return false;
+}
 
 // Metadata.Enemy00Subroutines -- 7 states
 inline constexpr std::array<EnemySubroutine, 7> Enemy00Subroutines{{

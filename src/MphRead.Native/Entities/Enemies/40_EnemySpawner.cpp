@@ -2,6 +2,7 @@
 // Enemy40 owns the room-spawner lifecycle boundary. Its update body is kept
 // here so gameplay.cpp remains an orchestration module rather than a second
 // implementation of every enemy class.
+#include "11_Shriekbat.hpp"
 #include "40_EnemySpawner.hpp"
 #include "enemy_common.hpp"
 #include "gorea_common.hpp"
@@ -544,6 +545,8 @@ void Session::update_enemy_spawns() {
                 spawned.health_max = 840;
                 spawned.invulnerable = true;
                 spawned.visible = false;
+            } else if (enemy_type == formats::EnemyType::Shriekbat) {
+                enemy::module_11_shriekbat::EnemyInitialize(spawned);
             } else if (enemy_type == formats::EnemyType::Trocra) {
                 spawned.health = spawned.health_max = 15;
                 spawned.body_radius = 1.0F;

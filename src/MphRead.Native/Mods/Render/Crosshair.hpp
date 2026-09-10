@@ -2,7 +2,9 @@
 
 #include <array>
 #include <cstdint>
+#include <new>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <vector>
@@ -37,6 +39,18 @@ namespace MphRead::Mods::Render
             : X(x), Y(y), Width(width), Height(height)
         {
         }
+
+        CrosshairBar(const CrosshairBar&) noexcept = default;
+
+        CrosshairBar& operator=(const CrosshairBar& other) noexcept
+        {
+            if (this != &other)
+            {
+                this->~CrosshairBar();
+                ::new (static_cast<void*>(this)) CrosshairBar(other);
+            }
+            return *this;
+        }
     };
 
     class Crosshair final
@@ -50,8 +64,8 @@ namespace MphRead::Mods::Render
         [[nodiscard]] static float ScaleOf(CrosshairSize size);
         [[nodiscard]] static float Scale();
 
-        static std::array<std::string_view, 3> SizeNames;
-        static std::array<std::string_view, 5> StyleNames;
+        static std::array<std::string, 3> SizeNames;
+        static std::array<std::string, 5> StyleNames;
 
         [[nodiscard]] static std::tuple<float, float> RingOf(CrosshairStyle style, float scale);
         [[nodiscard]] static std::vector<CrosshairBar> BarsOf(CrosshairStyle style, float scale);

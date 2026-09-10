@@ -9,21 +9,104 @@ namespace MphRead::Mods::Render
 {
     namespace
     {
-        constexpr bool IsAsciiWhitespace(char value)
+        std::size_t DotNetWhitespacePrefixLength(std::string_view value)
         {
-            return value == ' ' || value == '\t' || value == '\n'
-                || value == '\r' || value == '\f' || value == '\v';
+            if (value.empty())
+            {
+                return 0;
+            }
+
+            const auto byte = [](char ch) { return static_cast<unsigned char>(ch); };
+            const unsigned char c0 = byte(value[0]);
+            if ((c0 >= 0x09 && c0 <= 0x0D) || c0 == 0x20)
+            {
+                return 1;
+            }
+            if (value.size() >= 2 && c0 == 0xC2)
+            {
+                const unsigned char c1 = byte(value[1]);
+                if (c1 == 0x85 || c1 == 0xA0)
+                {
+                    return 2;
+                }
+            }
+            if (value.size() >= 3)
+            {
+                const unsigned char c1 = byte(value[1]);
+                const unsigned char c2 = byte(value[2]);
+                if (c0 == 0xE1 && c1 == 0x9A && c2 == 0x80)
+                {
+                    return 3;
+                }
+                if (c0 == 0xE2 && c1 == 0x80
+                    && ((c2 >= 0x80 && c2 <= 0x8A) || c2 == 0xA8 || c2 == 0xA9 || c2 == 0xAF))
+                {
+                    return 3;
+                }
+                if (c0 == 0xE2 && c1 == 0x81 && c2 == 0x9F)
+                {
+                    return 3;
+                }
+                if (c0 == 0xE3 && c1 == 0x80 && c2 == 0x80)
+                {
+                    return 3;
+                }
+            }
+            return 0;
         }
 
-        std::string_view TrimAsciiWhitespace(std::string_view value)
+        std::size_t DotNetWhitespaceSuffixLength(std::string_view value)
         {
-            while (!value.empty() && IsAsciiWhitespace(value.front()))
+            if (value.empty())
             {
-                value.remove_prefix(1);
+                return 0;
             }
-            while (!value.empty() && IsAsciiWhitespace(value.back()))
+
+            const auto byte = [](char ch) { return static_cast<unsigned char>(ch); };
+            const unsigned char last = byte(value.back());
+            if ((last >= 0x09 && last <= 0x0D) || last == 0x20)
             {
-                value.remove_suffix(1);
+                return 1;
+            }
+            if (value.size() >= 2 && byte(value[value.size() - 2]) == 0xC2
+                && (last == 0x85 || last == 0xA0))
+            {
+                return 2;
+            }
+            if (value.size() >= 3)
+            {
+                const unsigned char c0 = byte(value[value.size() - 3]);
+                const unsigned char c1 = byte(value[value.size() - 2]);
+                if (c0 == 0xE1 && c1 == 0x9A && last == 0x80)
+                {
+                    return 3;
+                }
+                if (c0 == 0xE2 && c1 == 0x80
+                    && ((last >= 0x80 && last <= 0x8A) || last == 0xA8 || last == 0xA9 || last == 0xAF))
+                {
+                    return 3;
+                }
+                if (c0 == 0xE2 && c1 == 0x81 && last == 0x9F)
+                {
+                    return 3;
+                }
+                if (c0 == 0xE3 && c1 == 0x80 && last == 0x80)
+                {
+                    return 3;
+                }
+            }
+            return 0;
+        }
+
+        std::string_view TrimDotNetWhitespace(std::string_view value)
+        {
+            while (const std::size_t count = DotNetWhitespacePrefixLength(value))
+            {
+                value.remove_prefix(count);
+            }
+            while (const std::size_t count = DotNetWhitespaceSuffixLength(value))
+            {
+                value.remove_suffix(count);
             }
             return value;
         }
@@ -99,7 +182,7 @@ namespace MphRead::Mods::Render
                 return false;
             }
 
-            std::string_view text = TrimAsciiWhitespace(*value);
+            std::string_view text = TrimDotNetWhitespace(*value);
             if (text.empty())
             {
                 return false;
@@ -126,7 +209,7 @@ namespace MphRead::Mods::Render
                 const std::size_t count = comma == std::string_view::npos
                     ? std::string_view::npos
                     : comma - start;
-                const std::string_view part = TrimAsciiWhitespace(text.substr(start, count));
+                const std::string_view part = TrimDotNetWhitespace(text.substr(start, count));
                 if (part.empty())
                 {
                     return false;
@@ -179,12 +262,12 @@ namespace MphRead::Mods::Render
     CrosshairSize Crosshair::Size = CrosshairSize::Medium;
     CrosshairStyle Crosshair::Style = CrosshairStyle::Cross;
 
-    std::array<std::string_view, 3> Crosshair::SizeNames =
+    std::array<std::string, 3> Crosshair::SizeNames =
     {
         "Small", "Medium", "Big"
     };
 
-    std::array<std::string_view, 5> Crosshair::StyleNames =
+    std::array<std::string, 5> Crosshair::StyleNames =
     {
         "Cross", "Dot", "Cross + dot", "Circle", "Brackets"
     };

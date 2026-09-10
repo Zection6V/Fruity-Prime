@@ -341,6 +341,11 @@ void State::reset() noexcept {
     radar_players = false;
     affinity_weapons = false;
     force_end_game = false;
+    tempo_changed = false;
+    state_changed = false;
+    match_end_time = 0.0F;
+    last_alarm_time = 0.0F;
+    next_alarm_index = 0;
     points.fill(0);
     team_points.fill(0);
     kills.fill(0);
@@ -436,37 +441,11 @@ void State::apply_pause() noexcept {
 void State::reset_match_progress() noexcept {
     match_state = MatchState::InProgress;
     force_end_game = false;
-    frame_count = 0;
-    points.fill(0);
-    team_points.fill(0);
-    kills.fill(0);
-    team_kills.fill(0);
-    deaths.fill(0);
-    team_deaths.fill(0);
-    standings.fill(0);
-    team_standings.fill(0);
-    result_slots.fill(0);
-    player_time.fill(0.0F);
-    team_time.fill(0.0F);
-    beam_damage_max.fill(0);
-    beam_damage_dealt.fill(0);
-    damage_count.fill(0);
-    alt_damage_count.fill(0);
-    kill_streak.fill(0);
-    suicides.fill(0);
-    friendly_kills.fill(0);
-    headshot_kills.fill(0);
-    for (auto& values : beam_kills) {
-        values.fill(0);
-    }
-    octolith_scores.fill(0);
-    octolith_drops.fill(0);
-    octolith_stops.fill(0);
-    nodes_captured.fill(0);
-    nodes_lost.fill(0);
-    kills_as_prime.fill(0);
-    primes_killed.fill(0);
-    player_teams.fill(0xff);
+    tempo_changed = false;
+    state_changed = false;
+    match_end_time = 0.0F;
+    last_alarm_time = 0.0F;
+    next_alarm_index = 0;
 }
 
 namespace {

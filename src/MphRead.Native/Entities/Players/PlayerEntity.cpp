@@ -545,6 +545,11 @@ void PlayerEntity::SessionPlayerAdded(gameplay::Session& session,
         return;
     }
     player->assign(static_cast<metadata::Hunter>(hunter), 0);
+    const auto& state = session.player(slot);
+    player->position_ = state.position;
+    player->facing_vector_ = state.facing;
+    player->health_ = state.health;
+    player->runtime_state_.HealthMax = session.inventory(slot).health_max;
     if ((session.player(slot).flags & net::PlayerState::FlagSpawned) != 0) {
         player->load_flags_ = static_cast<formats::LoadFlags>(
             static_cast<std::uint8_t>(player->load_flags_)
@@ -594,6 +599,9 @@ void PlayerEntity::SessionMovementChanged(gameplay::Session& session,
         return;
     }
     PlayerEntity& player = *players_[slot];
+    const auto& state = session.player(slot);
+    player.position_ = state.position;
+    player.facing_vector_ = state.facing;
     const net::Vec3 speed = session.player(slot).speed;
     player.runtime_state_.PrevPosition = {
         previous_position.x, previous_position.y, previous_position.z};
@@ -642,10 +650,14 @@ void PlayerEntity::assign(metadata::Hunter hunter, int recolor) noexcept {
     runtime_state_.LoadFlags = load_flags_;
     runtime_state_.Values = Values();
     if (has_live_state()) {
+        const auto& state = State();
+        position_ = state.position;
+        facing_vector_ = state.facing;
+        health_ = state.health;
         runtime_state_.CurrentWeapon = CurrentWeapon();
         runtime_state_.PreviousWeapon = runtime_state_.CurrentWeapon;
         runtime_state_.WeaponSelection = runtime_state_.CurrentWeapon;
-        runtime_state_.TeamIndex = State().team;
+        runtime_state_.TeamIndex = state.team;
         runtime_state_.Team = Team();
     }
 }
@@ -740,14 +752,27 @@ const entities::PlayerValues& PlayerEntity::Values() const noexcept {
     return metadata::PlayerValuesTable[index];
 }
 
-int PlayerEntity::Health() const { return State().health; }
-void PlayerEntity::Health(int value) {
-    State().health = static_cast<std::uint16_t>(std::clamp(value, 0, 65535));
+int PlayerEntity::Health() const {
+    return has_live_state() ? static_cast<int>(State().health) : health_;
 }
-int PlayerEntity::HealthMax() const { return Inventory().health_max; }
+void PlayerEntity::Health(int value) {
+    const auto health = static_cast<std::uint16_t>(
+        std::clamp(value, 0, 65535));
+    health_ = static_cast<std::int32_t>(health);
+    if (has_live_state()) {
+        State().health = health;
+    }
+}
+int PlayerEntity::HealthMax() const {
+    return has_live_state() ? Inventory().health_max
+                            : runtime_state_.HealthMax;
+}
 
 AvailableArray& PlayerEntity::AvailableWeapons() {
-    available_weapons_.bind(Inventory().available_weapons);
+    if (has_live_state()) {
+        available_weapons_.bind(Inventory().available_weapons);
+    }
+    runtime_state_.AvailableWeapons = &available_weapons_;
     return available_weapons_;
 }
 
@@ -835,11 +860,23 @@ bool PlayerEntity::IsUnmorphing() const noexcept {
     return (static_cast<std::uint32_t>(flags1_)
             & static_cast<std::uint32_t>(formats::PlayerFlags1::Unmorphing)) != 0;
 }
-net::Vec3 PlayerEntity::Position() const { return State().position; }
-net::Vec3 PlayerEntity::FacingVector() const { return State().facing; }
-net::Vec3 PlayerEntity::Speed() const { return State().speed; }
+net::Vec3 PlayerEntity::Position() const {
+    return has_live_state() ? State().position : position_;
+}
+net::Vec3 PlayerEntity::FacingVector() const {
+    return has_live_state() ? State().facing : facing_vector_;
+}
+net::Vec3 PlayerEntity::Speed() const {
+    if (has_live_state()) {
+        return State().speed;
+    }
+    const auto& speed = runtime_state_.Speed;
+    return {speed.x, speed.y, speed.z};
+}
 void PlayerEntity::Speed(net::Vec3 value) {
-    State().speed = value;
+    if (has_live_state()) {
+        State().speed = value;
+    }
     runtime_state_.Speed = {value.x, value.y, value.z};
 }
 
@@ -903,6 +940,8 @@ void PlayerEntity::Spawn(net::Vec3 position, net::Vec3 facing, net::Vec3 up,
     up_vector_ = up;
     session_->place_player(static_cast<std::uint8_t>(slot_index_), position,
                            facing, false);
+    position_ = position;
+    facing_vector_ = facing;
     load_flags_ = static_cast<formats::LoadFlags>(
         static_cast<std::uint8_t>(load_flags_)
         | static_cast<std::uint8_t>(formats::LoadFlags::Spawned));
@@ -946,6 +985,8 @@ void PlayerEntity::Teleport(net::Vec3 position, net::Vec3 facing) {
 void PlayerEntity::Reposition(net::Vec3 position, net::Vec3 facing) {
     session_->place_player(static_cast<std::uint8_t>(slot_index_), position,
                            facing, IsAltForm());
+    position_ = position;
+    facing_vector_ = facing;
 }
 
 void PlayerEntity::Reposition(net::Vec3 offset) {
@@ -1133,15 +1174,15 @@ void PlayerEntity::SaveStatus(game::StorySave& save, bool fade_active) const {
 }
 
 void PlayerEntity::Initialize() noexcept {
+    const bool live = has_live_state();
+    const net::Vec3 position = live ? State().position : position_;
+    const net::Vec3 facing = live ? State().facing : facing_vector_;
+    position_ = position;
+    facing_vector_ = facing;
+    up_vector_ = {0.0F, 1.0F, 0.0F};
     camera_.reset();
     node_ref_ = culling::NodeRef::none();
     camera_.info().node_ref = culling::NodeRef::none();
-    if (!has_live_state()) {
-        return;
-    }
-
-    const net::Vec3 position = State().position;
-    const net::Vec3 facing = State().facing;
     camera_.info().position = position;
     camera_.info().up = {0.0F, 1.0F, 0.0F};
     camera_.info().target = {
@@ -1149,8 +1190,52 @@ void PlayerEntity::Initialize() noexcept {
     runtime_state_.Hunter = static_cast<formats::Hunter>(hunter_);
     runtime_state_.LoadFlags = load_flags_;
     runtime_state_.Values = Values();
-    runtime_state_.TeamIndex = State().team;
-    runtime_state_.Team = Team();
+    runtime_state_.AvailableWeapons = &available_weapons_;
+    runtime_state_.IsMainPlayer = IsMainPlayer();
+    runtime_state_.IsPrimeHunter = IsPrimeHunter();
+    runtime_state_.CurrentWeapon = formats::BeamType::PowerBeam;
+    runtime_state_.PreviousWeapon = formats::BeamType::PowerBeam;
+    runtime_state_.WeaponSelection = formats::BeamType::PowerBeam;
+    runtime_state_.Speed = {};
+    runtime_state_.Acceleration = {};
+    runtime_state_.PrevSpeed = {};
+    runtime_state_.PrevPosition = {
+        position.x, position.y, position.z};
+    runtime_state_.IdlePosition = runtime_state_.PrevPosition;
+    runtime_state_.TimeSinceShot = 255;
+    runtime_state_.RespawnTimer = 0;
+    runtime_state_.CurAlpha = 1.0F;
+    runtime_state_.Flags1 = flags1_;
+    runtime_state_.Flags2 = static_cast<formats::PlayerFlags2>(
+        static_cast<std::uint32_t>(runtime_state_.Flags2)
+        | static_cast<std::uint32_t>(formats::PlayerFlags2::HideModel));
+    runtime_state_.AttachedEnemy = nullptr;
+    runtime_state_.Field35C = nullptr;
+    runtime_state_.LastJumpPad = nullptr;
+    runtime_state_.LastTarget = nullptr;
+    runtime_state_.MorphCamera = nullptr;
+    runtime_state_.OctolithFlag = nullptr;
+    runtime_state_.Volume = statics_.player_volume(
+        static_cast<std::size_t>(hunter_), PlayerStatics::Volume::PickupLow);
+    runtime_state_.Volume.SpherePosition = {
+        runtime_state_.Volume.SpherePosition.x + position.x,
+        runtime_state_.Volume.SpherePosition.y + position.y,
+        runtime_state_.Volume.SpherePosition.z + position.z};
+    if (live) {
+        const auto& state = State();
+        runtime_state_.TeamIndex = state.team;
+        runtime_state_.Team = Team();
+        runtime_state_.HealthMax = Inventory().health_max;
+    } else {
+        if (runtime_state_.TeamIndex == -1) {
+            runtime_state_.TeamIndex = slot_index_;
+        }
+        runtime_state_.Team = formats::Team::None;
+        health_ = 0;
+        available_weapons_.clear_all();
+    }
+    available_weapons_[formats::BeamType::PowerBeam] = true;
+    available_weapons_[formats::BeamType::Missile] = true;
 }
 
 void PlayerEntity::ResetReferences() noexcept {

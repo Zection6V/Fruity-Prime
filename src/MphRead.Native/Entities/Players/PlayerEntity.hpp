@@ -342,6 +342,13 @@ private:
     PlayerScan scan_state_{};
     PlayerSoundState sound_state_{};
     fruityprime::chat::player_entity_chat_hud::State chat_hud_{};
+    // These are PlayerEntity.cs' own transform/health fields.  Live network
+    // state remains authoritative when a Session slot exists; the fields are
+    // also needed because RebuildPlayers initializes spare SlotActive
+    // entities before the managed scene creates a Session player for them.
+    net::Vec3 position_{};
+    net::Vec3 facing_vector_{0.0F, 0.0F, -1.0F};
+    std::int32_t health_ = 0;
     net::Vec3 up_vector_{0.0F, 1.0F, 0.0F};
     std::optional<net::Vec3> forced_spawn_pos_{};
     std::unique_ptr<runtime::HalfturretEntity> halfturret_;

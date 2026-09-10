@@ -238,6 +238,14 @@ struct State {
     bool radar_players = false;
     bool affinity_weapons = false;
     bool force_end_game = false;
+    // Private GameState.cs match-progress fields.  They are intentionally
+    // separate from the score/result arrays: ResetMatchProgress only resets
+    // these fields and the match state.
+    bool tempo_changed = false;
+    bool state_changed = false;
+    float match_end_time = 0.0F;
+    float last_alarm_time = 0.0F;
+    std::int32_t next_alarm_index = 0;
     std::array<std::int32_t, SlotCapacity> points{};
     std::array<std::int32_t, SlotCapacity> team_points{};
     std::array<std::int32_t, SlotCapacity> kills{};

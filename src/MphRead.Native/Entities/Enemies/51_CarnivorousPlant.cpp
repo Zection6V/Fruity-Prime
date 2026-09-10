@@ -6,43 +6,89 @@
 // many-classes-in-one gameplay.cpp regression.
 #include "51_CarnivorousPlant.hpp"
 #include "enemy_common.hpp"
+#include "enemy_scene.hpp"
 
 namespace fruityprime::gameplay {
+
+namespace {
+
+// Native counterpart of Enemy51Entity.  A plant does not move, does not
+// look for anybody, and has no states: it stands where it was authored and
+// hurts whatever walks into it.
+class Enemy51Entity final {
+public:
+    Enemy51Entity(const EnemyScene& scene, EnemyState& agent,
+                  std::span<const net::PlayerState> players) noexcept
+        : scene_(scene), agent_(agent), players_(players) {}
+
+    // Enemy51Entity.EnemyProcess: ContactDamagePlayer and nothing else.
+    void EnemyProcess() {
+        const net::Vec3 center = to_net(
+            agent_.carnivorous_plant.hurt_volume.center());
+        const float radius =
+            agent_.carnivorous_plant.hurt_volume.sphere_radius
+            + PlayerBodyRadius;
+        for (const auto& player : players_) {
+            if (distance_squared(player.position, center)
+                    > radius * radius) {
+                continue;
+            }
+            if (scene_.ContactDamage) {
+                scene_.ContactDamage(agent_, player.slot_index,
+                                     agent_.carnivorous_plant.damage);
+            }
+        }
+    }
+
+private:
+    // A player's own body, which the overlap counts.
+    static constexpr float PlayerBodyRadius = 0.45F;
+
+    const EnemyScene& scene_;
+    EnemyState& agent_;
+    std::span<const net::PlayerState> players_;
+};
+
+} // namespace
 
 void Session::update_carnivorous_plant(EnemyState& agent) {
     if (!agent.carnivorous_plant.supported) {
         static_cast<void>(update_generic_enemy(agent));
         return;
     }
-
-    // Enemy51Entity is a static, no-max-distance object. Its EnemyProcess only
-    // calls ContactDamagePlayer against the transformed S07 hurt sphere; it
-    // has no target acquisition, movement, or generic attack state.
-    const float seconds = config_.tick_seconds;
     agent.velocity = {};
     agent.state = 0;
     agent.target_slot = 0xff;
-    agent.attack_timer = std::max(0.0F, agent.attack_timer - seconds);
-
-    const net::Vec3 hurt_center = to_net(
-        agent.carnivorous_plant.hurt_volume.center());
-    const float radius = agent.carnivorous_plant.hurt_volume.sphere_radius
-        + config_.body_radius;
-    for (auto& player : players_) {
-        if (distance_squared(player.position, hurt_center) > radius * radius
-            || agent.attack_timer > 0.0F) {
-            continue;
+    EnemyScene scene;
+    scene.ContactDamage = [this](EnemyState& target, std::uint8_t slot,
+                                 std::uint32_t damage) {
+        for (auto& player : players_) {
+            if (player.slot_index == slot) {
+                apply_enemy_contact_damage(
+                    target, player, static_cast<std::uint16_t>(damage));
+                return;
+            }
         }
-        apply_enemy_contact_damage(agent, player,
-                                   agent.carnivorous_plant.damage);
-        // The managed collision path can hit again on the next frame. Keep a
-        // small native guard only for the multi-player loop in one tick.
-        agent.attack_timer = 0.0F;
-    }
+    };
+    Enemy51Entity(scene, agent, players_).EnemyProcess();
 }
 } // namespace fruityprime::gameplay
 
 static_assert(fruityprime::enemy::module_51_carnivorous_plant::kModule.managed_class.size() != 0);
+
+namespace fruityprime::enemy::module_51_carnivorous_plant {
+
+void EnemyInitialize(gameplay::EnemyState& agent) noexcept {
+    // A plant's energy and its damage are authored per instance, so both
+    // come off the spawner's own fields rather than being the same for
+    // every one in the room.
+    agent.health = agent.health_max = agent.carnivorous_plant.health;
+    agent.body_radius = 1843.0F / 4096.0F;
+    agent.velocity = {};
+    agent.state = agent.next_state = agent.sub_id = 0;
+}
+
+} // namespace fruityprime::enemy::module_51_carnivorous_plant
 
 namespace fruityprime::enemy {
 

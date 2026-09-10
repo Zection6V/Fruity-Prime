@@ -1,3 +1,5 @@
+#include <cmath>
+#include "Entities/gameplay.hpp"
 #include "27_GoreaLeg.hpp"
 #include "gorea_common.hpp"
 
@@ -131,5 +133,61 @@ void Session::update_gorea_leg(EnemyState& agent) {
 }
 
 } // namespace fruityprime::gameplay
+
+namespace fruityprime::enemy::module_27_gorea_leg {
+
+void EnemyInitialize(gameplay::EnemyState& agent) noexcept {
+    // Sixty-five thousand it never loses, against a hundred and twenty
+    // that is what the leg is worth to the fight rather than to itself.
+    agent.health = 65535;
+    agent.health_max = 120;
+    agent.invulnerable = true;
+    agent.visible = false;
+}
+
+void SetKneeNode(gameplay::EnemyState& agent, const std::uint8_t index,
+                 const net::Vec3 knee_position) noexcept {
+    agent.gorea_index = index;
+    agent.position = knee_position;
+}
+
+void EnemyProcess(gameplay::EnemyState& agent,
+                  const net::Vec3 knee_position,
+                  const net::Vec3 knee_right) noexcept {
+    agent.position = knee_position;
+    // Index one is the right knee and keeps the axis as it comes; the
+    // other two are mirrored, so theirs is flipped.
+    agent.facing = agent.gorea_index == 1
+        ? knee_right
+        : net::Vec3{-knee_right.x, -knee_right.y, -knee_right.z};
+}
+
+LegContact CheckPlayerCollision(const gameplay::EnemyState& agent,
+                                const net::Vec3 player_position,
+                                const bool touching, const float factor,
+                                const int damage) noexcept {
+    LegContact contact;
+    if (!touching) {
+        return contact;
+    }
+    contact.hit = true;
+    contact.damage = damage;
+    // Flat: a leg shoves you aside, never up, however far it is leaning.
+    const float x = player_position.x - agent.position.x;
+    const float z = player_position.z - agent.position.z;
+    const float length = std::sqrt(x * x + z * z);
+    contact.push = length > 1.0F / 128.0F
+        ? net::Vec3{x / length * factor, 0.0F, z / length * factor}
+        : net::Vec3{agent.facing.x * factor, 0.0F, agent.facing.z * factor};
+    return contact;
+}
+
+bool EnemyTakeDamage(gameplay::EnemyState& agent) noexcept {
+    agent.health = 65535;
+    return true;
+}
+
+} // namespace fruityprime::enemy::module_27_gorea_leg
+
 
 static_assert(fruityprime::enemy::module_27_gorea_leg::kModule.managed_class.size() != 0);

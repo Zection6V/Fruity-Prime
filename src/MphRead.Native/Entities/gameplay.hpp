@@ -208,6 +208,12 @@ struct EnemyState {
     // because a closed eye and an open one are different things to read
     // about.
     std::uint16_t scan_id = 0;
+    // Enemy49Entity's own effectiveness table.  A force field lock is
+    // immune to everything except the one beam its field is keyed to,
+    // which is the whole puzzle -- so it does not share the enemy
+    // metadata's table.
+    std::array<std::uint8_t, 9> lock_effectiveness{};
+    std::uint8_t lock_shot_frames = 0;
     std::uint8_t target_slot = 0xff;
     float attack_timer = 0.0F;
     float body_radius = 0.65F;

@@ -1,5 +1,7 @@
 // Native port of src/MphRead/Entities/Enemies/49_ForceFieldLock.cs.
 // This member definition lives in its enemy module; Session only dispatches it.
+#include <array>
+#include "Entities/gameplay.hpp"
 #include "49_ForceFieldLock.hpp"
 #include "enemy_common.hpp"
 
@@ -113,3 +115,88 @@ void Session::update_force_field_lock(EnemyState& agent) {
 }
 
 } // namespace fruityprime::gameplay
+
+namespace fruityprime::enemy::module_49_force_field_lock {
+
+void ClearEffectiveness(gameplay::EnemyState& agent) noexcept {
+    agent.lock_effectiveness.fill(0);
+}
+
+void SetEffectiveness(gameplay::EnemyState& agent, const std::uint8_t beam,
+                      const std::uint8_t effectiveness) noexcept {
+    if (beam < agent.lock_effectiveness.size()) {
+        agent.lock_effectiveness[beam] = effectiveness;
+    }
+}
+
+void EnemyInitialize(gameplay::EnemyState& agent,
+                     const std::uint8_t field_type) noexcept {
+    // One energy: a lock is a switch, and the right beam throws it.
+    agent.health = agent.health_max = 1;
+    agent.body_radius = 0.5F;
+    agent.lock_shot_frames = 0;
+    ClearEffectiveness(agent);
+    // Field types nought to seven each name one beam, in beam order.
+    // Type eight names none and takes a bomb instead.
+    static constexpr std::array<std::uint8_t, 8> BeamForType{
+        {0, 2, 1, 3, 4, 5, 6, 7}};
+    if (field_type < BeamForType.size()) {
+        SetEffectiveness(agent, BeamForType[field_type], 2);
+    }
+}
+
+LockFrame EnemyProcess(gameplay::EnemyState& agent,
+                       const net::Vec3 field_position,
+                       const net::Vec3 field_facing,
+                       const net::Vec3 camera_position) noexcept {
+    LockFrame frame;
+    // Which side of the field the player is on.  A lock always turns to
+    // face them, so there is no angle from which it cannot be shot.
+    const float side = (camera_position.x - field_position.x) * field_facing.x
+        + (camera_position.y - field_position.y) * field_facing.y
+        + (camera_position.z - field_position.z) * field_facing.z;
+    net::Vec3 facing = field_facing;
+    if (side < 0.0F) {
+        facing = {-field_facing.x, -field_facing.y, -field_facing.z};
+        frame.flipped = true;
+    }
+    // A tenth of a unit off the field itself, so the lock does not sit
+    // inside it.
+    constexpr float Offset = 409.0F / 4096.0F;
+    agent.facing = facing;
+    agent.position = {field_position.x + facing.x * Offset,
+                      field_position.y + facing.y * Offset,
+                      field_position.z + facing.z * Offset};
+    if (agent.lock_shot_frames > 0) {
+        --agent.lock_shot_frames;
+        frame.shooting = true;
+    }
+    return frame;
+}
+
+bool EnemyTakeDamage(gameplay::EnemyState& agent) noexcept {
+    return agent.health > 0;
+}
+
+LockShot LockHit(gameplay::EnemyState& agent, const std::uint8_t beam,
+                 const std::uint8_t field_type) noexcept {
+    LockShot shot;
+    if (agent.lock_shot_frames != 0) {
+        return shot;
+    }
+    // Only a beam the lock is immune to comes back: the one that opens it
+    // opens it instead.
+    if (beam < agent.lock_effectiveness.size()
+        && agent.lock_effectiveness[beam] != 0) {
+        return shot;
+    }
+    shot.fired = true;
+    // A Shock Coil lock returns fire for a full second; every other kind
+    // sends back one shot.
+    shot.frames = field_type == 7 ? static_cast<std::uint8_t>(30u * 2u) : 1u;
+    agent.lock_shot_frames = shot.frames;
+    return shot;
+}
+
+} // namespace fruityprime::enemy::module_49_force_field_lock
+

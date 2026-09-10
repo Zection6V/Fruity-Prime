@@ -1,3 +1,4 @@
+#include "Utility/rng.hpp"
 #include <cmath>
 #include "Metadata/enemy_subroutines.hpp"
 #include "enemy_scene.hpp"
@@ -675,6 +676,54 @@ void Session::update_petrasyl1(EnemyState& agent) {
     Enemy03Entity(scene, agent, main).EnemyProcess();
 }
 } // namespace fruityprime::gameplay
+
+namespace fruityprime::enemy::module_03_petrasyl1 {
+
+void EnemyInitialize(gameplay::EnemyState& agent) noexcept {
+    agent.health = agent.health_max = 8;
+    agent.body_radius = 0.5F;
+    // It starts mid-teleport, so it cannot be shot before it has even
+    // appeared.
+    agent.invulnerable = true;
+    agent.state = agent.next_state = agent.sub_id = 0;
+
+    const auto& profile = agent.petrasyl;
+    // The authored line: a facing and a range either side of where the
+    // spawner put it.  A Petrasyl drifts from one end to the other and
+    // teleports back, so both ends are worked out once here.
+    const float length = std::sqrt(profile.facing.x * profile.facing.x
+                                   + profile.facing.z * profile.facing.z);
+    const net::Vec3 flat = length > 0.0F
+        ? net::Vec3{profile.facing.x / length, 0.0F,
+                    profile.facing.z / length}
+        : net::Vec3{0.0F, 0.0F, 1.0F};
+    const net::Vec3 start{
+        agent.position.x + profile.position_offset.x,
+        agent.position.y + profile.position_offset.y + 5461.0F / 4096.0F,
+        agent.position.z + profile.position_offset.z};
+    agent.petrasyl_initial_position = start;
+    agent.petrasyl_idle_limit = {
+        start.x + flat.x * profile.idle_range.z - flat.z * profile.idle_range.x,
+        start.y,
+        start.z + flat.z * profile.idle_range.z + flat.x * profile.idle_range.x};
+    agent.position = start;
+    // It faces back along its own line to begin with.
+    agent.petrasyl_direction = {-flat.x, 0.0F, -flat.z};
+    agent.facing = agent.petrasyl_direction;
+    // Depth and speed of the bob are rolled per Petrasyl, so a room full
+    // of them does not pulse in unison.
+    agent.petrasyl_bob_offset =
+        (static_cast<float>(utility::get_random_int2(0x1800u)) + 2048.0F)
+        / 4096.0F / 2.0F;
+    agent.petrasyl_bob_speed =
+        static_cast<float>(utility::get_random_int2(0x6000u)) / 4096.0F + 1.0F;
+    agent.petrasyl_bob_angle = 0.0F;
+    agent.petrasyl_turn_timer = 20u * 2u;       // todo: FPS stuff
+    agent.petrasyl_secondary_timer = 20u * 2u;  // todo: FPS stuff
+    agent.petrasyl_teleport_initial = true;
+}
+
+} // namespace fruityprime::enemy::module_03_petrasyl1
 
 namespace fruityprime::enemy {
 

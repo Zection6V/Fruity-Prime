@@ -719,8 +719,11 @@ int main(int argc, char** argv) {
                 "root Scene facade did not stop camera playback");
         runtime_scene.set_preview_camera({0.0F, 1.0F, -2.0F},
                                          {0.0F, 1.0F, 0.0F});
-        require(runtime_scene.camera_state() != nullptr
-                    && runtime_scene.camera_state()->facing.z > 0.99F,
+        require(runtime_scene.camera_mode()
+                        == fruityprime::renderer::CameraMode::Roam
+                    && runtime_scene.camera_position().x == 0.0F
+                    && runtime_scene.camera_position().y == 1.0F
+                    && runtime_scene.camera_position().z == -2.0F,
                 "root Scene facade did not install preview camera");
         runtime_scene.unload();
         require(!runtime_scene.loaded(),

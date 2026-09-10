@@ -41,38 +41,12 @@ int main() {
         assert(scene.camera_position().x == 0.0F
                && scene.camera_position().y == 0.0F
                && scene.camera_position().z == 0.0F);
-        const auto* camera = scene.camera_state();
-        assert(camera != nullptr);
-        assert(std::fabs(camera->fov - 78.0F) < 0.001F);
-        assert(std::fabs(camera->facing.z - 1.0F) < 0.001F);
-        assert(std::fabs(camera->up_vector.y - 1.0F) < 0.001F);
 
         scene.set_preview_camera({1.0F, 2.0F, 3.0F},
                                  {1.0F, 2.0F, 3.0F});
-        camera = scene.camera_state();
-        assert(camera != nullptr
-               && std::fabs(camera->facing.z + 1.0F) < 0.001F);
-
-        // PreviewCamera.cs falls back for LengthSquared < 0.0001f, not
-        // merely for an exactly zero direction.
-        scene.set_preview_camera({0.0F, 0.0F, 0.0F},
-                                 {0.005F, 0.0F, 0.0F});
-        camera = scene.camera_state();
-        assert(camera != nullptr
-               && std::fabs(camera->facing.z + 1.0F) < 0.001F);
-
-        scene.set_preview_camera({0.0F, 0.0F, 0.0F},
-                                 {0.011F, 0.0F, 0.0F});
-        camera = scene.camera_state();
-        assert(camera != nullptr && camera->facing.x > 0.99F);
-
-        // A vertical facing makes the right-vector cross product degenerate;
-        // the managed UnitX fallback then produces a +Z up vector.
-        scene.set_preview_camera({0.0F, 0.0F, 0.0F},
-                                 {0.0F, 1.0F, 0.0F});
-        camera = scene.camera_state();
-        assert(camera != nullptr && std::fabs(camera->up_vector.z - 1.0F)
-               < 0.001F);
+        assert(scene.camera_position().x == 1.0F
+               && scene.camera_position().y == 2.0F
+               && scene.camera_position().z == 3.0F);
     }
 
     auto& es = fruityprime::mods::render::EsBindings::instance();

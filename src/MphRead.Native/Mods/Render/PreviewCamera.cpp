@@ -33,21 +33,6 @@ void Scene::set_preview_camera(formats::Vector3 position,
         formats::cross(camera_facing_, {0.0F, 1.0F, 0.0F}),
         {1.0F, 0.0F, 0.0F});
     camera_up_ = formats::cross(camera_right_, camera_facing_).normalized();
-
-    // camera_state_ is the native camera-sequence adapter still consumed by
-    // the room/runtime tests. Mirror only the pose that this managed method
-    // actually changes: target is an input to Facing, not a stored field.
-    const bool had_camera_state = camera_state_.has_value();
-    camera::CameraState result = camera_state_.value_or(camera::CameraState{});
-    result.position = camera_position_;
-    result.facing = camera_facing_;
-    result.up_vector = camera_up_;
-    if (!had_camera_state) {
-        // CameraState stores authored FOV in degrees; the Scene field above
-        // stores the Renderer.cs value in radians.
-        result.fov = 78.0F;
-    }
-    camera_state_ = result;
 }
 
 } // namespace fruityprime::scene_runtime

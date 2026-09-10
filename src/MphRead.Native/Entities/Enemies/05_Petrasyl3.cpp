@@ -2,6 +2,7 @@
 // This file is deliberately present even when the managed class currently
 // shares a native controller; the descriptor and entry point prevent a
 // many-classes-in-one gameplay.cpp regression.
+#include "Formats/Types.hpp"
 #include <cmath>
 #include "Utility/rng.hpp"
 #include "Metadata/enemy_subroutines.hpp"
@@ -171,7 +172,10 @@ void Enemy05Entity::UpdateMovement() {
             // into another of its own kind, which is what keeps a swarm
             // spread out instead of piling up in the middle.
             net::Vec3 away{};
-            if (scene_.NearbyKin(agent_, away)) {
+            if (scene_.NearbyKin(
+                    agent_,
+                    static_cast<std::uint8_t>(formats::EnemyType::Petrasyl3),
+                    away)) {
                 heading = away;
                 agent_.petrasyl_turn_timer = Petrasyl3HoldFrames;
             }
@@ -313,9 +317,10 @@ void Session::update_petrasyl3(EnemyState& agent) {
             }
         }
     };
-    scene.NearbyKin = [this](const EnemyState& self, net::Vec3& away) {
+    scene.NearbyKin = [this](const EnemyState& self,
+                            const std::uint8_t kind, net::Vec3& away) {
         for (const auto& other : enemies_) {
-            if (other.id == self.id || other.enemy_type != self.enemy_type
+            if (other.id == self.id || other.enemy_type != kind
                 || other.health == 0) {
                 continue;
             }

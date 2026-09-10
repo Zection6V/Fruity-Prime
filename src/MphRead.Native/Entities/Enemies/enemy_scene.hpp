@@ -59,10 +59,15 @@ struct EnemyScene {
     std::function<void(const EnemyState& agent, net::Vec3 position,
                        net::Vec3 direction)> SpawnProjectile;
 
-    // Whether another enemy of this one's own kind is overlapping it, and
-    // if so which way is away from it.  The session owns the enemy list,
-    // so this is a question rather than a walk.
-    std::function<bool(const EnemyState& agent, net::Vec3& away)> NearbyKin;
+    // Whether an enemy of the named kind is overlapping this one, and if
+    // so which way is away from it.  The session owns the enemy list, so
+    // this is a question rather than a walk.
+    //
+    // The kind is a parameter rather than "its own type" because the
+    // cartridge does not always ask about its own: a Petrasyl4 looks for
+    // Petrasyl3s, which is the game's own quirk and not a slip here.
+    std::function<bool(const EnemyState& agent, std::uint8_t kind,
+                       net::Vec3& away)> NearbyKin;
 };
 
 } // namespace fruityprime::gameplay

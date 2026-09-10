@@ -2,6 +2,8 @@
 // Enemy40 owns the room-spawner lifecycle boundary. Its update body is kept
 // here so gameplay.cpp remains an orchestration module rather than a second
 // implementation of every enemy class.
+#include "36_Voldrum.hpp"
+#include "35_Voldrum.hpp"
 #include "06_Petrasyl4.hpp"
 #include "05_Petrasyl3.hpp"
 #include "04_Petrasyl2.hpp"
@@ -230,22 +232,17 @@ void Session::update_enemy_spawns() {
                 enemy::module_06_petrasyl4::EnemyInitialize(spawned);
             }
             if (spawned.voldrum.supported) {
-                const auto& profile = spawned.voldrum;
-                spawned.health = spawned.health_max = profile.health;
-                spawned.body_radius = 0.5F;
-                spawned.voldrum_speed_factor = profile.min_speed_factor;
-                spawned.voldrum_move_target = to_net(
-                    profile.home_volume.center());
-                spawned.voldrum_move_target_valid = true;
-                spawned.voldrum_delay_timer = static_cast<std::uint32_t>(
-                    profile.delay_frames) * 2u;
-                spawned.voldrum_shot_timer = static_cast<std::uint32_t>(
-                    profile.shot_frames) * 2u;
-                if (profile.max_shots >= profile.min_shots) {
-                    const auto range = static_cast<std::uint32_t>(
-                        profile.max_shots - profile.min_shots + 1u);
-                    spawned.voldrum_shots_remaining = static_cast<std::uint16_t>(
-                        profile.min_shots + rng_.random2(range));
+                // Which Setup runs is the whole difference between the two
+                // Voldrums: the first writes its numbers down, the second
+                // reads a row of Metadata.Enemy36Values.
+                if (spawned.voldrum.ranged) {
+                    enemy::module_36_voldrum_1::EnemyInitialize(
+                        spawned, static_cast<std::uint8_t>(
+                            spawned.voldrum.version),
+                        spawned.voldrum.variant, runtime.data.spawner_health);
+                } else {
+                    enemy::module_35_voldrum_2::EnemyInitialize(
+                        spawned, runtime.data.spawner_health);
                 }
             }
             if (spawned.psychobit.supported) {

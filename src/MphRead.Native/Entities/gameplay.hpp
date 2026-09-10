@@ -4,7 +4,9 @@
 #include "Utility/rng.hpp"
 #include "Entities/runtime_entities.hpp"
 #include "Entities/scene.hpp"
+#include "Entities/Enemies/enemy_scene.hpp"
 #include "Formats/collision_query.hpp"
+#include "Formats/collision_runtime.hpp"
 #include "GameState.hpp"
 #include "Formats/model_instance.hpp"
 #include "Entities/Players/player_profile.hpp"
@@ -15,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -214,6 +217,9 @@ struct EnemyState {
     // metadata's table.
     std::array<std::uint8_t, 9> lock_effectiveness{};
     std::uint8_t lock_shot_frames = 0;
+    // EntityBase.Recolor: which palette this one wears.  A few enemies
+    // pick it from their authored version rather than wearing one.
+    std::uint8_t recolor = 0;
     std::uint8_t target_slot = 0xff;
     float attack_timer = 0.0F;
     float body_radius = 0.65F;
@@ -264,13 +270,50 @@ struct EnemyState {
     bool temroid_field1d0 = false;
     bool temroid_hit_by_bomb = false;
     bool temroid_state_initialized = false;
+    // Enemy35Entity's members, which Enemy36Entity inherits.  A Voldrum
+    // is a ball that rolls to a point, hops when it gets there, and rams
+    // or shoots when it finds you -- so most of what it keeps is about
+    // one journey: where it started, where it is going, how far that is,
+    // and whether it is still speeding up.
     net::Vec3 voldrum_move_target;
+    net::Vec3 voldrum_move_start;
+    net::Vec3 voldrum_target_vec;
     float voldrum_speed_factor = 0.0F;
+    float voldrum_speed_inc = 0.0F;
+    // Enemy36Entity overwrites these three from its own values table;
+    // Enemy35Entity leaves them at the constants it was written with.
+    float voldrum_speed_inc_amount = 410.0F / 4096.0F / 3.0F / 2.0F;
+    float voldrum_min_speed_factor = 0.1F / 2.0F;
+    float voldrum_max_speed_factor = 0.2F / 2.0F;
+    float voldrum_move_dist_sqr = 0.0F;
+    float voldrum_move_dist_sqr_half = 0.0F;
+    float voldrum_aim_angle_step = 0.0F;
+    // How loud the rolling sound is.  It is a value rather than a switch
+    // because it is eased towards where it should be rather than set, so
+    // a Voldrum that stops rolling fades out instead of cutting off.
+    float voldrum_roll_sfx_amount = 0.0F;
+    std::uint16_t voldrum_aim_steps = 0;
+    std::uint16_t voldrum_aim_step_count = 10u * 2u;  // todo: FPS stuff
+    std::uint16_t voldrum_time_in_air = 0;
+    std::uint16_t voldrum_ram_delay = 0;
     std::uint32_t voldrum_delay_timer = 0;
     std::uint32_t voldrum_shot_timer = 0;
     std::uint16_t voldrum_shots_remaining = 0;
     std::int8_t voldrum_roam_angle_sign = 1;
     bool voldrum_move_target_valid = false;
+    bool voldrum_increase_speed = false;
+    bool voldrum_airborne = false;
+    bool voldrum_grounded = false;
+    // Enemy35Entity's ram, which costs the player fifteen and happens
+    // once per charge.  The cartridge keeps a count here and decrements
+    // it, which is only ever one, so this is the bool that behaves the
+    // same way.
+    bool voldrum_handled_ram_col = false;
+    bool voldrum_ram_damage_needed = false;
+    // Which row of Metadata.Enemy36Values this one reads.  Only the
+    // second Voldrum has a values table; the first is written with its
+    // numbers inline.
+    std::uint8_t voldrum_subtype = 0;
     net::Vec3 psychobit_move_target;
     float psychobit_speed_factor = 0.0F;
     std::uint32_t psychobit_delay_timer = 0;
@@ -881,6 +924,20 @@ private:
         const net::PlayerState& player);
     void apply_input(net::PlayerState& player, const Input& input);
     void spawn_projectile(const net::PlayerState& player, const Input& input);
+    // The EnemyScene every ported enemy is handed: the outward calls
+    // EnemyInstanceEntity makes, filled in from this session.  Built once
+    // per enemy per frame rather than kept, because a seam that outlives
+    // the call is a seam something can hold on to.
+    [[nodiscard]] EnemyScene build_enemy_scene(net::Vec3 prev_position);
+
+    // CollisionDetection's queries take the room's collision as a list of
+    // parts, which is what a room is made of -- but scene::Room keeps the
+    // decoded file rather than the float view they walk.  Built once per
+    // room and kept, because building it per query would decode the whole
+    // mesh every frame for every enemy.
+    [[nodiscard]] std::span<const collision::Instance* const>
+    room_collision_parts();
+
     void spawn_enemy_projectile(const EnemyState& enemy,
                                 net::Vec3 position,
                                 net::Vec3 direction,
@@ -1154,6 +1211,10 @@ private:
     std::unique_ptr<model::ModelInstance> gorea_1b_model_instance_;
     const model::File* gorea_2_model_ = nullptr;
     std::unique_ptr<model::ModelInstance> gorea_2_model_instance_;
+    std::unique_ptr<collision::Info> room_collision_info_;
+    collision::Instance room_collision_instance_;
+    std::array<const collision::Instance*, 1> room_collision_list_{};
+    const collision::File* room_collision_source_ = nullptr;
     std::uint64_t tick_count_ = 0;
 };
 

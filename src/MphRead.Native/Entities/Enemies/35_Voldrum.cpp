@@ -1,241 +1,606 @@
 #include "enemy_decode_common.hpp"
 // Native port of src/MphRead/Entities/Enemies/35_Voldrum.cs.
 // This member definition lives in its enemy module; Session only dispatches it.
+#include <cmath>
+#include <limits>
+#include "Utility/rng.hpp"
+#include "Metadata/enemy_subroutines.hpp"
+#include "enemy_scene.hpp"
 #include "35_Voldrum.hpp"
 #include "enemy_common.hpp"
 
 namespace fruityprime::gameplay {
 
-void Session::update_voldrum(EnemyState& agent) {
-    const auto& profile = agent.voldrum;
-    if (!profile.supported) {
+namespace {
+
+constexpr float Pi35 = 3.14159265358979323846F;
+
+}  // namespace
+
+Enemy35Entity::Enemy35Entity(const EnemyScene& scene, EnemyState& agent,
+                             net::PlayerState* main) noexcept
+    : scene_(scene), agent_(agent), main_(main) {}
+
+// Enemy35Entity.EnemyProcess.
+void Enemy35Entity::EnemyProcess() {
+    bool sfxGrounded = true;
+    if (!agent_.voldrum_grounded) {
+        // A quarter of the cartridge's gravity, because this head runs at
+        // twice its rate and the pull is applied twice as often.
+        agent_.velocity.y -= 110.0F / 4096.0F / 4.0F;  // todo: FPS stuff
+    }
+    if (agent_.state == 2) {
+        if (!Blocking(true)) {
+            sfxGrounded = false;
+        }
+    } else if (agent_.state == 0 || agent_.state == 6) {
+        if (!HandleCollision()) {
+            sfxGrounded = false;
+        }
+    }
+    if (agent_.state != 3 && agent_.state != 4) {
+        ContactDamagePlayer(2, true);
+    }
+    CallStateProcess();
+    if (agent_.state != 0 && agent_.state != 6) {
+        sfxGrounded = false;
+    }
+    const float amount = 65535.0F * agent_.voldrum_speed_factor * 2.0F / 0.2F;
+    UpdateRollSfx(amount, sfxGrounded);
+}
+
+// Enemy35Entity.UpdateRollSfx.  The roll is a volume rather than a switch:
+// it is eased towards where it should be, faster going up than coming
+// down, so a Voldrum that stops rolling fades out rather than cutting off.
+void Enemy35Entity::UpdateRollSfx(float newAmount, const bool grounded) {
+    const float prevAmount = agent_.voldrum_roll_sfx_amount;
+    if (!grounded) {
+        newAmount = prevAmount * 0.5F;
+    } else if (frame_count_ % 2 == 0) {  // todo: FPS stuff
+        newAmount = newAmount < prevAmount
+            ? prevAmount + (newAmount - prevAmount) / 4.0F
+            : prevAmount + (newAmount - prevAmount) / 2.0F;
+    } else {
+        newAmount = prevAmount;
+    }
+    if (newAmount < 20.0F) {
+        newAmount = 0.0F;
+    }
+    agent_.voldrum_roll_sfx_amount = newAmount;
+}
+
+// Enemy35Entity.HandleCollision.  The virtual one: the second Voldrum
+// names different states.
+bool Enemy35Entity::HandleCollision() {
+    return HandleCollision(5, 6);
+}
+
+// Enemy35Entity.HandleCollision(int, int).
+//
+// This is not the blocking collision every other enemy uses.  It reads
+// every face within the body radius and pushes out of each in turn, and
+// what it does with a *wall* is the interesting part: outside the two
+// states named here, hitting one sends the Voldrum backwards and up --
+// it bounces off.  In those two it just counts the frames it has been in
+// the air, which is what the hop's own exit condition reads.
+bool Enemy35Entity::HandleCollision(const int stateA, const int stateB) {
+    agent_.voldrum_grounded = false;
+    if (!scene_.CheckInRadius) {
+        return false;
+    }
+    std::array<collision::Result, 30> results{};
+    const std::size_t count = scene_.CheckInRadius(
+        agent_.position, agent_.body_radius, results);
+    if (count == 0) {
+        return false;
+    }
+    for (std::size_t index = 0; index < count && index < results.size();
+         ++index) {
+        const collision::Result& result = results[index];
+        const net::Vec3 normal{result.plane.x, result.plane.y,
+                               result.plane.z};
+        const float depth = result.field0 != 0
+            ? agent_.body_radius - result.field14
+            : agent_.body_radius + result.plane.w
+                - (agent_.position.x * normal.x + agent_.position.y * normal.y
+                   + agent_.position.z * normal.z);
+        if (depth <= 0.0F) {
+            continue;
+        }
+        agent_.position = {agent_.position.x + normal.x * depth,
+                           agent_.position.y + normal.y * depth,
+                           agent_.position.z + normal.z * depth};
+        if (result.plane.y >= 0.1F || result.plane.y <= -0.1F) {
+            agent_.voldrum_grounded = true;
+        } else if (agent_.state != 1
+                   && agent_.state != static_cast<std::uint8_t>(stateA)) {
+            agent_.voldrum_airborne = true;
+            if (agent_.state != 0
+                && agent_.state != static_cast<std::uint8_t>(stateB)) {
+                agent_.velocity = {-agent_.velocity.x, -agent_.velocity.y,
+                                   -agent_.velocity.z};
+                agent_.velocity.y = 1000.0F / 4096.0F / 2.0F;  // todo: FPS
+            } else {
+                ++agent_.voldrum_time_in_air;
+            }
+        }
+        const float along = agent_.velocity.x * normal.x
+            + agent_.velocity.y * normal.y + agent_.velocity.z * normal.z;
+        if (along < 0.0F) {
+            agent_.velocity = {agent_.velocity.x + normal.x * -along,
+                               agent_.velocity.y + normal.y * -along,
+                               agent_.velocity.z + normal.z * -along};
+        }
+    }
+    return true;
+}
+
+// Enemy35Entity.PickRoamTarget.  A point somewhere inside the home
+// cylinder, at the height the Voldrum is already at.  The angle's sign
+// alternates every time, so it does not spiral round the cylinder in one
+// direction -- it works its way back and forth across it.
+void Enemy35Entity::PickRoamTarget() {
+    const auto& home = agent_.voldrum.home_volume;
+    // Fixed.ToInt of the radius: the roll is over fixed-point units, and
+    // the result is read back as fixed point, so the two cancel and what
+    // comes out is a distance in [0, radius).
+    const auto radius_limit = static_cast<std::uint32_t>(std::max(
+        1.0F, home.cylinder_radius * 4096.0F));
+    const float dist =
+        static_cast<float>(utility::get_random_int2(radius_limit)) / 4096.0F;
+    agent_.voldrum_roam_angle_sign =
+        static_cast<std::int8_t>(-agent_.voldrum_roam_angle_sign);
+    // [0, 180), either way round.
+    const float angle =
+        static_cast<float>(utility::get_random_int2(0xB4000u)) / 4096.0F
+        * static_cast<float>(agent_.voldrum_roam_angle_sign) * Pi35 / 180.0F;
+    // A rotation about Y of (dist, 0, 0): x picks up the cosine, z the
+    // negative sine, which is what Matrix4.CreateRotationY does to a
+    // vector down the x axis.
+    const net::Vec3 vec{dist * std::cos(angle), 0.0F, -dist * std::sin(angle)};
+    UpdateMoveTarget({home.cylinder_position.x + vec.x, agent_.position.y,
+                      home.cylinder_position.z + vec.z});
+}
+
+// Enemy35Entity.UpdateMoveTarget: everything about one journey, decided
+// when it starts.  The turn is spread over a fixed number of steps rather
+// than a fixed rate, so a Voldrum that has to turn right round takes the
+// same time to line up as one that barely has to turn at all.
+void Enemy35Entity::UpdateMoveTarget(const net::Vec3 targetPoint) {
+    agent_.voldrum_move_target = targetPoint;
+    agent_.voldrum_move_target_valid = true;
+    agent_.voldrum_move_start = agent_.position;
+    net::Vec3 target_vec{targetPoint.x - agent_.position.x,
+                         targetPoint.y - agent_.position.y,
+                         targetPoint.z - agent_.position.z};
+    agent_.voldrum_move_dist_sqr = target_vec.x * target_vec.x
+        + target_vec.y * target_vec.y + target_vec.z * target_vec.z;
+    agent_.voldrum_move_dist_sqr_half = agent_.voldrum_move_dist_sqr / 2.0F;
+    agent_.voldrum_increase_speed = true;
+    const float length = std::sqrt(agent_.voldrum_move_dist_sqr);
+    if (length > 0.0F) {
+        target_vec = {target_vec.x / length, target_vec.y / length,
+                      target_vec.z / length};
+    }
+    agent_.voldrum_target_vec = target_vec;
+    const float cosine = std::clamp(
+        agent_.facing.x * target_vec.x + agent_.facing.y * target_vec.y
+            + agent_.facing.z * target_vec.z, -1.0F, 1.0F);
+    const float angle = std::acos(cosine) * 180.0F / Pi35;
+    agent_.voldrum_aim_steps = agent_.voldrum_aim_step_count;
+    agent_.voldrum_aim_angle_step = agent_.voldrum_aim_steps > 0
+        ? angle / static_cast<float>(agent_.voldrum_aim_steps) : angle;
+}
+
+// Enemy35Entity.UpdateSpeed.  It accelerates until it is halfway there
+// and decelerates after, measured against the distance the journey was
+// when it started -- so a long trip has a long run-up and a short one
+// never gets going.
+void Enemy35Entity::UpdateSpeed() {
+    if (agent_.voldrum_increase_speed) {
+        const float dx = agent_.voldrum_move_target.x - agent_.position.x;
+        const float dy = agent_.voldrum_move_target.y - agent_.position.y;
+        const float dz = agent_.voldrum_move_target.z - agent_.position.z;
+        if (dx * dx + dy * dy + dz * dz
+                < agent_.voldrum_move_dist_sqr_half) {
+            agent_.voldrum_increase_speed = false;
+        }
+    }
+    if (agent_.voldrum_increase_speed) {
+        agent_.voldrum_speed_factor += agent_.voldrum_speed_inc;
+        if (agent_.voldrum_speed_factor > agent_.voldrum_max_speed_factor) {
+            agent_.voldrum_speed_factor = agent_.voldrum_max_speed_factor;
+        }
+    } else {
+        agent_.voldrum_speed_factor -= agent_.voldrum_speed_inc;
+        if (agent_.voldrum_speed_factor < agent_.voldrum_min_speed_factor) {
+            agent_.voldrum_speed_factor = agent_.voldrum_min_speed_factor;
+        }
+    }
+    agent_.velocity.x = agent_.facing.x * agent_.voldrum_speed_factor;
+    agent_.velocity.z = agent_.facing.z * agent_.voldrum_speed_factor;
+}
+
+void Enemy35Entity::State0() {
+    UpdateSpeed();
+    static_cast<void>(CallSubroutine());
+}
+
+void Enemy35Entity::State1() {
+    static_cast<void>(CallSubroutine());
+}
+
+void Enemy35Entity::State2() {
+    if (main_ != nullptr) {
+        net::Vec3 facing{main_->position.x - agent_.position.x, 0.0F,
+                         main_->position.z - agent_.position.z};
+        const float length = std::sqrt(facing.x * facing.x
+                                       + facing.z * facing.z);
+        if (length > 0.0F) {
+            agent_.facing = {facing.x / length, 0.0F, facing.z / length};
+            agent_.up = {0.0F, 1.0F, 0.0F};
+        }
+    }
+    static_cast<void>(CallSubroutine());
+}
+
+// The managed comment says this could be part of UpdateSpeed; it is the
+// deceleration half of it and nothing else.
+void Enemy35Entity::State3() {
+    agent_.voldrum_speed_factor -= agent_.voldrum_speed_inc;
+    if (agent_.voldrum_speed_factor < agent_.voldrum_min_speed_factor) {
+        agent_.voldrum_speed_factor = agent_.voldrum_min_speed_factor;
+    }
+    agent_.velocity.x = agent_.facing.x * agent_.voldrum_speed_factor;
+    agent_.velocity.z = agent_.facing.z * agent_.voldrum_speed_factor;
+    static_cast<void>(CallSubroutine());
+}
+
+void Enemy35Entity::State4() {
+    // The managed class notes this cannot be reached: setting the first
+    // flag clears the second in the same breath.  Kept as written rather
+    // than simplified away, because the branch that cannot happen is part
+    // of what the state machine says.
+    if (agent_.voldrum_handled_ram_col && agent_.voldrum_ram_damage_needed) {
+        if (scene_.ContactDamage && main_ != nullptr) {
+            scene_.ContactDamage(agent_, main_->slot_index, 15);
+        }
+        agent_.voldrum_ram_damage_needed = false;
+    } else {
+        static_cast<void>(CallSubroutine());
+    }
+}
+
+void Enemy35Entity::State5() {
+    static_cast<void>(CallSubroutine());
+}
+
+void Enemy35Entity::State6() {
+    State0();
+}
+
+// Lined up with where it is going, and standing on something: set off.
+bool Enemy35Entity::Behavior00() {
+    const bool collided = HandleCollision();
+    if (!SeekTargetFacing() || !collided) {
+        return false;
+    }
+    agent_.voldrum_speed_inc = agent_.voldrum_speed_inc_amount;
+    agent_.voldrum_speed_factor = agent_.voldrum_min_speed_factor;
+    agent_.velocity = {agent_.facing.x * agent_.voldrum_speed_factor,
+                       agent_.facing.y * agent_.voldrum_speed_factor,
+                       agent_.facing.z * agent_.voldrum_speed_factor};
+    return true;
+}
+
+bool Enemy35Entity::Behavior01() {
+    if (!HandleCollision()) {
+        return false;
+    }
+    PickRoamTarget();
+    agent_.voldrum_ram_damage_needed = true;
+    agent_.voldrum_handled_ram_col = false;
+    agent_.voldrum_speed_inc = agent_.voldrum_speed_inc_amount;
+    agent_.voldrum_speed_factor = agent_.voldrum_min_speed_factor;
+    agent_.velocity = {agent_.facing.x * agent_.voldrum_speed_factor,
+                       agent_.facing.y * agent_.voldrum_speed_factor,
+                       agent_.facing.z * agent_.voldrum_speed_factor};
+    return true;
+}
+
+// The hop.  Two ways out: it has gone as far as the journey was, or it
+// has been bouncing off a wall for more than five frames -- which is what
+// gets it unstuck when the point it picked is behind something.
+bool Enemy35Entity::Behavior02() {
+    const float dx = agent_.position.x - agent_.voldrum_move_start.x;
+    const float dy = agent_.position.y - agent_.voldrum_move_start.y;
+    const float dz = agent_.position.z - agent_.voldrum_move_start.z;
+    if (dx * dx + dy * dy + dz * dz <= agent_.voldrum_move_dist_sqr
+        && (!agent_.voldrum_airborne
+            || agent_.voldrum_time_in_air <= 5u * 2u)) {  // todo: FPS stuff
+        return false;
+    }
+    PickRoamTarget();
+    agent_.velocity = {0.0F, 0.2F / 2.0F, 0.0F};  // todo: FPS stuff
+    agent_.voldrum_time_in_air = 0;
+    agent_.voldrum_airborne = false;
+    return true;
+}
+
+// Prepare to ram: forty frames of facing the player, then a charge at
+// three times the normal top speed that slows down very gradually.
+bool Enemy35Entity::Behavior03() {
+    if (agent_.voldrum_ram_delay > 0) {
+        --agent_.voldrum_ram_delay;
+        return false;
+    }
+    if (main_ == nullptr) {
+        return false;
+    }
+    net::Vec3 facing{main_->position.x - agent_.position.x, 0.0F,
+                     main_->position.z - agent_.position.z};
+    const float facing_length = std::sqrt(facing.x * facing.x
+                                          + facing.z * facing.z);
+    if (facing_length > 0.0F) {
+        agent_.facing = {facing.x / facing_length, 0.0F,
+                         facing.z / facing_length};
+        agent_.up = {0.0F, 1.0F, 0.0F};
+    }
+    agent_.voldrum_time_in_air = 0;
+    agent_.voldrum_airborne = false;
+    agent_.voldrum_move_target = {main_->position.x, agent_.position.y,
+                                  main_->position.z};
+    agent_.voldrum_move_target_valid = true;
+    net::Vec3 target_vec{
+        agent_.voldrum_move_target.x - agent_.position.x, 0.0F,
+        agent_.voldrum_move_target.z - agent_.position.z};
+    agent_.voldrum_move_dist_sqr = target_vec.x * target_vec.x
+        + target_vec.z * target_vec.z;
+    agent_.voldrum_move_dist_sqr_half = agent_.voldrum_move_dist_sqr / 2.0F;
+    agent_.voldrum_target_vec = target_vec;
+    agent_.voldrum_speed_inc = 0.005F / 2.0F;  // todo: FPS stuff
+    agent_.voldrum_speed_factor = 0.6F / 2.0F;  // todo: FPS stuff
+    agent_.voldrum_ram_delay = 40u * 2u;  // todo: FPS stuff
+    return true;
+}
+
+// The charge is over when it has hit somebody or hit a wall.  Either way
+// it bounces back and up, which is what gives the player the moment to
+// get out of the way of the next one.
+bool Enemy35Entity::Behavior04() {
+    const bool collided = HandleCollision();
+    if (!agent_.voldrum_handled_ram_col && main_ != nullptr
+        && Touching()) {
+        if (scene_.ContactDamage) {
+            scene_.ContactDamage(agent_, main_->slot_index, 15);
+        }
+        agent_.voldrum_handled_ram_col = true;
+        agent_.voldrum_ram_damage_needed = false;
+        agent_.velocity = {-agent_.velocity.x, -agent_.velocity.y,
+                           -agent_.velocity.z};
+        agent_.velocity.y = 1000.0F / 4096.0F / 2.0F;  // todo: FPS stuff
+        return true;
+    }
+    if (collided && agent_.voldrum_airborne) {
+        agent_.voldrum_airborne = false;
+        agent_.voldrum_time_in_air = 0;
+        return true;
+    }
+    return false;
+}
+
+// Also the hop, from the other state.  It only hops once it has reached
+// full speed *and* left its cylinder -- so a Voldrum whose point is
+// inside the cylinder rolls the whole way rather than hopping there.
+bool Enemy35Entity::Behavior05() {
+    if (agent_.voldrum_speed_factor != agent_.voldrum_max_speed_factor
+        && agent_.voldrum.home_volume.contains(
+            to_volume_point(agent_.position))) {
+        return false;
+    }
+    PickRoamTarget();
+    agent_.velocity = {0.0F, 0.2F / 2.0F, 0.0F};  // todo: FPS stuff
+    return true;
+}
+
+// Seeing the player.  The dot product against the facing could have been
+// a field of view; written against -1 it can never fail, so what actually
+// decides this is whether the player is inside the Voldrum's cylinder.
+bool Enemy35Entity::Behavior06() {
+    if (main_ == nullptr || main_->health == 0) {
+        return false;
+    }
+    net::Vec3 between{main_->position.x - agent_.position.x,
+                      main_->position.y - agent_.position.y,
+                      main_->position.z - agent_.position.z};
+    const float length = std::sqrt(between.x * between.x
+                                   + between.y * between.y
+                                   + between.z * between.z);
+    if (length > 0.0F) {
+        between = {between.x / length, between.y / length,
+                   between.z / length};
+    }
+    const float facing_dot = agent_.facing.x * between.x
+        + agent_.facing.y * between.y + agent_.facing.z * between.z;
+    if (facing_dot <= -1.0F
+        || !agent_.voldrum.home_volume.contains(
+            to_volume_point(main_->position))) {
+        return false;
+    }
+    agent_.velocity = {};
+    return true;
+}
+
+bool Enemy35Entity::CallSubroutine() {
+    return metadata::call_subroutine(
+        metadata::Enemy35Subroutines, agent_.sub_id, agent_.next_state,
+        [this](std::uint8_t index) {
+            switch (index) {
+            case 0: return Behavior00();
+            case 1: return Behavior01();
+            case 2: return Behavior02();
+            case 3: return Behavior03();
+            case 4: return Behavior04();
+            case 5: return Behavior05();
+            case 6: return Behavior06();
+            default: return false;
+            }
+        });
+}
+
+void Enemy35Entity::CallStateProcess() {
+    switch (agent_.state) {
+    case 0: State0(); break;
+    case 1: State1(); break;
+    case 2: State2(); break;
+    case 3: State3(); break;
+    case 4: State4(); break;
+    case 5: State5(); break;
+    case 6: State6(); break;
+    default: break;
+    }
+}
+
+bool Enemy35Entity::Blocking(const bool update_speed) {
+    if (!scene_.BlockingCollision) {
+        return false;
+    }
+    const EnemyScene::Blocking blocking = scene_.BlockingCollision(
+        agent_, agent_.voldrum.hurt_volume, update_speed);
+    agent_.voldrum_grounded = blocking.with_ground;
+    return blocking.any;
+}
+
+bool Enemy35Entity::SeekTargetFacing() {
+    return scene_.SeekFacing
+        && scene_.SeekFacing(agent_, agent_.voldrum_target_vec,
+                             agent_.voldrum_aim_steps,
+                             agent_.voldrum_aim_angle_step);
+}
+
+bool Enemy35Entity::Touching() const noexcept {
+    if (main_ == nullptr) {
+        return false;
+    }
+    const float reach = agent_.body_radius + 0.45F;
+    return distance_squared(agent_.position, main_->position)
+        <= reach * reach;
+}
+
+void Enemy35Entity::ContactDamagePlayer(const std::uint32_t damage,
+                                        const bool knockback) {
+    if (!Touching() || main_ == nullptr) {
         return;
     }
-
-    const float seconds = config_.tick_seconds;
-    const float frames = std::max(1.0F, std::round(
-        std::max(0.0F, seconds * 60.0F)));
-    const auto frame_step = static_cast<std::uint32_t>(frames);
-    agent.attack_timer = std::max(0.0F, agent.attack_timer - seconds);
-
-    const auto decrement = [frame_step](std::uint32_t& value) noexcept {
-        value = value > frame_step ? value - frame_step : 0;
-    };
-    const auto choose_roam_target = [&]() {
-        const scene::VolumePoint center = profile.home_volume.center();
-        net::Vec3 target{center.x, agent.position.y, center.z};
-        if (profile.home_volume.kind == scene::VolumeKind::Cylinder
-            && profile.home_volume.cylinder_radius > 0.0F) {
-            const auto radius_limit = static_cast<std::uint32_t>(std::max(
-                1.0F, profile.home_volume.cylinder_radius * 4096.0F));
-            const float radius = static_cast<float>(rng_.random2(
-                radius_limit)) / 4096.0F;
-            agent.voldrum_roam_angle_sign =
-                agent.voldrum_roam_angle_sign == 0
-                ? static_cast<std::int8_t>(1)
-                : static_cast<std::int8_t>(-agent.voldrum_roam_angle_sign);
-            const float angle = static_cast<float>(rng_.random2(0xB4000u))
-                / 4096.0F * agent.voldrum_roam_angle_sign
-                * 3.14159265358979323846F / 180.0F;
-            target.x = profile.home_volume.cylinder_position.x
-                + std::sin(angle) * radius;
-            target.z = profile.home_volume.cylinder_position.z
-                + std::cos(angle) * radius;
+    if (knockback) {
+        // Away from the enemy, and weaker the further away the player is
+        // -- the cartridge divides by five times the distance rather than
+        // multiplying by it, which is the opposite of what a shove
+        // normally does and is what stops a graze launching anybody.
+        const float dx = main_->position.x - agent_.position.x;
+        const float dy = main_->position.y - agent_.position.y;
+        const float dz = main_->position.z - agent_.position.z;
+        const float mag = std::sqrt(dx * dx + dy * dy + dz * dz) * 5.0F;
+        if (mag > 0.0F) {
+            main_->speed.x += dx / mag;
+            main_->speed.z += dz / mag;
         }
-        agent.voldrum_move_target = target;
-        agent.voldrum_move_target_valid = true;
-        agent.voldrum_speed_factor = profile.min_speed_factor;
-    };
-
-    if (!agent.voldrum_move_target_valid
-        || distance_squared(agent.position, agent.voldrum_move_target)
-            < 0.25F) {
-        choose_roam_target();
     }
+    if (scene_.ContactDamage) {
+        scene_.ContactDamage(agent_, main_->slot_index, damage);
+    }
+}
 
-    std::size_t target_index = players_.size();
-    float target_distance = std::numeric_limits<float>::max();
-    const float detection_radius = profile.ranged ? 35.0F : 18.0F;
-    for (std::size_t index = 0; index < players_.size(); ++index) {
-        const auto& player = players_[index];
+// Enemy35Entity.EnemyInitialize is Setup, which Enemy36Entity overrides.
+void Enemy35Entity::Setup() {
+    agent_.body_radius = 0.5F;
+    agent_.health = agent_.health_max = 42;
+    agent_.voldrum_speed_inc = agent_.voldrum_speed_inc_amount;
+    agent_.voldrum_speed_factor = agent_.voldrum_min_speed_factor;
+    agent_.voldrum_ram_damage_needed = true;
+    agent_.voldrum_ram_delay = 40u * 2u;  // todo: FPS stuff
+    StartRoaming();
+    agent_.state = agent_.next_state = agent_.sub_id = 1;
+}
+
+// The tail both Setups share: a Voldrum that was placed on its cylinder's
+// axis roams from the start, and one placed off it walks to the middle
+// first.  A spawner with no health of its own also roams -- that is the
+// endlessly-respawning kind, whose children should not all converge.
+void Enemy35Entity::StartRoaming() {
+    const auto& home = agent_.voldrum.home_volume;
+    const bool on_axis =
+        std::fabs(agent_.position.x - home.cylinder_position.x) < 1.0F / 4096.0F
+        && std::fabs(agent_.position.z - home.cylinder_position.z)
+            < 1.0F / 4096.0F;
+    if (spawner_health_ == 0 || on_axis) {
+        PickRoamTarget();
+    } else {
+        UpdateMoveTarget({home.cylinder_position.x, agent_.position.y,
+                          home.cylinder_position.z});
+    }
+}
+
+// EnemyType::Voldrum2 is the melee one, which is Enemy35Entity: the
+// cartridge's two names run the other way round from the file numbers.
+void Session::update_voldrum2(EnemyState& agent) {
+    if (!agent.voldrum.supported || agent.voldrum.ranged) {
+        return;
+    }
+    net::PlayerState* main = nullptr;
+    float nearest = std::numeric_limits<float>::max();
+    for (auto& player : players_) {
         if (!objective_player(player)) {
             continue;
         }
         const float distance = distance_squared(player.position,
                                                 agent.position);
-        if (distance <= detection_radius * detection_radius
-            && distance < target_distance) {
-            target_distance = distance;
-            target_index = index;
+        if (distance < nearest) {
+            nearest = distance;
+            main = &player;
         }
     }
-
-    const auto apply_contact = [this, &agent](std::uint16_t damage,
-                                                bool knockback) {
-        if (agent.attack_timer > 0.0F) {
-            return false;
-        }
-        for (auto& player : players_) {
-            if (!objective_player(player)
-                || distance_squared(player.position, agent.position)
-                    > 1.25F * 1.25F) {
-                continue;
-            }
-            apply_enemy_contact_damage(agent, player, damage);
-            if (knockback) {
-                const net::Vec3 away = normalized_or(
-                    subtract(player.position, agent.position), {});
-                player.speed = add(player.speed, multiply(away, 2.0F));
-            }
-            agent.attack_timer = 0.5F;
-            return true;
-        }
-        return false;
-    };
-
-    if (profile.ranged && target_index != players_.size()) {
-        auto& target = players_[target_index];
-        const net::Vec3 to_target = subtract(
-            add(target.position, {0.0F, 0.45F, 0.0F}), agent.position);
-        const net::Vec3 desired = normalized_or(to_target, agent.facing);
-        const float facing_dot = dot(agent.facing, desired);
-        // Enemy36Entity uses the S06 range cosine for acquisition; the home
-        // cylinder constrains roaming but is not an aim/attack gate.
-        if (facing_dot >= profile.range_max_cosine) {
-            agent.target_slot = target.slot_index;
-            agent.state = 3;
-            agent.velocity = {};
-            // Enemy36Entity clamps vertical aim to a half-unit slope before
-            // rebuilding its transform; the linear blend retains that
-            // bounded movement without importing the managed matrix type.
-            net::Vec3 aim = desired;
-            aim.y = std::clamp(aim.y, -0.5F, 0.5F);
-            aim = normalized_or(aim, agent.facing);
-            const float blend = std::clamp(frames / 20.0F, 0.0F, 1.0F);
-            agent.facing = normalized_or(
-                add(multiply(agent.facing, 1.0F - blend),
-                    multiply(aim, blend)), agent.facing);
-            static_cast<void>(apply_contact(profile.contact_damage, true));
-
-            if (agent.voldrum_delay_timer > 0) {
-                decrement(agent.voldrum_delay_timer);
-                return;
-            }
-            if (agent.voldrum_shots_remaining == 0) {
-                const auto range = static_cast<std::uint32_t>(
-                    profile.max_shots >= profile.min_shots
-                    ? profile.max_shots - profile.min_shots + 1u : 1u);
-                agent.voldrum_shots_remaining = static_cast<std::uint16_t>(
-                    profile.min_shots + rng_.random2(range));
-                agent.voldrum_shot_timer = static_cast<std::uint32_t>(
-                    profile.shot_frames) * 2u;
-            }
-            if (agent.voldrum_shot_timer > 0) {
-                decrement(agent.voldrum_shot_timer);
-                return;
-            }
-
-            const net::Vec3 right = normalized_or(
-                cross(agent.facing, agent.up), {-1.0F, 0.0F, 0.0F});
-            spawn_enemy_projectile(agent,
-                                   add(agent.position, multiply(right, -0.43F)),
-                                   agent.facing);
-            spawn_enemy_projectile(agent,
-                                   add(agent.position, multiply(right, 0.43F)),
-                                   agent.facing);
-            --agent.voldrum_shots_remaining;
-            agent.voldrum_shot_timer = static_cast<std::uint32_t>(
-                profile.shot_frames) * 2u;
-            if (agent.voldrum_shots_remaining == 0) {
-                agent.voldrum_delay_timer = static_cast<std::uint32_t>(
-                    profile.delay_frames) * 2u;
-            }
-            return;
-        }
+    if (main != nullptr) {
+        agent.target_slot = main->slot_index;
     }
 
-    if (target_index != players_.size()) {
-        auto& target = players_[target_index];
-        const bool in_home = profile.home_volume.contains(
-            to_volume_point(target.position));
-        const float distance = std::sqrt(std::max(0.0F,
-            distance_squared(target.position, agent.position)));
-        if (!profile.ranged && in_home && distance <= 8.0F) {
-            agent.target_slot = target.slot_index;
-            agent.state = 2;
-            agent.voldrum_move_target = target.position;
-            agent.voldrum_move_target.y = agent.position.y;
-            agent.voldrum_move_target_valid = true;
-            if (distance <= 1.25F
-                && apply_contact(15, true)) {
-                agent.voldrum_move_target_valid = false;
-                return;
-            }
-        } else {
-            agent.target_slot = 0xff;
-            agent.state = 0;
-        }
+    // EnemyInstanceEntity.BaseProcess.
+    agent.state = agent.next_state;
+    agent.sub_id = agent.state;
+    const net::Vec3 prev_position = agent.position;
+    agent.position = add(agent.position, agent.velocity);
+
+    const EnemyScene scene = build_enemy_scene(prev_position);
+    Enemy35Entity entity(scene, agent, main);
+    entity.set_frame_count(tick_count_);
+    entity.EnemyProcess();
+}
+
+// The name the older dispatch used, kept so nothing calling it silently
+// stops working.
+void Session::update_voldrum(EnemyState& agent) {
+    if (agent.voldrum.ranged) {
+        update_voldrum1(agent);
     } else {
-        agent.target_slot = 0xff;
-        agent.state = 0;
-    }
-
-    net::Vec3 to_target = subtract(agent.voldrum_move_target,
-                                   agent.position);
-    to_target.y = 0.0F;
-    if (length_squared(to_target) <= 0.0001F) {
-        choose_roam_target();
-        to_target = subtract(agent.voldrum_move_target, agent.position);
-        to_target.y = 0.0F;
-    }
-    const net::Vec3 desired = normalized_or(to_target, agent.facing);
-    const float blend = std::clamp(frames / std::max(
-        1.0F, static_cast<float>(profile.aim_steps * 2)), 0.0F, 1.0F);
-    agent.facing = normalized_or(
-        add(multiply(agent.facing, 1.0F - blend),
-            multiply(desired, blend)), agent.facing);
-    const float remaining = std::sqrt(std::max(0.0F,
-        length_squared(to_target)));
-    if (remaining > 1.0F) {
-        agent.voldrum_speed_factor = std::min(
-            profile.max_speed_factor,
-            agent.voldrum_speed_factor + profile.speed_increment * frames);
-    } else {
-        agent.voldrum_speed_factor = std::max(
-            profile.min_speed_factor,
-            agent.voldrum_speed_factor - profile.speed_increment * frames);
-    }
-    agent.velocity = multiply(agent.facing,
-                              agent.voldrum_speed_factor * 60.0F);
-    const net::Vec3 next = add(agent.position,
-                               multiply(agent.velocity, seconds));
-    if (!profile.home_volume.contains(to_volume_point(next))) {
-        choose_roam_target();
-        agent.velocity = {};
-        return;
-    }
-    const auto hit = collision::sweep_sphere(
-        room_.collision(), to_collision(agent.position), to_collision(next),
-        agent.body_radius, 0x2000);
-    if (hit.has_value()) {
-        agent.position = {hit->center.x + hit->normal.x * 0.001F,
-                          hit->center.y + hit->normal.y * 0.001F,
-                          hit->center.z + hit->normal.z * 0.001F};
-        agent.voldrum_move_target_valid = false;
-        agent.velocity = {};
-    } else {
-        agent.position = next;
-    }
-    if (distance_squared(agent.position, agent.voldrum_move_target)
-            < 0.25F) {
-        agent.voldrum_move_target_valid = false;
+        update_voldrum2(agent);
     }
 }
 
-void Session::update_voldrum2(EnemyState& agent) {
-    update_voldrum(agent);
-}
 } // namespace fruityprime::gameplay
+
+static_assert(fruityprime::enemy::module_35_voldrum_2::kModule.managed_class.size() != 0);
+
+namespace fruityprime::enemy::module_35_voldrum_2 {
+
+void EnemyInitialize(gameplay::EnemyState& agent,
+                     const std::uint16_t spawner_health) noexcept {
+    gameplay::EnemyScene empty;
+    gameplay::Enemy35Entity entity(empty, agent, nullptr);
+    entity.set_spawner_health(spawner_health);
+    entity.Setup();
+}
+
+} // namespace fruityprime::enemy::module_35_voldrum_2
 
 namespace fruityprime::enemy {
 

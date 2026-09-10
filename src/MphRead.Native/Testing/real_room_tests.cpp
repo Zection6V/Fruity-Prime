@@ -1411,7 +1411,14 @@ int main(int argc, char** argv) {
             bool saw_target_state = false;
             bool saw_contact_damage = false;
             bool fired = false;
-            for (int i = 0; i < 180; ++i) {
+            // A Voldrum's own timings decide this window, not a guess: it
+            // has to reach the ground, turn towards the player over ten
+            // frames of aim, wait out DelayTime, and then count down
+            // ShotTime before the first pair leaves the barrel.  At the
+            // cartridge's numbers that is a little over two seconds, and
+            // the 180 frames this used to allow were calibrated to a
+            // controller that had none of those delays.
+            for (int i = 0; i < 600; ++i) {
                 voldrum_session.set_input(0, fruityprime::gameplay::Input{});
                 voldrum_session.tick();
                 const auto current = find_voldrum();

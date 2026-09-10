@@ -14,10 +14,13 @@
 // into Session's state, because an enemy that could would be a fifty-third
 // place for the rules to live.
 
+#include "Entities/scene.hpp"
+#include "Formats/collision_query.hpp"
 #include "Mods/Network/net_protocol.hpp"
 
 #include <cstdint>
 #include <functional>
+#include <span>
 
 namespace fruityprime::gameplay {
 
@@ -68,6 +71,51 @@ struct EnemyScene {
     // Petrasyl3s, which is the game's own quirk and not a slip here.
     std::function<bool(const EnemyState& agent, std::uint8_t kind,
                        net::Vec3& away)> NearbyKin;
+
+    // CollisionDetection.CheckInRadius.  The room's collision belongs to
+    // the session, so the query crosses the seam and the results come
+    // back; an enemy that walked the room parts itself would be reading
+    // session state rather than asking it something.
+    //
+    // Returns how many results were written.
+    std::function<std::size_t(net::Vec3 position, float radius,
+                              std::span<collision::Result> results)>
+        CheckInRadius;
+
+    // EnemyInstanceEntity.HandleBlockingCollision, applied to this enemy.
+    // It moves the enemy out of whatever it is inside and reports what it
+    // was: the body of it lives in EnemyInstanceEntity.cpp, where the
+    // managed method does, and this is how an enemy reaches it.
+    struct Blocking {
+        bool any = false;
+        bool with_ground = false;
+        bool with_wall = false;
+    };
+    std::function<Blocking(EnemyState& agent,
+                           const scene::EntityVolume& volume,
+                           bool update_speed)> BlockingCollision;
 };
+
+
+// EnemyInstanceEntity.HandleBlockingCollision.  Defined in
+// Entities/EnemyInstanceEntity.cpp, where the managed method lives; it is
+// declared here because EnemyScene.BlockingCollision is what hands it to
+// an enemy, and the two belong together.
+[[nodiscard]] EnemyScene::Blocking HandleBlockingCollision(
+    EnemyState& agent, net::Vec3 prev_position,
+    const scene::EntityVolume& volume, bool update_speed,
+    const std::function<std::size_t(net::Vec3, float,
+                                    std::span<collision::Result>)>&
+        check_in_radius,
+    const std::function<std::size_t(net::Vec3, net::Vec3, float,
+                                    std::span<collision::Result>)>&
+        sphere_between_points);
+
+// EnemyInstanceEntity.SeekTargetFacing, on a gameplay enemy: turn one
+// step of `angle` degrees about the up axis towards `target`, and say
+// whether the turn is finished.  It gives up after `steps` and snaps,
+// which is what stops an enemy circling a heading it cannot quite reach.
+[[nodiscard]] bool SeekTargetFacing(EnemyState& agent, net::Vec3 target,
+                                    std::uint16_t& steps, float angle);
 
 } // namespace fruityprime::gameplay

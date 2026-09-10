@@ -660,34 +660,89 @@ namespace
 
     [[nodiscard]] std::string FormatLossPercentCurrentCulture(double value)
     {
+        // .NET 9 custom Double formatting stages through a 15-significant-digit
+        // NumberBuffer before applying the custom 0.## rounding. Preserve that
+        // staging instead of rounding the original binary64 directly to 2 places.
         std::array<char, 128> buffer{};
         const auto result = std::to_chars(
             buffer.data(), buffer.data() + buffer.size(), value,
-            std::chars_format::fixed, 2);
+            std::chars_format::scientific, 14);
         if (result.ec != std::errc{})
         {
             throw std::runtime_error("double formatting failed");
         }
 
-        std::string text(buffer.data(), result.ptr);
-        const std::size_t dot = text.find('.');
-        if (dot != std::string::npos)
+        const std::string_view scientific(
+            buffer.data(), static_cast<std::size_t>(result.ptr - buffer.data()));
+        const std::size_t exponentMarker = scientific.find('e');
+        if (exponentMarker == std::string_view::npos)
         {
-            while (!text.empty() && text.back() == '0')
+            throw std::runtime_error("double formatting failed");
+        }
+
+        std::uint64_t digits = 0;
+        for (std::size_t index = 0; index < exponentMarker; index++)
+        {
+            const char unit = scientific[index];
+            if (unit == '.')
             {
-                text.pop_back();
+                continue;
             }
-            if (!text.empty() && text.back() == '.')
+            if (unit < '0' || unit > '9')
             {
-                text.pop_back();
+                throw std::runtime_error("double formatting failed");
             }
-            else
+            digits = digits * 10U + static_cast<std::uint64_t>(unit - '0');
+        }
+
+        const char* exponentFirst = scientific.data() + exponentMarker + 1;
+        const char* const exponentEnd = scientific.data() + scientific.size();
+        bool negativeExponent = false;
+        if (exponentFirst != exponentEnd && (*exponentFirst == '+' || *exponentFirst == '-'))
+        {
+            negativeExponent = *exponentFirst == '-';
+            exponentFirst++;
+        }
+
+        int exponent = 0;
+        const auto exponentResult = std::from_chars(exponentFirst, exponentEnd, exponent);
+        if (exponentResult.ec != std::errc{} || exponentResult.ptr != exponentEnd)
+        {
+            throw std::runtime_error("double formatting failed");
+        }
+        if (negativeExponent)
+        {
+            exponent = -exponent;
+        }
+
+        std::uint64_t hundredths = 0;
+        if (exponent >= -3)
+        {
+            unsigned divisorPower = static_cast<unsigned>(12 - exponent);
+            std::uint64_t divisor = 1;
+            while (divisorPower-- > 0)
             {
-                const std::string separator = CurrentCultureDecimalSeparator();
-                if (separator != ".")
-                {
-                    text.replace(dot, 1, separator);
-                }
+                divisor *= 10U;
+            }
+
+            hundredths = digits / divisor;
+            const std::uint64_t remainder = digits % divisor;
+            if (remainder >= (divisor + 1U) / 2U)
+            {
+                hundredths++;
+            }
+        }
+
+        std::string text = std::to_string(hundredths / 100U);
+        const unsigned fraction = static_cast<unsigned>(hundredths % 100U);
+        if (fraction != 0)
+        {
+            const std::string separator = CurrentCultureDecimalSeparator();
+            text += separator;
+            text.push_back(static_cast<char>('0' + fraction / 10U));
+            if ((fraction % 10U) != 0)
+            {
+                text.push_back(static_cast<char>('0' + fraction % 10U));
             }
         }
         return text;

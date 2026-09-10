@@ -433,13 +433,18 @@ namespace MphRead::Mods::Update
     std::optional<Version> BuildVersion::Read()
     {
         // System.Reflection has no C++ counterpart. These private build-adapter
-        // defines carry the AssemblyInformationalVersionAttribute text verbatim.
-        // Desktop uses the entry assembly. Android has no managed entry assembly,
-        // so BuildVersion.cs falls back to the assembly containing this type.
-        // No define means no attribute; there is deliberately no Git/tag/file-name
-        // fallback because the C# source has none.
+        // defines encode the same selection made by Assembly.GetEntryAssembly()
+        // ?? typeof(BuildVersion).Assembly. An entry-assembly version always wins.
+        // The fallback is enabled only when the adapter explicitly says there is
+        // no entry assembly; merely lacking its version attribute must not fall
+        // through to this assembly. No state is inferred from the target OS.
         std::string_view text;
-#if defined(__ANDROID__)
+#if defined(MPHREAD_ENTRY_ASSEMBLY_INFORMATIONAL_VERSION)
+        constexpr char informationalVersion[] =
+            MPHREAD_ENTRY_ASSEMBLY_INFORMATIONAL_VERSION;
+        text = std::string_view(informationalVersion,
+            sizeof(informationalVersion) - 1);
+#elif defined(MPHREAD_BUILDVERSION_NO_ENTRY_ASSEMBLY)
     #if defined(MPHREAD_BUILDVERSION_ASSEMBLY_INFORMATIONAL_VERSION)
         constexpr char informationalVersion[] =
             MPHREAD_BUILDVERSION_ASSEMBLY_INFORMATIONAL_VERSION;
@@ -449,14 +454,7 @@ namespace MphRead::Mods::Update
         return std::nullopt;
     #endif
 #else
-    #if defined(MPHREAD_ENTRY_ASSEMBLY_INFORMATIONAL_VERSION)
-        constexpr char informationalVersion[] =
-            MPHREAD_ENTRY_ASSEMBLY_INFORMATIONAL_VERSION;
-        text = std::string_view(informationalVersion,
-            sizeof(informationalVersion) - 1);
-    #else
         return std::nullopt;
-    #endif
 #endif
 
         const std::size_t plus = text.find('+');

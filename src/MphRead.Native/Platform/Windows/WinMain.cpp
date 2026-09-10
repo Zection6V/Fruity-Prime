@@ -1755,6 +1755,12 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
     const auto mode = static_cast<fruityprime::game::Mode>(server.mode);
     g_game_state.loading = true;
     try {
+        // RoomEntity.LoadRoom captures the old Main player's identity before
+        // StartTransition/Reset discards the old player collection.
+        const auto* previous_main =
+            fruityprime::players::PlayerEntity::Main();
+        const auto previous_hunter = previous_main->Hunter();
+        const int previous_recolor = previous_main->Recolor();
         // The old Session and every renderer pointer into its room must be
         // gone before the new Room owns the replacement model buffers.
         clear_room_render_resources();
@@ -1854,7 +1860,8 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
 
         const fruityprime::net::NetRoomChange::RebuildContext rebuild{
             g_game_state, roster, static_cast<int>(g_local_slot),
-            g_local_hunter, 0, g_slot_manager, g_net_damage, g_net_match_end,
+            static_cast<std::uint8_t>(previous_hunter), previous_recolor,
+            g_slot_manager, g_net_damage, g_net_match_end,
             g_net_log, &init_network_halfturret
         };
         auto* main_player = fruityprime::net::NetRoomChange::RebuildPlayers(

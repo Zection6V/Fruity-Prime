@@ -2,7 +2,6 @@
 
 #include <bit>
 #include <random>
-#include <utility>
 
 namespace
 {
@@ -11,9 +10,10 @@ namespace
     constexpr std::uint32_t Prime4 = 668265263U;
     constexpr std::uint32_t Prime5 = 374761393U;
 
-    // .NET 9 HashCode.Combine uses a per-process random seed that is not
-    // observable from a separate native process. Keep the same xxHash32
-    // mixing steps and use one native process-random seed for parity.
+    // .NET 9 HashCode.Combine uses a process-global 32-bit seed obtained from
+    // OS random bytes. A separate native process cannot share that hidden seed.
+    // The mixing below matches .NET for any given seed; this translation unit
+    // supplies its own C++ seed via std::random_device.
     std::uint32_t GlobalHashSeed()
     {
         static const std::uint32_t seed = []
@@ -53,18 +53,11 @@ namespace
 
 namespace MphRead::Formats::Culling
 {
-    const NodeRef NodeRef::None = []
-    {
-        NodeRef value;
-        value.PartIndex = -1;
-        value.NodeIndex = -1;
-        value.ModelIndex = -1;
-        return value;
-    }();
+    constinit const NodeRef NodeRef::None{nullptr, -1, -1, -1};
 
-    NodeRef::NodeRef(std::optional<std::string> roomName, std::int32_t partIndex,
-        std::int32_t nodeIndex, std::int32_t modelIndex)
-        : RoomName(std::move(roomName)),
+    NodeRef::NodeRef(NullableString roomName, std::int32_t partIndex,
+        std::int32_t nodeIndex, std::int32_t modelIndex) noexcept
+        : RoomName(roomName),
           PartIndex(partIndex),
           NodeIndex(nodeIndex),
           ModelIndex(modelIndex)

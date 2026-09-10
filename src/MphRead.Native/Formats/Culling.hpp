@@ -4,8 +4,8 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
+#include <utility>
 
 namespace OpenTK::Mathematics
 {
@@ -20,9 +20,101 @@ namespace OpenTK::Mathematics
 
 namespace MphRead::Formats::Culling
 {
+    // C# string is a nullable, immutable reference type. This adapter keeps
+    // reference identity across copies while retaining string-style value
+    // equality and allowing the public field itself to be reassigned.
+    class NullableString
+    {
+    public:
+        constexpr NullableString() noexcept = default;
+        constexpr NullableString(std::nullptr_t) noexcept
+        {
+        }
+
+        NullableString(const char* value)
+            : _value(value == nullptr ? nullptr : std::make_shared<const std::string>(value))
+        {
+        }
+
+        NullableString(std::string value)
+            : _value(std::make_shared<const std::string>(std::move(value)))
+        {
+        }
+
+        explicit NullableString(std::shared_ptr<const std::string> value) noexcept
+            : _value(std::move(value))
+        {
+        }
+
+        NullableString(const NullableString&) noexcept = default;
+        NullableString& operator=(const NullableString&) noexcept = default;
+
+        // C# references have no destructive move operation. Keep native moves
+        // copy-like so moving a NodeRef does not change the source RoomName.
+        NullableString(NullableString&& other) noexcept
+            : _value(other._value)
+        {
+        }
+
+        NullableString& operator=(NullableString&& other) noexcept
+        {
+            if (this != &other)
+            {
+                _value = other._value;
+            }
+            return *this;
+        }
+
+        [[nodiscard]] bool HasValue() const noexcept
+        {
+            return static_cast<bool>(_value);
+        }
+
+        explicit operator bool() const noexcept
+        {
+            return HasValue();
+        }
+
+        [[nodiscard]] const std::string* Get() const noexcept
+        {
+            return _value.get();
+        }
+
+        [[nodiscard]] const std::string& operator*() const noexcept
+        {
+            return *_value;
+        }
+
+        [[nodiscard]] const std::string* operator->() const noexcept
+        {
+            return _value.get();
+        }
+
+        friend bool operator==(const NullableString& lhs, const NullableString& rhs) noexcept
+        {
+            if (lhs._value == rhs._value)
+            {
+                return true;
+            }
+            if (!lhs._value || !rhs._value)
+            {
+                return false;
+            }
+            return *lhs._value == *rhs._value;
+        }
+
+        friend bool operator!=(const NullableString& lhs, const NullableString& rhs) noexcept
+        {
+            return !(lhs == rhs);
+        }
+
+    private:
+        std::shared_ptr<const std::string> _value{};
+    };
+
     struct NodeRef
     {
-        std::optional<std::string> RoomName{};
+        NullableString RoomName{};
         std::int32_t PartIndex = 0;
         std::int32_t NodeIndex = 0;
         std::int32_t ModelIndex = 0;
@@ -30,8 +122,16 @@ namespace MphRead::Formats::Culling
         static const NodeRef None;
 
         NodeRef() = default;
-        NodeRef(std::optional<std::string> roomName, std::int32_t partIndex,
-            std::int32_t nodeIndex, std::int32_t modelIndex);
+        constexpr NodeRef(std::nullptr_t, std::int32_t partIndex,
+            std::int32_t nodeIndex, std::int32_t modelIndex) noexcept
+            : RoomName(nullptr),
+              PartIndex(partIndex),
+              NodeIndex(nodeIndex),
+              ModelIndex(modelIndex)
+        {
+        }
+        NodeRef(NullableString roomName, std::int32_t partIndex,
+            std::int32_t nodeIndex, std::int32_t modelIndex) noexcept;
 
         [[nodiscard]] bool Equals(const std::any& obj) const;
         [[nodiscard]] std::int32_t GetHashCode() const;

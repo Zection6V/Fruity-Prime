@@ -124,6 +124,13 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
             continue;
         }
 
+        // PlayerEntity.Create has already performed CreateHalfturret.  C#
+        // CreateHalfturret then calls Scene.InitEntity before RebuildPlayers
+        // changes the returned player's Active/Initial flags.
+        if (context.init_halfturret != nullptr) {
+            context.init_halfturret(player->Halfturret());
+        }
+
         auto flags = static_cast<std::uint8_t>(player->LoadFlags());
         flags = static_cast<std::uint8_t>(
             flags | static_cast<std::uint8_t>(formats::LoadFlags::SlotActive)
@@ -138,6 +145,8 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
         // The native player carries the same old-room reference reset at this
         // point as the managed NodeRef and CameraInfo.NodeRef assignments.
         player->ResetReferences();
+        player->NodeRef(culling::NodeRef::none());
+        player->Camera().info().node_ref = culling::NodeRef::none();
         player->IsBot(false);
         player->BotLevel(0);
     }

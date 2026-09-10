@@ -338,8 +338,6 @@ std::vector<std::unique_ptr<EntityRenderModel>> g_entity_models;
 // Session owns simulation state; this list owns room-scene membership created
 // by NetRoomChange.AfterRebuild.
 std::vector<fruityprime::players::PlayerEntity*> g_network_scene_players;
-std::vector<fruityprime::runtime::HalfturretEntity*>
-    g_network_scene_halfturrets;
 std::array<EntityRenderModel*, fruityprime::metadata::EnemyCount>
     g_enemy_models{};
 std::array<EntityRenderModel*, fruityprime::metadata::ItemCount>
@@ -1523,16 +1521,9 @@ void init_network_player(
 
 void init_network_halfturret(
     fruityprime::runtime::HalfturretEntity& halfturret) noexcept {
-    // RoomEntity.LoadRoom calls Scene.InitEntity(player.Halfturret) after
-    // PlayerEntity.Initialize.  Keep the managed initialization side effects
-    // (owner-relative transform, health split, and active state) before the
-    // scene registry records the entity.
-    halfturret.initialize_from_owner();
-    if (std::find(g_network_scene_halfturrets.begin(),
-                  g_network_scene_halfturrets.end(), &halfturret)
-        == g_network_scene_halfturrets.end()) {
-        g_network_scene_halfturrets.push_back(&halfturret);
-    }
+    // Scene.InitEntity only prepares the models already created by
+    // HalfturretEntity.Create.  It does not call HalfturretEntity.Initialize.
+    halfturret.init_scene_entity();
 }
 
 fruityprime::players::PlayerCamera& active_player_camera() noexcept {
@@ -1550,7 +1541,6 @@ void clear_room_render_resources() {
     active_player_camera().reset();
     g_entity_models.clear();
     g_network_scene_players.clear();
-    g_network_scene_halfturrets.clear();
     for (auto& model : g_player_models) {
         model.instance.reset();
         model.alt_instance.reset();
@@ -1857,7 +1847,7 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
         const fruityprime::net::NetRoomChange::RebuildContext rebuild{
             g_game_state, roster, static_cast<int>(g_local_slot),
             g_local_hunter, 0, g_slot_manager, g_net_damage, g_net_match_end,
-            g_net_log
+            g_net_log, &init_network_halfturret
         };
         auto* main_player = fruityprime::net::NetRoomChange::RebuildPlayers(
             rebuild);

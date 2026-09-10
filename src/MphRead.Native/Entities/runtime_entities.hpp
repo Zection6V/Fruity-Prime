@@ -659,6 +659,22 @@ public:
     }
     [[nodiscard]] float burn_seconds() const noexcept { return burn_seconds_; }
 
+    // HalfturretEntity.Create: build the two model slots before the owning
+    // PlayerEntity.Create call returns.  The renderer-facing Scene.InitEntity
+    // step is kept separate because the Win32 host owns display-list setup.
+    void create() noexcept { created_ = true; }
+    void init_scene_entity() noexcept { scene_initialized_ = true; }
+    [[nodiscard]] bool created() const noexcept { return created_; }
+    [[nodiscard]] bool scene_initialized() const noexcept {
+        return scene_initialized_;
+    }
+    [[nodiscard]] static constexpr std::string_view model_name() noexcept {
+        return "WeavelAlt_Turret_lod0";
+    }
+    [[nodiscard]] static constexpr std::string_view ice_model_name() noexcept {
+        return "alt_ice";
+    }
+
     void set_health(std::int32_t health) noexcept;
     void initialize_from_owner() noexcept;
     void take_damage(std::uint32_t damage,
@@ -713,6 +729,8 @@ private:
     float frozen_seconds_ = 0.0F;
     float burn_seconds_ = 0.0F;
     bool grounded_ = false;
+    bool created_ = false;
+    bool scene_initialized_ = false;
 };
 
 class EntityPool {

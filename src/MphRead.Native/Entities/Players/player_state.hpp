@@ -39,6 +39,7 @@ class BombEntity;
 class EnemyInstanceEntity;
 class EnemySpawnEntity;
 class EquipInfo;
+class JumpPadEntity;
 class MorphCameraEntity;
 class OctolithFlagEntity;
 
@@ -188,6 +189,9 @@ struct PlayerRuntimeState {
     PlayerValues Values{};  // property
     EnemySpawnEntity* EnemySpawner{};  // property
     EnemyInstanceEntity* AttachedEnemy{};  // property
+    EntityBase* Field35C{};
+    JumpPadEntity* LastJumpPad{};
+    EntityBase* LastTarget{};
     MorphCameraEntity* MorphCamera{};  // property
     OctolithFlagEntity* OctolithFlag{};  // property
     PlayerFlags1 Flags1{};  // property

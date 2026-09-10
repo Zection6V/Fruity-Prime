@@ -490,9 +490,7 @@ namespace {
 } // namespace
 
 PlayerEntity::PlayerEntity(int slot_index, gameplay::Session& session)
-    : session_(&session), slot_index_(slot_index),
-      halfturret_(std::make_unique<runtime::HalfturretEntity>(
-          0x80000000U | static_cast<std::uint32_t>(slot_index), *this)) {}
+    : session_(&session), slot_index_(slot_index) {}
 
 PlayerEntity::~PlayerEntity() = default;
 
@@ -683,6 +681,10 @@ void PlayerEntity::CreateHalfturret() {
     if (halfturret_ == nullptr) {
         halfturret_ = std::make_unique<runtime::HalfturretEntity>(
             0x80000000U | static_cast<std::uint32_t>(slot_index_), *this);
+        // PlayerEntity.CreateHalfturret calls HalfturretEntity.Create before
+        // returning.  Scene.InitEntity is the caller-owned step because the
+        // native renderer is not part of this entity class.
+        halfturret_->create();
     }
 }
 
@@ -1161,8 +1163,16 @@ void PlayerEntity::Initialize() noexcept {
 }
 
 void PlayerEntity::ResetReferences() noexcept {
-    node_ref_ = culling::NodeRef::none();
-    camera_.info().node_ref = culling::NodeRef::none();
+    // PlayerEntity.ResetReferences only clears references to room entities.
+    // NetRoomChange resets NodeRef and CameraInfo.NodeRef separately, exactly
+    // where the managed RebuildPlayers method does so.
+    runtime_state_.AttachedEnemy = nullptr;
+    runtime_state_.Field35C = nullptr;
+    runtime_state_.LastJumpPad = nullptr;
+    runtime_state_.OctolithFlag = nullptr;
+    runtime_state_.EnemySpawner = nullptr;
+    runtime_state_.LastTarget = nullptr;
+    runtime_state_.MorphCamera = nullptr;
 }
 
 void PlayerEntity::WeaponNameTable(std::vector<strings::TableEntry> entries) {

@@ -56,6 +56,10 @@ public:
         DamageBridge& damage;
         MatchEnd& match_end;
         NetLog& log;
+        // PlayerEntity.CreateHalfturret performs Scene.InitEntity immediately
+        // after HalfturretEntity.Create.  The host supplies that scene-bound
+        // operation at the same point in RebuildPlayers.
+        void (*init_halfturret)(runtime::HalfturretEntity&) noexcept;
     };
 
     struct AfterRebuildContext {

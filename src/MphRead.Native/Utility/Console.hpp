@@ -10,7 +10,7 @@ namespace MphRead
     public:
         [[nodiscard]] static std::string LaunchDirectory();
         static void Run();
-        [[nodiscard]] static std::uint32_t GetLastError();
+        static std::uint32_t GetLastError();
 
         ConsoleSetup() = delete;
         ConsoleSetup(const ConsoleSetup&) = delete;

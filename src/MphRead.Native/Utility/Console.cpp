@@ -1,31 +1,42 @@
 #include "Console.hpp"
 
+#include <atomic>
+#include <clocale>
+#include <cstdint>
+#include <cstdlib>
+#include <exception>
 #include <filesystem>
-#include <locale>
 #include <limits>
+#include <locale>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include <locale.h>
 #include <windows.h>
 #elif defined(__APPLE__)
+#include <locale.h>
 #include <mach-o/dyld.h>
 #include <stdlib.h>
 #elif defined(__FreeBSD__)
+#include <locale.h>
 #include <sys/param.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #elif defined(__linux__)
+#include <locale.h>
 #include <stdlib.h>
 #include <sys/auxv.h>
 #elif defined(__unix__)
+#include <locale.h>
 #include <stdlib.h>
 #endif
 
@@ -201,6 +212,32 @@ namespace
 #endif
     }
 
+    void SetInvariantCultureForCurrentThread()
+    {
+#if defined(_WIN32)
+        // CultureInfo.CurrentCulture is per-thread. Configure the CRT locale
+        // per-thread when this CRT supports it; never fall back to changing
+        // the process-global locale.
+        if (::_configthreadlocale(_ENABLE_PER_THREAD_LOCALE) != -1)
+        {
+            (void)::setlocale(LC_ALL, "C");
+        }
+#elif defined(LC_ALL_MASK)
+        // POSIX locale_t/uselocale is the thread-scoped analogue of managed
+        // CurrentCulture. The "C" locale is the native invariant locale.
+        static locale_t invariantLocale = ::newlocale(LC_ALL_MASK, "C", nullptr);
+        if (invariantLocale != static_cast<locale_t>(0))
+        {
+            (void)::uselocale(invariantLocale);
+        }
+#else
+        // No portable process-independent locale hook exists here. Retain a
+        // thread-local invariant object rather than introducing global state.
+        thread_local const std::locale invariantCulture = std::locale::classic();
+        (void)invariantCulture;
+#endif
+    }
+
     [[nodiscard]] std::optional<std::filesystem::path> ProcessPath()
     {
 #if defined(_WIN32)
@@ -295,13 +332,40 @@ namespace
 
     struct ConsoleSetupState final
     {
-        std::string LaunchDirectory = CurrentDirectory();
+        std::atomic<std::shared_ptr<const std::string>> LaunchDirectory;
+
+        explicit ConsoleSetupState(std::string launchDirectory)
+            : LaunchDirectory(std::make_shared<const std::string>(std::move(launchDirectory)))
+        {
+        }
+    };
+
+    struct ConsoleSetupStateHolder final
+    {
+        std::optional<ConsoleSetupState> Value;
+        std::exception_ptr InitializationException;
+
+        ConsoleSetupStateHolder() noexcept
+        {
+            try
+            {
+                Value.emplace(CurrentDirectory());
+            }
+            catch (...)
+            {
+                InitializationException = std::current_exception();
+            }
+        }
     };
 
     ConsoleSetupState& State()
     {
-        static ConsoleSetupState state;
-        return state;
+        static ConsoleSetupStateHolder holder;
+        if (holder.InitializationException)
+        {
+            std::rethrow_exception(holder.InitializationException);
+        }
+        return *holder.Value;
     }
 }
 
@@ -309,24 +373,25 @@ namespace MphRead
 {
     std::string ConsoleSetup::LaunchDirectory()
     {
-        return State().LaunchDirectory;
+        const std::shared_ptr<const std::string> value
+            = State().LaunchDirectory.load(std::memory_order_acquire);
+        return *value;
     }
 
     void ConsoleSetup::Run()
     {
         ConsoleSetupState& state = State();
 
-        std::locale::global(std::locale::classic());
-        state.LaunchDirectory = CurrentDirectory();
+        SetInvariantCultureForCurrentThread();
+        state.LaunchDirectory.store(
+            std::make_shared<const std::string>(CurrentDirectory()),
+            std::memory_order_release);
         std::filesystem::current_path(BaseDirectory());
 
 #if defined(_WIN32)
         constexpr int StdOutputHandle = -11;
         constexpr DWORD EnableVirtualTerminalProcessing = 0x0004U;
 
-        // DllImport(SetLastError = true) clears the native last-error slot before
-        // the call on current .NET runtimes, then preserves the result for managed
-        // retrieval. Preserve the native observable part of that behavior here.
         ::SetLastError(ERROR_SUCCESS);
         HANDLE stdOut = ::GetStdHandle(static_cast<DWORD>(StdOutputHandle));
         DWORD outConsoleMode = 0;
@@ -338,7 +403,6 @@ namespace MphRead
 
     std::uint32_t ConsoleSetup::GetLastError()
     {
-        (void)State();
 #if defined(_WIN32)
         return static_cast<std::uint32_t>(::GetLastError());
 #else

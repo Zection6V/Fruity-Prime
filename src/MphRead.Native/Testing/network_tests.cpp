@@ -1,4 +1,8 @@
 #include "Mods/Network/dedicated_server.hpp"
+#include "Assets/game_assets.hpp"
+#include "Entities/Players/PlayerEntity.hpp"
+#include "Entities/room_catalog.hpp"
+#include "Entities/scene.hpp"
 #include "Mods/Network/master_client.hpp"
 #include "Mods/Network/master_server.hpp"
 #include "Mods/Network/match_client.hpp"
@@ -22,6 +26,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -383,6 +388,42 @@ void test_match_state_boundaries() {
         &note_room_fade, room_log
     });
     assert(room_fade_started);
+    // C# AfterRebuild is called only after PlayerEntity.Construct and the
+    // room's player table has been populated.  This network-only test has no
+    // room fixture unless a ROM is supplied, so do not call the production
+    // method against an unconstructed table.  The real-room branch exercises
+    // the same lifecycle and callbacks when the fixture is available.
+    const char* rom_value = std::getenv("FRUITY_PRIME_TEST_NDS");
+    if (rom_value == nullptr || rom_value[0] == '\0') {
+        std::cout << "network room rebuild test skipped: "
+                     "set FRUITY_PRIME_TEST_NDS\n";
+        assert(!fruityprime::net::NetRoomChange::Settling(20));
+        return;
+    }
+
+    const auto assets = fruityprime::assets::Store::from_rom(rom_value);
+    const auto* room_entry = fruityprime::scene::find_multiplayer_room(
+        "MP1 SANCTORUS");
+    assert(room_entry != nullptr);
+    const auto room = fruityprime::scene::Room::load(
+        assets, room_entry->definition);
+    fruityprime::gameplay::Session session(room);
+    fruityprime::players::PlayerEntity::Reset();
+    fruityprime::players::PlayerEntity::Construct(session);
+    fruityprime::players::PlayerEntity::MaxPlayers(2);
+    auto* local_player = fruityprime::players::PlayerEntity::Create(
+        fruityprime::metadata::Hunter::Samus, 0);
+    auto* remote = fruityprime::players::PlayerEntity::Create(
+        fruityprime::metadata::Hunter::Weavel, 0);
+    assert(local_player != nullptr && remote != nullptr);
+    const auto active_flags = static_cast<fruityprime::formats::LoadFlags>(
+        static_cast<std::uint8_t>(fruityprime::formats::LoadFlags::SlotActive)
+        | static_cast<std::uint8_t>(fruityprime::formats::LoadFlags::Active)
+        | static_cast<std::uint8_t>(fruityprime::formats::LoadFlags::Initial));
+    local_player->LoadFlags(active_flags);
+    remote->LoadFlags(active_flags);
+    fruityprime::players::PlayerEntity::PlayerCount(1);
+    fruityprime::players::PlayerEntity::MainPlayerIndex(0);
     fruityprime::net::NetPlayerBridge room_bridge;
     fruityprime::net::NetRoomChange::AfterRebuild({
         20, room_bridge, room_log,
@@ -391,6 +432,7 @@ void test_match_state_boundaries() {
     });
     assert(fruityprime::net::NetRoomChange::Settling(20));
     assert(!fruityprime::net::NetRoomChange::Settling(80));
+    fruityprime::players::PlayerEntity::Reset();
 }
 
 void test_net_log() {

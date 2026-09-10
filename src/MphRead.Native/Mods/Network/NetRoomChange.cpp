@@ -174,7 +174,7 @@ void NetRoomChange::AfterRebuild(
     const int main_player = players::PlayerEntity::MainPlayerIndex();
     for (std::size_t slot = 0; slot < table.size(); ++slot) {
         players::PlayerEntity* player = table[slot];
-        if (player == nullptr || static_cast<int>(slot) == main_player) {
+        if (static_cast<int>(slot) == main_player) {
             continue;
         }
         const auto flags = static_cast<std::uint8_t>(player->LoadFlags());

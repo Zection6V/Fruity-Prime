@@ -1772,9 +1772,7 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
         // before the room and player collections are discarded.  RebuildPlayers
         // only performs its separate NodeRef assignments, as the C# code does.
         for (auto* player : fruityprime::players::PlayerEntity::Players()) {
-            if (player != nullptr) {
-                player->ResetReferences();
-            }
+            player->ResetReferences();
         }
         g_session.reset();
         g_room.reset();
@@ -1866,10 +1864,6 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
         };
         auto* main_player = fruityprime::net::NetRoomChange::RebuildPlayers(
             rebuild);
-        if (main_player == nullptr) {
-            throw std::runtime_error(
-                "network room rebuild did not create the local player");
-        }
         // RoomEntity.LoadRoom inserts the local player before the managed
         // AfterRebuild loop, which intentionally skips MainPlayerIndex.
         insert_network_player(*main_player);

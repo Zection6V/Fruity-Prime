@@ -250,8 +250,21 @@ namespace MphRead::Mods::Network::Detail
                 throw SocketException(SocketErrorMessage(error), IsTimeoutError(error));
             }
 #else
-            const ssize_t sent = sendto(_socket, data, length, 0,
-                reinterpret_cast<const sockaddr*>(&destination), sizeof(destination));
+            ssize_t sent;
+#if defined(__APPLE__) && __APPLE__
+            int maxProtoRetry = 4;
+            while ((sent = sendto(_socket, data, length, 0,
+                    reinterpret_cast<const sockaddr*>(&destination), sizeof(destination))) < 0
+                && (errno == EINTR || (errno == EPROTOTYPE && --maxProtoRetry > 0)))
+            {
+            }
+#else
+            while ((sent = sendto(_socket, data, length, 0,
+                    reinterpret_cast<const sockaddr*>(&destination), sizeof(destination))) < 0
+                && errno == EINTR)
+            {
+            }
+#endif
             if (sent < 0)
             {
                 const int error = errno;
@@ -276,8 +289,13 @@ namespace MphRead::Mods::Network::Detail
             }
 #else
             socklen_t fromLength = sizeof(from);
-            const ssize_t received = recvfrom(_socket, buffer.data(), buffer.size(), 0,
-                reinterpret_cast<sockaddr*>(&from), &fromLength);
+            ssize_t received;
+            while ((received = recvfrom(_socket, buffer.data(), buffer.size(), 0,
+                    reinterpret_cast<sockaddr*>(&from), &fromLength)) < 0
+                && errno == EINTR)
+            {
+                fromLength = sizeof(from);
+            }
             if (received < 0)
             {
                 const int error = errno;

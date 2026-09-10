@@ -7,6 +7,7 @@
 #include "Metadata/room_metadata.hpp"
 #include "Mods/Network/net_damage.hpp"
 #include "Mods/Network/net_log.hpp"
+#include "Mods/Network/net_launch.hpp"
 #include "Mods/Network/net_match_end.hpp"
 #include "Mods/Network/net_player_bridge.hpp"
 #include "Mods/Network/net_player_setup.hpp"
@@ -163,7 +164,7 @@ bool NetRoomChange::Settling(std::uint32_t net_frame) noexcept {
 }
 
 int NetRoomChange::RoomPlayerCount(bool active) noexcept {
-    return active ? NetworkRoomPlayerCount : 0;
+    return active ? NetLaunch::RoomPlayerCount : 0;
 }
 
 bool NetRoomChange::Rebuilding(bool active) noexcept {
@@ -320,18 +321,6 @@ void NetRoomChange::AfterRebuild(
                                + " re-inserted into the new room");
         }
     }
-}
-
-const std::string& NetRoomChange::Requested() noexcept {
-    return requested_;
-}
-
-std::uint16_t NetRoomChange::LoadedMatch() noexcept {
-    return loaded_match_;
-}
-
-std::uint32_t NetRoomChange::LoadedFrame() noexcept {
-    return loaded_frame_;
 }
 
 void NetRoomChange::ResetScores(game::State& state,

@@ -342,8 +342,6 @@ void test_match_state_boundaries() {
         &note_room_fade, nullptr
     });
     assert(room_fade_started);
-    assert(fruityprime::net::NetRoomChange::Requested()
-           == "MP3 PROVING GROUND");
     room_fade_started = false;
     fruityprime::net::NetRoomChange::Sync({
         true, true, room_state.room_name, &state, 2, &room_state,
@@ -357,7 +355,7 @@ void test_match_state_boundaries() {
         true, false, room_state.room_name, &state, 3, &room_state,
         &note_room_fade, nullptr
     });
-    assert(fruityprime::net::NetRoomChange::Requested().empty());
+    assert(room_state.transition_room_id != 0);
     state.match_id = 2;
     room_fade_started = false;
     fruityprime::net::NetRoomChange::Sync({

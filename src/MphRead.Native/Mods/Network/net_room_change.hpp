@@ -35,10 +35,6 @@ class SlotManager;
 // private static fields in the C# class.
 class NetRoomChange final {
 public:
-    static constexpr std::uint32_t SettleFrames = 60;
-    static constexpr std::uint32_t RequestRetryFrames = 300;
-    static constexpr int NetworkRoomPlayerCount = 2;
-
     struct SyncContext {
         bool active = false;
         bool in_room_transition = false;
@@ -90,11 +86,10 @@ public:
     // initialization and closes the settling boundary.
     static void AfterRebuild(const AfterRebuildContext& context) noexcept;
 
-    [[nodiscard]] static const std::string& Requested() noexcept;
-    [[nodiscard]] static std::uint16_t LoadedMatch() noexcept;
-    [[nodiscard]] static std::uint32_t LoadedFrame() noexcept;
-
 private:
+    static constexpr std::uint32_t SettleFrames = 60;
+    static constexpr std::uint32_t RequestRetryFrames = 300;
+
     static void ResetScores(game::State& state, MatchEnd& match_end) noexcept;
 
     inline static std::string requested_{};

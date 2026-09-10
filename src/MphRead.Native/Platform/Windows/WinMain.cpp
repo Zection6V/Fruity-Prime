@@ -1523,6 +1523,11 @@ void init_network_player(
 
 void init_network_halfturret(
     fruityprime::runtime::HalfturretEntity& halfturret) noexcept {
+    // RoomEntity.LoadRoom calls Scene.InitEntity(player.Halfturret) after
+    // PlayerEntity.Initialize.  Keep the managed initialization side effects
+    // (owner-relative transform, health split, and active state) before the
+    // scene registry records the entity.
+    halfturret.initialize_from_owner();
     if (std::find(g_network_scene_halfturrets.begin(),
                   g_network_scene_halfturrets.end(), &halfturret)
         == g_network_scene_halfturrets.end()) {
@@ -1863,6 +1868,12 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
         // RoomEntity.LoadRoom inserts the local player before the managed
         // AfterRebuild loop, which intentionally skips MainPlayerIndex.
         insert_network_player(*main_player);
+        // RoomEntity.LoadRoom initializes the main player and both of its
+        // model-bearing entities before NetRoomChange.AfterRebuild handles
+        // the remaining slots.
+        initialize_network_player(*main_player);
+        init_network_player(*main_player);
+        init_network_halfturret(main_player->Halfturret());
         fruityprime::net::NetRoomChange::AfterRebuild({
             g_net_frame, g_net_player_bridge, g_net_log,
             &insert_network_player, &initialize_network_player,

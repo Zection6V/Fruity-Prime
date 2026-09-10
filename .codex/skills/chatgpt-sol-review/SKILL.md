@@ -22,6 +22,13 @@ perform the requested local work yourself.
 
 - Treat a visible stopped state (for example, the UI says that thinking was
   stopped) as an interrupted response, not as a completed review.
+- Before deciding that a response stopped, inspect the composer button again.
+  A blue circular button containing a white square and labelled `回答を停止`
+  means the response is still running; do not send a continuation while that
+  button is present. A blue circular button containing the white waveform
+  icon, with the stop-square action gone, is the fully stopped state and may
+  be recovered. Prefer the accessible label/state over the icon when the UI
+  exposes both.
 - Re-observe the ChatGPT tab before acting and verify that it is the intended
   conversation. Send one short continuation message such as `続けて` to the
   same conversation, then wait for the response. Do not repeat the message in a

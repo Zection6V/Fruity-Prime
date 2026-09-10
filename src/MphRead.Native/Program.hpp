@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -9,17 +8,6 @@
 
 namespace System
 {
-    // C++20 language/runtime seam for System.Version.
-    //
-    // This is intentionally limited to the System.Version behavior that is
-    // observable through Program.cs:
-    //   * two/four-component storage semantics,
-    //   * TryParse,
-    //   * comparison,
-    //   * ToString.
-    //
-    // It is not an application-level replacement API and contains no
-    // Fruity-Prime-specific behavior.
     class Version final
     {
     public:
@@ -27,21 +15,8 @@ namespace System
         Version(int major, int minor, int build);
         Version(int major, int minor, int build, int revision);
 
-        [[nodiscard]] int Major() const noexcept;
-        [[nodiscard]] int Minor() const noexcept;
-        [[nodiscard]] int Build() const noexcept;
-        [[nodiscard]] int Revision() const noexcept;
+        [[nodiscard]] static std::optional<Version> TryParse(std::string_view text) noexcept;
 
-        [[nodiscard]] std::string ToString() const;
-
-        [[nodiscard]] static std::optional<Version> TryParse(
-            std::string_view text) noexcept;
-
-        friend bool operator==(const Version& left, const Version& right) noexcept;
-        friend bool operator!=(const Version& left, const Version& right) noexcept;
-        friend bool operator<(const Version& left, const Version& right) noexcept;
-        friend bool operator<=(const Version& left, const Version& right) noexcept;
-        friend bool operator>(const Version& left, const Version& right) noexcept;
         friend bool operator>=(const Version& left, const Version& right) noexcept;
 
     private:
@@ -57,14 +32,10 @@ namespace MphRead
     class Program final
     {
     public:
-        // C#:
-        // public static Version Version { get; } = new Version(0, 35, 1, 0);
         static const System::Version Version;
 
-        // C# Main is private because the CLR can designate a private method as
-        // the assembly entry point. ISO C++ requires an externally callable
-        // startup/ABI seam. This method is therefore exposed solely for that
-        // seam; it remains the one and only application dispatcher.
+        // Language/runtime entry seam: C# can designate a private method as the
+        // CLR entry point; native startup code must be able to call this symbol.
         static void Main(const std::vector<std::string>& args);
 
         Program() = delete;

@@ -46,6 +46,10 @@ inline void decrement_signed(std::int32_t& timer,
         60, 91, 103, 60, 61, 33, 33, 81, 66};
     static constexpr std::array<std::uint16_t, 11> gorea_2{
         41, 85, 41, 41, 111, 52, 43, 43, 43, 92, 43};
+    // LavaDemon: the two throws, the dive and the rise.  Read off the
+    // cartridge the same way the three above were.
+    static constexpr std::array<std::uint16_t, 4> fire_spawn{
+        80, 80, 27, 90};
 
     const auto lookup = [animation, fallback](
                             const auto& lengths) noexcept {
@@ -59,6 +63,8 @@ inline void decrement_signed(std::int32_t& timer,
         return lookup(gorea_1b);
     case static_cast<std::uint8_t>(formats::EnemyType::Gorea2):
         return lookup(gorea_2);
+    case static_cast<std::uint8_t>(formats::EnemyType::FireSpawn):
+        return lookup(fire_spawn);
     default:
         return std::max<std::uint16_t>(1, fallback);
     }

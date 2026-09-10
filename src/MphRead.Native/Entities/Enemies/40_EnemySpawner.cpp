@@ -2,6 +2,7 @@
 // Enemy40 owns the room-spawner lifecycle boundary. Its update body is kept
 // here so gameplay.cpp remains an orchestration module rather than a second
 // implementation of every enemy class.
+#include "39_FireSpawn.hpp"
 #include "45_SlenchTurret.hpp"
 #include "36_Voldrum.hpp"
 #include "35_Voldrum.hpp"
@@ -267,24 +268,7 @@ void Session::update_enemy_spawns() {
                 }
             }
             if (spawned.firespawn.supported) {
-                const auto& profile = spawned.firespawn;
-                spawned.health = spawned.health_max = profile.health;
-                spawned.body_radius = 1.0F;
-                spawned.visible = false;
-                spawned.invulnerable = true;
-                spawned.firespawn_submerged = true;
-                spawned.firespawn_tangibility_timer = 0;
-                const auto dive_range = static_cast<std::uint32_t>(
-                    profile.dive_timer_max >= profile.dive_timer_min
-                    ? profile.dive_timer_max - profile.dive_timer_min + 1u : 1u);
-                spawned.firespawn_dive_timer = static_cast<std::uint32_t>(
-                    profile.dive_timer_min + rng_.random2(dive_range)) * 2u;
-                const auto attack_range = static_cast<std::uint32_t>(
-                    profile.attack_count_max >= profile.attack_count_min
-                    ? profile.attack_count_max - profile.attack_count_min + 1u : 1u);
-                spawned.firespawn_attacks_remaining =
-                    static_cast<std::uint16_t>(profile.attack_count_min
-                        + rng_.random2(attack_range));
+                enemy::module_39_fire_spawn::EnemyInitialize(spawned);
             }
             if (spawned.carnivorous_plant.supported) {
                 spawned.health = spawned.health_max =

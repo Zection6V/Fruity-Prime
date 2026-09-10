@@ -327,6 +327,31 @@ struct EnemyState {
     std::uint32_t firespawn_tangibility_timer = 0;
     std::uint16_t firespawn_attacks_remaining = 0;
     bool firespawn_submerged = true;
+    // Enemy39Entity's animation cursor.  Four animations: nought and one
+    // are the two throws, alternating hands, two is the dive and three is
+    // the rise.  Which one is running, and whether it has finished, is
+    // what the state machine actually reads -- a Fire Spawn's timings are
+    // its animations rather than counters.
+    std::uint8_t firespawn_animation = 3;
+    std::uint16_t firespawn_animation_frame = 0;
+    std::uint16_t firespawn_animation_length = 0;
+    bool firespawn_animation_ended = false;
+    bool firespawn_animation_paused = true;
+    // Enemy39Entity._animFrameCount: a countdown from the throw
+    // animation's length, which the throw's own frame numbers are read
+    // against.
+    std::int32_t firespawn_anim_frame_count = 0;
+    // Which hand the next fireball comes from.  It alternates, so a Fire
+    // Spawn throws left, right, left.
+    std::uint8_t firespawn_wrist_id = 1;
+    // The sign on the angle it picks its next surfacing spot at, which
+    // alternates so it works back and forth across its pool rather than
+    // circling it.
+    std::int8_t firespawn_surface_direction = 1;
+    // The fireball held in its hand between frames 52 and 26.  Zero means
+    // none; the effect is detached rather than left when it is thrown.
+    std::uint32_t firespawn_effect_id = 0;
+    std::uint8_t firespawn_subtype = 0;
     std::uint32_t shriekbat_timer = 0;
     net::Vec3 shriekbat_target;
     std::uint32_t petrasyl_timer = 0;

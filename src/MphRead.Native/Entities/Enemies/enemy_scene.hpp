@@ -100,6 +100,22 @@ struct EnemyScene {
     // list belongs to the session rather than to the enemy.
     std::function<void(net::Vec3 position, std::uint8_t item_type,
                        std::uint32_t despawn_frames)> DropItem;
+
+    // Scene.SpawnEffectGetEntry.  Unlike SpawnEffect this one hands back
+    // a handle, because the enemy that asked for it intends to move it
+    // about -- a fireball held in a hand is not where it was created.
+    std::function<std::uint32_t(std::uint32_t effect, net::Vec3 position,
+                                net::Vec3 direction,
+                                std::uint32_t owner_id)> SpawnPersistentEffect;
+
+    // EffectEntry.Transform: put one of those somewhere else.
+    std::function<void(std::uint32_t effect, net::Vec3 position,
+                       net::Vec3 direction)> MoveEffect;
+
+    // Enemy50Entity, the linked hit zone.  Several enemies are not
+    // shootable in their own right -- what a shot lands on is a volume
+    // parented to them -- so becoming vulnerable means turning that on.
+    std::function<void(const EnemyState& owner, bool collidable)> SetHitZone;
 };
 
 

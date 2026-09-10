@@ -632,6 +632,26 @@ struct EnemyState {
     net::Vec3 gorea_meteor_effect_facing{0.0F, 0.0F, 1.0F};
     float gorea_meteor_rotation = 0.0F;
     std::uint32_t gorea_meteor_shake_timer = 0;
+    // Enemy33Entity's two fuses.  They do not run together: the long one
+    // ticks only while the meteor is still looking for somebody, and the
+    // short one only after it has found them.  That is the mechanic --
+    // being noticed halves what is left, and the flashing says so.
+    std::uint32_t gorea_meteor_long_fuse = 0;
+    std::uint32_t gorea_meteor_short_fuse = 0;
+    // The flash: an interval, a countdown, and which half of it we are in.
+    std::uint8_t gorea_meteor_flash_interval = 0;
+    std::uint8_t gorea_meteor_flash_timer = 0;
+    bool gorea_meteor_flashing = false;
+    // EnemyInstanceEntity._timeSinceDamage, which is what actually turns
+    // the model red.  A meteor drives it deliberately rather than only
+    // when hurt.
+    std::uint16_t gorea_meteor_time_since_damage = 510;
+    // The four weights Enemy33Entity rolls its drop against.  They are
+    // authored per meteor rather than shared, so they live here.
+    std::uint16_t gorea_meteor_item_chance1 = 0;
+    std::uint16_t gorea_meteor_item_chance2 = 0;
+    std::uint16_t gorea_meteor_item_chance3 = 0;
+    std::uint16_t gorea_meteor_item_chance4 = 0;
     std::uint16_t turret_burst_remaining = 0;
     std::uint32_t turret_shot_timer = 0;
     std::uint32_t turret_delay_timer = 0;
@@ -946,6 +966,10 @@ private:
     // per enemy per frame rather than kept, because a seam that outlives
     // the call is a seam something can hold on to.
     [[nodiscard]] EnemyScene build_enemy_scene(net::Vec3 prev_position);
+    // The meteor adds two calls of its own to that: the effects it leaves
+    // behind, and the item it drops when it is shot down.
+    [[nodiscard]] EnemyScene build_gorea_meteor_scene(
+        const EnemyState& agent);
 
     // CollisionDetection's queries take the room's collision as a list of
     // parts, which is what a room is made of -- but scene::Room keeps the
@@ -1041,6 +1065,10 @@ private:
     [[nodiscard]] bool sample_gorea_2_node(
         const EnemyState& parent, std::string_view node_name,
         formats::Matrix4& transform);
+    // Enemy33Entity.EnemyTakeDamage, on the meteor named.  Returns
+    // whether the hit is to be ignored, which for a meteor is always: it
+    // decides for itself whether it flashes or dies.
+    [[nodiscard]] bool gorea_meteor_take_damage(EnemyState& agent);
     void detonate_gorea_meteor(EnemyState& agent,
                                std::uint16_t effect_id);
     void update_carnivorous_plant(EnemyState& agent);

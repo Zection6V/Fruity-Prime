@@ -1,3 +1,4 @@
+#include "33_GoreaMeteor.hpp"
 #include "31_Gorea2.hpp"
 #include "enemy_common.hpp"
 #include "gorea_common.hpp"
@@ -280,20 +281,13 @@ void Session::update_gorea_2(EnemyState& agent) {
         meteor.behavior_origin = position;
         meteor.facing = normalized_or(direction, agent.facing);
         meteor.up = agent.up;
-        meteor.health = 8;
-        meteor.health_max = 8;
-        meteor.body_radius = 1.0F;
-        meteor.gorea_state_timer = 150u * 2u;
-        meteor.gorea_aux_timer = 390u * 2u;
-        meteor.gorea_meteor_base_position = position;
-        meteor.gorea_meteor_previous_position = position;
-        meteor.gorea_meteor_effect_up = {0.0F, 1.0F, 0.0F};
-        meteor.gorea_meteor_effect_facing = meteor.facing;
-        meteor.gorea_meteor_rotation = 0.0F;
         meteor.gorea_activated = true;
-        meteor.visible = true;
         meteor.active = true;
         meteor.spawner_entity_id = -1;
+        // Everything else about a meteor is the meteor's own business.
+        enemy::module_33_gorea_meteor::EnemyInitialize(meteor);
+        enemy::module_33_gorea_meteor::InitializePosition(meteor, position);
+        meteor.gorea_meteor_effect_facing = meteor.facing;
         pending_enemy_spawns_.push_back(std::move(meteor));
         if (agent.gorea_meteor_count < 255) {
             ++agent.gorea_meteor_count;
@@ -1337,3 +1331,39 @@ void Session::update_gorea_2(EnemyState& agent) {
 } // namespace fruityprime::gameplay
 
 static_assert(fruityprime::enemy::module_31_gorea_2::kModule.managed_class.size() != 0);
+
+namespace fruityprime::enemy::module_31_gorea_2 {
+
+net::Vec3 Func21418EC(const net::Vec3 vec1, const net::Vec3 vec2) noexcept {
+    const auto cross = [](const net::Vec3 a, const net::Vec3 b) {
+        return net::Vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+                         a.x * b.y - a.y * b.x};
+    };
+    const auto too_short = [](const net::Vec3 v) {
+        return v.x * v.x + v.y * v.y + v.z * v.z <= 1.0F / 128.0F;
+    };
+    net::Vec3 result = cross(vec1, vec2);
+    if (too_short(result)) {
+        result = cross(vec1, {1.0F, 0.0F, 0.0F});
+        if (too_short(result)) {
+            result = cross(vec1, {0.0F, 1.0F, 0.0F});
+            if (too_short(result)) {
+                result = cross(vec1, {0.0F, 0.0F, 1.0F});
+                if (too_short(result)) {
+                    // The cartridge returns whatever was last in the
+                    // register here.  Zero is the one answer that cannot
+                    // be mistaken for a direction.
+                    return {};
+                }
+            }
+        }
+    }
+    const float length = std::sqrt(result.x * result.x + result.y * result.y
+                                   + result.z * result.z);
+    if (length > 0.0F) {
+        result = {result.x / length, result.y / length, result.z / length};
+    }
+    return cross(result, vec1);
+}
+
+} // namespace fruityprime::enemy::module_31_gorea_2

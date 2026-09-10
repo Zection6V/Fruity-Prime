@@ -94,6 +94,12 @@ struct EnemyScene {
     std::function<Blocking(EnemyState& agent,
                            const scene::EntityVolume& volume,
                            bool update_speed)> BlockingCollision;
+
+    // ItemInstanceEntity, created where this enemy died.  The despawn is
+    // in frames because that is what the enemy authored, and the item
+    // list belongs to the session rather than to the enemy.
+    std::function<void(net::Vec3 position, std::uint8_t item_type,
+                       std::uint32_t despawn_frames)> DropItem;
 };
 
 

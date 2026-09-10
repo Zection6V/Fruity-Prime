@@ -237,27 +237,12 @@ bool Session::damage_enemy(std::uint32_t id, std::uint32_t damage,
         if (!enemy->active || damage == 0 || enemy->health == 0) {
             return false;
         }
-        // Enemy33Entity tests the post-subtraction health in EnemyTakeDamage:
-        // non-lethal hits flash/shake, while a lethal hit goes directly to
-        // the item-drop plus goreaMeteorDestroy path.
+        // Enemy33Entity tests the health *after* subtraction, so the same
+        // method both flashes a meteor that survived and buries one that
+        // did not.  What either means belongs to the meteor.
         enemy->health = enemy->health > damage
             ? static_cast<std::uint16_t>(enemy->health - damage) : 0;
-        if (enemy->health != 0) {
-            enemy->gorea_meteor_shake_timer = 30u * 2u;
-            spawn_effect(176, enemy->position,
-                         enemy->facing, enemy->id);
-            enemy->gorea_damage_timer = 30u * 2u;
-        }
-        if (enemy->health == 0) {
-            const auto drop_roll = rng_.random2(100u);
-            if (drop_roll < 40u) {
-                spawn_item_drop(ItemType::HealthSmall, enemy->position);
-            } else if (drop_roll < 80u) {
-                spawn_item_drop(ItemType::UASmall, enemy->position);
-            }
-            detonate_gorea_meteor(*enemy, 177); // goreaMeteorDestroy
-        }
-        return false;
+        return gorea_meteor_take_damage(*enemy);
     default:
         break;
     }

@@ -22,6 +22,11 @@ perform the requested local work yourself.
 
 - Treat a visible stopped state (for example, the UI says that thinking was
   stopped) as an interrupted response, not as a completed review.
+- Let high-reasoning analysis and repository inspection run to completion
+  whenever the UI is making progress. Do not stop a response merely because it
+  is taking several minutes or because intermediate progress is repetitive;
+  use bounded polling and continue waiting. Stop or recover only for a clearly
+  stalled response, an explicit user request, or an actual UI/tool failure.
 - Before deciding that a response stopped, inspect the composer button again.
   A blue circular button containing a white square and labelled `回答を停止`
   means the response is still running; do not send a continuation while that

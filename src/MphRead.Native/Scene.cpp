@@ -2,7 +2,6 @@
 
 #include "Entities/room_catalog.hpp"
 #include "Formats/Types.hpp"
-#include "Mods/Render/render_mods.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -78,12 +77,6 @@ bool Scene::start_camera_sequence(
         stop_camera_sequence();
         return false;
     }
-}
-
-void Scene::set_preview_camera(formats::Vector3 position,
-                               formats::Vector3 target, float fov) noexcept {
-    stop_camera_sequence();
-    camera_state_ = mods::render::preview_camera(position, target, fov);
 }
 
 void Scene::stop_camera_sequence() noexcept {

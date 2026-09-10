@@ -1,71 +1,39 @@
 // Native counterpart of MphRead/Mods/Render/PreviewCamera.cs.
-// The camera basis is frontend-neutral and is shared by room previews and
-// thumbnail callers.
-#include "render_mods.hpp"
+#include "Scene.hpp"
 
-#include <cmath>
-
-namespace fruityprime::mods::render {
+namespace fruityprime::scene_runtime {
 namespace {
 
-[[nodiscard]] formats::Vector3 subtract(formats::Vector3 left,
-                                         formats::Vector3 right) noexcept {
-    return {left.x - right.x, left.y - right.y, left.z - right.z};
-}
-
-[[nodiscard]] formats::Vector3 cross_product(formats::Vector3 left,
-                                               formats::Vector3 right) noexcept {
-    return {left.y * right.z - left.z * right.y,
-            left.z * right.x - left.x * right.z,
-            left.x * right.y - left.y * right.x};
-}
-
-[[nodiscard]] float length_squared(formats::Vector3 value) noexcept {
-    return value.x * value.x + value.y * value.y + value.z * value.z;
-}
-
-[[nodiscard]] formats::Vector3 normalized_or(formats::Vector3 value,
-                                             formats::Vector3 fallback) noexcept {
-    const float squared = length_squared(value);
-    // PreviewCamera.cs uses LengthSquared < 0.0001f for both the facing and
-    // right-vector fallbacks. Keep that exact threshold instead of replacing
-    // the managed boundary with a machine-epsilon test.
-    if (squared < 0.0001F) {
+[[nodiscard]] formats::Vector3 normalized_or(
+    formats::Vector3 value, formats::Vector3 fallback) noexcept {
+    // PreviewCamera.cs uses LengthSquared < 0.0001f, including for the
+    // camera-right fallback. Do not replace that managed boundary with the
+    // vector type's machine-epsilon check.
+    if (value.length_squared() < 0.0001F) {
         return fallback;
     }
-    const float inverse = 1.0F / std::sqrt(squared);
-    return {value.x * inverse, value.y * inverse, value.z * inverse};
+    return value.normalized();
 }
 
 } // namespace
 
-PreviewPose preview_pose(formats::Vector3 position,
-                         formats::Vector3 target) noexcept {
-    PreviewPose result;
+void Scene::set_preview_camera(formats::Vector3 position,
+                               formats::Vector3 target) noexcept {
+    // This is the native Scene representation of the managed fields set by
+    // SetPreviewCamera. The managed method does not stop an authored camera
+    // sequence and does not replace the current FOV.
+    camera::CameraState result = camera_state_.value_or(camera::CameraState{});
     result.position = position;
     result.target = target;
-    result.facing = normalized_or(subtract(target, position),
-                                  {0.0F, 0.0F, -1.0F});
-    result.right = normalized_or(cross_product(
-                                     result.facing, {0.0F, 1.0F, 0.0F}),
-                                 {1.0F, 0.0F, 0.0F});
-    result.up = normalized_or(cross_product(result.right, result.facing),
-                              {0.0F, 1.0F, 0.0F});
-    return result;
+
+    const formats::Vector3 facing = normalized_or(
+        target - position, {0.0F, 0.0F, -1.0F});
+    const formats::Vector3 right = normalized_or(
+        formats::cross(facing, {0.0F, 1.0F, 0.0F}),
+        {1.0F, 0.0F, 0.0F});
+    result.facing = facing;
+    result.up_vector = formats::cross(right, facing).normalized();
+    camera_state_ = result;
 }
 
-camera::CameraState preview_camera(formats::Vector3 position,
-                                    formats::Vector3 target,
-                                    float fov) noexcept {
-    const PreviewPose pose = preview_pose(position, target);
-    camera::CameraState result;
-    result.position = pose.position;
-    result.previous_position = pose.position;
-    result.target = pose.target;
-    result.up_vector = pose.up;
-    result.facing = pose.facing;
-    result.fov = std::isfinite(fov) && fov > 0.0F ? fov : 45.0F;
-    return result;
-}
-
-} // namespace fruityprime::mods::render
+} // namespace fruityprime::scene_runtime

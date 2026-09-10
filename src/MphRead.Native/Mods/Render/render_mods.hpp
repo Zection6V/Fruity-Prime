@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Formats/camera_sequence.hpp"
-
 #include <cstdint>
 #include <span>
 
@@ -29,23 +27,5 @@ struct IconBounds {
 [[nodiscard]] IconBounds icon_bounds(std::span<const std::uint8_t> data,
                                      int frame, int width,
                                      int height) noexcept;
-
-// The managed PreviewCamera mod computes a camera basis from a position and
-// look-at point before handing it to Scene. Keep the basis independent from a
-// graphics API so room thumbnails, the Win32 preview, and future frontends
-// can share the same fallback for a zero-length direction.
-struct PreviewPose {
-    formats::Vector3 position;
-    formats::Vector3 target;
-    formats::Vector3 facing{0.0F, 0.0F, 1.0F};
-    formats::Vector3 right{1.0F, 0.0F, 0.0F};
-    formats::Vector3 up{0.0F, 1.0F, 0.0F};
-};
-
-[[nodiscard]] PreviewPose preview_pose(formats::Vector3 position,
-                                        formats::Vector3 target) noexcept;
-[[nodiscard]] camera::CameraState preview_camera(
-    formats::Vector3 position, formats::Vector3 target,
-    float fov = 45.0F) noexcept;
 
 } // namespace fruityprime::mods::render

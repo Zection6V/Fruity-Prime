@@ -1,12 +1,15 @@
 #include "../Mods/Render/render_mods.hpp"
+#include "Assets/game_assets.hpp"
 #include "Mods/Render/es_bindings.hpp"
 #include "Mods/Render/es_shaders.hpp"
 #include "Mods/Render/gl_es.hpp"
+#include "Scene.hpp"
 
 #include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -15,8 +18,6 @@
 int main() {
     using fruityprime::formats::Vector3;
     using fruityprime::mods::render::icon_bounds;
-    using fruityprime::mods::render::preview_camera;
-    using fruityprime::mods::render::preview_pose;
 
     std::vector<std::uint8_t> chars(2 * 8 * 8, 0);
     // 16x8 DS-tiled data: x=9,y=3 is in tile column 1.
@@ -29,27 +30,45 @@ int main() {
     assert(std::fabs(bounds.centre_x() - 11.5F) < 0.001F);
     assert(icon_bounds({}, 0, 16, 8).width() == 16);
 
-    const auto pose = preview_pose({0.0F, 0.0F, 0.0F},
-                                   {0.0F, 0.0F, 1.0F});
-    assert(std::fabs(pose.facing.z - 1.0F) < 0.001F);
-    assert(std::fabs(pose.right.x + 1.0F) < 0.001F);
-    assert(std::fabs(pose.up.y - 1.0F) < 0.001F);
-    const auto fallback = preview_pose({1.0F, 2.0F, 3.0F},
-                                       {1.0F, 2.0F, 3.0F});
-    assert(std::fabs(fallback.facing.z + 1.0F) < 0.001F);
-    // PreviewCamera.cs falls back for LengthSquared < 0.0001f, not merely
-    // for an exactly zero direction.
-    const auto near_zero = preview_pose({0.0F, 0.0F, 0.0F},
-                                        {0.005F, 0.0F, 0.0F});
-    assert(std::fabs(near_zero.facing.z + 1.0F) < 0.001F);
-    const auto just_outside = preview_pose({0.0F, 0.0F, 0.0F},
-                                           {0.011F, 0.0F, 0.0F});
-    assert(just_outside.facing.x > 0.99F);
-    const auto camera = preview_camera({2.0F, 3.0F, 4.0F},
-                                       {2.0F, 3.0F, 8.0F}, 0.0F);
-    assert(camera.position.x == 2.0F && camera.previous_position.z == 4.0F);
-    assert(camera.fov == 45.0F);
-    assert(camera.facing.z > 0.99F);
+    {
+        const auto assets = fruityprime::assets::Store::from_directory(
+            std::filesystem::temp_directory_path());
+        fruityprime::scene_runtime::Scene scene(assets);
+
+        scene.set_preview_camera({0.0F, 0.0F, 0.0F},
+                                 {0.0F, 0.0F, 1.0F});
+        const auto* camera = scene.camera_state();
+        assert(camera != nullptr);
+        assert(std::fabs(camera->facing.z - 1.0F) < 0.001F);
+        assert(std::fabs(camera->up_vector.y - 1.0F) < 0.001F);
+
+        scene.set_preview_camera({1.0F, 2.0F, 3.0F},
+                                 {1.0F, 2.0F, 3.0F});
+        camera = scene.camera_state();
+        assert(camera != nullptr
+               && std::fabs(camera->facing.z + 1.0F) < 0.001F);
+
+        // PreviewCamera.cs falls back for LengthSquared < 0.0001f, not
+        // merely for an exactly zero direction.
+        scene.set_preview_camera({0.0F, 0.0F, 0.0F},
+                                 {0.005F, 0.0F, 0.0F});
+        camera = scene.camera_state();
+        assert(camera != nullptr
+               && std::fabs(camera->facing.z + 1.0F) < 0.001F);
+
+        scene.set_preview_camera({0.0F, 0.0F, 0.0F},
+                                 {0.011F, 0.0F, 0.0F});
+        camera = scene.camera_state();
+        assert(camera != nullptr && camera->facing.x > 0.99F);
+
+        // A vertical facing makes the right-vector cross product degenerate;
+        // the managed UnitX fallback then produces a +Z up vector.
+        scene.set_preview_camera({0.0F, 0.0F, 0.0F},
+                                 {0.0F, 1.0F, 0.0F});
+        camera = scene.camera_state();
+        assert(camera != nullptr && std::fabs(camera->up_vector.z - 1.0F)
+               < 0.001F);
+    }
 
     auto& es = fruityprime::mods::render::EsBindings::instance();
     es.reset();

@@ -39,11 +39,9 @@ public:
         camera::CameraState initial_camera,
         camera::Flags flags = camera::Flags::None,
         std::uint16_t transition_time = 0);
-    // Mods/Render/PreviewCamera.cs equivalent. This stops an authored
-    // sequence and leaves a deterministic room-preview camera in the scene.
+    // Mods/Render/PreviewCamera.cs equivalent.
     void set_preview_camera(formats::Vector3 position,
-                            formats::Vector3 target,
-                            float fov = 45.0F) noexcept;
+                            formats::Vector3 target) noexcept;
     void stop_camera_sequence() noexcept;
     void unload() noexcept;
     void tick();

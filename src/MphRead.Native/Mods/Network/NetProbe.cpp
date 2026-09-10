@@ -494,7 +494,6 @@ namespace MphRead::Mods::Network::Detail
 
             addrinfo hints{};
             hints.ai_family = AF_UNSPEC;
-            hints.ai_socktype = SOCK_DGRAM;
             addrinfo* raw = nullptr;
             const int error = getaddrinfo(query.c_str(), nullptr, &hints, &raw);
             if (error != 0)

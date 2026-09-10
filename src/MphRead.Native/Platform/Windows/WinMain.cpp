@@ -6806,8 +6806,7 @@ void handle_network_roster(const fruityprime::net::RosterPacket& roster) {
     }
     static_cast<void>(g_slot_manager.sync(
         *g_session, roster, g_local_slot, g_game_state));
-    static_cast<void>(fruityprime::net::NetPlayerSetup::ApplyOnce(
-        *g_session, g_local_slot));
+    fruityprime::net::NetPlayerSetup::ApplyOnce();
 }
 
 void toggle_spectating() {
@@ -7649,6 +7648,15 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
         &chat_player_name,
         &send_chat_packet,
         nullptr
+    });
+    fruityprime::net::detail::BindRuntime({
+        []() noexcept {
+            return g_net_client != nullptr && g_net_client->connected();
+        },
+        []() noexcept {
+            return g_net_client != nullptr
+                ? g_net_client->local_slot() : -1;
+        }
     });
     fruityprime::chat::ChatBox::Clear();
     double run_seconds = 0.0;

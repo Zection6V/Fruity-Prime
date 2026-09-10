@@ -13,7 +13,3 @@ public:
 };
 
 } // namespace fruityprime::net
-
-namespace MphReadNative::Mods::Network {
-using NetScoreboard = ::fruityprime::net::NetScoreboard;
-}

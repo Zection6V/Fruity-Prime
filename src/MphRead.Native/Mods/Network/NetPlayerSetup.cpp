@@ -2,15 +2,53 @@
 
 #include "Entities/Players/PlayerEntity.hpp"
 
+#include <iostream>
+
 namespace fruityprime::net {
+namespace {
+
+detail::RuntimeBindings runtime{};
+
+[[nodiscard]] std::size_t count_active() noexcept {
+    const auto player_table = players::PlayerEntity::Players();
+    const int max_players = players::PlayerEntity::MaxPlayers();
+    std::size_t active = 0;
+    for (int slot = 0; slot < max_players
+             && static_cast<std::size_t>(slot) < player_table.size(); ++slot) {
+        const players::PlayerEntity* player =
+            player_table[static_cast<std::size_t>(slot)];
+        if (player != nullptr
+            && (static_cast<std::uint8_t>(player->LoadFlags())
+                & static_cast<std::uint8_t>(formats::LoadFlags::Active)) != 0) {
+            ++active;
+        }
+    }
+    return active;
+}
+
+} // namespace
+
+namespace detail {
+
+void BindRuntime(RuntimeBindings bindings) noexcept {
+    runtime = bindings;
+}
+
+} // namespace detail
 
 void NetPlayerSetup::Reset() noexcept {
     applied_ = false;
 }
 
-void NetPlayerSetup::ApplyOnce(gameplay::Session& session,
-                               int local_slot) noexcept {
-    if (applied_ || local_slot < 0) {
+void NetPlayerSetup::ApplyOnce() noexcept {
+    if (applied_ || runtime.Active == nullptr || !runtime.Active()) {
+        return;
+    }
+    if (runtime.LocalSlot == nullptr) {
+        return;
+    }
+    const int local_slot = runtime.LocalSlot();
+    if (local_slot < 0) {
         return;
     }
     applied_ = true;
@@ -35,6 +73,10 @@ void NetPlayerSetup::ApplyOnce(gameplay::Session& session,
             player->BotLevel(0);
         }
     }
+
+    std::cout << "[net] player slots prepared -- local slot " << local_slot
+              << ", " << count_active()
+              << " active, AI disabled on remote slots\n";
 }
 
 } // namespace fruityprime::net

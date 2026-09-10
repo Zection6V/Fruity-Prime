@@ -20,6 +20,21 @@
 #include <stdexcept>
 #include <string>
 
+namespace {
+
+bool net_setup_active = false;
+int net_setup_local_slot = -1;
+
+[[nodiscard]] bool net_setup_is_active() noexcept {
+    return net_setup_active;
+}
+
+[[nodiscard]] int net_setup_slot() noexcept {
+    return net_setup_local_slot;
+}
+
+} // namespace
+
 int main() {
     const char* rom_value = std::getenv("FRUITY_PRIME_TEST_NDS");
     if (rom_value == nullptr || rom_value[0] == '\0') {
@@ -71,8 +86,21 @@ int main() {
         player_table[0]->IsBot(true);
         player_table[1]->IsBot(true);
         player_table[1]->BotLevel(2);
+        fruityprime::net::detail::BindRuntime({
+            &net_setup_is_active,
+            &net_setup_slot
+        });
+        net_setup_local_slot = 0;
         fruityprime::net::NetPlayerSetup::Reset();
-        fruityprime::net::NetPlayerSetup::ApplyOnce(session, 0);
+        fruityprime::net::NetPlayerSetup::ApplyOnce();
+        if (!player_table[0]->IsBot() || !player_table[1]->IsBot()
+            || player_table[1]->BotLevel() != 2) {
+            throw std::runtime_error(
+                "inactive network player setup was not a no-op");
+        }
+        net_setup_active = true;
+        fruityprime::net::NetPlayerSetup::Reset();
+        fruityprime::net::NetPlayerSetup::ApplyOnce();
         if (fruityprime::players::PlayerEntity::MainPlayerIndex() != 0
             || player_table[0]->IsBot() || player_table[1]->IsBot()
             || player_table[1]->BotLevel() != 0) {
@@ -80,12 +108,13 @@ int main() {
         }
         player_table[1]->IsBot(true);
         player_table[1]->BotLevel(2);
-        fruityprime::net::NetPlayerSetup::ApplyOnce(session, 0);
+        fruityprime::net::NetPlayerSetup::ApplyOnce();
         if (!player_table[1]->IsBot() || player_table[1]->BotLevel() != 2) {
             throw std::runtime_error("network player setup applied twice");
         }
         fruityprime::net::NetPlayerSetup::Reset();
-        fruityprime::net::NetPlayerSetup::ApplyOnce(session, 1);
+        net_setup_local_slot = 1;
+        fruityprime::net::NetPlayerSetup::ApplyOnce();
         if (fruityprime::players::PlayerEntity::MainPlayerIndex() != 1
             || player_table[1]->IsBot() || player_table[1]->BotLevel() != 2
             || player_table[0]->IsBot() || player_table[0]->BotLevel() != 0) {

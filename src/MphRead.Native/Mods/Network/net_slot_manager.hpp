@@ -27,7 +27,7 @@ public:
 
     [[nodiscard]] SlotSyncResult sync(
         gameplay::Session& session, const RosterPacket& roster,
-        std::uint8_t local_slot, game::State& game_state);
+        std::uint8_t local_slot);
 
 private:
     std::array<bool, game::SlotCapacity> activated_{};

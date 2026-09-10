@@ -10,8 +10,7 @@ void SlotManager::reset() noexcept {
 
 SlotSyncResult SlotManager::sync(gameplay::Session& session,
                                  const RosterPacket& roster,
-                                 std::uint8_t local_slot,
-                                 game::State& game_state) {
+                                 std::uint8_t local_slot) {
     SlotSyncResult result;
     std::array<bool, game::SlotCapacity> present{};
     if (local_slot < present.size()) {
@@ -31,13 +30,13 @@ SlotSyncResult SlotManager::sync(gameplay::Session& session,
         if (!session.has_player(slot)) {
             static_cast<void>(session.add_player(slot, hunter));
             activated_[slot] = true;
-            NetScoreboard::ForgetSlot(game_state, slot);
+            NetScoreboard::ForgetSlot(slot);
             ++result.added;
             continue;
         }
         if (!activated_[slot]) {
             activated_[slot] = true;
-            NetScoreboard::ForgetSlot(game_state, slot);
+            NetScoreboard::ForgetSlot(slot);
         }
         if (session.player_hunter(slot) != hunter) {
             session.set_player_hunter(slot, hunter);
@@ -58,7 +57,7 @@ SlotSyncResult SlotManager::sync(gameplay::Session& session,
         const std::uint8_t slot = departed[i];
         session.remove_player(slot);
         activated_[slot] = false;
-        NetScoreboard::ForgetSlot(game_state, slot);
+        NetScoreboard::ForgetSlot(slot);
         ++result.removed;
     }
 

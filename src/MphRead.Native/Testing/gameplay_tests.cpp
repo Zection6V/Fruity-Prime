@@ -3,6 +3,7 @@
 #include "Mods/Network/net_damage.hpp"
 #include "Mods/Network/net_player_bridge.hpp"
 #include "Mods/Network/net_player_setup.hpp"
+#include "Mods/Network/net_scoreboard.hpp"
 #include "Mods/Network/net_slot_manager.hpp"
 #include "Mods/Network/net_test_script.hpp"
 #include "Mods/Network/player_entity_net_aim.hpp"
@@ -71,13 +72,14 @@ int main() {
         fruityprime::game::State roster_state;
         roster_state.points[1] = 42;
         fruityprime::net::RosterPacket roster;
+        fruityprime::net::detail::BindGameState(roster_state);
         roster.count = 2;
         roster.slots[0] = 0;
         roster.hunters[0] = 0;
         roster.slots[1] = 1;
         roster.hunters[1] = 2;
         const auto joined = slot_manager.sync(
-            session, roster, 0, roster_state);
+            session, roster, 0);
         if (joined.added != 1 || joined.removed != 0 || joined.active != 2
             || session.player_hunter(1) != 2) {
             throw std::runtime_error("network roster join was not applied");
@@ -122,7 +124,7 @@ int main() {
         }
         roster.count = 1;
         const auto departed = slot_manager.sync(
-            session, roster, 0, roster_state);
+            session, roster, 0);
         if (departed.added != 0 || departed.removed != 1
             || session.has_player(1) || roster_state.points[1] != 0) {
             throw std::runtime_error("network roster departure was not applied");

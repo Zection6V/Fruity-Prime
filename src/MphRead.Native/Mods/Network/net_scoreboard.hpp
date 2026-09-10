@@ -4,12 +4,18 @@
 
 namespace fruityprime::net {
 
+namespace detail {
+
+// The managed GameState is process-wide. Native keeps the state object
+// explicit elsewhere, so the frontend binds that one object once and the
+// public operation retains the C# one-argument contract.
+void BindGameState(game::State& state) noexcept;
+
+} // namespace detail
+
 class NetScoreboard final {
 public:
-    // C# NetScoreboard.ForgetSlot clears the GameState arrays for the
-    // specified slot. The native state is explicit because there is no
-    // managed static-field runtime to bind behind this call.
-    static void ForgetSlot(game::State& state, int slot) noexcept;
+    static void ForgetSlot(int slot) noexcept;
 };
 
 } // namespace fruityprime::net

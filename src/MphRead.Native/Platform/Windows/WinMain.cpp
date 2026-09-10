@@ -6805,7 +6805,7 @@ void handle_network_roster(const fruityprime::net::RosterPacket& roster) {
         return;
     }
     static_cast<void>(g_slot_manager.sync(
-        *g_session, roster, g_local_slot, g_game_state));
+        *g_session, roster, g_local_slot));
     fruityprime::net::NetPlayerSetup::ApplyOnce();
 }
 
@@ -7647,6 +7647,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
         return EXIT_FAILURE;
     }
     g_started_at = std::chrono::steady_clock::now();
+    fruityprime::net::detail::BindGameState(g_game_state);
     fruityprime::chat::detail::BindRuntime({
         &chat_single_player,
         &chat_net_active,

@@ -3,11 +3,28 @@
 #include <algorithm>
 
 namespace fruityprime::net {
+namespace {
 
-void NetScoreboard::ForgetSlot(game::State& state, int slot) noexcept {
+game::State* bound_game_state = nullptr;
+
+} // namespace
+
+namespace detail {
+
+void BindGameState(game::State& state) noexcept {
+    bound_game_state = &state;
+}
+
+} // namespace detail
+
+void NetScoreboard::ForgetSlot(int slot) noexcept {
     if (slot < 0 || slot >= static_cast<int>(game::SlotCapacity)) {
         return;
     }
+    if (bound_game_state == nullptr) {
+        return;
+    }
+    game::State& state = *bound_game_state;
     const auto index = static_cast<std::size_t>(slot);
     state.points[index] = 0;
     state.kills[index] = 0;

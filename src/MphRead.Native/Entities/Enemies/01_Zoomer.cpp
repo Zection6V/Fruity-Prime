@@ -1,3 +1,6 @@
+#include <cmath>
+#include "Utility/rng.hpp"
+#include "Entities/gameplay.hpp"
 #include "enemy_decode_common.hpp"
 // Native port of src/MphRead/Entities/Enemies/01_Zoomer.cs.
 // This member definition lives in its enemy module; Session only dispatches it.
@@ -110,6 +113,46 @@ void Session::update_surface_enemy(EnemyState& agent) {
     agent.target_slot = 0xff;
 }
 } // namespace fruityprime::gameplay
+
+namespace fruityprime::enemy::module_01_zoomer {
+
+const enemy::ZoomerProfile& SpawnFields(
+    const gameplay::EnemyState& agent) noexcept {
+    return agent.zoomer;
+}
+
+net::Vec3 SpawnData(const gameplay::EnemyState& agent) noexcept {
+    // The managed property reaches the spawner's header for where this
+    // one was placed, which is what the crawl measures "away from home"
+    // against.
+    return agent.behavior_origin;
+}
+
+
+void EnemyInitialize(gameplay::EnemyState& agent) noexcept {
+    // A quarter of a unit: a Zoomer is small, and it walks on surfaces
+    // rather than through the room, so its body is what keeps it against
+    // the wall rather than what it collides with.
+    agent.health = agent.health_max = 12;
+    agent.body_radius = 0.25F;
+    agent.behavior_origin = agent.position;
+    agent.behavior_surface_normal = agent.up;
+    // The starting direction is a random heading round the surface, which
+    // is why two Zoomers on the same wall do not walk in step.
+    const float x = static_cast<float>(utility::get_random_int2(4096u))
+        / 4096.0F;
+    const float z = static_cast<float>(utility::get_random_int2(4096u))
+        / 4096.0F;
+    const float length = std::sqrt(x * x + z * z);
+    const net::Vec3 heading = length > 0.0F
+        ? net::Vec3{x / length, 0.0F, z / length} : agent.facing;
+    agent.facing = heading;
+    agent.behavior_direction = heading;
+    agent.behavior_intended_direction = heading;
+}
+
+} // namespace fruityprime::enemy::module_01_zoomer
+
 
 namespace fruityprime::enemy {
 

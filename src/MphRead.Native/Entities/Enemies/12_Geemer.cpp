@@ -2,6 +2,7 @@
 // This file is deliberately present even when the managed class currently
 // shares a native controller; the descriptor and entry point prevent a
 // many-classes-in-one gameplay.cpp regression.
+#include "Entities/gameplay.hpp"
 #include "12_Geemer.hpp"
 #include "enemy_common.hpp"
 
@@ -66,5 +67,51 @@ void Session::update_geemer(EnemyState& agent) {
 }
 
 } // namespace fruityprime::gameplay
+
+namespace fruityprime::enemy::module_12_geemer {
+
+void SetAnimation(gameplay::EnemyState& agent,
+                  const GeemerAnim anim) noexcept {
+    agent.geemer_animation = static_cast<std::uint8_t>(anim);
+    agent.geemer_extended = anim == GeemerAnim::Extend
+        || anim == GeemerAnim::WiggleExtended;
+}
+
+GeemerAnim CurrentAnimation(const gameplay::EnemyState& agent) noexcept {
+    return static_cast<GeemerAnim>(agent.geemer_animation);
+}
+
+const enemy::ZoomerProfile& SpawnFields(
+    const gameplay::EnemyState& agent) noexcept {
+    return agent.zoomer;
+}
+
+net::Vec3 SpawnData(const gameplay::EnemyState& agent) noexcept {
+    // The managed property reaches the spawner's header for where this
+    // one was placed, which is what the crawl measures "away from home"
+    // against.
+    return agent.behavior_origin;
+}
+
+
+void EnemyInitialize(gameplay::EnemyState& agent) noexcept {
+    agent.health = agent.health_max = 12;
+    agent.body_radius = 0.25F;
+    agent.behavior_origin = agent.position;
+    agent.behavior_surface_normal = agent.up;
+    // Folded up to start with, and it stays that way for two seconds even
+    // if somebody walks straight past.
+    SetAnimation(agent, GeemerAnim::WiggleRetracted);
+    agent.geemer_transition_timer = 60u * 2u;  // todo: FPS stuff
+}
+
+bool EnemyTakeDamage(const gameplay::EnemyState& agent) noexcept {
+    // Folded: nothing gets through, so a Geemer has to be caught with its
+    // shell open.
+    return !agent.geemer_extended;
+}
+
+} // namespace fruityprime::enemy::module_12_geemer
+
 
 static_assert(fruityprime::enemy::module_12_geemer::kModule.managed_class.size() != 0);

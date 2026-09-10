@@ -426,6 +426,10 @@ struct EnemyState {
     net::Vec3 slench_home_position;
     bool slench_shielded = true;
     bool invulnerable = false;
+    // Enemy12Entity asks its animation rather than a flag which of the
+    // four states it is in: folded, unfolding, unfolded, folding.  The
+    // flag follows the animation rather than the other way round.
+    std::uint8_t geemer_animation = 2;
     bool geemer_extended = false;
     std::uint32_t geemer_transition_timer = 0;
     // War Wasp/Barbed War Wasp keep the managed state-machine counters

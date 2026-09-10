@@ -7,6 +7,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -290,12 +291,170 @@ namespace MphRead::Mods::Network::Detail
         SocketHandle _socket = InvalidSocket;
     };
 
+    [[nodiscard]] bool TryParseDotNetIPv4(
+        std::string_view text, std::uint32_t& value) noexcept
+    {
+        if (text.empty())
+        {
+            return false;
+        }
+
+        std::uint64_t parts[4]{};
+        int dotCount = 0;
+        std::size_t current = 0;
+        while (current < text.size())
+        {
+            int numberBase = 10;
+            std::uint64_t currentValue = 0;
+            bool atLeastOneChar = false;
+            char ch = text[current];
+            if (ch == '0')
+            {
+                numberBase = 8;
+                ++current;
+                atLeastOneChar = true;
+                if (current < text.size()
+                    && (text[current] == 'x' || text[current] == 'X'))
+                {
+                    numberBase = 16;
+                    ++current;
+                    atLeastOneChar = false;
+                }
+            }
+
+            for (; current < text.size(); ++current)
+            {
+                ch = text[current];
+                int digit = -1;
+                if ((numberBase == 10 || numberBase == 16) && ch >= '0' && ch <= '9')
+                {
+                    digit = ch - '0';
+                }
+                else if (numberBase == 8 && ch >= '0' && ch <= '7')
+                {
+                    digit = ch - '0';
+                }
+                else if (numberBase == 16 && ch >= 'a' && ch <= 'f')
+                {
+                    digit = ch + 10 - 'a';
+                }
+                else if (numberBase == 16 && ch >= 'A' && ch <= 'F')
+                {
+                    digit = ch + 10 - 'A';
+                }
+                else
+                {
+                    break;
+                }
+
+                currentValue = currentValue * static_cast<unsigned int>(numberBase)
+                    + static_cast<unsigned int>(digit);
+                if (currentValue > 0xFFFFFFFFull)
+                {
+                    return false;
+                }
+                atLeastOneChar = true;
+            }
+
+            if (current < text.size() && text[current] == '.')
+            {
+                if (dotCount >= 3 || !atLeastOneChar || currentValue > 0xFF)
+                {
+                    return false;
+                }
+                parts[dotCount++] = currentValue;
+                ++current;
+                continue;
+            }
+            if (!atLeastOneChar || current != text.size())
+            {
+                return false;
+            }
+
+            parts[dotCount] = currentValue;
+            switch (dotCount)
+            {
+            case 0:
+                value = static_cast<std::uint32_t>(parts[0]);
+                return true;
+            case 1:
+                if (parts[1] > 0xFFFFFF)
+                {
+                    return false;
+                }
+                value = static_cast<std::uint32_t>((parts[0] << 24) | parts[1]);
+                return true;
+            case 2:
+                if (parts[2] > 0xFFFF)
+                {
+                    return false;
+                }
+                value = static_cast<std::uint32_t>(
+                    (parts[0] << 24) | (parts[1] << 16) | parts[2]);
+                return true;
+            case 3:
+                if (parts[3] > 0xFF)
+                {
+                    return false;
+                }
+                value = static_cast<std::uint32_t>(
+                    (parts[0] << 24) | (parts[1] << 16)
+                    | (parts[2] << 8) | parts[3]);
+                return true;
+            default:
+                return false;
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool IsUnspecifiedIpLiteral(const std::string& address) noexcept
+    {
+        std::uint32_t ipv4 = 0;
+        if (TryParseDotNetIPv4(address, ipv4) && ipv4 == 0)
+        {
+            return true;
+        }
+
+        in6_addr ipv6{};
+        if (inet_pton(AF_INET6, address.c_str(), &ipv6) == 1)
+        {
+            const auto* bytes = reinterpret_cast<const unsigned char*>(&ipv6);
+            for (std::size_t i = 0; i < sizeof(ipv6); ++i)
+            {
+                if (bytes[i] != 0)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    void ValidateDnsArgument(const std::string& address)
+    {
+        if (IsUnspecifiedIpLiteral(address))
+        {
+            throw std::invalid_argument(
+                "IPv4 address 0.0.0.0 and IPv6 address ::0 are unspecified addresses "
+                "that cannot be used as a target address. (Parameter 'hostNameOrAddress')");
+        }
+        if (address.size() > 255 || (address.size() == 255 && address.back() != '.'))
+        {
+            throw std::out_of_range(
+                "The size of hostName is too long. It cannot be longer than 255 characters. "
+                "(Parameter 'hostName')");
+        }
+    }
+
     class NativeNetProbePlatform final : public INetProbePlatform
     {
     public:
         [[nodiscard]] std::vector<ResolvedAddress> Resolve(
             const std::string& address) override
         {
+            ValidateDnsArgument(address);
 #ifdef _WIN32
             EnsureWinSock();
 #endif

@@ -52,6 +52,12 @@ struct EnemyScene {
     // one step towards `desired` and say whether the turn is finished.
     std::function<bool(EnemyState& agent, net::Vec3 desired,
                        std::uint16_t& steps, float angle)> SeekFacing;
+
+    // BeamProjectileEntity.Spawn from an enemy: the weapon it fires with
+    // is the enemy's own, so only where the shot starts and where it is
+    // pointed cross this seam.
+    std::function<void(const EnemyState& agent, net::Vec3 position,
+                       net::Vec3 direction)> SpawnProjectile;
 };
 
 } // namespace fruityprime::gameplay

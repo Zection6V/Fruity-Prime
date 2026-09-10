@@ -898,7 +898,6 @@ private:
     // that controller is being split further; the one-to-one module contract
     // makes those cases explicit instead of hiding them in gameplay.cpp.
     void update_warwasp(EnemyState& agent);
-    void update_wasp_controller(EnemyState& agent, bool barbed);
     void update_zoomer(EnemyState& agent);
     void update_surface_enemy(EnemyState& agent);
     void update_psychobit(EnemyState& agent);

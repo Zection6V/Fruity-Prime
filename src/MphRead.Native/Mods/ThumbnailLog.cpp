@@ -29,13 +29,16 @@
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
 #include <stdlib.h>
+#include <sys/mount.h>
 #elif defined(__FreeBSD__)
+#include <sys/mount.h>
 #include <sys/param.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #elif defined(__linux__)
 #include <stdlib.h>
 #include <sys/auxv.h>
+#include <sys/vfs.h>
 #elif defined(__unix__)
 #include <stdlib.h>
 #endif
@@ -424,9 +427,6 @@ namespace
 #ifdef EPERM
         case EPERM:
 #endif
-#ifdef EISDIR
-        case EISDIR:
-#endif
 #ifdef EFBIG
         case EFBIG:
 #endif
@@ -439,6 +439,19 @@ namespace
                 "thumbnail log I/O failed",
                 std::error_code(error, std::generic_category()));
         }
+    }
+
+    [[noreturn]] void ThrowOpenFileFailure(int error)
+    {
+#ifdef EISDIR
+        if (error == EISDIR)
+        {
+            // SafeFileHandle.Open remaps a writable-directory EISDIR from
+            // open(2) to EACCES before constructing the managed exception.
+            throw NonIoFileFailure("file access was not permitted");
+        }
+#endif
+        ThrowFileFailure(error);
     }
 
     class FileDescriptor final
@@ -468,6 +481,57 @@ namespace
     private:
         int _value;
     };
+
+    [[nodiscard]] bool SupportsSharedWriteLock(int descriptor) noexcept
+    {
+#if defined(__linux__)
+        struct statfs status{};
+        int result = -1;
+        do
+        {
+            result = ::fstatfs(descriptor, &status);
+        }
+#ifdef EINTR
+        while (result < 0 && errno == EINTR);
+#else
+        while (false);
+#endif
+        if (result < 0)
+        {
+            return false;
+        }
+
+        const std::uint32_t fileSystemType = static_cast<std::uint32_t>(status.f_type);
+        return fileSystemType != 0x6969U
+            && fileSystemType != 0xFF534D42U
+            && fileSystemType != 0x517BU
+            && fileSystemType != 0xFE534D42U;
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+        struct statfs status{};
+        int result = -1;
+        do
+        {
+            result = ::fstatfs(descriptor, &status);
+        }
+#ifdef EINTR
+        while (result < 0 && errno == EINTR);
+#else
+        while (false);
+#endif
+        if (result < 0)
+        {
+            return false;
+        }
+
+        const std::string_view fileSystemName(status.f_fstypename);
+        return fileSystemName != "nfs"
+            && fileSystemName != "cifs"
+            && fileSystemName != "smb"
+            && fileSystemName != "smb2";
+#else
+        return true;
+#endif
+    }
 
     void AcquireSharedFileLock(int descriptor)
     {
@@ -525,7 +589,7 @@ namespace
 #endif
         if (descriptor < 0)
         {
-            ThrowFileFailure(errno);
+            ThrowOpenFileFailure(errno);
         }
         return descriptor;
     }
@@ -611,7 +675,10 @@ namespace
     {
         const bool append = (mode & std::ios::app) != std::ios::openmode{};
         const FileDescriptor descriptor(OpenFile(path));
-        AcquireSharedFileLock(descriptor.Get());
+        if (SupportsSharedWriteLock(descriptor.Get()))
+        {
+            AcquireSharedFileLock(descriptor.Get());
+        }
 
         const bool seekable = CanSeek(descriptor.Get());
         off_t fileOffset = 0;

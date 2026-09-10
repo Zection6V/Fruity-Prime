@@ -1,3 +1,4 @@
+#include "Entities/gameplay.hpp"
 #include "25_GoreaHead.hpp"
 #include "gorea_common.hpp"
 
@@ -75,5 +76,60 @@ void Session::update_gorea_head(EnemyState& agent) {
 }
 
 } // namespace fruityprime::gameplay
+
+namespace fruityprime::enemy::module_25_gorea_head {
+
+namespace {
+
+// The eye flash's offset from the head, in the cartridge's fixed point:
+// well out in front of the face, and a little below it.
+constexpr float FlashForward = 2949.0F / 4096.0F;
+constexpr float FlashDown = -939.0F / 4096.0F;
+// Metadata's goreaEyeFlash.
+constexpr std::uint32_t EyeFlashEffect = 104u;
+
+} // namespace
+
+void EnemyInitialize(gameplay::EnemyState& agent) noexcept {
+    // Sixty-five thousand and never less: the head is a target that
+    // cannot be destroyed, only measured.
+    agent.health = agent.health_max = 65535;
+    agent.invulnerable = true;
+    agent.visible = false;
+    agent.body_radius = 1314.0F / 4096.0F;
+}
+
+void EnemyProcess(gameplay::EnemyState& agent,
+                  const net::Vec3 node_position) noexcept {
+    agent.position = node_position;
+}
+
+bool EnemyTakeDamage(gameplay::EnemyState& agent) noexcept {
+    // What was taken off is the damage Gorea is told about; the head goes
+    // back to full so it can be hit again.
+    agent.gorea_head_flash_effect_id = EyeFlashEffect;
+    agent.health = 65535;
+    return true;
+}
+
+void RemoveFlashEffect(gameplay::EnemyState& agent) noexcept {
+    agent.gorea_head_flash_effect_id = 0;
+}
+
+net::Vec3 RespawnFlashEffect(gameplay::EnemyState& agent,
+                             const net::Vec3 gorea_facing,
+                             const net::Vec3 gorea_up) noexcept {
+    RemoveFlashEffect(agent);
+    agent.gorea_head_flash_effect_id = EyeFlashEffect;
+    return {agent.position.x + gorea_facing.x * FlashForward
+                + gorea_up.x * FlashDown,
+            agent.position.y + gorea_facing.y * FlashForward
+                + gorea_up.y * FlashDown,
+            agent.position.z + gorea_facing.z * FlashForward
+                + gorea_up.z * FlashDown};
+}
+
+} // namespace fruityprime::enemy::module_25_gorea_head
+
 
 static_assert(fruityprime::enemy::module_25_gorea_head::kModule.managed_class.size() != 0);

@@ -1,3 +1,5 @@
+#include "Utility/rng.hpp"
+#include "Entities/gameplay.hpp"
 #include "30_Trocra.hpp"
 #include "gorea_common.hpp"
 
@@ -121,5 +123,111 @@ void Session::update_trocra(EnemyState& agent) {
 }
 
 } // namespace fruityprime::gameplay
+
+namespace fruityprime::enemy::module_30_trocra {
+
+namespace {
+
+// Metadata's goreaCrystalHit and goreaCrystalExplode.
+constexpr std::uint32_t CrystalHitEffect = 164u;
+constexpr std::uint32_t CrystalExplodeEffect = 75u;
+constexpr float BurstRadius = 2.0F;
+constexpr int BurstDamage = 15;
+// Far enough away that nothing will reach it again: the cartridge parks a
+// spent crystal rather than removing it.
+constexpr float ParkedHeight = 524288.0F;
+
+} // namespace
+
+void EnemyInitialize(gameplay::EnemyState& agent) noexcept {
+    agent.health = agent.health_max = 15;
+    agent.body_radius = 1.0F;
+    agent.trocra_state = 0;
+    agent.trocra_previous_position = agent.position;
+}
+
+void SetSpeed(gameplay::EnemyState& agent, const net::Vec3 speed) noexcept {
+    agent.velocity = speed;
+}
+
+bool EnemyProcess(gameplay::EnemyState& agent, const bool touching,
+                  const bool blocked) noexcept {
+    if (!agent.visible || agent.health == 0) {
+        return false;
+    }
+    // Travelled far enough to be worth tracing: a crystal moving a
+    // fraction of a unit cannot have gone through anything.
+    const float x = agent.trocra_previous_position.x - agent.position.x;
+    const float y = agent.trocra_previous_position.y - agent.position.y;
+    const float z = agent.trocra_previous_position.z - agent.position.z;
+    const bool travelled = x * x + y * y + z * z > 1.0F / 128.0F;
+    const bool dies = touching || (travelled && blocked);
+    agent.trocra_previous_position = agent.position;
+    return dies;
+}
+
+Burst DieAndSpawnEffect(gameplay::EnemyState& agent,
+                        const net::Vec3 player_position,
+                        const bool touching, const bool blocked) noexcept {
+    Burst burst;
+    const float x = player_position.x - agent.position.x;
+    const float y = player_position.y - agent.position.y;
+    const float z = player_position.z - agent.position.z;
+    const float distance = std::sqrt(x * x + y * y + z * z);
+    if (distance < BurstRadius && !blocked) {
+        burst.hit = true;
+        burst.damage = BurstDamage;
+        float force = 1.0F;
+        if (!touching) {
+            // Not actually touched: the blast falls off over the two
+            // units, in damage and in shove alike.
+            const float factor = std::clamp(distance / BurstRadius, 0.0F,
+                                            1.0F);
+            burst.damage -= static_cast<int>(std::lround(
+                static_cast<float>(BurstDamage)
+                - static_cast<float>(BurstDamage) * factor));
+            force -= factor;
+        }
+        if (distance > 1.0F / 128.0F) {
+            burst.knockback = {x / distance * force, y / distance * force,
+                               z / distance * force};
+        } else {
+            // Standing exactly on it: there is no direction, so up.
+            burst.knockback = {0.0F, force, 0.0F};
+        }
+    }
+    // Spent.  Parked out of reach rather than removed, which is what the
+    // cartridge does.
+    agent.health = 0;
+    agent.visible = false;
+    agent.invulnerable = true;
+    agent.position = {agent.position.x, ParkedHeight, agent.position.z};
+    agent.velocity = {};
+    agent.trocra_state = 1;
+    return burst;
+}
+
+void Explode(gameplay::EnemyState& agent) noexcept {
+    static_cast<void>(CrystalHitEffect);
+    static_cast<void>(CrystalExplodeEffect);
+    static_cast<void>(agent);
+}
+
+Drop EnemyTakeDamage(gameplay::EnemyState& agent) noexcept {
+    if (agent.health != 0) {
+        return Drop::None;
+    }
+    const std::uint32_t roll = utility::get_random_int2(190u);
+    if (roll < 10u) {
+        return Drop::HealthSmall;
+    }
+    if (roll < 70u) {
+        return Drop::UASmall;
+    }
+    return Drop::None;
+}
+
+} // namespace fruityprime::enemy::module_30_trocra
+
 
 static_assert(fruityprime::enemy::module_30_trocra::kModule.managed_class.size() != 0);

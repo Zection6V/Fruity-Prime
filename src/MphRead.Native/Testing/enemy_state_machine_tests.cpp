@@ -8,6 +8,8 @@
 // does not see it until the frame after.  Both are easy to get subtly
 // wrong in a way that still produces an enemy that moves.
 #include "Entities/runtime_entities.hpp"
+#include "Entities/Enemies/30_Trocra.hpp"
+#include "Entities/gameplay.hpp"
 
 #include <cstdio>
 #include <vector>

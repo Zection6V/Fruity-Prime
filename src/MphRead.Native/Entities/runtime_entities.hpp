@@ -458,6 +458,50 @@ public:
 
     // EnemyInstanceEntity.GetEffectiveness: what a beam does to this
     // enemy.  A beam past the table is one that does not exist.
+    // EnemyInstanceEntity.CheckHitByBomb: whether a bomb reached this
+    // enemy.  The distance is measured to the enemy's origin, not to its
+    // hurt volume, which is the cartridge's own shortcut and is why a
+    // bomb under a tall enemy still counts.
+    [[nodiscard]] bool CheckHitByBomb(net::Vec3 bomb_position,
+                                      float bomb_radius) const noexcept {
+        if ((flags_ & Invincible) != 0) {
+            return false;
+        }
+        const float x = position_.x - bomb_position.x;
+        const float y = position_.y - bomb_position.y;
+        const float z = position_.z - bomb_position.z;
+        return x * x + y * y + z * z <= bomb_radius * bomb_radius;
+    }
+
+    // EnemyInstanceEntity.ContactDamagePlayer.  What walking into this
+    // enemy does: damage, and optionally a shove away from it whose
+    // strength falls off with distance rather than growing with it.
+    struct ContactDamage {
+        bool hit = false;
+        std::uint32_t damage = 0;
+        // The enemy's own speed, which is the direction the damage came
+        // from as far as the player is concerned.
+        net::Vec3 direction{};
+        // Added to the player's speed; zero when this contact does not
+        // knock back.
+        net::Vec3 knockback{};
+    };
+    [[nodiscard]] ContactDamage ContactDamagePlayer(
+        std::size_t slot, net::Vec3 player_position, std::uint32_t damage,
+        bool knockback) const noexcept;
+
+    // EnemyInstanceEntity.PlayEnemySfx.  The top bits of a sound effect
+    // identifier are not part of it: they say how it should be played.
+    struct EnemySfx {
+        bool play = false;
+        std::int32_t sfx = -1;
+        // How stale an already-playing copy may be before another starts.
+        // The largest value means "never start a second one".
+        float recency = -1.0F;
+        bool source_only = false;
+    };
+    [[nodiscard]] static EnemySfx PlayEnemySfx(std::int32_t sfx) noexcept;
+
     [[nodiscard]] metadata::Effectiveness GetEffectiveness(
         std::uint8_t beam) const noexcept {
         const auto table = effectiveness();

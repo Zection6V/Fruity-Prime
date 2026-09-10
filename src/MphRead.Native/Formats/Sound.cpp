@@ -338,15 +338,21 @@ Catalog Catalog::load(const assets::Store& assets) {
 
     const auto sdat_bytes = assets.bytes("data/sound/sound_data.sdat");
     result.sdat = Sdat::parse(sdat_bytes);
-    for (std::size_t i = 0; i < result.sdat->streams().size(); ++i) {
-        const auto& info = result.sdat->streams()[i];
+    std::size_t stream_name_index = 0;
+    std::size_t stream_id = 0;
+    for (const auto& info : result.sdat->streams()) {
         if (!info.present) {
             continue;
         }
-        std::string name = i < result.sdat->stream_names().size()
-            ? result.sdat->stream_names()[i] : std::string{};
+        // SoundRead.GetNames/GetStructs both discard null entries before the
+        // managed loop begins.  Keep those two filtered sequences separate;
+        // the name index and the public SoundStream.Id are not the raw SDAT
+        // INFO index or the FAT file id.
+        const std::string name = result.sdat->stream_names().at(
+            stream_name_index++);
         auto stream = Stream::parse(
-            result.sdat->file(info.file_id), info.file_id, std::move(name));
+            result.sdat->file(info.file_id),
+            static_cast<std::uint32_t>(stream_id++), name);
         stream.volume = info.volume / 127.0F;
         result.streams.push_back(std::move(stream));
     }

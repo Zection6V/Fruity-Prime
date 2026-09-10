@@ -258,51 +258,6 @@ struct ZipEntry {
                              + definition.import_source);
 }
 
-[[nodiscard]] std::vector<std::uint8_t> read_level(
-    const MapDefinition& definition, const std::filesystem::path& source) {
-    const auto bytes = read_file(source);
-    if (ends_with(source.extension().string(), ".bsp")) {
-        return bytes;
-    }
-    const std::span<const std::uint8_t> archive(bytes);
-    const auto entries = read_zip_entries(archive);
-    std::vector<const ZipEntry*> maps;
-    for (const ZipEntry& entry : entries) {
-        if (ends_with(entry.name, ".bsp")) {
-            maps.push_back(&entry);
-        }
-    }
-    if (maps.empty()) {
-        throw std::runtime_error(source.filename().string()
-                                 + " contains no .bsp level");
-    }
-    const ZipEntry* selected = maps.front();
-    if (!definition.import_map_name.empty()) {
-        selected = nullptr;
-        const std::string wanted = lower(definition.import_map_name);
-        for (const ZipEntry* entry : maps) {
-            std::filesystem::path path(entry->name);
-            if (lower(path.stem().string()) == wanted) {
-                selected = entry;
-                break;
-            }
-        }
-        if (selected == nullptr) {
-            std::string names;
-            for (const ZipEntry* entry : maps) {
-                if (!names.empty()) {
-                    names += ", ";
-                }
-                names += std::filesystem::path(entry->name).stem().string();
-            }
-            throw std::runtime_error(source.filename().string() + " has no map "
-                                     + definition.import_map_name + "; available: "
-                                     + names);
-        }
-    }
-    return zip_file(archive, *selected);
-}
-
 [[nodiscard]] std::string archive_name(std::string_view value) {
     std::string result;
     result.reserve(value.size());
@@ -336,15 +291,16 @@ struct ZipEntry {
     return nullptr;
 }
 
-[[nodiscard]] std::vector<TexturePackEntry> bake_texture_pack(
+[[nodiscard]] TextureBakeResult bake_texture_pack_with_report(
     const Q3Bsp& bsp, const std::filesystem::path& source,
     const MapDefinition& definition, int texture_size = 64) {
-    if (ends_with(source.extension().string(), ".bsp")) {
-        return {};
+    std::vector<std::uint8_t> archive_bytes;
+    std::vector<ZipEntry> entries;
+    if (!ends_with(source.extension().string(), ".bsp")) {
+        archive_bytes = read_file(source);
+        const std::span<const std::uint8_t> archive(archive_bytes);
+        entries = read_zip_entries(archive);
     }
-    const auto archive_bytes = read_file(source);
-    const std::span<const std::uint8_t> archive(archive_bytes);
-    const auto entries = read_zip_entries(archive);
     const auto load_image = [&](std::string_view shader)
         -> std::optional<image::RgbImage> {
         const ZipEntry* image_entry = find_image(entries, shader);
@@ -359,11 +315,21 @@ struct ZipEntry {
             return std::nullopt;
         }
 #endif
+        const std::span<const std::uint8_t> archive(archive_bytes);
         const auto raw = zip_file(archive, *image_entry);
         return image::decode(raw, image_entry->name);
     };
-    return texture_bake::bake_q3_textures(
-        bsp, definition, texture_size, load_image);
+    const texture_bake::BakeResult baked =
+        texture_bake::bake_q3_textures_with_report(
+            bsp, definition, texture_size, load_image);
+    return {std::move(baked.entries), std::move(baked.missing)};
+}
+
+[[nodiscard]] std::vector<TexturePackEntry> bake_texture_pack(
+    const Q3Bsp& bsp, const std::filesystem::path& source,
+    const MapDefinition& definition, int texture_size = 64) {
+    return bake_texture_pack_with_report(
+        bsp, source, definition, texture_size).entries;
 }
 
 [[nodiscard]] Vec3 add(Vec3 left, Vec3 right) noexcept {
@@ -463,13 +429,16 @@ struct ZipEntry {
 }
 
 void wind(ImportedFace& face) {
-    if (face.point_count < 3) {
+    if (face.points.size() < 3) {
         return;
     }
     const Vec3 wound = cross(subtract(face.points[1], face.points[0]),
                              subtract(face.points[2], face.points[0]));
     if (dot(wound, face.normal) < 0.0F) {
         std::swap(face.points[1], face.points[2]);
+        if (face.texcoords.size() >= 3) {
+            std::swap(face.texcoords[1], face.texcoords[2]);
+        }
     }
 }
 
@@ -478,7 +447,8 @@ void wind(ImportedFace& face) {
                                          float units_per_unit, int material,
                                          const TexturePackEntry* texture) {
     ImportedFace face;
-    face.point_count = 3;
+    face.points.resize(3);
+    face.texcoords.resize(3);
     Vec3 normal{};
     for (std::size_t i = 0; i < 3; ++i) {
         const std::int32_t index = indices[i];
@@ -507,13 +477,8 @@ void wind(ImportedFace& face) {
     const std::array<std::array<float, 2>, 3>& texcoords,
     Vec3 normal, int material, float shade, bool has_texcoords) {
     ImportedFace face;
-    face.points[0] = points[0];
-    face.points[1] = points[1];
-    face.points[2] = points[2];
-    face.texcoords[0] = texcoords[0];
-    face.texcoords[1] = texcoords[1];
-    face.texcoords[2] = texcoords[2];
-    face.point_count = 3;
+    face.points.assign(points.begin(), points.end());
+    face.texcoords.assign(texcoords.begin(), texcoords.end());
     face.has_texcoords = has_texcoords;
     face.normal = normalize_or(normal, {0.0F, 1.0F, 0.0F});
     face.material = material;
@@ -908,22 +873,39 @@ void append_entities(const Q3Bsp& bsp, const MapDefinition& definition,
                                   const std::filesystem::path& source) {
     const float units_per_unit = definition.import_units_per_unit;
     ImportedMap result;
-    std::vector<TexturePackEntry> texture_pack =
-        texture_pack_io::load(definition);
-    if (texture_pack.empty() && !definition.import_textures.empty()) {
+    std::optional<std::vector<TexturePackEntry>> texture_pack =
+        texture_pack_io::load_optional(definition);
+    if (!texture_pack.has_value() && !definition.import_textures.empty()) {
         // Match the managed converter's convenient first-run behavior: a
         // recipe can name the derived pack before it exists, in which case
         // bake the level's own image files directly from the PK3. The pack is
         // kept in memory for this build; an explicit FPTX remains the fast
         // and portable path for later launches and Android bundles.
-        texture_pack = bake_texture_pack(bsp, source, definition);
+        // Q3Import.BakeTextures returns null when no image was baked. Keep
+        // that distinct from an already-resolved empty FPTX, which must not
+        // be converted into a source/borrowed-texture fallback.
+        auto baked = bake_texture_pack(bsp, source, definition);
+        if (!baked.empty()) {
+            texture_pack = std::move(baked);
+        }
     }
     std::map<std::uint16_t, std::size_t> texture_materials;
-    if (!texture_pack.empty()) {
-        result.texture_pack = texture_pack;
-        result.materials.reserve(texture_pack.size());
-        for (std::size_t index = 0; index < texture_pack.size(); ++index) {
-            const TexturePackEntry& texture = texture_pack[index];
+    if (texture_pack.has_value()) {
+        if (texture_pack->empty()) {
+            throw std::runtime_error(
+                definition.import_textures.empty()
+                    ? definition.name
+                        + " names no texture pack and maps no shaders onto a shipped "
+                          "room's materials, so it has no materials at all."
+                    : definition.name + " has no textures: "
+                        + definition.import_textures
+                        + " is not beside its recipe, not in its bundle, and could not be baked from the level.");
+        }
+        result.has_texture_pack = true;
+        result.texture_pack = *texture_pack;
+        result.materials.reserve(texture_pack->size());
+        for (std::size_t index = 0; index < texture_pack->size(); ++index) {
+            const TexturePackEntry& texture = (*texture_pack)[index];
             Material material;
             material.name = texture.name.empty()
                 ? "q3_" + std::to_string(index) : texture.name;
@@ -980,7 +962,7 @@ void append_entities(const Q3Bsp& bsp, const MapDefinition& definition,
         }
         int material = -1;
         const TexturePackEntry* packed_texture = nullptr;
-        if (!texture_pack.empty()) {
+        if (texture_pack.has_value()) {
             const auto packed = texture_materials.find(
                 static_cast<std::uint16_t>(source.texture));
             if (packed == texture_materials.end()) {
@@ -990,7 +972,7 @@ void append_entities(const Q3Bsp& bsp, const MapDefinition& definition,
                 continue;
             }
             material = static_cast<int>(packed->second);
-            packed_texture = &texture_pack[packed->second];
+            packed_texture = &(*texture_pack)[packed->second];
         } else {
             material = match_material(definition, texture.name);
         }
@@ -1029,7 +1011,7 @@ void append_entities(const Q3Bsp& bsp, const MapDefinition& definition,
             }
             result.faces.push_back(face);
             if (!sky) {
-                for (std::size_t i = 0; i < face.point_count; ++i) {
+                for (std::size_t i = 0; i < face.points.size(); ++i) {
                     drawn_min.x = std::min(drawn_min.x, face.points[i].x);
                     drawn_min.y = std::min(drawn_min.y, face.points[i].y);
                     drawn_min.z = std::min(drawn_min.z, face.points[i].z);
@@ -1173,15 +1155,12 @@ void append_entities(const Q3Bsp& bsp, const MapDefinition& definition,
             if (buried(polygon.points, polygon.normal, index, volumes, lookup)) {
                 continue;
             }
-            // The output writer represents at most four points per primitive.
-            // A fan preserves the planar brush side for collision and avoids
-            // silently truncating a side with five or more corners.
-            for (std::size_t point = 1; point + 1 < world_points.size(); ++point) {
+            // Keep the whole brush polygon here. The managed MapPacker decides
+            // when a model or collision format needs a fan.
+            if (world_points.size() >= 3) {
                 ImportedFace face;
-                face.points[0] = world_points[0];
-                face.points[1] = world_points[point];
-                face.points[2] = world_points[point + 1];
-                face.point_count = 3;
+                face.points = world_points;
+                face.texcoords.resize(face.points.size());
                 face.normal = world_normal;
                 face.material = 0;
                 face.shade = 1.0F;
@@ -1197,7 +1176,12 @@ void append_entities(const Q3Bsp& bsp, const MapDefinition& definition,
 
 ImportedMap import_q3(const MapDefinition& definition) {
     const std::filesystem::path source = resolve_source(definition);
-    const std::vector<std::uint8_t> level = read_level(definition, source);
+    const std::optional<std::string_view> map_name =
+        definition.import_map_name.empty()
+        ? std::nullopt
+        : std::optional<std::string_view>(definition.import_map_name);
+    const std::vector<std::uint8_t> level =
+        Q3Bsp::read_level(source, map_name);
     const Q3Bsp bsp = parse_bsp(level);
     return convert(bsp, definition, source);
 }
@@ -1208,7 +1192,10 @@ std::vector<ShaderUsage> list_shader_usage(
     probe.import_source = source.string();
     probe.import_map_name = std::string(map_name);
     const std::filesystem::path resolved = resolve_source(probe);
-    const std::vector<std::uint8_t> level = read_level(probe, resolved);
+    const std::optional<std::string_view> selected_map = map_name.empty()
+        ? std::nullopt : std::optional<std::string_view>(map_name);
+    const std::vector<std::uint8_t> level =
+        Q3Bsp::read_level(resolved, selected_map);
     const Q3Bsp bsp = parse_bsp(level);
 
     std::vector<ShaderUsage> result;
@@ -1245,29 +1232,28 @@ std::vector<ShaderUsage> list_shader_usage(
 
 std::vector<std::uint8_t> read_q3_level(
     const MapDefinition& definition, const std::filesystem::path& source) {
-    return read_level(definition, source);
+    const std::optional<std::string_view> map_name =
+        definition.import_map_name.empty()
+        ? std::nullopt
+        : std::optional<std::string_view>(definition.import_map_name);
+    return Q3Bsp::read_level(source, map_name);
 }
 
 std::vector<std::string> list_q3_maps(const std::filesystem::path& source) {
-    if (ends_with(source.extension().string(), ".bsp")) {
-        return {source.stem().string()};
-    }
-    const auto archive_bytes = read_file(source);
-    const auto entries = read_zip_entries(archive_bytes);
-    std::vector<std::string> result;
-    for (const ZipEntry& entry : entries) {
-        if (ends_with(entry.name, ".bsp")) {
-            result.push_back(std::filesystem::path(entry.name).stem().string());
-        }
-    }
-    std::sort(result.begin(), result.end());
-    return result;
+    return Q3Bsp::list_maps(source);
 }
 
 std::vector<TexturePackEntry> bake_q3_texture_pack(
     const Q3Bsp& bsp, const std::filesystem::path& source,
     const MapDefinition& definition, int texture_size) {
     return bake_texture_pack(bsp, source, definition, texture_size);
+}
+
+TextureBakeResult bake_q3_texture_pack_with_report(
+    const Q3Bsp& bsp, const std::filesystem::path& source,
+    const MapDefinition& definition, int texture_size) {
+    return bake_texture_pack_with_report(
+        bsp, source, definition, texture_size);
 }
 
 } // namespace fruityprime::mapgen::detail

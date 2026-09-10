@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Mods/MapGen/mapgen.hpp"
+#include "Mods/MapGen/q3_bsp.hpp"
 
 #include <array>
 #include <cstdint>
@@ -9,8 +9,6 @@
 #include <vector>
 
 namespace fruityprime::mapgen::detail {
-
-struct Q3Bsp;
 
 struct TexturePackEntry {
     std::uint16_t source_index = 0;
@@ -21,21 +19,19 @@ struct TexturePackEntry {
     std::vector<std::uint8_t> pixels;
 };
 
-// The public MapGen writer currently stores a primitive as either a triangle
-// or a quad. Q3 brush sides can be larger polygons, so the importer triangulates
-// them before handing them to the writer. Keeping this intermediate type out
-// of the public API prevents the BSP structs from becoming part of the map
-// recipe contract.
+// The importer keeps the managed BuiltFace contract: a polygon owns a
+// variable-length point and texture-coordinate array. The model and collision
+// packers decide where the format requires a fan, rather than truncating the
+// source polygon at an arbitrary native array size.
 struct ImportedFace {
-    std::array<Vec3, 4> points{};
+    std::vector<Vec3> points;
     Vec3 normal;
     int material = 0;
     float shade = 1.0F;
     bool damaging = false;
     std::uint16_t flags = 0;
-    std::uint8_t point_count = 3;
     bool has_texcoords = false;
-    std::array<std::array<float, 2>, 4> texcoords{};
+    std::vector<std::array<float, 2>> texcoords;
 };
 
 struct ImportedMap {
@@ -46,11 +42,17 @@ struct ImportedMap {
     std::vector<JumpPad> jump_pads;
     std::vector<Item> items;
     std::vector<TexturePackEntry> texture_pack;
+    bool has_texture_pack = false;
 };
 
 struct ShaderUsage {
     std::string name;
     int triangles = 0;
+};
+
+struct TextureBakeResult {
+    std::vector<TexturePackEntry> entries;
+    std::vector<std::string> missing;
 };
 
 [[nodiscard]] ImportedMap import_q3(const MapDefinition& definition);
@@ -69,6 +71,9 @@ struct ShaderUsage {
 [[nodiscard]] std::vector<std::string> list_q3_maps(
     const std::filesystem::path& source);
 [[nodiscard]] std::vector<TexturePackEntry> bake_q3_texture_pack(
+    const Q3Bsp& bsp, const std::filesystem::path& source,
+    const MapDefinition& definition, int texture_size = 64);
+[[nodiscard]] TextureBakeResult bake_q3_texture_pack_with_report(
     const Q3Bsp& bsp, const std::filesystem::path& source,
     const MapDefinition& definition, int texture_size = 64);
 

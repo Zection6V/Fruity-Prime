@@ -67,6 +67,11 @@ struct TextureExportStats {
 void write_png_rgba(const std::filesystem::path& output, int width, int height,
                     std::span<const std::uint8_t> rgba);
 
+// The movie exporter uses the managed writer's RGB (color type 2) output,
+// which is distinct from the RGBA model/HUD image path above.
+void write_png_rgb(const std::filesystem::path& output, int width, int height,
+                   std::span<const std::uint8_t> rgb);
+
 // Export the indexed/direct model textures referenced by its materials.  A
 // unique texture/palette pair becomes `texture-N-pM.png`; direct-color images
 // use `texture-N-direct.png`.

@@ -1,4 +1,5 @@
 #include "Mods/mod_entry.hpp"
+#include "Utility/command_line.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -16,41 +17,54 @@ int main() {
                     rejoin_value};
     constexpr int argc = static_cast<int>(std::size(argv));
 
-    assert(fruityprime::mods::has_flag(argc, argv, "-help"));
-    assert(fruityprime::mods::has_flag(argc, argv, "help"));
-    assert(fruityprime::mods::index_of_flag(argc, argv, "spectate") == 4);
-    assert(fruityprime::mods::value_after(argc, argv, "-seconds") == "12");
-    assert(fruityprime::mods::integer_after(argc, argv, "-seconds", 1) == 12);
-    assert(fruityprime::mods::integer_after(argc, argv, "-missing", 7) == 7);
+    assert(fruityprime::utility::command_line::has_flag(argc, argv, "-help"));
+    assert(fruityprime::utility::command_line::has_flag(argc, argv, "help"));
+    assert(fruityprime::utility::command_line::index_of_flag(
+               argc, argv, "spectate") == 4);
+    assert(fruityprime::utility::command_line::value_after(
+               argc, argv, "-seconds") == "12");
+    assert(fruityprime::utility::command_line::integer_after(
+               argc, argv, "-seconds", 1) == 12);
+    assert(fruityprime::utility::command_line::integer_after(
+               argc, argv, "-missing", 7) == 7);
     char hunter_flag[] = "-HuNtEr";
     char hunter_value[] = "tRaCe";
     char* hunter_argv[] = {arg0, hunter_flag, hunter_value};
-    assert(fruityprime::mods::hunter_after(
+    assert(fruityprime::utility::command_line::hunter_after(
                static_cast<int>(std::size(hunter_argv)), hunter_argv,
                "hunter") == 2);
     char invalid_hunter[] = "not-a-hunter";
     char* invalid_hunter_argv[] = {arg0, hunter_flag, invalid_hunter};
-    assert(fruityprime::mods::hunter_after(
+    assert(fruityprime::utility::command_line::hunter_after(
                static_cast<int>(std::size(invalid_hunter_argv)),
                invalid_hunter_argv, "hunter", 6) == 6);
-    assert(!fruityprime::mods::seconds_value("-seconds").has_value());
-    const auto parsed = fruityprime::mods::seconds_value("1.25");
+    assert(!fruityprime::utility::command_line::seconds_value(
+        "-seconds").has_value());
+    const auto parsed = fruityprime::utility::command_line::seconds_value(
+        "1.25");
     assert(parsed.has_value() && std::abs(*parsed - 1.25) < 0.000001);
-    assert(!fruityprime::mods::seconds_value("1.2x").has_value());
+    assert(!fruityprime::utility::command_line::seconds_value(
+        "1.2x").has_value());
 
-    const auto schedule = fruityprime::mods::spectate_arguments(argc, argv);
+    const auto schedule = fruityprime::utility::command_line::spectate_arguments(
+        argc, argv);
     assert(schedule.spectate_at_seconds == 0.0);
     assert(schedule.rejoin_at_seconds == 4.5);
-    const auto repeated = fruityprime::mods::values_after(argc, argv, "seconds");
+    const auto repeated = fruityprime::utility::command_line::values_after(
+        argc, argv, "seconds");
     assert(repeated.size() == 1 && repeated.front() == "12");
 
     int first = 0;
     int last = 0;
-    assert(fruityprime::mods::parse_port_range("27900-27919", first, last)
+    assert(fruityprime::utility::command_line::parse_port_range(
+        "27900-27919", first, last)
         && first == 27900 && last == 27919);
-    assert(!fruityprime::mods::parse_port_range("0-27919", first, last)
-        && !fruityprime::mods::parse_port_range("27919-27900", first, last)
-        && !fruityprime::mods::parse_port_range("27900", first, last));
+    assert(!fruityprime::utility::command_line::parse_port_range(
+               "0-27919", first, last)
+        && !fruityprime::utility::command_line::parse_port_range(
+               "27919-27900", first, last)
+        && !fruityprime::utility::command_line::parse_port_range(
+               "27900", first, last));
 
     std::cout << "native mod entry tests passed\n";
     return 0;

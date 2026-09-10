@@ -4,20 +4,6 @@
 
 namespace fruityprime::net {
 
-void forget_scoreboard_slot(game::State& state, int slot) noexcept {
-    NetScoreboard::ForgetSlot(state, slot);
-}
-
-void NetScoreboard::BindRuntime(game::State* state) noexcept {
-    state_ = state;
-}
-
-void NetScoreboard::ForgetSlot(int slot) noexcept {
-    if (state_ != nullptr) {
-        ForgetSlot(*state_, slot);
-    }
-}
-
 void NetScoreboard::ForgetSlot(game::State& state, int slot) noexcept {
     if (slot < 0 || slot >= static_cast<int>(game::SlotCapacity)) {
         return;

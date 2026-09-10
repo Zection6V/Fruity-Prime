@@ -4,7 +4,6 @@
 #include "render_mods.hpp"
 
 #include <cmath>
-#include <limits>
 
 namespace fruityprime::mods::render {
 namespace {
@@ -28,7 +27,10 @@ namespace {
 [[nodiscard]] formats::Vector3 normalized_or(formats::Vector3 value,
                                              formats::Vector3 fallback) noexcept {
     const float squared = length_squared(value);
-    if (squared <= std::numeric_limits<float>::epsilon()) {
+    // PreviewCamera.cs uses LengthSquared < 0.0001f for both the facing and
+    // right-vector fallbacks. Keep that exact threshold instead of replacing
+    // the managed boundary with a machine-epsilon test.
+    if (squared < 0.0001F) {
         return fallback;
     }
     const float inverse = 1.0F / std::sqrt(squared);

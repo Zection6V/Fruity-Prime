@@ -312,6 +312,12 @@ int main() {
     assert(fruityprime::metadata::get_model_by_name(
                "missing", fruityprime::metadata::MetaDir::Models)
            == nullptr);
+    assert(fruityprime::metadata::get_model_by_name(
+               "doubleDamage_img", fruityprime::metadata::MetaDir::Hud)
+           == &fruityprime::metadata::DoubleDamageImg);
+    assert(fruityprime::metadata::get_model_by_name(
+               "ad2_dm2", fruityprime::metadata::MetaDir::Models)
+           == &fruityprime::metadata::Ad2Dm2);
     const auto* first_hunt = fruityprime::metadata::get_first_hunt_model_by_name(
         "morphBall");
     assert(first_hunt != nullptr && first_hunt->FirstHunt);

@@ -36,16 +36,16 @@ struct ReceivedPacket {
     [[nodiscard]] std::span<const std::uint8_t> payload() const noexcept;
 };
 
-// Deliberately per-client rather than process-global. A bad line belongs to
-// the player being tested; a local relay or another client in the same test
-// process must remain on the real line.
+// Value snapshot used by the transport. The managed NetLag setting itself is
+// process-global; this value remains available for isolated native callers
+// that explicitly inject a condition set.
 struct NetworkConditions {
     int round_trip_ms = 0;
     int jitter_ms = 0;
     double loss_percent = 0.0;
 
     [[nodiscard]] bool active() const noexcept {
-        return round_trip_ms > 0 || jitter_ms > 0 || loss_percent > 0.0;
+        return round_trip_ms > 0 || loss_percent > 0.0;
     }
 
     // Parse the managed -netlag/-netloss option shapes. Empty values mean
@@ -104,6 +104,7 @@ private:
     int socket_ = -1;
 #endif
     std::uint16_t local_port_ = 0;
+    bool use_global_lag_ = false;
     NetworkConditions conditions_;
     std::atomic<bool> running_{false};
     std::thread worker_;

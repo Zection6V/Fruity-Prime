@@ -1,7 +1,7 @@
 #include "custom_rooms.hpp"
 
+#include "Formats/paths.hpp"
 #include "map_bundle.hpp"
-#include "Utility/console_setup.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -182,12 +182,12 @@ std::mutex g_mutex;
 }
 
 [[nodiscard]] bool needs_generating(const MapDefinition& definition) {
-    const auto directory = generated_directory(definition);
+    const auto archive = generated_directory(definition);
     const std::string prefix = file_prefix(definition);
-    const auto model = directory / (prefix + "_Model.bin");
+    const auto model = archive / (prefix + "_Model.bin");
     if (!regular_file(model)
-        || !regular_file(directory / (prefix + "_Ent.bin"))
-        || !regular_file(directory / (prefix + "_Node.bin"))) {
+        || !regular_file(entity_directory() / (prefix + "_Ent.bin"))
+        || !regular_file(node_directory() / (prefix + "_Node.bin"))) {
         return true;
     }
     if (definition.source_path.empty() || !regular_file(definition.source_path)) {
@@ -216,7 +216,8 @@ std::size_t generate(const std::vector<MapDefinition>& definitions_to_build,
             }
             const GeneratedMap generated = build(definition);
             write_generated(definition, generated,
-                            generated_directory(definition));
+                            generated_directory(definition), entity_directory(),
+                            node_directory());
             ++count;
         } catch (const std::exception& error) {
             if (!swallow_errors) {
@@ -265,16 +266,39 @@ const std::vector<MapDefinition>& definitions() {
 }
 
 std::filesystem::path generated_directory(const MapDefinition& definition) {
-    // The native packer writes the prefixed room files directly into the
-    // export directory (the prefix keeps different custom rooms distinct).
-    // Keep the catalog and the -mapgen command on that same directory; a
-    // per-map child here would make a successful generation impossible to
-    // load because RoomDefinition names <prefix>_*.bin below this root.
-    static_cast<void>(definition);
-    if (!g_map_directory.empty() && g_map_directory.has_parent_path()) {
-        return g_map_directory.parent_path() / "export/_mapgen";
+    std::filesystem::path root = formats::global_paths().file_system();
+    if (root.empty()) {
+        std::error_code error;
+        root = std::filesystem::current_path(error);
+        if (error) {
+            root.clear();
+        }
     }
-    return fruityprime::utility::console::resolve_launch_path("export/_mapgen");
+    return root / "_archives" / file_prefix(definition);
+}
+
+std::filesystem::path entity_directory() {
+    std::filesystem::path root = formats::global_paths().file_system();
+    if (root.empty()) {
+        std::error_code error;
+        root = std::filesystem::current_path(error);
+        if (error) {
+            root.clear();
+        }
+    }
+    return root / "levels" / "entities";
+}
+
+std::filesystem::path node_directory() {
+    std::filesystem::path root = formats::global_paths().file_system();
+    if (root.empty()) {
+        std::error_code error;
+        root = std::filesystem::current_path(error);
+        if (error) {
+            root.clear();
+        }
+    }
+    return root / "levels" / "nodeData";
 }
 
 std::size_t generate_all(bool force, bool verbose) {

@@ -10,7 +10,6 @@
 #include "Formats/fixed.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -22,13 +21,7 @@ namespace fruityprime::mapgen::map_collision {
 namespace {
 
 [[nodiscard]] std::int32_t fixed_raw(float value) {
-    const double scaled = static_cast<double>(value) * 4096.0;
-    if (!std::isfinite(scaled)
-        || scaled < static_cast<double>(std::numeric_limits<std::int32_t>::min())
-        || scaled > static_cast<double>(std::numeric_limits<std::int32_t>::max())) {
-        throw std::runtime_error("map coordinate does not fit fixed point");
-    }
-    return static_cast<std::int32_t>(std::lround(scaled));
+    return formats::Fixed::to_int(value);
 }
 
 [[nodiscard]] float dot(Vec3 left, Vec3 right) noexcept {
@@ -112,6 +105,10 @@ struct CollisionRecord {
              std::numeric_limits<float>::lowest()};
 
     for (const CollisionFace& face : faces) {
+        if (face.points.size() < 3 || face.points.size() > 10) {
+            throw std::runtime_error(
+                "map collision face must contain between three and ten points");
+        }
         const std::int32_t nx = fixed_raw(face.normal.x);
         const std::int32_t ny = fixed_raw(face.normal.y);
         const std::int32_t nz = fixed_raw(face.normal.z);
@@ -131,18 +128,15 @@ struct CollisionRecord {
         } else {
             plane_index = plane_found->second;
         }
-        if (face.point_count != 3 && face.point_count != 4) {
-            throw std::runtime_error("map collision face must contain three or four points");
-        }
         if (point_indices.size()
             > static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max())
-                - face.point_count) {
+                - face.points.size()) {
             throw std::runtime_error("map has too many collision point indices");
         }
         const std::uint16_t point_start = static_cast<std::uint16_t>(
             point_indices.size());
         for (std::size_t point_slot = 0;
-             point_slot < face.point_count; ++point_slot) {
+             point_slot < face.points.size(); ++point_slot) {
             const Vec3 point = face.points[point_slot];
             const PointKey key{fixed_raw(point.x), fixed_raw(point.y),
                                fixed_raw(point.z)};
@@ -182,7 +176,7 @@ struct CollisionRecord {
                       std::numeric_limits<float>::lowest(),
                       std::numeric_limits<float>::lowest()};
         for (std::size_t point_index = 0;
-             point_index < face.point_count; ++point_index) {
+             point_index < face.points.size(); ++point_index) {
             const Vec3 point = face.points[point_index];
             face_min.x = std::min(face_min.x, point.x);
             face_min.y = std::min(face_min.y, point.y);
@@ -198,7 +192,8 @@ struct CollisionRecord {
             ? 1 : (abs_z > abs_x && abs_z > abs_y ? 2 : 0);
         records.push_back({plane_index, face.flags,
                            static_cast<std::uint16_t>(4 | primary_axis),
-                           face.point_count, point_start, face_min, face_max});
+                           static_cast<std::uint16_t>(face.points.size()),
+                           point_start, face_min, face_max});
     }
 
     const auto parts = [](float extent) {

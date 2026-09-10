@@ -7,12 +7,32 @@
  */
 #include "Mods/Update/update.hpp"
 
+#include <atomic>
+
+namespace {
+
+std::atomic<bool> g_desktop_installer_selected{false};
+
+} // namespace
+
 namespace fruityprime::update {
+
+void UpdateInstall::use_desktop_if_possible(
+    const std::filesystem::path& base_directory) noexcept {
+    if (!g_desktop_installer_selected.load(std::memory_order_relaxed)
+        && DesktopUpdate::supported(base_directory)) {
+        g_desktop_installer_selected.store(true, std::memory_order_relaxed);
+    }
+}
+
+bool UpdateInstall::has_current() noexcept {
+    return g_desktop_installer_selected.load(std::memory_order_relaxed);
+}
 
 bool UpdateInstall::can_install(
     const std::filesystem::path& base_directory,
     const UpdateInfo& update) noexcept {
-    return !update.asset_url.empty()
+    return !update.asset_url.empty() && has_current()
         && DesktopUpdate::supported(base_directory);
 }
 

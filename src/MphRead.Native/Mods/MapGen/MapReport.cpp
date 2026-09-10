@@ -4,6 +4,7 @@
 #include "Formats/model_format.hpp"
 #include "Entities/room_catalog.hpp"
 #include "Entities/scene.hpp"
+#include "Metadata/Rooms.hpp"
 #include "Mods/MapGen/q3_import.hpp"
 
 #include <iomanip>
@@ -40,21 +41,46 @@ namespace {
 
 [[nodiscard]] scene::RoomDefinition definition_for_room(
     std::string_view room_name) {
+    if (fruityprime::metadata::get_room_by_name(room_name).first == nullptr) {
+        throw std::invalid_argument("No room with this name is known.");
+    }
     const auto* entry = scene::find_room(room_name);
     if (entry != nullptr) {
         return entry->definition;
     }
-    // Match the existing native room probes: an unknown label still reaches
-    // the asset loader and reports its real failure instead of silently
-    // selecting an unrelated room definition.
-    return scene::RoomDefinition{
-        std::string(room_name),
-        "archives/unit1_C0.arc",
-        "unit1_c0_model.bin",
-        "levels/textures/unit1_c0_tex.bin",
-        "unit1_c0_collision.bin",
-        "levels/entities/Unit1_C0_Ent.bin", {}, {}, {}
-    };
+    throw std::invalid_argument("No room with this name is known.");
+}
+
+[[nodiscard]] std::vector<std::uint8_t> archive_entry(
+    const assets::Store& assets, std::string_view archive_path,
+    std::string_view entry_name) {
+    const auto archive = assets.archive(archive_path);
+    for (std::size_t index = 0; index < archive.entries().size(); ++index) {
+        if (archive.entries()[index].filename == entry_name) {
+            return archive.file(index);
+        }
+    }
+    throw std::out_of_range("room archive entry was not found: "
+                           + std::string(entry_name));
+}
+
+[[nodiscard]] model::File model_for_room(
+    const assets::Store& assets, const scene::RoomDefinition& definition) {
+    if (!definition.external_root.empty()) {
+        const auto external = assets::Store::from_directory(
+            definition.external_root);
+        const auto texture = definition.texture_path.empty()
+            ? std::vector<std::uint8_t>{}
+            : external.bytes(definition.texture_path);
+        return model::File::from_resources(
+            external.bytes(definition.model_entry), texture);
+    }
+    const auto texture = definition.texture_path.empty()
+        ? std::vector<std::uint8_t>{}
+        : assets.bytes(definition.texture_path);
+    return model::File::from_resources(
+        archive_entry(assets, definition.model_archive,
+                      definition.model_entry), texture);
 }
 
 } // namespace
@@ -79,9 +105,8 @@ int list_shaders(std::ostream& output, const std::filesystem::path& source,
 int list_materials(std::ostream& output, const assets::Store& assets,
                    std::string_view room_name) {
     try {
-        const scene::Room room = scene::Room::load(
+        const model::File model = model_for_room(
             assets, definition_for_room(room_name));
-        const model::File& model = room.model();
         output << room_name << ": " << model.materials().size()
                << " materials, " << model.textures().size() << " textures\n";
         for (std::size_t index = 0; index < model.materials().size(); ++index) {

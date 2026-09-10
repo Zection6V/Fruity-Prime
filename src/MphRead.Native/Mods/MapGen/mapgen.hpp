@@ -111,14 +111,13 @@ struct MapDefinition {
 // importers can produce the same face contract without knowing how the final
 // room binaries are packed.
 struct BuiltFace {
-    std::array<Vec3, 4> points{};
-    std::array<std::array<float, 2>, 4> texcoords{};
+    std::vector<Vec3> points;
+    std::vector<std::array<float, 2>> texcoords;
     Vec3 normal;
     int material = 0;
     float shade = 1.0F;
     bool damaging = false;
     std::uint16_t flags = 0;
-    std::uint8_t point_count = 4;
     bool has_texcoords = false;
 };
 
@@ -167,6 +166,10 @@ struct Q3ConvertResult {
     float units_per_unit = 0.0F;
     std::size_t baked_textures = 0;
     std::size_t spawn_count = 0;
+    std::size_t texture_pack_bytes = 0;
+    std::vector<std::string> missing_textures;
+    Vec3 drawn_extent;
+    std::size_t clip_brushes = 0;
 };
 
 [[nodiscard]] MapDefinition load_definition(const std::filesystem::path& path);
@@ -175,7 +178,9 @@ struct Q3ConvertResult {
 [[nodiscard]] Q3ConvertResult convert_q3(const Q3ConvertOptions& options);
 void write_generated(const MapDefinition& definition,
                      const GeneratedMap& generated,
-                     const std::filesystem::path& output_directory);
+                     const std::filesystem::path& archive_directory,
+                     const std::filesystem::path& entity_directory,
+                     const std::filesystem::path& node_directory);
 
 [[nodiscard]] std::string file_prefix(const MapDefinition& definition);
 [[nodiscard]] int item_type_from_name(const std::string& name);

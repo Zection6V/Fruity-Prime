@@ -906,14 +906,13 @@ std::string serialize_definition(const MapDefinition& definition) {
 
 int item_type_from_name(const std::string& name) {
     const std::string value = lower(name);
-    static constexpr std::array<std::pair<std::string_view, int>, 19> items{{
+    static constexpr std::array<std::pair<std::string_view, int>, 18> items{{
         {"healthmedium", 0}, {"healthsmall", 1}, {"healthbig", 2},
         {"doubledamage", 3}, {"voltdriver", 5}, {"battlehammer", 7},
         {"imperialist", 8}, {"judicator", 9}, {"magmaul", 10},
         {"shockcoil", 11}, {"omegacannon", 12}, {"uasmall", 13},
         {"uabig", 14}, {"missilesmall", 15}, {"missilebig", 16},
-        {"cloak", 17}, {"deathalt", 20}, {"affinityweapon", 21},
-        {"pickwpnmissile", 22}
+        {"cloak", 17}, {"deathalt", 20}, {"affinityweapon", 21}
     }};
     for (const auto& [candidate, type] : items) {
         if (value == candidate) {

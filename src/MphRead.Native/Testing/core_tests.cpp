@@ -115,7 +115,7 @@ int main() {
         scoreboard_state.team_points[2] = 29;
         scoreboard_state.kill_streak[2] = 30;
         scoreboard_state.points[3] = 31;
-        fruityprime::net::forget_scoreboard_slot(scoreboard_state, 2);
+        fruityprime::net::NetScoreboard::ForgetSlot(scoreboard_state, 2);
         require(scoreboard_state.points[2] == 0
                     && scoreboard_state.kills[2] == 0
                     && scoreboard_state.deaths[2] == 0
@@ -139,14 +139,13 @@ int main() {
                     && scoreboard_state.kill_streak[2] == 30
                     && scoreboard_state.points[3] == 31,
                 "network scoreboard slot was not cleared exactly");
-        fruityprime::net::forget_scoreboard_slot(scoreboard_state, -1);
-        fruityprime::net::forget_scoreboard_slot(
+        fruityprime::net::NetScoreboard::ForgetSlot(scoreboard_state, -1);
+        fruityprime::net::NetScoreboard::ForgetSlot(
             scoreboard_state, static_cast<int>(MphReadNative::Game::SlotCapacity));
         require(scoreboard_state.points[3] == 31,
                 "invalid network scoreboard slot changed another player");
         scoreboard_state.points[3] = 44;
-        fruityprime::net::NetScoreboard::BindRuntime(&scoreboard_state);
-        fruityprime::net::NetScoreboard::ForgetSlot(3);
+        fruityprime::net::NetScoreboard::ForgetSlot(scoreboard_state, 3);
         require(scoreboard_state.points[3] == 0,
                 "static NetScoreboard did not clear the bound game state");
         state.paused = true;

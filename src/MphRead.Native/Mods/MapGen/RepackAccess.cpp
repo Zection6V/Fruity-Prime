@@ -21,7 +21,6 @@ std::vector<std::uint8_t> pack_mph_collision(
         collision_face.points = face.points;
         collision_face.normal = face.normal;
         collision_face.flags = face.flags;
-        collision_face.point_count = face.point_count;
         collision_faces.push_back(collision_face);
     }
     return map_collision::pack(collision_faces, stats);

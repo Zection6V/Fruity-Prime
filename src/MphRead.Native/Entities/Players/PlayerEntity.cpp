@@ -305,17 +305,6 @@ std::uint8_t Session::player_hunter(std::uint8_t slot) const noexcept {
     return input == inputs_.end() ? 0xff : input->hunter;
 }
 
-void Session::prepare_network_player(std::uint8_t slot) noexcept {
-    const auto player = std::find_if(
-        players_.begin(), players_.end(),
-        [slot](const net::PlayerState& value) {
-            return value.slot_index == slot;
-        });
-    if (player != players_.end()) {
-        player->flags |= net::PlayerState::FlagActive;
-    }
-}
-
 void Session::place_player(std::uint8_t slot, net::Vec3 position,
                            net::Vec3 facing, bool alt_form) {
     auto& player = players_[player_index(slot)];

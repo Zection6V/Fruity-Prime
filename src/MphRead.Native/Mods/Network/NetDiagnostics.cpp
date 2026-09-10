@@ -8,6 +8,14 @@
 #include <sstream>
 
 namespace fruityprime::net {
+namespace {
+
+bool& process_enabled_flag() noexcept {
+    static bool enabled = false;
+    return enabled;
+}
+
+} // namespace
 
 NetDiagnostics::NetDiagnostics() noexcept
     : enabled_(read_enabled()), checked_(true) {}
@@ -17,7 +25,15 @@ bool NetDiagnostics::read_enabled() noexcept {
 }
 
 bool NetDiagnostics::enabled() const noexcept {
-    return checked_ ? enabled_ : read_enabled();
+    return process_enabled() || (checked_ ? enabled_ : read_enabled());
+}
+
+void NetDiagnostics::set_process_enabled(bool enabled) noexcept {
+    process_enabled_flag() = enabled;
+}
+
+bool NetDiagnostics::process_enabled() noexcept {
+    return process_enabled_flag();
 }
 
 void NetDiagnostics::set_enabled(bool enabled_value) noexcept {

@@ -103,6 +103,14 @@ struct InstallResult {
 // heads own progress/UI and decide when to call the irreversible Install.
 class UpdateInstall final {
 public:
+    // Counterpart of UpdateInstall.UseDesktopIfPossible. The native launcher
+    // has no managed installer object, so the process keeps only whether the
+    // desktop installer was selected; the operation methods remain the same
+    // stateless DesktopUpdate calls.
+    static void use_desktop_if_possible(
+        const std::filesystem::path& base_directory) noexcept;
+    [[nodiscard]] static bool has_current() noexcept;
+
     [[nodiscard]] static bool can_install(
         const std::filesystem::path& base_directory,
         const UpdateInfo& update) noexcept;
@@ -135,6 +143,12 @@ public:
     [[nodiscard]] std::string describe(const UpdateInfo& update) const;
     [[nodiscard]] static bool open_page(const UpdateInfo& update);
     [[nodiscard]] static bool open_link(std::string_view url);
+
+    // Updater.Disabled is process-wide in Mods/Update/Updater.cs.  Keep the
+    // instance state for isolated launcher tests, but expose the same startup
+    // policy to every native entry path.
+    static void set_disabled(bool value) noexcept;
+    [[nodiscard]] static bool disabled() noexcept;
 
 private:
     bool server_build_ = false;

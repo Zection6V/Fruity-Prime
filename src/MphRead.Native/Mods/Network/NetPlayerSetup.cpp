@@ -1,39 +1,40 @@
 #include "Mods/Network/net_player_setup.hpp"
 
-namespace fruityprime::net {
+#include "Entities/Players/PlayerEntity.hpp"
 
-PlayerSetupResult apply_player_setup(gameplay::Session& session,
-                                     int local_slot) noexcept {
-    PlayerSetupResult result;
-    if (local_slot < 0 || local_slot >= static_cast<int>(game::SlotCapacity)) {
-        return result;
-    }
-    result.applied = true;
-    result.local_slot = static_cast<std::uint8_t>(local_slot);
-    for (const auto& player : session.players()) {
-        session.prepare_network_player(player.slot_index);
-        ++result.active_players;
-        if (player.slot_index != result.local_slot) {
-            ++result.remote_players;
-        }
-    }
-    return result;
-}
+namespace fruityprime::net {
 
 void NetPlayerSetup::Reset() noexcept {
     applied_ = false;
 }
 
-PlayerSetupResult NetPlayerSetup::ApplyOnce(
-    gameplay::Session& session, int local_slot, bool network_active) noexcept {
-    if (applied_ || !network_active) {
-        return {};
+void NetPlayerSetup::ApplyOnce(gameplay::Session& session,
+                               int local_slot) noexcept {
+    if (applied_ || local_slot < 0) {
+        return;
     }
-    PlayerSetupResult result = apply_player_setup(session, local_slot);
-    if (result.applied) {
-        applied_ = true;
+    applied_ = true;
+
+    // NetPlayerSetup.cs points PlayerEntity.Main at the slot driven by this
+    // process, then clears IsBot for every created player and BotLevel for
+    // every remote player.
+    if (local_slot < players::PlayerEntity::MaxPlayers()) {
+        players::PlayerEntity::MainPlayerIndex(local_slot);
     }
-    return result;
+    const auto player_table = players::PlayerEntity::Players();
+    const int max_players = players::PlayerEntity::MaxPlayers();
+    for (int slot = 0; slot < max_players
+             && static_cast<std::size_t>(slot) < player_table.size(); ++slot) {
+        players::PlayerEntity* player =
+            player_table[static_cast<std::size_t>(slot)];
+        if (player == nullptr) {
+            continue;
+        }
+        player->IsBot(false);
+        if (slot != local_slot) {
+            player->BotLevel(0);
+        }
+    }
 }
 
 } // namespace fruityprime::net

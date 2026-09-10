@@ -1,5 +1,7 @@
 #include "q3_convert.hpp"
 
+#include "custom_rooms.hpp"
+#include "map_texture_bake.hpp"
 #include "q3_import.hpp"
 
 #include "q3_bsp.hpp"
@@ -9,7 +11,6 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
-#include <iomanip>
 #include <limits>
 #include <optional>
 #include <sstream>
@@ -38,31 +39,6 @@ namespace {
         result.push_back(static_cast<char>(std::toupper(
             static_cast<unsigned char>(character))));
     }
-    return result;
-}
-
-[[nodiscard]] std::string json_quote(std::string_view value) {
-    std::string result = "\"";
-    for (const unsigned char character : value) {
-        switch (character) {
-        case '\\': result += "\\\\"; break;
-        case '"': result += "\\\""; break;
-        case '\n': result += "\\n"; break;
-        case '\r': result += "\\r"; break;
-        case '\t': result += "\\t"; break;
-        default:
-            if (character < 0x20) {
-                result += "\\u00";
-                constexpr char hex[] = "0123456789abcdef";
-                result.push_back(hex[character >> 4]);
-                result.push_back(hex[character & 0xf]);
-            } else {
-                result.push_back(static_cast<char>(character));
-            }
-            break;
-        }
-    }
-    result.push_back('"');
     return result;
 }
 
@@ -202,45 +178,9 @@ void write_q3_recipe(const std::filesystem::path& path,
     if (!output) {
         throw std::runtime_error("could not create map recipe " + path.string());
     }
-    output << std::setprecision(6) << std::defaultfloat;
-    output << "{\n"
-           << "  \"name\": " << json_quote(definition.name) << ",\n"
-           << "  \"inGameName\": " << json_quote(definition.in_game_name)
-           << ",\n"
-           << "  \"scaleFactor\": " << definition.scale_factor << ",\n"
-           << "  \"killHeight\": " << definition.kill_height << ",\n"
-           << "  \"farClip\": " << definition.far_clip << ",\n"
-           << "  \"pointLimit\": " << definition.point_limit << ",\n"
-           << "  \"import\": {\n"
-           << "    \"source\": " << json_quote(definition.import_source)
-           << ",\n"
-           << "    \"mapName\": " << json_quote(definition.import_map_name)
-           << ",\n"
-           << "    \"unitsPerUnit\": " << definition.import_units_per_unit
-           << ",\n"
-           << "    \"textures\": " << json_quote(definition.import_textures)
-           << ",\n"
-           << "    \"keepSpawns\": "
-           << (definition.import_keep_spawns ? "true" : "false") << ",\n"
-           << "    \"keepSky\": "
-           << (definition.import_keep_sky ? "true" : "false") << ",\n"
-           << "    \"keepClip\": "
-           << (definition.import_keep_clip ? "true" : "false") << "\n"
-           << "  }";
-    if (!definition.spawns.empty()) {
-        output << ",\n  \"spawns\": [\n";
-        for (std::size_t i = 0; i < definition.spawns.size(); ++i) {
-            const Spawn& spawn = definition.spawns[i];
-            output << "    { \"position\": [" << spawn.position.x << ", "
-                    << spawn.position.y << ", " << spawn.position.z
-                    << "], \"yaw\": " << spawn.yaw << " }"
-                    << (i + 1 == definition.spawns.size() ? "\n" : ",\n");
-        }
-        output << "  ],\n  \"items\": []\n";
-    } else {
-        output << ",\n  \"items\": []\n";
-    }
-    output << "}\n";
+    const std::string serialized = serialize_definition(definition);
+    output.write(serialized.data(),
+                 static_cast<std::streamsize>(serialized.size()));
     if (!output) {
         throw std::runtime_error("could not write map recipe " + path.string());
     }
@@ -296,7 +236,7 @@ Q3ConvertResult convert_q3_recipe(const Q3ConvertOptions& options) {
         return file_prefix(named);
     }();
     const std::filesystem::path directory = options.output_directory.empty()
-        ? std::filesystem::current_path() / "maps" / prefix
+        ? custom_rooms::map_directory() / prefix
         : options.output_directory;
     std::filesystem::create_directories(directory, error);
     if (error) {
@@ -332,11 +272,32 @@ Q3ConvertResult convert_q3_recipe(const Q3ConvertOptions& options) {
     definition.import_keep_spawns = true;
     definition.import_textures = prefix + ".tex";
     definition.source_path = directory / (prefix + ".json");
-    const auto baked = bake_q3_texture_pack(bsp, source, definition,
-                                             options.texture_size);
+    const TextureBakeResult baked = bake_q3_texture_pack_with_report(
+        bsp, source, definition, options.texture_size);
     const std::filesystem::path texture_pack_path = directory
         / definition.import_textures;
-    write_texture_pack(texture_pack_path, baked);
+    write_texture_pack(texture_pack_path, baked.entries);
+    std::error_code size_error;
+    const std::uintmax_t texture_pack_bytes = std::filesystem::file_size(
+        texture_pack_path, size_error);
+    if (size_error) {
+        throw std::runtime_error("could not measure texture pack: "
+                                 + size_error.message());
+    }
+
+    std::size_t clip_brushes = 0;
+    for (const Q3Brush& brush : bsp.brushes) {
+        if (brush.texture < 0
+            || static_cast<std::size_t>(brush.texture) >= bsp.textures.size()) {
+            throw std::runtime_error("Q3 brush texture index is outside the lump");
+        }
+        const std::int32_t contents = bsp.textures[
+            static_cast<std::size_t>(brush.texture)].contents;
+        if ((contents & Q3Bsp::ContentsSolid) == 0
+            && (contents & Q3Bsp::ContentsPlayerClip) != 0) {
+            ++clip_brushes;
+        }
+    }
 
     std::vector<Vec3> starts;
     std::vector<Vec3> fallbacks;
@@ -379,8 +340,14 @@ Q3ConvertResult convert_q3_recipe(const Q3ConvertOptions& options) {
     }
     write_q3_recipe(definition_path, definition);
     return {definition_path, level_path, texture_pack_path, room,
-            units_per_unit, baked.size(),
-            definition.import_keep_spawns ? starts.size() : definition.spawns.size()};
+            units_per_unit, baked.entries.size(),
+            definition.import_keep_spawns ? starts.size() : definition.spawns.size(),
+            static_cast<std::size_t>(texture_pack_bytes),
+            baked.missing,
+            {drawn.max.x - drawn.min.x,
+             drawn.max.y - drawn.min.y,
+             drawn.max.z - drawn.min.z},
+            clip_brushes};
 }
 
 } // namespace fruityprime::mapgen::detail

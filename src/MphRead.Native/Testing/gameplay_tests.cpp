@@ -1,4 +1,5 @@
 #include "Entities/gameplay.hpp"
+#include "Entities/Players/PlayerEntity.hpp"
 #include "Mods/Network/net_damage.hpp"
 #include "Mods/Network/net_player_bridge.hpp"
 #include "Mods/Network/net_player_setup.hpp"
@@ -45,6 +46,7 @@ int main() {
         const auto objective_room = fruityprime::scene::Room::load(
             assets, objective_entry->definition);
         fruityprime::gameplay::Session session(room);
+        fruityprime::players::PlayerEntity::Construct(session);
         static_cast<void>(session.add_player(0, 0));
         if (session.player_profile(0).hunter
             != fruityprime::metadata::Hunter::Samus) {
@@ -65,20 +67,28 @@ int main() {
             || session.player_hunter(1) != 2) {
             throw std::runtime_error("network roster join was not applied");
         }
+        auto player_table = fruityprime::players::PlayerEntity::Players();
+        player_table[0]->IsBot(true);
+        player_table[1]->IsBot(true);
+        player_table[1]->BotLevel(2);
         fruityprime::net::NetPlayerSetup::Reset();
-        const auto setup = fruityprime::net::NetPlayerSetup::ApplyOnce(
-            session, 0);
-        if (!setup.applied || setup.active_players != 2
-            || setup.remote_players != 1
-            || (session.player(1).flags
-                & fruityprime::net::PlayerState::FlagActive) == 0) {
+        fruityprime::net::NetPlayerSetup::ApplyOnce(session, 0);
+        if (fruityprime::players::PlayerEntity::MainPlayerIndex() != 0
+            || player_table[0]->IsBot() || player_table[1]->IsBot()
+            || player_table[1]->BotLevel() != 0) {
             throw std::runtime_error("network player setup was not applied");
         }
-        if (fruityprime::net::NetPlayerSetup::ApplyOnce(session, 0).applied) {
+        player_table[1]->IsBot(true);
+        player_table[1]->BotLevel(2);
+        fruityprime::net::NetPlayerSetup::ApplyOnce(session, 0);
+        if (!player_table[1]->IsBot() || player_table[1]->BotLevel() != 2) {
             throw std::runtime_error("network player setup applied twice");
         }
         fruityprime::net::NetPlayerSetup::Reset();
-        if (!fruityprime::net::NetPlayerSetup::ApplyOnce(session, 0).applied) {
+        fruityprime::net::NetPlayerSetup::ApplyOnce(session, 1);
+        if (fruityprime::players::PlayerEntity::MainPlayerIndex() != 1
+            || player_table[1]->IsBot() || player_table[1]->BotLevel() != 2
+            || player_table[0]->IsBot() || player_table[0]->BotLevel() != 0) {
             throw std::runtime_error("network player setup reset was ignored");
         }
         roster.count = 1;

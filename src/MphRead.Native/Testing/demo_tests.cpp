@@ -138,11 +138,14 @@ int main() {
         const auto info = fruityprime::demo::inspect(path);
         assert(info.has_value() && info->records == 4
                && info->first_frame == 0 && info->last_frame == 300
-               && info->biggest_gap == 297 && info->snapshots == 0);
+               && info->biggest_gap == 297 && info->snapshots == 0
+               && info->packet_order == std::vector<std::uint8_t>({1, 'h', 0x5a, 0}));
         std::ostringstream report;
         fruityprime::demo::print(report, path, *info);
-        assert(report.str().find("format=FPDM version=2")
+        assert(report.str().find("longest gap between records: 297")
                != std::string::npos);
+        assert(report.str().find("format=FPDM version=2")
+               == std::string::npos);
 
         auto bytes = read_bytes(path);
         assert(bytes.size() > fruityprime::demo::HeaderSize + 5);

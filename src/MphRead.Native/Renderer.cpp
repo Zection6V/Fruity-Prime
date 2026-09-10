@@ -172,7 +172,7 @@ void Camera::reset() noexcept {
         pivot_angle_x_degrees_ = 0.0F;
         pivot_angle_y_degrees_ = 0.0F;
         pivot_distance_ = 5.0F;
-    } else {
+    } else if (mode_ == CameraMode::Roam) {
         position_ = {};
         facing_ = {0.0F, 0.0F, -1.0F};
         up_ = {0.0F, 1.0F, 0.0F};
@@ -383,10 +383,9 @@ std::optional<AfterFade> FadeController::consume_action() noexcept {
 
 std::uint32_t TextureMap::key(int texture_id, int palette_id, int recolor_id) {
     if (palette_id == -1) palette_id = 4095;
-    if (texture_id < 0 || texture_id >= 4096 || palette_id < 0 || palette_id >= 4096
-        || recolor_id < 0 || recolor_id >= 255) {
-        throw std::out_of_range("texture binding key is outside the managed bit layout");
-    }
+    // Renderer.cs only uses Debug.Assert for these bounds.  In a Release
+    // build the managed expression is still an unchecked Int32 bit packing;
+    // do not turn the assertions into a native-only runtime exception.
     return static_cast<std::uint32_t>(texture_id)
         | (static_cast<std::uint32_t>(palette_id) << 12)
         | (static_cast<std::uint32_t>(recolor_id) << 24);

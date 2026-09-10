@@ -138,24 +138,31 @@ namespace {
     return result;
 }
 
-std::vector<detail::TexturePackEntry> load(const MapDefinition& definition) {
+std::optional<std::vector<detail::TexturePackEntry>> load_optional(
+    const MapDefinition& definition) {
     if (bundle::is_bundle(definition.source_path)) {
         if (definition.import_textures.empty()) {
-            return {};
+            return std::nullopt;
         }
         const auto bytes = bundle::read_entry(
             definition.source_path, definition.import_textures);
         if (!bytes.has_value()) {
-            return {};
+            return std::nullopt;
         }
         return parse(*bytes, definition.import_textures);
     }
     const std::filesystem::path path = resolve(definition);
     if (path.empty()) {
-        return {};
+        return std::nullopt;
     }
     const std::vector<std::uint8_t> bytes = read_file(path);
     return parse(bytes, path.filename().string());
+}
+
+std::vector<detail::TexturePackEntry> load(const MapDefinition& definition) {
+    const auto result = load_optional(definition);
+    return result.has_value()
+        ? *result : std::vector<detail::TexturePackEntry>{};
 }
 
 } // namespace fruityprime::mapgen::texture_pack_io

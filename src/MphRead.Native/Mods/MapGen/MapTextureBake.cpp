@@ -135,7 +135,7 @@ quantize_rgb(const std::vector<std::uint8_t>& rgb, int size) {
     return {std::move(palette), std::move(lookup)};
 }
 
-std::vector<detail::TexturePackEntry> bake_q3_textures(
+BakeResult bake_q3_textures_with_report(
     const detail::Q3Bsp& bsp, const MapDefinition& definition, int texture_size,
     const ImageLoader& load_image) {
     std::map<int, bool> seen;
@@ -169,10 +169,11 @@ std::vector<detail::TexturePackEntry> bake_q3_textures(
     if (!load_image) {
         throw std::invalid_argument("Q3 texture image loader is empty");
     }
-    std::vector<detail::TexturePackEntry> result;
+    BakeResult result;
     for (const auto& [source_index, name] : used) {
         const std::optional<detail::image::RgbImage> decoded = load_image(name);
         if (!decoded.has_value()) {
+            result.missing.push_back(name);
             continue;
         }
         const auto reduced = downsample_rgb(*decoded, texture_size, name);
@@ -184,9 +185,16 @@ std::vector<detail::TexturePackEntry> bake_q3_textures(
         entry.height = static_cast<std::uint16_t>(texture_size);
         entry.palette = std::move(palette);
         entry.pixels = std::move(pixels);
-        result.push_back(std::move(entry));
+        result.entries.push_back(std::move(entry));
     }
     return result;
+}
+
+std::vector<detail::TexturePackEntry> bake_q3_textures(
+    const detail::Q3Bsp& bsp, const MapDefinition& definition, int texture_size,
+    const ImageLoader& load_image) {
+    return bake_q3_textures_with_report(
+        bsp, definition, texture_size, load_image).entries;
 }
 
 } // namespace fruityprime::mapgen::texture_bake

@@ -532,17 +532,10 @@ MovieExportStats write_movie(
         if (rgb.size() != pixels * 3U) {
             throw std::runtime_error("movie frame has the wrong RGB size");
         }
-        std::vector<std::uint8_t> rgba(pixels * 4U, 0);
-        for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
-            rgba[pixel * 4U + 0] = rgb[pixel * 3U + 0];
-            rgba[pixel * 4U + 1] = rgb[pixel * 3U + 1];
-            rgba[pixel * 4U + 2] = rgb[pixel * 3U + 2];
-            rgba[pixel * 4U + 3] = 0xff;
-        }
         std::ostringstream filename;
         filename << std::setw(4) << std::setfill('0') << frame_index << ".png";
-        write_png_rgba(output_directory / filename.str(), header.frame_width,
-                       header.frame_height, rgba);
+        write_png_rgb(output_directory / filename.str(), header.frame_width,
+                      header.frame_height, rgb);
         ++stats.frames;
     }
 

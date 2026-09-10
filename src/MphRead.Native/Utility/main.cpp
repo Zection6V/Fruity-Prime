@@ -3,6 +3,7 @@
 #include "Formats/camera_sequence.hpp"
 #include "Mods/credits.hpp"
 #include "Utility/console_setup.hpp"
+#include "Utility/command_line.hpp"
 #include "Mods/Network/demo.hpp"
 #include "Formats/demo_info.hpp"
 #include "Mods/Network/dedicated_server.hpp"
@@ -17,7 +18,6 @@
 #include "Mods/Network/match_client.hpp"
 #include "Entities/match_flow.hpp"
 #include "Mods/MapGen/mapgen.hpp"
-#include "Mods/Network/map_audit.hpp"
 #include "Mods/MapGen/map_report.hpp"
 #include "Mods/Network/mechanics_dump.hpp"
 #include "Metadata/metadata.hpp"
@@ -40,6 +40,7 @@
 #include "Formats/sound_catalog.hpp"
 #include "Sound/sseq_player.hpp"
 #include "Mods/Update/update.hpp"
+#include "Program.hpp"
 
 #include "Entities/Players/PlayerAi.hpp"
 #include "../Mods/MapGen/map_bundle.hpp"
@@ -66,16 +67,16 @@
 
 namespace {
 
-using fruityprime::mods::has_flag;
-using fruityprime::mods::hunter_after;
-using fruityprime::mods::index_of_flag;
-using fruityprime::mods::integer_after;
-using fruityprime::mods::parse_port_range;
-using fruityprime::mods::seconds_value;
-using fruityprime::mods::spectate_arguments;
-using fruityprime::mods::value_after;
-using fruityprime::mods::values_after;
-using fruityprime::mods::SpectateArguments;
+using fruityprime::utility::command_line::has_flag;
+using fruityprime::utility::command_line::hunter_after;
+using fruityprime::utility::command_line::index_of_flag;
+using fruityprime::utility::command_line::integer_after;
+using fruityprime::utility::command_line::parse_port_range;
+using fruityprime::utility::command_line::seconds_value;
+using fruityprime::utility::command_line::spectate_arguments;
+using fruityprime::utility::command_line::value_after;
+using fruityprime::utility::command_line::values_after;
+using fruityprime::utility::command_line::SpectateArguments;
 
 fruityprime::DedicatedServer* g_server = nullptr;
 fruityprime::MasterServer* g_master = nullptr;
@@ -740,21 +741,11 @@ int run_demo_command(int argc, char** argv) {
             [](std::string_view room_name) {
                 const auto* entry = fruityprime::scene::find_room(
                     room_name);
-                if (entry != nullptr) {
-                    return entry->definition;
+                if (entry == nullptr) {
+                    throw std::invalid_argument(
+                        "No room with this name is known.");
                 }
-                // Keep the same useful fallback as -maptest: custom room
-                // metadata can still be supplied by extending the catalog,
-                // while an unknown recording fails during asset lookup
-                // instead of silently loading an unrelated room.
-                return fruityprime::scene::RoomDefinition{
-                    std::string(room_name),
-                    "archives/unit1_C0.arc",
-                    "unit1_c0_model.bin",
-                    "levels/textures/unit1_c0_tex.bin",
-                    "unit1_c0_collision.bin",
-                    "levels/entities/Unit1_C0_Ent.bin", {}, {}, {}
-                };
+                return entry->definition;
             };
 
         const auto add_roster_players =
@@ -1723,7 +1714,14 @@ int run_mapgen_command(int argc, char** argv) {
     const auto output = output_value.empty()
         ? fruityprime::mapgen::custom_rooms::generated_directory(definition)
         : fruityprime::utility::console::resolve_launch_path(output_value);
-    fruityprime::mapgen::write_generated(definition, generated, output);
+    const auto entity_output = output_value.empty()
+        ? fruityprime::mapgen::custom_rooms::entity_directory()
+        : output;
+    const auto node_output = output_value.empty()
+        ? fruityprime::mapgen::custom_rooms::node_directory()
+        : output;
+    fruityprime::mapgen::write_generated(definition, generated, output,
+                                         entity_output, node_output);
     const auto prefix = fruityprime::mapgen::file_prefix(definition);
     std::cout << "mapgen name=\"" << definition.name << '"'
               << " prefix=\"" << prefix << '"'
@@ -1962,7 +1960,26 @@ int run_map_materials_command(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
-    fruityprime::utility::console::run();
+    std::vector<std::string> mod_arguments;
+    if (argc > 1 && argv != nullptr) {
+        mod_arguments.reserve(static_cast<std::size_t>(argc - 1));
+        for (int index = 1; index < argc; ++index) {
+            mod_arguments.emplace_back(argv[index] != nullptr ? argv[index] : "");
+        }
+    }
+    // Program.Main is the sole managed top-level. This executable remains a
+    // temporary adapter only for the normal branches whose RenderWindow and
+    // export implementations have not yet been moved to Program.cpp; it must
+    // not run a second ModEntry dispatch of its own.
+    try {
+        if (MphReadNative::Program::Main(mod_arguments)
+            == MphReadNative::Program::MainResult::Handled) {
+            return MphReadNative::Program::ExitCode();
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "[program] fatal: " << error.what() << '\n';
+        return EXIT_FAILURE;
+    }
     if (has_flag(argc, argv, "-help") || has_flag(argc, argv, "--help")) {
         print_usage(argc > 0 ? argv[0] : "FruityPrime");
         return EXIT_SUCCESS;
@@ -2053,9 +2070,6 @@ int main(int argc, char** argv) {
         if (has_flag(argc, argv, "-weapondps")) {
             return run_weapon_dps_command(argc, argv);
         }
-        if (has_flag(argc, argv, "-maptest")) {
-            return fruityprime::map_audit::run(argc, argv);
-        }
         if (has_flag(argc, argv, "-roominfo")) {
             return run_room_command(argc, argv);
         }
@@ -2120,46 +2134,12 @@ int main(int argc, char** argv) {
             return run_mapbundle_command(argc, argv);
         }
 
-        fruityprime::ServerOptions options;
-        const int requested_port = integer_after(
-            argc, argv, "-port", static_cast<int>(options.port));
-        options.port = static_cast<std::uint16_t>(std::clamp(requested_port, 0, 65'535));
-        options.max_players = integer_after(argc, argv, "-players",
-                                            options.max_players);
-        options.server_name = value_after(argc, argv, "-servername");
-        if (options.server_name.empty()) {
-            options.server_name = value_after(argc, argv, "-name");
-        }
-        options.friendly_fire = has_flag(argc, argv, "-friendlyfire");
-        options.advertise = !has_flag(argc, argv, "-nomaster")
-            && !has_flag(argc, argv, "-unlisted");
-        const std::string master = value_after(argc, argv, "-master");
-        if (!master.empty()) {
-            options.master_host = master;
-        }
-        const int master_port = integer_after(argc, argv, "-masterport",
-                                              options.master_port);
-        options.master_port = static_cast<std::uint16_t>(
-            std::clamp(master_port, 1, 65'535));
-
-        std::string rotation_value = value_after(argc, argv, "-rotation");
-        const std::filesystem::path rotation_path = rotation_value.empty()
-            ? executable_directory(argc > 0 ? argv[0] : "FruityPrime")
-                / "maprotation.txt"
-            : std::filesystem::path(rotation_value);
-        options.rotation = fruityprime::MapRotation::load_or_create(rotation_path);
-
-        fruityprime::DedicatedServer server(std::move(options));
-        g_server = &server;
-        fruityprime::mods::ShutdownSignals shutdown_signals;
-        shutdown_signals.on_shutdown(stop_services);
-        const int seconds = integer_after(argc, argv, "-seconds", 0);
-        const auto duration = seconds > 0
-            ? std::chrono::seconds(seconds)
-            : std::chrono::seconds(0);
-        server.run(std::chrono::duration_cast<std::chrono::milliseconds>(duration));
-        g_server = nullptr;
-        return EXIT_SUCCESS;
+        // A missing command is a normal-program fallback in C#; it is not a
+        // request to start a dedicated server. This target currently has no
+        // normal game host, so expose the utility usage and stop here until
+        // the server build is wired through Program.Main as its own target.
+        print_usage(argc > 0 ? argv[0] : "FruityPrimeServer");
+        return EXIT_FAILURE;
     } catch (const std::exception& error) {
         g_server = nullptr;
         g_master = nullptr;

@@ -28,6 +28,23 @@ public:
 // use this namespace as a native oracle seam; it is not a second CLI API.
 namespace Program {
 
+// Program.Main owns the managed startup order.  A native platform adapter
+// continues only when the two ModEntry boundaries did not handle the command;
+// the normal RenderWindow branch remains a separate port unit until that
+// source pair exists.
+enum class MainResult {
+    Handled,
+    ContinueToNativeHost,
+};
+
+[[nodiscard]] MainResult Main(std::span<const std::string> args);
+
+// Process state counterpart of Environment.ExitCode.  ModEntry handlers keep
+// their C#-shaped bool return value and record command results here; platform
+// adapters read it only after Main reports Handled.
+void SetExitCode(int value) noexcept;
+[[nodiscard]] int ExitCode() noexcept;
+
 struct Version {
     std::array<int, 4> parts{{0, 0, -1, -1}};
     friend bool operator==(const Version&, const Version&) = default;
@@ -42,8 +59,6 @@ namespace detail {
 
 [[nodiscard]] std::optional<Version> parse_version(std::string_view value);
 [[nodiscard]] bool check_version(std::string_view value) noexcept;
-[[nodiscard]] bool check_version_file(
-    const std::filesystem::path& path) noexcept;
 
 struct Argument {
     std::string Name;
@@ -66,11 +81,11 @@ using ArgumentList = std::vector<Argument>;
 
 [[nodiscard]] std::optional<int> try_get_int(
     std::span<const Argument> arguments, std::string_view full_name,
-    std::string_view short_name) noexcept;
+    std::string_view short_name);
 
 [[nodiscard]] std::vector<std::pair<std::string, int>> get_pairs(
     std::span<const Argument> arguments, std::string_view full_name,
-    std::string_view short_name) noexcept;
+    std::string_view short_name);
 
 } // namespace detail
 

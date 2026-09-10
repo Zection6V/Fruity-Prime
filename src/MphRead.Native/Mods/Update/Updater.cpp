@@ -23,8 +23,22 @@
 
 namespace fruityprime::update {
 
+namespace {
+
+bool g_disabled = false;
+
+} // namespace
+
+void Updater::set_disabled(bool value) noexcept {
+    g_disabled = value;
+}
+
+bool Updater::disabled() noexcept {
+    return g_disabled;
+}
+
 std::optional<UpdateInfo> Updater::check() {
-    if (state_.disabled) {
+    if (state_.disabled || disabled()) {
         return std::nullopt;
     }
     state_.available = UpdateCheck::latest(server_build_);

@@ -1,5 +1,6 @@
 #include "Entities/room_catalog.hpp"
 
+#include "Formats/paths.hpp"
 #include "../Mods/MapGen/custom_rooms.hpp"
 
 #include <cctype>
@@ -37,8 +38,11 @@ RoomCatalogEntry make_entry(int id, std::string name,
 RoomCatalogEntry make_custom_entry(
     int id, const fruityprime::mapgen::MapDefinition& definition) {
     const std::string prefix = fruityprime::mapgen::file_prefix(definition);
-    const auto output = fruityprime::mapgen::custom_rooms::generated_directory(
-        definition);
+    std::filesystem::path root = fruityprime::formats::global_paths()
+        .file_system();
+    if (root.empty()) {
+        root = std::filesystem::current_path();
+    }
     return RoomCatalogEntry{
         id,
         definition.name,
@@ -47,13 +51,13 @@ RoomCatalogEntry make_custom_entry(
         RoomDefinition{
             definition.name,
             {},
-            prefix + "_Model.bin",
+            "_archives/" + prefix + "/" + prefix + "_Model.bin",
             {},
-            prefix + "_Collision.bin",
-            prefix + "_Ent.bin",
-            prefix + "_Anim.bin",
-            prefix + "_Node.bin",
-            output
+            "_archives/" + prefix + "/" + prefix + "_Collision.bin",
+            "levels/entities/" + prefix + "_Ent.bin",
+            "_archives/" + prefix + "/" + prefix + "_Anim.bin",
+            "levels/nodeData/" + prefix + "_Node.bin",
+            root
         }
     };
 }

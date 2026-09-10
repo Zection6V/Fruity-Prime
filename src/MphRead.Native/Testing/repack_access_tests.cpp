@@ -19,7 +19,6 @@ int main() {
     face.points = {{{-1.0F, 0.0F, -1.0F}, {1.0F, 0.0F, -1.0F},
                     {1.0F, 0.0F, 1.0F}, {-1.0F, 0.0F, 1.0F}}};
     face.normal = {0.0F, 1.0F, 0.0F};
-    face.point_count = 4;
     const std::array<fruityprime::mapgen::BuiltFace, 1> faces{face};
     fruityprime::mapgen::BuildStats collision_stats;
     const auto collision = fruityprime::mapgen::repack::pack_mph_collision(

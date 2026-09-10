@@ -36,6 +36,12 @@ public:
 
     NetDiagnostics() noexcept;
 
+    // ModEntry.cs sets Network.NetDiagnostics.Enabled after the process-wide
+    // diagnostics object may already have been constructed by a platform
+    // host.  Keep that managed static state separate from each host instance.
+    static void set_process_enabled(bool enabled) noexcept;
+    [[nodiscard]] static bool process_enabled() noexcept;
+
     [[nodiscard]] bool enabled() const noexcept;
     void set_enabled(bool enabled) noexcept;
     void reset() noexcept;

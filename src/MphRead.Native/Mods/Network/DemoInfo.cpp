@@ -3,15 +3,16 @@
 #include "Mods/Network/net_protocol.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <iomanip>
+#include <iostream>
 #include <ostream>
 #include <string_view>
 
 namespace fruityprime::demo {
 namespace {
 
-[[nodiscard]] std::string_view packet_type_name(
-    net::PacketType type) noexcept {
+[[nodiscard]] std::string packet_type_name(net::PacketType type) {
     using net::PacketType;
     switch (type) {
     case PacketType::Hello: return "Hello";
@@ -38,7 +39,7 @@ namespace {
     case PacketType::Refused: return "Refused";
     case PacketType::Chat: return "Chat";
     }
-    return "Unknown";
+    return std::to_string(static_cast<unsigned int>(type));
 }
 
 } // namespace
@@ -65,6 +66,9 @@ std::optional<Info> inspect(const std::filesystem::path& path) {
         ++info.records;
         if (!record->data.empty()) {
             const std::size_t type = record->data.front();
+            if (info.packet_counts[type] == 0) {
+                info.packet_order.push_back(static_cast<std::uint8_t>(type));
+            }
             ++info.packet_counts[type];
             info.packet_bytes[type] += record->data.size();
             if (type == static_cast<std::uint8_t>(net::PacketType::Snapshot)) {
@@ -102,21 +106,19 @@ void print(std::ostream& output, const std::filesystem::path& path,
            << " KiB on disk, "
            << (static_cast<double>(info.payload_bytes) / 1024.0)
            << " KiB of packets -- "
-           << (info.on_disk == 0
-                   ? 0.0
-                   : static_cast<double>(info.payload_bytes)
-                         / static_cast<double>(info.on_disk))
-           << "x, "
+           << std::setprecision(2)
+           << (info.payload_bytes > 0
+                   ? static_cast<double>(info.payload_bytes)
+                         / static_cast<double>(info.on_disk)
+                   : 0.0)
+           << "x, " << std::setprecision(1)
            << (seconds > 0.0
                    ? static_cast<double>(info.on_disk) / seconds / 1024.0
                    : 0.0)
            << " KiB/s\n"
            << "  longest gap between records: " << info.biggest_gap
            << " frame(s)\n";
-    for (std::size_t value = 0; value < info.packet_counts.size(); ++value) {
-        if (info.packet_counts[value] == 0) {
-            continue;
-        }
+    for (const std::uint8_t value : info.packet_order) {
         const auto type = static_cast<net::PacketType>(value);
         output << "  " << std::left << std::setw(14)
                << packet_type_name(type) << std::right << std::setw(8)
@@ -130,18 +132,30 @@ void print(std::ostream& output, const std::filesystem::path& path,
                << (static_cast<double>(info.packet_bytes[value]) / 1024.0)
                << " KiB)\n";
     }
-    output << "format=FPDM version=" << static_cast<int>(FormatVersion)
-           << " protocol=" << static_cast<int>(info.protocol)
-           << " records=" << info.records
-           << " first_frame=" << (info.have_frame ? info.first_frame : 0)
-           << " last_frame=" << (info.have_frame ? info.last_frame : 0)
-           << " payload_bytes=" << info.payload_bytes
-           << " inflated_bytes=" << info.inflated_bytes
-           << " snapshots=" << info.snapshots;
-    if (info.tail_truncated) {
-        output << " tail=truncated";
+}
+
+int print_command(const std::filesystem::path& path) {
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error) || error) {
+        std::cout << "[demo] no such file: " << path.string() << '\n';
+        return 1;
     }
-    output << '\n';
+
+    const auto info = inspect(path);
+    if (!info.has_value()) {
+        std::cout << "[demo] \"" << path.string()
+                  << "\" is not a demo this build can read (bad magic, or "
+                     "not format version "
+                  << static_cast<int>(FormatVersion) << ")\n";
+        return 1;
+    }
+    print(std::cout, path, *info);
+    if (info->snapshots == 0) {
+        std::cout << "  NO SNAPSHOTS -- nothing in this file ever places a player, "
+                     "so it will play back as an empty room.\n";
+        return 1;
+    }
+    return 0;
 }
 
 } // namespace fruityprime::demo

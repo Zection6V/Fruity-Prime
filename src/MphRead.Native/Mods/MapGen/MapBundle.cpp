@@ -27,7 +27,6 @@ namespace {
 constexpr std::uint32_t ZipEndSignature = 0x06054b50U;
 constexpr std::uint32_t ZipCentralSignature = 0x02014b50U;
 constexpr std::uint32_t ZipLocalSignature = 0x04034b50U;
-constexpr std::array<int, 9> UsedLumps{0, 1, 2, 7, 8, 9, 10, 11, 13};
 
 [[nodiscard]] std::string lower(std::string_view value) {
     std::string result;
@@ -237,44 +236,7 @@ struct ZipEntry {
 
 [[nodiscard]] std::vector<std::uint8_t> trim_bsp(
     std::span<const std::uint8_t> bsp) {
-    constexpr std::size_t header_size = 8 + 17 * 8;
-    if (bsp.size() < header_size) {
-        throw std::runtime_error(
-            "not a Quake 3 level: too short to hold a header");
-    }
-    std::vector<std::uint8_t> output;
-    output.insert(output.end(), bsp.begin(), bsp.begin() + header_size);
-    const auto patch_u32 = [&](std::size_t offset, std::uint32_t value) {
-        output[offset] = static_cast<std::uint8_t>(value);
-        output[offset + 1] = static_cast<std::uint8_t>(value >> 8);
-        output[offset + 2] = static_cast<std::uint8_t>(value >> 16);
-        output[offset + 3] = static_cast<std::uint8_t>(value >> 24);
-    };
-    for (int lump = 0; lump < 17; ++lump) {
-        const std::int64_t offset = static_cast<std::int32_t>(
-            read_u32(bsp, 8 + static_cast<std::size_t>(lump) * 8));
-        const std::int64_t length = static_cast<std::int32_t>(
-            read_u32(bsp, 12 + static_cast<std::size_t>(lump) * 8));
-        const bool used = std::find(UsedLumps.begin(), UsedLumps.end(), lump)
-            != UsedLumps.end();
-        if (!used || offset < 0 || length <= 0
-            || offset + length > static_cast<std::int64_t>(bsp.size())) {
-            patch_u32(8 + static_cast<std::size_t>(lump) * 8,
-                      static_cast<std::uint32_t>(output.size()));
-            patch_u32(12 + static_cast<std::size_t>(lump) * 8, 0);
-            continue;
-        }
-        patch_u32(8 + static_cast<std::size_t>(lump) * 8,
-                  static_cast<std::uint32_t>(output.size()));
-        patch_u32(12 + static_cast<std::size_t>(lump) * 8,
-                  static_cast<std::uint32_t>(length));
-        output.insert(output.end(), bsp.begin() + offset,
-                      bsp.begin() + offset + length);
-        while (output.size() % 4 != 0) {
-            output.push_back(0);
-        }
-    }
-    return output;
+    return Q3Bsp::trim(bsp);
 }
 
 [[nodiscard]] std::vector<std::uint8_t> texture_pack_bytes(

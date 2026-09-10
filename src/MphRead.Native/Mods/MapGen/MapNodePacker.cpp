@@ -6,6 +6,8 @@
  */
 #include "Mods/MapGen/map_node_packer.hpp"
 
+#include "Formats/fixed.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -23,13 +25,7 @@ namespace {
 }
 
 [[nodiscard]] std::int32_t fixed_raw(float value) {
-    const double scaled = static_cast<double>(value) * 4096.0;
-    if (!std::isfinite(scaled)
-        || scaled < static_cast<double>(std::numeric_limits<std::int32_t>::min())
-        || scaled > static_cast<double>(std::numeric_limits<std::int32_t>::max())) {
-        throw std::runtime_error("map coordinate does not fit fixed point");
-    }
-    return static_cast<std::int32_t>(std::lround(scaled));
+    return formats::Fixed::to_int(value);
 }
 
 void append_u16(std::vector<std::uint8_t>& bytes, std::uint16_t value) {
@@ -73,7 +69,7 @@ struct NavigationNode {
     float min_z = std::numeric_limits<float>::max();
     float max_z = std::numeric_limits<float>::lowest();
     for (std::size_t point_index = 0;
-         point_index < face.point_count; ++point_index) {
+         point_index < face.points.size(); ++point_index) {
         const Vec3 point = face.points[point_index];
         min_x = std::min(min_x, point.x);
         max_x = std::max(max_x, point.x);
@@ -102,7 +98,7 @@ struct NavigationNode {
              std::numeric_limits<float>::lowest()};
     for (const NavigationFace& face : solid_faces) {
         for (std::size_t point_index = 0;
-             point_index < face.point_count; ++point_index) {
+             point_index < face.points.size(); ++point_index) {
             const Vec3 point = face.points[point_index];
             min.x = std::min(min.x, point.x);
             min.y = std::min(min.y, point.y);

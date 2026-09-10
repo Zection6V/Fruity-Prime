@@ -77,4 +77,9 @@ private:
     std::map<std::string, std::string> all_paths_;
 };
 
+// C# Formats.Paths is process-wide static state. Existing value-style callers
+// remain available for isolated tests and launcher previews; the Program
+// entry path uses this singleton for the managed global contract.
+[[nodiscard]] Paths& global_paths() noexcept;
+
 } // namespace fruityprime::formats

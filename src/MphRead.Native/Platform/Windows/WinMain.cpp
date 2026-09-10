@@ -4,6 +4,7 @@
 #include "Mods/Chat/ChatBox.hpp"
 #include "Renderer/OpenGL/PlayerEntityChatHudRenderer.hpp"
 #include "Formats/collision_query.hpp"
+#include "Formats/paths.hpp"
 #include "Utility/console_setup.hpp"
 #include "Utility/extract.hpp"
 #include "Mods/console_window.hpp"
@@ -64,6 +65,7 @@
 #include "Mods/spectator_mode.hpp"
 #include "Mods/Update/update.hpp"
 #include "Mods/window_mode.hpp"
+#include "Program.hpp"
 
 #include "Entities/Enemies/enemy_catalog.hpp"
 #include "Entities/Players/PlayerAi.hpp"
@@ -7624,8 +7626,22 @@ std::string argument_value(std::string_view flag) {
 } // namespace
 
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
-    fruityprime::utility::console::run();
     initialize_command_arguments();
+    const std::span<const std::string> mod_arguments(
+        g_command_arguments.size() > 1 ? g_command_arguments.data() + 1
+                                       : nullptr,
+        g_command_arguments.size() > 1 ? g_command_arguments.size() - 1 : 0);
+    try {
+        if (MphReadNative::Program::Main(mod_arguments)
+            == MphReadNative::Program::MainResult::Handled) {
+            return MphReadNative::Program::ExitCode();
+        }
+    } catch (const std::exception& error) {
+        g_error = error.what();
+        MessageBoxA(nullptr, g_error.c_str(), "Fruity Prime",
+                    MB_OK | MB_ICONERROR);
+        return EXIT_FAILURE;
+    }
     g_started_at = std::chrono::steady_clock::now();
     fruityprime::chat::detail::BindRuntime({
         &chat_single_player,
@@ -7645,37 +7661,6 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
     const auto executable_directory = !executable_error
         && executable.has_parent_path()
         ? executable.parent_path() : std::filesystem::current_path();
-    if (argument_present("-applyupdate")) {
-        const auto flag = std::find(g_command_arguments.begin() + 1,
-                                    g_command_arguments.end(),
-                                    "-applyupdate");
-        const auto flag_index = static_cast<std::size_t>(
-            std::distance(g_command_arguments.begin(), flag));
-        if (flag == g_command_arguments.end()
-            || flag_index + 2 >= g_command_arguments.size()) {
-            MessageBoxA(nullptr, "-applyupdate needs TARGET and PID",
-                        "Fruity Prime update", MB_OK | MB_ICONERROR);
-            return EXIT_FAILURE;
-        }
-        const std::string pid_text = g_command_arguments[flag_index + 2];
-        std::size_t consumed = 0;
-        long long pid = 0;
-        try {
-            pid = std::stoll(pid_text, &consumed, 10);
-        } catch (const std::exception&) {
-            consumed = 0;
-        }
-        if (consumed != pid_text.size() || pid <= 0
-            || pid > std::numeric_limits<int>::max()) {
-            MessageBoxA(nullptr, "-applyupdate PID is invalid",
-                        "Fruity Prime update", MB_OK | MB_ICONERROR);
-            return EXIT_FAILURE;
-        }
-        return fruityprime::update::DesktopUpdate::apply(
-            std::filesystem::path(g_command_arguments[flag_index + 1]),
-            static_cast<int>(pid), executable_directory);
-    }
-    fruityprime::update::DesktopUpdate::clean(executable_directory);
     const auto launcher_preferences = fruityprime::launcher::load_preferences(
         executable_directory);
     g_window_mode.startup = launcher_preferences.window_mode;
@@ -7760,6 +7745,33 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
         const std::string model_path = argument_value("-model");
         std::string rom_path = argument_value("-rom");
         std::string room_name = argument_value("-room");
+        // Program.cs resolves a numeric -room through Metadata.GetRoomById
+        // before RenderWindow.AddRoom receives it.  Keep the platform host
+        // on that same canonical name; passing "42" to scene::find_room
+        // would otherwise be a native-only interpretation of the argument.
+        const std::span<const std::string> program_arguments(
+            g_command_arguments.size() > 1
+                ? g_command_arguments.data() + 1 : nullptr,
+            g_command_arguments.size() > 1
+                ? g_command_arguments.size() - 1 : 0);
+        const auto parsed_program_arguments =
+            MphReadNative::Program::detail::parse_arguments(program_arguments);
+        if (const auto room_id =
+                MphReadNative::Program::detail::try_get_int(
+                    parsed_program_arguments, "room", "r")) {
+            if (const auto* room = fruityprime::metadata::room_metadata_by_id(
+                    *room_id);
+                room != nullptr) {
+                room_name = std::string(room->name);
+            }
+        }
+        if (rom_path.empty() && !room_name.empty()) {
+            // Program.cs uses Paths.FileSystem when a room is requested
+            // without an explicit -rom.  The native host must load the same
+            // configured asset root rather than silently constructing an
+            // empty Store.
+            rom_path = fruityprime::formats::global_paths().file_system();
+        }
         // Not const: the launcher's demo picker sets it too, and the
         // replay path below reads it either way.
         std::string replay_path = argument_value("-replay");
@@ -8126,16 +8138,12 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
                 g_assets->game_key().value_or(saved_menu_config.mph_version));
             const auto* catalog_entry = fruityprime::scene::find_room(
                 room_name);
-            fruityprime::scene::RoomDefinition definition = catalog_entry != nullptr
-                ? catalog_entry->definition
-                : fruityprime::scene::RoomDefinition{
-                    room_name,
-                    "archives/unit1_C0.arc",
-                    "unit1_c0_model.bin",
-                    "levels/textures/unit1_c0_tex.bin",
-                    "unit1_c0_collision.bin",
-                    "levels/entities/Unit1_C0_Ent.bin", {}, {}, {}
-                };
+            if (catalog_entry == nullptr) {
+                throw std::invalid_argument("room was not found: "
+                                            + room_name);
+            }
+            fruityprime::scene::RoomDefinition definition =
+                catalog_entry->definition;
             if (!argument_value("-archive").empty()) {
                 definition.model_archive = argument_value("-archive");
             }

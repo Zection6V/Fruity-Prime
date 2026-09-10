@@ -143,4 +143,9 @@ bool Paths::write(const std::filesystem::path& root,
     return static_cast<bool>(output);
 }
 
+Paths& global_paths() noexcept {
+    static Paths paths;
+    return paths;
+}
+
 } // namespace fruityprime::formats

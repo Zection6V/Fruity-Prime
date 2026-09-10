@@ -1,3 +1,6 @@
+#include <cmath>
+#include "Metadata/enemy_subroutines.hpp"
+#include "enemy_scene.hpp"
 #include "enemy_decode_common.hpp"
 // Native port of src/MphRead/Entities/Enemies/03_Petrasyl1.cs.
 // This member definition lives in its enemy module; Session only dispatches it.
@@ -421,8 +424,255 @@ void Session::update_petrasyl(EnemyState& agent) {
     }
 }
 
+namespace {
+
+// Enemy03Entity's own numbers.
+constexpr std::uint32_t TeleportFrames = 20u * 2u;  // todo: FPS stuff
+constexpr float DriftSpeed = 0.7F;
+constexpr std::uint32_t ContactDamage03 = 12u;
+// Beyond this the Petrasyl stops caring about the player and goes back to
+// drifting along its own line.
+constexpr float NoticeRadius = 7.0F;
+constexpr float Pi03 = 3.14159265358979323846F;
+constexpr float PlayerBody03 = 0.45F;
+
+// Native counterpart of Enemy03Entity.
+//
+// A Petrasyl drifts back and forth along a line the spawner authored,
+// bobbing as it goes, and turns lazily towards the player when they come
+// within seven units.  It cannot be hurt while it is teleporting: it
+// appears at one end of its line, drifts to the other, and vanishes --
+// and the only window to shoot it is the drift in between.
+class Enemy03Entity final {
+public:
+    Enemy03Entity(const EnemyScene& scene, EnemyState& agent,
+                  const net::PlayerState* main) noexcept
+        : scene_(scene), agent_(agent), main_(main) {}
+
+    // Enemy03Entity.EnemyProcess.
+    void EnemyProcess() { CallStateProcess(); }
+
+    // Enemy03Entity.UpdateState: what changes when the machine moves on.
+    // The managed class calls this itself rather than leaving it to the
+    // subroutine, because a state here is a whole change of being rather
+    // than a change of mind.
+    void UpdateState();
+
+private:
+    void State00();
+    void State01();
+    void State02() { State00(); }
+
+    [[nodiscard]] bool Behavior00();
+    [[nodiscard]] bool Behavior01();
+    [[nodiscard]] bool Behavior02();
+
+    void CallStateProcess();
+    [[nodiscard]] bool CallSubroutine();
+
+    [[nodiscard]] bool Touching() const noexcept {
+        if (main_ == nullptr) {
+            return false;
+        }
+        const float reach = agent_.body_radius + PlayerBody03;
+        return distance_squared(agent_.position, main_->position)
+            <= reach * reach;
+    }
+
+    const EnemyScene& scene_;
+    EnemyState& agent_;
+    const net::PlayerState* main_;
+};
+
+bool Enemy03Entity::CallSubroutine() {
+    return metadata::call_subroutine(
+        metadata::Enemy03Subroutines, agent_.sub_id, agent_.next_state,
+        [this](std::uint8_t index) {
+            switch (index) {
+            case 0: return Behavior00();
+            case 1: return Behavior01();
+            case 2: return Behavior02();
+            default: return false;
+            }
+        });
+}
+
+void Enemy03Entity::UpdateState() {
+    if (agent_.next_state == 0) {
+        // Appearing.  It alternates ends of its line, so a Petrasyl you
+        // shot at once comes back from the other side.
+        agent_.position = agent_.petrasyl_teleport_initial
+            ? net::Vec3{agent_.petrasyl_initial_position.x,
+                        agent_.position.y,
+                        agent_.petrasyl_initial_position.z}
+            : net::Vec3{agent_.petrasyl_idle_limit.x, agent_.position.y,
+                        agent_.petrasyl_idle_limit.z};
+        agent_.petrasyl_teleport_initial = !agent_.petrasyl_teleport_initial;
+        agent_.petrasyl_direction = {-agent_.petrasyl_direction.x,
+                                     -agent_.petrasyl_direction.y,
+                                     -agent_.petrasyl_direction.z};
+        agent_.facing = agent_.petrasyl_direction;
+        agent_.petrasyl_turn_timer = TeleportFrames;
+    } else if (agent_.next_state == 1) {
+        // Solid.  This is the only state it can be hurt in.
+        agent_.invulnerable = false;
+        const float range = agent_.petrasyl.idle_range.z;
+        agent_.petrasyl_timer = static_cast<std::uint32_t>(
+            range / DriftSpeed) * 2u;
+        agent_.velocity = {agent_.petrasyl_direction.x * DriftSpeed / 2.0F,
+                           0.0F,
+                           agent_.petrasyl_direction.z * DriftSpeed / 2.0F};
+    } else if (agent_.next_state == 2) {
+        // Going again.
+        agent_.invulnerable = true;
+        agent_.velocity = {};
+        agent_.petrasyl_secondary_timer = TeleportFrames;
+    }
+}
+
+void Enemy03Entity::State00() {
+    if (CallSubroutine()) {
+        UpdateState();
+    }
+}
+
+void Enemy03Entity::State01() {
+    // The bob: a sine about the height it appeared at, at a speed and
+    // depth rolled per Petrasyl so a room full of them does not pulse in
+    // unison.
+    agent_.petrasyl_bob_angle += agent_.petrasyl_bob_speed / 2.0F;
+    if (agent_.petrasyl_bob_angle >= 360.0F) {
+        agent_.petrasyl_bob_angle -= 360.0F;
+    }
+    const float sine = std::sin(agent_.petrasyl_bob_angle * Pi03 / 180.0F);
+    agent_.velocity.y =
+        (agent_.petrasyl_initial_position.y
+         + sine * agent_.petrasyl_bob_offset - agent_.position.y) / 2.0F;
+
+    if (scene_.ContactDamage && main_ != nullptr && Touching()) {
+        scene_.ContactDamage(agent_, main_->slot_index, ContactDamage03);
+    }
+
+    // Within seven units it turns towards the player; beyond that it goes
+    // back to its own line.
+    net::Vec3 wanted = agent_.petrasyl_direction;
+    if (main_ != nullptr
+        && distance_squared(main_->position, agent_.position)
+            < NoticeRadius * NoticeRadius) {
+        wanted = {main_->position.x - agent_.position.x, 0.0F,
+                  main_->position.z - agent_.position.z};
+    }
+    const float wanted_length = std::sqrt(wanted.x * wanted.x
+                                          + wanted.z * wanted.z);
+    if (wanted_length > 0.0F) {
+        wanted = {wanted.x / wanted_length, 0.0F, wanted.z / wanted_length};
+    }
+    // An eighth of the way each frame, so the turn is lazy enough to
+    // drift past a player who keeps moving.
+    net::Vec3 turned{
+        agent_.facing.x + (wanted.x - agent_.facing.x) / 8.0F / 2.0F,
+        agent_.facing.y,
+        agent_.facing.z + (wanted.z - agent_.facing.z) / 8.0F / 2.0F};
+    if (turned.x == 0.0F && turned.z == 0.0F) {
+        turned = agent_.facing;
+    }
+    const float length = std::sqrt(turned.x * turned.x + turned.z * turned.z);
+    if (length > 0.0F) {
+        turned = {turned.x / length, turned.y, turned.z / length};
+    }
+    // Nudged off dead centre when the turn has all but stopped, which is
+    // what stops a Petrasyl locking to one heading and sitting there.
+    if (std::fabs(turned.x - agent_.facing.x) < 1.0F / 4096.0F
+        && std::fabs(turned.z - agent_.facing.z) < 1.0F / 4096.0F) {
+        turned.x += 0.125F / 2.0F;
+        turned.z -= 0.125F / 2.0F;
+        const float nudged = std::sqrt(turned.x * turned.x
+                                       + turned.z * turned.z);
+        if (nudged > 0.0F) {
+            turned = {turned.x / nudged, turned.y, turned.z / nudged};
+        }
+    }
+    agent_.facing = turned;
+
+    if (CallSubroutine()) {
+        UpdateState();
+    }
+}
+
+bool Enemy03Entity::Behavior00() {
+    if (agent_.petrasyl_secondary_timer == 0) {
+        return true;
+    }
+    --agent_.petrasyl_secondary_timer;
+    return false;
+}
+
+bool Enemy03Entity::Behavior01() {
+    if (agent_.petrasyl_timer == 0) {
+        return true;
+    }
+    --agent_.petrasyl_timer;
+    return false;
+}
+
+bool Enemy03Entity::Behavior02() {
+    if (agent_.petrasyl_turn_timer == 0) {
+        return true;
+    }
+    --agent_.petrasyl_turn_timer;
+    return false;
+}
+
+void Enemy03Entity::CallStateProcess() {
+    switch (agent_.state) {
+    case 0: State00(); break;
+    case 1: State01(); break;
+    case 2: State02(); break;
+    default: break;
+    }
+}
+
+} // namespace
+
 void Session::update_petrasyl1(EnemyState& agent) {
-    update_petrasyl(agent);
+    if (!agent.petrasyl.supported) {
+        static_cast<void>(update_generic_enemy(agent));
+        return;
+    }
+    const net::PlayerState* main = nullptr;
+    float nearest = std::numeric_limits<float>::max();
+    for (const auto& player : players_) {
+        if (!objective_player(player)) {
+            continue;
+        }
+        const float distance = distance_squared(player.position,
+                                                agent.position);
+        if (distance < nearest) {
+            nearest = distance;
+            main = &player;
+        }
+    }
+    if (main != nullptr) {
+        agent.target_slot = main->slot_index;
+    }
+
+    // EnemyInstanceEntity.BaseProcess.
+    agent.state = agent.next_state;
+    agent.sub_id = agent.state;
+    agent.position = add(agent.position, agent.velocity);
+
+    EnemyScene scene;
+    scene.ContactDamage = [this](EnemyState& target, std::uint8_t slot,
+                                 std::uint32_t damage) {
+        for (auto& player : players_) {
+            if (player.slot_index == slot) {
+                apply_enemy_contact_damage(
+                    target, player, static_cast<std::uint16_t>(damage));
+                return;
+            }
+        }
+    };
+    Enemy03Entity(scene, agent, main).EnemyProcess();
 }
 } // namespace fruityprime::gameplay
 

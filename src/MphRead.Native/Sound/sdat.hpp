@@ -10,10 +10,9 @@
 
 namespace fruityprime::sound {
 
-// Nintendo DS Nitro Composer (SDAT) records.  The parser keeps these values
-// in the same index space as the INFO records, so a sequence can resolve its
-// bank and the bank can resolve its four wave archives without a second
-// extraction pass.
+// Nintendo DS Nitro Composer (SDAT) records.  INFO records retain their raw
+// presence flags, while symbol-name lists follow Sound.ReadSdat's compact
+// GetNames result and omit null offsets.
 // Sound.SeqArcEntries: one entry in the SDAT symbol block's sequence-archive
 // list.  It is a pair of offsets rather than a name -- the first points at the
 // archive's own name and the second at the list of names of the sequences

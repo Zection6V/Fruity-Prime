@@ -1,5 +1,7 @@
 #include "Mods/Network/map_audit.hpp"
 
+#include "Utility/command_line.hpp"
+
 #include "Assets/game_assets.hpp"
 #include "Entities/gameplay.hpp"
 #include "Entities/match_flow.hpp"
@@ -23,8 +25,10 @@ namespace {
 } // namespace
 
 int run(int argc, char** argv) {
-    const std::string room_name = mods::value_after(argc, argv, "-maptest");
-    const std::string rom_path = mods::value_after(argc, argv, "-rom");
+    const std::string room_name = utility::command_line::value_after(
+        argc, argv, "-maptest");
+    const std::string rom_path = utility::command_line::value_after(
+        argc, argv, "-rom");
     if (room_name.empty() || rom_path.empty()) {
         throw std::invalid_argument("-maptest needs ROOM and -rom FILE");
     }
@@ -34,26 +38,20 @@ int run(int argc, char** argv) {
     // command does not depend on a previous manual -mapgen invocation.
     static_cast<void>(mapgen::custom_rooms::generate_missing());
     const auto* catalog_entry = scene::find_room(room_name);
-    scene::RoomDefinition definition = catalog_entry != nullptr
-        ? catalog_entry->definition
-        : scene::RoomDefinition{
-            room_name,
-            "archives/unit1_C0.arc",
-            "unit1_c0_model.bin",
-            "levels/textures/unit1_c0_tex.bin",
-            "unit1_c0_collision.bin",
-            "levels/entities/Unit1_C0_Ent.bin", {}, {}, {}
-        };
+    if (catalog_entry == nullptr) {
+        throw std::invalid_argument("No room with this name is known.");
+    }
+    const scene::RoomDefinition& definition = catalog_entry->definition;
     const auto assets = assets::Store::from_rom(rom_path);
     const auto room = scene::Room::load(assets, definition);
 
     const int requested_players = std::clamp(
-        mods::integer_after(argc, argv, "-players", 8), 1,
+        utility::command_line::integer_after(argc, argv, "-players", 8), 1,
         static_cast<int>(net::NetConfig::SlotCapacity));
-    int mode = mods::integer_after(argc, argv, "-mode", 3);
+    int mode = utility::command_line::integer_after(argc, argv, "-mode", 3);
     mode = std::clamp(mode, 0, 255);
     float seconds = 10.0F;
-    const std::string seconds_text = mods::value_after(
+    const std::string seconds_text = utility::command_line::value_after(
         argc, argv, "-seconds");
     if (!seconds_text.empty()) {
         try {
@@ -81,9 +79,9 @@ int run(int argc, char** argv) {
             static_cast<std::uint8_t>(i), static_cast<std::uint8_t>(i % 7)));
     }
 
-    const bool drive_bots = mods::has_flag(argc, argv, "-bots");
+    const bool drive_bots = utility::command_line::has_flag(argc, argv, "-bots");
     const int bot_level = std::clamp(
-        mods::integer_after(argc, argv, "-bot-level", 1), 0, 2);
+        utility::command_line::integer_after(argc, argv, "-bot-level", 1), 0, 2);
     const std::uint64_t ticks = static_cast<std::uint64_t>(std::ceil(
         seconds / gameplay_config.tick_seconds));
     for (std::uint64_t tick = 0; tick < ticks; ++tick) {
@@ -110,7 +108,7 @@ int run(int argc, char** argv) {
     std::size_t primitives = 0;
     std::size_t vertices = 0;
     std::size_t textured_materials = 0;
-    if (mods::has_flag(argc, argv, "-renderprobe")) {
+    if (utility::command_line::has_flag(argc, argv, "-renderprobe")) {
         for (const auto& mesh : room.model().meshes()) {
             int texture_width = 0;
             int texture_height = 0;
@@ -159,7 +157,7 @@ int run(int argc, char** argv) {
               << " items=" << session.items().size()
               << " entities=" << room.entities().size()
               << " collision=" << (room.collision().is_mph() ? "MPH" : "FirstHunt");
-    if (mods::has_flag(argc, argv, "-renderprobe")) {
+    if (utility::command_line::has_flag(argc, argv, "-renderprobe")) {
         std::cout << " primitives=" << primitives
                   << " vertices=" << vertices
                   << " textured_materials=" << textured_materials;

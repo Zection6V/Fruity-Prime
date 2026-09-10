@@ -707,7 +707,6 @@ public:
     void remove_player(std::uint8_t slot);
     void set_player_hunter(std::uint8_t slot, std::uint8_t hunter) noexcept;
     [[nodiscard]] std::uint8_t player_hunter(std::uint8_t slot) const noexcept;
-    void prepare_network_player(std::uint8_t slot) noexcept;
     void set_input(std::uint8_t slot, Input input);
     // Network aim is written after the action buttons have been assembled.
     // Keep it separate so a remote aim correction cannot clear the same

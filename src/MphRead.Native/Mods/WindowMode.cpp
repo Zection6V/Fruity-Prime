@@ -66,4 +66,9 @@ std::string start_mode_name(StartMode mode) {
     return mode == StartMode::BorderlessFullscreen ? "borderless" : "windowed";
 }
 
+StartMode& startup_mode() noexcept {
+    static StartMode mode = StartMode::Windowed;
+    return mode;
+}
+
 } // namespace fruityprime::window

@@ -8,7 +8,9 @@
 #include <windows.h>
 
 #include <cstdio>
+#include <cctype>
 #include <iostream>
+#include <string_view>
 
 namespace fruityprime::mods::console {
 namespace {
@@ -23,9 +25,39 @@ constexpr int AttachParentProcess = -1;
     return type == FILE_TYPE_PIPE || type == FILE_TYPE_DISK;
 }
 
+[[nodiscard]] bool output_redirected() noexcept {
+    return redirected(GetStdHandle(STD_OUTPUT_HANDLE));
+}
+
 [[nodiscard]] bool streams_redirected() noexcept {
-    return redirected(GetStdHandle(STD_OUTPUT_HANDLE))
+    return output_redirected()
         || redirected(GetStdHandle(STD_INPUT_HANDLE));
+}
+
+[[nodiscard]] bool has_flag(std::span<const std::string> args,
+                            std::string_view name) noexcept {
+    for (const std::string& argument : args) {
+        std::size_t first = 0;
+        while (first < argument.size() && argument[first] == '-') {
+            ++first;
+        }
+        if (argument.size() - first != name.size()) {
+            continue;
+        }
+        bool equal = true;
+        for (std::size_t index = 0; index < name.size(); ++index) {
+            const auto left = static_cast<unsigned char>(argument[first + index]);
+            const auto right = static_cast<unsigned char>(name[index]);
+            if (std::tolower(left) != std::tolower(right)) {
+                equal = false;
+                break;
+            }
+        }
+        if (equal) {
+            return true;
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] bool rebind() noexcept {
@@ -52,13 +84,22 @@ constexpr int AttachParentProcess = -1;
 } // namespace
 
 bool owns_its_console() noexcept {
-    if (GetConsoleWindow() == nullptr || streams_redirected()) {
+    if (output_redirected()) {
         return false;
     }
     // A one-process console is the one AllocConsole created for a
     // double-click. An attached terminal also contains its shell process.
     DWORD processes[4]{};
     return GetConsoleProcessList(processes, 4) == 1;
+}
+
+void prepare(std::span<const std::string> args) noexcept {
+    const bool forced = has_flag(args, "console");
+    const bool gui_only = args.empty() || has_flag(args, "launcher");
+    if (gui_only && !forced) {
+        return;
+    }
+    static_cast<void>(show());
 }
 
 ShowResult show() noexcept {
@@ -94,6 +135,10 @@ bool owns_its_console() noexcept {
 ShowResult show() noexcept {
     // Non-Windows targets already use a normal console or terminal.
     return {true, false};
+}
+
+void prepare(std::span<const std::string>) noexcept {
+    // Non-Windows targets already have a normal console or terminal.
 }
 
 } // namespace fruityprime::mods::console

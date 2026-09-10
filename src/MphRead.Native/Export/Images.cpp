@@ -6,6 +6,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <zlib.h>
@@ -52,22 +53,28 @@ void append_png_chunk(std::vector<std::uint8_t>& png, const char type[4],
 
 } // namespace
 
-void write_png_rgba(const std::filesystem::path& output_path, int width,
-                    int height, std::span<const std::uint8_t> rgba) {
+void write_png_impl(const std::filesystem::path& output_path, int width,
+                    int height, std::span<const std::uint8_t> pixels,
+                    std::size_t channels, std::uint8_t color_type,
+                    std::string_view format_name) {
     if (output_path.empty() || width <= 0 || height <= 0) {
         throw std::invalid_argument("PNG output or dimensions are invalid");
     }
+    if (channels == 0 || channels > 4) {
+        throw std::invalid_argument("PNG channel count is invalid");
+    }
     const auto width_size = static_cast<std::size_t>(width);
     const auto height_size = static_cast<std::size_t>(height);
-    if (width_size > std::numeric_limits<std::size_t>::max() / 4
+    if (width_size > std::numeric_limits<std::size_t>::max() / channels
         || height_size > std::numeric_limits<std::size_t>::max()
-            / (width_size * 4)) {
+            / (width_size * channels)) {
         throw std::invalid_argument("PNG dimensions are too large");
     }
-    const std::size_t row_bytes = width_size * 4;
+    const std::size_t row_bytes = width_size * channels;
     const std::size_t pixel_bytes = row_bytes * height_size;
-    if (rgba.size() != pixel_bytes) {
-        throw std::invalid_argument("PNG RGBA buffer has the wrong size");
+    if (pixels.size() != pixel_bytes) {
+        throw std::invalid_argument("PNG " + std::string(format_name)
+                                    + " buffer has the wrong size");
     }
     if (static_cast<std::uintmax_t>(width)
             > std::numeric_limits<std::uint32_t>::max()
@@ -80,7 +87,7 @@ void write_png_rgba(const std::filesystem::path& output_path, int width,
     raw.reserve(height_size * (row_bytes + 1));
     for (std::size_t y = 0; y < height_size; ++y) {
         raw.push_back(0); // PNG filter: None
-        const auto row = rgba.subspan(y * row_bytes, row_bytes);
+        const auto row = pixels.subspan(y * row_bytes, row_bytes);
         raw.insert(raw.end(), row.begin(), row.end());
     }
     uLongf compressed_size = compressBound(static_cast<uLong>(raw.size()));
@@ -99,7 +106,7 @@ void write_png_rgba(const std::filesystem::path& output_path, int width,
     header.reserve(13);
     append_u32_be(header, static_cast<std::uint32_t>(width));
     append_u32_be(header, static_cast<std::uint32_t>(height));
-    header.insert(header.end(), {8, 6, 0, 0, 0}); // RGBA8, no interlace
+    header.insert(header.end(), {8, color_type, 0, 0, 0});
     append_png_chunk(png, "IHDR", header);
     append_png_chunk(png, "IDAT", compressed);
     append_png_chunk(png, "IEND", {});
@@ -123,6 +130,16 @@ void write_png_rgba(const std::filesystem::path& output_path, int width,
         throw std::runtime_error("could not write PNG file: "
                                  + output_path.string());
     }
+}
+
+void write_png_rgba(const std::filesystem::path& output_path, int width,
+                    int height, std::span<const std::uint8_t> rgba) {
+    write_png_impl(output_path, width, height, rgba, 4, 6, "RGBA");
+}
+
+void write_png_rgb(const std::filesystem::path& output_path, int width,
+                   int height, std::span<const std::uint8_t> rgb) {
+    write_png_impl(output_path, width, height, rgb, 3, 2, "RGB");
 }
 
 TextureExportStats write_model_textures(

@@ -2,7 +2,6 @@
 
 #include "Mods/MapGen/mapgen.hpp"
 
-#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -12,9 +11,8 @@ namespace fruityprime::mapgen::map_nodes {
 // flags stay out of this input so the route writer remains independently
 // testable and cannot accidentally change render output.
 struct NavigationFace {
-    std::array<Vec3, 4> points{};
+    std::vector<Vec3> points;
     Vec3 normal;
-    std::uint8_t point_count = 4;
 };
 
 [[nodiscard]] std::vector<std::uint8_t> pack(

@@ -86,6 +86,12 @@ std::size_t export_wfs_samples(const std::filesystem::path& directory,
                                std::span<const Sample> wfs_samples,
                                bool adpcm_rounding_error = false);
 
+// Sound.ExportStreams.  Stream::parse has already produced the per-channel
+// buffers that the managed reader hands to ExportAudio, so this exporter does
+// not interleave channels: stereo is two named WAV files, L/R.
+std::size_t export_streams(const std::filesystem::path& directory,
+                           std::span<const Stream> streams);
+
 // FhSound.ReadFhSfx / ReadFhBgm / ReadFhMenuSfx / ReadFhGlobalSfx.  The four
 // First Hunt sound files sit beside each other under `sound`; the managed
 // code names them one function each, and the export prefixes differ, so the

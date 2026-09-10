@@ -37,6 +37,14 @@ int main() {
     const auto fallback = preview_pose({1.0F, 2.0F, 3.0F},
                                        {1.0F, 2.0F, 3.0F});
     assert(std::fabs(fallback.facing.z + 1.0F) < 0.001F);
+    // PreviewCamera.cs falls back for LengthSquared < 0.0001f, not merely
+    // for an exactly zero direction.
+    const auto near_zero = preview_pose({0.0F, 0.0F, 0.0F},
+                                        {0.005F, 0.0F, 0.0F});
+    assert(std::fabs(near_zero.facing.z + 1.0F) < 0.001F);
+    const auto just_outside = preview_pose({0.0F, 0.0F, 0.0F},
+                                           {0.011F, 0.0F, 0.0F});
+    assert(just_outside.facing.x > 0.99F);
     const auto camera = preview_camera({2.0F, 3.0F, 4.0F},
                                        {2.0F, 3.0F, 8.0F}, 0.0F);
     assert(camera.position.x == 2.0F && camera.previous_position.z == 4.0F);

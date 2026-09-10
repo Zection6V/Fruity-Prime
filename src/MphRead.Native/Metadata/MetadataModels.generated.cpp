@@ -352,6 +352,12 @@ const std::array<MetadataModelEntry, FirstHuntModelsCount> FirstHuntModels{{
 
 const ModelMetadata* get_model_by_name(std::string_view name,
                                             MetaDir dir) noexcept {
+    if (name == "doubleDamage_img") {
+        return &DoubleDamageImg;
+    }
+    if (name == "ad2_dm2") {
+        return &Ad2Dm2;
+    }
     if (dir == MetaDir::Logo) {
         return find_logo_model(name);
     }

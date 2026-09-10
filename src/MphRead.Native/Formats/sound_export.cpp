@@ -1,6 +1,7 @@
 #include "Formats/sound_export.hpp"
 
 #include <fstream>
+#include <iostream>
 #include <iterator>
 
 namespace fruityprime::sound {
@@ -68,16 +69,17 @@ std::vector<std::uint8_t> build_wav(std::span<const std::uint8_t> wave_data,
                                     std::uint16_t sample_rate,
                                     WaveFormat format,
                                     std::string_view name,
-                                    bool /*adpcm_rounding_error*/) {
+    bool /*adpcm_rounding_error*/) {
     if (wave_data.empty()) {
-        throw WaveExportError("sample " + std::string(name)
-                              + " contains no data");
+        throw WaveExportError("Sample " + std::string(name)
+                              + " contains no data.");
     }
     if (format != WaveFormat::Adpcm
         && format != WaveFormat::Pcm8
         && format != WaveFormat::Pcm16) {
-        throw WaveExportError("sample " + std::string(name)
-                              + " has an unsupported wave format");
+        throw WaveExportError("Format " + std::to_string(
+                                  static_cast<int>(format))
+                              + " is unsupported.");
     }
     std::vector<std::uint8_t> out;
     write_wav_header(out, sample_count, sample_rate, format);
@@ -87,6 +89,14 @@ std::vector<std::uint8_t> build_wav(std::span<const std::uint8_t> wave_data,
 
 namespace {
 
+[[nodiscard]] std::string pad_id(std::uint32_t id) {
+    std::string result = std::to_string(id);
+    if (result.size() < 3) {
+        result.insert(0, 3 - result.size(), '0');
+    }
+    return result;
+}
+
 // The exporter reads the same five fields from a First Hunt sample and from a
 // cartridge one, and the two types are unrelated, so the body is shared here
 // rather than written twice.
@@ -94,23 +104,30 @@ template <typename SampleType>
 void export_one(const std::filesystem::path& directory,
                 const SampleType& sample, std::string_view name,
                 bool adpcm_rounding_error, std::string_view prefix) {
-    if (!sample.present) {
-        return;
-    }
     std::vector<std::uint8_t> bytes;
-    std::uint32_t sample_count = 0;
-    if (sample.format == WaveFormat::Pcm8) {
-        bytes.assign(sample.encoded.begin(), sample.encoded.end());
-        sample_count = static_cast<std::uint32_t>(bytes.size());
-    } else {
-        // PCM16 and ADPCM both leave the decoder as signed 16-bit samples.
+    const std::uint64_t sample_count64 =
+        static_cast<std::uint64_t>(sample.loop_start)
+        + static_cast<std::uint64_t>(sample.loop_length);
+    const auto sample_count = static_cast<std::uint32_t>(sample_count64);
+    if (sample.format == WaveFormat::Adpcm) {
+        // C# GetWaveData decodes ADPCM to signed little-endian PCM16 before
+        // handing the bytes to ExportAudio.
         const auto pcm = sample.decode_pcm(adpcm_rounding_error);
-        sample_count = static_cast<std::uint32_t>(pcm.size());
         bytes.reserve(pcm.size() * 2);
         for (const std::int16_t value : pcm) {
             const auto raw = static_cast<std::uint16_t>(value);
             bytes.push_back(static_cast<std::uint8_t>(raw));
             bytes.push_back(static_cast<std::uint8_t>(raw >> 8));
+        }
+    } else {
+        // SoundRead.GetWaveData XORs every non-ADPCM byte with 0x80.  This is
+        // the PCM8 path used by First Hunt; retaining the same branch also
+        // preserves the managed behavior for an explicitly supplied PCM16
+        // sample.
+        bytes.reserve(sample_count);
+        for (std::size_t i = 0; i < sample_count; ++i) {
+            bytes.push_back(static_cast<std::uint8_t>(sample.encoded.at(i)
+                                                       ^ 0x80));
         }
     }
     const auto wav = build_wav(
@@ -148,12 +165,15 @@ std::size_t export_samples(const std::filesystem::path& directory,
                            std::string_view prefix) {
     std::size_t written = 0;
     for (std::size_t i = 0; i < samples.size(); ++i) {
-        if (!samples[i].present) {
-            continue;
+        try {
+            export_sample(directory, samples[i],
+                          pad_id(samples[i].id),
+                          adpcm_rounding_error, prefix);
+            ++written;
+        } catch (const WaveExportError& ex) {
+            std::cout << "[" << samples[i].id << "] WaveExportException: "
+                      << ex.what() << '\n';
         }
-        export_sample(directory, samples[i], std::to_string(i),
-                      adpcm_rounding_error, prefix);
-        ++written;
     }
     return written;
 }
@@ -164,15 +184,15 @@ std::size_t export_samples(const std::filesystem::path& directory,
                            std::string_view prefix) {
     std::size_t written = 0;
     for (std::size_t i = 0; i < samples.size(); ++i) {
-        if (!samples[i].present) {
-            continue;
+        try {
+            export_sample(directory, samples[i],
+                          pad_id(samples[i].id),
+                          adpcm_rounding_error, prefix);
+            ++written;
+        } catch (const WaveExportError& ex) {
+            std::cout << "[" << samples[i].id << "] WaveExportException: "
+                      << ex.what() << '\n';
         }
-        // Named by table index rather than by the sample's own id: the ids
-        // repeat across the two tables and the index is what the managed
-        // exporter uses.
-        export_sample(directory, samples[i], std::to_string(i),
-                      adpcm_rounding_error, prefix);
-        ++written;
     }
     return written;
 }
@@ -184,7 +204,8 @@ void export_sound_sample(const std::filesystem::path& directory,
         return;
     }
     export_sample(directory, samples[static_cast<std::size_t>(id)],
-                  std::to_string(id), adpcm_rounding_error);
+                  pad_id(static_cast<std::uint32_t>(id)),
+                  adpcm_rounding_error);
 }
 
 void export_wfs_sample(const std::filesystem::path& directory,
@@ -194,7 +215,8 @@ void export_wfs_sample(const std::filesystem::path& directory,
         return;
     }
     export_sample(directory, wfs_samples[static_cast<std::size_t>(id)],
-                  std::to_string(id), adpcm_rounding_error);
+                  pad_id(static_cast<std::uint32_t>(id)),
+                  adpcm_rounding_error);
 }
 
 std::size_t export_wfs_samples(const std::filesystem::path& directory,
@@ -202,6 +224,39 @@ std::size_t export_wfs_samples(const std::filesystem::path& directory,
                                bool adpcm_rounding_error) {
     return export_samples(directory, wfs_samples, adpcm_rounding_error,
                           WfsExportPrefix);
+}
+
+std::size_t export_streams(const std::filesystem::path& directory,
+                           std::span<const Stream> streams) {
+    std::size_t written = 0;
+    for (const Stream& stream : streams) {
+        const std::string id = pad_id(stream.id);
+        for (std::size_t channel_index = 0;
+             channel_index < stream.channels.size(); ++channel_index) {
+            std::string suffix;
+            if (stream.channels.size() == 2) {
+                suffix = channel_index == 0 ? "_L" : "_R";
+            }
+            const std::string name = id + "_" + stream.name + suffix;
+            std::size_t sample_count = stream.channels[channel_index].size();
+            if (stream.format == WaveFormat::Adpcm) {
+                sample_count /= 2;
+            }
+            const auto wav = build_wav(stream.channels[channel_index],
+                                       static_cast<std::uint32_t>(sample_count),
+                                       stream.sample_rate, stream.format, name);
+            std::filesystem::create_directories(directory);
+            const auto path = directory / (name + ".wav");
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            if (!output) {
+                throw WaveExportError("could not write " + path.string());
+            }
+            output.write(reinterpret_cast<const char*>(wav.data()),
+                         static_cast<std::streamsize>(wav.size()));
+            ++written;
+        }
+    }
+    return written;
 }
 
 std::vector<FhSample> read_fh_sound_file(const std::filesystem::path& fh_root,

@@ -1,4 +1,5 @@
 #include "Mods/Network/match_client.hpp"
+#include "Mods/Network/net_lag.hpp"
 #include "Mods/Network/net_transport.hpp"
 
 #include <cassert>
@@ -22,6 +23,25 @@ void assert_throws(Function&& function) {
 } // namespace
 
 int main() {
+    using fruityprime::net::NetLag;
+    assert(!NetLag::active());
+    assert(NetLag::configure(" 200:40:1 "));
+    assert(NetLag::round_trip_ms() == 200);
+    assert(NetLag::jitter_ms() == 40);
+    assert(NetLag::describe()
+        == "+200 ms round trip (jitter up to 40 ms each way)");
+    assert(NetLag::configure_loss("2.50"));
+    assert(NetLag::loss_percent() == 2.5);
+    assert(NetLag::describe()
+        == "+200 ms round trip (jitter up to 40 ms each way), 2.5% packet loss each way");
+    assert(!NetLag::configure("not-a-number"));
+    assert(NetLag::round_trip_ms() == 200);
+    assert(!NetLag::configure_loss("101"));
+    assert(NetLag::loss_percent() == 2.5);
+    assert(NetLag::configure("0"));
+    assert(NetLag::configure_loss("0"));
+    assert(!NetLag::active());
+
     const auto real_line = fruityprime::net::NetworkConditions::from_options(
         "", "");
     assert(!real_line.active());

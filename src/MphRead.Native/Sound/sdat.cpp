@@ -108,7 +108,12 @@ void parse_symbol_record(Bytes section_bytes, std::uint32_t relative_offset,
                          std::vector<std::string>& names,
                          std::string_view what) {
     const auto offsets = record_offsets(section_bytes, relative_offset, what);
-    names.assign(offsets.size(), {});
+    // Sound.ReadSdat's GetNames filters null offsets instead of preserving
+    // the raw record index.  The matching INFO helper filters null entries in
+    // exactly the same way; callers therefore consume both lists as compact
+    // sequences.
+    names.clear();
+    names.reserve(offsets.size());
     for (std::size_t i = 0; i < offsets.size(); ++i) {
         if (offsets[i] == 0) {
             continue;
@@ -122,9 +127,9 @@ void parse_symbol_record(Bytes section_bytes, std::uint32_t relative_offset,
         }
         require(end < section_bytes.size(),
                 std::string(what) + " name is not null terminated");
-        names[i] = std::string(
+        names.push_back(std::string(
             reinterpret_cast<const char*>(section_bytes.data() + begin),
-            end - begin);
+            end - begin));
     }
 }
 

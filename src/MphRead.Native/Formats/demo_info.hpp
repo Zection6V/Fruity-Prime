@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <iosfwd>
 #include <optional>
+#include <vector>
 
 namespace fruityprime::demo {
 
@@ -24,6 +25,10 @@ struct Info final {
     std::uint32_t last_frame = 0;
     std::uint32_t biggest_gap = 0;
     std::size_t snapshots = 0;
+    // .NET Dictionary enumerates entries in insertion order.  Keeping the
+    // first-seen packet types lets the native diagnostic print the same order
+    // instead of the byte-value order of packet_counts.
+    std::vector<std::uint8_t> packet_order;
     std::size_t inflated_bytes = 0;
     std::uintmax_t on_disk = 0;
     bool have_frame = false;
@@ -33,5 +38,10 @@ struct Info final {
 [[nodiscard]] std::optional<Info> inspect(const std::filesystem::path& path);
 void print(std::ostream& output, const std::filesystem::path& path,
            const Info& info);
+
+// The command boundary owned by Mods/Network/DemoInfo.cs for the inspection
+// (non-replay) path.  Replay remains a separate Scene/DemoPlayback port until
+// that call path is 1:1 rather than a headless substitute.
+[[nodiscard]] int print_command(const std::filesystem::path& path);
 
 } // namespace fruityprime::demo

@@ -18,15 +18,13 @@
 namespace fruityprime::utility::console {
 namespace {
 
-std::filesystem::path current_launch_directory() noexcept {
-    std::error_code error;
-    const auto result = std::filesystem::current_path(error);
-    return error ? std::filesystem::path{} : result;
+std::filesystem::path current_launch_directory() {
+    return std::filesystem::current_path();
 }
 
 std::filesystem::path g_launch_directory = current_launch_directory();
 
-[[nodiscard]] std::filesystem::path executable_directory() noexcept {
+[[nodiscard]] std::filesystem::path executable_directory() {
 #ifdef _WIN32
     std::array<wchar_t, 32'768> buffer{};
     const DWORD length = GetModuleFileNameW(
@@ -38,15 +36,16 @@ std::filesystem::path g_launch_directory = current_launch_directory();
             return executable.parent_path();
         }
     }
+    throw std::system_error(
+        static_cast<int>(GetLastError()), std::system_category(),
+        "GetModuleFileNameW failed");
 #else
-    std::error_code error;
-    const auto executable = std::filesystem::read_symlink(
-        "/proc/self/exe", error);
-    if (!error && executable.has_parent_path()) {
+    const auto executable = std::filesystem::read_symlink("/proc/self/exe");
+    if (executable.has_parent_path()) {
         return executable.parent_path();
     }
+    throw std::runtime_error("/proc/self/exe has no parent directory");
 #endif
-    return current_launch_directory();
 }
 
 #ifdef _WIN32
@@ -67,25 +66,15 @@ void enable_virtual_terminal() noexcept {
 
 } // namespace
 
-void run() noexcept {
-    // C#'s CultureInfo.InvariantCulture is the process's formatting contract
-    // for command-line tools. The catch keeps startup usable if a host has
-    // already replaced one of the standard stream locales.
-    try {
-        const auto invariant = std::locale::classic();
-        std::locale::global(invariant);
-        std::cin.imbue(invariant);
-        std::cout.imbue(invariant);
-        std::cerr.imbue(invariant);
-    } catch (...) {
-    }
-
+void run() {
+    const auto invariant = std::locale::classic();
+    std::locale::global(invariant);
+    std::cin.imbue(invariant);
+    std::cout.imbue(invariant);
+    std::cerr.imbue(invariant);
     g_launch_directory = current_launch_directory();
-    std::error_code error;
     const auto base = executable_directory();
-    if (!base.empty()) {
-        std::filesystem::current_path(base, error);
-    }
+    std::filesystem::current_path(base);
 
 #ifdef _WIN32
     enable_virtual_terminal();
@@ -108,7 +97,7 @@ std::filesystem::path resolve_launch_path(
 
 namespace fruityprime {
 
-void ConsoleSetup::Run() noexcept {
+void ConsoleSetup::Run() {
     utility::console::run();
 }
 

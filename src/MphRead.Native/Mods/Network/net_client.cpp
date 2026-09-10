@@ -66,7 +66,12 @@ bool NetClient::connect(std::uint8_t requested_slot,
     disconnect();
     last_error_.clear();
     try {
-        transport_ = std::make_unique<NetTransport>(0, conditions_);
+        // NetLag.cs is process-wide. An empty value means this caller did
+        // not inject a private native test condition, so use the transport's
+        // global path and let the startup option apply to every socket.
+        transport_ = conditions_.active()
+            ? std::make_unique<NetTransport>(0, conditions_)
+            : std::make_unique<NetTransport>(0);
         const std::array<std::uint8_t, 2> hello{
             NetConfig::ProtocolVersion, requested_slot
         };

@@ -121,10 +121,7 @@ std::string NetworkConditions::describe() const {
 }
 
 NetTransport::NetTransport(std::uint16_t port)
-    : NetTransport(port, NetworkConditions{}) {}
-
-NetTransport::NetTransport(std::uint16_t port, NetworkConditions conditions)
-    : conditions_(conditions) {
+    : use_global_lag_(true), conditions_(NetLag::current()) {
 #ifdef _WIN32
     WSADATA wsa_data{};
     const int wsa_result = WSAStartup(MAKEWORD(2, 2), &wsa_data);
@@ -175,7 +172,64 @@ NetTransport::NetTransport(std::uint16_t port, NetworkConditions conditions)
     local_port_ = ntohs(bound.sin_port);
     running_.store(true);
     worker_ = std::thread(&NetTransport::receive_loop, this);
-    if (conditions_.round_trip_ms > 0 || conditions_.jitter_ms > 0) {
+    if (NetLag::active()) {
+        lag_worker_ = std::thread(&NetTransport::lag_loop, this);
+    }
+}
+
+NetTransport::NetTransport(std::uint16_t port, NetworkConditions conditions)
+    : use_global_lag_(false), conditions_(conditions) {
+#ifdef _WIN32
+    WSADATA wsa_data{};
+    const int wsa_result = WSAStartup(MAKEWORD(2, 2), &wsa_data);
+    if (wsa_result != 0) {
+        throw std::runtime_error("WSAStartup failed (error "
+                                 + std::to_string(wsa_result) + ")");
+    }
+#endif
+
+    socket_ = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (socket_ == InvalidSocket) {
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        throw std::runtime_error(socket_error_message("socket"));
+    }
+
+    set_socket_buffer(socket_, SO_RCVBUF, SocketBufferBytes);
+    set_socket_buffer(socket_, SO_SNDBUF, SocketBufferBytes);
+
+    sockaddr_in local{};
+    local.sin_family = AF_INET;
+    local.sin_addr.s_addr = htonl(INADDR_ANY);
+    local.sin_port = htons(port);
+    if (::bind(socket_, reinterpret_cast<const sockaddr*>(&local),
+               static_cast<SocketLength>(sizeof(local))) != 0) {
+        const std::string message = socket_error_message("bind");
+        close_native_socket(socket_);
+        socket_ = InvalidSocket;
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        throw std::runtime_error(message);
+    }
+
+    sockaddr_in bound{};
+    SocketLength bound_length = static_cast<SocketLength>(sizeof(bound));
+    if (getsockname(socket_, reinterpret_cast<sockaddr*>(&bound), &bound_length)
+        != 0) {
+        const std::string message = socket_error_message("getsockname");
+        close_native_socket(socket_);
+        socket_ = InvalidSocket;
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        throw std::runtime_error(message);
+    }
+    local_port_ = ntohs(bound.sin_port);
+    running_.store(true);
+    worker_ = std::thread(&NetTransport::receive_loop, this);
+    if (conditions_.active()) {
         lag_worker_ = std::thread(&NetTransport::lag_loop, this);
     }
 }
@@ -250,7 +304,7 @@ void NetTransport::receive_loop() {
         ReceivedPacket packet;
         packet.sender.address = sender;
         packet.data.assign(buffer.begin(), buffer.begin() + received);
-        if (conditions_.active()) {
+        if (use_global_lag_ ? NetLag::active() : conditions_.active()) {
             if (should_drop()) {
                 continue;
             }
@@ -318,7 +372,7 @@ void NetTransport::enqueue_received(ReceivedPacket packet) {
 }
 
 std::vector<ReceivedPacket> NetTransport::drain() {
-    if (conditions_.round_trip_ms > 0 || conditions_.jitter_ms > 0) {
+    if (use_global_lag_ ? NetLag::active() : conditions_.active()) {
         promote_held_arrivals();
     }
     std::deque<ReceivedPacket> pending;
@@ -336,7 +390,7 @@ void NetTransport::send(const Endpoint& target, PacketType type,
         throw std::invalid_argument("UDP payload exceeds NetConfig::MaxPacketSize");
     }
     auto datagram = make_datagram(type, payload);
-    if (conditions_.active()) {
+    if (use_global_lag_ ? NetLag::active() : conditions_.active()) {
         if (should_drop()) {
             return;
         }
@@ -352,6 +406,9 @@ void NetTransport::send(const Endpoint& target, PacketType type,
 }
 
 bool NetTransport::should_drop() {
+    if (use_global_lag_) {
+        return NetLag::drops();
+    }
     if (conditions_.loss_percent <= 0.0) {
         return false;
     }
@@ -361,6 +418,9 @@ bool NetTransport::should_drop() {
 }
 
 NetTransport::Clock::duration NetTransport::hold_duration() {
+    if (use_global_lag_) {
+        return NetLag::hold_duration();
+    }
     double milliseconds = conditions_.round_trip_ms / 2.0;
     if (conditions_.jitter_ms > 0) {
         std::lock_guard lock(random_mutex_);

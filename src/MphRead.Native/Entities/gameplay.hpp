@@ -203,6 +203,11 @@ struct EnemyState {
     // which is why these are not the same field as `state`.
     std::uint8_t next_state = 0;
     std::uint8_t sub_id = 0;
+    // EnemyInstanceEntity._scanId.  Most enemies take it from their
+    // metadata and never change it; the ones with phases change it,
+    // because a closed eye and an open one are different things to read
+    // about.
+    std::uint16_t scan_id = 0;
     std::uint8_t target_slot = 0xff;
     float attack_timer = 0.0F;
     float body_radius = 0.65F;

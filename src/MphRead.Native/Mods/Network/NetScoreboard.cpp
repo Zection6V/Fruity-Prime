@@ -2,32 +2,32 @@
 
 namespace MphRead::Mods::Network::Detail
 {
-    std::int32_t NetScoreboardPlayerSlotCapacity() noexcept;
+    std::int32_t NetScoreboardPlayerSlotCapacity();
 
-    std::int32_t& NetScoreboardPoints(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardKills(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardDeaths(std::int32_t slot) noexcept;
-    float& NetScoreboardTime(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardSuicides(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardFriendlyKills(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardHeadshotKills(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardDamageCount(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardAltDamageCount(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardBeamDamageDealt(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardBeamDamageMax(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardOctolithScores(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardOctolithDrops(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardOctolithStops(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardNodesCaptured(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardNodesLost(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardKillsAsPrime(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardPrimesKilled(std::int32_t slot) noexcept;
-    std::int32_t& NetScoreboardBeamKills(std::int32_t slot, std::int32_t beam) noexcept;
+    std::int32_t& NetScoreboardPoints(std::int32_t slot);
+    std::int32_t& NetScoreboardKills(std::int32_t slot);
+    std::int32_t& NetScoreboardDeaths(std::int32_t slot);
+    float& NetScoreboardTime(std::int32_t slot);
+    std::int32_t& NetScoreboardSuicides(std::int32_t slot);
+    std::int32_t& NetScoreboardFriendlyKills(std::int32_t slot);
+    std::int32_t& NetScoreboardHeadshotKills(std::int32_t slot);
+    std::int32_t& NetScoreboardDamageCount(std::int32_t slot);
+    std::int32_t& NetScoreboardAltDamageCount(std::int32_t slot);
+    std::int32_t& NetScoreboardBeamDamageDealt(std::int32_t slot);
+    std::int32_t& NetScoreboardBeamDamageMax(std::int32_t slot);
+    std::int32_t& NetScoreboardOctolithScores(std::int32_t slot);
+    std::int32_t& NetScoreboardOctolithDrops(std::int32_t slot);
+    std::int32_t& NetScoreboardOctolithStops(std::int32_t slot);
+    std::int32_t& NetScoreboardNodesCaptured(std::int32_t slot);
+    std::int32_t& NetScoreboardNodesLost(std::int32_t slot);
+    std::int32_t& NetScoreboardKillsAsPrime(std::int32_t slot);
+    std::int32_t& NetScoreboardPrimesKilled(std::int32_t slot);
+    std::int32_t& NetScoreboardBeamKills(std::int32_t slot, std::int32_t beam);
 }
 
 namespace MphRead::Mods::Network
 {
-    void NetScoreboard::ForgetSlot(std::int32_t slot) noexcept
+    void NetScoreboard::ForgetSlot(std::int32_t slot)
     {
         if (slot < 0 || slot >= Detail::NetScoreboardPlayerSlotCapacity())
         {

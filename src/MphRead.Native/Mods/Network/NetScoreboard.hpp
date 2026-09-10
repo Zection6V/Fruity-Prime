@@ -9,6 +9,6 @@ namespace MphRead::Mods::Network
     public:
         NetScoreboard() = delete;
 
-        static void ForgetSlot(std::int32_t slot) noexcept;
+        static void ForgetSlot(std::int32_t slot);
     };
 }

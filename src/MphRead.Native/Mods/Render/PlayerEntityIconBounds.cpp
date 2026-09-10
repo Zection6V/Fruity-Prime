@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <stdexcept>
 
 namespace
 {
@@ -78,6 +79,11 @@ namespace
             | (significand & 0x007FFFFFU);
         return std::bit_cast<float>(bits);
     }
+
+    [[noreturn]] void ThrowNullReference()
+    {
+        throw std::runtime_error("Object reference not set to an instance of an object.");
+    }
 }
 
 namespace MphRead::Entities
@@ -117,6 +123,18 @@ namespace MphRead::Entities
     IconBounds PlayerEntity::ModIconBounds(std::span<const std::uint8_t> data,
         std::int32_t frame, std::int32_t width, std::int32_t height)
     {
+        return PlayerEntity::ModIconBounds<std::span<const std::uint8_t>>(data, frame, width, height);
+    }
+
+    IconBounds PlayerEntity::ModIconBounds(std::nullptr_t,
+        std::int32_t frame, std::int32_t width, std::int32_t height)
+    {
+        return ModIconBoundsCore(nullptr, nullptr, nullptr, frame, width, height);
+    }
+
+    IconBounds PlayerEntity::ModIconBoundsCore(const void* data, CountCallback count, ReadCallback read,
+        std::int32_t frame, std::int32_t width, std::int32_t height)
+    {
         const std::int32_t tilesX = width / 8;
         const std::int32_t image = WrapMultiply(WrapMultiply(frame, width), height);
         std::int32_t minX = width;
@@ -134,8 +152,16 @@ namespace MphRead::Entities
                 index = WrapAdd(index, WrapMultiply(x / 8, 64));
                 index = WrapAdd(index, WrapMultiply(py, 8));
                 index = WrapAdd(index, x % 8);
-                if (index < 0 || static_cast<std::size_t>(index) >= data.size()
-                    || data[static_cast<std::size_t>(index)] == 0)
+                if (index < 0)
+                {
+                    continue;
+                }
+                if (data == nullptr)
+                {
+                    ThrowNullReference();
+                }
+                const std::int32_t dataCount = count(data);
+                if (index >= dataCount || read(data, static_cast<std::size_t>(index)) == 0)
                 {
                     continue;
                 }

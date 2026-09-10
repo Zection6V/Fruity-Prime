@@ -116,6 +116,17 @@ struct EnemyScene {
     // shootable in their own right -- what a shot lands on is a volume
     // parented to them -- so becoming vulnerable means turning that on.
     std::function<void(const EnemyState& owner, bool collidable)> SetHitZone;
+
+    // EnemySpawnEntity.SpawnEnemy(HitZone) plus Enemy50Entity.SetUp: the
+    // volume a shot lands on, parented to this enemy.  Several bosses are
+    // not shootable in their own right at all.
+    std::function<void(const EnemyState& owner, net::Vec3 offset,
+                       float radius, std::uint16_t health)> SpawnHitZone;
+
+    // CollisionDetection.CheckBetweenPoints, asked the one question a
+    // falling enemy has: where is the floor between here and there.
+    std::function<bool(net::Vec3 from, net::Vec3 to, float& ground_y)>
+        GroundBelow;
 };
 
 

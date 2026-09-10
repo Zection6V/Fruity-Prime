@@ -50,6 +50,10 @@ inline void decrement_signed(std::int32_t& timer,
     // cartridge the same way the three above were.
     static constexpr std::array<std::uint16_t, 4> fire_spawn{
         80, 80, 27, 90};
+    // SphinkTick, which is both Ithraks.  Seventeen of them, and the
+    // machine waits on most of them ending rather than on any timer.
+    static constexpr std::array<std::uint16_t, 17> ithrak{
+        31, 55, 31, 46, 31, 31, 31, 21, 21, 21, 20, 41, 41, 20, 61, 0, 21};
 
     const auto lookup = [animation, fallback](
                             const auto& lengths) noexcept {
@@ -65,6 +69,9 @@ inline void decrement_signed(std::int32_t& timer,
         return lookup(gorea_2);
     case static_cast<std::uint8_t>(formats::EnemyType::FireSpawn):
         return lookup(fire_spawn);
+    case static_cast<std::uint8_t>(formats::EnemyType::LesserIthrak):
+    case static_cast<std::uint8_t>(formats::EnemyType::GreaterIthrak):
+        return lookup(ithrak);
     default:
         return std::max<std::uint16_t>(1, fallback);
     }

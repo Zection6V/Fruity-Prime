@@ -377,11 +377,25 @@ struct EnemyState {
     std::uint32_t ithrak_move_timer = 0;
     std::int8_t ithrak_drop_angle_sign = 1;
     std::int8_t ithrak_recoil_angle_sign = 1;
-    std::uint8_t ithrak_animation = 0;
+    // Enemy46Entity's animation cursor.  Almost every one of its twenty
+    // states waits on an animation ending rather than on a timer, so this
+    // is the clock the whole machine runs off.
+    std::uint8_t ithrak_animation = 5;
     std::uint32_t ithrak_animation_timer = 0;
+    std::uint16_t ithrak_animation_frame = 0;
+    std::uint16_t ithrak_animation_length = 0;
+    bool ithrak_animation_ended = false;
+    bool ithrak_animation_no_loop = false;
     bool ithrak_wall_collision = false;
     bool ithrak_ground_collision = false;
     bool ithrak_reaching_target = false;
+    // Enemy46Entity's own effectiveness word, which the two Ithraks
+    // differ on: the Lesser resists everything by half, the Greater
+    // resists nothing.
+    std::uint32_t ithrak_effectiveness = 0x5555;
+    // How bright its mouth glows, which is the only thing that tells the
+    // two apart at a glance.
+    std::uint8_t ithrak_mouth_brightness = 31;
     // Enemy37Entity (Quadtroid/Dripstank) is a surface state machine rather
     // than a generic chase enemy. Keep the managed flags, two idle timers,
     // damage latch, and attachment state on its own record so the controller
@@ -995,6 +1009,10 @@ private:
     // behind, and the item it drops when it is shot down.
     [[nodiscard]] EnemyScene build_gorea_meteor_scene(
         const EnemyState& agent);
+
+    // The Ithraks add two: the hit zone that is what a shot actually
+    // lands on, and the ray that finds the floor under a drop.
+    [[nodiscard]] EnemyScene build_ithrak_scene(net::Vec3 prev_position);
 
     // CollisionDetection's queries take the room's collision as a list of
     // parts, which is what a room is made of -- but scene::Room keeps the

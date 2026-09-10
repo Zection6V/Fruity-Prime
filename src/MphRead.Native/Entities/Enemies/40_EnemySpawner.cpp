@@ -2,6 +2,8 @@
 // Enemy40 owns the room-spawner lifecycle boundary. Its update body is kept
 // here so gameplay.cpp remains an orchestration module rather than a second
 // implementation of every enemy class.
+#include "47_GreaterIthrak.hpp"
+#include "46_LesserIthrak.hpp"
 #include "39_FireSpawn.hpp"
 #include "45_SlenchTurret.hpp"
 #include "36_Voldrum.hpp"
@@ -277,19 +279,12 @@ void Session::update_enemy_spawns() {
                 spawned.body_radius = 1843.0F / 4096.0F;
             }
             if (spawned.ithrak.supported) {
-                spawned.health = spawned.health_max = spawned.ithrak.health;
-                spawned.body_radius = 0.5F;
-                spawned.ithrak_move_target = to_net(
-                    spawned.ithrak.home_volume.center());
-                spawned.ithrak_delay_timer = 30u * 2u;
-                spawned.ithrak_move_timer = 600u * 2u;
-                spawned.ithrak_move_start = spawned.position;
-                spawned.ithrak_target_vec = spawned.facing;
-                spawned.ithrak_animation = 0;
-                spawned.ithrak_animation_timer = 1;
-                spawned.ithrak_drop_angle_sign = 1;
-                spawned.ithrak_recoil_angle_sign = 1;
-                spawned.ithrak_reaching_target = false;
+                if (spawned.enemy_type == static_cast<std::uint8_t>(
+                        formats::EnemyType::GreaterIthrak)) {
+                    enemy::module_47_greater_ithrak::EnemyInitialize(spawned);
+                } else {
+                    enemy::module_46_lesser_ithrak::EnemyInitialize(spawned);
+                }
             }
             if (spawned.quadtroid.supported) {
                 spawned.health = spawned.health_max = 120;

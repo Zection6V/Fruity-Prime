@@ -72,6 +72,7 @@
 #include "Entities/Players/PlayerAi.hpp"
 #include "Entities/Players/PlayerCamera.hpp"
 #include "Entities/Players/PlayerEntity.hpp"
+#include "Entities/runtime_entities.hpp"
 #include "Entities/Players/player_profile.hpp"
 #include "HUD/hud.hpp"
 #include "Mods/MapGen/custom_rooms.hpp"
@@ -333,6 +334,12 @@ std::array<HunterModelSet, fruityprime::metadata::HunterCount>
     g_player_models;
 std::unique_ptr<fruityprime::entities::static_entities::World> g_static_world;
 std::vector<std::unique_ptr<EntityRenderModel>> g_entity_models;
+// Native equivalent of Scene's ordered player/halfturret entity list.  The
+// Session owns simulation state; this list owns room-scene membership created
+// by NetRoomChange.AfterRebuild.
+std::vector<fruityprime::players::PlayerEntity*> g_network_scene_players;
+std::vector<fruityprime::runtime::HalfturretEntity*>
+    g_network_scene_halfturrets;
 std::array<EntityRenderModel*, fruityprime::metadata::EnemyCount>
     g_enemy_models{};
 std::array<EntityRenderModel*, fruityprime::metadata::ItemCount>
@@ -1477,36 +1484,56 @@ void bind_gorea_model_to_session() {
 
 void sync_process_game_state();
 
-// The native renderer loads player resources as room-wide model sets rather
-// than through a managed Scene entity list. Keep the four mandatory scene
-// operations as explicit callbacks so NetRoomChange retains the exact C#
-// ordering without inventing a second player lifecycle here.
+void update_model_instance(fruityprime::model::ModelInstance& instance,
+                           bool use_node_transform = true);
+
+// Keep the four Scene operations explicit.  Session remains the simulation
+// owner, while these callbacks establish room-scene membership and initialise
+// the already loaded model instances in the C# order.
 void insert_network_player(fruityprime::players::PlayerEntity& player) noexcept {
-    static_cast<void>(player);
+    if (std::find(g_network_scene_players.begin(), g_network_scene_players.end(),
+                  &player) == g_network_scene_players.end()) {
+        g_network_scene_players.push_back(&player);
+    }
 }
 
 void initialize_network_player(
     fruityprime::players::PlayerEntity& player) noexcept {
-    static_cast<void>(player);
+    player.Initialize();
 }
 
 void init_network_player(
     fruityprime::players::PlayerEntity& player) noexcept {
-    static_cast<void>(player);
+    std::size_t hunter = static_cast<std::size_t>(player.Hunter());
+    if (hunter >= g_player_models.size()) {
+        hunter = std::min<std::size_t>(
+            g_local_hunter, g_player_models.size() - 1);
+    }
+    auto& models = g_player_models[hunter];
+    if (models.instance.has_value()) {
+        update_model_instance(*models.instance);
+    }
+    if (models.alt_instance.has_value()) {
+        update_model_instance(*models.alt_instance);
+    }
+    if (models.gun_instance.has_value()) {
+        update_model_instance(*models.gun_instance);
+    }
 }
 
 void init_network_halfturret(
     fruityprime::runtime::HalfturretEntity& halfturret) noexcept {
-    static_cast<void>(halfturret);
+    if (std::find(g_network_scene_halfturrets.begin(),
+                  g_network_scene_halfturrets.end(), &halfturret)
+        == g_network_scene_halfturrets.end()) {
+        g_network_scene_halfturrets.push_back(&halfturret);
+    }
 }
 
 fruityprime::players::PlayerCamera& active_player_camera() noexcept {
     auto* main = fruityprime::players::PlayerEntity::Main();
     return main == nullptr ? g_unbound_player_camera : main->Camera();
 }
-
-void update_model_instance(fruityprime::model::ModelInstance& instance,
-                           bool use_node_transform = true);
 
 void clear_room_render_resources() {
     // DrawPrimitive stores non-owning model pointers. Destroy the draw list
@@ -1517,6 +1544,8 @@ void clear_room_render_resources() {
     g_room_instance.reset();
     active_player_camera().reset();
     g_entity_models.clear();
+    g_network_scene_players.clear();
+    g_network_scene_halfturrets.clear();
     for (auto& model : g_player_models) {
         model.instance.reset();
         model.alt_instance.reset();
@@ -1825,11 +1854,15 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
             g_local_hunter, 0, g_slot_manager, g_net_damage, g_net_match_end,
             g_net_log
         };
-        if (fruityprime::net::NetRoomChange::RebuildPlayers(rebuild)
-            == nullptr) {
+        auto* main_player = fruityprime::net::NetRoomChange::RebuildPlayers(
+            rebuild);
+        if (main_player == nullptr) {
             throw std::runtime_error(
                 "network room rebuild did not create the local player");
         }
+        // RoomEntity.LoadRoom inserts the local player before the managed
+        // AfterRebuild loop, which intentionally skips MainPlayerIndex.
+        insert_network_player(*main_player);
         fruityprime::net::NetRoomChange::AfterRebuild({
             g_net_frame, g_net_player_bridge, g_net_log,
             &insert_network_player, &initialize_network_player,
@@ -4069,17 +4102,17 @@ void draw_player_model(int hidden_slot) {
         || g_session->players().empty()) {
         return;
     }
-    for (const auto& player : g_session->players()) {
+    const auto draw_player = [&](const fruityprime::net::PlayerState& player) {
         if (hidden_slot >= 0
             && player.slot_index == static_cast<std::uint8_t>(hidden_slot)) {
-            continue;
+            return;
         }
         if (player.health == 0
             || (player.flags & fruityprime::net::PlayerState::FlagActive) == 0
             || (player.flags & fruityprime::net::PlayerState::FlagSpawned) == 0
             || (player.flags
                 & fruityprime::net::PlayerState::FlagSpectating) != 0) {
-            continue;
+            return;
         }
         const float yaw = std::atan2(player.facing.x, player.facing.z)
             * 180.0F / 3.14159265358979323846F;
@@ -4095,7 +4128,7 @@ void draw_player_model(int hidden_slot) {
         const bool use_alt = alt_form && model.alt_model.has_value();
         if (!model.model.has_value()
             && !model.alt_model.has_value()) {
-            continue;
+            return;
         }
         const DrawLayer layer = use_alt ? DrawLayer::PlayerAlt
                                         : DrawLayer::Player;
@@ -4108,6 +4141,21 @@ void draw_player_model(int hidden_slot) {
         draw_model_layer(layer, static_cast<std::uint8_t>(hunter_index),
                          instance);
         glPopMatrix();
+    };
+    if (!g_network_scene_players.empty()) {
+        for (const auto* entity : g_network_scene_players) {
+            if (entity == nullptr
+                || !g_session->has_player(static_cast<std::uint8_t>(
+                    entity->SlotIndex()))) {
+                continue;
+            }
+            draw_player(g_session->player(static_cast<std::uint8_t>(
+                entity->SlotIndex())));
+        }
+    } else {
+        for (const auto& player : g_session->players()) {
+            draw_player(player);
+        }
     }
 }
 

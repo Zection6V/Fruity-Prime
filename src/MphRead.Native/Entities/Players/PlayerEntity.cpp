@@ -1136,6 +1136,27 @@ void PlayerEntity::SaveStatus(game::StorySave& save, bool fade_active) const {
                           fade_active);
 }
 
+void PlayerEntity::Initialize() noexcept {
+    camera_.reset();
+    node_ref_ = culling::NodeRef::none();
+    camera_.info().node_ref = culling::NodeRef::none();
+    if (!has_live_state()) {
+        return;
+    }
+
+    const net::Vec3 position = State().position;
+    const net::Vec3 facing = State().facing;
+    camera_.info().position = position;
+    camera_.info().up = {0.0F, 1.0F, 0.0F};
+    camera_.info().target = {
+        position.x + facing.x, position.y + facing.y, position.z + facing.z};
+    runtime_state_.Hunter = static_cast<formats::Hunter>(hunter_);
+    runtime_state_.LoadFlags = load_flags_;
+    runtime_state_.Values = Values();
+    runtime_state_.TeamIndex = State().team;
+    runtime_state_.Team = Team();
+}
+
 void PlayerEntity::ResetReferences() noexcept {
     node_ref_ = culling::NodeRef::none();
     camera_.info().node_ref = culling::NodeRef::none();

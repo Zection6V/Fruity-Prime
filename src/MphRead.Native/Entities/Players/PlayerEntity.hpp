@@ -274,6 +274,9 @@ public:
                     const net::Vec3* direction = nullptr,
                     PlayerEntity* source = nullptr);
     void SaveStatus(game::StorySave& save, bool fade_active) const;
+    // PlayerEntity.Initialize: rebuild the per-room camera and managed state
+    // after the room has created the pooled player object.
+    void Initialize() noexcept;
     void ResetReferences() noexcept;
     void ModDrawChat(
         int viewport_width, int viewport_height,

@@ -7258,6 +7258,11 @@ void update_game(HWND window) {
     ++g_demo_frame;
     g_hud_elapsed_seconds += 1.0F / 60.0F;
     poll_network();
+    // NetHooks.AfterInput invokes NetPlayerSetup.ApplyOnce every frame.
+    // Keep the same retry point here so a Reset made while rebuilding a room
+    // is applied after the players have been materialized, even when no new
+    // roster packet arrives afterward.
+    fruityprime::net::NetPlayerSetup::ApplyOnce();
     if (g_replay_playback.active()) {
         if (!g_paused && !fruityprime::chat::ChatBox::Composing()) {
             pump_replay_frame();

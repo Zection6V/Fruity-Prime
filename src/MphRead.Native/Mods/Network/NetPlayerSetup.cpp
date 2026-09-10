@@ -13,8 +13,7 @@ detail::RuntimeBindings runtime{};
     const auto player_table = players::PlayerEntity::Players();
     const int max_players = players::PlayerEntity::MaxPlayers();
     std::size_t active = 0;
-    for (int slot = 0; slot < max_players
-             && static_cast<std::size_t>(slot) < player_table.size(); ++slot) {
+    for (int slot = 0; slot < max_players; ++slot) {
         const players::PlayerEntity* player =
             player_table[static_cast<std::size_t>(slot)];
         if (player != nullptr
@@ -61,8 +60,7 @@ void NetPlayerSetup::ApplyOnce() noexcept {
     }
     const auto player_table = players::PlayerEntity::Players();
     const int max_players = players::PlayerEntity::MaxPlayers();
-    for (int slot = 0; slot < max_players
-             && static_cast<std::size_t>(slot) < player_table.size(); ++slot) {
+    for (int slot = 0; slot < max_players; ++slot) {
         players::PlayerEntity* player =
             player_table[static_cast<std::size_t>(slot)];
         if (player == nullptr) {

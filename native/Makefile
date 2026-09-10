@@ -330,6 +330,7 @@ TEST_SOURCES := \
     $(CPP_ROOT)/Testing/player_hud_mode_tests.cpp \
     $(CPP_ROOT)/Testing/player_hud_pickup_tests.cpp \
     $(CPP_ROOT)/Testing/player_hud_wheel_tests.cpp \
+    $(CPP_ROOT)/Testing/enemy_state_machine_tests.cpp \
     $(CPP_ROOT)/Testing/enemy_helper_tests.cpp \
     $(CPP_ROOT)/Testing/player_statics_tests.cpp \
     $(CPP_ROOT)/Testing/hud_message_tests.cpp \

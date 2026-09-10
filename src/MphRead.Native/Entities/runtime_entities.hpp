@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+#include "Metadata/enemy_subroutines.hpp"
 #include "Entities/Enemies/enemy_catalog.hpp"
 #include "Messaging.hpp"
 #include "Metadata/metadata.hpp"
@@ -353,6 +355,45 @@ public:
     void set_health(std::uint16_t health) noexcept { health_ = health; }
     void set_health_max(std::uint16_t health) noexcept { health_max_ = health; }
     void set_states(std::uint8_t state_a, std::uint8_t state_b) noexcept;
+
+    // ---- the state machine ------------------------------------------
+    // Every enemy in the cartridge is one: a state is an ordered list of
+    // behaviours, the first whose predicate passes names the next state,
+    // and the change takes effect on the frame after it is decided.  The
+    // graphs are transliterated in Metadata/enemy_subroutines.hpp; what
+    // lives here is the part EnemyInstanceEntity.cs owns for all of them.
+
+    // The per-frame `_state1 = _state2; _subId = _state1` that makes a
+    // decided transition take effect.  BaseProcess does this before the
+    // enemy's own Process runs, which is why a behaviour that sets the
+    // next state does not see it until the following frame.
+    void AdvanceState() noexcept {
+        state_a_ = state_b_;
+        sub_id_ = state_a_;
+    }
+
+    // EnemyInstanceEntity.CallSubroutine.  `behavior` evaluates the
+    // enemy's own BehaviorNN predicate by index -- C# holds an array of
+    // delegates there, which is a switch here and nothing more.
+    //
+    // Returns whether any behaviour passed.  A state with an empty list,
+    // or one where none pass, leaves the enemy where it is rather than
+    // falling through to the first entry.
+    [[nodiscard]] bool CallSubroutine(
+        std::span<const metadata::EnemySubroutine> subroutines,
+        const std::function<bool(std::uint8_t)>& behavior) noexcept;
+
+    // EnemyInstanceEntity.CallStateProcess: run the current state's own
+    // method.  Out of range is the caller's bug, and doing nothing is the
+    // one response that cannot make it worse.
+    void CallStateProcess(
+        const std::function<void(std::uint8_t)>& states) const {
+        if (states) {
+            states(state_a_);
+        }
+    }
+
+    [[nodiscard]] std::uint8_t sub_id() const noexcept { return sub_id_; }
     void set_flags(std::uint32_t flags) noexcept { flags_ = flags; }
     void set_velocity(net::Vec3 velocity) noexcept { velocity_ = velocity; }
     [[nodiscard]] bool take_damage(std::uint32_t damage) noexcept;
@@ -361,6 +402,10 @@ public:
 
 private:
     std::uint8_t enemy_type_ = 0;
+    // EnemyInstanceEntity._subId: which state's behaviour list to read.
+    // It follows _state1 rather than being it, because a few enemies
+    // change it between the state advance and the subroutine call.
+    std::uint8_t sub_id_ = 0;
     std::uint8_t state_a_ = 0;
     std::uint8_t state_b_ = 0;
     std::uint32_t flags_ = CollidePlayer | CollideBeam;

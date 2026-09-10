@@ -15,6 +15,29 @@ void EnemyInstanceEntity::set_states(std::uint8_t state_a,
                                      std::uint8_t state_b) noexcept {
     state_a_ = state_a;
     state_b_ = state_b;
+    sub_id_ = state_a;
+}
+
+bool EnemyInstanceEntity::CallSubroutine(
+    const std::span<const metadata::EnemySubroutine> subroutines,
+    const std::function<bool(std::uint8_t)>& behavior) noexcept {
+    if (!behavior || sub_id_ >= subroutines.size()) {
+        return false;
+    }
+    const auto& subroutine = subroutines[sub_id_];
+    const std::size_t count = std::min<std::size_t>(
+        subroutine.count, subroutine.behaviors.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& entry = subroutine.behaviors[index];
+        if (!behavior(entry.behavior)) {
+            continue;
+        }
+        // The next state is decided now and taken on the next frame's
+        // AdvanceState, not here.
+        state_b_ = entry.next_state;
+        return true;
+    }
+    return false;
 }
 
 bool EnemyInstanceEntity::take_damage(std::uint32_t damage) noexcept {

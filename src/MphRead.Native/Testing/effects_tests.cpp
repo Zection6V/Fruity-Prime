@@ -29,6 +29,18 @@ int main() {
     functions.emplace(48, Function{1, {}});
     functions.emplace(52, Function{42, {8192}});
     functions.emplace(56, Function{3, {}});
+    // The three arithmetic pairs, scalar and componentwise.  These
+    // were one body branching on the identifier before the functions
+    // were split apart, so each is checked separately: multiply
+    // reading as add is the shape of mistake that split invites.
+    functions.emplace(60, Function{48, {8, 4}});
+    functions.emplace(64, Function{18, {24, 24}});
+    functions.emplace(68, Function{19, {24, 24}});
+    // The four read-only and four read-write fields.
+    functions.emplace(72, Function{31, {}});
+    functions.emplace(76, Function{34, {}});
+    functions.emplace(80, Function{35, {}});
+    functions.emplace(84, Function{38, {}});
 
     fruityprime::utility::Rng rng;
     Evaluator evaluator(functions, rng);
@@ -65,7 +77,33 @@ int main() {
     assert(std::abs(vector.x - 0.7071067F) < 0.001F);
     assert(std::abs(vector.z - 0.7071067F) < 0.001F);
 
+    // 8192 times 4096 in fixed point is two.
+    assert(evaluator.evaluate_float(60, times, state, scalar));
+    assert(std::abs(scalar - 2.0F) < 0.0001F);
+    // Subtracting a vector from itself is zero; multiplying squares it.
+    assert(evaluator.evaluate_vector(64, times, state, vector));
+    assert(vector.x == 0.0F && vector.y == 0.0F && vector.z == 0.0F);
+    assert(evaluator.evaluate_vector(68, times, state, vector));
+    assert(vector.x == 1.0F && vector.y == 4.0F && vector.z == 9.0F);
+
+    // The numbered fields are read by index, first and last of each.
+    state.read_only_fields = {1.0F, 2.0F, 3.0F, 4.0F};
+    state.read_write_fields = {5.0F, 6.0F, 7.0F, 8.0F};
+    assert(evaluator.evaluate_float(72, times, state, scalar));
+    assert(scalar == 1.0F);
+    assert(evaluator.evaluate_float(76, times, state, scalar));
+    assert(scalar == 4.0F);
+    assert(evaluator.evaluate_float(80, times, state, scalar));
+    assert(scalar == 5.0F);
+    assert(evaluator.evaluate_float(84, times, state, scalar));
+    assert(scalar == 8.0F);
+
     state.element_context = true;
+    // An element has no numbered fields of its own -- they are set on
+    // a particle when it is created -- so asking is a question with no
+    // answer rather than a zero.
+    assert(!evaluator.evaluate_float(72, times, state, scalar));
+    assert(!evaluator.evaluate_float(84, times, state, scalar));
     assert(evaluator.evaluate_vector(48, times, state, vector));
     assert(vector.x == 7.0F && vector.y == 8.0F && vector.z == 9.0F);
     assert(!evaluator.evaluate_vector(56, times, state, vector));

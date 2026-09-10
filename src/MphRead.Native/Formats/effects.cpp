@@ -312,6 +312,368 @@ bool Evaluator::evaluate_vector_at(std::uint32_t function_offset,
         function.id, function.parameters, times, state, result, depth + 1);
 }
 
+bool Evaluator::FxFunc01(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = state.element_context ? state.transform_position
+                                   : state.position;
+    return true;
+}
+
+bool Evaluator::FxFunc03(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    if (state.element_context) {
+        return false;
+    }
+    result = state.speed;
+    return true;
+}
+
+bool Evaluator::FxFunc04(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    if (parameters.size() < 3) {
+        return false;
+    }
+    result = {fixed_to_float(parameters[0]), fixed_to_float(parameters[1]),
+              fixed_to_float(parameters[2])};
+    return true;
+}
+
+bool Evaluator::FxFunc05(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = {random_fixed(*rng_, 4096), random_fixed(*rng_, 4096),
+              random_fixed(*rng_, 4096)};
+    return true;
+}
+
+bool Evaluator::FxFunc06(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = {random_fixed(*rng_, 4096), 0.0F,
+              random_fixed(*rng_, 4096)};
+    return true;
+}
+
+bool Evaluator::FxFunc07(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = {random_fixed(*rng_, 4096), 1.0F,
+              random_fixed(*rng_, 4096)};
+    return true;
+}
+
+bool Evaluator::FxFunc08(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = {random_fixed(*rng_, 4096) - 0.5F,
+              random_fixed(*rng_, 4096) - 0.5F,
+              random_fixed(*rng_, 4096) - 0.5F};
+    return true;
+}
+
+bool Evaluator::FxFunc09(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = {random_fixed(*rng_, 4096) - 0.5F, 0.0F,
+              random_fixed(*rng_, 4096) - 0.5F};
+    return true;
+}
+
+bool Evaluator::FxFunc10(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = {random_fixed(*rng_, 4096) - 0.5F, 1.0F,
+              random_fixed(*rng_, 4096) - 0.5F};
+    return true;
+}
+
+bool Evaluator::FxFunc11(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    if (state.element_context) {
+        return false;
+    }
+    {
+        const float angle = 2.0F * Pi * state.portion_total;
+        result = {std::sin(angle), 0.0F, std::cos(angle)};
+    }
+    return true;
+}
+
+bool Evaluator::FxFunc13(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::int32_t function_id_value = 0;
+    std::uint32_t parameter_offset = 0;
+    if (!parameter_at(parameters, 0, function_id_value)
+        || function_id_value < 0
+        || !offset_at(parameters, 1, parameter_offset)) {
+        return false;
+    }
+    const auto* function = function_at_or_after(parameter_offset);
+    if (function == nullptr) {
+        return false;
+    }
+    float value = 0.0F;
+    if (!evaluate_float_function(
+            static_cast<std::uint32_t>(function_id_value),
+            function->parameters, times, state, value, depth + 1)
+        || std::abs(value) <= std::numeric_limits<float>::epsilon()) {
+        return false;
+    }
+    float percent = times.elapsed / value;
+    if (value < 0.0F) {
+        percent *= -1.0F;
+    }
+    const float angle = 2.0F * Pi * percent;
+    result = {std::sin(angle), 0.0F, std::cos(angle)};
+    return true;
+}
+
+bool Evaluator::FxFunc14(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t vector_offset = 0;
+    std::uint32_t scalar_offset = 0;
+    if (!offset_at(parameters, 0, vector_offset)
+        || !offset_at(parameters, 1, scalar_offset)) {
+        return false;
+    }
+    formats::Vector3 temp;
+    float value = 0.0F;
+    if (!evaluate_vector_at(vector_offset, times, state, temp, depth + 1)
+        || !evaluate_float_at(scalar_offset, times, state, value,
+                              depth + 1)
+        || std::abs(value) <= std::numeric_limits<float>::epsilon()) {
+        return false;
+    }
+    float divisor = times.elapsed / value;
+    if (value < 0.0F) {
+        divisor *= -1.0F;
+    }
+    result = temp * divisor;
+    return true;
+}
+
+bool Evaluator::FxFunc15(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t first_offset = 0;
+    std::uint32_t second_offset = 0;
+    if (!offset_at(parameters, 0, first_offset)
+        || !offset_at(parameters, 1, second_offset)) {
+        return false;
+    }
+    float first = 0.0F;
+    float second = 0.0F;
+    if (!evaluate_float_at(first_offset, times, state, first, depth + 1)
+        || !evaluate_float_at(second_offset, times, state, second,
+                              depth + 1)) {
+        return false;
+    }
+    const float angle = static_cast<float>(rng_->random1(0xffffU) >> 4)
+        * (360.0F / 4096.0F) * Pi / 180.0F;
+    result = {std::sin(angle) * first, second,
+              std::cos(angle) * first};
+    return true;
+}
+
+bool Evaluator::FxFunc16(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t first_offset = 0;
+    std::uint32_t second_offset = 0;
+    if (!offset_at(parameters, 0, first_offset)
+        || !offset_at(parameters, 1, second_offset)) {
+        return false;
+    }
+    float first = 0.0F;
+    float second = 0.0F;
+    if (!evaluate_float_at(first_offset, times, state, first, depth + 1)
+        || !evaluate_float_at(second_offset, times, state, second,
+                              depth + 1)) {
+        return false;
+    }
+    result = {(random_fixed(*rng_, 4096) - 0.5F) * first, 0.0F,
+              (random_fixed(*rng_, 4096) - 0.5F) * second};
+    return true;
+}
+
+bool Evaluator::FxFunc17(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t first_offset = 0;
+    std::uint32_t second_offset = 0;
+    if (!offset_at(parameters, 0, first_offset)
+        || !offset_at(parameters, 1, second_offset)) {
+        return false;
+    }
+    formats::Vector3 first;
+    formats::Vector3 second;
+    if (!evaluate_vector_at(first_offset, times, state, first, depth + 1)
+        || !evaluate_vector_at(second_offset, times, state, second,
+                               depth + 1)) {
+        return false;
+    }
+    result = first + second;
+    return true;
+}
+
+bool Evaluator::FxFunc18(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t first_offset = 0;
+    std::uint32_t second_offset = 0;
+    if (!offset_at(parameters, 0, first_offset)
+        || !offset_at(parameters, 1, second_offset)) {
+        return false;
+    }
+    formats::Vector3 first;
+    formats::Vector3 second;
+    if (!evaluate_vector_at(first_offset, times, state, first, depth + 1)
+        || !evaluate_vector_at(second_offset, times, state, second,
+                               depth + 1)) {
+        return false;
+    }
+    result = first - second;
+    return true;
+}
+
+bool Evaluator::FxFunc19(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t first_offset = 0;
+    std::uint32_t second_offset = 0;
+    if (!offset_at(parameters, 0, first_offset)
+        || !offset_at(parameters, 1, second_offset)) {
+        return false;
+    }
+    formats::Vector3 first;
+    formats::Vector3 second;
+    if (!evaluate_vector_at(first_offset, times, state, first, depth + 1)
+        || !evaluate_vector_at(second_offset, times, state, second,
+                               depth + 1)) {
+        return false;
+    }
+    result = {first.x * second.x, first.y * second.y,
+              first.z * second.z};
+    return true;
+}
+
+bool Evaluator::FxFunc20(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    formats::Vector3& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t scalar_offset = 0;
+    std::uint32_t vector_offset = 0;
+    if (!offset_at(parameters, 0, scalar_offset)
+        || !offset_at(parameters, 1, vector_offset)) {
+        return false;
+    }
+    float scalar = 0.0F;
+    formats::Vector3 vector;
+    if (!evaluate_float_at(scalar_offset, times, state, scalar, depth + 1)
+        || !evaluate_vector_at(vector_offset, times, state, vector,
+                               depth + 1)) {
+        return false;
+    }
+    result = vector * scalar;
+    return true;
+}
+
+// Effects.InvokeVecFunc: which function each identifier is.
 bool Evaluator::evaluate_vector_function(
     std::uint32_t function_id, std::span<const std::int32_t> parameters,
     TimeValues times, const EvaluationState& state,
@@ -321,193 +683,548 @@ bool Evaluator::evaluate_vector_function(
     }
     switch (function_id) {
     case 1:
+        return FxFunc01(parameters, times, state,
+                          result, depth);
     case 2:
-        result = state.element_context ? state.transform_position
-                                       : state.position;
-        return true;
+        return FxFunc01(parameters, times, state,
+                          result, depth);
     case 3:
-        if (state.element_context) {
-            return false;
-        }
-        result = state.speed;
-        return true;
-    case 4: {
-        if (parameters.size() < 3) {
-            return false;
-        }
-        result = {fixed_to_float(parameters[0]), fixed_to_float(parameters[1]),
-                  fixed_to_float(parameters[2])};
-        return true;
-    }
+        return FxFunc03(parameters, times, state,
+                          result, depth);
+    case 4:
+        return FxFunc04(parameters, times, state,
+                          result, depth);
     case 5:
-        result = {random_fixed(*rng_, 4096), random_fixed(*rng_, 4096),
-                  random_fixed(*rng_, 4096)};
-        return true;
+        return FxFunc05(parameters, times, state,
+                          result, depth);
     case 6:
-        result = {random_fixed(*rng_, 4096), 0.0F,
-                  random_fixed(*rng_, 4096)};
-        return true;
+        return FxFunc06(parameters, times, state,
+                          result, depth);
     case 7:
-        result = {random_fixed(*rng_, 4096), 1.0F,
-                  random_fixed(*rng_, 4096)};
-        return true;
+        return FxFunc07(parameters, times, state,
+                          result, depth);
     case 8:
-        result = {random_fixed(*rng_, 4096) - 0.5F,
-                  random_fixed(*rng_, 4096) - 0.5F,
-                  random_fixed(*rng_, 4096) - 0.5F};
-        return true;
+        return FxFunc08(parameters, times, state,
+                          result, depth);
     case 9:
-        result = {random_fixed(*rng_, 4096) - 0.5F, 0.0F,
-                  random_fixed(*rng_, 4096) - 0.5F};
-        return true;
+        return FxFunc09(parameters, times, state,
+                          result, depth);
     case 10:
-        result = {random_fixed(*rng_, 4096) - 0.5F, 1.0F,
-                  random_fixed(*rng_, 4096) - 0.5F};
-        return true;
+        return FxFunc10(parameters, times, state,
+                          result, depth);
     case 11:
-        if (state.element_context) {
-            return false;
-        }
-        {
-            const float angle = 2.0F * Pi * state.portion_total;
-            result = {std::sin(angle), 0.0F, std::cos(angle)};
-        }
-        return true;
-    case 13: {
-        std::int32_t function_id_value = 0;
-        std::uint32_t parameter_offset = 0;
-        if (!parameter_at(parameters, 0, function_id_value)
-            || function_id_value < 0
-            || !offset_at(parameters, 1, parameter_offset)) {
-            return false;
-        }
-        const auto* function = function_at_or_after(parameter_offset);
-        if (function == nullptr) {
-            return false;
-        }
-        float value = 0.0F;
-        if (!evaluate_float_function(
-                static_cast<std::uint32_t>(function_id_value),
-                function->parameters, times, state, value, depth + 1)
-            || std::abs(value) <= std::numeric_limits<float>::epsilon()) {
-            return false;
-        }
-        float percent = times.elapsed / value;
-        if (value < 0.0F) {
-            percent *= -1.0F;
-        }
-        const float angle = 2.0F * Pi * percent;
-        result = {std::sin(angle), 0.0F, std::cos(angle)};
-        return true;
-    }
-    case 14: {
-        std::uint32_t vector_offset = 0;
-        std::uint32_t scalar_offset = 0;
-        if (!offset_at(parameters, 0, vector_offset)
-            || !offset_at(parameters, 1, scalar_offset)) {
-            return false;
-        }
-        formats::Vector3 temp;
-        float value = 0.0F;
-        if (!evaluate_vector_at(vector_offset, times, state, temp, depth + 1)
-            || !evaluate_float_at(scalar_offset, times, state, value,
-                                  depth + 1)
-            || std::abs(value) <= std::numeric_limits<float>::epsilon()) {
-            return false;
-        }
-        float divisor = times.elapsed / value;
-        if (value < 0.0F) {
-            divisor *= -1.0F;
-        }
-        result = temp * divisor;
-        return true;
-    }
-    case 15: {
-        std::uint32_t first_offset = 0;
-        std::uint32_t second_offset = 0;
-        if (!offset_at(parameters, 0, first_offset)
-            || !offset_at(parameters, 1, second_offset)) {
-            return false;
-        }
-        float first = 0.0F;
-        float second = 0.0F;
-        if (!evaluate_float_at(first_offset, times, state, first, depth + 1)
-            || !evaluate_float_at(second_offset, times, state, second,
-                                  depth + 1)) {
-            return false;
-        }
-        const float angle = static_cast<float>(rng_->random1(0xffffU) >> 4)
-            * (360.0F / 4096.0F) * Pi / 180.0F;
-        result = {std::sin(angle) * first, second,
-                  std::cos(angle) * first};
-        return true;
-    }
-    case 16: {
-        std::uint32_t first_offset = 0;
-        std::uint32_t second_offset = 0;
-        if (!offset_at(parameters, 0, first_offset)
-            || !offset_at(parameters, 1, second_offset)) {
-            return false;
-        }
-        float first = 0.0F;
-        float second = 0.0F;
-        if (!evaluate_float_at(first_offset, times, state, first, depth + 1)
-            || !evaluate_float_at(second_offset, times, state, second,
-                                  depth + 1)) {
-            return false;
-        }
-        result = {(random_fixed(*rng_, 4096) - 0.5F) * first, 0.0F,
-                  (random_fixed(*rng_, 4096) - 0.5F) * second};
-        return true;
-    }
+        return FxFunc11(parameters, times, state,
+                          result, depth);
+    case 13:
+        return FxFunc13(parameters, times, state,
+                          result, depth);
+    case 14:
+        return FxFunc14(parameters, times, state,
+                          result, depth);
+    case 15:
+        return FxFunc15(parameters, times, state,
+                          result, depth);
+    case 16:
+        return FxFunc16(parameters, times, state,
+                          result, depth);
     case 17:
+        return FxFunc17(parameters, times, state,
+                          result, depth);
     case 18:
-    case 19: {
-        std::uint32_t first_offset = 0;
-        std::uint32_t second_offset = 0;
-        if (!offset_at(parameters, 0, first_offset)
-            || !offset_at(parameters, 1, second_offset)) {
-            return false;
-        }
-        formats::Vector3 first;
-        formats::Vector3 second;
-        if (!evaluate_vector_at(first_offset, times, state, first, depth + 1)
-            || !evaluate_vector_at(second_offset, times, state, second,
-                                   depth + 1)) {
-            return false;
-        }
-        if (function_id == 17) {
-            result = first + second;
-        } else if (function_id == 18) {
-            result = first - second;
-        } else {
-            result = {first.x * second.x, first.y * second.y,
-                      first.z * second.z};
-        }
-        return true;
-    }
-    case 20: {
-        std::uint32_t scalar_offset = 0;
-        std::uint32_t vector_offset = 0;
-        if (!offset_at(parameters, 0, scalar_offset)
-            || !offset_at(parameters, 1, vector_offset)) {
-            return false;
-        }
-        float scalar = 0.0F;
-        formats::Vector3 vector;
-        if (!evaluate_float_at(scalar_offset, times, state, scalar, depth + 1)
-            || !evaluate_vector_at(vector_offset, times, state, vector,
-                                   depth + 1)) {
-            return false;
-        }
-        result = vector * scalar;
-        return true;
-    }
+        return FxFunc18(parameters, times, state,
+                          result, depth);
+    case 19:
+        return FxFunc19(parameters, times, state,
+                          result, depth);
+    case 20:
+        return FxFunc20(parameters, times, state,
+                          result, depth);
     default:
-        return false;
+        break;
     }
+    return false;
 }
 
+bool Evaluator::FxFunc21(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = 0.0F;
+    return true;
+}
+
+bool Evaluator::FxFunc22(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = state.owner_lifespan;
+    return true;
+}
+
+bool Evaluator::FxFunc23(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = times.global - state.creation_time;
+    return true;
+}
+
+bool Evaluator::FxFunc24(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = state.alpha;
+    return true;
+}
+
+bool Evaluator::FxFunc25(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = state.red;
+    return true;
+}
+
+bool Evaluator::FxFunc26(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = state.green;
+    return true;
+}
+
+bool Evaluator::FxFunc27(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = state.blue;
+    return true;
+}
+
+bool Evaluator::FxFunc29(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = state.scale;
+    return true;
+}
+
+bool Evaluator::FxFunc30(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = state.rotation;
+    return true;
+}
+
+bool Evaluator::FxFunc31(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    // An element has no numbered fields of its own: they are set on a
+    // particle when it is created, so asking an element for one is a
+    // question with no answer rather than a zero.
+    if (state.element_context) {
+        return false;
+    }
+    result = state.read_only_fields[0];
+    return true;
+}
+
+bool Evaluator::FxFunc32(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    // An element has no numbered fields of its own: they are set on a
+    // particle when it is created, so asking an element for one is a
+    // question with no answer rather than a zero.
+    if (state.element_context) {
+        return false;
+    }
+    result = state.read_only_fields[1];
+    return true;
+}
+
+bool Evaluator::FxFunc33(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    // An element has no numbered fields of its own: they are set on a
+    // particle when it is created, so asking an element for one is a
+    // question with no answer rather than a zero.
+    if (state.element_context) {
+        return false;
+    }
+    result = state.read_only_fields[2];
+    return true;
+}
+
+bool Evaluator::FxFunc34(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    // An element has no numbered fields of its own: they are set on a
+    // particle when it is created, so asking an element for one is a
+    // question with no answer rather than a zero.
+    if (state.element_context) {
+        return false;
+    }
+    result = state.read_only_fields[3];
+    return true;
+}
+
+bool Evaluator::FxFunc35(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    // An element has no numbered fields of its own: they are set on a
+    // particle when it is created, so asking an element for one is a
+    // question with no answer rather than a zero.
+    if (state.element_context) {
+        return false;
+    }
+    result = state.read_write_fields[0];
+    return true;
+}
+
+bool Evaluator::FxFunc36(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    // An element has no numbered fields of its own: they are set on a
+    // particle when it is created, so asking an element for one is a
+    // question with no answer rather than a zero.
+    if (state.element_context) {
+        return false;
+    }
+    result = state.read_write_fields[1];
+    return true;
+}
+
+bool Evaluator::FxFunc37(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    // An element has no numbered fields of its own: they are set on a
+    // particle when it is created, so asking an element for one is a
+    // question with no answer rather than a zero.
+    if (state.element_context) {
+        return false;
+    }
+    result = state.read_write_fields[2];
+    return true;
+}
+
+bool Evaluator::FxFunc38(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    // An element has no numbered fields of its own: they are set on a
+    // particle when it is created, so asking an element for one is a
+    // question with no answer rather than a zero.
+    if (state.element_context) {
+        return false;
+    }
+    result = state.read_write_fields[3];
+    return true;
+}
+
+bool Evaluator::FxFunc40(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    if (parameters.size() < 3
+        || std::abs(times.lifespan)
+            <= std::numeric_limits<float>::epsilon()) {
+        return false;
+    }
+    result = times.elapsed / times.lifespan <= fixed_to_float(parameters[0])
+        ? fixed_to_float(parameters[1]) : fixed_to_float(parameters[2]);
+    return true;
+}
+
+bool Evaluator::FxFunc41(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    if (parameters.size() < 2
+        || std::abs(times.lifespan)
+            <= std::numeric_limits<float>::epsilon()) {
+        return false;
+    }
+    const float percent = times.elapsed / times.lifespan;
+    if (percent < fixed_to_float(parameters[0])) {
+        result = fixed_to_float(parameters[1]);
+        return true;
+    }
+    bool found = false;
+    std::size_t last = 0;
+    for (std::size_t index = 0; index + 1 < parameters.size();
+         index += 2) {
+        if (parameters[index] == Sentinel) {
+            break;
+        }
+        if (fixed_to_float(parameters[index]) > percent) {
+            break;
+        }
+        found = true;
+        last = index;
+        if (index + 2 >= parameters.size()
+            || parameters[index + 2] == Sentinel) {
+            break;
+        }
+    }
+    if (!found) {
+        result = 0.0F;
+        return true;
+    }
+    if (last + 3 >= parameters.size()
+        || parameters[last + 2] == Sentinel) {
+        result = fixed_to_float(parameters[last + 1]);
+        return true;
+    }
+    const float start = fixed_to_float(parameters[last]);
+    const float end = fixed_to_float(parameters[last + 2]);
+    if (std::abs(end - start) <= std::numeric_limits<float>::epsilon()) {
+        result = fixed_to_float(parameters[last + 1]);
+        return true;
+    }
+    result = fixed_to_float(parameters[last + 1])
+        + (fixed_to_float(parameters[last + 3])
+           - fixed_to_float(parameters[last + 1]))
+            * ((percent - start) / (end - start));
+    return true;
+}
+
+bool Evaluator::FxFunc42(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    if (parameters.empty()) {
+        return false;
+    }
+    result = fixed_to_float(parameters[0]);
+    return true;
+}
+
+bool Evaluator::FxFunc43(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = random_fixed(*rng_, 4096);
+    return true;
+}
+
+bool Evaluator::FxFunc44(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = random_fixed(*rng_, 4096) - 0.5F;
+    return true;
+}
+
+bool Evaluator::FxFunc45(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    result = random_fixed(*rng_, 0x168000U);
+    return true;
+}
+
+bool Evaluator::FxFunc46(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t first_offset = 0;
+    std::uint32_t second_offset = 0;
+    if (!offset_at(parameters, 0, first_offset)
+        || !offset_at(parameters, 1, second_offset)) {
+        return false;
+    }
+    float first = 0.0F;
+    float second = 0.0F;
+    if (!evaluate_float_at(first_offset, times, state, first, depth + 1)
+        || !evaluate_float_at(second_offset, times, state, second,
+                              depth + 1)) {
+        return false;
+    }
+    result = first + second;
+    return true;
+}
+
+bool Evaluator::FxFunc47(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t first_offset = 0;
+    std::uint32_t second_offset = 0;
+    if (!offset_at(parameters, 0, first_offset)
+        || !offset_at(parameters, 1, second_offset)) {
+        return false;
+    }
+    float first = 0.0F;
+    float second = 0.0F;
+    if (!evaluate_float_at(first_offset, times, state, first, depth + 1)
+        || !evaluate_float_at(second_offset, times, state, second,
+                              depth + 1)) {
+        return false;
+    }
+    result = first - second;
+    return true;
+}
+
+bool Evaluator::FxFunc48(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::uint32_t first_offset = 0;
+    std::uint32_t second_offset = 0;
+    if (!offset_at(parameters, 0, first_offset)
+        || !offset_at(parameters, 1, second_offset)) {
+        return false;
+    }
+    float first = 0.0F;
+    float second = 0.0F;
+    if (!evaluate_float_at(first_offset, times, state, first, depth + 1)
+        || !evaluate_float_at(second_offset, times, state, second,
+                              depth + 1)) {
+        return false;
+    }
+    result = first * second;
+    return true;
+}
+
+bool Evaluator::FxFunc49(
+    std::span<const std::int32_t> parameters,
+    TimeValues times, const EvaluationState& state,
+    float& result, std::size_t depth) noexcept {
+    static_cast<void>(parameters);
+    static_cast<void>(times);
+    static_cast<void>(state);
+    static_cast<void>(depth);
+    std::array<std::uint32_t, 4> offsets{};
+    for (std::size_t index = 0; index < offsets.size(); ++index) {
+        if (!offset_at(parameters, index, offsets[index])) {
+            return false;
+        }
+    }
+    float left = 0.0F;
+    float right = 0.0F;
+    if (!evaluate_float_at(offsets[0], times, state, left, depth + 1)
+        || !evaluate_float_at(offsets[1], times, state, right,
+                              depth + 1)) {
+        return false;
+    }
+    const std::size_t chosen = left >= right ? 2 : 3;
+    return evaluate_float_at(offsets[chosen], times, state, result,
+                             depth + 1);
+}
+
+// Effects.InvokeFloatFunc: which function each identifier is.
 bool Evaluator::evaluate_float_function(
     std::uint32_t function_id, std::span<const std::int32_t> parameters,
     TimeValues times, const EvaluationState& state, float& result,
@@ -517,165 +1234,93 @@ bool Evaluator::evaluate_float_function(
     }
     switch (function_id) {
     case 21:
-    case 28:
-        result = 0.0F;
-        return true;
+        return FxFunc21(parameters, times, state,
+                          result, depth);
     case 22:
-        result = state.owner_lifespan;
-        return true;
+        return FxFunc22(parameters, times, state,
+                          result, depth);
     case 23:
-        result = times.global - state.creation_time;
-        return true;
+        return FxFunc23(parameters, times, state,
+                          result, depth);
     case 24:
-        result = state.alpha;
-        return true;
+        return FxFunc24(parameters, times, state,
+                          result, depth);
     case 25:
-        result = state.red;
-        return true;
+        return FxFunc25(parameters, times, state,
+                          result, depth);
     case 26:
-        result = state.green;
-        return true;
+        return FxFunc26(parameters, times, state,
+                          result, depth);
     case 27:
-        result = state.blue;
-        return true;
+        return FxFunc27(parameters, times, state,
+                          result, depth);
+    case 28:
+        return FxFunc21(parameters, times, state,
+                          result, depth);
     case 29:
-        result = state.scale;
-        return true;
+        return FxFunc29(parameters, times, state,
+                          result, depth);
     case 30:
-        result = state.rotation;
-        return true;
+        return FxFunc30(parameters, times, state,
+                          result, depth);
     case 31:
+        return FxFunc31(parameters, times, state,
+                          result, depth);
     case 32:
+        return FxFunc32(parameters, times, state,
+                          result, depth);
     case 33:
+        return FxFunc33(parameters, times, state,
+                          result, depth);
     case 34:
-        result = state.read_only_fields[function_id - 31];
-        return true;
+        return FxFunc34(parameters, times, state,
+                          result, depth);
     case 35:
+        return FxFunc35(parameters, times, state,
+                          result, depth);
     case 36:
+        return FxFunc36(parameters, times, state,
+                          result, depth);
     case 37:
+        return FxFunc37(parameters, times, state,
+                          result, depth);
     case 38:
-        result = state.read_write_fields[function_id - 35];
-        return true;
-    case 40: {
-        if (parameters.size() < 3
-            || std::abs(times.lifespan)
-                <= std::numeric_limits<float>::epsilon()) {
-            return false;
-        }
-        result = times.elapsed / times.lifespan <= fixed_to_float(parameters[0])
-            ? fixed_to_float(parameters[1]) : fixed_to_float(parameters[2]);
-        return true;
-    }
-    case 41: {
-        if (parameters.size() < 2
-            || std::abs(times.lifespan)
-                <= std::numeric_limits<float>::epsilon()) {
-            return false;
-        }
-        const float percent = times.elapsed / times.lifespan;
-        if (percent < fixed_to_float(parameters[0])) {
-            result = fixed_to_float(parameters[1]);
-            return true;
-        }
-        bool found = false;
-        std::size_t last = 0;
-        for (std::size_t index = 0; index + 1 < parameters.size();
-             index += 2) {
-            if (parameters[index] == Sentinel) {
-                break;
-            }
-            if (fixed_to_float(parameters[index]) > percent) {
-                break;
-            }
-            found = true;
-            last = index;
-            if (index + 2 >= parameters.size()
-                || parameters[index + 2] == Sentinel) {
-                break;
-            }
-        }
-        if (!found) {
-            result = 0.0F;
-            return true;
-        }
-        if (last + 3 >= parameters.size()
-            || parameters[last + 2] == Sentinel) {
-            result = fixed_to_float(parameters[last + 1]);
-            return true;
-        }
-        const float start = fixed_to_float(parameters[last]);
-        const float end = fixed_to_float(parameters[last + 2]);
-        if (std::abs(end - start) <= std::numeric_limits<float>::epsilon()) {
-            result = fixed_to_float(parameters[last + 1]);
-            return true;
-        }
-        result = fixed_to_float(parameters[last + 1])
-            + (fixed_to_float(parameters[last + 3])
-               - fixed_to_float(parameters[last + 1]))
-                * ((percent - start) / (end - start));
-        return true;
-    }
+        return FxFunc38(parameters, times, state,
+                          result, depth);
+    case 40:
+        return FxFunc40(parameters, times, state,
+                          result, depth);
+    case 41:
+        return FxFunc41(parameters, times, state,
+                          result, depth);
     case 42:
-        if (parameters.empty()) {
-            return false;
-        }
-        result = fixed_to_float(parameters[0]);
-        return true;
+        return FxFunc42(parameters, times, state,
+                          result, depth);
     case 43:
-        result = random_fixed(*rng_, 4096);
-        return true;
+        return FxFunc43(parameters, times, state,
+                          result, depth);
     case 44:
-        result = random_fixed(*rng_, 4096) - 0.5F;
-        return true;
+        return FxFunc44(parameters, times, state,
+                          result, depth);
     case 45:
-        result = random_fixed(*rng_, 0x168000U);
-        return true;
+        return FxFunc45(parameters, times, state,
+                          result, depth);
     case 46:
+        return FxFunc46(parameters, times, state,
+                          result, depth);
     case 47:
-    case 48: {
-        std::uint32_t first_offset = 0;
-        std::uint32_t second_offset = 0;
-        if (!offset_at(parameters, 0, first_offset)
-            || !offset_at(parameters, 1, second_offset)) {
-            return false;
-        }
-        float first = 0.0F;
-        float second = 0.0F;
-        if (!evaluate_float_at(first_offset, times, state, first, depth + 1)
-            || !evaluate_float_at(second_offset, times, state, second,
-                                  depth + 1)) {
-            return false;
-        }
-        if (function_id == 46) {
-            result = first + second;
-        } else if (function_id == 47) {
-            result = first - second;
-        } else {
-            result = first * second;
-        }
-        return true;
-    }
-    case 49: {
-        std::array<std::uint32_t, 4> offsets{};
-        for (std::size_t index = 0; index < offsets.size(); ++index) {
-            if (!offset_at(parameters, index, offsets[index])) {
-                return false;
-            }
-        }
-        float left = 0.0F;
-        float right = 0.0F;
-        if (!evaluate_float_at(offsets[0], times, state, left, depth + 1)
-            || !evaluate_float_at(offsets[1], times, state, right,
-                                  depth + 1)) {
-            return false;
-        }
-        const std::size_t chosen = left >= right ? 2 : 3;
-        return evaluate_float_at(offsets[chosen], times, state, result,
-                                 depth + 1);
-    }
+        return FxFunc47(parameters, times, state,
+                          result, depth);
+    case 48:
+        return FxFunc48(parameters, times, state,
+                          result, depth);
+    case 49:
+        return FxFunc49(parameters, times, state,
+                          result, depth);
     default:
-        return false;
+        break;
     }
+    return false;
 }
 
 } // namespace fruityprime::effects

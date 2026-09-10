@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -45,42 +46,284 @@
 namespace
 {
 #if defined(_WIN32)
+    void AppendWtf8(std::string& output, std::uint32_t value)
+    {
+        if (value <= 0x7FU)
+        {
+            output.push_back(static_cast<char>(value));
+        }
+        else if (value <= 0x7FFU)
+        {
+            output.push_back(static_cast<char>(0xC0U | (value >> 6)));
+            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
+        }
+        else if (value <= 0xFFFFU)
+        {
+            output.push_back(static_cast<char>(0xE0U | (value >> 12)));
+            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
+            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
+        }
+        else
+        {
+            output.push_back(static_cast<char>(0xF0U | (value >> 18)));
+            output.push_back(static_cast<char>(0x80U | ((value >> 12) & 0x3FU)));
+            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
+            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
+        }
+    }
+
     [[nodiscard]] std::string Utf8FromWide(const wchar_t* value, std::size_t length)
     {
-        if (length == 0)
+        static_assert(sizeof(wchar_t) == sizeof(std::uint16_t));
+
+        std::string result;
+        result.reserve(length);
+        for (std::size_t index = 0; index < length; ++index)
         {
-            return {};
-        }
-        if (length > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-        {
-            throw std::length_error("Process path is too long.");
-        }
-        const int inputLength = static_cast<int>(length);
-        const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, inputLength, nullptr, 0, nullptr, nullptr);
-        if (required == 0)
-        {
-            throw std::runtime_error("Could not convert the process path to UTF-8.");
-        }
-        std::string result(static_cast<std::size_t>(required), '\0');
-        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, inputLength, result.data(), required, nullptr, nullptr) == 0)
-        {
-            throw std::runtime_error("Could not convert the process path to UTF-8.");
+            const std::uint32_t first = static_cast<std::uint16_t>(value[index]);
+            if (first >= 0xD800U && first <= 0xDBFFU && index + 1 < length)
+            {
+                const std::uint32_t second = static_cast<std::uint16_t>(value[index + 1]);
+                if (second >= 0xDC00U && second <= 0xDFFFU)
+                {
+                    const std::uint32_t codePoint
+                        = 0x10000U + ((first - 0xD800U) << 10) + (second - 0xDC00U);
+                    AppendWtf8(result, codePoint);
+                    ++index;
+                    continue;
+                }
+            }
+
+            // Preserve lone UTF-16 surrogate code units losslessly as WTF-8.
+            // C# strings can contain them; treating them as a conversion error
+            // would add an exception that Environment.ProcessPath does not add.
+            AppendWtf8(result, first);
         }
         return result;
+    }
+
+    [[nodiscard]] bool IsWindowsDirectorySeparator(char value) noexcept
+    {
+        return value == '\\' || value == '/';
+    }
+
+    [[nodiscard]] bool IsWindowsDriveChar(char value) noexcept
+    {
+        unsigned char lower = static_cast<unsigned char>(value);
+        lower = static_cast<unsigned char>(lower | 0x20U);
+        return lower >= static_cast<unsigned char>('a') && lower <= static_cast<unsigned char>('z');
+    }
+
+    [[nodiscard]] bool IsWindowsExtendedPath(std::string_view path) noexcept
+    {
+        return path.size() >= 4
+            && path[0] == '\\'
+            && (path[1] == '\\' || path[1] == '?')
+            && path[2] == '?'
+            && path[3] == '\\';
+    }
+
+    [[nodiscard]] bool IsWindowsDevicePath(std::string_view path) noexcept
+    {
+        return IsWindowsExtendedPath(path)
+            || (path.size() >= 4
+                && IsWindowsDirectorySeparator(path[0])
+                && IsWindowsDirectorySeparator(path[1])
+                && (path[2] == '.' || path[2] == '?')
+                && IsWindowsDirectorySeparator(path[3]));
+    }
+
+    [[nodiscard]] bool IsWindowsDeviceUncPath(std::string_view path) noexcept
+    {
+        return path.size() >= 8
+            && IsWindowsDevicePath(path)
+            && IsWindowsDirectorySeparator(path[7])
+            && path[4] == 'U'
+            && path[5] == 'N'
+            && path[6] == 'C';
+    }
+
+    [[nodiscard]] std::size_t GetWindowsRootLength(std::string_view path) noexcept
+    {
+        constexpr std::size_t DevicePrefixLength = 4;
+        constexpr std::size_t UncPrefixLength = 2;
+        constexpr std::size_t UncExtendedPrefixLength = 8;
+
+        const std::size_t pathLength = path.size();
+        std::size_t index = 0;
+
+        const bool deviceSyntax = IsWindowsDevicePath(path);
+        const bool deviceUnc = deviceSyntax && IsWindowsDeviceUncPath(path);
+
+        if ((!deviceSyntax || deviceUnc)
+            && pathLength > 0
+            && IsWindowsDirectorySeparator(path[0]))
+        {
+            if (deviceUnc
+                || (pathLength > 1 && IsWindowsDirectorySeparator(path[1])))
+            {
+                index = deviceUnc ? UncExtendedPrefixLength : UncPrefixLength;
+
+                int separatorsRemaining = 2;
+                while (index < pathLength
+                    && (!IsWindowsDirectorySeparator(path[index]) || --separatorsRemaining > 0))
+                {
+                    ++index;
+                }
+            }
+            else
+            {
+                index = 1;
+            }
+        }
+        else if (deviceSyntax)
+        {
+            index = DevicePrefixLength;
+            while (index < pathLength && !IsWindowsDirectorySeparator(path[index]))
+            {
+                ++index;
+            }
+
+            if (index < pathLength
+                && index > DevicePrefixLength
+                && IsWindowsDirectorySeparator(path[index]))
+            {
+                ++index;
+            }
+        }
+        else if (pathLength >= 2
+            && path[1] == ':'
+            && IsWindowsDriveChar(path[0]))
+        {
+            index = 2;
+            if (pathLength > 2 && IsWindowsDirectorySeparator(path[2]))
+            {
+                ++index;
+            }
+        }
+
+        return index;
     }
 #endif
 
 #if !defined(_WIN32)
+    void AppendUtf8Replacement(std::string& output)
+    {
+        output.append("\xEF\xBF\xBD", 3);
+    }
+
+    [[nodiscard]] bool IsUtf8Continuation(unsigned char value) noexcept
+    {
+        return (value & 0xC0U) == 0x80U;
+    }
+
+    [[nodiscard]] std::string DecodeUtf8LikeDotNet(std::string_view input)
+    {
+        std::string output;
+        output.reserve(input.size());
+
+        std::size_t index = 0;
+        while (index < input.size())
+        {
+            const unsigned char first = static_cast<unsigned char>(input[index]);
+            if (first <= 0x7FU)
+            {
+                output.push_back(static_cast<char>(first));
+                ++index;
+                continue;
+            }
+
+            if (first < 0xC2U || first > 0xF4U)
+            {
+                AppendUtf8Replacement(output);
+                ++index;
+                continue;
+            }
+
+            if (index + 1 >= input.size())
+            {
+                AppendUtf8Replacement(output);
+                break;
+            }
+
+            const unsigned char second = static_cast<unsigned char>(input[index + 1]);
+            if (!IsUtf8Continuation(second))
+            {
+                AppendUtf8Replacement(output);
+                ++index;
+                continue;
+            }
+
+            if ((first == 0xE0U && second < 0xA0U)
+                || (first == 0xEDU && second >= 0xA0U)
+                || (first == 0xF0U && second < 0x90U)
+                || (first == 0xF4U && second > 0x8FU))
+            {
+                AppendUtf8Replacement(output);
+                ++index;
+                continue;
+            }
+
+            if (first <= 0xDFU)
+            {
+                output.append(input.substr(index, 2));
+                index += 2;
+                continue;
+            }
+
+            if (index + 2 >= input.size())
+            {
+                AppendUtf8Replacement(output);
+                break;
+            }
+
+            const unsigned char third = static_cast<unsigned char>(input[index + 2]);
+            if (!IsUtf8Continuation(third))
+            {
+                AppendUtf8Replacement(output);
+                index += 2;
+                continue;
+            }
+
+            if (first <= 0xEFU)
+            {
+                output.append(input.substr(index, 3));
+                index += 3;
+                continue;
+            }
+
+            if (index + 3 >= input.size())
+            {
+                AppendUtf8Replacement(output);
+                break;
+            }
+
+            const unsigned char fourth = static_cast<unsigned char>(input[index + 3]);
+            if (!IsUtf8Continuation(fourth))
+            {
+                AppendUtf8Replacement(output);
+                index += 3;
+                continue;
+            }
+
+            output.append(input.substr(index, 4));
+            index += 4;
+        }
+
+        return output;
+    }
+#endif
+
+#if defined(__APPLE__) || defined(__OpenBSD__) || defined(__sun) || defined(__linux__) \
+    || (defined(__unix__) && !defined(__EMSCRIPTEN__) && !defined(__wasi__))
     [[nodiscard]] std::optional<std::string> RealPath(const char* path)
     {
-        char* resolved = realpath(path, nullptr);
-        if (resolved == nullptr)
+        std::unique_ptr<char, decltype(&std::free)> resolved(realpath(path, nullptr), &std::free);
+        if (!resolved)
         {
             return std::nullopt;
         }
-        std::string result(resolved);
-        std::free(resolved);
-        return result;
+        return std::string(resolved.get());
     }
 #endif
 
@@ -129,12 +372,13 @@ namespace
         {
             return std::nullopt;
         }
-        std::vector<char> buffer(length);
+        std::vector<unsigned char> buffer(length);
         if (sysctl(name, 4, buffer.data(), &length, nullptr, 0) != 0)
         {
             return std::nullopt;
         }
-        const char* executable = *reinterpret_cast<char* const*>(buffer.data());
+        const char* executable = nullptr;
+        std::memcpy(&executable, buffer.data(), sizeof(executable));
         if (executable == nullptr)
         {
             return std::nullopt;
@@ -202,6 +446,12 @@ namespace
         static const std::optional<std::string> processPath = []
         {
             std::optional<std::string> path = ReadProcessPath();
+#if !defined(_WIN32)
+            if (path.has_value())
+            {
+                *path = DecodeUtf8LikeDotNet(*path);
+            }
+#endif
             if (path.has_value() && path->empty())
             {
                 path.reset();
@@ -214,11 +464,21 @@ namespace
     [[nodiscard]] std::string GetFileNameWithoutExtension(std::string_view path)
     {
 #if defined(_WIN32)
+        const std::size_t root = GetWindowsRootLength(path);
         const std::size_t separator = path.find_last_of("/\\");
+        const std::size_t start
+            = separator == std::string_view::npos || separator < root
+            ? root
+            : separator + 1;
 #else
         const std::size_t separator = path.find_last_of('/');
+        const std::size_t start
+            = separator == std::string_view::npos
+            ? 0
+            : separator + 1;
 #endif
-        std::string_view name = separator == std::string_view::npos ? path : path.substr(separator + 1);
+
+        std::string_view name = path.substr(start);
         const std::size_t period = name.find_last_of('.');
         if (period != std::string_view::npos)
         {

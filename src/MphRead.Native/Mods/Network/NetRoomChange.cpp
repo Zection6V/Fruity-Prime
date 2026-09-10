@@ -133,14 +133,13 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
 
         auto flags = static_cast<std::uint8_t>(player->LoadFlags());
         flags = static_cast<std::uint8_t>(
-            flags | static_cast<std::uint8_t>(formats::LoadFlags::SlotActive)
-                | static_cast<std::uint8_t>(formats::LoadFlags::Active)
-                | static_cast<std::uint8_t>(formats::LoadFlags::Initial));
-        const bool occupied = slot == local_slot || roster.occupied;
-        if (!occupied) {
-            flags = static_cast<std::uint8_t>(
-                flags & ~static_cast<std::uint8_t>(formats::LoadFlags::Active));
-        }
+            flags | static_cast<std::uint8_t>(formats::LoadFlags::SlotActive));
+        player->LoadFlags(static_cast<formats::LoadFlags>(flags));
+        flags = static_cast<std::uint8_t>(
+            flags | static_cast<std::uint8_t>(formats::LoadFlags::Active));
+        player->LoadFlags(static_cast<formats::LoadFlags>(flags));
+        flags = static_cast<std::uint8_t>(
+            flags | static_cast<std::uint8_t>(formats::LoadFlags::Initial));
         player->LoadFlags(static_cast<formats::LoadFlags>(flags));
         // C# RebuildPlayers does not call PlayerEntity.ResetReferences here;
         // RoomEntity.StartTransition performs that reset before rebuilding.
@@ -148,6 +147,12 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
         player->Camera().info().node_ref = culling::NodeRef::none();
         player->IsBot(false);
         player->BotLevel(0);
+        const bool occupied = slot == local_slot || roster.occupied;
+        if (!occupied) {
+            flags = static_cast<std::uint8_t>(
+                flags & ~static_cast<std::uint8_t>(formats::LoadFlags::Active));
+            player->LoadFlags(static_cast<formats::LoadFlags>(flags));
+        }
     }
 
     players::PlayerEntity::PlayerCount(1);

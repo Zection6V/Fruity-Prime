@@ -2,6 +2,7 @@
 // Enemy40 owns the room-spawner lifecycle boundary. Its update body is kept
 // here so gameplay.cpp remains an orchestration module rather than a second
 // implementation of every enemy class.
+#include "16_Blastcap.hpp"
 #include "11_Shriekbat.hpp"
 #include "40_EnemySpawner.hpp"
 #include "enemy_common.hpp"
@@ -198,16 +199,7 @@ void Session::update_enemy_spawns() {
             spawned.body_radius = tuning.body_radius;
             if (spawned.enemy_type == static_cast<std::uint8_t>(
                     formats::EnemyType::Blastcap)) {
-                spawned.blastcap_agitate_timer = 60u * 2u;
-                spawned.blastcap_cloud_tick = 0;
-                spawned.blastcap_cloud_timer = 150u * 2u;
-                spawned.blastcap_next_state = 0;
-                spawned.blastcap_animation = 2;
-                spawned.blastcap_animation_timer = 0;
-                spawned.blastcap_animation_no_loop = false;
-                spawned.blastcap_animation_ended = false;
-                spawned.blastcap_initial_cloud_hit = false;
-                spawned.blastcap_state_initialized = false;
+                enemy::module_16_blastcap::EnemyInitialize(spawned);
             }
             if (spawned.voldrum.supported) {
                 const auto& profile = spawned.voldrum;

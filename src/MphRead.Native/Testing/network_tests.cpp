@@ -402,6 +402,7 @@ void test_match_state_boundaries() {
     }
 
     const auto assets = fruityprime::assets::Store::from_rom(rom_value);
+    fruityprime::runtime::HalfturretEntity::bind_asset_store(&assets);
     const auto* room_entry = fruityprime::scene::find_multiplayer_room(
         "MP1 SANCTORUS");
     assert(room_entry != nullptr);
@@ -433,6 +434,7 @@ void test_match_state_boundaries() {
     assert(fruityprime::net::NetRoomChange::Settling(20));
     assert(!fruityprime::net::NetRoomChange::Settling(80));
     fruityprime::players::PlayerEntity::Reset();
+    fruityprime::runtime::HalfturretEntity::bind_asset_store(nullptr);
 }
 
 void test_net_log() {

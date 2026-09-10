@@ -301,6 +301,7 @@ struct DrawPrimitive {
     std::uint8_t hunter = NoHunter;
     const EntityRenderModel* entity_model = nullptr;
     std::int32_t node_id = -1;
+    const void* runtime_entity = nullptr;
 };
 
 struct HunterModelSet {
@@ -734,7 +735,8 @@ void apply_room_node_layers(fruityprime::scene::Room& room,
 void append_model_geometry(const fruityprime::model::File& model,
                            DrawLayer layer = DrawLayer::Room,
                            std::uint8_t hunter = NoHunter,
-                           const EntityRenderModel* entity_model = nullptr) {
+                           const EntityRenderModel* entity_model = nullptr,
+                           const void* runtime_entity = nullptr) {
     // A room's display lists are decoded with the managed renderer's room
     // rule: matrix ID pinned to 0, because room node transforms are off.
     const bool is_room = layer == DrawLayer::Room;
@@ -744,7 +746,8 @@ void append_model_geometry(const fruityprime::model::File& model,
             for (auto batch : batches) {
                 g_draw_primitives.push_back(DrawPrimitive{
                     std::move(batch), NoTexture, layer, model.world_scale(),
-                    &model, NoMaterial, hunter, entity_model
+                    &model, NoMaterial, hunter, entity_model, -1,
+                    runtime_entity
                 });
             }
         }
@@ -790,7 +793,7 @@ void append_model_geometry(const fruityprime::model::File& model,
                 DrawPrimitive{
                     std::move(batch), texture_index, layer, model.world_scale(),
                     &model, mesh.material_id, hunter, entity_model,
-                    owning_node
+                    owning_node, runtime_entity
                 });
         }
     }
@@ -1521,9 +1524,30 @@ void init_network_player(
 
 void init_network_halfturret(
     fruityprime::runtime::HalfturretEntity& halfturret) noexcept {
-    // Scene.InitEntity only prepares the models already created by
-    // HalfturretEntity.Create.  It does not call HalfturretEntity.Initialize.
     halfturret.init_scene_entity();
+    if (!halfturret.created() || halfturret.scene_geometry_registered()) {
+        return;
+    }
+    try {
+        if (const auto* model = halfturret.turret_model();
+            model != nullptr && halfturret.turret_instance() != nullptr) {
+            append_model_geometry(
+                *model, DrawLayer::Entity, NoHunter, nullptr, &halfturret);
+            update_model_instance(*halfturret.turret_instance());
+        }
+        if (const auto* model = halfturret.alt_ice_model();
+            model != nullptr && halfturret.alt_ice_instance() != nullptr) {
+            append_model_geometry(
+                *model, DrawLayer::Entity, NoHunter, nullptr, &halfturret);
+            update_model_instance(*halfturret.alt_ice_instance());
+        }
+        halfturret.scene_geometry_registered(true);
+    } catch (const std::exception&) {
+        // The managed renderer fails the same Scene.InitEntity operation when
+        // a required model/list cannot be prepared.  The native host keeps
+        // the room alive here so the existing error boundary can report the
+        // failed transition instead of unwinding through a noexcept callback.
+    }
 }
 
 fruityprime::players::PlayerCamera& active_player_camera() noexcept {
@@ -1860,7 +1884,7 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
             g_game_state, roster, static_cast<int>(g_local_slot),
             static_cast<std::uint8_t>(previous_hunter), previous_recolor,
             g_slot_manager, g_net_damage, g_net_match_end,
-            g_net_log, &init_network_halfturret
+            g_net_log
         };
         auto* main_player = fruityprime::net::NetRoomChange::RebuildPlayers(
             rebuild);
@@ -3340,12 +3364,14 @@ void draw_model_layer(
     const fruityprime::model::ModelInstance* instance = nullptr,
     const EntityRenderModel* entity_model = nullptr,
     std::int32_t node_id = -1,
-    const std::array<float, 4>* tint = nullptr) {
+    const std::array<float, 4>* tint = nullptr,
+    const void* runtime_entity = nullptr) {
     float model_scale = 1.0F;
     bool found = false;
     for (const auto& primitive : g_draw_primitives) {
         if (primitive.layer == layer && primitive.hunter == hunter
             && primitive.entity_model == entity_model
+            && primitive.runtime_entity == runtime_entity
             && (node_id < 0 || primitive.node_id == node_id)) {
             model_scale = primitive.model_scale;
             found = true;
@@ -3360,6 +3386,7 @@ void draw_model_layer(
     for (const auto& primitive : g_draw_primitives) {
         if (primitive.layer != layer || primitive.hunter != hunter
             || primitive.entity_model != entity_model
+            || primitive.runtime_entity != runtime_entity
             || (node_id >= 0 && primitive.node_id != node_id)) {
             continue;
         }
@@ -8434,6 +8461,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
         } else if (!rom_path.empty() && !room_name.empty()) {
             g_assets = std::make_unique<fruityprime::assets::Store>(
                 fruityprime::assets::Store::from_path(rom_path));
+            fruityprime::runtime::HalfturretEntity::bind_asset_store(
+                g_assets.get());
             const auto& assets = *g_assets;
             static_cast<void>(
                 fruityprime::utility::extract::load_runtime_data(assets));
@@ -8904,6 +8933,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
     g_sfx_mixer.reset();
     g_sound_catalog.reset();
     g_gameplay_config.reset();
+    fruityprime::runtime::HalfturretEntity::bind_asset_store(nullptr);
     g_assets.reset();
     wglMakeCurrent(nullptr, nullptr);
     wglDeleteContext(context);

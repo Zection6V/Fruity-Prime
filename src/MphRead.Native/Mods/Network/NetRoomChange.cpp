@@ -124,11 +124,6 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
             continue;
         }
 
-        // PlayerEntity.Create has already performed CreateHalfturret.  C#
-        // CreateHalfturret then calls Scene.InitEntity before RebuildPlayers
-        // changes the returned player's Active/Initial flags.
-        context.init_halfturret(player->Halfturret());
-
         auto flags = static_cast<std::uint8_t>(player->LoadFlags());
         flags = static_cast<std::uint8_t>(
             flags | static_cast<std::uint8_t>(formats::LoadFlags::SlotActive));

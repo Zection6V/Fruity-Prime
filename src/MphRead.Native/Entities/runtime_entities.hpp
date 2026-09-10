@@ -23,6 +23,15 @@ namespace fruityprime::players {
 class PlayerEntity;
 }
 
+namespace fruityprime::assets {
+class Store;
+}
+
+namespace fruityprime::model {
+class File;
+class ModelInstance;
+}
+
 namespace fruityprime::runtime {
 
 // Runtime types created by the managed Scene rather than read from a room's
@@ -634,6 +643,12 @@ public:
     HalfturretEntity(std::uint32_t id, std::uint8_t owner_slot,
                      net::Vec3 position) noexcept;
     HalfturretEntity(std::uint32_t id, players::PlayerEntity& owner) noexcept;
+    ~HalfturretEntity();
+
+    // Read.GetModelInstance is process-wide in the managed implementation.
+    // The desktop host supplies the same live asset store before constructing
+    // any PlayerEntity so CreateHalfturret can perform its model reads itself.
+    static void bind_asset_store(const assets::Store* assets) noexcept;
 
     [[nodiscard]] std::uint8_t owner_slot() const noexcept {
         return owner_slot_;
@@ -659,14 +674,38 @@ public:
     }
     [[nodiscard]] float burn_seconds() const noexcept { return burn_seconds_; }
 
-    // HalfturretEntity.Create: build the two model slots before the owning
-    // PlayerEntity.Create call returns.  The renderer-facing Scene.InitEntity
-    // step is kept separate because the Win32 host owns display-list setup.
-    void create() noexcept { created_ = true; }
-    void init_scene_entity() noexcept { scene_initialized_ = true; }
+    // HalfturretEntity.Create: build the two ModelInstance slots and resolve
+    // the TurretBase node and its parent.  PlayerEntity.CreateHalfturret then
+    // invokes init_scene_entity before it returns, matching the managed order.
+    void create();
+    void init_scene_entity() noexcept;
     [[nodiscard]] bool created() const noexcept { return created_; }
     [[nodiscard]] bool scene_initialized() const noexcept {
         return scene_initialized_;
+    }
+    [[nodiscard]] const model::File* turret_model() const noexcept {
+        return turret_model_.get();
+    }
+    [[nodiscard]] model::ModelInstance* turret_instance() noexcept {
+        return turret_instance_.get();
+    }
+    [[nodiscard]] const model::File* alt_ice_model() const noexcept {
+        return alt_ice_model_.get();
+    }
+    [[nodiscard]] model::ModelInstance* alt_ice_instance() noexcept {
+        return alt_ice_instance_.get();
+    }
+    [[nodiscard]] std::int32_t base_node_index() const noexcept {
+        return base_node_index_;
+    }
+    [[nodiscard]] std::int32_t base_node_parent_index() const noexcept {
+        return base_node_parent_index_;
+    }
+    [[nodiscard]] bool scene_geometry_registered() const noexcept {
+        return scene_geometry_registered_;
+    }
+    void scene_geometry_registered(bool value) noexcept {
+        scene_geometry_registered_ = value;
     }
     [[nodiscard]] static constexpr std::string_view model_name() noexcept {
         return "WeavelAlt_Turret_lod0";
@@ -731,6 +770,15 @@ private:
     bool grounded_ = false;
     bool created_ = false;
     bool scene_initialized_ = false;
+    bool scene_geometry_registered_ = false;
+    std::unique_ptr<model::File> turret_model_;
+    std::unique_ptr<model::ModelInstance> turret_instance_;
+    std::unique_ptr<model::File> alt_ice_model_;
+    std::unique_ptr<model::ModelInstance> alt_ice_instance_;
+    std::int32_t base_node_index_ = -1;
+    std::int32_t base_node_parent_index_ = -1;
+
+    inline static const assets::Store* asset_store_ = nullptr;
 };
 
 class EntityPool {

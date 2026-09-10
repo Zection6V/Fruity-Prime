@@ -672,10 +672,10 @@ void PlayerEntity::CreateHalfturret() {
     if (halfturret_ == nullptr) {
         halfturret_ = std::make_unique<runtime::HalfturretEntity>(
             0x80000000U | static_cast<std::uint32_t>(slot_index_), *this);
-        // PlayerEntity.CreateHalfturret calls HalfturretEntity.Create before
-        // returning.  Scene.InitEntity is the caller-owned step because the
-        // native renderer is not part of this entity class.
         halfturret_->create();
+        // C# CreateHalfturret performs Scene.InitEntity before returning;
+        // keep that lifecycle boundary inside the entity creation path.
+        halfturret_->init_scene_entity();
     }
 }
 

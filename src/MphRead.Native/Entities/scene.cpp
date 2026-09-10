@@ -625,6 +625,31 @@ bool EntityVolume::contains(VolumePoint point) const noexcept {
     }
 }
 
+EntityVolume EntityVolume::moved(
+    const VolumePoint offset) const noexcept {
+    EntityVolume moved = *this;
+    switch (kind) {
+    case VolumeKind::Box:
+        moved.box_position = {box_position.x + offset.x,
+                              box_position.y + offset.y,
+                              box_position.z + offset.z};
+        break;
+    case VolumeKind::Cylinder:
+        moved.cylinder_position = {cylinder_position.x + offset.x,
+                                   cylinder_position.y + offset.y,
+                                   cylinder_position.z + offset.z};
+        break;
+    case VolumeKind::Sphere:
+        moved.sphere_position = {sphere_position.x + offset.x,
+                                 sphere_position.y + offset.y,
+                                 sphere_position.z + offset.z};
+        break;
+    case VolumeKind::Invalid:
+        break;
+    }
+    return moved;
+}
+
 VolumePoint EntityVolume::center() const noexcept {
     switch (kind) {
     case VolumeKind::Box:

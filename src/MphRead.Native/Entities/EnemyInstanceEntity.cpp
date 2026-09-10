@@ -18,6 +18,15 @@ void EnemyInstanceEntity::set_states(std::uint8_t state_a,
     sub_id_ = state_a;
 }
 
+void EnemyInstanceEntity::UpdateHurtVolume() noexcept {
+    // The managed alternative transforms the volume by the enemy's whole
+    // matrix.  This head keeps facing and up rather than a matrix, and no
+    // ported enemy needs the turning form yet, so the volume is carried
+    // rather than turned and that is said here rather than approximated.
+    hurt_volume_ = hurt_volume_init_.moved(
+        {position_.x, position_.y, position_.z});
+}
+
 bool EnemyInstanceEntity::CallSubroutine(
     const std::span<const metadata::EnemySubroutine> subroutines,
     const std::function<bool(std::uint8_t)>& behavior) noexcept {

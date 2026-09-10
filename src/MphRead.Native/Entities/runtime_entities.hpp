@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Entities/scene.hpp"
 #include <functional>
 #include "Metadata/enemy_subroutines.hpp"
 #include "Entities/Enemies/enemy_catalog.hpp"
@@ -394,6 +395,75 @@ public:
     }
 
     [[nodiscard]] std::uint8_t sub_id() const noexcept { return sub_id_; }
+
+    // ---- the hurt volume --------------------------------------------
+    // An enemy's position, for everything that aims at it, is the middle
+    // of its hurt volume rather than its origin.  A Cretaphid's origin is
+    // inside the pillar it grows out of; what you shoot at is elsewhere.
+
+    // EnemyInstanceEntity.GetPosition and GetVectors.
+    [[nodiscard]] net::Vec3 GetPosition() const noexcept {
+        const auto center = hurt_volume_.center();
+        return {center.x, center.y, center.z};
+    }
+    void GetVectors(net::Vec3& position, net::Vec3& up,
+                    net::Vec3& facing) const noexcept {
+        position = GetPosition();
+        up = up_;
+        facing = facing_;
+    }
+
+    // EnemyInstanceEntity.UpdateHurtVolume.  Most enemies carry their
+    // volume along without turning it; the ones that do not set
+    // `only_move_hurt_volume` false and have it follow their facing.
+    void UpdateHurtVolume() noexcept;
+
+    // EnemyInstanceEntity.DoMovement: a step of speed, then the volume
+    // follows.  The previous position is kept because several enemies ask
+    // where they were before the step.
+    void DoMovement() noexcept {
+        prev_position_ = position_;
+        position_ = {position_.x + velocity_.x, position_.y + velocity_.y,
+                     position_.z + velocity_.z};
+        UpdateHurtVolume();
+    }
+
+    void set_hurt_volume(const scene::EntityVolume& volume,
+                         bool only_move = true) noexcept {
+        hurt_volume_init_ = volume;
+        only_move_hurt_volume_ = only_move;
+        UpdateHurtVolume();
+    }
+    [[nodiscard]] const scene::EntityVolume& hurt_volume() const noexcept {
+        return hurt_volume_;
+    }
+    [[nodiscard]] const net::Vec3& prev_position() const noexcept {
+        return prev_position_;
+    }
+
+    // ---- who has been hit this frame --------------------------------
+    // EnemyInstanceEntity.HitPlayers and ClearHitPlayers.  Contact damage
+    // is dealt once per player per frame however many times the volumes
+    // overlap during it.
+    static constexpr std::size_t HitPlayerCount = 4;
+    void ClearHitPlayers() noexcept { hit_players_.fill(false); }
+    void set_hit_player(std::size_t slot, bool hit) noexcept {
+        if (slot < hit_players_.size()) {
+            hit_players_[slot] = hit;
+        }
+    }
+    [[nodiscard]] bool hit_player(std::size_t slot) const noexcept {
+        return slot < hit_players_.size() && hit_players_[slot];
+    }
+
+    // EnemyInstanceEntity.GetEffectiveness: what a beam does to this
+    // enemy.  A beam past the table is one that does not exist.
+    [[nodiscard]] metadata::Effectiveness GetEffectiveness(
+        std::uint8_t beam) const noexcept {
+        const auto table = effectiveness();
+        return beam < table.size() ? table[beam]
+                                   : metadata::Effectiveness::Zero;
+    }
     void set_flags(std::uint32_t flags) noexcept { flags_ = flags; }
     void set_velocity(net::Vec3 velocity) noexcept { velocity_ = velocity; }
     [[nodiscard]] bool take_damage(std::uint32_t damage) noexcept;
@@ -406,6 +476,11 @@ private:
     // It follows _state1 rather than being it, because a few enemies
     // change it between the state advance and the subroutine call.
     std::uint8_t sub_id_ = 0;
+    scene::EntityVolume hurt_volume_{};
+    scene::EntityVolume hurt_volume_init_{};
+    bool only_move_hurt_volume_ = true;
+    net::Vec3 prev_position_{};
+    std::array<bool, HitPlayerCount> hit_players_{};
     std::uint8_t state_a_ = 0;
     std::uint8_t state_b_ = 0;
     std::uint32_t flags_ = CollidePlayer | CollideBeam;

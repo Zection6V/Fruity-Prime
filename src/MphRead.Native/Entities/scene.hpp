@@ -107,6 +107,11 @@ struct EntityVolume {
 
     [[nodiscard]] bool contains(VolumePoint point) const noexcept;
     [[nodiscard]] VolumePoint center() const noexcept;
+
+    // CollisionVolume.Move: the same volume somewhere else.  Only the
+    // position moves -- a box keeps its axes and dots, a cylinder its
+    // radius -- which is what makes this different from transforming it.
+    [[nodiscard]] EntityVolume moved(VolumePoint offset) const noexcept;
 };
 
 struct RotationPoint {

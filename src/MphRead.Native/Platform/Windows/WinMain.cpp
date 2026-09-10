@@ -7225,8 +7225,7 @@ void poll_network() {
     if (g_server_match_state.has_value()) {
         fruityprime::net::NetRoomChange::Sync({
             true,
-            g_game_state.in_room_transition()
-                || g_net_room_fade.state().active,
+            g_game_state.in_room_transition(),
             g_game_state.room_name,
             *g_server_match_state,
             g_net_frame,

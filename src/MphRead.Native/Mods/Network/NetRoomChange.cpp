@@ -43,7 +43,8 @@ void NetRoomChange::Reset() noexcept {
 }
 
 void NetRoomChange::Sync(const SyncContext& context) noexcept {
-    if (!context.active || context.in_room_transition) {
+    if (!context.active || context.in_room_transition
+        || context.current_room.empty()) {
         return;
     }
     const MatchStatePacket& state = context.server_match;

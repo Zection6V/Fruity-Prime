@@ -10,6 +10,7 @@
 #include "Entities/Players/PlayerScan.hpp"
 #include "Entities/Players/PlayerSound.hpp"
 #include "Entities/gameplay.hpp"
+#include "Formats/culling.hpp"
 #include "GameState.hpp"
 #include "Metadata/player_values.hpp"
 #include "Strings.hpp"
@@ -108,6 +109,10 @@ public:
     [[nodiscard]] const PlayerCamera& Camera() const noexcept {
         return camera_;
     }
+    [[nodiscard]] const culling::NodeRef& NodeRef() const noexcept {
+        return node_ref_;
+    }
+    void NodeRef(const culling::NodeRef& value) { node_ref_ = value; }
     [[nodiscard]] PlayerScan& ScanState() noexcept { return scan_state_; }
     [[nodiscard]] const PlayerScan& ScanState() const noexcept {
         return scan_state_;
@@ -330,6 +335,7 @@ private:
     PlayerAiData ai_data_{};
     int bot_level_ = 0;
     PlayerCamera camera_{};
+    culling::NodeRef node_ref_ = culling::NodeRef::none();
     PlayerScan scan_state_{};
     PlayerSoundState sound_state_{};
     fruityprime::chat::player_entity_chat_hud::State chat_hud_{};

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Entities/entity_records.hpp"
+#include "Formats/culling.hpp"
 #include "Mods/Network/net_protocol.hpp"
 #include "player_profile.hpp"
 
@@ -35,6 +36,7 @@ struct CameraInfo {
     float field4c = 0.0F;
     float field50 = 0.0F;
     float field54 = 0.0F;
+    culling::NodeRef node_ref = culling::NodeRef::none();
 
     void reset() noexcept;
     void update() noexcept;

@@ -1137,12 +1137,8 @@ void PlayerEntity::SaveStatus(game::StorySave& save, bool fade_active) const {
 }
 
 void PlayerEntity::ResetReferences() noexcept {
-    runtime_state_.EnemySpawner = nullptr;
-    runtime_state_.AttachedEnemy = nullptr;
-    runtime_state_.MorphCamera = nullptr;
-    runtime_state_.OctolithFlag = nullptr;
-    runtime_state_.BurnedBy = nullptr;
-    runtime_state_.ShockCoilTarget = nullptr;
+    node_ref_ = culling::NodeRef::none();
+    camera_.info().node_ref = culling::NodeRef::none();
 }
 
 void PlayerEntity::WeaponNameTable(std::vector<strings::TableEntry> entries) {

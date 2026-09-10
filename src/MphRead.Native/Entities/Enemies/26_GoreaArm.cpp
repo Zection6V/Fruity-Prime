@@ -1,3 +1,4 @@
+#include "Entities/gameplay.hpp"
 #include "26_GoreaArm.hpp"
 #include "gorea_common.hpp"
 
@@ -114,5 +115,82 @@ void Session::update_gorea_arm(EnemyState& agent) {
 }
 
 } // namespace fruityprime::gameplay
+
+namespace fruityprime::enemy::module_26_gorea_arm {
+
+namespace {
+
+// Metadata's goreaShoulderHits, and how long the arm flashes for.
+constexpr std::uint32_t ShoulderHitsEffect = 44u;
+constexpr std::uint32_t ArmMaxDamage = 120u;
+
+} // namespace
+
+void UpdateWeapon(gameplay::EnemyState& agent,
+                  const std::uint16_t shot_cooldown,
+                  const std::uint16_t autofire_cooldown) noexcept {
+    // Doubled for this head's rate.  The left arm's cooldown is between
+    // shots and the right one's is between rounds of a held trigger.
+    agent.gorea_cooldown = static_cast<std::uint16_t>(
+        (agent.gorea_index == 0 ? shot_cooldown : autofire_cooldown) * 2);
+}
+
+NodeVectors GetNodeVectors(const gameplay::EnemyState& agent,
+                           const net::Vec3 node_position,
+                           const net::Vec3 node_row0,
+                           const net::Vec3 node_row1,
+                           const net::Vec3 node_row2) noexcept {
+    // The two arms are mirror images, so the row that means "up" is not
+    // the same one on both.
+    return {node_position,
+            agent.gorea_index == 0 ? node_row0 : node_row2,
+            node_row1};
+}
+
+void SpawnShotEffect(gameplay::EnemyState& agent,
+                     const std::uint32_t effect_id) noexcept {
+    agent.gorea_arm_effect_id = effect_id;
+}
+
+void StopShotEffect(gameplay::EnemyState& agent) noexcept {
+    agent.gorea_arm_effect_id = 0;
+}
+
+ArmHit EnemyTakeDamage(gameplay::EnemyState& agent, const bool regenerating,
+                       const bool imperialist_against_shock) noexcept {
+    ArmHit hit;
+    const std::uint32_t previous = agent.gorea_damage;
+    agent.gorea_damage += 65535u - agent.health;
+    if (regenerating || imperialist_against_shock) {
+        // The Imperialist against a Shock Coil phase takes the arm off in
+        // one, and so does anything landing while it is knitting itself
+        // back together.
+        agent.gorea_damage = ArmMaxDamage + 1u;
+    }
+    if (agent.gorea_damage <= ArmMaxDamage) {
+        // A noise every ten, except at the hundred and twenty that is the
+        // arm coming off -- that has its own.
+        std::uint32_t counted = agent.gorea_damage;
+        if (counted == ArmMaxDamage) {
+            --counted;
+        }
+        if (counted / 10u > previous / 10u) {
+            hit.milestone = true;
+            static_cast<void>(ShoulderHitsEffect);
+        }
+    } else {
+        agent.gorea_damage = ArmMaxDamage;
+        agent.scan_id = 0;
+        agent.invulnerable = true;
+        agent.gorea_arm_bits |= 1u;
+        agent.gorea_arm_effect_id = 0;
+        hit.destroyed = true;
+    }
+    agent.health = 65535;
+    return hit;
+}
+
+} // namespace fruityprime::enemy::module_26_gorea_arm
+
 
 static_assert(fruityprime::enemy::module_26_gorea_arm::kModule.managed_class.size() != 0);

@@ -72,6 +72,42 @@ EnemyInstanceEntity::EnemySfx EnemyInstanceEntity::PlayEnemySfx(
     return result;
 }
 
+bool EnemyInstanceEntity::SeekTargetFacing(const net::Vec3 target,
+                                           const net::Vec3 up,
+                                           std::uint16_t& steps,
+                                           const float angle) noexcept {
+    constexpr float Pi = 3.14159265358979323846F;
+    const float radians = angle * Pi / 180.0F;
+    const float dot = target.x * facing_.x + target.y * facing_.y
+        + target.z * facing_.z;
+    bool finished = false;
+    if (steps > 0 && dot < std::cos(radians)) {
+        // Which way round is decided by the cross product's up component:
+        // the shorter way, which is the only one that looks deliberate.
+        const float cross_y = target.z * facing_.x - target.x * facing_.z;
+        const float turn = radians * (cross_y <= 0.0F ? 1.0F : -1.0F);
+        const float sine = std::sin(turn);
+        const float cosine = std::cos(turn);
+        const net::Vec3 turned{facing_.x * cosine + facing_.z * sine,
+                               facing_.y,
+                               -facing_.x * sine + facing_.z * cosine};
+        const float length = std::sqrt(turned.x * turned.x
+                                       + turned.y * turned.y
+                                       + turned.z * turned.z);
+        facing_ = length > 0.0F
+            ? net::Vec3{turned.x / length, turned.y / length,
+                        turned.z / length}
+            : facing_;
+        --steps;
+    } else {
+        // Out of patience, or close enough: snap to it.
+        facing_ = target;
+        finished = true;
+    }
+    up_ = up;
+    return finished;
+}
+
 void EnemyInstanceEntity::UpdateHurtVolume() noexcept {
     // The managed alternative transforms the volume by the enemy's whole
     // matrix.  This head keeps facing and up rather than a matrix, and no

@@ -2,6 +2,7 @@
 // Enemy40 owns the room-spawner lifecycle boundary. Its update body is kept
 // here so gameplay.cpp remains an orchestration module rather than a second
 // implementation of every enemy class.
+#include "38_CrashPillar.hpp"
 #include "16_Blastcap.hpp"
 #include "11_Shriekbat.hpp"
 #include "40_EnemySpawner.hpp"
@@ -200,6 +201,9 @@ void Session::update_enemy_spawns() {
             if (spawned.enemy_type == static_cast<std::uint8_t>(
                     formats::EnemyType::Blastcap)) {
                 enemy::module_16_blastcap::EnemyInitialize(spawned);
+            } else if (spawned.enemy_type == static_cast<std::uint8_t>(
+                    formats::EnemyType::CrashPillar)) {
+                enemy::module_38_crash_pillar::EnemyInitialize(spawned);
             }
             if (spawned.voldrum.supported) {
                 const auto& profile = spawned.voldrum;

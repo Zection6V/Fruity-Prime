@@ -456,6 +456,19 @@ public:
         return slot < hit_players_.size() && hit_players_[slot];
     }
 
+    // EnemyInstanceEntity.SeekTargetFacing: turn one step of `angle`
+    // degrees towards `target`, and say whether the turn is finished.
+    //
+    // The step is taken about the up axis only, so an enemy turning to
+    // face a player above or below it turns level rather than tipping
+    // over.  It gives up after `steps` and snaps to the target, which is
+    // what stops an enemy circling a direction it can never quite reach
+    // -- and is why the count is a reference rather than a member: the
+    // caller owns how patient this particular turn is.
+    [[nodiscard]] bool SeekTargetFacing(net::Vec3 target, net::Vec3 up,
+                                        std::uint16_t& steps,
+                                        float angle) noexcept;
+
     // EnemyInstanceEntity.GetEffectiveness: what a beam does to this
     // enemy.  A beam past the table is one that does not exist.
     // EnemyInstanceEntity.CheckHitByBomb: whether a bomb reached this

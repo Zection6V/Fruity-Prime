@@ -329,6 +329,24 @@ struct EnemyState {
     std::uint32_t crash_pillar_vulnerable_timer = 0;
     std::uint32_t crash_pillar_cooldown = 0;
     bool crash_pillar_airborne = false;
+    // Enemy38Entity's own state: where it started, where it is turning to,
+    // and the timers that pace its jump.  It always goes home afterwards,
+    // which is why the starting position and facing are kept rather than
+    // recomputed.
+    net::Vec3 crash_pillar_initial_position{};
+    net::Vec3 crash_pillar_initial_facing{0.0F, 0.0F, 1.0F};
+    net::Vec3 crash_pillar_target_vector{1.0F, 0.0F, 0.0F};
+    std::uint16_t crash_pillar_jump_timer = 0;
+    std::uint16_t crash_pillar_delay_timer = 0;
+    std::uint16_t crash_pillar_aim_steps = 0;
+    float crash_pillar_jump_height = 0.0F;
+    float crash_pillar_aim_angle_step = 0.0F;
+    // Which animation is playing, how far into it, and whether it has
+    // finished.  Several behaviours wait on an animation rather than a
+    // timer, and one reads a particular frame of it.
+    std::uint8_t crash_pillar_animation = 1;
+    std::uint16_t crash_pillar_animation_frame = 0;
+    bool crash_pillar_animation_ended = false;
     // ForceFieldEntity creates an Enemy49Entity lock without an enemy
     // spawner record. Keep the static-field geometry on that child so the
     // shared session can run the same floating/bounce and unlock path.

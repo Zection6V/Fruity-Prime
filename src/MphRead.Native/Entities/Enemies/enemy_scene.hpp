@@ -43,6 +43,15 @@ struct EnemyScene {
     // every ported enemy actually asks: is there something in the way
     // between here and there.
     std::function<bool(net::Vec3 from, net::Vec3 to, float radius)> Blocked;
+
+    // PlayerEntity.CameraInfo.SetShake, which the camera's own view owns
+    // rather than the gameplay session.
+    std::function<void(float amount)> CameraShake;
+
+    // EnemyInstanceEntity.SeekTargetFacing, applied to this enemy: turn
+    // one step towards `desired` and say whether the turn is finished.
+    std::function<bool(EnemyState& agent, net::Vec3 desired,
+                       std::uint16_t& steps, float angle)> SeekFacing;
 };
 
 } // namespace fruityprime::gameplay

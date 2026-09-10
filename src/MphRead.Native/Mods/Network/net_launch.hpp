@@ -14,6 +14,8 @@
 
 namespace fruityprime::net {
 
+class NetLog;
+
 // The portable part of the managed NetLaunch input.  Keeping this as a value
 // object makes the command-line and launcher paths use the same join rules.
 struct JoinOptions {
@@ -79,6 +81,10 @@ public:
     // one implementation table and every field is cleared before a match.
     [[nodiscard]] static std::vector<std::string>
     disable_cheats_for_match(features::CheatSettings& cheats);
+
+    // NetRoomChange.AfterRebuild calls the managed NetLaunch overload that
+    // operates on the process-wide Cheats properties.
+    static void disable_cheats_for_match(NetLog& log) noexcept;
 };
 
 } // namespace fruityprime::net

@@ -10,8 +10,8 @@ namespace fruityprime::game {
 struct State;
 }
 
-namespace fruityprime::gameplay {
-class Session;
+namespace fruityprime::runtime {
+class HalfturretEntity;
 }
 
 namespace fruityprime::players {
@@ -36,33 +36,40 @@ class SlotManager;
 class NetRoomChange final {
 public:
     struct SyncContext {
-        bool active = false;
-        bool in_room_transition = false;
+        bool active;
+        bool in_room_transition;
         std::string_view current_room;
-        const MatchStatePacket* server_match = nullptr;
-        std::uint32_t net_frame = 0;
-        game::State* game_state = nullptr;
-        void (*set_fade)() noexcept = nullptr;
-        NetLog* log = nullptr;
+        const MatchStatePacket& server_match;
+        std::uint32_t net_frame;
+        game::State& game_state;
+        void (*set_fade)() noexcept;
+        NetLog& log;
     };
 
     struct RebuildContext {
-        game::State* game_state = nullptr;
-        gameplay::Session* session = nullptr;
-        const RosterPacket* roster = nullptr;
-        int local_slot = -1;
-        std::uint8_t local_hunter = 0;
-        int local_recolor = 0;
-        SlotManager* slot_manager = nullptr;
-        DamageBridge* damage = nullptr;
-        MatchEnd* match_end = nullptr;
-        NetLog* log = nullptr;
+        game::State& game_state;
+        const RosterPacket& roster;
+        int local_slot;
+        std::uint8_t local_hunter;
+        int local_recolor;
+        SlotManager& slot_manager;
+        DamageBridge& damage;
+        MatchEnd& match_end;
+        NetLog& log;
     };
 
     struct AfterRebuildContext {
-        std::uint32_t net_frame = 0;
-        NetPlayerBridge* player_bridge = nullptr;
-        NetLog* log = nullptr;
+        std::uint32_t net_frame;
+        NetPlayerBridge& player_bridge;
+        NetLog& log;
+        // These four callbacks are the native Scene boundary for the four
+        // calls made by NetRoomChange.AfterRebuild.  They are required: a
+        // caller must provide the room's insertion, PlayerEntity.Initialize,
+        // and both Scene.InitEntity operations in the same order.
+        void (*insert_entity)(players::PlayerEntity&) noexcept;
+        void (*initialize)(players::PlayerEntity&) noexcept;
+        void (*init_entity)(players::PlayerEntity&) noexcept;
+        void (*init_halfturret)(runtime::HalfturretEntity&) noexcept;
     };
 
     static void Reset() noexcept;

@@ -13,6 +13,7 @@
 #include "Mods/Network/net_match_sync.hpp"
 #include "Mods/Network/net_log.hpp"
 #include "Mods/Network/net_launch.hpp"
+#include "Mods/Network/net_player_bridge.hpp"
 #include "Mods/Network/net_probe.hpp"
 #include "Mods/Network/net_room_change.hpp"
 #include "Mods/Network/net_status.hpp"
@@ -41,6 +42,24 @@ bool room_fade_started = false;
 
 void note_room_fade() noexcept {
     room_fade_started = true;
+}
+
+void noop_insert_player(fruityprime::players::PlayerEntity& player) noexcept {
+    static_cast<void>(player);
+}
+
+void noop_initialize_player(
+    fruityprime::players::PlayerEntity& player) noexcept {
+    static_cast<void>(player);
+}
+
+void noop_init_player(fruityprime::players::PlayerEntity& player) noexcept {
+    static_cast<void>(player);
+}
+
+void noop_init_halfturret(
+    fruityprime::runtime::HalfturretEntity& halfturret) noexcept {
+    static_cast<void>(halfturret);
 }
 
 template <typename Predicate>
@@ -333,37 +352,43 @@ void test_match_state_boundaries() {
 
     fruityprime::net::NetRoomChange::Reset();
     fruityprime::game::State room_state;
+    fruityprime::net::NetLog room_log;
     room_state.room_name = "MP1 SANCTORUS";
     state.room_key = "MP3 PROVING GROUND";
     state.match_id = 1;
     room_fade_started = false;
     fruityprime::net::NetRoomChange::Sync({
-        true, false, room_state.room_name, &state, 1, &room_state,
-        &note_room_fade, nullptr
+        true, false, room_state.room_name, state, 1, room_state,
+        &note_room_fade, room_log
     });
     assert(room_fade_started);
     room_fade_started = false;
     fruityprime::net::NetRoomChange::Sync({
-        true, true, room_state.room_name, &state, 2, &room_state,
-        &note_room_fade, nullptr
+        true, true, room_state.room_name, state, 2, room_state,
+        &note_room_fade, room_log
     });
     assert(!room_fade_started);
 
     room_state.room_name = "MP3 PROVING GROUND";
     room_state.transition_state = fruityprime::game::TransitionState::None;
     fruityprime::net::NetRoomChange::Sync({
-        true, false, room_state.room_name, &state, 3, &room_state,
-        &note_room_fade, nullptr
+        true, false, room_state.room_name, state, 3, room_state,
+        &note_room_fade, room_log
     });
     assert(room_state.transition_room_id != 0);
     state.match_id = 2;
     room_fade_started = false;
     fruityprime::net::NetRoomChange::Sync({
-        true, false, room_state.room_name, &state, 10, &room_state,
-        &note_room_fade, nullptr
+        true, false, room_state.room_name, state, 10, room_state,
+        &note_room_fade, room_log
     });
     assert(room_fade_started);
-    fruityprime::net::NetRoomChange::AfterRebuild({20, nullptr, nullptr});
+    fruityprime::net::NetPlayerBridge room_bridge;
+    fruityprime::net::NetRoomChange::AfterRebuild({
+        20, room_bridge, room_log,
+        &noop_insert_player, &noop_initialize_player,
+        &noop_init_player, &noop_init_halfturret
+    });
     assert(fruityprime::net::NetRoomChange::Settling(20));
     assert(!fruityprime::net::NetRoomChange::Settling(80));
 }

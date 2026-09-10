@@ -1477,6 +1477,29 @@ void bind_gorea_model_to_session() {
 
 void sync_process_game_state();
 
+// The native renderer loads player resources as room-wide model sets rather
+// than through a managed Scene entity list. Keep the four mandatory scene
+// operations as explicit callbacks so NetRoomChange retains the exact C#
+// ordering without inventing a second player lifecycle here.
+void insert_network_player(fruityprime::players::PlayerEntity& player) noexcept {
+    static_cast<void>(player);
+}
+
+void initialize_network_player(
+    fruityprime::players::PlayerEntity& player) noexcept {
+    static_cast<void>(player);
+}
+
+void init_network_player(
+    fruityprime::players::PlayerEntity& player) noexcept {
+    static_cast<void>(player);
+}
+
+void init_network_halfturret(
+    fruityprime::runtime::HalfturretEntity& halfturret) noexcept {
+    static_cast<void>(halfturret);
+}
+
 fruityprime::players::PlayerCamera& active_player_camera() noexcept {
     auto* main = fruityprime::players::PlayerEntity::Main();
     return main == nullptr ? g_unbound_player_camera : main->Camera();
@@ -1680,13 +1703,28 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
     }
     const fruityprime::net::MatchStatePacket& server =
         *g_server_match_state;
-    if (server.room_key.empty()) {
+    const int transition_room_id = g_game_state.transition_room_id;
+    if (transition_room_id < 0) {
         return false;
     }
-    const auto* catalog_entry = fruityprime::scene::find_room(
-        server.room_key);
+    const auto find_room_by_id = [](int id)
+        -> const fruityprime::scene::RoomCatalogEntry* {
+        for (const auto& room : fruityprime::scene::story_rooms()) {
+            if (room.id == id) {
+                return &room;
+            }
+        }
+        for (const auto& room : fruityprime::scene::multiplayer_rooms()) {
+            if (room.id == id) {
+                return &room;
+            }
+        }
+        return nullptr;
+    };
+    const auto* catalog_entry = find_room_by_id(transition_room_id);
     if (catalog_entry == nullptr) {
-        g_error = "native network room is unknown: " + server.room_key;
+        g_error = "native network room id is unknown: "
+            + std::to_string(transition_room_id);
         return false;
     }
 
@@ -1741,6 +1779,21 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
 
         g_session.emplace(*g_room, *g_gameplay_config);
         fruityprime::players::PlayerEntity::Reset();
+        const fruityprime::net::RosterPacket empty_roster{};
+        const fruityprime::net::RosterPacket& roster =
+            g_roster.has_value() ? *g_roster : empty_roster;
+        // Session is the native simulation's equivalent of Scene's player
+        // collection. Materialize its occupied slots before Construct so the
+        // PlayerEntity.Create calls below see the same slot ownership without
+        // making RebuildPlayers perform a native-only second pass.
+        static_cast<void>(g_session->add_player(g_local_slot, g_local_hunter));
+        for (std::size_t index = 0; index < roster.count; ++index) {
+            const std::uint8_t slot = roster.slots[index];
+            if (slot == g_local_slot || g_session->has_player(slot)) {
+                continue;
+            }
+            static_cast<void>(g_session->add_player(slot, roster.hunters[index]));
+        }
         fruityprime::players::PlayerEntity::Construct(*g_session,
                                                        &g_game_state);
         bind_gorea_model_to_session();
@@ -1767,24 +1820,20 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
         g_game_state.point_goal = server.point_goal;
         g_game_state.teams = rules.team_mode;
 
-        fruityprime::net::NetRoomChange::RebuildContext rebuild;
-        rebuild.game_state = &g_game_state;
-        rebuild.session = &*g_session;
-        rebuild.roster = g_roster.has_value() ? &*g_roster : nullptr;
-        rebuild.local_slot = static_cast<int>(g_local_slot);
-        rebuild.local_hunter = g_local_hunter;
-        rebuild.local_recolor = 0;
-        rebuild.slot_manager = &g_slot_manager;
-        rebuild.damage = &g_net_damage;
-        rebuild.match_end = &g_net_match_end;
-        rebuild.log = &g_net_log;
+        const fruityprime::net::NetRoomChange::RebuildContext rebuild{
+            g_game_state, roster, static_cast<int>(g_local_slot),
+            g_local_hunter, 0, g_slot_manager, g_net_damage, g_net_match_end,
+            g_net_log
+        };
         if (fruityprime::net::NetRoomChange::RebuildPlayers(rebuild)
             == nullptr) {
             throw std::runtime_error(
                 "network room rebuild did not create the local player");
         }
         fruityprime::net::NetRoomChange::AfterRebuild({
-            g_net_frame, &g_net_player_bridge, &g_net_log
+            g_net_frame, g_net_player_bridge, g_net_log,
+            &insert_network_player, &initialize_network_player,
+            &init_network_player, &init_network_halfturret
         });
 
         if (g_music_controller != nullptr && g_music_runtime != nullptr) {
@@ -7093,17 +7142,6 @@ void poll_network() {
                     g_game_state, *state,
                     fruityprime::net::MatchEnd::in_intermission(
                         true, g_game_state, &*state)));
-                fruityprime::net::NetRoomChange::Sync({
-                    true,
-                    g_game_state.in_room_transition()
-                        || g_net_room_fade.state().active,
-                    g_game_state.room_name,
-                    &*state,
-                    g_net_frame,
-                    &g_game_state,
-                    &start_network_room_fade,
-                    &g_net_log
-                });
                 g_match_flow->apply_server_state(*state);
                 if (g_session.has_value()) {
                     g_session->set_match_mode(state->mode, state->point_goal);
@@ -7159,8 +7197,7 @@ void poll_network() {
                         g_net_damage,
                         fruityprime::net::NetHookContext{
                             true, g_is_authority, false,
-                            fruityprime::net::NetRoomChange::Settling(
-                                g_net_frame),
+                            false,
                             static_cast<int>(g_local_slot)}));
                 }
             }
@@ -7180,6 +7217,22 @@ void poll_network() {
         default:
             break;
         }
+    }
+    // NetHooks.AfterInput calls NetRoomChange.Sync once per frame after the
+    // packet update. In particular, MapChange only updates ServerMatch; it
+    // does not directly start a second room-change path.
+    if (g_server_match_state.has_value()) {
+        fruityprime::net::NetRoomChange::Sync({
+            true,
+            g_game_state.in_room_transition()
+                || g_net_room_fade.state().active,
+            g_game_state.room_name,
+            *g_server_match_state,
+            g_net_frame,
+            g_game_state,
+            &start_network_room_fade,
+            g_net_log
+        });
     }
     sync_process_game_state();
     snapshot_net_log();
@@ -7289,7 +7342,7 @@ void pump_replay_frame() {
             *g_session, g_net_player_bridge, snapshot, g_net_damage,
             fruityprime::net::NetHookContext{
                 true, false, true,
-                fruityprime::net::NetRoomChange::Settling(g_net_frame),
+                false,
                 static_cast<int>(g_local_slot)}));
     }
     fruityprime::net::NetHooks::after_simulation(

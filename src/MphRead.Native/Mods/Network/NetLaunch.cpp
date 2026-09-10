@@ -2,6 +2,7 @@
 
 #include "Metadata/metadata.hpp"
 #include "Entities/Players/PlayerEntity.hpp"
+#include "Mods/Network/net_log.hpp"
 #include "Mods/Network/net_protocol.hpp"
 
 #include <algorithm>
@@ -316,6 +317,48 @@ NetLaunch::disable_cheats_for_match(features::CheatSettings& cheats) {
         }
     }
     return disabled;
+}
+
+void NetLaunch::disable_cheats_for_match(NetLog& log) noexcept {
+    struct CheatEntry {
+        const char* name;
+        bool* value;
+    };
+    const std::array entries{
+        CheatEntry{"FreeWeaponSelect", &features::Cheats::FreeWeaponSelect},
+        CheatEntry{"UnlimitedJumps", &features::Cheats::UnlimitedJumps},
+        CheatEntry{"NoRandomEncounters",
+                   &features::Cheats::NoRandomEncounters},
+        CheatEntry{"UnlockAllDoors", &features::Cheats::UnlockAllDoors},
+        CheatEntry{"ContinueFromCurrentRoom",
+                   &features::Cheats::ContinueFromCurrentRoom},
+        CheatEntry{"SkipPlanetIntros", &features::Cheats::SkipPlanetIntros},
+        CheatEntry{"StartWithAllUpgrades",
+                   &features::Cheats::StartWithAllUpgrades},
+        CheatEntry{"StartWithAllOctoliths",
+                   &features::Cheats::StartWithAllOctoliths},
+        CheatEntry{"WalkThroughWalls", &features::Cheats::WalkThroughWalls},
+        CheatEntry{"AlwaysFightGorea2",
+                   &features::Cheats::AlwaysFightGorea2},
+        CheatEntry{"QuadrupleDamage", &features::Cheats::QuadrupleDamage}
+    };
+    std::string disabled;
+    for (const CheatEntry& entry : entries) {
+        if (!*entry.value) {
+            continue;
+        }
+        *entry.value = false;
+        if (!disabled.empty()) {
+            disabled += ", ";
+        }
+        disabled += entry.name;
+    }
+    if (disabled.empty()) {
+        return;
+    }
+    std::cout << "[net] cheats are off while connected (" << disabled
+              << ")\n";
+    log.event("cheats disabled for this session: " + disabled);
 }
 
 } // namespace fruityprime::net

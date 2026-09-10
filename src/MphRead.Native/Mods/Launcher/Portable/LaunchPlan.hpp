@@ -7,7 +7,7 @@
 namespace MphRead
 {
     enum class Hunter : std::uint8_t;
-    enum class GameMode : std::int32_t;
+    enum class GameMode : std::uint8_t;
 }
 
 namespace MphRead::Mods::Launcher

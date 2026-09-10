@@ -534,6 +534,9 @@ PlayerEntity* PlayerEntity::Create(metadata::Hunter hunter, int recolor) {
     PlayerEntity* player = players_[static_cast<std::size_t>(players_created_)];
     ++players_created_;
     player->assign(hunter, recolor);
+    // PlayerEntity.Create in C# always creates the halfturret before the
+    // caller performs the subsequent scene initialization callbacks.
+    player->CreateHalfturret();
     return player;
 }
 

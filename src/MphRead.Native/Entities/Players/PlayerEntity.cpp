@@ -522,12 +522,8 @@ void PlayerEntity::Reset() noexcept {
 }
 
 PlayerEntity* PlayerEntity::Create(metadata::Hunter hunter, int recolor) {
-    if (players_created_ >= max_players_ || players_created_ >= SlotCapacity
-        || bound_session_ == nullptr) {
+    if (players_created_ >= max_players_) {
         return nullptr;
-    }
-    if (players_[0] == nullptr) {
-        Construct(*bound_session_);
     }
     PlayerEntity* player = players_[static_cast<std::size_t>(players_created_)];
     ++players_created_;
@@ -652,11 +648,6 @@ void PlayerEntity::assign(metadata::Hunter hunter, int recolor) noexcept {
         runtime_state_.TeamIndex = State().team;
         runtime_state_.Team = Team();
     }
-    ai_data_.reset();
-    ai_data_.set_bot_level(bot_level_);
-    camera_.reset();
-    scan_state_.after_scan();
-    sound_state_.stop_all_sfx();
 }
 
 bool PlayerEntity::has_live_state() const noexcept {

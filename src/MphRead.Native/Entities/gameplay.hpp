@@ -642,6 +642,23 @@ struct EnemyState {
     std::uint32_t turret_salvo_cooldown = 0;
     // S10.Index is the synapse slot that owns this Slench turret.
     std::int32_t turret_index = -1;
+    // Which row of Metadata.Enemy45Values this Slench turret reads.
+    std::uint8_t turret_subtype = 0;
+    // Enemy45Entity's lights.  The animation frame is how many of them are
+    // lit, and the synapses raise and lower the ceiling as they die and
+    // come back -- so this is a number the player reads off the wall, not
+    // a rendering detail.  It runs forward when the turret opens and
+    // backward after every shot.
+    std::int32_t turret_anim_frame = 0;
+    std::int32_t turret_anim_frame_count = 0;
+    // The model's own last frame, which is the most lights it can show.
+    // Set by whoever owns the model; zero until then, and a zero ceiling
+    // simply means the lights do not move.
+    std::int32_t turret_anim_max_frame = 0;
+    std::int32_t turret_anim_interval = 1;
+    std::int32_t turret_anim_delay_timer = 1;
+    bool turret_anim_reverse = false;
+    bool turret_animating = false;
     std::uint32_t blastcap_cloud_tick = 0;
     std::uint32_t blastcap_cloud_timer = 0;
     // Enemy16Entity is a four-state subroutine machine. The cloud state is

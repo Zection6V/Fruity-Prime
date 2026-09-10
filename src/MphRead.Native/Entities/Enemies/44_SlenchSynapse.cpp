@@ -1,3 +1,4 @@
+#include "45_SlenchTurret.hpp"
 #include "enemy_decode_common.hpp"
 // Native port of src/MphRead/Entities/Enemies/44_SlenchSynapse.cs.
 // This member definition lives in its enemy module; Session only dispatches it.
@@ -113,9 +114,13 @@ void Session::update_slench_part(EnemyState& agent) {
                     != static_cast<std::int32_t>(agent.slench_part_index)) {
                 continue;
             }
-            turret.turret_enabled = enabled;
+            enemy::module_45_slench_turret::HandleMessage(
+                turret,
+                static_cast<std::uint16_t>(
+                    enabled ? formats::Message::ActivateTurret
+                            : formats::Message::DeactivateTurret),
+                0);
             turret.target_slot = 0xff;
-            turret.state = enabled ? 0 : 3;
             turret.turret_shot_timer = 0;
             if (enabled) {
                 turret.turret_salvo_cooldown = 0;

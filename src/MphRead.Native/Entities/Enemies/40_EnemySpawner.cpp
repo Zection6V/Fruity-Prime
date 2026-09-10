@@ -2,6 +2,7 @@
 // Enemy40 owns the room-spawner lifecycle boundary. Its update body is kept
 // here so gameplay.cpp remains an orchestration module rather than a second
 // implementation of every enemy class.
+#include "45_SlenchTurret.hpp"
 #include "36_Voldrum.hpp"
 #include "35_Voldrum.hpp"
 #include "06_Petrasyl4.hpp"
@@ -420,6 +421,12 @@ void Session::update_enemy_spawns() {
                     : static_cast<std::uint32_t>(
                         spawned.turret.delay_frames) * 2u;
                 spawned.turret_salvo_cooldown = 0;
+                if (is_slench_turret) {
+                    // Enemy45Entity has its own values table and its own
+                    // idea of what a fresh turret looks like, so it sets
+                    // itself up rather than sharing the Alimbic one's.
+                    enemy::module_45_slench_turret::EnemyInitialize(spawned);
+                }
             }
             if (spawned.enemy_type == static_cast<std::uint8_t>(
                     formats::EnemyType::WarWasp)) {

@@ -4,6 +4,7 @@
 // (ForceFieldEntity, AreaVolumeEntity, TriggerVolumeEntity, EnemySpawnEntity,
 // and their message graph). They are kept separate from the fixed-step
 // orchestrator so the source layout follows the managed Entities boundary.
+#include "Entities/Enemies/45_SlenchTurret.hpp"
 #include "Entities/gameplay.hpp"
 #include "Mods/world_events.hpp"
 #include "Metadata/metadata.hpp"
@@ -719,24 +720,25 @@ void Session::dispatch_environment_message(std::int32_t target_id,
             enemy.active = true;
         } else if (message == 6 || message == 45) {
             enemy.active = false;
-        } else if (message == 48 && enemy.enemy_type == static_cast<std::uint8_t>(
-                       formats::EnemyType::SlenchTurret)) {
+        } else if (enemy.enemy_type == static_cast<std::uint8_t>(
+                       formats::EnemyType::SlenchTurret)
+                   && (message == 48 || message == 49 || message == 50
+                       || message == 51)) {
+            // Enemy45Entity.HandleMessage owns what these four do; the
+            // scene's job is only to find who they are addressed to.
             const bool was_enabled = enemy.turret_enabled;
-            enemy.turret_enabled = true;
-            if (!was_enabled) {
-                // Enemy45Entity.ActivateTurret starts State0 with a fresh
-                // burst; it does not inherit the spawn-time Alimbic delay.
-                enemy.state = 0;
+            enemy::module_45_slench_turret::HandleMessage(
+                enemy, static_cast<std::uint16_t>(message), parameter1);
+            if (message == 48 && !was_enabled) {
+                // A turret woken from dark starts its burst now rather
+                // than inheriting a cooldown from whenever it last fired.
                 enemy.target_slot = 0xff;
                 enemy.turret_salvo_cooldown = 0;
                 enemy.turret_shot_timer = 0;
+            } else if (message == 51) {
+                enemy.target_slot = 0xff;
+                enemy.turret_shot_timer = 0;
             }
-        } else if (message == 51 && enemy.enemy_type == static_cast<std::uint8_t>(
-                       formats::EnemyType::SlenchTurret)) {
-            enemy.turret_enabled = false;
-            enemy.state = 3;
-            enemy.target_slot = 0xff;
-            enemy.turret_shot_timer = 0;
         }
     }
     update_story_room_state(target_id, message, parameter1);

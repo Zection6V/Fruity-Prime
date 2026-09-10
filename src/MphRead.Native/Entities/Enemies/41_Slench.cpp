@@ -1,3 +1,4 @@
+#include "45_SlenchTurret.hpp"
 #include "enemy_decode_common.hpp"
 // Native port of src/MphRead/Entities/Enemies/41_Slench.cs.
 // This member definition lives in its enemy module; Session only dispatches it.
@@ -92,9 +93,17 @@ void Session::update_slench(EnemyState& agent) {
             formats::EnemyType::SlenchTurret);
         for (auto& turret : enemies_) {
             if (turret.enemy_type == turret_type && turret.active) {
-                turret.turret_enabled = enabled;
+                // Enemy45Entity.HandleMessage owns what waking a turret
+                // means -- including that it sets the state it will be in
+                // *next* frame rather than this one, which is the whole
+                // difference between a state machine and a flag.
+                enemy::module_45_slench_turret::HandleMessage(
+                    turret,
+                    static_cast<std::uint16_t>(
+                        enabled ? formats::Message::ActivateTurret
+                                : formats::Message::DeactivateTurret),
+                    0);
                 turret.target_slot = 0xff;
-                turret.state = enabled ? 0 : 3;
                 turret.turret_shot_timer = 0;
             }
         }

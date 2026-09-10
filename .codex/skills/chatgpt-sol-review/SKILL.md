@@ -46,6 +46,23 @@ perform the requested local work yourself.
   from its last usable response. Apply the normal review rules below: the
   returned text is a proposal, and local authoritative sources decide the work.
 
+## Keep the browser footprint small
+
+- Keep at most two ChatGPT tabs for active work: the current implementation or
+  recovery conversation and one independent review conversation when both are
+  genuinely running. Do not open a new tab merely to duplicate a stalled or
+  completed chat.
+- After recording the final response, commit SHA, or explicit NO-OP for an item,
+  close its browser tab with the browser tab close control. Close obsolete,
+  duplicated, rate-limited, and completed migration tabs promptly so long runs do
+  not exhaust desktop memory.
+- Preserve a tab the user is actively viewing or explicitly asked to keep, even
+  when it is otherwise complete. Before closing, verify that it is not the
+  current user-designated tab and that no response is still running.
+- If the browser session drops tabs, reopen only the active conversation by its
+  known URL, inspect its last state, and do not resend the original prompt unless
+  the conversation proves that it was never submitted.
+
 ## Supply the task efficiently
 
 - Give ChatGPT a directly accessible repository, document, page, or artifact link

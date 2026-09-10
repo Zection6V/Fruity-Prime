@@ -38,7 +38,8 @@ public:
 
     [[nodiscard]] bool apply_intent(gameplay::Session& session,
                                     std::uint8_t slot,
-                                    const IntentState& intent) noexcept;
+                                    const IntentState& intent,
+                                    bool sync_reported_position = true) noexcept;
 
     [[nodiscard]] bool apply_snapshot(gameplay::Session& session,
                                       const SnapshotPacket& snapshot,
@@ -50,7 +51,8 @@ public:
     // for a puppet.  Reapply the owner's reported position after that step so
     // a remote player is not advanced twice by the authority.
     void restore_reported_positions(gameplay::Session& session,
-                                    std::uint8_t local_slot) noexcept;
+                                    std::uint8_t local_slot,
+                                    bool settling = false) noexcept;
 
     [[nodiscard]] PlayerEntityNetAim& aim() noexcept { return aim_; }
     [[nodiscard]] const PlayerEntityNetAim& aim() const noexcept {

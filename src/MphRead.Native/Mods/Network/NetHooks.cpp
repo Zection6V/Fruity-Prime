@@ -49,7 +49,15 @@ bool NetHooks::try_apply_remote_input(
     if (!session.has_player(slot)) {
         return true;
     }
-    static_cast<void>(bridge.apply_intent(session, slot, intent));
+    const auto& player = session.player(slot);
+    if ((player.flags & PlayerState::FlagActive) == 0) {
+        return true;
+    }
+    const bool sync_reported_position =
+        (player.flags & PlayerState::FlagSpawned) != 0
+        && player.health > 0 && !context.settling;
+    static_cast<void>(bridge.apply_intent(
+        session, slot, intent, sync_reported_position));
     return true;
 }
 
@@ -74,7 +82,7 @@ void NetHooks::after_simulation(gameplay::Session& session,
     }
     bridge.restore_reported_positions(
         session, static_cast<std::uint8_t>(
-            std::max(0, context.local_slot)));
+            std::max(0, context.local_slot)), context.settling);
 }
 
 Vec3 NetHooks::remote_shot_origin(

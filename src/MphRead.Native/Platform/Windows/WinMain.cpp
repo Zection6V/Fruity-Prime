@@ -7197,7 +7197,8 @@ void poll_network() {
                         g_net_damage,
                         fruityprime::net::NetHookContext{
                             true, g_is_authority, false,
-                            false,
+                            fruityprime::net::NetRoomChange::Settling(
+                                g_net_frame),
                             static_cast<int>(g_local_slot)}));
                 }
             }
@@ -7342,7 +7343,7 @@ void pump_replay_frame() {
             *g_session, g_net_player_bridge, snapshot, g_net_damage,
             fruityprime::net::NetHookContext{
                 true, false, true,
-                false,
+                fruityprime::net::NetRoomChange::Settling(g_net_frame),
                 static_cast<int>(g_local_slot)}));
     }
     fruityprime::net::NetHooks::after_simulation(

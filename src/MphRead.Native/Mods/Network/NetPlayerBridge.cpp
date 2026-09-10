@@ -196,7 +196,8 @@ IntentButtons NetPlayerBridge::missed_presses(
 
 bool NetPlayerBridge::apply_intent(gameplay::Session& session,
                                    std::uint8_t slot,
-                                   const IntentState& intent) noexcept {
+                                   const IntentState& intent,
+                                   bool sync_reported_position) noexcept {
     if (slot >= Slots || !session.has_player(slot) || !sane(intent.aim)) {
         ++metrics_.rejected_updates;
         return false;
@@ -224,7 +225,9 @@ bool NetPlayerBridge::apply_intent(gameplay::Session& session,
     latest_intent_[slot] = intent;
     latest_intent_seen_[slot] = true;
     intent_valid_[slot] = true;
-    static_cast<void>(apply_reported_position(session, slot, intent));
+    if (sync_reported_position) {
+        static_cast<void>(apply_reported_position(session, slot, intent));
+    }
     return true;
 }
 
@@ -369,7 +372,7 @@ bool NetPlayerBridge::apply_snapshot(gameplay::Session& session,
                 applied.facing = local_facing[slot];
             }
         } else if (slot == local_slot && had_player[slot]
-                   && !settling && !just_placed) {
+                   && spawned_before[slot] && !just_placed) {
             // Local prediction stays authoritative for movement and aim. The
             // authority still owns health, score, weapon, and all flags.
             applied.position = local_position[slot];
@@ -431,11 +434,18 @@ bool NetPlayerBridge::apply_snapshot(gameplay::Session& session,
 }
 
 void NetPlayerBridge::restore_reported_positions(
-    gameplay::Session& session, std::uint8_t local_slot) noexcept {
+    gameplay::Session& session, std::uint8_t local_slot,
+    bool settling) noexcept {
     for (std::size_t index = 0; index < Slots; ++index) {
         const auto slot = static_cast<std::uint8_t>(index);
-        if (slot == local_slot || !latest_intent_seen_[index]
+        if (slot == local_slot || settling || !latest_intent_seen_[index]
             || !session.has_player(slot)) {
+            continue;
+        }
+        const auto& player = session.player(slot);
+        if ((player.flags & PlayerState::FlagActive) == 0
+            || (player.flags & PlayerState::FlagSpawned) == 0
+            || player.health == 0) {
             continue;
         }
         const auto& intent = latest_intent_[index];

@@ -1762,6 +1762,14 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
         g_intro_file.reset();
         g_intro_seconds = 0.0F;
         g_spectator.reset();
+        // RoomEntity.StartTransition clears each old player's room references
+        // before the room and player collections are discarded.  RebuildPlayers
+        // only performs its separate NodeRef assignments, as the C# code does.
+        for (auto* player : fruityprime::players::PlayerEntity::Players()) {
+            if (player != nullptr) {
+                player->ResetReferences();
+            }
+        }
         g_session.reset();
         g_room.reset();
 

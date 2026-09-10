@@ -142,9 +142,8 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
                 flags & ~static_cast<std::uint8_t>(formats::LoadFlags::Active));
         }
         player->LoadFlags(static_cast<formats::LoadFlags>(flags));
-        // The native player carries the same old-room reference reset at this
-        // point as the managed NodeRef and CameraInfo.NodeRef assignments.
-        player->ResetReferences();
+        // C# RebuildPlayers does not call PlayerEntity.ResetReferences here;
+        // RoomEntity.StartTransition performs that reset before rebuilding.
         player->NodeRef(culling::NodeRef::none());
         player->Camera().info().node_ref = culling::NodeRef::none();
         player->IsBot(false);

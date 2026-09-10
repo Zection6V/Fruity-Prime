@@ -157,6 +157,8 @@ std::optional<fruityprime::net::RosterPacket> g_roster;
 // the headless NetSession wrapper.
 std::array<std::uint8_t, fruityprime::net::NetConfig::SlotCapacity>
     g_slot_hunters{};
+std::array<bool, fruityprime::net::NetConfig::SlotCapacity>
+    g_slot_occupied{};
 std::optional<fruityprime::game::StorySave> g_story_save;
 std::array<char, fruityprime::game::StorySave::ScanCount>
     g_scan_categories{};
@@ -1496,11 +1498,8 @@ void update_model_instance(fruityprime::model::ModelInstance& instance,
 // Keep the four Scene operations explicit.  Session remains the simulation
 // owner, while these callbacks establish room-scene membership and initialise
 // the already loaded model instances in the C# order.
-void insert_network_player(fruityprime::players::PlayerEntity& player) noexcept {
-    if (std::find(g_network_scene_players.begin(), g_network_scene_players.end(),
-                  &player) == g_network_scene_players.end()) {
-        g_network_scene_players.push_back(&player);
-    }
+void insert_network_player(fruityprime::players::PlayerEntity& player) {
+    g_network_scene_players.push_back(&player);
 }
 
 void initialize_network_player(
@@ -1509,22 +1508,12 @@ void initialize_network_player(
 }
 
 void init_network_player(
-    fruityprime::players::PlayerEntity& player) noexcept {
-    std::size_t hunter = static_cast<std::size_t>(player.Hunter());
-    if (hunter >= g_player_models.size()) {
-        hunter = std::min<std::size_t>(
-            g_local_hunter, g_player_models.size() - 1);
-    }
-    auto& models = g_player_models[hunter];
-    if (models.instance.has_value()) {
-        update_model_instance(*models.instance);
-    }
-    if (models.alt_instance.has_value()) {
-        update_model_instance(*models.alt_instance);
-    }
-    if (models.gun_instance.has_value()) {
-        update_model_instance(*models.gun_instance);
-    }
+    fruityprime::players::PlayerEntity& player) {
+    auto& models = g_player_models.at(
+        static_cast<std::size_t>(player.Hunter()));
+    update_model_instance(models.instance.value());
+    update_model_instance(models.alt_instance.value());
+    update_model_instance(models.gun_instance.value());
 }
 
 void init_network_halfturret(
@@ -1806,7 +1795,8 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
         set_room_lights(catalog_entry->id);
         apply_room_node_layers(
             *g_room, /*single_player=*/false,
-            fruityprime::net::NetRoomChange::RoomPlayerCount(),
+            fruityprime::net::NetRoomChange::RoomPlayerCount(
+                g_net_client != nullptr && g_net_client->connected()),
             mode == fruityprime::game::Mode::Capture);
         g_room_instance.emplace(g_room->model());
         update_model_instance(*g_room_instance,
@@ -1872,9 +1862,9 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
         g_game_state.teams = rules.team_mode;
 
         const fruityprime::net::NetRoomChange::RebuildContext rebuild{
-            g_game_state, roster, static_cast<int>(g_local_slot),
+            g_game_state, static_cast<int>(g_local_slot),
             static_cast<std::uint8_t>(previous_hunter),
-            g_slot_hunters, previous_recolor,
+            g_slot_occupied, g_slot_hunters, previous_recolor,
             g_slot_manager, g_net_damage, g_net_match_end,
             g_net_log
         };
@@ -7106,6 +7096,7 @@ bool ensure_network_player(std::uint8_t slot, std::uint8_t hunter) {
 
 void handle_network_roster(const fruityprime::net::RosterPacket& roster) {
     g_roster = roster;
+    g_slot_occupied.fill(false);
     for (std::size_t index = 0;
          index < roster.count
              && index < fruityprime::net::RosterPacket::MaxSlots;
@@ -7114,6 +7105,7 @@ void handle_network_roster(const fruityprime::net::RosterPacket& roster) {
         if (slot >= g_slot_hunters.size()) {
             continue;
         }
+        g_slot_occupied[slot] = true;
         if (roster.hunters[index]
             <= static_cast<std::uint8_t>(
                 fruityprime::metadata::Hunter::Random)) {

@@ -12,24 +12,49 @@
 #include "Mods/Network/net_slot_manager.hpp"
 
 #include <algorithm>
+#include <array>
 #include <iostream>
 #include <string>
+#include <string_view>
+#include <utility>
 
 namespace fruityprime::net {
 namespace {
 
-struct RosterSlot {
-    bool occupied = false;
-};
-
-[[nodiscard]] RosterSlot roster_slot(const RosterPacket& roster,
-                                      std::size_t slot) noexcept {
-    for (std::size_t index = 0; index < roster.count; ++index) {
-        if (roster.slots[index] == slot) {
-            return {true};
-        }
+[[nodiscard]] std::string load_flags_string(formats::LoadFlags flags) {
+    using Entry = std::pair<std::uint8_t, std::string_view>;
+    constexpr std::array<Entry, 8> entries{{
+        {static_cast<std::uint8_t>(formats::LoadFlags::Connected), "Connected"},
+        {static_cast<std::uint8_t>(formats::LoadFlags::WasConnected), "WasConnected"},
+        {static_cast<std::uint8_t>(formats::LoadFlags::Disconnected), "Disconnected"},
+        {static_cast<std::uint8_t>(formats::LoadFlags::Initial), "Initial"},
+        {static_cast<std::uint8_t>(formats::LoadFlags::Unknown4), "Unknown4"},
+        {static_cast<std::uint8_t>(formats::LoadFlags::Active), "Active"},
+        {static_cast<std::uint8_t>(formats::LoadFlags::SlotActive), "SlotActive"},
+        {static_cast<std::uint8_t>(formats::LoadFlags::Spawned), "Spawned"},
+    }};
+    std::uint8_t remaining = static_cast<std::uint8_t>(flags);
+    if (remaining == 0) {
+        return "None";
     }
-    return {};
+    std::string result;
+    for (const auto& [value, name] : entries) {
+        if ((remaining & value) != value) {
+            continue;
+        }
+        if (!result.empty()) {
+            result += ", ";
+        }
+        result += name;
+        remaining = static_cast<std::uint8_t>(remaining & ~value);
+    }
+    if (remaining != 0) {
+        if (!result.empty()) {
+            result += ", ";
+        }
+        result += std::to_string(remaining);
+    }
+    return result;
 }
 
 } // namespace
@@ -42,8 +67,7 @@ void NetRoomChange::Reset() noexcept {
 }
 
 void NetRoomChange::Sync(const SyncContext& context) noexcept {
-    if (!context.active || context.in_room_transition
-        || context.current_room.empty()) {
+    if (!context.active || context.in_room_transition) {
         return;
     }
     const MatchStatePacket& state = context.server_match;
@@ -98,12 +122,12 @@ bool NetRoomChange::Settling(std::uint32_t net_frame) noexcept {
     return loaded_frame_ != 0 && net_frame - loaded_frame_ < SettleFrames;
 }
 
-int NetRoomChange::RoomPlayerCount() noexcept {
-    return NetLaunch::active() ? NetLaunch::RoomPlayerCount : 0;
+int NetRoomChange::RoomPlayerCount(bool active) noexcept {
+    return active ? NetLaunch::RoomPlayerCount : 0;
 }
 
-bool NetRoomChange::Rebuilding() noexcept {
-    return NetLaunch::active();
+bool NetRoomChange::Rebuilding(bool active) noexcept {
+    return active;
 }
 
 players::PlayerEntity* NetRoomChange::RebuildPlayers(
@@ -112,8 +136,8 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
     const int max_players = players::PlayerEntity::MaxPlayers();
 
     for (int slot = 0; slot < max_players; ++slot) {
-        const bool occupied = roster_slot(
-            context.roster, static_cast<std::size_t>(slot)).occupied;
+        const bool occupied = context.slot_occupied[
+            static_cast<std::size_t>(slot)];
         const std::uint8_t hunter = slot == local_slot
             ? context.local_hunter : context.slot_hunters[
                 static_cast<std::size_t>(slot)];
@@ -176,7 +200,7 @@ void NetRoomChange::AfterRebuild(
                 formats::LoadFlags::SlotActive)) == 0) {
             context.log.event("slot " + std::to_string(slot)
                               + " skipped on rebuild: flags="
-                              + std::to_string(flags));
+                              + load_flags_string(player->LoadFlags()));
             continue;
         }
         context.insert_entity(*player);

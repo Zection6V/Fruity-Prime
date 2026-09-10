@@ -171,7 +171,6 @@ void NetSession::retain_roster(const RosterPacket& roster) noexcept {
     roster_ = roster;
     roster_valid_ = true;
     slot_occupied_.fill(false);
-    slot_hunters_.fill(0);
     slot_ping_.fill(0);
     const std::size_t count = std::min<std::size_t>(
         roster.count, NetConfig::SlotCapacity);

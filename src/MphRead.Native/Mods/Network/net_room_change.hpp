@@ -49,9 +49,9 @@ public:
 
     struct RebuildContext {
         game::State& game_state;
-        const RosterPacket& roster;
         int local_slot;
         std::uint8_t local_hunter;
+        const std::array<bool, NetConfig::SlotCapacity>& slot_occupied;
         const std::array<std::uint8_t, NetConfig::SlotCapacity>& slot_hunters;
         int local_recolor;
         SlotManager& slot_manager;
@@ -81,8 +81,8 @@ public:
     static void Sync(const SyncContext& context) noexcept;
 
     [[nodiscard]] static bool Settling(std::uint32_t net_frame) noexcept;
-    [[nodiscard]] static int RoomPlayerCount() noexcept;
-    [[nodiscard]] static bool Rebuilding() noexcept;
+    [[nodiscard]] static int RoomPlayerCount(bool active) noexcept;
+    [[nodiscard]] static bool Rebuilding(bool active) noexcept;
 
     // RoomEntity.LoadRoom calls this after PlayerEntity.Construct and before
     // the new room's normal fixed-step processing begins.

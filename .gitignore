@@ -41,6 +41,39 @@ Generated\ Files/
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
 
+# Native CMake build trees
+native/build*/
+src/build*/
+src/MphRead.Native/build*/
+
+# Local Nintendo DS ROMs and data derived from them. Keep cartridges out of
+# the repository and keep the default native extraction/test destinations out
+# as well.
+*.nds
+*_extracted/
+native/rom-test-output/
+**/files/
+**/_archives/
+**/Savedata/
+**/netcheck-shots/
+**/netlog-*.txt
+**/extracted/
+**/_pack/
+**/__temp/
+**/_screenshots/
+**/_demos/
+**/[Ee]xport/
+**/[Tt]humbnails/
+# Keep the checked-in C# export namespace source visible; the other Export/
+# directories are local output locations selected by paths.txt.
+!src/MphRead/Export/
+!src/MphRead/Export/**
+!src/MphRead.Native/Export/
+!src/MphRead.Native/Export/**
+*-extracted/
+/export/
+paths.txt
+
 # NUNIT
 *.VisualState.xml
 TestResult.xml
@@ -362,3 +395,7 @@ maps/**/*.tex
 # is what the workflow does before it publishes, so this is a build artifact
 # and not a source: what belongs in git is the folder it is cooked from.
 maps/**/*.fpmap
+
+# Native MapGen room binaries are derived from a checked-in recipe (and, later,
+# the player's own texture/import files), so keep them out of the source tree.
+**/_mapgen/

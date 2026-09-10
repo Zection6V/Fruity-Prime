@@ -1,5 +1,7 @@
 #include "Mods/Network/net_session.hpp"
 
+#include "Metadata/metadata.hpp"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -57,7 +59,6 @@ void NetSession::reset_state() noexcept {
     remote_intents_.fill({});
     remote_intent_valid_.fill(false);
     slot_occupied_.fill(false);
-    slot_hunters_.fill(0);
     slot_ping_.fill(0);
     roster_ = {};
     server_match_ = {};
@@ -180,7 +181,10 @@ void NetSession::retain_roster(const RosterPacket& roster) noexcept {
             continue;
         }
         slot_occupied_[slot] = true;
-        slot_hunters_[slot] = roster.hunters[index];
+        if (roster.hunters[index]
+            <= static_cast<std::uint8_t>(metadata::Hunter::Random)) {
+            slot_hunters_[slot] = roster.hunters[index];
+        }
         slot_ping_[slot] = roster.pings[index];
     }
 }
@@ -316,7 +320,6 @@ void NetSession::forget_slot(int slot) noexcept {
     remote_states_[index] = {};
     remote_state_valid_[index] = false;
     slot_occupied_[index] = false;
-    slot_hunters_[index] = 0;
     slot_ping_[index] = 0;
 }
 

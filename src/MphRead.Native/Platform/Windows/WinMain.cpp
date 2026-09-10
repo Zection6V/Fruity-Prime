@@ -152,6 +152,11 @@ fruityprime::demo::Recorder g_demo_recorder;
 fruityprime::demo::Playback g_replay_playback;
 std::filesystem::path g_demo_path;
 std::optional<fruityprime::net::RosterPacket> g_roster;
+// Native storage for NetSession.SlotHunter.  The GUI host uses NetClient
+// directly, so this state lives beside the received roster rather than in
+// the headless NetSession wrapper.
+std::array<std::uint8_t, fruityprime::net::NetConfig::SlotCapacity>
+    g_slot_hunters{};
 std::optional<fruityprime::game::StorySave> g_story_save;
 std::array<char, fruityprime::game::StorySave::ScanCount>
     g_scan_categories{};
@@ -1523,31 +1528,17 @@ void init_network_player(
 }
 
 void init_network_halfturret(
-    fruityprime::runtime::HalfturretEntity& halfturret) noexcept {
-    halfturret.init_scene_entity();
-    if (!halfturret.created() || halfturret.scene_geometry_registered()) {
-        return;
-    }
-    try {
-        if (const auto* model = halfturret.turret_model();
-            model != nullptr && halfturret.turret_instance() != nullptr) {
-            append_model_geometry(
-                *model, DrawLayer::Entity, NoHunter, nullptr, &halfturret);
-            update_model_instance(*halfturret.turret_instance());
-        }
-        if (const auto* model = halfturret.alt_ice_model();
-            model != nullptr && halfturret.alt_ice_instance() != nullptr) {
-            append_model_geometry(
-                *model, DrawLayer::Entity, NoHunter, nullptr, &halfturret);
-            update_model_instance(*halfturret.alt_ice_instance());
-        }
-        halfturret.scene_geometry_registered(true);
-    } catch (const std::exception&) {
-        // The managed renderer fails the same Scene.InitEntity operation when
-        // a required model/list cannot be prepared.  The native host keeps
-        // the room alive here so the existing error boundary can report the
-        // failed transition instead of unwinding through a noexcept callback.
-    }
+    fruityprime::runtime::HalfturretEntity& halfturret) {
+    g_draw_primitives.erase(
+        std::remove_if(g_draw_primitives.begin(), g_draw_primitives.end(),
+                       [&halfturret](const DrawPrimitive& primitive) {
+                           return primitive.runtime_entity == &halfturret;
+                       }),
+        g_draw_primitives.end());
+    append_model_geometry(halfturret.turret_model(), DrawLayer::Entity,
+                          NoHunter, nullptr, &halfturret);
+    append_model_geometry(halfturret.alt_ice_model(), DrawLayer::Entity,
+                          NoHunter, nullptr, &halfturret);
 }
 
 fruityprime::players::PlayerCamera& active_player_camera() noexcept {
@@ -1882,7 +1873,8 @@ void load_hud_assets(const fruityprime::assets::Store& assets,
 
         const fruityprime::net::NetRoomChange::RebuildContext rebuild{
             g_game_state, roster, static_cast<int>(g_local_slot),
-            static_cast<std::uint8_t>(previous_hunter), previous_recolor,
+            static_cast<std::uint8_t>(previous_hunter),
+            g_slot_hunters, previous_recolor,
             g_slot_manager, g_net_damage, g_net_match_end,
             g_net_log
         };
@@ -7114,6 +7106,20 @@ bool ensure_network_player(std::uint8_t slot, std::uint8_t hunter) {
 
 void handle_network_roster(const fruityprime::net::RosterPacket& roster) {
     g_roster = roster;
+    for (std::size_t index = 0;
+         index < roster.count
+             && index < fruityprime::net::RosterPacket::MaxSlots;
+         ++index) {
+        const std::uint8_t slot = roster.slots[index];
+        if (slot >= g_slot_hunters.size()) {
+            continue;
+        }
+        if (roster.hunters[index]
+            <= static_cast<std::uint8_t>(
+                fruityprime::metadata::Hunter::Random)) {
+            g_slot_hunters[slot] = roster.hunters[index];
+        }
+    }
     if (!g_session.has_value()) {
         return;
     }
@@ -8463,6 +8469,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
                 fruityprime::assets::Store::from_path(rom_path));
             fruityprime::runtime::HalfturretEntity::bind_asset_store(
                 g_assets.get());
+            fruityprime::runtime::HalfturretEntity::bind_scene_initializer(
+                &init_network_halfturret);
             const auto& assets = *g_assets;
             static_cast<void>(
                 fruityprime::utility::extract::load_runtime_data(assets));
@@ -8933,6 +8941,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show_command) {
     g_sfx_mixer.reset();
     g_sound_catalog.reset();
     g_gameplay_config.reset();
+    fruityprime::runtime::HalfturretEntity::bind_scene_initializer(nullptr);
     fruityprime::runtime::HalfturretEntity::bind_asset_store(nullptr);
     g_assets.reset();
     wglMakeCurrent(nullptr, nullptr);

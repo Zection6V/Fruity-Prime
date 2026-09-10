@@ -44,6 +44,7 @@ void require(bool condition, const char* message) {
 }
 
 bool room_fade_started = false;
+int halfturret_scene_init_calls = 0;
 
 void note_room_fade() noexcept {
     room_fade_started = true;
@@ -62,9 +63,11 @@ void noop_init_player(fruityprime::players::PlayerEntity& player) noexcept {
     static_cast<void>(player);
 }
 
-void noop_init_halfturret(
+void record_init_halfturret(
     fruityprime::runtime::HalfturretEntity& halfturret) noexcept {
-    static_cast<void>(halfturret);
+    ++halfturret_scene_init_calls;
+    assert(halfturret.turret_model().get_node_by_name("TurretBase")
+           != nullptr);
 }
 
 template <typename Predicate>
@@ -403,6 +406,9 @@ void test_match_state_boundaries() {
 
     const auto assets = fruityprime::assets::Store::from_rom(rom_value);
     fruityprime::runtime::HalfturretEntity::bind_asset_store(&assets);
+    fruityprime::runtime::HalfturretEntity::bind_scene_initializer(
+        &record_init_halfturret);
+    halfturret_scene_init_calls = 0;
     const auto* room_entry = fruityprime::scene::find_multiplayer_room(
         "MP1 SANCTORUS");
     assert(room_entry != nullptr);
@@ -429,11 +435,13 @@ void test_match_state_boundaries() {
     fruityprime::net::NetRoomChange::AfterRebuild({
         20, room_bridge, room_log,
         &noop_insert_player, &noop_initialize_player,
-        &noop_init_player, &noop_init_halfturret
+        &noop_init_player, &record_init_halfturret
     });
+    assert(halfturret_scene_init_calls == 3);
     assert(fruityprime::net::NetRoomChange::Settling(20));
     assert(!fruityprime::net::NetRoomChange::Settling(80));
     fruityprime::players::PlayerEntity::Reset();
+    fruityprime::runtime::HalfturretEntity::bind_scene_initializer(nullptr);
     fruityprime::runtime::HalfturretEntity::bind_asset_store(nullptr);
 }
 

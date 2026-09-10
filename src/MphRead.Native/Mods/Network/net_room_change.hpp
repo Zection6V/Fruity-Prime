@@ -2,6 +2,7 @@
 
 #include "Mods/Network/net_protocol.hpp"
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -51,6 +52,7 @@ public:
         const RosterPacket& roster;
         int local_slot;
         std::uint8_t local_hunter;
+        const std::array<std::uint8_t, NetConfig::SlotCapacity>& slot_hunters;
         int local_recolor;
         SlotManager& slot_manager;
         DamageBridge& damage;
@@ -66,10 +68,10 @@ public:
         // calls made by NetRoomChange.AfterRebuild.  They are required: a
         // caller must provide the room's insertion, PlayerEntity.Initialize,
         // and both Scene.InitEntity operations in the same order.
-        void (*insert_entity)(players::PlayerEntity&) noexcept;
-        void (*initialize)(players::PlayerEntity&) noexcept;
-        void (*init_entity)(players::PlayerEntity&) noexcept;
-        void (*init_halfturret)(runtime::HalfturretEntity&) noexcept;
+        void (*insert_entity)(players::PlayerEntity&);
+        void (*initialize)(players::PlayerEntity&);
+        void (*init_entity)(players::PlayerEntity&);
+        void (*init_halfturret)(runtime::HalfturretEntity&);
     };
 
     static void Reset() noexcept;
@@ -91,7 +93,7 @@ public:
     // the main player.  Native gameplay::Session already owns the other
     // active slot records; this method performs their equivalent native
     // initialization and closes the settling boundary.
-    static void AfterRebuild(const AfterRebuildContext& context) noexcept;
+    static void AfterRebuild(const AfterRebuildContext& context);
 
 private:
     static constexpr std::uint32_t SettleFrames = 60;

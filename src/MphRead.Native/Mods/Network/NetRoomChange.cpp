@@ -20,14 +20,13 @@ namespace {
 
 struct RosterSlot {
     bool occupied = false;
-    std::uint8_t hunter = 0;
 };
 
 [[nodiscard]] RosterSlot roster_slot(const RosterPacket& roster,
                                       std::size_t slot) noexcept {
     for (std::size_t index = 0; index < roster.count; ++index) {
         if (roster.slots[index] == slot) {
-            return {true, roster.hunters[index]};
+            return {true};
         }
     }
     return {};
@@ -113,10 +112,11 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
     const int max_players = players::PlayerEntity::MaxPlayers();
 
     for (int slot = 0; slot < max_players; ++slot) {
-        const RosterSlot roster = roster_slot(
-            context.roster, static_cast<std::size_t>(slot));
+        const bool occupied = roster_slot(
+            context.roster, static_cast<std::size_t>(slot)).occupied;
         const std::uint8_t hunter = slot == local_slot
-            ? context.local_hunter : roster.hunter;
+            ? context.local_hunter : context.slot_hunters[
+                static_cast<std::size_t>(slot)];
         auto* player = players::PlayerEntity::Create(
             static_cast<metadata::Hunter>(hunter),
             slot == local_slot ? context.local_recolor : 0);
@@ -140,8 +140,7 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
         player->Camera().info().node_ref = culling::NodeRef::none();
         player->IsBot(false);
         player->BotLevel(0);
-        const bool occupied = slot == local_slot || roster.occupied;
-        if (!occupied) {
+        if (!(slot == local_slot || occupied)) {
             flags = static_cast<std::uint8_t>(
                 flags & ~static_cast<std::uint8_t>(formats::LoadFlags::Active));
             player->LoadFlags(static_cast<formats::LoadFlags>(flags));
@@ -160,7 +159,7 @@ players::PlayerEntity* NetRoomChange::RebuildPlayers(
 }
 
 void NetRoomChange::AfterRebuild(
-    const AfterRebuildContext& context) noexcept {
+    const AfterRebuildContext& context) {
     loaded_frame_ = std::max(context.net_frame, 1U);
     context.player_bridge.note_room_changed();
     NetLaunch::disable_cheats_for_match(context.log);

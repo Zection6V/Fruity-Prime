@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <stdexcept>
 
 namespace fruityprime::runtime {
 
@@ -48,57 +47,38 @@ void HalfturretEntity::bind_asset_store(
     asset_store_ = assets;
 }
 
-void HalfturretEntity::create() {
-    if (asset_store_ == nullptr) {
-        throw std::logic_error(
-            "HalfturretEntity.Create requires the active asset store");
-    }
+void HalfturretEntity::bind_scene_initializer(
+    SceneInitializer initializer) noexcept {
+    scene_initializer_ = initializer;
+}
 
+void HalfturretEntity::create() {
     // EntityBase.SetUpModel calls Read.GetModelInstance, then sets animation
     // zero before adding the instance to _models.  Keep the same order for
     // both models instead of retaining only their metadata names.
-    auto turret = assets::try_load_named_model(*asset_store_, model_name());
-    if (!turret.has_value()) {
-        throw std::runtime_error(
-            "HalfturretEntity.Create could not load WeavelAlt_Turret_lod0");
-    }
-    turret_model_ = std::make_unique<model::File>(std::move(turret->model));
+    auto turret = assets::try_load_named_model(*asset_store_, model_name())
+                      .value();
+    turret_model_ = std::make_unique<model::File>(std::move(turret.model));
     turret_instance_ = std::make_unique<model::ModelInstance>(*turret_model_);
     turret_instance_->set_animation(0);
 
     base_node_index_ = turret_model_->get_node_index_by_name("TurretBase");
-    if (base_node_index_ < 0
-        || static_cast<std::size_t>(base_node_index_)
-               >= turret_model_->nodes().size()) {
-        throw std::runtime_error(
-            "HalfturretEntity.Create could not resolve TurretBase");
-    }
-    base_node_parent_index_ = turret_model_->nodes()[
-        static_cast<std::size_t>(base_node_index_)].parent_index();
-    if (base_node_parent_index_ < 0
-        || static_cast<std::size_t>(base_node_parent_index_)
-               >= turret_model_->nodes().size()) {
-        throw std::runtime_error(
-            "HalfturretEntity.Create could not resolve TurretBase parent");
-    }
+    const auto& base_node = turret_model_->nodes().at(
+        static_cast<std::size_t>(base_node_index_));
+    base_node_parent_index_ = base_node.parent_index();
+    static_cast<void>(turret_model_->nodes().at(
+        static_cast<std::size_t>(base_node_parent_index_)));
 
-    auto alt_ice = assets::try_load_named_model(*asset_store_, ice_model_name());
-    if (!alt_ice.has_value()) {
-        throw std::runtime_error(
-            "HalfturretEntity.Create could not load alt_ice");
-    }
+    auto alt_ice = assets::try_load_named_model(*asset_store_, ice_model_name())
+                       .value();
     alt_ice_model_ = std::make_unique<model::File>(
-        std::move(alt_ice->model));
+        std::move(alt_ice.model));
     alt_ice_instance_ = std::make_unique<model::ModelInstance>(*alt_ice_model_);
     alt_ice_instance_->set_animation(0);
-    created_ = true;
 }
 
-void HalfturretEntity::init_scene_entity() noexcept {
-    // Scene.InitEntity's renderer-independent work is the existence of the
-    // already-created model instances.  The Win32 scene callback performs
-    // texture/list registration against these exact instances.
-    scene_initialized_ = true;
+void HalfturretEntity::init_scene_entity() {
+    scene_initializer_(*this);
 }
 
 void HalfturretEntity::initialize_from_owner() noexcept {

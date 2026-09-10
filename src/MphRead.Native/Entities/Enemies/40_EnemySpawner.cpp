@@ -2,6 +2,7 @@
 // Enemy40 owns the room-spawner lifecycle boundary. Its update body is kept
 // here so gameplay.cpp remains an orchestration module rather than a second
 // implementation of every enemy class.
+#include "04_Petrasyl2.hpp"
 #include "03_Petrasyl1.hpp"
 #include "10_BarbedWarWasp.hpp"
 #include "00_WarWasp.hpp"
@@ -216,6 +217,9 @@ void Session::update_enemy_spawns() {
             } else if (spawned.enemy_type == static_cast<std::uint8_t>(
                     formats::EnemyType::Petrasyl1)) {
                 enemy::module_03_petrasyl1::EnemyInitialize(spawned);
+            } else if (spawned.enemy_type == static_cast<std::uint8_t>(
+                    formats::EnemyType::Petrasyl2)) {
+                enemy::module_04_petrasyl2::EnemyInitialize(spawned);
             }
             if (spawned.voldrum.supported) {
                 const auto& profile = spawned.voldrum;

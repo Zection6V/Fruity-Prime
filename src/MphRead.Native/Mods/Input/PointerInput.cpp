@@ -116,7 +116,7 @@ namespace
             }
         }
 
-        if (negative)
+        if (negative && integerPart != "0")
         {
             integerPart.insert(integerPart.begin(), '-');
         }

@@ -1,8 +1,9 @@
 #pragma once
 
+#include <array>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace MphRead
 {
@@ -14,19 +15,21 @@ namespace MphRead
             class Entry final
             {
             public:
-                Entry() = default;
-                Entry(std::string who, std::string what, std::string where);
+                using NullableString = std::optional<std::string>;
 
-                [[nodiscard]] const std::string& Who() const noexcept;
-                [[nodiscard]] const std::string& What() const noexcept;
-                [[nodiscard]] const std::string& Where() const noexcept;
+                Entry() = default;
+                Entry(NullableString who, NullableString what, NullableString where);
+
+                [[nodiscard]] const NullableString& Who() const noexcept;
+                [[nodiscard]] const NullableString& What() const noexcept;
+                [[nodiscard]] const NullableString& Where() const noexcept;
 
                 friend bool operator==(const Entry&, const Entry&) = default;
 
             private:
-                std::string _who;
-                std::string _what;
-                std::string _where;
+                NullableString _who;
+                NullableString _what;
+                NullableString _where;
             };
 
             inline static constexpr std::string_view Author = "Livetek";
@@ -38,7 +41,7 @@ namespace MphRead
             [[nodiscard]] static std::string Summary();
             [[nodiscard]] static std::string Compact();
             [[nodiscard]] static std::string Names();
-            [[nodiscard]] static const std::vector<Entry>& Entries();
+            [[nodiscard]] static const std::array<Entry, 12>& Entries();
             static void Print();
 
             Credits() = delete;

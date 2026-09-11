@@ -42,18 +42,7 @@ namespace MphRead::Mods
                 return adapter.CompletedTask(0);
             }
 
-            // C# evaluates these property arguments from left to right. Keep the
-            // reads per-call and ordered; none of these values are retained.
-            int parallelism = adapter.ThumbnailBatchDefaultParallelism();
-            int width = adapter.ThumbnailGeneratorThumbnailWidth();
-            int height = adapter.ThumbnailGeneratorThumbnailHeight();
-
-            ThumbnailTaskIntRef batchTask = adapter.RunThumbnailBatchAsync(
-                missing,
-                parallelism,
-                width,
-                height,
-                report);
+            ThumbnailTaskIntRef batchTask = adapter.RunThumbnailBatchAsync(missing, report);
             return adapter.AwaitTask(batchTask);
         }
         catch (...)

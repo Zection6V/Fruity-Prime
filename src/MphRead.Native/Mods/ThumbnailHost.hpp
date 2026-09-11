@@ -49,9 +49,6 @@ namespace MphRead::Mods
         [[nodiscard]] virtual std::size_t ThumbnailRoomsCount(ThumbnailRoomsRef rooms) const = 0;
 
         [[nodiscard]] virtual bool ThumbnailBatchCanRun() const = 0;
-        [[nodiscard]] virtual int ThumbnailBatchDefaultParallelism() const = 0;
-        [[nodiscard]] virtual int ThumbnailGeneratorThumbnailWidth() const = 0;
-        [[nodiscard]] virtual int ThumbnailGeneratorThumbnailHeight() const = 0;
 
         // CompletedTask and FaultedTask are the platform task equivalents used
         // for C# async-method completion before an awaited operation is reached.
@@ -63,14 +60,18 @@ namespace MphRead::Mods
         // cancellation behavior rather than merely returning the inner task.
         [[nodiscard]] virtual ThumbnailTaskIntRef AwaitTask(ThumbnailTaskIntRef task) = 0;
 
-        // Equivalent to Task.Run(() => ThumbnailBatch.Run(...)). Implementations
-        // must dispatch asynchronously and place Run's result/exception in the
-        // returned task; this unit deliberately does not provide a worker.
+        // Exact platform equivalent of:
+        // Task.Run(() => ThumbnailBatch.Run(
+        //     rooms,
+        //     ThumbnailBatch.DefaultParallelism,
+        //     ThumbnailGenerator.ThumbnailWidth,
+        //     ThumbnailGenerator.ThumbnailHeight,
+        //     report))
+        // The three property reads and Run call therefore occur inside the
+        // asynchronously dispatched work. The exact rooms/report references must
+        // be retained for that work; this unit deliberately provides no worker.
         [[nodiscard]] virtual ThumbnailTaskIntRef RunThumbnailBatchAsync(
             ThumbnailRoomsRef rooms,
-            int parallelism,
-            int width,
-            int height,
             ThumbnailReportRef report) = 0;
     };
 

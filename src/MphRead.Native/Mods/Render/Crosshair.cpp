@@ -146,7 +146,7 @@ namespace MphRead::Mods::Render
             if (value.front() == '+')
             {
                 value.remove_prefix(1);
-                if (value.empty())
+                if (value.empty() || value.front() < '0' || value.front() > '9')
                 {
                     return false;
                 }

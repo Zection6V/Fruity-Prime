@@ -27,7 +27,7 @@ namespace MphRead::Mods::Render
         Brackets = 4
     };
 
-    struct CrosshairBar
+    struct CrosshairBar final
     {
         const float X = 0.0F;
         const float Y = 0.0F;
@@ -57,6 +57,10 @@ namespace MphRead::Mods::Render
     {
     public:
         Crosshair() = delete;
+        Crosshair(const Crosshair&) = delete;
+        Crosshair(Crosshair&&) = delete;
+        Crosshair& operator=(const Crosshair&) = delete;
+        Crosshair& operator=(Crosshair&&) = delete;
 
         static CrosshairSize Size;
         static CrosshairStyle Style;

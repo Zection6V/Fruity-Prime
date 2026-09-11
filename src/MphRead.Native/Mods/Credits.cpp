@@ -1,11 +1,12 @@
 #include "Credits.hpp"
 #include "Branding.hpp"
 
+#include <array>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace
 {
@@ -14,28 +15,33 @@ namespace
         std::cout.write(value.data(), static_cast<std::streamsize>(value.size()));
         std::cout.put('\n');
     }
+
+    [[nodiscard]] std::string_view ValueOrEmpty(const std::optional<std::string>& value) noexcept
+    {
+        return value.has_value() ? std::string_view(*value) : std::string_view{};
+    }
 }
 
 namespace MphRead
 {
     namespace Mods
     {
-        Credits::Entry::Entry(std::string who, std::string what, std::string where)
+        Credits::Entry::Entry(NullableString who, NullableString what, NullableString where)
             : _who(std::move(who)), _what(std::move(what)), _where(std::move(where))
         {
         }
 
-        const std::string& Credits::Entry::Who() const noexcept
+        const Credits::Entry::NullableString& Credits::Entry::Who() const noexcept
         {
             return _who;
         }
 
-        const std::string& Credits::Entry::What() const noexcept
+        const Credits::Entry::NullableString& Credits::Entry::What() const noexcept
         {
             return _what;
         }
 
-        const std::string& Credits::Entry::Where() const noexcept
+        const Credits::Entry::NullableString& Credits::Entry::Where() const noexcept
         {
             return _where;
         }
@@ -69,9 +75,10 @@ namespace MphRead
         {
             std::string result;
             bool first = true;
-            for (const Entry& entry : Entries())
+            for (Entry entry : Entries())
             {
-                if (entry.Who() == "NoneGiven")
+                const Entry::NullableString& who = entry.Who();
+                if (who.has_value() && *who == "NoneGiven")
                 {
                     continue;
                 }
@@ -80,16 +87,19 @@ namespace MphRead
                 {
                     result.append(" · ");
                 }
-                result.append(entry.Who());
+                if (who.has_value())
+                {
+                    result.append(*who);
+                }
                 first = false;
             }
             return result;
         }
 
-        const std::vector<Credits::Entry>& Credits::Entries()
+        const std::array<Credits::Entry, 12>& Credits::Entries()
         {
-            static const std::vector<Entry> entries
-            {
+            static std::array<Entry, 12> entries
+            {{
                 Entry(
                     "NoneGiven",
                     "MphRead: the model viewer, scene renderer, "
@@ -145,7 +155,7 @@ namespace MphRead
                     "OpenAL Soft and SoundFlow",
                     "audio",
                     "https://github.com/LSXPrime/SoundFlow")
-            };
+            }};
             return entries;
         }
 
@@ -162,13 +172,14 @@ namespace MphRead
             WriteLine("  A significant portion of this project's code is based on the");
             WriteLine("  file format information or source code of these projects:");
             WriteLine();
-            for (const Entry& entry : Entries())
+            for (Entry entry : Entries())
             {
-                WriteLine(std::string("  ") + entry.Who());
-                WriteLine(std::string("      ") + entry.What());
-                if (!entry.Where().empty())
+                WriteLine(std::string("  ") + std::string(ValueOrEmpty(entry.Who())));
+                WriteLine(std::string("      ") + std::string(ValueOrEmpty(entry.What())));
+                const std::string& where = entry.Where().value();
+                if (where.length() > 0)
                 {
-                    WriteLine(std::string("      ") + entry.Where());
+                    WriteLine(std::string("      ") + where);
                 }
             }
             WriteLine();

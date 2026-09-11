@@ -6,7 +6,7 @@
 
 namespace MphRead
 {
-    enum class GameMode;
+    enum class GameMode : std::uint8_t;
     class RenderWindow;
     class Scene;
 }

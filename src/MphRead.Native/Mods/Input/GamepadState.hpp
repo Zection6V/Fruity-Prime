@@ -1,11 +1,12 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
 namespace MphRead::Mods::Input
 {
-    enum class GamepadButtons : int
+    enum class GamepadButtons : std::int32_t
     {
         None = 0,
         A = 1 << 0,

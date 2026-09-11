@@ -63,6 +63,26 @@ perform the requested local work yourself.
   known URL, inspect its last state, and do not resend the original prompt unless
   the conversation proves that it was never submitted.
 
+## Run two migration items in parallel
+
+- For the long-running C#-to-C++ migration, keep two genuinely independent work
+  items active whenever the browser and account permit it. Each item may be an
+  implementation, a review, or a correction/re-review cycle, but never run two
+  conversations that can edit the same files.
+- Maintain a small task ledger in working notes or commentary with, for each
+  item, the C# source path, Native paths, phase (`implementation`, `waiting`,
+  `sync`, `review`, `correction`, or `done`), current commit SHA, and next action.
+  Refresh the ledger whenever a response, commit, review result, or blocker
+  changes the state.
+- When one item reaches a terminal result, record its SHA or explicit NO-OP,
+  close its finished tab, and start the next independent item immediately in the
+  same control cycle so the active count does not unnecessarily drop to one.
+  Keep a tab only while it has a live response or is needed for a follow-up;
+  do not keep completed tabs open merely to maintain the count.
+- Before starting a replacement item, verify that the remaining active item is
+  still running or awaiting a concrete next step. Before committing, each worker
+  must refresh `develop2` and preserve any concurrent non-overlapping commits.
+
 ## Supply the task efficiently
 
 - Give ChatGPT a directly accessible repository, document, page, or artifact link

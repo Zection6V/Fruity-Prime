@@ -3,7 +3,6 @@
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Features.hpp"
 #include "../Formats/Enums.hpp"
-#include "../Formats/Formats.hpp"
 #include "../Utility/Console.hpp"
 #include "Branding.hpp"
 #include "ConsoleWindow.hpp"

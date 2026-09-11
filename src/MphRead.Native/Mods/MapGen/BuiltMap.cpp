@@ -1,6 +1,27 @@
 #include "BuiltMap.hpp"
 
-#include "../Render/PreviewCamera.hpp"
+namespace OpenTK::Mathematics
+{
+    // Transitional declaration surface matching the existing Native OpenTK 4.9.4
+    // Vector3 dependency. No vector behavior is reimplemented by BuiltMap.
+    struct Vector3
+    {
+        float X;
+        float Y;
+        float Z;
+
+        static const Vector3 UnitX;
+        static const Vector3 UnitY;
+        static const Vector3 UnitZ;
+
+        [[nodiscard]] float LengthSquared() const;
+        [[nodiscard]] Vector3 Normalized() const;
+        [[nodiscard]] static Vector3 Cross(Vector3 left, Vector3 right);
+    };
+
+    [[nodiscard]] Vector3 operator-(Vector3 left, Vector3 right);
+    [[nodiscard]] Vector3 operator-(Vector3 value);
+}
 
 namespace MphRead::Mods::MapGen
 {

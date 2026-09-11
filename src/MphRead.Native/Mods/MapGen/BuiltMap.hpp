@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../Formats/Enums.hpp"
+
 #include <cstdint>
 #include <vector>
 
@@ -11,8 +13,6 @@ namespace OpenTK::Mathematics
 
 namespace MphRead
 {
-    enum class Terrain : std::uint8_t;
-
     namespace Editor
     {
         class EntityEditorBase;
@@ -46,7 +46,7 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] std::vector<Editor::EntityEditorBase*>& Entities() noexcept;
 
     private:
-        MapDefinition* _definition;
+        MapDefinition* const _definition;
         std::vector<BuiltFace*> _faces{};
         std::vector<BuiltFace*> _solid{};
         std::vector<Editor::EntityEditorBase*> _entities{};
@@ -78,14 +78,14 @@ namespace MphRead::Mods::MapGen
         void Terrain(MphRead::Terrain value) noexcept;
 
     private:
-        Interop::ManagedArray<OpenTK::Mathematics::Vector3>* _points;
-        Interop::ManagedArray<OpenTK::Mathematics::Vector2>* _texcoords;
-        float _normalX;
-        float _normalY;
-        float _normalZ;
-        std::int32_t _material;
-        float _shade;
+        Interop::ManagedArray<OpenTK::Mathematics::Vector3>* const _points;
+        Interop::ManagedArray<OpenTK::Mathematics::Vector2>* const _texcoords;
+        const float _normalX;
+        const float _normalY;
+        const float _normalZ;
+        const std::int32_t _material;
+        const float _shade;
         bool _damaging = false;
-        MphRead::Terrain _terrain = static_cast<MphRead::Terrain>(0);
+        MphRead::Terrain _terrain = MphRead::Terrain::Metal;
     };
 }

@@ -34,10 +34,7 @@ namespace MphRead::Mods
             IThumbnailHost* host = Current();
             if (host != nullptr)
             {
-                // There is no work after the await in the C# method. Returning
-                // the host task directly preserves its completion, result, and
-                // exception while keeping the exact missing/report identities.
-                return host->RenderAsync(missing, report);
+                return adapter.AwaitTask(host->RenderAsync(missing, report));
             }
 
             if (!adapter.ThumbnailBatchCanRun())
@@ -51,12 +48,13 @@ namespace MphRead::Mods
             int width = adapter.ThumbnailGeneratorThumbnailWidth();
             int height = adapter.ThumbnailGeneratorThumbnailHeight();
 
-            return adapter.RunThumbnailBatchAsync(
+            ThumbnailTaskIntRef batchTask = adapter.RunThumbnailBatchAsync(
                 missing,
                 parallelism,
                 width,
                 height,
                 report);
+            return adapter.AwaitTask(batchTask);
         }
         catch (...)
         {

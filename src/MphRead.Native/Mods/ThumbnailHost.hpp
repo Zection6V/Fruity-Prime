@@ -58,6 +58,11 @@ namespace MphRead::Mods
         [[nodiscard]] virtual ThumbnailTaskIntRef CompletedTask(int result) noexcept = 0;
         [[nodiscard]] virtual ThumbnailTaskIntRef FaultedTask(std::exception_ptr error) noexcept = 0;
 
+        // Produce the outer async-method task for `return await task`, preserving
+        // the platform await continuation/context, result, exception, and
+        // cancellation behavior rather than merely returning the inner task.
+        [[nodiscard]] virtual ThumbnailTaskIntRef AwaitTask(ThumbnailTaskIntRef task) = 0;
+
         // Equivalent to Task.Run(() => ThumbnailBatch.Run(...)). Implementations
         // must dispatch asynchronously and place Run's result/exception in the
         // returned task; this unit deliberately does not provide a worker.

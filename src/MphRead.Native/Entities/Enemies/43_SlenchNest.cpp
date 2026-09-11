@@ -2,13 +2,6 @@
 
 #include <cassert>
 
-#ifdef MPHREAD_NATIVE_ENEMY43_LOCAL_ENTITY_ADAPTER
-namespace OpenTK::Mathematics
-{
-    const Vector3 Vector3::Zero{0.0F, 0.0F, 0.0F};
-}
-#endif
-
 namespace MphRead::Entities::Enemies
 {
     namespace

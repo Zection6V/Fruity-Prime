@@ -8,8 +8,8 @@
 #include <ios>
 #include <istream>
 #include <limits>
-#include <sstream>
 #include <stdexcept>
+#include <streambuf>
 #include <string_view>
 #include <utility>
 
@@ -225,6 +225,26 @@ namespace
         std::istream& _stream;
     };
 
+    class ReadOnlyMemoryBuffer final : public std::streambuf
+    {
+    public:
+        explicit ReadOnlyMemoryBuffer(const std::vector<std::uint8_t>& bytes) noexcept
+        {
+            if (bytes.empty())
+            {
+                setg(&_empty, &_empty, &_empty);
+                return;
+            }
+
+            const char* data = reinterpret_cast<const char*>(bytes.data());
+            char* begin = const_cast<char*>(data);
+            setg(begin, begin, begin + bytes.size());
+        }
+
+    private:
+        char _empty = 0;
+    };
+
     [[nodiscard]] std::int32_t PixelCount(std::uint16_t width, std::uint16_t height) noexcept
     {
         const std::uint32_t product = static_cast<std::uint32_t>(width)
@@ -369,8 +389,8 @@ namespace MphRead::Mods::MapGen
         const std::vector<std::uint8_t>& bytes,
         const std::string& name)
     {
-        const std::string storage(bytes.begin(), bytes.end());
-        std::istringstream memory(storage, std::ios::in | std::ios::binary);
+        ReadOnlyMemoryBuffer buffer(bytes);
+        std::istream memory(&buffer);
         return Load(memory, name);
     }
 

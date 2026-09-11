@@ -1,14 +1,12 @@
 #include "Types.hpp"
 
 #include <bit>
-#include <cassert>
 #include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
-#include <locale>
 #include <new>
 #include <random>
-#include <sstream>
 #include <stdexcept>
 
 namespace
@@ -18,6 +16,8 @@ namespace
     constexpr std::uint32_t Prime3 = 3266489917U;
     constexpr std::uint32_t Prime4 = 668265263U;
     constexpr std::uint32_t Prime5 = 374761393U;
+
+    thread_local std::string ManagedCurrentNegativeSign = "-";
 
     template <typename T>
     T& AssignReadonly(T& self, const T& other) noexcept
@@ -251,7 +251,7 @@ namespace
             ? 0U - static_cast<std::uint32_t>(value)
             : static_cast<std::uint32_t>(value);
         const auto [end, error] = std::to_chars(
-            std::begin(digits), std::end(digits), magnitude);
+            digits, digits + sizeof(digits), magnitude);
         if (error != std::errc{})
         {
             throw std::runtime_error("Failed to format Int32.");
@@ -260,28 +260,33 @@ namespace
         std::string result;
         if (value < 0)
         {
-            std::string negativeSign = "-";
-            try
-            {
-                std::ostringstream sample;
-                sample.imbue(std::locale(""));
-                sample << -1;
-                const std::string formatted = sample.str();
-                const std::size_t digit = formatted.find('1');
-                if (digit != std::string::npos && digit > 0)
-                {
-                    negativeSign = formatted.substr(0, digit);
-                }
-            }
-            catch (const std::runtime_error&)
-            {
-                // The managed current culture is always available. If the host
-                // locale database is unavailable, preserve the invariant sign.
-            }
-            result += negativeSign;
+            result += ManagedCurrentNegativeSign;
         }
-        result.append(std::begin(digits), end);
+        result.append(digits, end);
         return result;
+    }
+
+#if defined(DEBUG)
+    [[noreturn]] void DebugAssertFailed() noexcept
+    {
+        std::abort();
+    }
+
+    void DebugAssert(bool condition) noexcept
+    {
+        if (!condition)
+        {
+            DebugAssertFailed();
+        }
+    }
+#endif
+}
+
+namespace MphRead::NativeRuntime
+{
+    void SetManagedCurrentNegativeSign(std::string negativeSign)
+    {
+        ManagedCurrentNegativeSign = negativeSign;
     }
 }
 
@@ -673,7 +678,7 @@ namespace MphRead
         else
         {
 #if defined(DEBUG)
-            assert(depth != 0.0F);
+            DebugAssert(depth != 0.0F);
 #endif
             scaleInv = 0.0F;
             screenPos = Vector2::Zero;

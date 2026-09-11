@@ -54,6 +54,11 @@ namespace System
     };
 }
 
+namespace MphRead::NativeRuntime
+{
+    void SetManagedCurrentNegativeSign(std::string negativeSign);
+}
+
 namespace OpenTK::Mathematics
 {
     struct Vector2

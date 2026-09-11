@@ -96,6 +96,11 @@ namespace MphRead::Mods::Launcher::Gui
     public:
         explicit ProgressRow(ProgressRowControlAdapter& control);
 
+        ProgressRow(const ProgressRow&) = delete;
+        ProgressRow& operator=(const ProgressRow&) = delete;
+        ProgressRow(ProgressRow&&) = delete;
+        ProgressRow& operator=(ProgressRow&&) = delete;
+
         void Set(double fraction, const std::string& stage);
         void Render(ProgressRowDrawingContext& context, ProgressRowBounds bounds);
 

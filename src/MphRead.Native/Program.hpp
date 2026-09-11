@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -11,19 +12,19 @@ namespace System
     class Version final
     {
     public:
-        Version(int major, int minor);
-        Version(int major, int minor, int build);
-        Version(int major, int minor, int build, int revision);
+        Version(std::int32_t major, std::int32_t minor);
+        Version(std::int32_t major, std::int32_t minor, std::int32_t build);
+        Version(std::int32_t major, std::int32_t minor, std::int32_t build, std::int32_t revision);
 
         [[nodiscard]] static std::optional<Version> TryParse(std::string_view text) noexcept;
 
         friend bool operator>=(const Version& left, const Version& right) noexcept;
 
     private:
-        int _major;
-        int _minor;
-        int _build;
-        int _revision;
+        std::int32_t _major;
+        std::int32_t _minor;
+        std::int32_t _build;
+        std::int32_t _revision;
     };
 }
 

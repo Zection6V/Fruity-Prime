@@ -587,18 +587,18 @@ std::exit(1);
 }
 namespace System
 {
-Version::Version(int major, int minor) : _major(major), _minor(minor), _build(-1), _revision(-1)
+Version::Version(std::int32_t major, std::int32_t minor) : _major(major), _minor(minor), _build(-1), _revision(-1)
 {
 if (major < 0) throw std::out_of_range("major");
 if (minor < 0) throw std::out_of_range("minor");
 }
-Version::Version(int major, int minor, int build) : _major(major), _minor(minor), _build(build), _revision(-1)
+Version::Version(std::int32_t major, std::int32_t minor, std::int32_t build) : _major(major), _minor(minor), _build(build), _revision(-1)
 {
 if (major < 0) throw std::out_of_range("major");
 if (minor < 0) throw std::out_of_range("minor");
 if (build < 0) throw std::out_of_range("build");
 }
-Version::Version(int major, int minor, int build, int revision) : _major(major), _minor(minor), _build(build), _revision(revision)
+Version::Version(std::int32_t major, std::int32_t minor, std::int32_t build, std::int32_t revision) : _major(major), _minor(minor), _build(build), _revision(revision)
 {
 if (major < 0) throw std::out_of_range("major");
 if (minor < 0) throw std::out_of_range("minor");

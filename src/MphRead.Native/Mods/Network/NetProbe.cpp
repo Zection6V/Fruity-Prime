@@ -23,8 +23,11 @@
 #endif
 #else
 #include <cerrno>
+#include <ifaddrs.h>
 #include <netdb.h>
+#include <net/if.h>
 #include <arpa/inet.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -240,6 +243,27 @@ namespace MphRead::Mods::Network::Detail
             {
                 throw std::runtime_error("Invalid IPv4 endpoint address");
             }
+
+            if (!_isBroadcast && destination.sin_addr.s_addr == htonl(INADDR_BROADCAST))
+            {
+                _isBroadcast = true;
+                const int enabled = 1;
+#ifdef _WIN32
+                if (setsockopt(_socket, SOL_SOCKET, SO_BROADCAST,
+                        reinterpret_cast<const char*>(&enabled), sizeof(enabled)) == SOCKET_ERROR)
+                {
+                    const int error = WSAGetLastError();
+                    throw SocketException(SocketErrorMessage(error), IsTimeoutError(error));
+                }
+#else
+                if (setsockopt(_socket, SOL_SOCKET, SO_BROADCAST, &enabled,
+                        static_cast<socklen_t>(sizeof(enabled))) != 0)
+                {
+                    const int error = errno;
+                    throw SocketException(SocketErrorMessage(error), IsTimeoutError(error));
+                }
+#endif
+            }
 #ifdef _WIN32
             const int sent = sendto(_socket,
                 reinterpret_cast<const char*>(data), static_cast<int>(length), 0,
@@ -307,6 +331,7 @@ namespace MphRead::Mods::Network::Detail
 
     private:
         SocketHandle _socket = InvalidSocket;
+        bool _isBroadcast = false;
     };
 
     [[nodiscard]] bool TryParseDotNetIPv4(
@@ -426,44 +451,668 @@ namespace MphRead::Mods::Network::Detail
         return false;
     }
 
-    [[nodiscard]] bool IsUnspecifiedIpLiteral(const std::string& address) noexcept
+    [[nodiscard]] std::string FormatDotNetIPv4(std::uint32_t value)
     {
-        std::uint32_t ipv4 = 0;
-        if (TryParseDotNetIPv4(address, ipv4) && ipv4 == 0)
-        {
-            return true;
-        }
+        return std::to_string((value >> 24) & 0xFFu) + "."
+            + std::to_string((value >> 16) & 0xFFu) + "."
+            + std::to_string((value >> 8) & 0xFFu) + "."
+            + std::to_string(value & 0xFFu);
+    }
 
-        in6_addr ipv6{};
-        if (inet_pton(AF_INET6, address.c_str(), &ipv6) == 1)
+    [[nodiscard]] bool IsHexDigit(char ch) noexcept
+    {
+        return (ch >= '0' && ch <= '9')
+            || (ch >= 'a' && ch <= 'f')
+            || (ch >= 'A' && ch <= 'F');
+    }
+
+    [[nodiscard]] int HexDigitValue(char ch) noexcept
+    {
+        if (ch >= '0' && ch <= '9')
         {
-            const auto* bytes = reinterpret_cast<const unsigned char*>(&ipv6);
-            for (std::size_t i = 0; i < sizeof(ipv6); ++i)
+            return ch - '0';
+        }
+        if (ch >= 'a' && ch <= 'f')
+        {
+            return ch + 10 - 'a';
+        }
+        return ch + 10 - 'A';
+    }
+
+    [[nodiscard]] bool TryParseUInt32Decimal(
+        std::string_view text, std::uint32_t& value) noexcept
+    {
+        if (text.empty())
+        {
+            return false;
+        }
+        std::uint64_t parsed = 0;
+        for (char ch : text)
+        {
+            if (ch < '0' || ch > '9')
             {
-                if (bytes[i] != 0)
+                return false;
+            }
+            parsed = parsed * 10 + static_cast<unsigned int>(ch - '0');
+            if (parsed > 0xFFFFFFFFull)
+            {
+                return false;
+            }
+        }
+        value = static_cast<std::uint32_t>(parsed);
+        return true;
+    }
+
+    [[nodiscard]] bool TryParseEmbeddedIPv4(
+        std::string_view text, std::uint16_t& high, std::uint16_t& low) noexcept
+    {
+        std::uint32_t bytes[4]{};
+        std::size_t start = 0;
+        for (int i = 0; i < 4; ++i)
+        {
+            const std::size_t end = i == 3 ? text.size() : text.find('.', start);
+            if (end == std::string_view::npos || end == start)
+            {
+                return false;
+            }
+            std::uint32_t value = 0;
+            for (std::size_t j = start; j < end; ++j)
+            {
+                const char ch = text[j];
+                if (ch < '0' || ch > '9')
+                {
+                    return false;
+                }
+                value = value * 10 + static_cast<unsigned int>(ch - '0');
+                if (value > 255)
                 {
                     return false;
                 }
             }
-            return true;
+            bytes[i] = value;
+            start = end + 1;
         }
-        return false;
+        if (start != text.size() + 1)
+        {
+            return false;
+        }
+        high = static_cast<std::uint16_t>((bytes[0] << 8) | bytes[1]);
+        low = static_cast<std::uint16_t>((bytes[2] << 8) | bytes[3]);
+        return true;
     }
 
-    void ValidateDnsArgument(const std::string& address)
+    [[nodiscard]] bool TryParseDotNetIPv6(
+        std::string_view text, in6_addr& address, std::uint32_t& scope) noexcept
     {
-        if (IsUnspecifiedIpLiteral(address))
+        if (text.empty())
         {
-            throw std::invalid_argument(
-                "IPv4 address 0.0.0.0 and IPv6 address ::0 are unspecified addresses "
-                "that cannot be used as a target address. (Parameter 'hostNameOrAddress')");
+            return false;
         }
-        if (address.size() > 255 || (address.size() == 255 && address.back() != '.'))
+
+        std::string_view input = text;
+        bool bracketed = false;
+        if (input.front() == '[')
         {
-            throw std::out_of_range(
-                "The size of hostName is too long. It cannot be longer than 255 characters. "
-                "(Parameter 'hostName')");
+            const std::size_t close = input.find(']');
+            if (close == std::string_view::npos)
+            {
+                return false;
+            }
+            bracketed = true;
+            const std::string_view suffix = input.substr(close + 1);
+            if (!suffix.empty())
+            {
+                if (suffix.front() != ':')
+                {
+                    return false;
+                }
+                const std::string_view port = suffix.substr(1);
+                if (port.empty())
+                {
+                    return false;
+                }
+                if (port.size() > 2 && port[0] == '0' && port[1] == 'x')
+                {
+                    if (port.size() == 2)
+                    {
+                        return false;
+                    }
+                    for (std::size_t i = 2; i < port.size(); ++i)
+                    {
+                        if (!IsHexDigit(port[i]))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                else
+                {
+                    for (char ch : port)
+                    {
+                        if (ch < '0' || ch > '9')
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            input = input.substr(1, close - 1);
         }
+        else if (input.find(']') != std::string_view::npos)
+        {
+            return false;
+        }
+
+        std::string_view scopeText;
+        const std::size_t percent = input.find('%');
+        if (percent != std::string_view::npos)
+        {
+            scopeText = input.substr(percent + 1);
+            input = input.substr(0, percent);
+        }
+
+        if (input.find(':') == std::string_view::npos)
+        {
+            return false;
+        }
+
+        std::array<std::uint16_t, 8> groups{};
+        std::size_t groupCount = 0;
+        std::size_t compressor = std::string_view::npos;
+        std::size_t pos = 0;
+        if (input.size() >= 2 && input[0] == ':' && input[1] == ':')
+        {
+            compressor = 0;
+            pos = 2;
+            if (pos == input.size())
+            {
+                groupCount = 0;
+            }
+        }
+        else if (!input.empty() && input.front() == ':')
+        {
+            return false;
+        }
+
+        while (pos < input.size())
+        {
+            if (groupCount >= 8)
+            {
+                return false;
+            }
+            const std::size_t nextColon = input.find(':', pos);
+            const std::size_t tokenEnd = nextColon == std::string_view::npos
+                ? input.size() : nextColon;
+            std::string_view token = input.substr(pos, tokenEnd - pos);
+            if (token.empty())
+            {
+                if (nextColon == std::string_view::npos || compressor != std::string_view::npos)
+                {
+                    return false;
+                }
+                compressor = groupCount;
+                pos = nextColon + 1;
+                continue;
+            }
+
+            if (token.find('.') != std::string_view::npos)
+            {
+                if (nextColon != std::string_view::npos || groupCount > 6)
+                {
+                    return false;
+                }
+                std::uint16_t high = 0;
+                std::uint16_t low = 0;
+                if (!TryParseEmbeddedIPv4(token, high, low))
+                {
+                    return false;
+                }
+                groups[groupCount++] = high;
+                groups[groupCount++] = low;
+                pos = input.size();
+                break;
+            }
+
+            if (token.size() > 4)
+            {
+                return false;
+            }
+            std::uint16_t value = 0;
+            for (char ch : token)
+            {
+                if (!IsHexDigit(ch))
+                {
+                    return false;
+                }
+                value = static_cast<std::uint16_t>(value * 16 + HexDigitValue(ch));
+            }
+            groups[groupCount++] = value;
+
+            if (nextColon == std::string_view::npos)
+            {
+                pos = input.size();
+                break;
+            }
+            pos = nextColon + 1;
+            if (pos == input.size())
+            {
+                return false;
+            }
+            if (input[pos] == ':')
+            {
+                if (compressor != std::string_view::npos)
+                {
+                    return false;
+                }
+                compressor = groupCount;
+                ++pos;
+                if (pos == input.size())
+                {
+                    break;
+                }
+            }
+        }
+
+        if (compressor == std::string_view::npos)
+        {
+            if (groupCount != 8)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (groupCount >= 8)
+            {
+                return false;
+            }
+            const std::size_t zeros = 8 - groupCount;
+            for (std::size_t i = groupCount; i > compressor; --i)
+            {
+                groups[i + zeros - 1] = groups[i - 1];
+            }
+            for (std::size_t i = compressor; i < compressor + zeros; ++i)
+            {
+                groups[i] = 0;
+            }
+            groupCount = 8;
+        }
+
+        if (scopeText.empty())
+        {
+            scope = 0;
+        }
+        else if (!TryParseUInt32Decimal(scopeText, scope))
+        {
+            std::string scopeName(scopeText);
+#ifdef _WIN32
+            scope = if_nametoindex(scopeName.c_str());
+#else
+            scope = if_nametoindex(scopeName.c_str());
+#endif
+            if (scope == 0)
+            {
+                scope = 0;
+            }
+        }
+
+        auto* bytes = reinterpret_cast<unsigned char*>(&address);
+        for (std::size_t i = 0; i < 8; ++i)
+        {
+            bytes[i * 2] = static_cast<unsigned char>(groups[i] >> 8);
+            bytes[i * 2 + 1] = static_cast<unsigned char>(groups[i] & 0xFF);
+        }
+        (void)bracketed;
+        return true;
+    }
+
+    [[nodiscard]] std::string FormatIPv6(const in6_addr& address)
+    {
+        std::array<char, INET6_ADDRSTRLEN> text{};
+        if (inet_ntop(AF_INET6, &address, text.data(), text.size()) == nullptr)
+        {
+#ifdef _WIN32
+            const int error = WSAGetLastError();
+#else
+            const int error = errno;
+#endif
+            throw std::runtime_error(SocketErrorMessage(error));
+        }
+        return text.data();
+    }
+
+    [[nodiscard]] std::size_t Utf16Length(std::string_view value)
+    {
+        std::size_t count = 0;
+        for (std::size_t i = 0; i < value.size();)
+        {
+            const unsigned char lead = static_cast<unsigned char>(value[i]);
+            std::uint32_t codePoint = 0;
+            std::size_t width = 1;
+            if (lead < 0x80)
+            {
+                codePoint = lead;
+            }
+            else if ((lead & 0xE0) == 0xC0 && i + 1 < value.size())
+            {
+                codePoint = lead & 0x1F;
+                width = 2;
+            }
+            else if ((lead & 0xF0) == 0xE0 && i + 2 < value.size())
+            {
+                codePoint = lead & 0x0F;
+                width = 3;
+            }
+            else if ((lead & 0xF8) == 0xF0 && i + 3 < value.size())
+            {
+                codePoint = lead & 0x07;
+                width = 4;
+            }
+            else
+            {
+                ++count;
+                ++i;
+                continue;
+            }
+            for (std::size_t j = 1; j < width; ++j)
+            {
+                codePoint = (codePoint << 6)
+                    | (static_cast<unsigned char>(value[i + j]) & 0x3F);
+            }
+            count += codePoint > 0xFFFF ? 2 : 1;
+            i += width;
+        }
+        return count;
+    }
+
+#ifdef _WIN32
+    [[nodiscard]] std::wstring Utf8ToWide(const std::string& value)
+    {
+        if (value.empty())
+        {
+            return {};
+        }
+        const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+            value.data(), static_cast<int>(value.size()), nullptr, 0);
+        if (count == 0)
+        {
+            throw std::runtime_error(SocketErrorMessage(GetLastError()));
+        }
+        std::wstring wide(static_cast<std::size_t>(count), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                static_cast<int>(value.size()), wide.data(), count) == 0)
+        {
+            throw std::runtime_error(SocketErrorMessage(GetLastError()));
+        }
+        return wide;
+    }
+
+    [[nodiscard]] std::vector<ResolvedAddress> ResolveWindows(const std::string& query)
+    {
+        std::wstring wide = Utf8ToWide(query);
+        ADDRINFOW hints{};
+        hints.ai_family = AF_UNSPEC;
+        ADDRINFOW* raw = nullptr;
+        const int error = GetAddrInfoW(wide.c_str(), nullptr, &hints, &raw);
+        if (error != 0)
+        {
+            throw std::runtime_error(SocketErrorMessage(error));
+        }
+
+        struct AddrInfoDeleter
+        {
+            void operator()(ADDRINFOW* value) const noexcept
+            {
+                if (value != nullptr)
+                {
+                    FreeAddrInfoW(value);
+                }
+            }
+        };
+        std::unique_ptr<ADDRINFOW, AddrInfoDeleter> results(raw);
+        std::vector<ResolvedAddress> resolved;
+        for (ADDRINFOW* current = results.get(); current != nullptr; current = current->ai_next)
+        {
+            if (current->ai_family == AF_INET)
+            {
+                const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
+                std::array<char, INET_ADDRSTRLEN> text{};
+                if (inet_ntop(AF_INET, &ipv4->sin_addr, text.data(), text.size()) == nullptr)
+                {
+                    throw std::runtime_error(SocketErrorMessage(WSAGetLastError()));
+                }
+                resolved.push_back({true, text.data()});
+            }
+            else if (current->ai_family == AF_INET6)
+            {
+                resolved.push_back({false, {}});
+            }
+        }
+        return resolved;
+    }
+#else
+    enum class DnsSocketError
+    {
+        HostNotFound,
+        TryAgain,
+        InvalidArgument,
+        NoRecovery,
+        AddressFamilyNotSupported,
+        SocketError
+    };
+
+    [[nodiscard]] int NativeErrorForDnsSocketError(DnsSocketError error)
+    {
+        switch (error)
+        {
+        case DnsSocketError::HostNotFound:
+#ifdef EAI_NONAME
+            return EAI_NONAME;
+#else
+            return -1;
+#endif
+        case DnsSocketError::TryAgain:
+            return EAGAIN;
+        case DnsSocketError::InvalidArgument:
+            return EINVAL;
+        case DnsSocketError::NoRecovery:
+            return 11003;
+        case DnsSocketError::AddressFamilyNotSupported:
+            return EAFNOSUPPORT;
+        case DnsSocketError::SocketError:
+            return -1;
+        }
+        return -1;
+    }
+
+    [[nodiscard]] std::string DnsSocketErrorMessage(DnsSocketError error)
+    {
+        if (error == DnsSocketError::HostNotFound)
+        {
+#ifdef EAI_NONAME
+            return gai_strerror(EAI_NONAME);
+#else
+            return "Name lookup failed";
+#endif
+        }
+        const int nativeError = NativeErrorForDnsSocketError(error);
+        if (nativeError > 0)
+        {
+            return SocketErrorMessage(nativeError);
+        }
+        return "Unknown socket error";
+    }
+
+    [[nodiscard]] DnsSocketError MapGaiError(int error)
+    {
+#ifdef EAI_AGAIN
+        if (error == EAI_AGAIN)
+        {
+            return DnsSocketError::TryAgain;
+        }
+#endif
+#ifdef EAI_BADFLAGS
+        if (error == EAI_BADFLAGS)
+        {
+            return DnsSocketError::InvalidArgument;
+        }
+#endif
+#ifdef EAI_FAIL
+        if (error == EAI_FAIL)
+        {
+            return DnsSocketError::NoRecovery;
+        }
+#endif
+#ifdef EAI_FAMILY
+        if (error == EAI_FAMILY)
+        {
+            return DnsSocketError::AddressFamilyNotSupported;
+        }
+#endif
+#ifdef EAI_NONAME
+        if (error == EAI_NONAME)
+        {
+            return DnsSocketError::HostNotFound;
+        }
+#endif
+#ifdef EAI_NODATA
+        if (error == EAI_NODATA)
+        {
+            return DnsSocketError::HostNotFound;
+        }
+#endif
+        return DnsSocketError::SocketError;
+    }
+
+    void AppendUnixAddress(std::vector<ResolvedAddress>& resolved, const sockaddr* address)
+    {
+        if (address == nullptr)
+        {
+            return;
+        }
+        if (address->sa_family == AF_INET)
+        {
+            const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(address);
+            std::array<char, INET_ADDRSTRLEN> text{};
+            if (inet_ntop(AF_INET, &ipv4->sin_addr, text.data(), text.size()) == nullptr)
+            {
+                throw std::runtime_error(SocketErrorMessage(errno));
+            }
+            for (const ResolvedAddress& existing : resolved)
+            {
+                if (existing.IsIPv4 && existing.Text == text.data())
+                {
+                    return;
+                }
+            }
+            resolved.push_back({true, text.data()});
+        }
+        else if (address->sa_family == AF_INET6)
+        {
+            resolved.push_back({false, {}});
+        }
+    }
+
+    [[nodiscard]] std::vector<ResolvedAddress> ResolveUnix(const std::string& query)
+    {
+        addrinfo hints{};
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_flags = AI_CANONNAME;
+        addrinfo* raw = nullptr;
+        const int error = getaddrinfo(query.c_str(), nullptr, &hints, &raw);
+        if (error != 0)
+        {
+            throw std::runtime_error(DnsSocketErrorMessage(MapGaiError(error)));
+        }
+
+        struct AddrInfoDeleter
+        {
+            void operator()(addrinfo* value) const noexcept
+            {
+                if (value != nullptr)
+                {
+                    freeaddrinfo(value);
+                }
+            }
+        };
+        std::unique_ptr<addrinfo, AddrInfoDeleter> results(raw);
+        std::vector<ResolvedAddress> resolved;
+        for (addrinfo* current = results.get(); current != nullptr; current = current->ai_next)
+        {
+            AppendUnixAddress(resolved, current->ai_addr);
+        }
+
+        std::array<char, 256> host{};
+        if (gethostname(host.data(), host.size()) == 0
+            && strcasecmp(query.c_str(), host.data()) == 0)
+        {
+            ifaddrs* rawInterfaces = nullptr;
+            if (getifaddrs(&rawInterfaces) == 0)
+            {
+                struct IfAddrsDeleter
+                {
+                    void operator()(ifaddrs* value) const noexcept
+                    {
+                        if (value != nullptr)
+                        {
+                            freeifaddrs(value);
+                        }
+                    }
+                };
+                std::unique_ptr<ifaddrs, IfAddrsDeleter> interfaces(rawInterfaces);
+                bool includeIPv4Loopback = true;
+                bool includeIPv6Loopback = true;
+                for (ifaddrs* current = interfaces.get(); current != nullptr;
+                     current = current->ifa_next)
+                {
+                    if (current->ifa_addr == nullptr || (current->ifa_flags & IFF_UP) == 0)
+                    {
+                        continue;
+                    }
+                    if (current->ifa_addr->sa_family == AF_INET
+                        && (current->ifa_flags & IFF_LOOPBACK) == 0)
+                    {
+                        includeIPv4Loopback = false;
+                    }
+                    else if (current->ifa_addr->sa_family == AF_INET6
+                        && (current->ifa_flags & IFF_LOOPBACK) == 0)
+                    {
+                        includeIPv6Loopback = false;
+                    }
+                }
+                for (ifaddrs* current = interfaces.get(); current != nullptr;
+                     current = current->ifa_next)
+                {
+                    if (current->ifa_addr == nullptr || (current->ifa_flags & IFF_UP) == 0)
+                    {
+                        continue;
+                    }
+                    if ((!includeIPv4Loopback && current->ifa_addr->sa_family == AF_INET
+                            && (current->ifa_flags & IFF_LOOPBACK) != 0)
+                        || (!includeIPv6Loopback && current->ifa_addr->sa_family == AF_INET6
+                            && (current->ifa_flags & IFF_LOOPBACK) != 0))
+                    {
+                        continue;
+                    }
+                    AppendUnixAddress(resolved, current->ifa_addr);
+                }
+            }
+        }
+        return resolved;
+    }
+#endif
+
+    [[nodiscard]] bool IsUnspecifiedIPv6(const in6_addr& address) noexcept
+    {
+        const auto* bytes = reinterpret_cast<const unsigned char*>(&address);
+        for (std::size_t i = 0; i < sizeof(address); ++i)
+        {
+            if (bytes[i] != 0)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     class NativeNetProbePlatform final : public INetProbePlatform
@@ -472,10 +1121,43 @@ namespace MphRead::Mods::Network::Detail
         [[nodiscard]] std::vector<ResolvedAddress> Resolve(
             const std::string& address) override
         {
-            ValidateDnsArgument(address);
 #ifdef _WIN32
             EnsureWinSock();
 #endif
+            std::uint32_t ipv4 = 0;
+            if (TryParseDotNetIPv4(address, ipv4))
+            {
+                if (ipv4 == 0)
+                {
+                    throw std::invalid_argument(
+                        "IPv4 address 0.0.0.0 and IPv6 address ::0 are unspecified addresses "
+                        "that cannot be used as a target address. (Parameter 'hostNameOrAddress')");
+                }
+                return {{true, FormatDotNetIPv4(ipv4)}};
+            }
+
+            in6_addr ipv6{};
+            std::uint32_t scope = 0;
+            if (TryParseDotNetIPv6(address, ipv6, scope))
+            {
+                if (IsUnspecifiedIPv6(ipv6))
+                {
+                    throw std::invalid_argument(
+                        "IPv4 address 0.0.0.0 and IPv6 address ::0 are unspecified addresses "
+                        "that cannot be used as a target address. (Parameter 'hostNameOrAddress')");
+                }
+                (void)scope;
+                return {{false, FormatIPv6(ipv6)}};
+            }
+
+            const std::size_t length = Utf16Length(address);
+            if (length > 255 || (length == 255 && !address.empty() && address.back() != '.'))
+            {
+                throw std::out_of_range(
+                    "The size of hostName is too long. It cannot be longer than 255 characters. "
+                    "(Parameter 'hostName')");
+            }
+
             std::string query = address;
             if (query.empty())
             {
@@ -483,63 +1165,18 @@ namespace MphRead::Mods::Network::Detail
                 if (gethostname(host.data(), static_cast<int>(host.size())) != 0)
                 {
 #ifdef _WIN32
-                    const int error = WSAGetLastError();
+                    throw std::runtime_error(SocketErrorMessage(WSAGetLastError()));
 #else
-                    const int error = errno;
+                    throw std::runtime_error(SocketErrorMessage(errno));
 #endif
-                    throw std::runtime_error(SocketErrorMessage(error));
                 }
                 query = host.data();
             }
-
-            addrinfo hints{};
-            hints.ai_family = AF_UNSPEC;
-            addrinfo* raw = nullptr;
-            const int error = getaddrinfo(query.c_str(), nullptr, &hints, &raw);
-            if (error != 0)
-            {
 #ifdef _WIN32
-                throw std::runtime_error(gai_strerrorA(error));
+            return ResolveWindows(query);
 #else
-                throw std::runtime_error(gai_strerror(error));
+            return ResolveUnix(query);
 #endif
-            }
-
-            struct AddrInfoDeleter
-            {
-                void operator()(addrinfo* value) const noexcept
-                {
-                    if (value != nullptr)
-                    {
-                        freeaddrinfo(value);
-                    }
-                }
-            };
-            std::unique_ptr<addrinfo, AddrInfoDeleter> results(raw);
-            std::vector<ResolvedAddress> resolved;
-            for (addrinfo* current = results.get(); current != nullptr; current = current->ai_next)
-            {
-                if (current->ai_family == AF_INET)
-                {
-                    const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
-                    std::array<char, INET_ADDRSTRLEN> text{};
-                    if (inet_ntop(AF_INET, &ipv4->sin_addr, text.data(), text.size()) == nullptr)
-                    {
-#ifdef _WIN32
-                        const int conversionError = WSAGetLastError();
-#else
-                        const int conversionError = errno;
-#endif
-                        throw std::runtime_error(SocketErrorMessage(conversionError));
-                    }
-                    resolved.push_back({true, text.data()});
-                }
-                else
-                {
-                    resolved.push_back({false, {}});
-                }
-            }
-            return resolved;
         }
 
         [[nodiscard]] std::unique_ptr<IUdpClient> CreateUdpIPv4() override

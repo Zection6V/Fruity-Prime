@@ -55,7 +55,7 @@ namespace MphRead::Mods::Network::Detail
         {
         }
 
-        [[nodiscard]] bool TimedOut() const noexcept
+        bool TimedOut() const noexcept
         {
             return _timedOut;
         }
@@ -71,17 +71,16 @@ namespace MphRead::Mods::Network::Detail
         virtual void SetReceiveTimeout(std::int32_t timeoutMs) = 0;
         virtual void Send(const std::uint8_t* data, std::size_t length,
                           const std::string& address, std::int32_t port) = 0;
-        [[nodiscard]] virtual std::vector<std::uint8_t> Receive() = 0;
+        virtual std::vector<std::uint8_t> Receive() = 0;
     };
 
     class INetProbePlatform
     {
     public:
         virtual ~INetProbePlatform() = default;
-        [[nodiscard]] virtual std::vector<ResolvedAddress> Resolve(
-            const std::string& address) = 0;
-        [[nodiscard]] virtual std::unique_ptr<IUdpClient> CreateUdpIPv4() = 0;
-        [[nodiscard]] virtual std::chrono::system_clock::time_point UtcNow() = 0;
+        virtual std::vector<ResolvedAddress> Resolve(const std::string& address) = 0;
+        virtual std::unique_ptr<IUdpClient> CreateUdpIPv4() = 0;
+        virtual std::chrono::system_clock::time_point UtcNow() = 0;
     };
 
 #ifdef _WIN32
@@ -113,7 +112,7 @@ namespace MphRead::Mods::Network::Detail
         (void)runtime;
     }
 
-    [[nodiscard]] std::string SocketErrorMessage(int error)
+    std::string SocketErrorMessage(int error)
     {
         char* buffer = nullptr;
         const DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER
@@ -134,7 +133,12 @@ namespace MphRead::Mods::Network::Detail
         return message;
     }
 
-    [[nodiscard]] bool IsTimeoutError(int error) noexcept
+    bool IsTimeoutError(int error) noexcept
+    {
+        return error == WSAETIMEDOUT;
+    }
+
+    bool IsReceiveTimeoutError(int error) noexcept
     {
         return error == WSAETIMEDOUT;
     }
@@ -150,12 +154,17 @@ namespace MphRead::Mods::Network::Detail
         }
     }
 #else
-    [[nodiscard]] std::string SocketErrorMessage(int error)
+    std::string SocketErrorMessage(int error)
     {
         return std::strerror(error);
     }
 
-    [[nodiscard]] bool IsTimeoutError(int error) noexcept
+    bool IsTimeoutError(int error) noexcept
+    {
+        return error == ETIMEDOUT;
+    }
+
+    bool IsReceiveTimeoutError(int error) noexcept
     {
         return error == EAGAIN || error == EWOULDBLOCK || error == ETIMEDOUT;
     }
@@ -297,7 +306,7 @@ namespace MphRead::Mods::Network::Detail
 #endif
         }
 
-        [[nodiscard]] std::vector<std::uint8_t> Receive() override
+        std::vector<std::uint8_t> Receive() override
         {
             std::array<std::uint8_t, 65536> buffer{};
             sockaddr_storage from{};
@@ -309,7 +318,7 @@ namespace MphRead::Mods::Network::Detail
             if (received == SOCKET_ERROR)
             {
                 const int error = WSAGetLastError();
-                throw SocketException(SocketErrorMessage(error), IsTimeoutError(error));
+                throw SocketException(SocketErrorMessage(error), IsReceiveTimeoutError(error));
             }
 #else
             socklen_t fromLength = sizeof(from);
@@ -323,7 +332,7 @@ namespace MphRead::Mods::Network::Detail
             if (received < 0)
             {
                 const int error = errno;
-                throw SocketException(SocketErrorMessage(error), IsTimeoutError(error));
+                throw SocketException(SocketErrorMessage(error), IsReceiveTimeoutError(error));
             }
 #endif
             return std::vector<std::uint8_t>(buffer.begin(), buffer.begin() + received);
@@ -334,8 +343,7 @@ namespace MphRead::Mods::Network::Detail
         bool _isBroadcast = false;
     };
 
-    [[nodiscard]] bool TryParseDotNetIPv4(
-        std::string_view text, std::uint32_t& value) noexcept
+    bool TryParseDotNetIPv4(std::string_view text, std::uint32_t& value) noexcept
     {
         if (text.empty())
         {
@@ -451,7 +459,7 @@ namespace MphRead::Mods::Network::Detail
         return false;
     }
 
-    [[nodiscard]] std::string FormatDotNetIPv4(std::uint32_t value)
+    std::string FormatDotNetIPv4(std::uint32_t value)
     {
         return std::to_string((value >> 24) & 0xFFu) + "."
             + std::to_string((value >> 16) & 0xFFu) + "."
@@ -459,14 +467,14 @@ namespace MphRead::Mods::Network::Detail
             + std::to_string(value & 0xFFu);
     }
 
-    [[nodiscard]] bool IsHexDigit(char ch) noexcept
+    bool IsHexDigit(char ch) noexcept
     {
         return (ch >= '0' && ch <= '9')
             || (ch >= 'a' && ch <= 'f')
             || (ch >= 'A' && ch <= 'F');
     }
 
-    [[nodiscard]] int HexDigitValue(char ch) noexcept
+    int HexDigitValue(char ch) noexcept
     {
         if (ch >= '0' && ch <= '9')
         {
@@ -479,8 +487,7 @@ namespace MphRead::Mods::Network::Detail
         return ch + 10 - 'A';
     }
 
-    [[nodiscard]] bool TryParseUInt32Decimal(
-        std::string_view text, std::uint32_t& value) noexcept
+    bool TryParseUInt32Decimal(std::string_view text, std::uint32_t& value) noexcept
     {
         if (text.empty())
         {
@@ -503,7 +510,7 @@ namespace MphRead::Mods::Network::Detail
         return true;
     }
 
-    [[nodiscard]] bool TryParseEmbeddedIPv4(
+    bool TryParseEmbeddedIPv4(
         std::string_view text, std::uint16_t& high, std::uint16_t& low) noexcept
     {
         std::uint32_t bytes[4]{};
@@ -544,10 +551,10 @@ namespace MphRead::Mods::Network::Detail
         return true;
     }
 
-    [[nodiscard]] bool TryParseIPv6Side(
+    bool TryParseIPv6Side(
         std::string_view text,
         bool allowEmbeddedIPv4,
-        std::vector<std::uint16_t>& words) noexcept
+        std::vector<std::uint16_t>& words)
     {
         if (text.empty())
         {
@@ -606,7 +613,7 @@ namespace MphRead::Mods::Network::Detail
         return false;
     }
 
-    [[nodiscard]] bool ValidateBracketPort(std::string_view suffix) noexcept
+    bool ValidateBracketPort(std::string_view suffix) noexcept
     {
         if (suffix.empty())
         {
@@ -637,8 +644,56 @@ namespace MphRead::Mods::Network::Detail
         return true;
     }
 
-    [[nodiscard]] bool TryParseDotNetIPv6(
-        std::string_view text, bool& unspecified) noexcept
+    std::uint32_t DotNetInterfaceNameToIndex(std::string_view scopeText)
+    {
+#ifdef _WIN32
+        std::string utf8Name("%");
+        utf8Name.append(scopeText);
+        const int wideLength = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+            utf8Name.data(), static_cast<int>(utf8Name.size()), nullptr, 0);
+        if (wideLength == 0)
+        {
+            return 0;
+        }
+        std::wstring wideName(static_cast<std::size_t>(wideLength), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                utf8Name.data(), static_cast<int>(utf8Name.size()),
+                wideName.data(), wideLength) == 0)
+        {
+            return 0;
+        }
+        const int ansiLength = WideCharToMultiByte(CP_ACP, 0,
+            wideName.data(), wideLength, nullptr, 0, nullptr, nullptr);
+        if (ansiLength == 0)
+        {
+            return 0;
+        }
+        std::string ansiName(static_cast<std::size_t>(ansiLength), '\0');
+        if (WideCharToMultiByte(CP_ACP, 0, wideName.data(), wideLength,
+                ansiName.data(), ansiLength, nullptr, nullptr) == 0)
+        {
+            return 0;
+        }
+
+        HMODULE module = LoadLibraryW(L"Iphlpapi.dll");
+        if (module == nullptr)
+        {
+            return 0;
+        }
+        using IfNameToIndex = ULONG (WINAPI*)(PCSTR);
+        const auto function = reinterpret_cast<IfNameToIndex>(
+            GetProcAddress(module, "if_nametoindex"));
+        const std::uint32_t index = function == nullptr ? 0u
+            : static_cast<std::uint32_t>(function(ansiName.c_str()));
+        FreeLibrary(module);
+        return index;
+#else
+        const std::string interfaceName(scopeText);
+        return if_nametoindex(interfaceName.c_str());
+#endif
+    }
+
+    bool TryParseDotNetIPv6(std::string_view text, bool& unspecified)
     {
         unspecified = false;
         if (text.find(':') == std::string_view::npos)
@@ -675,8 +730,7 @@ namespace MphRead::Mods::Network::Detail
             address = address.substr(0, percent);
             if (!scopeText.empty() && !TryParseUInt32Decimal(scopeText, scope))
             {
-                const std::string interfaceName(scopeText);
-                scope = if_nametoindex(interfaceName.c_str());
+                scope = DotNetInterfaceNameToIndex(scopeText);
             }
         }
 
@@ -721,7 +775,7 @@ namespace MphRead::Mods::Network::Detail
         return true;
     }
 
-    [[nodiscard]] std::size_t DotNetUtf16Length(std::string_view text) noexcept
+    std::size_t DotNetUtf16Length(std::string_view text) noexcept
     {
         std::size_t units = 0;
         for (std::size_t i = 0; i < text.size();)
@@ -793,7 +847,7 @@ namespace MphRead::Mods::Network::Detail
         }
     }
 
-    [[nodiscard]] bool SameResolvedAddress(
+    bool SameResolvedAddress(
         const ResolvedAddress& left, const ResolvedAddress& right) noexcept
     {
         if (left.IsIPv4 != right.IsIPv4)
@@ -817,7 +871,7 @@ namespace MphRead::Mods::Network::Detail
     }
 
 #ifndef _WIN32
-    [[nodiscard]] std::string DotNetDnsErrorMessage(int error)
+    std::string DotNetDnsErrorMessage(int error)
     {
         switch (error)
         {
@@ -832,7 +886,7 @@ namespace MphRead::Mods::Network::Detail
         case EAI_FAMILY:
             return SocketErrorMessage(EAFNOSUPPORT);
         case EAI_MEMORY:
-            return "Exception of type 'System.OutOfMemoryException' was thrown.";
+            return "Insufficient memory to continue the execution of the program.";
         case EAI_NONAME:
             return gai_strerror(EAI_NONAME);
 #if defined(EAI_NODATA) && EAI_NODATA != EAI_NONAME
@@ -919,7 +973,7 @@ namespace MphRead::Mods::Network::Detail
         }
     }
 #else
-    [[nodiscard]] std::wstring Utf8ToWide(std::string_view text)
+    std::wstring Utf8ToWide(std::string_view text)
     {
         if (text.empty())
         {
@@ -944,8 +998,7 @@ namespace MphRead::Mods::Network::Detail
     class NativeNetProbePlatform final : public INetProbePlatform
     {
     public:
-        [[nodiscard]] std::vector<ResolvedAddress> Resolve(
-            const std::string& address) override
+        std::vector<ResolvedAddress> Resolve(const std::string& address) override
         {
             std::uint32_t ipv4 = 0;
             if (TryParseDotNetIPv4(address, ipv4))
@@ -1063,12 +1116,12 @@ namespace MphRead::Mods::Network::Detail
 #endif
         }
 
-        [[nodiscard]] std::unique_ptr<IUdpClient> CreateUdpIPv4() override
+        std::unique_ptr<IUdpClient> CreateUdpIPv4() override
         {
             return std::make_unique<NativeUdpClient>();
         }
 
-        [[nodiscard]] std::chrono::system_clock::time_point UtcNow() override
+        std::chrono::system_clock::time_point UtcNow() override
         {
             return std::chrono::system_clock::now();
         }
@@ -1080,12 +1133,12 @@ namespace MphRead::Mods::Network::Detail
         std::int32_t Port;
     };
 
-    [[nodiscard]] std::string Where(const EndPoint& endPoint)
+    std::string Where(const EndPoint& endPoint)
     {
         return endPoint.Address + ":" + std::to_string(endPoint.Port);
     }
 
-    [[nodiscard]] std::pair<bool, std::string> ProbeImpl(
+    std::pair<bool, std::string> ProbeImpl(
         const std::string& address,
         std::int32_t port,
         std::int32_t timeoutMs,

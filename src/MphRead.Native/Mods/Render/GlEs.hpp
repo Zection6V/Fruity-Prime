@@ -53,7 +53,7 @@ namespace MphRead::Mods::Render
         static void DetachShader(std::int32_t program, std::int32_t shader);
         static void LinkProgram(std::int32_t program);
         static void UseProgram(std::int32_t program);
-        static std::int32_t GetUniformLocation(std::int32_t program, const std::string& name);
+        static std::int32_t GetUniformLocation(std::int32_t program, const std::string* name);
 
         static void Enable(std::int32_t cap);
         static void Disable(std::int32_t cap);
@@ -93,7 +93,7 @@ namespace MphRead::Mods::Render
             std::int32_t type, std::span<const T> pixels)
         {
             TexImage2D(target, level, internalFormat, width, height, border, format, type,
-                static_cast<const void*>(pixels.data()));
+                pixels.empty() ? nullptr : static_cast<const void*>(pixels.data()));
         }
 
         template <typename T>
@@ -102,7 +102,7 @@ namespace MphRead::Mods::Render
             std::int32_t format, std::int32_t type, std::span<const T> pixels)
         {
             TexSubImage2DRaw(target, level, xoffset, yoffset, width, height, format, type,
-                static_cast<const void*>(pixels.data()));
+                pixels.empty() ? nullptr : static_cast<const void*>(pixels.data()));
         }
 
         static void CopyTexSubImage2D(std::int32_t target, std::int32_t level,
@@ -113,7 +113,8 @@ namespace MphRead::Mods::Render
         static void ReadPixels(std::int32_t x, std::int32_t y, std::int32_t width,
             std::int32_t height, std::int32_t format, std::int32_t type, std::span<T> pixels)
         {
-            ReadPixelsRaw(x, y, width, height, format, type, static_cast<void*>(pixels.data()));
+            ReadPixelsRaw(x, y, width, height, format, type,
+                pixels.empty() ? nullptr : static_cast<void*>(pixels.data()));
         }
 
         static std::int32_t GenFramebuffer();
@@ -192,8 +193,8 @@ namespace MphRead::Mods::Render
 
         static std::int32_t _dynVao;
         static std::int32_t _dynVbo;
-        std::int32_t _dynIbo;
-        std::int32_t _dynVboSize;
+        static std::int32_t _dynIbo;
+        static std::int32_t _dynVboSize;
         static std::int32_t _dynIboSize;
 
         static bool _alphaTestEnabled;
@@ -204,7 +205,7 @@ namespace MphRead::Mods::Render
         static std::unordered_map<std::int32_t, ProgramLocations> _programLocs;
 
         static std::unordered_map<std::int32_t, std::int32_t> _textures;
-        std::int32_t _textureHighWater;
+        static std::int32_t _textureHighWater;
 
         static void EmitIndices(std::int32_t mode, std::int32_t base, std::int32_t count);
         static std::vector<std::int32_t> BuildIndexArray();

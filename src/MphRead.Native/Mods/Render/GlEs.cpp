@@ -706,7 +706,7 @@ namespace MphRead::Mods::Render
         {
             throw std::runtime_error("Object reference not set to an instance of an object.");
         }
-        const GLchar* string = translated->c_str();
+        const GLchar* string = translated->empty() ? nullptr : translated->c_str();
         const GLint length = DotNetStringLength(*translated);
         glShaderSource(GlName(shader), 1, &string, &length);
     }
@@ -791,9 +791,10 @@ namespace MphRead::Mods::Render
         }
     }
 
-    std::int32_t GlEs::GetUniformLocation(std::int32_t program, const std::string& name)
+    std::int32_t GlEs::GetUniformLocation(std::int32_t program, const std::string* name)
     {
-        return glGetUniformLocation(GlName(program), name.c_str());
+        return glGetUniformLocation(GlName(program),
+            name == nullptr || name->empty() ? nullptr : name->c_str());
     }
 
     void GlEs::Enable(std::int32_t cap)
@@ -1067,7 +1068,7 @@ namespace MphRead::Mods::Render
 
     void GlEs::Uniform1(std::int32_t location, std::int32_t count, std::span<const float> value)
     {
-        glUniform1fv(location, count, value.data());
+        glUniform1fv(location, count, value.empty() ? nullptr : value.data());
     }
 
     void GlEs::Uniform3(std::int32_t location, const std::array<float, 3>& vector)
@@ -1077,7 +1078,7 @@ namespace MphRead::Mods::Render
 
     void GlEs::Uniform3(std::int32_t location, std::int32_t count, std::span<const float> value)
     {
-        glUniform3fv(location, count, value.data());
+        glUniform3fv(location, count, value.empty() ? nullptr : value.data());
     }
 
     void GlEs::Uniform4(std::int32_t location, std::array<float, 4> vector)
@@ -1110,7 +1111,8 @@ namespace MphRead::Mods::Render
     void GlEs::UniformMatrix4(std::int32_t location, std::int32_t count, bool transpose,
         std::span<const float> value)
     {
-        glUniformMatrix4fv(location, count, transpose ? GL_TRUE : GL_FALSE, value.data());
+        glUniformMatrix4fv(location, count, transpose ? GL_TRUE : GL_FALSE,
+            value.empty() ? nullptr : value.data());
     }
 }
 #endif

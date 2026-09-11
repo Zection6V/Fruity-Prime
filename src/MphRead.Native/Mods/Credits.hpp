@@ -15,21 +15,20 @@ namespace MphRead
             class Entry final
             {
             public:
-                using NullableString = std::optional<std::string>;
-
                 Entry() = default;
-                Entry(NullableString who, NullableString what, NullableString where);
+                Entry(std::optional<std::string> who, std::optional<std::string> what,
+                    std::optional<std::string> where);
 
-                [[nodiscard]] const NullableString& Who() const noexcept;
-                [[nodiscard]] const NullableString& What() const noexcept;
-                [[nodiscard]] const NullableString& Where() const noexcept;
+                [[nodiscard]] const std::optional<std::string>& Who() const noexcept;
+                [[nodiscard]] const std::optional<std::string>& What() const noexcept;
+                [[nodiscard]] const std::optional<std::string>& Where() const noexcept;
 
                 friend bool operator==(const Entry&, const Entry&) = default;
 
             private:
-                NullableString _who;
-                NullableString _what;
-                NullableString _where;
+                std::optional<std::string> _who;
+                std::optional<std::string> _what;
+                std::optional<std::string> _where;
             };
 
             inline static constexpr std::string_view Author = "Livetek";

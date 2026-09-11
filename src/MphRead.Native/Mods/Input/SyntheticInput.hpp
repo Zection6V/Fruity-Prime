@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <variant>
 
@@ -18,12 +17,6 @@ namespace MphRead::Mods::Input
 
     using KeyboardState = std::shared_ptr<Detail::SyntheticInputKeyboardState>;
     using MouseState = std::shared_ptr<Detail::SyntheticInputMouseState>;
-
-    class ProgramException final : public std::runtime_error
-    {
-    public:
-        using std::runtime_error::runtime_error;
-    };
 
     namespace Detail
     {

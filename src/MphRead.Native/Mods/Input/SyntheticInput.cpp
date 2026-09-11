@@ -1,4 +1,5 @@
 #include "SyntheticInput.hpp"
+#include "../../Program.hpp"
 
 #include <exception>
 #include <string>

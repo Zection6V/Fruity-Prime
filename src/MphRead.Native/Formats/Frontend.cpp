@@ -112,7 +112,6 @@ namespace MphRead::Formats
             std::to_chars_result result = std::to_chars(buffer, buffer + sizeof(buffer), value);
             std::cout.write(buffer, result.ptr - buffer);
             std::cout.put('\n');
-            std::cout.flush();
         }
     }
 

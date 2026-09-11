@@ -9,7 +9,7 @@ namespace MphRead::Mods::Launcher::Gui
         : _adapter(adapter),
           _view(_adapter.ConstructHomeView(settings, rooms))
     {
-        _adapter.ConnectHomeViewDone(_view, this, &HomeWindow::OnDone);
+        _adapter.ConnectHomeViewDone(_view, &_adapter, &HomeWindow::OnDone);
 
         _adapter.SetTitle(MphRead::Mods::Branding::Name);
         _adapter.SetIcon(HomeWindowIcon::GuiThemeAppIconValue);
@@ -30,7 +30,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     void HomeWindow::OnDone(void* context)
     {
-        auto& window = *static_cast<HomeWindow*>(context);
-        window._adapter.Close();
+        auto& adapter = *static_cast<HomeWindowAdapter*>(context);
+        adapter.Close();
     }
 }

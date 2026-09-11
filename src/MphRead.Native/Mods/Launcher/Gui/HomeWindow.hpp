@@ -70,6 +70,11 @@ namespace MphRead::Mods::Launcher::Gui
         HomeWindow(HomeWindowAdapter& adapter, HomeWindowMenuSettingsRef settings,
             HomeWindowRoomsRef rooms);
 
+        HomeWindow(const HomeWindow&) = delete;
+        HomeWindow& operator=(const HomeWindow&) = delete;
+        HomeWindow(HomeWindow&&) = delete;
+        HomeWindow& operator=(HomeWindow&&) = delete;
+
         [[nodiscard]] LaunchPlan Plan() const;
 
     private:

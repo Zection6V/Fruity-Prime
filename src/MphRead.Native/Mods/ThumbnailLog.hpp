@@ -16,7 +16,7 @@ namespace MphRead::Mods
 
         [[nodiscard]] static std::string Path();
         static void Begin(std::int32_t rooms) noexcept;
-        static void Write(const std::string& line) noexcept;
+        static void Write(const std::string& line);
 
     private:
         static std::mutex _lock;

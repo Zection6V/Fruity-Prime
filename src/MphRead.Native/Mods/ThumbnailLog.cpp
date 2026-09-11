@@ -808,48 +808,41 @@ namespace MphRead::Mods
         }
     }
 
-    void ThumbnailLog::Write(const std::string& line) noexcept
+    void ThumbnailLog::Write(const std::string& line)
     {
         if (_failed.load(std::memory_order_relaxed))
         {
             return;
         }
 
-        try
+        const std::lock_guard<std::mutex> guard(_lock);
+        for (std::int32_t attempt = 0; attempt < 5; ++attempt)
         {
-            const std::lock_guard<std::mutex> guard(_lock);
-            for (std::int32_t attempt = 0; attempt < 5; ++attempt)
+            try
             {
-                try
-                {
-                    // Match File.AppendAllText(Path, interpolatedText): Path is
-                    // re-evaluated first on every attempt, then DateTime.Now.
-                    const std::string path = Path();
+                // Match File.AppendAllText(Path, interpolatedText): Path is
+                // re-evaluated first on every attempt, then DateTime.Now.
+                const std::string path = Path();
 
-                    std::string text;
-                    text.reserve(line.size() + 13);
-                    text.push_back('[');
-                    text += Now(true).substr(11);
-                    text += "] ";
-                    text += line;
-                    text += NewLine();
-                    AppendAllText(path, text);
-                    return;
-                }
-                catch (const std::ios_base::failure&)
-                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                }
-                catch (...)
-                {
-                    _failed.store(true, std::memory_order_relaxed);
-                    return;
-                }
+                std::string text;
+                text.reserve(line.size() + 13);
+                text.push_back('[');
+                text += Now(true).substr(11);
+                text += "] ";
+                text += line;
+                text += NewLine();
+                AppendAllText(path, text);
+                return;
             }
-        }
-        catch (...)
-        {
-            _failed.store(true, std::memory_order_relaxed);
+            catch (const std::ios_base::failure&)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            catch (...)
+            {
+                _failed.store(true, std::memory_order_relaxed);
+                return;
+            }
         }
     }
 }

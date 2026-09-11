@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -15,7 +16,7 @@ namespace MphRead::Mods::Launcher
     class Hunters final
     {
     public:
-        static constexpr int Playable = 7;
+        static constexpr std::int32_t Playable = 7;
 
         Hunters() = delete;
 
@@ -23,7 +24,7 @@ namespace MphRead::Mods::Launcher
         static void Reroll() noexcept;
 
     private:
-        static MphRead::Hunter _rolled;
+        static std::atomic<MphRead::Hunter> _rolled;
     };
 
     enum class LaunchKind : std::int32_t
@@ -38,11 +39,24 @@ namespace MphRead::Mods::Launcher
 
     class LaunchPlan final
     {
+    private:
+        class HunterInit final
+        {
+        public:
+            HunterInit() noexcept = default;
+            HunterInit(MphRead::Hunter value);
+            HunterInit& operator=(MphRead::Hunter value);
+            operator MphRead::Hunter() const noexcept;
+
+        private:
+            MphRead::Hunter _value = static_cast<MphRead::Hunter>(0);
+        };
+
     public:
         struct Init
         {
             LaunchKind Kind = LaunchKind::None;
-            MphRead::Hunter Hunter = static_cast<MphRead::Hunter>(0);
+            HunterInit Hunter{};
             std::optional<std::string> RoomKey{};
             MphRead::GameMode Mode = static_cast<MphRead::GameMode>(0);
             std::int32_t Bots = 0;
@@ -55,7 +69,12 @@ namespace MphRead::Mods::Launcher
         };
 
         LaunchPlan() = default;
-        explicit LaunchPlan(Init init);
+        explicit LaunchPlan(const Init& init);
+
+        LaunchPlan(const LaunchPlan&) = default;
+        LaunchPlan& operator=(const LaunchPlan&) = default;
+        LaunchPlan(LaunchPlan&& other);
+        LaunchPlan& operator=(LaunchPlan&& other);
 
         [[nodiscard]] LaunchKind Kind() const noexcept;
         [[nodiscard]] MphRead::Hunter Hunter() const noexcept;

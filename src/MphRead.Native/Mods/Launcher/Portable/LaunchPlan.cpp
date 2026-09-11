@@ -1,7 +1,6 @@
 #include "LaunchPlan.hpp"
 
 #include <random>
-#include <utility>
 
 namespace
 {
@@ -9,16 +8,16 @@ namespace
 
     MphRead::Hunter RollPlayableHunter()
     {
-        static std::random_device device;
-        static std::mt19937 engine(device());
-        static std::uniform_int_distribution<int> distribution(0, MphRead::Mods::Launcher::Hunters::Playable - 1);
+        thread_local std::mt19937 engine{std::random_device{}()};
+        std::uniform_int_distribution<std::int32_t> distribution(
+            0, MphRead::Mods::Launcher::Hunters::Playable - 1);
         return static_cast<MphRead::Hunter>(distribution(engine));
     }
 }
 
 namespace MphRead::Mods::Launcher
 {
-    MphRead::Hunter Hunters::_rolled = RandomHunter;
+    std::atomic<MphRead::Hunter> Hunters::_rolled{RandomHunter};
 
     MphRead::Hunter Hunters::Resolve(MphRead::Hunter hunter)
     {
@@ -26,31 +25,57 @@ namespace MphRead::Mods::Launcher
         {
             return hunter;
         }
-        if (_rolled == RandomHunter)
+        if (_rolled.load(std::memory_order_relaxed) == RandomHunter)
         {
-            _rolled = RollPlayableHunter();
+            _rolled.store(RollPlayableHunter(), std::memory_order_relaxed);
         }
-        return _rolled;
+        return _rolled.load(std::memory_order_relaxed);
     }
 
     void Hunters::Reroll() noexcept
     {
-        _rolled = RandomHunter;
+        _rolled.store(RandomHunter, std::memory_order_relaxed);
     }
 
-    LaunchPlan::LaunchPlan(Init init)
+    LaunchPlan::HunterInit::HunterInit(MphRead::Hunter value)
+        : _value(Hunters::Resolve(value))
+    {
+    }
+
+    LaunchPlan::HunterInit& LaunchPlan::HunterInit::operator=(MphRead::Hunter value)
+    {
+        _value = Hunters::Resolve(value);
+        return *this;
+    }
+
+    LaunchPlan::HunterInit::operator MphRead::Hunter() const noexcept
+    {
+        return _value;
+    }
+
+    LaunchPlan::LaunchPlan(const Init& init)
         : _kind(init.Kind),
-          _hunter(Hunters::Resolve(init.Hunter)),
-          _roomKey(std::move(init.RoomKey)),
+          _hunter(init.Hunter),
+          _roomKey(init.RoomKey),
           _mode(init.Mode),
           _bots(init.Bots),
           _botLevel(init.BotLevel),
           _port(init.Port),
-          _playerName(std::move(init.PlayerName)),
+          _playerName(init.PlayerName),
           _saveSlot(init.SaveSlot),
           _newGame(init.NewGame),
-          _demoPath(std::move(init.DemoPath))
+          _demoPath(init.DemoPath)
     {
+    }
+
+    LaunchPlan::LaunchPlan(LaunchPlan&& other)
+        : LaunchPlan(static_cast<const LaunchPlan&>(other))
+    {
+    }
+
+    LaunchPlan& LaunchPlan::operator=(LaunchPlan&& other)
+    {
+        return operator=(static_cast<const LaunchPlan&>(other));
     }
 
     LaunchKind LaunchPlan::Kind() const noexcept

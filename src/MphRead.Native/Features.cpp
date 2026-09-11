@@ -502,7 +502,7 @@ namespace MphRead
                 result.push_back('-');
             }
 
-            if (decimalExponent >= -4 && decimalExponent < 7)
+            if (decimalExponent >= -4 && decimalExponent < 9)
             {
                 if (decimalExponent >= 0)
                 {

@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #if defined(_WIN32)
@@ -336,7 +337,8 @@ namespace
             const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
             if (length == 0)
             {
-                throw std::runtime_error("Could not get the process path.");
+                const DWORD error = GetLastError();
+                throw std::system_error(static_cast<int>(error), std::system_category());
             }
             if (length < buffer.size())
             {
@@ -366,61 +368,14 @@ namespace
         }
         return std::string(path);
 #elif defined(__OpenBSD__)
-        const int name[] = {CTL_KERN, KERN_PROC_ARGS, getpid(), KERN_PROC_ARGV};
-        std::size_t length = 0;
-        if (sysctl(name, 4, nullptr, &length, nullptr, 0) != 0 || length == 0)
-        {
-            return std::nullopt;
-        }
-        std::vector<unsigned char> buffer(length);
-        if (sysctl(name, 4, buffer.data(), &length, nullptr, 0) != 0)
-        {
-            return std::nullopt;
-        }
-        const char* executable = nullptr;
-        std::memcpy(&executable, buffer.data(), sizeof(executable));
-        if (executable == nullptr)
-        {
-            return std::nullopt;
-        }
-        if (std::string_view(executable).find('/') == std::string_view::npos)
-        {
-            const char* pathEnvironment = std::getenv("PATH");
-            while (pathEnvironment != nullptr && *pathEnvironment != '\0')
-            {
-                const std::size_t segmentLength = std::strcspn(pathEnvironment, ":");
-                char candidate[PATH_MAX];
-                const int written = std::snprintf(
-                    candidate, sizeof(candidate), "%.*s/%s",
-                    static_cast<int>(segmentLength), pathEnvironment, executable);
-                if (written >= 0 && static_cast<std::size_t>(written) < sizeof(candidate))
-                {
-                    struct stat info{};
-                    if (stat(candidate, &info) == 0 && S_ISREG(info.st_mode))
-                    {
-                        return RealPath(candidate);
-                    }
-                }
-                pathEnvironment += segmentLength;
-                if (*pathEnvironment == ':')
-                {
-                    ++pathEnvironment;
-                }
-            }
-        }
-        return RealPath(executable);
+        return RealPath("/proc/curproc/exe");
 #elif defined(__sun)
         const char* path = getexecname();
         return path == nullptr ? std::nullopt : RealPath(path);
 #elif defined(__EMSCRIPTEN__)
-        return std::string("/");
+        return std::nullopt;
 #elif defined(__wasi__)
-        const char* coreRoot = std::getenv("CORE_ROOT");
-        if (coreRoot == nullptr || *coreRoot == '\0')
-        {
-            return std::string("/");
-        }
-        return std::string(coreRoot) + "/corerun";
+        return std::string("/managed");
 #elif defined(__linux__)
         if (std::optional<std::string> path = RealPath("/proc/self/exe"))
         {
@@ -439,26 +394,6 @@ namespace
 #else
         return std::nullopt;
 #endif
-    }
-
-    [[nodiscard]] const std::optional<std::string>& ProcessPath()
-    {
-        static const std::optional<std::string> processPath = []
-        {
-            std::optional<std::string> path = ReadProcessPath();
-#if !defined(_WIN32)
-            if (path.has_value())
-            {
-                *path = DecodeUtf8LikeDotNet(*path);
-            }
-#endif
-            if (path.has_value() && path->empty())
-            {
-                path.reset();
-            }
-            return path;
-        }();
-        return processPath;
     }
 
     [[nodiscard]] std::string GetFileNameWithoutExtension(std::string_view path)
@@ -494,8 +429,14 @@ namespace MphRead
     {
         std::string Branding::Executable()
         {
-            const std::optional<std::string>& path = ProcessPath();
-            if (!path.has_value())
+            std::optional<std::string> path = ReadProcessPath();
+#if !defined(_WIN32)
+            if (path.has_value())
+            {
+                *path = DecodeUtf8LikeDotNet(*path);
+            }
+#endif
+            if (!path.has_value() || path->empty())
             {
                 return std::string(FileName);
             }

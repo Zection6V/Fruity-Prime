@@ -8,7 +8,6 @@
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
-#include <vector>
 
 namespace System
 {
@@ -164,14 +163,14 @@ namespace MphRead::Mods::Sound
         template <typename T>
             requires std::is_trivially_copyable_v<T>
         static void BufferData(std::int32_t buffer, OpenTK::Audio::OpenAL::ALFormat format,
-            const std::vector<T>* data, std::int32_t sampleRate)
+            std::optional<std::span<const T>> data, std::int32_t sampleRate)
         {
-            if (data == nullptr)
+            if (!data.has_value())
             {
                 BufferDataBytes(buffer, format, {}, sampleRate);
                 return;
             }
-            BufferData(buffer, format, std::span<const T>(*data), sampleRate);
+            BufferData(buffer, format, *data, sampleRate);
         }
 
         template <typename T>

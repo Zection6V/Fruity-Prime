@@ -75,20 +75,22 @@ namespace MphRead::Mods
         };
 
 #if !defined(_WIN32)
-        class SignalHub;
-        std::atomic<SignalHub*> ActiveHub{nullptr};
+        volatile std::sig_atomic_t ActiveSignalWriteFd = -1;
 #endif
 
-        class SignalHub final
+        class SignalAdapter final
         {
         public:
-            SignalHub(const SignalHub&) = delete;
-            SignalHub& operator=(const SignalHub&) = delete;
+            SignalAdapter(const SignalAdapter&) = delete;
+            SignalAdapter& operator=(const SignalAdapter&) = delete;
 
-            static SignalHub& Instance()
+            static SignalAdapter& Instance()
             {
-                static SignalHub* hub = new SignalHub();
-                return *hub;
+                // The process owns the underlying signal hooks. Keeping this
+                // narrow adapter alive avoids teardown races with OS callbacks;
+                // ShutdownSignals state and registrations remain per-instance.
+                static SignalAdapter* adapter = new SignalAdapter();
+                return *adapter;
             }
 
             void AddConsole(const std::shared_ptr<ShutdownState>& state)
@@ -150,26 +152,19 @@ namespace MphRead::Mods
 #if defined(_WIN32)
             static BOOL WINAPI ConsoleHandler(DWORD controlType)
             {
-                SignalHub& hub = Instance();
-                if (controlType == CTRL_C_EVENT)
+                // Console.CancelKeyPress is the Ctrl+C seam used by the C#
+                // source. Do not reinterpret close/logoff/shutdown or break
+                // notifications as SIGTERM/SIGINT.
+                if (controlType != CTRL_C_EVENT)
                 {
-                    return hub.DispatchWindows(true, SIGINT) ? TRUE : FALSE;
+                    return FALSE;
                 }
-                if (controlType == CTRL_BREAK_EVENT)
-                {
-                    return hub.DispatchWindows(true, 0) ? TRUE : FALSE;
-                }
-                if (controlType == CTRL_CLOSE_EVENT || controlType == CTRL_LOGOFF_EVENT
-                    || controlType == CTRL_SHUTDOWN_EVENT)
-                {
-                    return hub.DispatchWindows(false, SIGTERM) ? TRUE : FALSE;
-                }
-                return FALSE;
+                return Instance().DispatchWindows(SIGINT) ? TRUE : FALSE;
             }
 #endif
 
         private:
-            SignalHub()
+            SignalAdapter()
             {
 #if !defined(_WIN32)
                 int descriptors[2] = {-1, -1};
@@ -202,7 +197,9 @@ namespace MphRead::Mods
                     static_cast<void>(fcntl(_writeFd, F_SETFD, writeFlags | FD_CLOEXEC));
                 }
 
-                ActiveHub.store(this, std::memory_order_release);
+                // PosixHandler may only touch async-signal-safe state. Publish
+                // the pipe descriptor before installing either sigaction.
+                ActiveSignalWriteFd = static_cast<std::sig_atomic_t>(_writeFd);
                 std::thread([this]() { RunPosix(); }).detach();
 #endif
             }
@@ -229,6 +226,15 @@ namespace MphRead::Mods
             void EnsureInstalledLocked(int signal)
             {
 #if defined(_WIN32)
+                // There is no native Windows SIGTERM source equivalent to the
+                // POSIX registration used by the C# code. Treat it as an
+                // unsupported registration; Impl::Register catches this just
+                // like PosixSignalRegistration.Create does on an unsupported
+                // platform. SIGINT shares the Ctrl+C console adapter.
+                if (signal != SIGINT)
+                {
+                    throw std::invalid_argument("unsupported signal");
+                }
                 SignalSlot& slot = Slot(signal);
                 if (_windowsInstalled)
                 {
@@ -265,7 +271,7 @@ namespace MphRead::Mods
             {
 #if defined(_WIN32)
                 Slot(signal).Installed = NeedsSignalLocked(signal);
-                if (!_windowsInstalled || NeedsSignalLocked(SIGINT) || NeedsSignalLocked(SIGTERM))
+                if (!_windowsInstalled || NeedsSignalLocked(SIGINT))
                 {
                     return;
                 }
@@ -288,26 +294,23 @@ namespace MphRead::Mods
 #endif
             }
 
-            void Snapshot(bool includeConsole, int signal,
+            void Snapshot(int signal,
                 std::vector<std::shared_ptr<ShutdownState>>& console,
                 std::vector<SignalEntry>& entries)
             {
                 std::lock_guard<std::mutex> lock(_mutex);
-                if (includeConsole)
+                if (signal == SIGINT)
                 {
                     console = _console;
                 }
-                if (signal != 0)
-                {
-                    entries = Slot(signal).Entries;
-                }
+                entries = Slot(signal).Entries;
             }
 
-            void Dispatch(bool includeConsole, int signal)
+            void Dispatch(int signal)
             {
                 std::vector<std::shared_ptr<ShutdownState>> console;
                 std::vector<SignalEntry> entries;
-                Snapshot(includeConsole, signal, console, entries);
+                Snapshot(signal, console, entries);
                 for (const std::shared_ptr<ShutdownState>& state : console)
                 {
                     state->Fire();
@@ -319,11 +322,11 @@ namespace MphRead::Mods
             }
 
 #if defined(_WIN32)
-            bool DispatchWindows(bool includeConsole, int signal)
+            bool DispatchWindows(int signal)
             {
                 std::vector<std::shared_ptr<ShutdownState>> console;
                 std::vector<SignalEntry> entries;
-                Snapshot(includeConsole, signal, console, entries);
+                Snapshot(signal, console, entries);
                 if (console.empty() && entries.empty())
                 {
                     return false;
@@ -341,13 +344,16 @@ namespace MphRead::Mods
 #else
             static void PosixHandler(int signal)
             {
-                SignalHub* hub = ActiveHub.load(std::memory_order_acquire);
-                if (hub == nullptr)
+                // write(2) is async-signal-safe. Avoid mutexes, heap access,
+                // shared_ptr, C++ atomics, or object traversal in this handler.
+                const int savedErrno = errno;
+                const int writeFd = static_cast<int>(ActiveSignalWriteFd);
+                if (writeFd >= 0)
                 {
-                    return;
+                    const unsigned char value = static_cast<unsigned char>(signal);
+                    static_cast<void>(write(writeFd, &value, 1));
                 }
-                const unsigned char value = static_cast<unsigned char>(signal);
-                static_cast<void>(write(hub->_writeFd, &value, 1));
+                errno = savedErrno;
             }
 
             void RunPosix()
@@ -370,8 +376,7 @@ namespace MphRead::Mods
                     }
                     for (ssize_t i = 0; i < count; ++i)
                     {
-                        const int signal = static_cast<int>(signals[i]);
-                        Dispatch(signal == SIGINT, signal);
+                        Dispatch(static_cast<int>(signals[i]));
                     }
                 }
             }
@@ -394,7 +399,7 @@ namespace MphRead::Mods
         {
         public:
             SignalRegistration(int signal, std::shared_ptr<ShutdownState> state)
-                : _signal(signal), _id(SignalHub::Instance().AddSignal(signal, state))
+                : _signal(signal), _id(SignalAdapter::Instance().AddSignal(signal, state))
             {
             }
 
@@ -422,7 +427,7 @@ namespace MphRead::Mods
                     return;
                 }
                 const std::uint64_t id = _id;
-                SignalHub::Instance().RemoveSignal(_signal, id);
+                SignalAdapter::Instance().RemoveSignal(_signal, id);
                 _id = 0;
             }
 
@@ -464,14 +469,14 @@ namespace MphRead::Mods
     void ShutdownSignals::OnShutdown(std::function<void()> action)
     {
         _impl->State->SetAction(std::move(action));
-        SignalHub::Instance().AddConsole(_impl->State);
+        SignalAdapter::Instance().AddConsole(_impl->State);
         _impl->Register(SIGTERM);
         _impl->Register(SIGINT);
     }
 
     void ShutdownSignals::Dispose()
     {
-        SignalHub::Instance().RemoveOneConsole(_impl->State);
+        SignalAdapter::Instance().RemoveOneConsole(_impl->State);
         for (const std::unique_ptr<SignalRegistration>& registration : _impl->Registrations)
         {
             registration->Dispose();

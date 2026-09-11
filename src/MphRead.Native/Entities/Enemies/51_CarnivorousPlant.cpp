@@ -4,7 +4,7 @@
 
 #include <cassert>
 
-namespace MphRead::Entities
+namespace MphRead::Entities::Enemies
 {
     namespace
     {
@@ -29,11 +29,11 @@ namespace MphRead::Entities
         _prevPos = Position;
         Flags |= EnemyFlags::Visible;
         Flags |= EnemyFlags::Static;
-        Flags |= EnemyFlags::NoMaxDistance; // todo: game doesn't set this
+        Flags |= EnemyFlags::NoMaxDistance; // the game doesn't set this
         _health = _healthMax = _spawner->Data.Fields.S07.EnemyHealth;
         _boundingRadius = Fixed::ToFloat(1843);
         _hurtVolumeInit = CollisionVolume(
-            ::System::Numerics::Vector3(0.0F, Fixed::ToFloat(409), 0.0F), _boundingRadius);
+            ::OpenTK::Mathematics::Vector3(0.0F, Fixed::ToFloat(409), 0.0F), _boundingRadius);
         _hurtVolume = CollisionVolume::Transform(_hurtVolumeInit, Transform);
         ObjectMetadata meta = Metadata::GetObjectById(_spawner->Data.Fields.S07.EnemySubtype);
         SetUpModel(meta.Name);

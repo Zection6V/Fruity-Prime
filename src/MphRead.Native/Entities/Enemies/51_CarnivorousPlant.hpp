@@ -6,7 +6,10 @@
 namespace MphRead::Entities
 {
     class EnemySpawnEntity;
+}
 
+namespace MphRead::Entities::Enemies
+{
     class Enemy51Entity : public EnemyInstanceEntity
     {
     public:

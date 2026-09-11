@@ -24,6 +24,10 @@ namespace MphRead::Mods::Network::Detail
     void NetPlayerSetupSetBotLevel(NetPlayerSetupPlayer& player, std::int32_t value);
     std::uint8_t NetPlayerSetupLoadFlags(const NetPlayerSetupPlayer& player);
 
+    // C# interpolation formats Int32 with the current culture before the
+    // resulting string is passed to Console.WriteLine. Keep that framework
+    // formatting at the same bridge boundary instead of using std::to_string.
+    std::string NetPlayerSetupConsoleFormatInt32(std::int32_t value);
     // Models the single Console.WriteLine call; the supplied string excludes
     // the line terminator, just as the C# string argument does.
     void NetPlayerSetupConsoleWriteLine(std::string_view value);
@@ -77,9 +81,9 @@ namespace MphRead::Mods::Network
         }
 
         std::string message = "[net] player slots prepared -- local slot ";
-        message += std::to_string(local);
+        message += Detail::NetPlayerSetupConsoleFormatInt32(local);
         message += ", ";
-        message += std::to_string(CountActive());
+        message += Detail::NetPlayerSetupConsoleFormatInt32(CountActive());
         message += " active, AI disabled on remote slots";
         Detail::NetPlayerSetupConsoleWriteLine(message);
     }

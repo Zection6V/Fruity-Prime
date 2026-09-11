@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -29,17 +30,20 @@ namespace MphRead::Mods::Input
     class PadBindings final
     {
     public:
-        [[nodiscard]] static const std::array<PadAction, 13>& Actions() noexcept;
+        static const std::array<PadAction, 13>& Actions() noexcept;
 
-        [[nodiscard]] static GamepadButtons Get(PadAction action);
+        static GamepadButtons Get(PadAction action);
         static void Set(PadAction action, GamepadButtons buttons);
-        [[nodiscard]] static GamepadButtons Default(PadAction action);
+        static GamepadButtons Default(PadAction action);
         static void Reset();
-        [[nodiscard]] static std::string Name(PadAction action);
-        [[nodiscard]] static std::string Describe(GamepadButtons buttons);
-        [[nodiscard]] static std::string ButtonName(GamepadButtons button);
-        [[nodiscard]] static std::string SettingKey(PadAction action);
-        static bool TryLoad(std::string_view key, std::string_view value);
+        static std::string Name(PadAction action);
+        static std::string Describe(GamepadButtons buttons);
+        static std::string ButtonName(GamepadButtons button);
+        static std::string SettingKey(PadAction action);
+        static bool TryLoad(
+            std::optional<std::string_view> key,
+            std::optional<std::string_view> value
+        );
 
     private:
         PadBindings() = delete;

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -255,6 +256,16 @@ namespace MphRead::Mods::Input
             return true;
         }
 
+        std::size_t PadActionIndex(PadAction action)
+        {
+            const std::int32_t index = static_cast<std::int32_t>(action);
+            if (index < 0 || static_cast<std::size_t>(index) >= PadActionNames.size())
+            {
+                throw std::out_of_range("Index was outside the bounds of the array.");
+            }
+            return static_cast<std::size_t>(index);
+        }
+
         std::string PadActionToString(PadAction action)
         {
             for (const EnumName<PadAction>& entry : PadActionNames)
@@ -362,17 +373,17 @@ namespace MphRead::Mods::Input
 
     GamepadButtons PadBindings::Get(PadAction action)
     {
-        return _current.at(static_cast<std::size_t>(static_cast<std::int32_t>(action)));
+        return _current[PadActionIndex(action)];
     }
 
     void PadBindings::Set(PadAction action, GamepadButtons buttons)
     {
-        _current.at(static_cast<std::size_t>(static_cast<std::int32_t>(action))) = buttons;
+        _current[PadActionIndex(action)] = buttons;
     }
 
     GamepadButtons PadBindings::Default(PadAction action)
     {
-        return _defaults.at(static_cast<std::size_t>(static_cast<std::int32_t>(action)));
+        return _defaults[PadActionIndex(action)];
     }
 
     void PadBindings::Reset()
@@ -491,22 +502,30 @@ namespace MphRead::Mods::Input
         return std::string("pad_") + PadActionToString(action);
     }
 
-    bool PadBindings::TryLoad(std::string_view key, std::string_view value)
+    bool PadBindings::TryLoad(
+        std::optional<std::string_view> key,
+        std::optional<std::string_view> value
+    )
     {
+        if (!key.has_value())
+        {
+            throw std::runtime_error("Object reference not set to an instance of an object.");
+        }
+
         constexpr std::string_view prefix = "pad_";
-        if (!key.starts_with(prefix))
+        if (!key->starts_with(prefix))
         {
             return false;
         }
 
         PadAction action = PadAction::Shoot;
-        if (!TryParseEnum(key.substr(prefix.size()), PadActionNames, action))
+        if (!TryParseEnum(key->substr(prefix.size()), PadActionNames, action))
         {
             return false;
         }
 
         GamepadButtons buttons = GamepadButtons::None;
-        if (!TryParseEnum(value, GamepadButtonNames, buttons))
+        if (!value.has_value() || !TryParseEnum(*value, GamepadButtonNames, buttons))
         {
             return false;
         }

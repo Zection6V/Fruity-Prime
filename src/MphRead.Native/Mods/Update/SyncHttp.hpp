@@ -1,18 +1,20 @@
 #pragma once
 
+#include <cstdint>
 #include <exception>
 #include <memory>
 
 namespace MphRead::Mods::Update
 {
-    enum class HttpCompletionOption
+    enum class HttpCompletionOption : std::int32_t
     {
-        ResponseContentRead,
-        ResponseHeadersRead
+        ResponseContentRead = 0,
+        ResponseHeadersRead = 1
     };
 
-    // Opaque adapter value. nullptr is CancellationToken's default value;
-    // non-default values are forwarded unchanged to the HTTP adapter.
+    // Opaque adapter value for System.Threading.CancellationToken. nullptr is
+    // the default, non-cancelable token; non-default values are forwarded
+    // unchanged through SendAsync.
     using CancellationToken = const void*;
 
     class HttpRequestMessage
@@ -27,22 +29,32 @@ namespace MphRead::Mods::Update
         virtual ~HttpResponseMessage() = default;
     };
 
-    // Direct C++ counterpart for the managed null-reference failure that can
-    // occur while evaluating this file's SendAsync(...).GetAwaiter() chain.
+    // Native counterpart for a managed null-reference failure while evaluating
+    // the SendAsync(...).GetAwaiter().GetResult() call chain.
     class NullReferenceException final : public std::exception
     {
     public:
         [[nodiscard]] const char* what() const noexcept override;
     };
 
-    class HttpSendOperation
+    class HttpResponseAwaiter
     {
     public:
-        virtual ~HttpSendOperation() = default;
+        virtual ~HttpResponseAwaiter() = default;
 
-        // Adapter boundary for TaskAwaiter<HttpResponseMessage>.GetResult().
-        // It blocks to completion and rethrows the operation's stored failure.
+        // TaskAwaiter<HttpResponseMessage>.GetResult(): block until completion,
+        // return the task result, and rethrow the task's stored failure directly.
         [[nodiscard]] virtual std::unique_ptr<HttpResponseMessage> GetResult() = 0;
+    };
+
+    class HttpResponseTask
+    {
+    public:
+        virtual ~HttpResponseTask() = default;
+
+        // Task<HttpResponseMessage>.GetAwaiter(). The returned awaiter remains
+        // valid for the lifetime of this task adapter.
+        [[nodiscard]] virtual HttpResponseAwaiter& GetAwaiter() = 0;
     };
 
     class HttpClient
@@ -50,7 +62,7 @@ namespace MphRead::Mods::Update
     public:
         virtual ~HttpClient() = default;
 
-        [[nodiscard]] virtual std::unique_ptr<HttpSendOperation> SendAsync(
+        [[nodiscard]] virtual std::unique_ptr<HttpResponseTask> SendAsync(
             HttpRequestMessage* request,
             HttpCompletionOption completion,
             CancellationToken cancel) = 0;

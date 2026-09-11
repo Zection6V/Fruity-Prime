@@ -18,12 +18,13 @@ namespace MphRead::Mods::Update
             throw NullReferenceException();
         }
 
-        std::unique_ptr<HttpSendOperation> operation
+        std::unique_ptr<HttpResponseTask> task
             = client->SendAsync(request, completion, cancel);
-        if (operation == nullptr)
+        if (task == nullptr)
         {
             throw NullReferenceException();
         }
-        return operation->GetResult();
+
+        return task->GetAwaiter().GetResult();
     }
 }

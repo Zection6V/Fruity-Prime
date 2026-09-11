@@ -26,22 +26,23 @@ namespace MphRead
 {
     namespace Mods
     {
-        Credits::Entry::Entry(NullableString who, NullableString what, NullableString where)
+        Credits::Entry::Entry(std::optional<std::string> who, std::optional<std::string> what,
+            std::optional<std::string> where)
             : _who(std::move(who)), _what(std::move(what)), _where(std::move(where))
         {
         }
 
-        const Credits::Entry::NullableString& Credits::Entry::Who() const noexcept
+        const std::optional<std::string>& Credits::Entry::Who() const noexcept
         {
             return _who;
         }
 
-        const Credits::Entry::NullableString& Credits::Entry::What() const noexcept
+        const std::optional<std::string>& Credits::Entry::What() const noexcept
         {
             return _what;
         }
 
-        const Credits::Entry::NullableString& Credits::Entry::Where() const noexcept
+        const std::optional<std::string>& Credits::Entry::Where() const noexcept
         {
             return _where;
         }
@@ -77,7 +78,7 @@ namespace MphRead
             bool first = true;
             for (Entry entry : Entries())
             {
-                const Entry::NullableString& who = entry.Who();
+                const std::optional<std::string>& who = entry.Who();
                 if (who.has_value() && *who == "NoneGiven")
                 {
                     continue;

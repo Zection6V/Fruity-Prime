@@ -254,7 +254,7 @@ namespace MphRead::Mods::Input
         const float dsY = (y - _top) / height * DsHeight;
         for (std::int32_t i = 0; i < 5; ++i)
         {
-            const Button& button = Buttons[i];
+            const Button button = Buttons[i];
             const float dx = dsX - button.X;
             const float dy = dsY - button.Y;
             if (dx * dx + dy * dy <= button.Radius * button.Radius)

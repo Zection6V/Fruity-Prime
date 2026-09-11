@@ -13,7 +13,7 @@ namespace MphRead
         public:
             static void Prepare(const std::vector<std::string>& args);
             static void Show();
-            [[nodiscard]] static bool OwnsItsConsole();
+            static bool OwnsItsConsole();
 
             ConsoleWindow() = delete;
             ConsoleWindow(const ConsoleWindow&) = delete;

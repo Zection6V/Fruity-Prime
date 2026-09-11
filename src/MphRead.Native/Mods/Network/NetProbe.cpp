@@ -508,17 +508,24 @@ namespace MphRead::Mods::Network::Detail
     {
         std::uint32_t bytes[4]{};
         std::size_t start = 0;
-        for (int i = 0; i < 4; ++i)
+        for (std::size_t index = 0; index < 4; ++index)
         {
-            const std::size_t end = i == 3 ? text.size() : text.find('.', start);
-            if (end == std::string_view::npos || end == start)
+            const std::size_t dot = text.find('.', start);
+            const bool last = index == 3;
+            if ((last && dot != std::string_view::npos)
+                || (!last && dot == std::string_view::npos))
+            {
+                return false;
+            }
+            const std::size_t end = last ? text.size() : dot;
+            if (end == start)
             {
                 return false;
             }
             std::uint32_t value = 0;
-            for (std::size_t j = start; j < end; ++j)
+            for (std::size_t i = start; i < end; ++i)
             {
-                const char ch = text[j];
+                const char ch = text[i];
                 if (ch < '0' || ch > '9')
                 {
                     return false;
@@ -529,135 +536,38 @@ namespace MphRead::Mods::Network::Detail
                     return false;
                 }
             }
-            bytes[i] = value;
+            bytes[index] = value;
             start = end + 1;
-        }
-        if (start != text.size() + 1)
-        {
-            return false;
         }
         high = static_cast<std::uint16_t>((bytes[0] << 8) | bytes[1]);
         low = static_cast<std::uint16_t>((bytes[2] << 8) | bytes[3]);
         return true;
     }
 
-    [[nodiscard]] bool TryParseDotNetIPv6(
-        std::string_view text, in6_addr& address, std::uint32_t& scope) noexcept
+    [[nodiscard]] bool TryParseIPv6Side(
+        std::string_view text,
+        bool allowEmbeddedIPv4,
+        std::vector<std::uint16_t>& words) noexcept
     {
         if (text.empty())
         {
-            return false;
+            return true;
         }
 
-        std::string_view input = text;
-        bool bracketed = false;
-        if (input.front() == '[')
+        std::size_t start = 0;
+        while (start <= text.size())
         {
-            const std::size_t close = input.find(']');
-            if (close == std::string_view::npos)
+            const std::size_t colon = text.find(':', start);
+            const bool last = colon == std::string_view::npos;
+            const std::size_t end = last ? text.size() : colon;
+            if (end == start)
             {
                 return false;
             }
-            bracketed = true;
-            const std::string_view suffix = input.substr(close + 1);
-            if (!suffix.empty())
-            {
-                if (suffix.front() != ':')
-                {
-                    return false;
-                }
-                const std::string_view port = suffix.substr(1);
-                if (port.empty())
-                {
-                    return false;
-                }
-                if (port.size() > 2 && port[0] == '0' && port[1] == 'x')
-                {
-                    if (port.size() == 2)
-                    {
-                        return false;
-                    }
-                    for (std::size_t i = 2; i < port.size(); ++i)
-                    {
-                        if (!IsHexDigit(port[i]))
-                        {
-                            return false;
-                        }
-                    }
-                }
-                else
-                {
-                    for (char ch : port)
-                    {
-                        if (ch < '0' || ch > '9')
-                        {
-                            return false;
-                        }
-                    }
-                }
-            }
-            input = input.substr(1, close - 1);
-        }
-        else if (input.find(']') != std::string_view::npos)
-        {
-            return false;
-        }
-
-        std::string_view scopeText;
-        const std::size_t percent = input.find('%');
-        if (percent != std::string_view::npos)
-        {
-            scopeText = input.substr(percent + 1);
-            input = input.substr(0, percent);
-        }
-
-        if (input.find(':') == std::string_view::npos)
-        {
-            return false;
-        }
-
-        std::array<std::uint16_t, 8> groups{};
-        std::size_t groupCount = 0;
-        std::size_t compressor = std::string_view::npos;
-        std::size_t pos = 0;
-        if (input.size() >= 2 && input[0] == ':' && input[1] == ':')
-        {
-            compressor = 0;
-            pos = 2;
-            if (pos == input.size())
-            {
-                groupCount = 0;
-            }
-        }
-        else if (!input.empty() && input.front() == ':')
-        {
-            return false;
-        }
-
-        while (pos < input.size())
-        {
-            if (groupCount >= 8)
-            {
-                return false;
-            }
-            const std::size_t nextColon = input.find(':', pos);
-            const std::size_t tokenEnd = nextColon == std::string_view::npos
-                ? input.size() : nextColon;
-            std::string_view token = input.substr(pos, tokenEnd - pos);
-            if (token.empty())
-            {
-                if (nextColon == std::string_view::npos || compressor != std::string_view::npos)
-                {
-                    return false;
-                }
-                compressor = groupCount;
-                pos = nextColon + 1;
-                continue;
-            }
-
+            const std::string_view token = text.substr(start, end - start);
             if (token.find('.') != std::string_view::npos)
             {
-                if (nextColon != std::string_view::npos || groupCount > 6)
+                if (!allowEmbeddedIPv4 || !last)
                 {
                     return false;
                 }
@@ -667,453 +577,369 @@ namespace MphRead::Mods::Network::Detail
                 {
                     return false;
                 }
-                groups[groupCount++] = high;
-                groups[groupCount++] = low;
-                pos = input.size();
-                break;
+                words.push_back(high);
+                words.push_back(low);
             }
-
-            if (token.size() > 4)
+            else
             {
-                return false;
-            }
-            std::uint16_t value = 0;
-            for (char ch : token)
-            {
-                if (!IsHexDigit(ch))
+                if (token.size() > 4)
                 {
                     return false;
                 }
-                value = static_cast<std::uint16_t>(value * 16 + HexDigitValue(ch));
+                std::uint16_t word = 0;
+                for (char ch : token)
+                {
+                    if (!IsHexDigit(ch))
+                    {
+                        return false;
+                    }
+                    word = static_cast<std::uint16_t>(word * 16 + HexDigitValue(ch));
+                }
+                words.push_back(word);
             }
-            groups[groupCount++] = value;
+            if (last)
+            {
+                return true;
+            }
+            start = colon + 1;
+        }
+        return false;
+    }
 
-            if (nextColon == std::string_view::npos)
+    [[nodiscard]] bool ValidateBracketPort(std::string_view suffix) noexcept
+    {
+        if (suffix.empty())
+        {
+            return true;
+        }
+        if (suffix.front() != ':')
+        {
+            return false;
+        }
+        if (suffix.size() >= 3 && suffix[1] == '0' && suffix[2] == 'x')
+        {
+            for (std::size_t i = 3; i < suffix.size(); ++i)
             {
-                pos = input.size();
-                break;
-            }
-            pos = nextColon + 1;
-            if (pos == input.size())
-            {
-                return false;
-            }
-            if (input[pos] == ':')
-            {
-                if (compressor != std::string_view::npos)
+                if (!IsHexDigit(suffix[i]))
                 {
                     return false;
                 }
-                compressor = groupCount;
-                ++pos;
-                if (pos == input.size())
-                {
-                    break;
-                }
+            }
+            return true;
+        }
+        for (std::size_t i = 1; i < suffix.size(); ++i)
+        {
+            if (suffix[i] < '0' || suffix[i] > '9')
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool TryParseDotNetIPv6(
+        std::string_view text, bool& unspecified) noexcept
+    {
+        unspecified = false;
+        if (text.find(':') == std::string_view::npos)
+        {
+            return false;
+        }
+
+        std::string_view address = text;
+        if (!text.empty() && text.front() == '[')
+        {
+            const std::size_t close = text.find(']');
+            if (close == std::string_view::npos || !ValidateBracketPort(text.substr(close + 1)))
+            {
+                return false;
+            }
+            address = text.substr(1, close - 1);
+        }
+        else if (text.find('[') != std::string_view::npos
+            || text.find(']') != std::string_view::npos)
+        {
+            return false;
+        }
+
+        if (address.find('/') != std::string_view::npos)
+        {
+            return false;
+        }
+
+        std::uint32_t scope = 0;
+        const std::size_t percent = address.find('%');
+        if (percent != std::string_view::npos)
+        {
+            const std::string_view scopeText = address.substr(percent + 1);
+            address = address.substr(0, percent);
+            if (!scopeText.empty() && !TryParseUInt32Decimal(scopeText, scope))
+            {
+                const std::string interfaceName(scopeText);
+                scope = if_nametoindex(interfaceName.c_str());
             }
         }
 
+        const std::size_t compressor = address.find("::");
+        std::vector<std::uint16_t> words;
         if (compressor == std::string_view::npos)
         {
-            if (groupCount != 8)
+            if (!TryParseIPv6Side(address, true, words) || words.size() != 8)
             {
                 return false;
             }
         }
         else
         {
-            if (groupCount >= 8)
+            if (address.find("::", compressor + 1) != std::string_view::npos)
             {
                 return false;
             }
-            const std::size_t zeros = 8 - groupCount;
-            for (std::size_t i = groupCount; i > compressor; --i)
+            std::vector<std::uint16_t> left;
+            std::vector<std::uint16_t> right;
+            if (!TryParseIPv6Side(address.substr(0, compressor), false, left)
+                || !TryParseIPv6Side(address.substr(compressor + 2), true, right)
+                || left.size() + right.size() >= 8)
             {
-                groups[i + zeros - 1] = groups[i - 1];
+                return false;
             }
-            for (std::size_t i = compressor; i < compressor + zeros; ++i)
-            {
-                groups[i] = 0;
-            }
-            groupCount = 8;
+            words = std::move(left);
+            words.resize(8 - right.size(), 0);
+            words.insert(words.end(), right.begin(), right.end());
         }
 
-        if (scopeText.empty())
+        bool allZero = true;
+        for (std::uint16_t word : words)
         {
-            scope = 0;
-        }
-        else if (!TryParseUInt32Decimal(scopeText, scope))
-        {
-            std::string scopeName(scopeText);
-#ifdef _WIN32
-            scope = if_nametoindex(scopeName.c_str());
-#else
-            scope = if_nametoindex(scopeName.c_str());
-#endif
-            if (scope == 0)
+            if (word != 0)
             {
-                scope = 0;
+                allZero = false;
+                break;
             }
         }
-
-        auto* bytes = reinterpret_cast<unsigned char*>(&address);
-        for (std::size_t i = 0; i < 8; ++i)
-        {
-            bytes[i * 2] = static_cast<unsigned char>(groups[i] >> 8);
-            bytes[i * 2 + 1] = static_cast<unsigned char>(groups[i] & 0xFF);
-        }
-        (void)bracketed;
+        unspecified = allZero && scope == 0;
         return true;
     }
 
-    [[nodiscard]] std::string FormatIPv6(const in6_addr& address)
+    [[nodiscard]] std::size_t DotNetUtf16Length(std::string_view text) noexcept
     {
-        std::array<char, INET6_ADDRSTRLEN> text{};
-        if (inet_ntop(AF_INET6, &address, text.data(), text.size()) == nullptr)
+        std::size_t units = 0;
+        for (std::size_t i = 0; i < text.size();)
         {
-#ifdef _WIN32
-            const int error = WSAGetLastError();
-#else
-            const int error = errno;
-#endif
-            throw std::runtime_error(SocketErrorMessage(error));
-        }
-        return text.data();
-    }
-
-    [[nodiscard]] std::size_t Utf16Length(std::string_view value)
-    {
-        std::size_t count = 0;
-        for (std::size_t i = 0; i < value.size();)
-        {
-            const unsigned char lead = static_cast<unsigned char>(value[i]);
-            std::uint32_t codePoint = 0;
-            std::size_t width = 1;
-            if (lead < 0x80)
+            const unsigned char first = static_cast<unsigned char>(text[i]);
+            if (first < 0x80)
             {
-                codePoint = lead;
-            }
-            else if ((lead & 0xE0) == 0xC0 && i + 1 < value.size())
-            {
-                codePoint = lead & 0x1F;
-                width = 2;
-            }
-            else if ((lead & 0xF0) == 0xE0 && i + 2 < value.size())
-            {
-                codePoint = lead & 0x0F;
-                width = 3;
-            }
-            else if ((lead & 0xF8) == 0xF0 && i + 3 < value.size())
-            {
-                codePoint = lead & 0x07;
-                width = 4;
-            }
-            else
-            {
-                ++count;
+                ++units;
                 ++i;
                 continue;
             }
-            for (std::size_t j = 1; j < width; ++j)
+
+            std::size_t count = 0;
+            std::uint32_t value = 0;
+            if (first >= 0xC2 && first <= 0xDF)
             {
-                codePoint = (codePoint << 6)
-                    | (static_cast<unsigned char>(value[i + j]) & 0x3F);
+                count = 2;
+                value = first & 0x1Fu;
             }
-            count += codePoint > 0xFFFF ? 2 : 1;
-            i += width;
-        }
-        return count;
-    }
-
-#ifdef _WIN32
-    [[nodiscard]] std::wstring Utf8ToWide(const std::string& value)
-    {
-        if (value.empty())
-        {
-            return {};
-        }
-        const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-            value.data(), static_cast<int>(value.size()), nullptr, 0);
-        if (count == 0)
-        {
-            throw std::runtime_error(SocketErrorMessage(GetLastError()));
-        }
-        std::wstring wide(static_cast<std::size_t>(count), L'\0');
-        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                static_cast<int>(value.size()), wide.data(), count) == 0)
-        {
-            throw std::runtime_error(SocketErrorMessage(GetLastError()));
-        }
-        return wide;
-    }
-
-    [[nodiscard]] std::vector<ResolvedAddress> ResolveWindows(const std::string& query)
-    {
-        std::wstring wide = Utf8ToWide(query);
-        ADDRINFOW hints{};
-        hints.ai_family = AF_UNSPEC;
-        ADDRINFOW* raw = nullptr;
-        const int error = GetAddrInfoW(wide.c_str(), nullptr, &hints, &raw);
-        if (error != 0)
-        {
-            throw std::runtime_error(SocketErrorMessage(error));
-        }
-
-        struct AddrInfoDeleter
-        {
-            void operator()(ADDRINFOW* value) const noexcept
+            else if (first >= 0xE0 && first <= 0xEF)
             {
-                if (value != nullptr)
+                count = 3;
+                value = first & 0x0Fu;
+            }
+            else if (first >= 0xF0 && first <= 0xF4)
+            {
+                count = 4;
+                value = first & 0x07u;
+            }
+            else
+            {
+                return text.size();
+            }
+
+            if (i + count > text.size())
+            {
+                return text.size();
+            }
+            for (std::size_t j = 1; j < count; ++j)
+            {
+                const unsigned char next = static_cast<unsigned char>(text[i + j]);
+                if ((next & 0xC0u) != 0x80u)
                 {
-                    FreeAddrInfoW(value);
+                    return text.size();
                 }
+                value = (value << 6) | (next & 0x3Fu);
             }
-        };
-        std::unique_ptr<ADDRINFOW, AddrInfoDeleter> results(raw);
-        std::vector<ResolvedAddress> resolved;
-        for (ADDRINFOW* current = results.get(); current != nullptr; current = current->ai_next)
+            if ((count == 3 && value < 0x800u)
+                || (count == 4 && value < 0x10000u)
+                || (value >= 0xD800u && value <= 0xDFFFu)
+                || value > 0x10FFFFu)
+            {
+                return text.size();
+            }
+            units += value >= 0x10000u ? 2u : 1u;
+            i += count;
+        }
+        return units;
+    }
+
+    void ValidateHostName(const std::string& address)
+    {
+        const std::size_t length = DotNetUtf16Length(address);
+        if (length > 255 || (length == 255 && (address.empty() || address.back() != '.')))
         {
-            if (current->ai_family == AF_INET)
+            throw std::out_of_range(
+                "The size of hostName is too long. It cannot be longer than 255 characters. "
+                "(Parameter 'hostName')");
+        }
+    }
+
+    [[nodiscard]] bool SameResolvedAddress(
+        const ResolvedAddress& left, const ResolvedAddress& right) noexcept
+    {
+        if (left.IsIPv4 != right.IsIPv4)
+        {
+            return false;
+        }
+        return !left.IsIPv4 || left.Text == right.Text;
+    }
+
+    void AppendResolvedUnique(
+        std::vector<ResolvedAddress>& resolved, ResolvedAddress address)
+    {
+        for (const ResolvedAddress& existing : resolved)
+        {
+            if (SameResolvedAddress(existing, address))
             {
-                const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
-                std::array<char, INET_ADDRSTRLEN> text{};
-                if (inet_ntop(AF_INET, &ipv4->sin_addr, text.data(), text.size()) == nullptr)
-                {
-                    throw std::runtime_error(SocketErrorMessage(WSAGetLastError()));
-                }
-                resolved.push_back({true, text.data()});
-            }
-            else if (current->ai_family == AF_INET6)
-            {
-                resolved.push_back({false, {}});
+                return;
             }
         }
-        return resolved;
+        resolved.push_back(std::move(address));
     }
-#else
-    enum class DnsSocketError
-    {
-        HostNotFound,
-        TryAgain,
-        InvalidArgument,
-        NoRecovery,
-        AddressFamilyNotSupported,
-        SocketError
-    };
 
-    [[nodiscard]] int NativeErrorForDnsSocketError(DnsSocketError error)
+#ifndef _WIN32
+    [[nodiscard]] std::string DotNetDnsErrorMessage(int error)
     {
         switch (error)
         {
-        case DnsSocketError::HostNotFound:
-#ifdef EAI_NONAME
-            return EAI_NONAME;
-#else
-            return -1;
-#endif
-        case DnsSocketError::TryAgain:
-            return EAGAIN;
-        case DnsSocketError::InvalidArgument:
-            return EINVAL;
-        case DnsSocketError::NoRecovery:
-            return 11003;
-        case DnsSocketError::AddressFamilyNotSupported:
-            return EAFNOSUPPORT;
-        case DnsSocketError::SocketError:
-            return -1;
-        }
-        return -1;
-    }
-
-    [[nodiscard]] std::string DnsSocketErrorMessage(DnsSocketError error)
-    {
-        if (error == DnsSocketError::HostNotFound)
-        {
-#ifdef EAI_NONAME
-            return gai_strerror(EAI_NONAME);
-#else
-            return "Name lookup failed";
-#endif
-        }
-        const int nativeError = NativeErrorForDnsSocketError(error);
-        if (nativeError > 0)
-        {
-            return SocketErrorMessage(nativeError);
-        }
-        return "Unknown socket error";
-    }
-
-    [[nodiscard]] DnsSocketError MapGaiError(int error)
-    {
-#ifdef EAI_AGAIN
-        if (error == EAI_AGAIN)
-        {
-            return DnsSocketError::TryAgain;
-        }
-#endif
-#ifdef EAI_BADFLAGS
-        if (error == EAI_BADFLAGS)
-        {
-            return DnsSocketError::InvalidArgument;
-        }
-#endif
+        case EAI_AGAIN:
+            return SocketErrorMessage(EAGAIN);
+        case EAI_BADFLAGS:
+            return SocketErrorMessage(EINVAL);
 #ifdef EAI_FAIL
-        if (error == EAI_FAIL)
-        {
-            return DnsSocketError::NoRecovery;
-        }
+        case EAI_FAIL:
+            return SocketErrorMessage(11003);
 #endif
-#ifdef EAI_FAMILY
-        if (error == EAI_FAMILY)
-        {
-            return DnsSocketError::AddressFamilyNotSupported;
-        }
+        case EAI_FAMILY:
+            return SocketErrorMessage(EAFNOSUPPORT);
+        case EAI_MEMORY:
+            return "Exception of type 'System.OutOfMemoryException' was thrown.";
+        case EAI_NONAME:
+            return gai_strerror(EAI_NONAME);
+#if defined(EAI_NODATA) && EAI_NODATA != EAI_NONAME
+        case EAI_NODATA:
+            return gai_strerror(EAI_NONAME);
 #endif
-#ifdef EAI_NONAME
-        if (error == EAI_NONAME)
-        {
-            return DnsSocketError::HostNotFound;
+        default:
+            return "Unknown socket error";
         }
-#endif
-#ifdef EAI_NODATA
-        if (error == EAI_NODATA)
-        {
-            return DnsSocketError::HostNotFound;
-        }
-#endif
-        return DnsSocketError::SocketError;
     }
 
-    void AppendUnixAddress(std::vector<ResolvedAddress>& resolved, const sockaddr* address)
+    void AppendLocalHostAddresses(
+        const std::string& query, std::vector<ResolvedAddress>& resolved)
     {
-        if (address == nullptr)
+        std::array<char, 256> host{};
+        if (gethostname(host.data(), host.size()) != 0
+            || strcasecmp(query.c_str(), host.data()) != 0)
         {
             return;
         }
-        if (address->sa_family == AF_INET)
-        {
-            const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(address);
-            std::array<char, INET_ADDRSTRLEN> text{};
-            if (inet_ntop(AF_INET, &ipv4->sin_addr, text.data(), text.size()) == nullptr)
-            {
-                throw std::runtime_error(SocketErrorMessage(errno));
-            }
-            for (const ResolvedAddress& existing : resolved)
-            {
-                if (existing.IsIPv4 && existing.Text == text.data())
-                {
-                    return;
-                }
-            }
-            resolved.push_back({true, text.data()});
-        }
-        else if (address->sa_family == AF_INET6)
-        {
-            resolved.push_back({false, {}});
-        }
-    }
 
-    [[nodiscard]] std::vector<ResolvedAddress> ResolveUnix(const std::string& query)
-    {
-        addrinfo hints{};
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_flags = AI_CANONNAME;
-        addrinfo* raw = nullptr;
-        const int error = getaddrinfo(query.c_str(), nullptr, &hints, &raw);
-        if (error != 0)
+        ifaddrs* raw = nullptr;
+        if (getifaddrs(&raw) != 0)
         {
-            throw std::runtime_error(DnsSocketErrorMessage(MapGaiError(error)));
+            return;
         }
-
-        struct AddrInfoDeleter
+        struct IfAddrsDeleter
         {
-            void operator()(addrinfo* value) const noexcept
+            void operator()(ifaddrs* value) const noexcept
             {
                 if (value != nullptr)
                 {
-                    freeaddrinfo(value);
+                    freeifaddrs(value);
                 }
             }
         };
-        std::unique_ptr<addrinfo, AddrInfoDeleter> results(raw);
-        std::vector<ResolvedAddress> resolved;
-        for (addrinfo* current = results.get(); current != nullptr; current = current->ai_next)
-        {
-            AppendUnixAddress(resolved, current->ai_addr);
-        }
+        std::unique_ptr<ifaddrs, IfAddrsDeleter> addresses(raw);
 
-        std::array<char, 256> host{};
-        if (gethostname(host.data(), host.size()) == 0
-            && strcasecmp(query.c_str(), host.data()) == 0)
+        bool includeIPv4Loopback = true;
+        bool includeIPv6Loopback = true;
+        for (ifaddrs* current = addresses.get(); current != nullptr; current = current->ifa_next)
         {
-            ifaddrs* rawInterfaces = nullptr;
-            if (getifaddrs(&rawInterfaces) == 0)
+            if (current->ifa_addr == nullptr || (current->ifa_flags & IFF_UP) == 0)
             {
-                struct IfAddrsDeleter
-                {
-                    void operator()(ifaddrs* value) const noexcept
-                    {
-                        if (value != nullptr)
-                        {
-                            freeifaddrs(value);
-                        }
-                    }
-                };
-                std::unique_ptr<ifaddrs, IfAddrsDeleter> interfaces(rawInterfaces);
-                bool includeIPv4Loopback = true;
-                bool includeIPv6Loopback = true;
-                for (ifaddrs* current = interfaces.get(); current != nullptr;
-                     current = current->ifa_next)
-                {
-                    if (current->ifa_addr == nullptr || (current->ifa_flags & IFF_UP) == 0)
-                    {
-                        continue;
-                    }
-                    if (current->ifa_addr->sa_family == AF_INET
-                        && (current->ifa_flags & IFF_LOOPBACK) == 0)
-                    {
-                        includeIPv4Loopback = false;
-                    }
-                    else if (current->ifa_addr->sa_family == AF_INET6
-                        && (current->ifa_flags & IFF_LOOPBACK) == 0)
-                    {
-                        includeIPv6Loopback = false;
-                    }
-                }
-                for (ifaddrs* current = interfaces.get(); current != nullptr;
-                     current = current->ifa_next)
-                {
-                    if (current->ifa_addr == nullptr || (current->ifa_flags & IFF_UP) == 0)
-                    {
-                        continue;
-                    }
-                    if ((!includeIPv4Loopback && current->ifa_addr->sa_family == AF_INET
-                            && (current->ifa_flags & IFF_LOOPBACK) != 0)
-                        || (!includeIPv6Loopback && current->ifa_addr->sa_family == AF_INET6
-                            && (current->ifa_flags & IFF_LOOPBACK) != 0))
-                    {
-                        continue;
-                    }
-                    AppendUnixAddress(resolved, current->ifa_addr);
-                }
+                continue;
+            }
+            if (current->ifa_addr->sa_family == AF_INET
+                && (current->ifa_flags & IFF_LOOPBACK) == 0)
+            {
+                includeIPv4Loopback = false;
+            }
+            else if (current->ifa_addr->sa_family == AF_INET6
+                && (current->ifa_flags & IFF_LOOPBACK) == 0)
+            {
+                includeIPv6Loopback = false;
             }
         }
-        return resolved;
+
+        for (ifaddrs* current = addresses.get(); current != nullptr; current = current->ifa_next)
+        {
+            if (current->ifa_addr == nullptr || (current->ifa_flags & IFF_UP) == 0)
+            {
+                continue;
+            }
+            const int family = current->ifa_addr->sa_family;
+            if (family == AF_INET)
+            {
+                if (!includeIPv4Loopback && (current->ifa_flags & IFF_LOOPBACK) != 0)
+                {
+                    continue;
+                }
+                const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(current->ifa_addr);
+                AppendResolvedUnique(resolved,
+                    {true, FormatDotNetIPv4(ntohl(ipv4->sin_addr.s_addr))});
+            }
+            else if (family == AF_INET6)
+            {
+                if (!includeIPv6Loopback && (current->ifa_flags & IFF_LOOPBACK) != 0)
+                {
+                    continue;
+                }
+                AppendResolvedUnique(resolved, {false, {}});
+            }
+        }
+    }
+#else
+    [[nodiscard]] std::wstring Utf8ToWide(std::string_view text)
+    {
+        if (text.empty())
+        {
+            return {};
+        }
+        const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+            text.data(), static_cast<int>(text.size()), nullptr, 0);
+        if (length == 0)
+        {
+            throw std::runtime_error(SocketErrorMessage(static_cast<int>(GetLastError())));
+        }
+        std::wstring result(static_cast<std::size_t>(length), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                text.data(), static_cast<int>(text.size()), result.data(), length) == 0)
+        {
+            throw std::runtime_error(SocketErrorMessage(static_cast<int>(GetLastError())));
+        }
+        return result;
     }
 #endif
-
-    [[nodiscard]] bool IsUnspecifiedIPv6(const in6_addr& address) noexcept
-    {
-        const auto* bytes = reinterpret_cast<const unsigned char*>(&address);
-        for (std::size_t i = 0; i < sizeof(address); ++i)
-        {
-            if (bytes[i] != 0)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
 
     class NativeNetProbePlatform final : public INetProbePlatform
     {
@@ -1121,9 +947,6 @@ namespace MphRead::Mods::Network::Detail
         [[nodiscard]] std::vector<ResolvedAddress> Resolve(
             const std::string& address) override
         {
-#ifdef _WIN32
-            EnsureWinSock();
-#endif
             std::uint32_t ipv4 = 0;
             if (TryParseDotNetIPv4(address, ipv4))
             {
@@ -1136,46 +959,107 @@ namespace MphRead::Mods::Network::Detail
                 return {{true, FormatDotNetIPv4(ipv4)}};
             }
 
-            in6_addr ipv6{};
-            std::uint32_t scope = 0;
-            if (TryParseDotNetIPv6(address, ipv6, scope))
+            bool ipv6Unspecified = false;
+            if (TryParseDotNetIPv6(address, ipv6Unspecified))
             {
-                if (IsUnspecifiedIPv6(ipv6))
+                if (ipv6Unspecified)
                 {
                     throw std::invalid_argument(
                         "IPv4 address 0.0.0.0 and IPv6 address ::0 are unspecified addresses "
                         "that cannot be used as a target address. (Parameter 'hostNameOrAddress')");
                 }
-                (void)scope;
-                return {{false, FormatIPv6(ipv6)}};
+                return {{false, {}}};
             }
 
-            const std::size_t length = Utf16Length(address);
-            if (length > 255 || (length == 255 && !address.empty() && address.back() != '.'))
+            ValidateHostName(address);
+#ifdef _WIN32
+            EnsureWinSock();
+            const std::wstring query = Utf8ToWide(address);
+            ADDRINFOW hints{};
+            hints.ai_family = AF_UNSPEC;
+            ADDRINFOW* raw = nullptr;
+            const int error = GetAddrInfoW(query.c_str(), nullptr, &hints, &raw);
+            if (error != 0)
             {
-                throw std::out_of_range(
-                    "The size of hostName is too long. It cannot be longer than 255 characters. "
-                    "(Parameter 'hostName')");
+                throw std::runtime_error(SocketErrorMessage(error));
             }
 
+            struct AddrInfoDeleter
+            {
+                void operator()(ADDRINFOW* value) const noexcept
+                {
+                    if (value != nullptr)
+                    {
+                        FreeAddrInfoW(value);
+                    }
+                }
+            };
+            std::unique_ptr<ADDRINFOW, AddrInfoDeleter> results(raw);
+            std::vector<ResolvedAddress> resolved;
+            for (ADDRINFOW* current = results.get(); current != nullptr; current = current->ai_next)
+            {
+                if (current->ai_family == AF_INET)
+                {
+                    const auto* currentIPv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
+                    AppendResolvedUnique(resolved,
+                        {true, FormatDotNetIPv4(ntohl(currentIPv4->sin_addr.s_addr))});
+                }
+                else if (current->ai_family == AF_INET6)
+                {
+                    AppendResolvedUnique(resolved, {false, {}});
+                }
+            }
+            return resolved;
+#else
             std::string query = address;
             if (query.empty())
             {
                 std::array<char, 256> host{};
-                if (gethostname(host.data(), static_cast<int>(host.size())) != 0)
+                if (gethostname(host.data(), host.size()) != 0)
                 {
-#ifdef _WIN32
-                    throw std::runtime_error(SocketErrorMessage(WSAGetLastError()));
-#else
-                    throw std::runtime_error(SocketErrorMessage(errno));
-#endif
+                    const int error = errno;
+                    throw std::runtime_error(SocketErrorMessage(error));
                 }
                 query = host.data();
             }
-#ifdef _WIN32
-            return ResolveWindows(query);
-#else
-            return ResolveUnix(query);
+
+            addrinfo hints{};
+            hints.ai_flags = AI_CANONNAME;
+            hints.ai_family = AF_UNSPEC;
+            addrinfo* raw = nullptr;
+            const int error = getaddrinfo(query.c_str(), nullptr, &hints, &raw);
+            if (error != 0)
+            {
+                throw std::runtime_error(DotNetDnsErrorMessage(error));
+            }
+
+            struct AddrInfoDeleter
+            {
+                void operator()(addrinfo* value) const noexcept
+                {
+                    if (value != nullptr)
+                    {
+                        freeaddrinfo(value);
+                    }
+                }
+            };
+            std::unique_ptr<addrinfo, AddrInfoDeleter> results(raw);
+            std::vector<ResolvedAddress> resolved;
+            for (addrinfo* current = results.get(); current != nullptr; current = current->ai_next)
+            {
+                if (current->ai_family == AF_INET)
+                {
+                    const auto* currentIPv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
+                    AppendResolvedUnique(resolved,
+                        {true, FormatDotNetIPv4(ntohl(currentIPv4->sin_addr.s_addr))});
+                }
+                else if (current->ai_family == AF_INET6)
+                {
+                    AppendResolvedUnique(resolved, {false, {}});
+                }
+            }
+            AppendLocalHostAddresses(query, resolved);
+            return resolved;
 #endif
         }
 

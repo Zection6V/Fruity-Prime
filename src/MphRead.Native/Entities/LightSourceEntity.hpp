@@ -26,9 +26,10 @@ namespace MphRead::Entities
         [[nodiscard]] ::OpenTK::Mathematics::Vector3 Light2Vector() const;
         [[nodiscard]] ::OpenTK::Mathematics::Vector3 Light2Color() const;
 
+        void GetDisplayVolumes() override;
+
     protected:
         [[nodiscard]] std::optional<::OpenTK::Mathematics::Vector4> OverrideColor() const override;
-        void GetDisplayVolumes() override;
 
     private:
         const LightSourceEntityData _data;
@@ -42,8 +43,5 @@ namespace MphRead::Entities
         bool _light2Enabled;
         ::OpenTK::Mathematics::Vector3 _light2Vector;
         ::OpenTK::Mathematics::Vector3 _light2Color;
-
-        const ::OpenTK::Mathematics::Vector4 _volumeColor
-            = ColorRgb(0xBB, 0x9D, 0x7A).AsVector4();
     };
 }

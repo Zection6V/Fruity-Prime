@@ -66,19 +66,13 @@ namespace MphRead::Entities
             || _scene->ShowVolumes == VolumeDisplay::LightColor2)
         {
             ::OpenTK::Mathematics::Vector3 color = ::OpenTK::Mathematics::Vector3::Zero;
-            if (_scene->ShowVolumes == VolumeDisplay::LightColor1)
+            if (_scene->ShowVolumes == VolumeDisplay::LightColor1 && _data.Light1Enabled != 0)
             {
-                if (_data.Light1Enabled != 0)
-                {
-                    color = Light1Color();
-                }
+                color = Light1Color();
             }
-            else if (_scene->ShowVolumes == VolumeDisplay::LightColor2)
+            else if (_scene->ShowVolumes == VolumeDisplay::LightColor2 && _data.Light2Enabled != 0)
             {
-                if (_data.Light2Enabled != 0)
-                {
-                    color = Light2Color();
-                }
+                color = Light2Color();
             }
             AddVolumeItem(Volume(), color);
         }

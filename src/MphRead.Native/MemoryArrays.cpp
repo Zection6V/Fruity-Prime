@@ -7,7 +7,8 @@ namespace MphRead::Memory
     {
     }
 
-    SByteArray::SByteArray(Memory& memory, std::intptr_t address, std::int32_t length)
+    SByteArray::SByteArray(
+        Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
         : MemoryArray(memory, address, length)
     {
     }
@@ -27,7 +28,8 @@ namespace MphRead::Memory
     {
     }
 
-    ByteArray::ByteArray(Memory& memory, std::intptr_t address, std::int32_t length)
+    ByteArray::ByteArray(
+        Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
         : MemoryArray(memory, address, length)
     {
     }
@@ -47,7 +49,8 @@ namespace MphRead::Memory
     {
     }
 
-    Int16Array::Int16Array(Memory& memory, std::intptr_t address, std::int32_t length)
+    Int16Array::Int16Array(
+        Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
         : MemoryArray(memory, address, length)
     {
     }
@@ -67,7 +70,8 @@ namespace MphRead::Memory
     {
     }
 
-    UInt16Array::UInt16Array(Memory& memory, std::intptr_t address, std::int32_t length)
+    UInt16Array::UInt16Array(
+        Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
         : MemoryArray(memory, address, length)
     {
     }
@@ -87,7 +91,8 @@ namespace MphRead::Memory
     {
     }
 
-    Int32Array::Int32Array(Memory& memory, std::intptr_t address, std::int32_t length)
+    Int32Array::Int32Array(
+        Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
         : MemoryArray(memory, address, length)
     {
     }
@@ -107,7 +112,8 @@ namespace MphRead::Memory
     {
     }
 
-    UInt32Array::UInt32Array(Memory& memory, std::intptr_t address, std::int32_t length)
+    UInt32Array::UInt32Array(
+        Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
         : MemoryArray(memory, address, length)
     {
     }
@@ -127,7 +133,8 @@ namespace MphRead::Memory
     {
     }
 
-    IntPtrArray::IntPtrArray(Memory& memory, std::intptr_t address, std::int32_t length)
+    IntPtrArray::IntPtrArray(
+        Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
         : MemoryArray(memory, address, length)
     {
     }

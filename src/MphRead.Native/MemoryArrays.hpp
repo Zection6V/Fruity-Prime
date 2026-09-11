@@ -7,8 +7,8 @@
 #include <climits>
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -26,6 +26,107 @@ namespace MphRead::Memory
 
     namespace Detail
     {
+        class IntPtrAddress
+        {
+        public:
+            explicit constexpr IntPtrAddress(std::intptr_t value) noexcept
+                : _value(value)
+            {
+            }
+
+            [[nodiscard]] constexpr std::intptr_t Value() const noexcept
+            {
+                return _value;
+            }
+
+        private:
+            std::intptr_t _value;
+        };
+
+        class IndexOutOfRangeException final : public std::out_of_range
+        {
+        public:
+            IndexOutOfRangeException()
+                : std::out_of_range("Index was outside the bounds of the array.")
+            {
+            }
+        };
+
+        class ArgumentOutOfRangeException final : public std::out_of_range
+        {
+        public:
+            ArgumentOutOfRangeException()
+                : std::out_of_range(
+                    "Index was out of range. Must be non-negative and less than the size "
+                    "of the collection. (Parameter 'index')")
+            {
+            }
+        };
+
+        class InvalidCastException final : public std::runtime_error
+        {
+        public:
+            InvalidCastException()
+                : std::runtime_error("Specified cast is not valid.")
+            {
+            }
+        };
+
+        class NullReferenceException final : public std::runtime_error
+        {
+        public:
+            NullReferenceException()
+                : std::runtime_error("Object reference not set to an instance of an object.")
+            {
+            }
+        };
+
+        class NotImplementedException final : public std::logic_error
+        {
+        public:
+            explicit NotImplementedException(const char* message)
+                : std::logic_error(message)
+            {
+            }
+        };
+
+        class OverflowException final : public std::overflow_error
+        {
+        public:
+            OverflowException()
+                : std::overflow_error("Arithmetic operation resulted in an overflow.")
+            {
+            }
+        };
+
+        class IEnumerator
+        {
+        public:
+            IEnumerator() = default;
+            IEnumerator(const IEnumerator&) = delete;
+            IEnumerator(IEnumerator&&) = delete;
+            IEnumerator& operator=(const IEnumerator&) = delete;
+            IEnumerator& operator=(IEnumerator&&) = delete;
+            virtual ~IEnumerator() = default;
+
+            [[nodiscard]] virtual std::any Current() = 0;
+            [[nodiscard]] virtual bool MoveNext() = 0;
+            virtual void Reset() = 0;
+        };
+
+        class IEnumerable
+        {
+        public:
+            IEnumerable() = default;
+            IEnumerable(const IEnumerable&) = delete;
+            IEnumerable(IEnumerable&&) = delete;
+            IEnumerable& operator=(const IEnumerable&) = delete;
+            IEnumerable& operator=(IEnumerable&&) = delete;
+            virtual ~IEnumerable() = default;
+
+            [[nodiscard]] virtual std::unique_ptr<IEnumerator> GetEnumerator() = 0;
+        };
+
         [[nodiscard]] constexpr std::int32_t UncheckedAdd(
             std::int32_t left, std::int32_t right) noexcept
         {
@@ -42,26 +143,20 @@ namespace MphRead::Memory
             return std::bit_cast<std::int32_t>(result);
         }
 
-        [[nodiscard]] inline std::int32_t IntPtrToInt32(std::intptr_t value)
+        [[nodiscard]] inline std::int32_t IntPtrToInt32(IntPtrAddress value)
         {
-            if (value < static_cast<std::intptr_t>(std::numeric_limits<std::int32_t>::min())
-                || value > static_cast<std::intptr_t>(std::numeric_limits<std::int32_t>::max()))
+            const std::intptr_t raw = value.Value();
+            if (raw < static_cast<std::intptr_t>(std::numeric_limits<std::int32_t>::min())
+                || raw > static_cast<std::intptr_t>(std::numeric_limits<std::int32_t>::max()))
             {
-                throw std::overflow_error("Arithmetic operation resulted in an overflow.");
+                throw OverflowException();
             }
-            return static_cast<std::int32_t>(value);
+            return static_cast<std::int32_t>(raw);
         }
 
         template <typename T>
         [[nodiscard]] std::any Box(T value)
         {
-            if constexpr (std::is_pointer_v<T>)
-            {
-                if (value == nullptr)
-                {
-                    return {};
-                }
-            }
             return std::any(std::move(value));
         }
 
@@ -78,7 +173,7 @@ namespace MphRead::Memory
 
     template <typename T>
     class MemoryArray : public MemoryClass,
-                        public std::enable_shared_from_this<MemoryArray<T>>
+                        public Detail::IEnumerable
     {
     public:
         class MemoryArrayEnumerator;
@@ -106,16 +201,16 @@ namespace MphRead::Memory
             Set(index, value);
         }
 
-        [[nodiscard]] std::shared_ptr<MemoryArrayEnumerator> GetEnumerator()
+        [[nodiscard]] std::unique_ptr<Detail::IEnumerator> GetEnumerator() override
         {
-            return std::make_shared<MemoryArrayEnumerator>(this->shared_from_this());
+            return std::make_unique<MemoryArrayEnumerator>(this);
         }
 
-        class MemoryArrayEnumerator
+        class MemoryArrayEnumerator : public Detail::IEnumerator
         {
         public:
-            explicit MemoryArrayEnumerator(std::shared_ptr<MemoryArray<T>> memoryArray)
-                : _memoryArray(std::move(memoryArray))
+            explicit MemoryArrayEnumerator(MemoryArray<T>* memoryArray)
+                : _memoryArray(memoryArray)
             {
             }
 
@@ -124,24 +219,33 @@ namespace MphRead::Memory
             MemoryArrayEnumerator& operator=(const MemoryArrayEnumerator&) = delete;
             MemoryArrayEnumerator& operator=(MemoryArrayEnumerator&&) = delete;
 
-            [[nodiscard]] std::any Current()
+        private:
+            [[nodiscard]] MemoryArray<T>& Array() const
             {
-                return Detail::Box(_memoryArray->Get(_currentIndex));
+                if (_memoryArray == nullptr)
+                {
+                    throw Detail::NullReferenceException();
+                }
+                return *_memoryArray;
             }
 
-            [[nodiscard]] bool MoveNext() noexcept
+            [[nodiscard]] std::any Current() override
+            {
+                return Detail::Box(Array().Get(_currentIndex));
+            }
+
+            [[nodiscard]] bool MoveNext() override
             {
                 _currentIndex = Detail::UncheckedAdd(_currentIndex, 1);
-                return _currentIndex < _memoryArray->Length();
+                return _currentIndex < Array().Length();
             }
 
-            void Reset() noexcept
+            void Reset() override
             {
                 _currentIndex = 0;
             }
 
-        private:
-            const std::shared_ptr<MemoryArray<T>> _memoryArray;
+            MemoryArray<T>* const _memoryArray;
             std::int32_t _currentIndex = -1;
         };
 
@@ -151,8 +255,8 @@ namespace MphRead::Memory
         {
         }
 
-        MemoryArray(Memory& memory, std::intptr_t address, std::int32_t length)
-            : MemoryClass(memory, address), _length(length)
+        MemoryArray(Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
+            : MemoryClass(memory, address.Value()), _length(length)
         {
         }
 
@@ -164,7 +268,7 @@ namespace MphRead::Memory
         {
             if (index < 0 || index >= _length)
             {
-                throw std::out_of_range("Index was outside the bounds of the array.");
+                throw Detail::IndexOutOfRangeException();
             }
         }
 
@@ -175,7 +279,7 @@ namespace MphRead::Memory
     {
     public:
         SByteArray(Memory& memory, std::int32_t address, std::int32_t length);
-        SByteArray(Memory& memory, std::intptr_t address, std::int32_t length);
+        SByteArray(Memory& memory, Detail::IntPtrAddress address, std::int32_t length);
 
     protected:
         [[nodiscard]] std::int8_t Get(std::int32_t index) override;
@@ -186,7 +290,7 @@ namespace MphRead::Memory
     {
     public:
         ByteArray(Memory& memory, std::int32_t address, std::int32_t length);
-        ByteArray(Memory& memory, std::intptr_t address, std::int32_t length);
+        ByteArray(Memory& memory, Detail::IntPtrAddress address, std::int32_t length);
 
     protected:
         [[nodiscard]] std::uint8_t Get(std::int32_t index) override;
@@ -197,7 +301,7 @@ namespace MphRead::Memory
     {
     public:
         Int16Array(Memory& memory, std::int32_t address, std::int32_t length);
-        Int16Array(Memory& memory, std::intptr_t address, std::int32_t length);
+        Int16Array(Memory& memory, Detail::IntPtrAddress address, std::int32_t length);
 
     protected:
         [[nodiscard]] std::int16_t Get(std::int32_t index) override;
@@ -208,7 +312,7 @@ namespace MphRead::Memory
     {
     public:
         UInt16Array(Memory& memory, std::int32_t address, std::int32_t length);
-        UInt16Array(Memory& memory, std::intptr_t address, std::int32_t length);
+        UInt16Array(Memory& memory, Detail::IntPtrAddress address, std::int32_t length);
 
     protected:
         [[nodiscard]] std::uint16_t Get(std::int32_t index) override;
@@ -219,7 +323,7 @@ namespace MphRead::Memory
     {
     public:
         Int32Array(Memory& memory, std::int32_t address, std::int32_t length);
-        Int32Array(Memory& memory, std::intptr_t address, std::int32_t length);
+        Int32Array(Memory& memory, Detail::IntPtrAddress address, std::int32_t length);
 
     protected:
         [[nodiscard]] std::int32_t Get(std::int32_t index) override;
@@ -230,7 +334,7 @@ namespace MphRead::Memory
     {
     public:
         UInt32Array(Memory& memory, std::int32_t address, std::int32_t length);
-        UInt32Array(Memory& memory, std::intptr_t address, std::int32_t length);
+        UInt32Array(Memory& memory, Detail::IntPtrAddress address, std::int32_t length);
 
     protected:
         [[nodiscard]] std::uint32_t Get(std::int32_t index) override;
@@ -241,7 +345,7 @@ namespace MphRead::Memory
     {
     public:
         IntPtrArray(Memory& memory, std::int32_t address, std::int32_t length);
-        IntPtrArray(Memory& memory, std::intptr_t address, std::int32_t length);
+        IntPtrArray(Memory& memory, Detail::IntPtrAddress address, std::int32_t length);
 
     protected:
         [[nodiscard]] std::intptr_t Get(std::int32_t index) override;
@@ -259,7 +363,7 @@ namespace MphRead::Memory
         {
         }
 
-        U8EnumArray(Memory& memory, std::intptr_t address, std::int32_t length)
+        U8EnumArray(Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
             : MemoryArray<T>(memory, address, length)
         {
         }
@@ -267,17 +371,17 @@ namespace MphRead::Memory
     protected:
         [[nodiscard]] T Get(std::int32_t index) override
         {
-            return std::any_cast<T>(std::any{
-                this->ReadByte(Detail::UncheckedMultiply(index, 1))
-            });
+            const std::uint8_t value = this->ReadByte(Detail::UncheckedMultiply(index, 1));
+            static_cast<void>(value);
+            throw Detail::InvalidCastException();
         }
 
         void Set(std::int32_t index, T value) override
         {
-            this->WriteByte(
-                Detail::UncheckedMultiply(index, 1),
-                std::any_cast<std::uint8_t>(std::any{value})
-            );
+            const std::int32_t offset = Detail::UncheckedMultiply(index, 1);
+            static_cast<void>(offset);
+            static_cast<void>(value);
+            throw Detail::InvalidCastException();
         }
     };
 
@@ -292,7 +396,7 @@ namespace MphRead::Memory
         {
         }
 
-        U16EnumArray(Memory& memory, std::intptr_t address, std::int32_t length)
+        U16EnumArray(Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
             : MemoryArray<T>(memory, address, length)
         {
         }
@@ -300,17 +404,17 @@ namespace MphRead::Memory
     protected:
         [[nodiscard]] T Get(std::int32_t index) override
         {
-            return std::any_cast<T>(std::any{
-                this->ReadUInt16(Detail::UncheckedMultiply(index, 2))
-            });
+            const std::uint16_t value = this->ReadUInt16(Detail::UncheckedMultiply(index, 2));
+            static_cast<void>(value);
+            throw Detail::InvalidCastException();
         }
 
         void Set(std::int32_t index, T value) override
         {
-            this->WriteUInt16(
-                Detail::UncheckedMultiply(index, 2),
-                std::any_cast<std::uint16_t>(std::any{value})
-            );
+            const std::int32_t offset = Detail::UncheckedMultiply(index, 2);
+            static_cast<void>(offset);
+            static_cast<void>(value);
+            throw Detail::InvalidCastException();
         }
     };
 
@@ -325,7 +429,7 @@ namespace MphRead::Memory
         {
         }
 
-        U32EnumArray(Memory& memory, std::intptr_t address, std::int32_t length)
+        U32EnumArray(Memory& memory, Detail::IntPtrAddress address, std::int32_t length)
             : MemoryArray<T>(memory, address, length)
         {
         }
@@ -333,17 +437,17 @@ namespace MphRead::Memory
     protected:
         [[nodiscard]] T Get(std::int32_t index) override
         {
-            return std::any_cast<T>(std::any{
-                this->ReadUInt32(Detail::UncheckedMultiply(index, 4))
-            });
+            const std::uint32_t value = this->ReadUInt32(Detail::UncheckedMultiply(index, 4));
+            static_cast<void>(value);
+            throw Detail::InvalidCastException();
         }
 
         void Set(std::int32_t index, T value) override
         {
-            this->WriteUInt32(
-                Detail::UncheckedMultiply(index, 4),
-                std::any_cast<std::uint32_t>(std::any{value})
-            );
+            const std::int32_t offset = Detail::UncheckedMultiply(index, 4);
+            static_cast<void>(offset);
+            static_cast<void>(value);
+            throw Detail::InvalidCastException();
         }
     };
 
@@ -361,33 +465,48 @@ namespace MphRead::Memory
         {
             for (std::int32_t i = 0; i < length; i = Detail::UncheckedAdd(i, 1))
             {
-                _items.push_back(create(memory, Detail::UncheckedAdd(
-                    address, Detail::UncheckedMultiply(i, size))));
+                const std::int32_t itemAddress = Detail::UncheckedAdd(
+                    address, Detail::UncheckedMultiply(i, size));
+                if (!create)
+                {
+                    throw Detail::NullReferenceException();
+                }
+                _items.push_back(create(memory, itemAddress));
             }
         }
 
-        StructArray(Memory& memory, std::intptr_t address, std::int32_t length,
+        StructArray(Memory& memory, Detail::IntPtrAddress address, std::int32_t length,
             std::int32_t size, const Create& create)
             : MemoryArray<std::shared_ptr<T>>(memory, address, length)
         {
             for (std::int32_t i = 0; i < length; i = Detail::UncheckedAdd(i, 1))
             {
-                _items.push_back(create(memory, Detail::UncheckedAdd(
-                    Detail::IntPtrToInt32(address), Detail::UncheckedMultiply(i, size))));
+                const std::int32_t itemAddress = Detail::UncheckedAdd(
+                    Detail::IntPtrToInt32(address), Detail::UncheckedMultiply(i, size));
+                if (!create)
+                {
+                    throw Detail::NullReferenceException();
+                }
+                _items.push_back(create(memory, itemAddress));
             }
         }
 
     protected:
         [[nodiscard]] std::shared_ptr<T> Get(std::int32_t index) override
         {
-            return _items.at(static_cast<std::size_t>(index));
+            if (index < 0 || index >= static_cast<std::int32_t>(_items.size()))
+            {
+                throw Detail::ArgumentOutOfRangeException();
+            }
+            return _items[static_cast<std::size_t>(index)];
         }
 
         void Set(std::int32_t index, std::shared_ptr<T> value) override
         {
             static_cast<void>(index);
             static_cast<void>(value);
-            throw std::logic_error("Writing embedded struct properties is not supported.");
+            throw Detail::NotImplementedException(
+                "Writing embedded struct properties is not supported.");
         }
 
     private:

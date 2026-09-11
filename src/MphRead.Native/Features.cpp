@@ -2,6 +2,7 @@
 
 #include "Mods/Render/Crosshair.hpp"
 
+#include <bit>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -116,6 +117,62 @@ namespace MphRead
             return value;
         }
 
+        std::string_view TrimDotNetWhitespaceAndNull(std::string_view value)
+        {
+            while (!value.empty())
+            {
+                if (value.front() == '\0')
+                {
+                    value.remove_prefix(1);
+                    continue;
+                }
+                const std::size_t count = DotNetWhitespacePrefixLength(value);
+                if (count == 0)
+                {
+                    break;
+                }
+                value.remove_prefix(count);
+            }
+            while (!value.empty())
+            {
+                if (value.back() == '\0')
+                {
+                    value.remove_suffix(1);
+                    continue;
+                }
+                const std::size_t count = DotNetWhitespaceSuffixLength(value);
+                if (count == 0)
+                {
+                    break;
+                }
+                value.remove_suffix(count);
+            }
+            return value;
+        }
+
+        constexpr bool IsNumberWhitespace(char value)
+        {
+            const unsigned char ch = static_cast<unsigned char>(value);
+            return ch == 0x20 || (ch >= 0x09 && ch <= 0x0D);
+        }
+
+        std::string_view TrimNumberInput(std::string_view value)
+        {
+            while (!value.empty() && IsNumberWhitespace(value.front()))
+            {
+                value.remove_prefix(1);
+            }
+            while (!value.empty() && value.back() == '\0')
+            {
+                value.remove_suffix(1);
+            }
+            while (!value.empty() && IsNumberWhitespace(value.back()))
+            {
+                value.remove_suffix(1);
+            }
+            return value;
+        }
+
         constexpr char FoldAsciiCase(char value)
         {
             if (value >= 'A' && value <= 'Z')
@@ -143,7 +200,7 @@ namespace MphRead
 
         bool TryParseBoolean(std::string_view value, bool& parsed)
         {
-            value = TrimDotNetWhitespace(value);
+            value = TrimDotNetWhitespaceAndNull(value);
             if (EqualsIgnoreCase(value, "true"))
             {
                 parsed = true;
@@ -155,6 +212,11 @@ namespace MphRead
                 return true;
             }
             return false;
+        }
+
+        float DotNetSingleNaN()
+        {
+            return std::bit_cast<float>(std::uint32_t{0xFFC00000U});
         }
 
         std::int64_t DecimalOrder(std::string_view value)
@@ -233,37 +295,52 @@ namespace MphRead
 
         bool TryParseSingleInvariant(std::string_view value, float& parsed)
         {
-            value = TrimDotNetWhitespace(value);
-            if (value.empty())
+            const std::string_view special = TrimDotNetWhitespace(value);
+            if (EqualsIgnoreCase(special, "nan")
+                || EqualsIgnoreCase(special, "+nan")
+                || EqualsIgnoreCase(special, "-nan"))
             {
-                return false;
-            }
-
-            if (EqualsIgnoreCase(value, "nan"))
-            {
-                parsed = std::numeric_limits<float>::quiet_NaN();
+                parsed = DotNetSingleNaN();
                 return true;
             }
-            if (EqualsIgnoreCase(value, "infinity") || EqualsIgnoreCase(value, "+infinity"))
+            if (EqualsIgnoreCase(special, "infinity") || EqualsIgnoreCase(special, "+infinity"))
             {
                 parsed = std::numeric_limits<float>::infinity();
                 return true;
             }
-            if (EqualsIgnoreCase(value, "-infinity"))
+            if (EqualsIgnoreCase(special, "-infinity"))
             {
                 parsed = -std::numeric_limits<float>::infinity();
                 return true;
+            }
+
+            value = TrimNumberInput(value);
+            if (value.empty())
+            {
+                return false;
             }
 
             std::string normalized;
             normalized.reserve(value.size());
             bool sawDecimal = false;
             bool sawExponent = false;
+            bool sawMantissaDigit = false;
+            bool sawNonZeroMantissa = false;
             for (char ch : value)
             {
+                if (ch >= '0' && ch <= '9')
+                {
+                    if (!sawExponent)
+                    {
+                        sawMantissaDigit = true;
+                        sawNonZeroMantissa |= ch != '0';
+                    }
+                    normalized.push_back(ch);
+                    continue;
+                }
                 if (ch == ',')
                 {
-                    if (sawDecimal || sawExponent)
+                    if (sawDecimal || sawExponent || !sawMantissaDigit)
                     {
                         return false;
                     }
@@ -272,12 +349,21 @@ namespace MphRead
                 if (ch == '.')
                 {
                     sawDecimal = true;
+                    normalized.push_back(ch);
+                    continue;
                 }
-                else if (ch == 'e' || ch == 'E')
+                if (ch == 'e' || ch == 'E')
                 {
                     sawExponent = true;
+                    normalized.push_back(ch);
+                    continue;
                 }
-                normalized.push_back(ch);
+                if (ch == '+' || ch == '-')
+                {
+                    normalized.push_back(ch);
+                    continue;
+                }
+                return false;
             }
             if (normalized.empty())
             {
@@ -295,14 +381,17 @@ namespace MphRead
                 }
             }
 
-            double wide = 0.0;
+            float direct = 0.0F;
             const char* const end = numeric.data() + numeric.size();
             const auto [ptr, error] = std::from_chars(
-                numeric.data(), end, wide, std::chars_format::general);
+                numeric.data(), end, direct, std::chars_format::general);
             if (error == std::errc::result_out_of_range)
             {
-                const std::int64_t order = DecimalOrder(normalized);
-                if (order < 0)
+                if (!sawMantissaDigit)
+                {
+                    return false;
+                }
+                if (!sawNonZeroMantissa || DecimalOrder(normalized) < 0)
                 {
                     parsed = negative ? -0.0F : 0.0F;
                 }
@@ -318,15 +407,7 @@ namespace MphRead
                 return false;
             }
 
-            if (std::isfinite(wide)
-                && std::fabs(wide) > static_cast<double>(std::numeric_limits<float>::max()))
-            {
-                parsed = std::signbit(wide) ? -std::numeric_limits<float>::infinity()
-                    : std::numeric_limits<float>::infinity();
-                return true;
-            }
-
-            parsed = static_cast<float>(wide);
+            parsed = direct;
             return true;
         }
 

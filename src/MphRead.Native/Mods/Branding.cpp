@@ -396,6 +396,26 @@ namespace
 #endif
     }
 
+    [[nodiscard]] const std::optional<std::string>& ProcessPath()
+    {
+        static const std::optional<std::string> processPath = []
+        {
+            std::optional<std::string> path = ReadProcessPath();
+#if !defined(_WIN32)
+            if (path.has_value())
+            {
+                *path = DecodeUtf8LikeDotNet(*path);
+            }
+#endif
+            if (path.has_value() && path->empty())
+            {
+                path.reset();
+            }
+            return path;
+        }();
+        return processPath;
+    }
+
     [[nodiscard]] std::string GetFileNameWithoutExtension(std::string_view path)
     {
 #if defined(_WIN32)
@@ -429,14 +449,8 @@ namespace MphRead
     {
         std::string Branding::Executable()
         {
-            std::optional<std::string> path = ReadProcessPath();
-#if !defined(_WIN32)
-            if (path.has_value())
-            {
-                *path = DecodeUtf8LikeDotNet(*path);
-            }
-#endif
-            if (!path.has_value() || path->empty())
+            const std::optional<std::string>& path = ProcessPath();
+            if (!path.has_value())
             {
                 return std::string(FileName);
             }

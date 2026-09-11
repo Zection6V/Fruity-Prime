@@ -10,6 +10,10 @@ namespace MphRead::Mods::Launcher
     {
     public:
         SetupProgress() = default;
+        SetupProgress(const SetupProgress&) = delete;
+        SetupProgress& operator=(const SetupProgress&) = delete;
+        SetupProgress(SetupProgress&&) = delete;
+        SetupProgress& operator=(SetupProgress&&) = delete;
 
         [[nodiscard]] double Fraction() const noexcept;
         [[nodiscard]] const std::string& Stage() const noexcept;

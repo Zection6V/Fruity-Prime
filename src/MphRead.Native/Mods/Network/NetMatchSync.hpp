@@ -8,6 +8,10 @@ namespace MphRead::Mods::Network
     {
     public:
         NetMatchSync() = delete;
+        NetMatchSync(const NetMatchSync&) = delete;
+        NetMatchSync& operator=(const NetMatchSync&) = delete;
+        NetMatchSync(NetMatchSync&&) = delete;
+        NetMatchSync& operator=(NetMatchSync&&) = delete;
 
         static void Reset();
         [[nodiscard]] static bool Synced();

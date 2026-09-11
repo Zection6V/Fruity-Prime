@@ -1,11 +1,11 @@
 #include "FrameTiming.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
-#include <iomanip>
 #include <limits>
-#include <sstream>
+#include <locale>
 #include <string_view>
 
 namespace MphRead::Mods
@@ -182,6 +182,151 @@ namespace
         }
         return true;
     }
+
+    [[nodiscard]] std::string CurrentNumberDecimalSeparator()
+    {
+        try
+        {
+            const std::locale culture("");
+            return std::string(1, std::use_facet<std::numpunct<char>>(culture).decimal_point());
+        }
+        catch (...)
+        {
+            // NumberFormatInfo defaults to "." when no culture-specific data is available.
+            return ".";
+        }
+    }
+
+    [[nodiscard]] std::string FormatDoubleLikeDotNetCustom(
+        double value, std::int32_t fractionalDigits, const std::string& decimalSeparator)
+    {
+        // .NET custom Double formatting first creates at most 15 significant decimal digits,
+        // correctly rounded to nearest/even, then the custom-format pass rounds that decimal
+        // buffer again with digit >= '5'. Preserve that two-stage behavior for "0.00"/"0.0".
+        if (std::isnan(value))
+        {
+            return "NaN";
+        }
+        if (std::isinf(value))
+        {
+            return std::signbit(value) ? "-Infinity" : "Infinity";
+        }
+
+        constexpr std::int32_t DotNetDoubleCustomPrecision = 15;
+        constexpr std::int32_t ScientificFractionalDigits = DotNetDoubleCustomPrecision - 1;
+        const bool negative = std::signbit(value);
+        const double magnitude = std::abs(value);
+        std::array<char, DotNetDoubleCustomPrecision> digits{};
+        std::int32_t digitCount = 0;
+        std::int32_t scale = 0;
+
+        if (magnitude != 0.0)
+        {
+            // std::to_chars is locale-independent and its precision overload performs the
+            // correctly-rounded decimal conversion needed for the 15-digit NumberBuffer stage.
+            std::array<char, 64> buffer{};
+            const auto converted = std::to_chars(
+                buffer.data(), buffer.data() + buffer.size(), magnitude,
+                std::chars_format::scientific, ScientificFractionalDigits);
+            const char* const exponentMarker = std::find(buffer.data(), converted.ptr, 'e');
+
+            for (const char* cursor = buffer.data(); cursor < exponentMarker; cursor++)
+            {
+                if (*cursor >= '0' && *cursor <= '9')
+                {
+                    digits[static_cast<std::size_t>(digitCount++)] = *cursor;
+                }
+            }
+
+            const char* exponentCursor = exponentMarker + 1;
+            bool negativeExponent = false;
+            if (exponentCursor < converted.ptr && (*exponentCursor == '+' || *exponentCursor == '-'))
+            {
+                negativeExponent = *exponentCursor == '-';
+                exponentCursor++;
+            }
+            std::int32_t exponent = 0;
+            while (exponentCursor < converted.ptr)
+            {
+                exponent = exponent * 10 + (*exponentCursor - '0');
+                exponentCursor++;
+            }
+            if (negativeExponent)
+            {
+                exponent = -exponent;
+            }
+            scale = exponent + 1;
+
+            const std::int32_t roundPosition = scale + fractionalDigits;
+            std::int32_t kept = 0;
+            while (kept < roundPosition && kept < digitCount)
+            {
+                kept++;
+            }
+
+            if (kept == roundPosition && kept < digitCount
+                && digits[static_cast<std::size_t>(kept)] >= '5')
+            {
+                while (kept > 0 && digits[static_cast<std::size_t>(kept - 1)] == '9')
+                {
+                    kept--;
+                }
+                if (kept > 0)
+                {
+                    digits[static_cast<std::size_t>(kept - 1)]++;
+                }
+                else
+                {
+                    scale++;
+                    digits[0] = '1';
+                    kept = 1;
+                }
+            }
+            else
+            {
+                while (kept > 0 && digits[static_cast<std::size_t>(kept - 1)] == '0')
+                {
+                    kept--;
+                }
+            }
+
+            digitCount = kept;
+            if (digitCount == 0)
+            {
+                scale = 0;
+            }
+        }
+
+        std::string result;
+        if (negative)
+        {
+            result += '-';
+        }
+
+        if (scale > 0)
+        {
+            for (std::int32_t position = 0; position < scale; position++)
+            {
+                result += position < digitCount
+                    ? digits[static_cast<std::size_t>(position)]
+                    : '0';
+            }
+        }
+        else
+        {
+            result += '0';
+        }
+
+        result += decimalSeparator;
+        for (std::int32_t position = 0; position < fractionalDigits; position++)
+        {
+            const std::int32_t digitIndex = scale + position;
+            result += digitIndex >= 0 && digitIndex < digitCount
+                ? digits[static_cast<std::size_t>(digitIndex)]
+                : '0';
+        }
+        return result;
+    }
 }
 
 namespace MphRead::Mods::Render
@@ -282,22 +427,31 @@ namespace MphRead::Mods::Render
 
     std::string FrameTiming::Describe()
     {
-        std::ostringstream result;
-        result << "sim " << std::fixed << std::setprecision(2) << _measuredSimulationHz
-            << " Hz / draw " << std::setprecision(1) << _measuredFrameHz
-            << " Hz, " << _totalSteps << " steps over " << _totalFrames << " frames, "
-            << _droppedSteps << " dropped, " << _stalls << " stalls, steps per frame [";
+        const std::string decimalSeparator = CurrentNumberDecimalSeparator();
+        std::string result = "sim ";
+        result += FormatDoubleLikeDotNetCustom(_measuredSimulationHz, 2, decimalSeparator);
+        result += " Hz / draw ";
+        result += FormatDoubleLikeDotNetCustom(_measuredFrameHz, 1, decimalSeparator);
+        result += " Hz, ";
+        result += std::to_string(_totalSteps);
+        result += " steps over ";
+        result += std::to_string(_totalFrames);
+        result += " frames, ";
+        result += std::to_string(_droppedSteps);
+        result += " dropped, ";
+        result += std::to_string(_stalls);
+        result += " stalls, steps per frame [";
         for (std::size_t index = 0; index < _stepHistogram.size(); index++)
         {
             if (index != 0)
             {
-                result << ", ";
+                result += ", ";
             }
-            result << _stepHistogram[index];
+            result += std::to_string(_stepHistogram[index]);
         }
-        result << "], cap "
-            << (_frameRateCap == DisplayRate ? std::string("display") : std::to_string(_frameRateCap));
-        return result.str();
+        result += "], cap ";
+        result += _frameRateCap == DisplayRate ? "display" : std::to_string(_frameRateCap);
+        return result;
     }
 
     void FrameTiming::Reset() noexcept

@@ -4,14 +4,16 @@
 #include <cassert>
 #include <charconv>
 #include <cmath>
-#include <initializer_list>
 #include <limits>
+#include <locale>
 #include <new>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 
 namespace
 {
+    constexpr std::uint32_t Prime1 = 2654435761U;
     constexpr std::uint32_t Prime2 = 2246822519U;
     constexpr std::uint32_t Prime3 = 3266489917U;
     constexpr std::uint32_t Prime4 = 668265263U;
@@ -39,10 +41,26 @@ namespace
         return seed;
     }
 
+    [[nodiscard]] constexpr std::uint32_t HashRound(
+        std::uint32_t hash, std::uint32_t input) noexcept
+    {
+        return std::rotl(hash + input * Prime2, 13) * Prime1;
+    }
+
     [[nodiscard]] constexpr std::uint32_t QueueRound(
         std::uint32_t hash, std::uint32_t queuedValue) noexcept
     {
         return std::rotl(hash + queuedValue * Prime3, 17) * Prime4;
+    }
+
+    [[nodiscard]] constexpr std::uint32_t MixState(
+        std::uint32_t v1, std::uint32_t v2,
+        std::uint32_t v3, std::uint32_t v4) noexcept
+    {
+        return std::rotl(v1, 1)
+            + std::rotl(v2, 7)
+            + std::rotl(v3, 12)
+            + std::rotl(v4, 18);
     }
 
     [[nodiscard]] constexpr std::uint32_t MixFinal(std::uint32_t hash) noexcept
@@ -55,147 +73,133 @@ namespace
         return hash;
     }
 
-    [[nodiscard]] std::int32_t CombineHashCodes(std::initializer_list<std::int32_t> values)
+    [[nodiscard]] std::int32_t CombineHashCodes3(
+        std::int32_t value1, std::int32_t value2, std::int32_t value3)
     {
         std::uint32_t hash = GlobalHashSeed() + Prime5;
-        hash += static_cast<std::uint32_t>(values.size() * sizeof(std::uint32_t));
-        for (const std::int32_t value : values)
-        {
-            hash = QueueRound(hash, static_cast<std::uint32_t>(value));
-        }
+        hash += 12U;
+        hash = QueueRound(hash, static_cast<std::uint32_t>(value1));
+        hash = QueueRound(hash, static_cast<std::uint32_t>(value2));
+        hash = QueueRound(hash, static_cast<std::uint32_t>(value3));
         return std::bit_cast<std::int32_t>(MixFinal(hash));
     }
 
-    [[nodiscard]] std::size_t DotNetWhitespacePrefixLength(std::string_view value)
+    [[nodiscard]] std::int32_t CombineHashCodes4(
+        std::int32_t value1, std::int32_t value2,
+        std::int32_t value3, std::int32_t value4)
     {
-        if (value.empty())
-        {
-            return 0;
-        }
+        const std::uint32_t seed = GlobalHashSeed();
+        std::uint32_t v1 = seed + Prime1 + Prime2;
+        std::uint32_t v2 = seed + Prime2;
+        std::uint32_t v3 = seed;
+        std::uint32_t v4 = seed - Prime1;
 
-        const auto byte = [](char ch) { return static_cast<unsigned char>(ch); };
-        const unsigned char c0 = byte(value[0]);
-        if ((c0 >= 0x09 && c0 <= 0x0D) || c0 == 0x20)
-        {
-            return 1;
-        }
-        if (value.size() >= 2 && c0 == 0xC2)
-        {
-            const unsigned char c1 = byte(value[1]);
-            if (c1 == 0x85 || c1 == 0xA0)
-            {
-                return 2;
-            }
-        }
-        if (value.size() >= 3)
-        {
-            const unsigned char c1 = byte(value[1]);
-            const unsigned char c2 = byte(value[2]);
-            if (c0 == 0xE1 && c1 == 0x9A && c2 == 0x80)
-            {
-                return 3;
-            }
-            if (c0 == 0xE2 && c1 == 0x80
-                && ((c2 >= 0x80 && c2 <= 0x8A)
-                    || c2 == 0xA8 || c2 == 0xA9 || c2 == 0xAF))
-            {
-                return 3;
-            }
-            if (c0 == 0xE2 && c1 == 0x81 && c2 == 0x9F)
-            {
-                return 3;
-            }
-            if (c0 == 0xE3 && c1 == 0x80 && c2 == 0x80)
-            {
-                return 3;
-            }
-        }
-        return 0;
+        v1 = HashRound(v1, static_cast<std::uint32_t>(value1));
+        v2 = HashRound(v2, static_cast<std::uint32_t>(value2));
+        v3 = HashRound(v3, static_cast<std::uint32_t>(value3));
+        v4 = HashRound(v4, static_cast<std::uint32_t>(value4));
+
+        std::uint32_t hash = MixState(v1, v2, v3, v4);
+        hash += 16U;
+        return std::bit_cast<std::int32_t>(MixFinal(hash));
     }
 
-    [[nodiscard]] std::size_t DotNetWhitespaceSuffixLength(std::string_view value)
+    [[nodiscard]] constexpr bool IsNumberWhitespace(char ch) noexcept
     {
-        if (value.empty())
-        {
-            return 0;
-        }
-
-        const auto byte = [](char ch) { return static_cast<unsigned char>(ch); };
-        const unsigned char last = byte(value.back());
-        if ((last >= 0x09 && last <= 0x0D) || last == 0x20)
-        {
-            return 1;
-        }
-        if (value.size() >= 2 && byte(value[value.size() - 2]) == 0xC2
-            && (last == 0x85 || last == 0xA0))
-        {
-            return 2;
-        }
-        if (value.size() >= 3)
-        {
-            const unsigned char c0 = byte(value[value.size() - 3]);
-            const unsigned char c1 = byte(value[value.size() - 2]);
-            if (c0 == 0xE1 && c1 == 0x9A && last == 0x80)
-            {
-                return 3;
-            }
-            if (c0 == 0xE2 && c1 == 0x80
-                && ((last >= 0x80 && last <= 0x8A)
-                    || last == 0xA8 || last == 0xA9 || last == 0xAF))
-            {
-                return 3;
-            }
-            if (c0 == 0xE2 && c1 == 0x81 && last == 0x9F)
-            {
-                return 3;
-            }
-            if (c0 == 0xE3 && c1 == 0x80 && last == 0x80)
-            {
-                return 3;
-            }
-        }
-        return 0;
+        const auto value = static_cast<unsigned char>(ch);
+        return value == 0x20 || (value >= 0x09 && value <= 0x0D);
     }
 
-    [[nodiscard]] std::string_view TrimDotNetWhitespace(std::string_view value)
+    [[nodiscard]] constexpr std::int32_t HexValue(char ch) noexcept
     {
-        while (const std::size_t count = DotNetWhitespacePrefixLength(value))
+        if (ch >= '0' && ch <= '9')
         {
-            value.remove_prefix(count);
+            return ch - '0';
         }
-        while (const std::size_t count = DotNetWhitespaceSuffixLength(value))
+        if (ch >= 'A' && ch <= 'F')
         {
-            value.remove_suffix(count);
+            return ch - 'A' + 10;
         }
-        return value;
+        if (ch >= 'a' && ch <= 'f')
+        {
+            return ch - 'a' + 10;
+        }
+        return -1;
     }
 
     [[nodiscard]] std::int32_t ParseHexInt32(std::string_view value)
     {
-        value = TrimDotNetWhitespace(value);
-        if (value.empty())
+        std::size_t index = 0;
+        while (index < value.size() && IsNumberWhitespace(value[index]))
         {
-            throw std::invalid_argument("Input string was not in a correct format.");
+            index++;
+        }
+        if (index == value.size())
+        {
+            throw System::FormatException();
         }
 
-        std::uint64_t parsed = 0;
-        const char* const end = value.data() + value.size();
-        const auto [ptr, error] = std::from_chars(value.data(), end, parsed, 16);
-        if (error == std::errc::invalid_argument || ptr != end)
+        bool hadDigits = false;
+        while (index < value.size() && value[index] == '0')
         {
-            throw std::invalid_argument("Input string was not in a correct format.");
+            hadDigits = true;
+            index++;
         }
-        if (error == std::errc::result_out_of_range
-            || parsed > std::numeric_limits<std::uint32_t>::max())
+
+        std::uint32_t parsed = 0;
+        std::size_t significantDigits = 0;
+        while (index < value.size())
         {
-            throw std::out_of_range("Value was either too large or too small for an Int32.");
+            const std::int32_t digit = HexValue(value[index]);
+            if (digit < 0)
+            {
+                break;
+            }
+            hadDigits = true;
+            if (significantDigits < 8)
+            {
+                parsed = (parsed << 4) | static_cast<std::uint32_t>(digit);
+            }
+            significantDigits++;
+            index++;
         }
-        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(parsed));
+
+        if (!hadDigits)
+        {
+            throw System::FormatException();
+        }
+
+        const bool overflow = significantDigits > 8;
+
+        while (index < value.size() && IsNumberWhitespace(value[index]))
+        {
+            index++;
+        }
+        while (index < value.size() && value[index] == '\0')
+        {
+            index++;
+        }
+        if (index != value.size())
+        {
+            throw System::FormatException();
+        }
+        if (overflow)
+        {
+            throw System::OverflowException();
+        }
+
+        return std::bit_cast<std::int32_t>(parsed);
     }
 
-    [[nodiscard]] std::string RemoveLowercaseHexPrefixes(std::string_view value)
+    [[nodiscard]] std::string RemoveLowercaseHexPrefixes(
+        std::optional<std::string_view> value)
     {
-        std::string result(value);
+        if (!value)
+        {
+            throw System::NullReferenceException();
+        }
+
+        std::string result(*value);
         std::size_t position = 0;
         while ((position = result.find("0x", position)) != std::string::npos)
         {
@@ -238,6 +242,46 @@ namespace
             rounded = (integer & 1U) == 0U ? lower : lower + 1.0F;
         }
         return static_cast<std::uint8_t>(rounded);
+    }
+
+    [[nodiscard]] std::string FormatInt32CurrentCulture(std::int32_t value)
+    {
+        char digits[16]{};
+        const std::uint32_t magnitude = value < 0
+            ? 0U - static_cast<std::uint32_t>(value)
+            : static_cast<std::uint32_t>(value);
+        const auto [end, error] = std::to_chars(
+            std::begin(digits), std::end(digits), magnitude);
+        if (error != std::errc{})
+        {
+            throw std::runtime_error("Failed to format Int32.");
+        }
+
+        std::string result;
+        if (value < 0)
+        {
+            std::string negativeSign = "-";
+            try
+            {
+                std::ostringstream sample;
+                sample.imbue(std::locale(""));
+                sample << -1;
+                const std::string formatted = sample.str();
+                const std::size_t digit = formatted.find('1');
+                if (digit != std::string::npos && digit > 0)
+                {
+                    negativeSign = formatted.substr(0, digit);
+                }
+            }
+            catch (const std::runtime_error&)
+            {
+                // The managed current culture is always available. If the host
+                // locale database is unavailable, preserve the invariant sign.
+            }
+            result += negativeSign;
+        }
+        result.append(std::begin(digits), end);
+        return result;
     }
 }
 
@@ -322,9 +366,13 @@ namespace MphRead
         return static_cast<float>(value) / static_cast<float>(1 << 12);
     }
 
-    float Fixed::ToFloat(std::string_view value)
+    float Fixed::ToFloat(std::optional<std::string_view> value)
     {
-        return ToFloat(ParseHexInt32(value));
+        if (!value)
+        {
+            throw System::ArgumentNullException("s");
+        }
+        return ToFloat(ParseHexInt32(*value));
     }
 
     std::int32_t Fixed::ToInt(float value) noexcept
@@ -334,10 +382,13 @@ namespace MphRead
 
     std::string Fixed::ToString() const
     {
-        return std::to_string(Value);
+        return FormatInt32CurrentCulture(Value);
     }
 
-    Vector3Fx::Vector3Fx(std::string_view x, std::string_view y, std::string_view z)
+    Vector3Fx::Vector3Fx(
+        std::optional<std::string_view> x,
+        std::optional<std::string_view> y,
+        std::optional<std::string_view> z)
         : X(ParseHexInt32(RemoveLowercaseHexPrefixes(x))),
           Y(ParseHexInt32(RemoveLowercaseHexPrefixes(y))),
           Z(ParseHexInt32(RemoveLowercaseHexPrefixes(z)))
@@ -621,7 +672,9 @@ namespace MphRead
         }
         else
         {
+#if defined(DEBUG)
             assert(depth != 0.0F);
+#endif
             scaleInv = 0.0F;
             screenPos = Vector2::Zero;
             return;
@@ -672,7 +725,7 @@ namespace MphRead
 
     std::int32_t ColorRgb::GetHashCode() const
     {
-        return CombineHashCodes({Red, Green, Blue});
+        return CombineHashCodes3(Red, Green, Blue);
     }
 
     ColorRgba::ColorRgba(std::uint32_t value, std::uint8_t alpha) noexcept
@@ -716,7 +769,7 @@ namespace MphRead
 
     std::int32_t ColorRgba::GetHashCode() const
     {
-        return CombineHashCodes({Red, Green, Blue, Alpha});
+        return CombineHashCodes4(Red, Green, Blue, Alpha);
     }
 
     OpenTK::Mathematics::Vector2 TypeExtensions::WithX(
@@ -888,7 +941,7 @@ namespace MphRead
     {
         if (!array)
         {
-            throw std::invalid_argument("array");
+            throw System::ArgumentNullException("array");
         }
 
         std::u16string result;
@@ -910,7 +963,7 @@ namespace MphRead
     {
         if (!array)
         {
-            throw std::invalid_argument("array");
+            throw System::ArgumentNullException("array");
         }
 
         std::u16string result;

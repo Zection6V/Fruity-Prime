@@ -8,10 +8,51 @@
 #include <memory>
 #include <new>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <vector>
+
+namespace System
+{
+    class ArgumentNullException final : public std::invalid_argument
+    {
+    public:
+        explicit ArgumentNullException(std::string_view paramName)
+            : std::invalid_argument(
+                "Value cannot be null. (Parameter '" + std::string(paramName) + "')")
+        {
+        }
+    };
+
+    class FormatException final : public std::invalid_argument
+    {
+    public:
+        FormatException()
+            : std::invalid_argument("Input string was not in a correct format.")
+        {
+        }
+    };
+
+    class OverflowException final : public std::overflow_error
+    {
+    public:
+        OverflowException()
+            : std::overflow_error("Value was either too large or too small for an Int32.")
+        {
+        }
+    };
+
+    class NullReferenceException final : public std::runtime_error
+    {
+    public:
+        NullReferenceException()
+            : std::runtime_error("Object reference not set to an instance of an object.")
+        {
+        }
+    };
+}
 
 namespace OpenTK::Mathematics
 {
@@ -274,8 +315,6 @@ namespace MphRead
         [[nodiscard]] std::size_t Length() const noexcept { return _values.size(); }
         [[nodiscard]] T& operator[](std::size_t index) { return _values.at(index); }
         [[nodiscard]] const T& operator[](std::size_t index) const { return _values.at(index); }
-        [[nodiscard]] T* Data() noexcept { return _values.data(); }
-        [[nodiscard]] const T* Data() const noexcept { return _values.data(); }
 
         [[nodiscard]] static std::shared_ptr<ManagedArray<T>> Empty()
         {
@@ -346,7 +385,7 @@ namespace MphRead
         [[nodiscard]] static float ToFloat(std::int64_t value) noexcept;
         [[nodiscard]] static float ToFloat(std::uint32_t value) noexcept;
         [[nodiscard]] static float ToFloat(std::int32_t value) noexcept;
-        [[nodiscard]] static float ToFloat(std::string_view value);
+        [[nodiscard]] static float ToFloat(std::optional<std::string_view> value);
         [[nodiscard]] static std::int32_t ToInt(float value) noexcept;
         [[nodiscard]] std::string ToString() const;
     };
@@ -362,7 +401,10 @@ namespace MphRead
             : X(x), Y(y), Z(z)
         {
         }
-        Vector3Fx(std::string_view x, std::string_view y, std::string_view z);
+        Vector3Fx(
+            std::optional<std::string_view> x,
+            std::optional<std::string_view> y,
+            std::optional<std::string_view> z);
 
         Vector3Fx(const Vector3Fx&) noexcept = default;
         Vector3Fx& operator=(const Vector3Fx& other) noexcept;

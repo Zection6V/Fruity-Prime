@@ -70,7 +70,6 @@ namespace
     constexpr int StdInputHandle = -10;
     constexpr int StdOutputHandle = -11;
     constexpr int StdErrorHandle = -12;
-    constexpr DWORD EnableVirtualTerminalProcessing = 0x0004U;
     constexpr std::size_t StreamWriterBufferSize = 1024;
     constexpr std::size_t StreamReaderBufferSize = 1024;
 
@@ -82,14 +81,6 @@ namespace
 
     [[nodiscard]] HANDLE GetStdHandleRaw(int handle) noexcept
     {
-        return ::GetStdHandle(static_cast<DWORD>(handle));
-    }
-
-    [[nodiscard]] HANDLE GetStdHandleWithLastError(int handle) noexcept
-    {
-        // DllImport(SetLastError = true) clears the native last-error value
-        // immediately before the unmanaged call on current .NET runtimes.
-        ::SetLastError(ERROR_SUCCESS);
         return ::GetStdHandle(static_cast<DWORD>(handle));
     }
 
@@ -1107,45 +1098,31 @@ namespace MphRead
 {
     namespace Mods
     {
-        bool ConsoleWindow::OwnsItsConsole()
-        {
-#if !defined(_WIN32)
-            return false;
-#else
-            if (IsOutputRedirected())
-            {
-                return false;
-            }
-            try
-            {
-                // Sized for the answer, not for the truth: any count above one
-                // means somebody else is attached, and which processes those
-                // are does not matter here.
-                std::vector<DWORD> processes(4);
-                return ::GetConsoleProcessList(
-                    processes.data(), static_cast<DWORD>(processes.size())) == 1U;
-            }
-            catch (const std::exception&)
-            {
-                return false;
-            }
-#endif
-        }
-
         void ConsoleWindow::Prepare(const std::vector<std::string>& args)
         {
 #if !defined(_WIN32)
             (void)args;
             return;
 #else
-            const bool forced = HasFlag(args, "console");
-            // No arguments means the launcher, and the launcher is a window.
-            const bool guiOnly = args.empty() || HasFlag(args, "launcher");
-            if (guiOnly && !forced)
+            const bool console = HasFlag(args, "console");
+            const bool launcher = HasFlag(args, "launcher");
+
+            if (!console && (launcher || IsOutputRedirected()))
             {
                 return;
             }
-            Show();
+
+            bool attached = AttachConsoleWithLastError(AttachParentProcess) != FALSE;
+            if (!attached)
+            {
+                attached = AllocConsoleWithLastError() != FALSE;
+            }
+            if (!attached)
+            {
+                return;
+            }
+
+            Rebind();
 #endif
         }
 
@@ -1154,73 +1131,73 @@ namespace MphRead
 #if !defined(_WIN32)
             return;
 #else
-            if (IsOutputRedirected() || IsInputRedirected())
+            if (IsOutputRedirected())
             {
-                // A parent is capturing us -- the launcher's extraction step
-                // does exactly this. The streams already work; a console
-                // window here would be a flash of black for nothing.
                 return;
             }
+
             if (::GetConsoleWindow() != nullptr)
             {
-                (void)::ShowWindow(::GetConsoleWindow(), 5); // SW_SHOW
-                return;
+                (void)::ShowWindow(::GetConsoleWindow(), SwShow);
             }
-            if (AttachConsoleWithLastError(_attachParentProcess) == FALSE
-                && AllocConsoleWithLastError() == FALSE)
+            else if (AttachConsoleWithLastError(AttachParentProcess) != FALSE
+                || AllocConsoleWithLastError() != FALSE)
             {
-                return;
+                Rebind();
             }
-            Rebind();
+#endif
+        }
+
+        bool ConsoleWindow::OwnsItsConsole()
+        {
+#if !defined(_WIN32)
+            return false;
+#else
+            std::array<DWORD, 2> ids{};
+            return ::GetConsoleProcessList(ids.data(), 2U) == 1U;
 #endif
         }
 
         void ConsoleWindow::Rebind()
         {
 #if defined(_WIN32)
-            try
+            auto output = std::make_unique<DotNetStreamWriterBuffer>(
+                OpenStandardOutputLikeDotNet(StdOutputHandle));
+            SetConsoleOut(std::move(output));
+
+            auto error = std::make_unique<DotNetStreamWriterBuffer>(
+                OpenStandardOutputLikeDotNet(StdErrorHandle));
+            SetConsoleError(std::move(error));
+
+            auto input = std::make_unique<DotNetStreamReaderBuffer>(
+                OpenStandardInputLikeDotNet());
+            SetConsoleIn(std::move(input));
+
+            const HANDLE stdOutHandle = GetStdHandleRaw(StdOutputHandle);
+            DWORD outMode = 0;
+            if (stdOutHandle != nullptr
+                && ::GetConsoleMode(stdOutHandle, &outMode) != FALSE
+                && (outMode & EnableVirtualTerminalProcessing) == 0)
             {
-                auto output = std::make_unique<DotNetStreamWriterBuffer>(
-                    OpenStandardOutputLikeDotNet(StdOutputHandle));
-                SetConsoleOut(std::move(output));
-
-                auto error = std::make_unique<DotNetStreamWriterBuffer>(
-                    OpenStandardOutputLikeDotNet(StdErrorHandle));
-                SetConsoleError(std::move(error));
-
-                auto input = std::make_unique<DotNetStreamReaderBuffer>(
-                    OpenStandardInputLikeDotNet());
-                SetConsoleIn(std::move(input));
-
-                // The escape-sequence mode ConsoleSetup asks for, re-applied:
-                // it ran before this console existed.
-                const HANDLE handle = GetStdHandleWithLastError(StdOutputHandle);
-                DWORD mode = 0;
-                if (::GetConsoleMode(handle, &mode) != FALSE)
-                {
-                    (void)::SetConsoleMode(handle, mode | EnableVirtualTerminalProcessing);
-                }
-            }
-            catch (const std::ios_base::failure&)
-            {
-                // Nothing to print to is survivable; a crash here is not.
+                (void)::SetConsoleMode(
+                    stdOutHandle, outMode | EnableVirtualTerminalProcessing);
             }
 #endif
         }
 
         bool ConsoleWindow::HasFlag(
-            const std::vector<std::string>& args, std::string_view name)
+            const std::vector<std::string>& args, const std::string& flag)
         {
-            for (const std::string& argument : args)
+            for (const std::string& arg : args)
             {
                 std::size_t first = 0;
-                while (first < argument.size() && argument[first] == '-')
+                while (first < arg.size() && arg[first] == '-')
                 {
                     ++first;
                 }
 
                 if (EqualsOrdinalIgnoreCaseAscii(
-                        std::string_view(argument).substr(first), name))
+                        std::string_view(arg).substr(first), flag))
                 {
                     return true;
                 }

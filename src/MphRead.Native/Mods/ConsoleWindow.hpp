@@ -1,7 +1,7 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace MphRead
@@ -11,20 +11,23 @@ namespace MphRead
         class ConsoleWindow final
         {
         public:
-            static bool OwnsItsConsole();
             static void Prepare(const std::vector<std::string>& args);
             static void Show();
+            [[nodiscard]] static bool OwnsItsConsole();
 
             ConsoleWindow() = delete;
             ConsoleWindow(const ConsoleWindow&) = delete;
             ConsoleWindow& operator=(const ConsoleWindow&) = delete;
 
         private:
-            inline static constexpr int _attachParentProcess = -1;
+            inline static constexpr std::uint32_t EnableVirtualTerminalProcessing = 0x0004U;
+            inline static constexpr int StdOutputHandle = -11;
+            inline static constexpr int SwShow = 5;
+            inline static constexpr int AttachParentProcess = -1;
 
             static void Rebind();
             static bool HasFlag(
-                const std::vector<std::string>& args, std::string_view name);
+                const std::vector<std::string>& args, const std::string& flag);
         };
     }
 }

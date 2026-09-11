@@ -374,7 +374,7 @@ namespace MphRead
     std::string ConsoleSetup::LaunchDirectory()
     {
         const std::shared_ptr<const std::string> value
-            = State().LaunchDirectory.load(std::memory_order_acquire);
+            = State().LaunchDirectory.load(std::memory_order_relaxed);
         return *value;
     }
 
@@ -385,7 +385,7 @@ namespace MphRead
         SetInvariantCultureForCurrentThread();
         state.LaunchDirectory.store(
             std::make_shared<const std::string>(CurrentDirectory()),
-            std::memory_order_release);
+            std::memory_order_relaxed);
         std::filesystem::current_path(BaseDirectory());
 
 #if defined(_WIN32)

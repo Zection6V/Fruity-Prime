@@ -9,7 +9,7 @@ namespace MphRead::Mods::Input::GamepadLayoutAdapters
     // Equivalent of GLFW.GetJoystickAxes(slot).ToArray(). A missing value is
     // reserved for DllNotFoundException, EntryPointNotFoundException, or
     // BadImageFormatException; every other failure must propagate.
-    [[nodiscard]] std::optional<std::vector<float>> GetJoystickAxes(std::int32_t slot);
+    std::optional<std::vector<float>> GetJoystickAxes(std::int32_t slot);
 }
 
 namespace MphRead::Mods::Input

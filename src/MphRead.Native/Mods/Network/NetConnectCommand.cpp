@@ -23,8 +23,7 @@ namespace MphRead::Mods::Network::Detail
     };
 
     bool NetConnectCommandNetLaunchJoin(const std::string& host, std::int32_t port,
-        const std::string& playerName, Hunter hunter, std::int32_t timeoutMs,
-        std::int32_t color);
+        const std::string& playerName, Hunter hunter, std::int32_t color);
     std::optional<NetConnectCommandServerRoom> NetConnectCommandNetLaunchServerRoom();
 
     RenderWindow& NetConnectCommandCreateRenderWindow();
@@ -76,7 +75,7 @@ namespace MphRead::Mods::Network
         const std::string& playerName, Hunter hunter, std::int32_t recolor)
     {
         if (!Detail::NetConnectCommandNetLaunchJoin(
-            host, port, playerName, hunter, 8000, recolor))
+            host, port, playerName, hunter, recolor))
         {
             Detail::NetConnectCommandConsoleWriteLine("[net] could not join; giving up");
             Detail::NetConnectCommandNetSessionStop();

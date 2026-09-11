@@ -2,6 +2,7 @@
 
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 
@@ -66,7 +67,16 @@ namespace MphRead
 
     void Rng::DoDamageShake(std::int32_t damage)
     {
-        std::int32_t shake = static_cast<std::int32_t>(damage * 40.96F);
+        const float scaled = static_cast<float>(damage) * 40.96F;
+        std::int32_t shake;
+        if (scaled < -2147483648.0F || scaled >= 2147483648.0F)
+        {
+            shake = std::numeric_limits<std::int32_t>::min();
+        }
+        else
+        {
+            shake = static_cast<std::int32_t>(scaled);
+        }
         if (shake < 204)
         {
             shake = 204;

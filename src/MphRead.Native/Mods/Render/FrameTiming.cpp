@@ -85,6 +85,26 @@ namespace
         return true;
     }
 
+    [[nodiscard]] constexpr bool IsNumberWhiteSpace(char value) noexcept
+    {
+        const unsigned char unit = static_cast<unsigned char>(value);
+        return unit == 0x20U || (unit >= 0x09U && unit <= 0x0DU);
+    }
+
+    [[nodiscard]] constexpr std::int64_t AddInt64Unchecked(
+        std::int64_t left, std::int64_t right) noexcept
+    {
+        constexpr std::uint64_t SignBit = std::uint64_t{1} << 63;
+        const std::uint64_t bits = static_cast<std::uint64_t>(left)
+            + static_cast<std::uint64_t>(right);
+        if (bits < SignBit)
+        {
+            return static_cast<std::int64_t>(bits);
+        }
+        return std::numeric_limits<std::int64_t>::min()
+            + static_cast<std::int64_t>(bits - SignBit);
+    }
+
     [[nodiscard]] bool TryParseInt32(std::string_view value, std::int32_t& parsed) noexcept
     {
         if (value.empty())
@@ -93,28 +113,34 @@ namespace
         }
 
         std::size_t index = 0;
+        while (index < value.size() && IsNumberWhiteSpace(value[index]))
+        {
+            index++;
+        }
+        if (index == value.size())
+        {
+            return false;
+        }
+
         bool negative = false;
         if (value[index] == '+' || value[index] == '-')
         {
             negative = value[index] == '-';
             index++;
-            if (index == value.size())
-            {
-                return false;
-            }
         }
 
+        const std::size_t digitsStart = index;
         constexpr std::uint64_t PositiveLimit =
             static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
         constexpr std::uint64_t NegativeLimit = PositiveLimit + 1U;
         const std::uint64_t limit = negative ? NegativeLimit : PositiveLimit;
         std::uint64_t magnitude = 0;
-        for (; index < value.size(); index++)
+        while (index < value.size())
         {
             const char unit = value[index];
             if (unit < '0' || unit > '9')
             {
-                return false;
+                break;
             }
             const std::uint64_t digit = static_cast<std::uint64_t>(unit - '0');
             if (magnitude > (limit - digit) / 10U)
@@ -122,6 +148,24 @@ namespace
                 return false;
             }
             magnitude = magnitude * 10U + digit;
+            index++;
+        }
+        if (index == digitsStart)
+        {
+            return false;
+        }
+
+        while (index < value.size() && IsNumberWhiteSpace(value[index]))
+        {
+            index++;
+        }
+        while (index < value.size() && value[index] == '\0')
+        {
+            index++;
+        }
+        if (index != value.size())
+        {
+            return false;
         }
 
         if (!negative)
@@ -266,14 +310,14 @@ namespace MphRead::Mods::Render
     std::int32_t FrameTiming::Advance(double elapsedSeconds)
     {
         _active = true;
-        _totalFrames++;
+        _totalFrames = AddInt64Unchecked(_totalFrames, 1);
         if (elapsedSeconds > StallSeconds || elapsedSeconds < 0.0 || std::isnan(elapsedSeconds))
         {
-            _stalls++;
+            _stalls = AddInt64Unchecked(_stalls, 1);
             _accumulator = 0.0;
             _stepsThisFrame = 1;
-            _totalSteps++;
-            _stepHistogram[1]++;
+            _totalSteps = AddInt64Unchecked(_totalSteps, 1);
+            _stepHistogram[1] = AddInt64Unchecked(_stepHistogram[1], 1);
             Tally(StepSeconds, 1);
             return 1;
         }
@@ -288,12 +332,13 @@ namespace MphRead::Mods::Render
         if (_accumulator >= StepSeconds)
         {
             const std::int32_t owed = static_cast<std::int32_t>(_accumulator / StepSeconds);
-            _droppedSteps += owed;
+            _droppedSteps = AddInt64Unchecked(_droppedSteps, owed);
             _accumulator -= owed * StepSeconds;
         }
         _stepsThisFrame = steps;
-        _totalSteps += steps;
-        _stepHistogram[static_cast<std::size_t>(steps)]++;
+        _totalSteps = AddInt64Unchecked(_totalSteps, steps);
+        const std::size_t histogramIndex = static_cast<std::size_t>(steps);
+        _stepHistogram[histogramIndex] = AddInt64Unchecked(_stepHistogram[histogramIndex], 1);
         Tally(elapsedSeconds, steps);
         return steps;
     }
@@ -301,8 +346,8 @@ namespace MphRead::Mods::Render
     void FrameTiming::Tally(double elapsedSeconds, std::int32_t steps)
     {
         _windowSeconds += elapsedSeconds;
-        _windowSteps += steps;
-        _windowFrames++;
+        _windowSteps = AddInt64Unchecked(_windowSteps, steps);
+        _windowFrames = AddInt64Unchecked(_windowFrames, 1);
         if (_windowSeconds >= 2.0)
         {
             _measuredSimulationHz = _windowSteps / _windowSeconds;

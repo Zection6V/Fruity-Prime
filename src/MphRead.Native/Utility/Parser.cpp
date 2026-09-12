@@ -30,7 +30,11 @@
 
 namespace
 {
+#if defined(_WIN32)
+    constexpr std::string_view EnvironmentNewLine = "\r\n";
+#else
     constexpr std::string_view EnvironmentNewLine = "\n";
+#endif
 
     void CheckConsoleOutput()
     {

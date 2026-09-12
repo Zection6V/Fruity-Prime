@@ -75,12 +75,35 @@ namespace MphRead
 
     namespace Metadata
     {
-        const std::shared_ptr<std::vector<std::vector<std::int32_t>>>& PlatformSfx = platformSfx;
-        const std::shared_ptr<std::vector<std::vector<std::int32_t>>>& HunterSfx = hunterSfx;
-        const std::shared_ptr<std::vector<std::vector<std::int32_t>>>& BeamSfx = beamSfx;
-        const std::shared_ptr<std::vector<std::vector<std::int32_t>>>& TerrainSfx = terrainSfx;
-        const std::shared_ptr<std::vector<std::int32_t>>& EnemyDamageSfx = enemyDamageSfx;
-        const std::shared_ptr<std::vector<std::int32_t>>& EnemyDeathSfx = enemyDeathSfx;
+        std::shared_ptr<std::vector<std::vector<std::int32_t>>> PlatformSfx()
+        {
+            return platformSfx;
+        }
+
+        std::shared_ptr<std::vector<std::vector<std::int32_t>>> HunterSfx()
+        {
+            return hunterSfx;
+        }
+
+        std::shared_ptr<std::vector<std::vector<std::int32_t>>> BeamSfx()
+        {
+            return beamSfx;
+        }
+
+        std::shared_ptr<std::vector<std::vector<std::int32_t>>> TerrainSfx()
+        {
+            return terrainSfx;
+        }
+
+        std::shared_ptr<std::vector<std::int32_t>> EnemyDamageSfx()
+        {
+            return enemyDamageSfx;
+        }
+
+        std::shared_ptr<std::vector<std::int32_t>> EnemyDeathSfx()
+        {
+            return enemyDeathSfx;
+        }
 
         void SetHunterSfxData(const std::vector<std::uint8_t>& data)
         {

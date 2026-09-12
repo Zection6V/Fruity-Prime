@@ -9,12 +9,12 @@ namespace MphRead
 {
     namespace Metadata
     {
-        extern const std::shared_ptr<std::vector<std::vector<std::int32_t>>>& PlatformSfx;
-        extern const std::shared_ptr<std::vector<std::vector<std::int32_t>>>& HunterSfx;
-        extern const std::shared_ptr<std::vector<std::vector<std::int32_t>>>& BeamSfx;
-        extern const std::shared_ptr<std::vector<std::vector<std::int32_t>>>& TerrainSfx;
-        extern const std::shared_ptr<std::vector<std::int32_t>>& EnemyDamageSfx;
-        extern const std::shared_ptr<std::vector<std::int32_t>>& EnemyDeathSfx;
+        std::shared_ptr<std::vector<std::vector<std::int32_t>>> PlatformSfx();
+        std::shared_ptr<std::vector<std::vector<std::int32_t>>> HunterSfx();
+        std::shared_ptr<std::vector<std::vector<std::int32_t>>> BeamSfx();
+        std::shared_ptr<std::vector<std::vector<std::int32_t>>> TerrainSfx();
+        std::shared_ptr<std::vector<std::int32_t>> EnemyDamageSfx();
+        std::shared_ptr<std::vector<std::int32_t>> EnemyDeathSfx();
 
         void SetHunterSfxData(const std::vector<std::uint8_t>& data);
         void SetBeamSfxData(const std::vector<std::uint8_t>& data);

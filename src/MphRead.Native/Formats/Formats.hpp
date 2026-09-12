@@ -1314,9 +1314,9 @@ namespace MphRead
         static std::string MphKey;
         static std::string FhKey;
 
-        [[nodiscard]] static const std::string& FileSystem();
-        [[nodiscard]] static const std::string& FhFileSystem();
-        [[nodiscard]] static const std::string& Export();
+        [[nodiscard]] static std::string FileSystem();
+        [[nodiscard]] static std::string FhFileSystem();
+        [[nodiscard]] static std::string Export();
 
         [[nodiscard]] static bool IsMphAmericas() noexcept;
         [[nodiscard]] static bool IsMphEurope() noexcept;

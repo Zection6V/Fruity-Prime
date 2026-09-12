@@ -839,6 +839,15 @@ namespace
         return path[0] == separator;
     }
 
+    [[nodiscard]] bool IsManagedCombineSeparator(char value) noexcept
+    {
+        if (IsManagedDirectorySeparator(value))
+        {
+            return true;
+        }
+        return std::filesystem::path::preferred_separator == '\\' && value == ':';
+    }
+
     [[nodiscard]] std::string CombinePaths(
         const std::vector<std::string>& paths)
     {
@@ -867,7 +876,7 @@ namespace
             }
             else
             {
-                if (!IsManagedDirectorySeparator(result.back()))
+                if (!IsManagedCombineSeparator(result.back()))
                 {
                     result.push_back(separator);
                 }
@@ -1948,17 +1957,17 @@ namespace MphRead
     std::string Paths::FhKey = Ver::AMFE0;
     std::unordered_map<std::string, std::string> Paths::_allPaths{};
 
-    const std::string& Paths::FileSystem()
+    std::string Paths::FileSystem()
     {
         return _allPaths.at(MphKey);
     }
 
-    const std::string& Paths::FhFileSystem()
+    std::string Paths::FhFileSystem()
     {
         return _allPaths.at(FhKey);
     }
 
-    const std::string& Paths::Export()
+    std::string Paths::Export()
     {
         return _allPaths.at("Export");
     }

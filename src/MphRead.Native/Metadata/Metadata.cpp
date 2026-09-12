@@ -15,7 +15,8 @@ std::string ReplaceAll(std::string value, std::string_view from, std::string_vie
 {
     if (from.empty())
     {
-        return value;
+        // C# String.Replace(oldValue, newValue) rejects an empty oldValue.
+        throw std::invalid_argument("oldValue");
     }
     std::size_t position = 0;
     while ((position = value.find(from, position)) != std::string::npos)
@@ -80,61 +81,105 @@ RecolorMetadata::RecolorMetadata(std::string name, std::string modelPath, std::s
 {
 }
 
+ModelMetadata::ModelMetadata(Values values)
+    : Name(std::move(values.Name)), ModelPath(std::move(values.ModelPath)),
+      AnimationPath(std::move(values.AnimationPath)), AnimationShare(std::move(values.AnimationShare)),
+      CollisionPath(std::move(values.CollisionPath)), ExtraCollisionPath(std::move(values.ExtraCollisionPath)),
+      Recolors(std::move(values.Recolors)), UseLightSources(values.UseLightSources), FirstHunt(values.FirstHunt)
+{
+}
+
 ModelMetadata::ModelMetadata(std::string name, std::string modelPath,
     std::optional<std::string> animationPath, std::optional<std::string> collisionPath,
     std::vector<RecolorMetadata> recolors, std::optional<std::string> animationShare,
     bool useLightSources)
-    : Name(std::move(name)), ModelPath(std::move(modelPath)), AnimationPath(std::move(animationPath)),
-      AnimationShare(std::move(animationShare)), CollisionPath(std::move(collisionPath)),
-      Recolors(std::move(recolors)), UseLightSources(useLightSources)
+    : ModelMetadata([name = std::move(name), modelPath = std::move(modelPath),
+        animationPath = std::move(animationPath), collisionPath = std::move(collisionPath),
+        recolors = std::move(recolors), animationShare = std::move(animationShare), useLightSources]() mutable
+    {
+        Values values;
+        values.Name = std::move(name);
+        values.ModelPath = std::move(modelPath);
+        values.AnimationPath = std::move(animationPath);
+        values.AnimationShare = std::move(animationShare);
+        values.CollisionPath = std::move(collisionPath);
+        values.Recolors = std::move(recolors);
+        values.UseLightSources = useLightSources;
+        return values;
+    }())
 {
 }
 
 ModelMetadata::ModelMetadata(std::string name, MetaDir dir, std::optional<std::string> anim)
-    : Name(std::move(name))
-{
-    const std::string& directory = DirectoryFor(dir);
-    ModelPath = directory + "\\" + Name + "_Model.bin";
-    if (anim)
+    : ModelMetadata([name = std::move(name), dir, anim = std::move(anim)]() mutable
     {
-        AnimationPath = directory + "\\" + *anim + "_Anim.bin";
-    }
-    Recolors.emplace_back("default", ModelPath, ModelPath);
+        Values values;
+        values.Name = std::move(name);
+        const std::string& directory = DirectoryFor(dir);
+        values.ModelPath = directory + "\\" + values.Name + "_Model.bin";
+        if (anim)
+        {
+            values.AnimationPath = directory + "\\" + *anim + "_Anim.bin";
+        }
+        values.Recolors.emplace_back("default", values.ModelPath, values.ModelPath);
+        return values;
+    }())
+{
 }
 
 ModelMetadata::ModelMetadata(std::string name, std::string texturePath, MetaDir dir)
-    : Name(std::move(name))
+    : ModelMetadata([name = std::move(name), texturePath = std::move(texturePath), dir]() mutable
+    {
+        Values values;
+        values.Name = std::move(name);
+        const std::string& directory = DirectoryFor(dir);
+        values.ModelPath = directory + "\\" + values.Name + "_Model.bin";
+        values.Recolors.emplace_back("default", values.ModelPath, std::move(texturePath));
+        return values;
+    }())
 {
-    const std::string& directory = DirectoryFor(dir);
-    ModelPath = directory + "\\" + Name + "_Model.bin";
-    Recolors.emplace_back("default", ModelPath, std::move(texturePath));
 }
 
 ModelMetadata::ModelMetadata(std::string name, std::optional<std::string> animationPath,
     std::optional<std::string> texturePath)
-    : Name(std::move(name)), AnimationPath(std::move(animationPath))
+    : ModelMetadata([name = std::move(name), animationPath = std::move(animationPath),
+        texturePath = std::move(texturePath)]() mutable
+    {
+        Values values;
+        values.Name = std::move(name);
+        values.ModelPath = "models\\" + values.Name + "_Model.bin";
+        values.AnimationPath = std::move(animationPath);
+        values.Recolors.emplace_back("default", values.ModelPath,
+            texturePath ? *texturePath : values.ModelPath);
+        return values;
+    }())
 {
-    ModelPath = "models\\" + Name + "_Model.bin";
-    Recolors.emplace_back("default", ModelPath, texturePath ? *texturePath : ModelPath);
 }
 
 ModelMetadata::ModelMetadata(std::string name, std::string remove, bool animation,
     std::optional<std::string> animationPath, bool collision, bool firstHunt)
-    : Name(std::move(name)), FirstHunt(firstHunt)
+    : ModelMetadata([name = std::move(name), remove = std::move(remove), animation,
+        animationPath = std::move(animationPath), collision, firstHunt]() mutable
+    {
+        Values values;
+        values.Name = std::move(name);
+        const std::string directory = "models";
+        values.ModelPath = directory + "\\" + values.Name + "_Model.bin";
+        const std::string removed = ReplaceAll(values.Name, remove, "");
+        if (animation)
+        {
+            values.AnimationPath = animationPath ? std::move(animationPath)
+                : std::optional<std::string>(directory + "\\" + removed + "_Anim.bin");
+        }
+        if (collision)
+        {
+            values.CollisionPath = directory + "\\" + removed + "_Collision.bin";
+        }
+        values.Recolors.emplace_back("default", values.ModelPath);
+        values.FirstHunt = firstHunt;
+        return values;
+    }())
 {
-    const std::string directory = "models";
-    ModelPath = directory + "\\" + Name + "_Model.bin";
-    const std::string removed = ReplaceAll(Name, remove, "");
-    if (animation)
-    {
-        AnimationPath = animationPath ? std::move(animationPath)
-            : std::optional<std::string>(directory + "\\" + removed + "_Anim.bin");
-    }
-    if (collision)
-    {
-        CollisionPath = directory + "\\" + removed + "_Collision.bin";
-    }
-    Recolors.emplace_back("default", ModelPath);
 }
 
 ModelMetadata::ModelMetadata(std::string name, std::vector<std::string> recolors,
@@ -142,132 +187,149 @@ ModelMetadata::ModelMetadata(std::string name, std::vector<std::string> recolors
     bool texture, MdlSuffix mdlSuffix, std::optional<std::string> archive,
     std::optional<std::string> recolorName, std::optional<std::string> animationShare,
     bool useLightSources, bool firstHunt, bool noUnderscore)
-    : Name(std::move(name)), AnimationShare(std::move(animationShare)),
-      UseLightSources(useLightSources), FirstHunt(firstHunt)
-{
-    std::string suffix = mdlSuffix == MdlSuffix::None ? "" : "_mdl";
-    if (!archive)
+    : ModelMetadata([name = std::move(name), recolors = std::move(recolors), remove = std::move(remove),
+        animation, animationPath = std::move(animationPath), texture, mdlSuffix,
+        archive = std::move(archive), recolorName = std::move(recolorName),
+        animationShare = std::move(animationShare), useLightSources, firstHunt, noUnderscore]() mutable
     {
-        ModelPath = "models\\" + Name + suffix + "_Model.bin";
-    }
-    else
-    {
-        ModelPath = "_archives\\" + *archive + "\\" + Name + "_Model.bin";
-    }
-    std::string pathName = remove ? ReplaceAll(Name, *remove, "") : Name;
-    if (mdlSuffix != MdlSuffix::All)
-    {
-        suffix.clear();
-    }
-    if (animationPath)
-    {
-        AnimationPath = std::move(animationPath);
-    }
-    else if (animation)
-    {
-        if (archive)
+        Values values;
+        values.Name = std::move(name);
+        std::string suffix = mdlSuffix == MdlSuffix::None ? "" : "_mdl";
+        if (!archive)
         {
-            AnimationPath = "_archives\\" + *archive + "\\" + pathName + "_Anim.bin";
+            values.ModelPath = "models\\" + values.Name + suffix + "_Model.bin";
         }
         else
         {
-            AnimationPath = "models\\" + pathName + suffix + "_Anim.bin";
+            values.ModelPath = "_archives\\" + *archive + "\\" + values.Name + "_Model.bin";
         }
-    }
-    for (const std::string& recolor : recolors)
-    {
-        std::string recolorString = (recolorName ? *recolorName : pathName)
-            + (noUnderscore ? "" : "_") + recolor;
-        if (!recolor.empty() && recolor.front() == '*')
+        const std::string pathName = remove ? ReplaceAll(values.Name, *remove, "") : values.Name;
+        if (mdlSuffix != MdlSuffix::All)
         {
-            recolorString = ReplaceAll(recolor, "*", "");
+            suffix.clear();
         }
-        const std::string recolorModel = "models\\" + recolorString + "_Model.bin";
-        const std::string texturePathValue = texture
-            ? "models\\" + recolorString + "_Tex.bin" : recolorModel;
-        Recolors.emplace_back(recolor, recolorModel, texturePathValue);
-    }
+        if (animationPath)
+        {
+            values.AnimationPath = std::move(animationPath);
+        }
+        else if (animation)
+        {
+            values.AnimationPath = archive
+                ? std::optional<std::string>("_archives\\" + *archive + "\\" + pathName + "_Anim.bin")
+                : std::optional<std::string>("models\\" + pathName + suffix + "_Anim.bin");
+        }
+        values.AnimationShare = std::move(animationShare);
+        for (const std::string& recolor : recolors)
+        {
+            std::string recolorString = (recolorName ? *recolorName : pathName)
+                + (noUnderscore ? "" : "_") + recolor;
+            if (!recolor.empty() && recolor.front() == '*')
+            {
+                recolorString = ReplaceAll(recolor, "*", "");
+            }
+            const std::string recolorModel = "models\\" + recolorString + "_Model.bin";
+            const std::string texturePathValue = texture
+                ? "models\\" + recolorString + "_Tex.bin" : recolorModel;
+            values.Recolors.emplace_back(recolor, recolorModel, texturePathValue);
+        }
+        values.UseLightSources = useLightSources;
+        values.FirstHunt = firstHunt;
+        return values;
+    }())
+{
 }
 
 ModelMetadata::ModelMetadata(std::string name, bool animation, bool collision, bool texture,
     std::optional<std::string> share, MdlSuffix mdlSuffix, std::optional<std::string> archive,
     std::optional<std::string> addToAnim, bool firstHunt,
     std::optional<std::string> animationPath, std::optional<std::string> extraCollision)
-    : Name(std::move(name)), FirstHunt(firstHunt)
+    : ModelMetadata([name = std::move(name), animation, collision, texture,
+        share = std::move(share), mdlSuffix, archive = std::move(archive), addToAnim = std::move(addToAnim),
+        firstHunt, animationPath = std::move(animationPath), extraCollision = std::move(extraCollision)]() mutable
+    {
+        Values values;
+        values.Name = std::move(name);
+        const std::string path = archive ? "_archives\\" + *archive : "models";
+        std::string suffix = mdlSuffix == MdlSuffix::None ? "" : "_mdl";
+        values.ModelPath = path + "\\" + values.Name + suffix + "_Model.bin";
+        if (mdlSuffix != MdlSuffix::All)
+        {
+            suffix.clear();
+        }
+        if (animation)
+        {
+            values.AnimationPath = animationPath ? std::move(animationPath)
+                : std::optional<std::string>(path + "\\" + values.Name + addToAnim.value_or("") + suffix + "_Anim.bin");
+        }
+        if (collision)
+        {
+            values.CollisionPath = path + "\\" + values.Name + suffix + "_Collision.bin";
+        }
+        if (extraCollision)
+        {
+            values.ExtraCollisionPath = path + "\\" + *extraCollision + "_Collision.bin";
+        }
+        std::string recolorModel = values.ModelPath;
+        if (share)
+        {
+            texture = false;
+            recolorModel = *share;
+        }
+        values.Recolors.emplace_back("default", recolorModel,
+            texture ? "models\\" + values.Name + suffix + "_Tex.bin" : recolorModel);
+        values.FirstHunt = firstHunt;
+        return values;
+    }())
 {
-    const std::string path = archive ? "_archives\\" + *archive : "models";
-    std::string suffix = mdlSuffix == MdlSuffix::None ? "" : "_mdl";
-    ModelPath = path + "\\" + Name + suffix + "_Model.bin";
-    if (mdlSuffix != MdlSuffix::All)
-    {
-        suffix.clear();
-    }
-    if (animation)
-    {
-        AnimationPath = animationPath ? std::move(animationPath)
-            : std::optional<std::string>(path + "\\" + Name + addToAnim.value_or("") + suffix + "_Anim.bin");
-    }
-    if (collision)
-    {
-        CollisionPath = path + "\\" + Name + suffix + "_Collision.bin";
-    }
-    if (extraCollision)
-    {
-        ExtraCollisionPath = path + "\\" + *extraCollision + "_Collision.bin";
-    }
-    std::string recolorModel = ModelPath;
-    if (share)
-    {
-        texture = false;
-        recolorModel = *share;
-    }
-    Recolors.emplace_back("default", recolorModel,
-        texture ? "models\\" + Name + suffix + "_Tex.bin" : recolorModel);
 }
 
 ModelMetadata::ModelMetadata(std::string name, std::string modelPath,
     std::optional<std::string> animationPath, std::optional<std::string> collisionPath,
     bool firstHunt)
-    : Name(std::move(name)), ModelPath(std::move(modelPath)), AnimationPath(std::move(animationPath)),
-      CollisionPath(std::move(collisionPath)), FirstHunt(firstHunt)
+    : ModelMetadata([name = std::move(name), modelPath = std::move(modelPath),
+        animationPath = std::move(animationPath), collisionPath = std::move(collisionPath), firstHunt]() mutable
+    {
+        Values values;
+        values.Name = std::move(name);
+        values.ModelPath = std::move(modelPath);
+        values.AnimationPath = std::move(animationPath);
+        values.CollisionPath = std::move(collisionPath);
+        values.Recolors.emplace_back("default", values.ModelPath, values.ModelPath);
+        values.FirstHunt = firstHunt;
+        return values;
+    }())
 {
-    Recolors.emplace_back("default", ModelPath, ModelPath);
+}
+
+namespace
+{
+std::vector<int> NormalizeAnimationIds(std::optional<std::vector<int>> animationIds,
+    std::array<int, 4> defaults)
+{
+    if (!animationIds)
+    {
+        return {defaults.begin(), defaults.end()};
+    }
+    if (animationIds->size() != 4)
+    {
+        throw std::invalid_argument("animationIds");
+    }
+    return std::move(*animationIds);
+}
 }
 
 ObjectMetadata::ObjectMetadata(std::string name, bool lighting, int paletteId,
     bool ignoreAnim, std::optional<std::vector<int>> animationIds)
-    : Lighting(lighting), IgnoreAnimation(ignoreAnim), Name(std::move(name)), RecolorId(paletteId)
+    : Lighting(lighting), IgnoreAnimation(ignoreAnim), Name(std::move(name)),
+      AnimationIds(NormalizeAnimationIds(std::move(animationIds), {0, 0, 0, 0})), RecolorId(paletteId)
 {
-    if (!animationIds)
-    {
-        AnimationIds = {0, 0, 0, 0};
-    }
-    else if (animationIds->size() != 4)
-    {
-        throw std::invalid_argument("animationIds");
-    }
-    else
-    {
-        AnimationIds = std::move(*animationIds);
-    }
 }
 
 PlatformMetadata::PlatformMetadata(std::string name, bool lighting,
     std::optional<std::vector<int>> animationIds)
-    : Animation(animationIds.has_value()), Lighting(lighting), Name(std::move(name))
+    : Animation(animationIds.has_value()), Lighting(lighting), Name(std::move(name)),
+      AnimationIds(NormalizeAnimationIds(std::move(animationIds), {-1, -1, -1, -1}))
 {
-    if (!animationIds)
-    {
-        AnimationIds = {-1, -1, -1, -1};
-    }
-    else if (animationIds->size() != 4)
-    {
-        throw std::invalid_argument("animationIds");
-    }
-    else
-    {
-        AnimationIds = std::move(*animationIds);
-    }
 }
 
 DoorMetadata::DoorMetadata(std::string name, std::string lockName, float lockOffset, float radius)
@@ -338,19 +400,12 @@ const std::vector<int>& LayersFor(GameMode mode)
     throw std::out_of_range("mode");
 }
 
-template <std::size_t N>
 const ::MphRead::ModelMetadata* FindModel(
-    const std::array<std::pair<std::string, ::MphRead::ModelMetadata>, N>& values,
+    const std::unordered_map<std::string, ::MphRead::ModelMetadata>& values,
     std::string_view name) noexcept
 {
-    for (const auto& value : values)
-    {
-        if (value.first == name)
-        {
-            return &value.second;
-        }
-    }
-    return nullptr;
+    const auto it = values.find(std::string(name));
+    return it == values.end() ? nullptr : &it->second;
 }
 
 const ::MphRead::ModelMetadata* FindFrontendModel(
@@ -565,19 +620,19 @@ const std::array<OpenTK::Mathematics::Vector3,32> ToonTable{{
     GetColor(0x77F5),
 }};
 
-const std::vector<std::pair<std::string, std::vector<PaletteData>>> PowerPalettes{
+const std::unordered_map<std::string, std::vector<PaletteData>> PowerPalettes{
     {R"(Alimbic_Power)", std::vector<PaletteData>{PaletteData(32576), PaletteData(32576), PaletteData(32608), PaletteData(32640), PaletteData(32711), PaletteData(32719), PaletteData(32758), PaletteData(32733)}},
     {R"(Generic_Power)", std::vector<PaletteData>{PaletteData(19393), PaletteData(18369), PaletteData(17345), PaletteData(16321), PaletteData(19400), PaletteData(23535), PaletteData(26614), PaletteData(31741)}},
     {R"(Ice_Power)", std::vector<PaletteData>{PaletteData(29453), PaletteData(29453), PaletteData(29485), PaletteData(29517), PaletteData(30578), PaletteData(30614), PaletteData(31705), PaletteData(32734)}},
     {R"(Lava_Power)", std::vector<PaletteData>{PaletteData(671), PaletteData(639), PaletteData(607), PaletteData(575), PaletteData(7807), PaletteData(16127), PaletteData(23391), PaletteData(30719)}},
 };
 
-const std::array<std::pair<Hunter,float>,8> HunterScales{{
+const std::unordered_map<Hunter,float> HunterScales{
     {Hunter::Samus,1.0F},{Hunter::Kanden,static_cast<float>(0x10F5)/4096.0F},
     {Hunter::Trace,1.0F},{Hunter::Sylux,1.0F},{Hunter::Noxus,1.0F},
     {Hunter::Spire,static_cast<float>(0x123D)/4096.0F},{Hunter::Weavel,1.0F},{Hunter::Guardian,1.0F}
-}};
-const std::array<std::pair<Hunter,std::array<std::string,4>>,8> HunterModels{{
+};
+const std::unordered_map<Hunter,std::array<std::string,4>> HunterModels{
     {Hunter::Samus,{"Samus_lod0","Samus_lod1","SamusAlt_lod0","SamusGun"}},
     {Hunter::Kanden,{"Kanden_lod0","Kanden_lod1","KandenAlt_lod0","KandenGun"}},
     {Hunter::Trace,{"Trace_lod0","Trace_lod1","TraceAlt_lod0","TraceGun"}},
@@ -586,7 +641,7 @@ const std::array<std::pair<Hunter,std::array<std::string,4>>,8> HunterModels{{
     {Hunter::Spire,{"Spire_lod0","Spire_lod1","SpireAlt_lod0","SpireGun"}},
     {Hunter::Weavel,{"Weavel_lod0","Weavel_lod1","WeavelAlt_lod0","WeavelGun"}},
     {Hunter::Guardian,{"Guardian_lod0","Guardian_lod1","SamusAlt_lod0","SamusGun"}}
-}};
+};
 const std::array<int,89> AdpcmTable{{7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767}};
 const std::array<int,16> ImaIndexTable{{-1,-1,-1,-1,2,4,6,8,-1,-1,-1,-1,2,4,6,8}};
 const std::array<std::string, 60> MusicSeqs{{
@@ -767,7 +822,7 @@ const PlatformMetadata InvisiblePlat("N/A");
 const std::array<std::string, 11> WeaponNames{{
     R"(Power Beam)",
     R"(Volt Driver)",
-    R"(Missile)",
+    R"(Missiles)",
     R"(Battlehammer)",
     R"(Imperialist)",
     R"(Judicator)",
@@ -780,7 +835,7 @@ const std::array<std::string, 11> WeaponNames{{
 const std::array<std::string, 11> WeaponNamesUpper{{
     R"(POWER BEAM)",
     R"(VOLT DRIVER)",
-    R"(MISSILE)",
+    R"(MISSILES)",
     R"(BATTLEHAMMER)",
     R"(IMPERIALIST)",
     R"(JUDICATOR)",
@@ -1043,24 +1098,24 @@ const std::array<std::pair<std::string,std::optional<std::string>>,247> Effects{
 const std::array<float,4> BeamRadiusValues{{0.15F,0.25F,0.5F,0.75F}};
 const std::array<int,23> BeamDrawEffects{{0,237,137,0,211,130,0,0,0,0,134,209,64,0,102,94,96,0,116,138,183,238,246}};
 const std::array<int,6> SyluxBombEffects{{113,152,151,153,150,149}};
-const std::array<std::pair<SingleType,std::pair<std::string,std::string>>,12> SingleParticles{{
+const std::unordered_map<SingleType,std::pair<std::string,std::string>> SingleParticles{
     {SingleType::Death,{"deathParticle","death"}}, {SingleType::Fuzzball,{"particles","fuzzBall"}},
     {SingleType::Lore,{"icons","lore"}}, {SingleType::LoreDim,{"icons","lore_dim"}},
     {SingleType::Enemy,{"icons","enemy"}}, {SingleType::EnemyDim,{"icons","enemy_dim"}},
     {SingleType::Object,{"icons","object"}}, {SingleType::ObjectDim,{"icons","object_dim"}},
     {SingleType::Equipment,{"icons","equipment"}}, {SingleType::EquipmentDim,{"icons","equipment_dim"}},
     {SingleType::Red,{"icons","red"}}, {SingleType::RedDim,{"icons","red_dim"}}
-}};
-const std::array<std::pair<std::string,bool>,8> PreloadResources{{
+};
+const std::unordered_map<std::string,bool> PreloadResources{
     {"deathParticle",true},{"particles",true},{"particles2",true},{"TearParticle",true},
     {"icons",true},{"iceWave",true},{"sniperBeam",true},{"cylBossLaserBurn",true}
-}};
+};
 const OpenTK::Mathematics::Vector4 RedPalette(189.0F/255.0F,66.0F/255.0F,0.0F,1.0F);
 const OpenTK::Mathematics::Vector4 WhitePalette(1.0F,1.0F,1.0F,1.0F);
 const ::MphRead::ModelMetadata DoubleDamageImg("doubleDamage_img",false,false,false,
     std::nullopt,MdlSuffix::None,std::optional<std::string>{"common"},std::nullopt,false,std::nullopt,std::nullopt);
 
-const std::array<std::pair<std::string, ::MphRead::ModelMetadata>, 253> ModelMetadata{{
+const std::unordered_map<std::string, ::MphRead::ModelMetadata> ModelMetadata{
     {R"(AlimbicBossDoorLock)", ::MphRead::ModelMetadata(R"(AlimbicBossDoorLock)", true, false, false, std::optional<std::string>{R"(models\AlimbicTextureShare_img_Model.bin)"}, MdlSuffix::All, std::nullopt, std::nullopt, false, std::nullopt, std::nullopt)},
     {R"(AlimbicBossDoor)", ::MphRead::ModelMetadata(R"(AlimbicBossDoor)", true, false, false, std::nullopt, MdlSuffix::None, std::nullopt, std::nullopt, false, std::nullopt, std::nullopt)},
     {R"(AlimbicCapsule)", ::MphRead::ModelMetadata(R"(AlimbicCapsule)", true, true, false, std::nullopt, MdlSuffix::None, std::nullopt, std::nullopt, false, std::nullopt, std::optional<std::string>{R"(AlmbCapsuleShld)"})},
@@ -1316,9 +1371,9 @@ const std::array<std::pair<std::string, ::MphRead::ModelMetadata>, 253> ModelMet
     {R"(particles)", ::MphRead::ModelMetadata(R"(particles)", false, false, true, std::nullopt, MdlSuffix::None, std::optional<std::string>{R"(effectsBase)"}, std::nullopt, false, std::nullopt, std::nullopt)},
     {R"(particles2)", ::MphRead::ModelMetadata(R"(particles2)", false, false, true, std::nullopt, MdlSuffix::None, std::optional<std::string>{R"(effectsBase)"}, std::nullopt, false, std::nullopt, std::nullopt)},
     {R"(TearParticle)", ::MphRead::ModelMetadata(R"(TearParticle)", false, false, true, std::nullopt, MdlSuffix::None, std::nullopt, std::nullopt, false, std::nullopt, std::nullopt)},
-}};
+};
 
-const std::array<std::pair<std::string, ::MphRead::ModelMetadata>, 62> FirstHuntModels{{
+const std::unordered_map<std::string, ::MphRead::ModelMetadata> FirstHuntModels{
     {R"(ballDeath)", ::MphRead::ModelMetadata(R"(ballDeath)", true, false, false, std::nullopt, MdlSuffix::None, std::nullopt, std::nullopt, true, std::nullopt, std::nullopt)},
     {R"(balljump)", ::MphRead::ModelMetadata(R"(balljump)", false, false, false, std::nullopt, MdlSuffix::None, std::nullopt, std::nullopt, true, std::nullopt, std::nullopt)},
     {R"(balljump_ray)", ::MphRead::ModelMetadata(R"(balljump_ray)", true, false, false, std::nullopt, MdlSuffix::None, std::nullopt, std::nullopt, true, std::nullopt, std::nullopt)},
@@ -1381,7 +1436,7 @@ const std::array<std::pair<std::string, ::MphRead::ModelMetadata>, 62> FirstHunt
     {R"(trail)", ::MphRead::ModelMetadata(R"(trail)", false, false, false, std::nullopt, MdlSuffix::None, std::nullopt, std::nullopt, true, std::nullopt, std::nullopt)},
     {R"(warWasp)", ::MphRead::ModelMetadata(R"(warWasp)", true, false, false, std::nullopt, MdlSuffix::None, std::nullopt, std::nullopt, true, std::nullopt, std::nullopt)},
     {R"(zoomer)", ::MphRead::ModelMetadata(R"(zoomer)", true, false, false, std::nullopt, MdlSuffix::None, std::nullopt, std::nullopt, true, std::nullopt, std::nullopt)},
-}};
+};
 
 
 const ::MphRead::ModelMetadata* GetModelByName(std::string_view name, MetaDir dir) noexcept

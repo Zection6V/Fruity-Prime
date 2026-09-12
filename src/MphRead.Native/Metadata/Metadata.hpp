@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <unordered_map>
 #include <vector>
 
 namespace MphRead
@@ -63,12 +64,12 @@ namespace MphRead
     class RecolorMetadata
     {
     public:
-        std::string Name;
-        std::string ModelPath;
-        std::string TexturePath;
-        std::string PalettePath;
-        std::optional<std::string> ReplacePath;
-        std::map<int, std::vector<int>> ReplaceIds;
+        const std::string Name;
+        const std::string ModelPath;
+        const std::string TexturePath;
+        const std::string PalettePath;
+        const std::optional<std::string> ReplacePath;
+        const std::map<int, std::vector<int>> ReplaceIds;
 
         RecolorMetadata(std::string name, std::string modelPath);
         RecolorMetadata(std::string name, std::string modelPath, std::string texturePath);
@@ -79,16 +80,31 @@ namespace MphRead
 
     class ModelMetadata
     {
+        struct Values
+        {
+            std::string Name;
+            std::string ModelPath;
+            std::optional<std::string> AnimationPath;
+            std::optional<std::string> AnimationShare;
+            std::optional<std::string> CollisionPath;
+            std::optional<std::string> ExtraCollisionPath;
+            std::vector<RecolorMetadata> Recolors;
+            bool UseLightSources = false;
+            bool FirstHunt = false;
+        };
+
+        explicit ModelMetadata(Values values);
+
     public:
-        std::string Name;
-        std::string ModelPath;
-        std::optional<std::string> AnimationPath;
-        std::optional<std::string> AnimationShare;
-        std::optional<std::string> CollisionPath;
-        std::optional<std::string> ExtraCollisionPath;
-        std::vector<RecolorMetadata> Recolors;
-        bool UseLightSources = false;
-        bool FirstHunt = false;
+        const std::string Name;
+        const std::string ModelPath;
+        const std::optional<std::string> AnimationPath;
+        const std::optional<std::string> AnimationShare;
+        const std::optional<std::string> CollisionPath;
+        const std::optional<std::string> ExtraCollisionPath;
+        const std::vector<RecolorMetadata> Recolors;
+        const bool UseLightSources;
+        const bool FirstHunt;
 
         ModelMetadata(std::string name, std::string modelPath,
             std::optional<std::string> animationPath, std::optional<std::string> collisionPath,
@@ -128,11 +144,11 @@ namespace MphRead
     class ObjectMetadata
     {
     public:
-        bool Lighting = false;
-        bool IgnoreAnimation = false;
-        std::string Name;
-        std::vector<int> AnimationIds;
-        int RecolorId = 0;
+        const bool Lighting;
+        const bool IgnoreAnimation;
+        const std::string Name;
+        const std::vector<int> AnimationIds;
+        const int RecolorId;
 
         explicit ObjectMetadata(std::string name, bool lighting = false,
             int paletteId = 0, bool ignoreAnim = false,
@@ -150,10 +166,10 @@ namespace MphRead
     class PlatformMetadata
     {
     public:
-        bool Animation = false;
-        bool Lighting = false;
-        std::string Name;
-        std::vector<int> AnimationIds;
+        const bool Animation;
+        const bool Lighting;
+        const std::string Name;
+        const std::vector<int> AnimationIds;
 
         explicit PlatformMetadata(std::string name, bool lighting = false,
             std::optional<std::vector<int>> animationIds = std::nullopt);
@@ -162,10 +178,10 @@ namespace MphRead
     class DoorMetadata
     {
     public:
-        std::string Name;
-        std::string LockName;
-        float LockOffset = 0.0F;
-        float Radius = 0.0F;
+        const std::string Name;
+        const std::string LockName;
+        const float LockOffset;
+        const float Radius;
 
         DoorMetadata(std::string name, std::string lockName, float lockOffset, float radius);
     };
@@ -188,9 +204,9 @@ namespace MphRead::Metadata
     extern const OpenTK::Mathematics::Vector3 OctolithLight2Vector;
     extern const OpenTK::Mathematics::Vector3 OctolithLightColor;
     extern const std::array<OpenTK::Mathematics::Vector3, 32> ToonTable;
-    extern const std::vector<std::pair<std::string, std::vector<PaletteData>>> PowerPalettes;
-    extern const std::array<std::pair<Hunter, float>, 8> HunterScales;
-    extern const std::array<std::pair<Hunter, std::array<std::string, 4>>, 8> HunterModels;
+    extern const std::unordered_map<std::string, std::vector<PaletteData>> PowerPalettes;
+    extern const std::unordered_map<Hunter, float> HunterScales;
+    extern const std::unordered_map<Hunter, std::array<std::string, 4>> HunterModels;
     extern const std::array<int, 89> AdpcmTable;
     extern const std::array<int, 16> ImaIndexTable;
     extern const std::array<std::string, 60> MusicSeqs;
@@ -210,13 +226,13 @@ namespace MphRead::Metadata
     extern const std::array<float, 4> BeamRadiusValues;
     extern const std::array<int, 23> BeamDrawEffects;
     extern const std::array<int, 6> SyluxBombEffects;
-    extern const std::array<std::pair<SingleType, std::pair<std::string, std::string>>, 12> SingleParticles;
-    extern const std::array<std::pair<std::string, bool>, 8> PreloadResources;
+    extern const std::unordered_map<SingleType, std::pair<std::string, std::string>> SingleParticles;
+    extern const std::unordered_map<std::string, bool> PreloadResources;
     extern const OpenTK::Mathematics::Vector4 RedPalette;
     extern const OpenTK::Mathematics::Vector4 WhitePalette;
     extern const ::MphRead::ModelMetadata DoubleDamageImg;
-    extern const std::array<std::pair<std::string, ::MphRead::ModelMetadata>, 253> ModelMetadata;
-    extern const std::array<std::pair<std::string, ::MphRead::ModelMetadata>, 62> FirstHuntModels;
+    extern const std::unordered_map<std::string, ::MphRead::ModelMetadata> ModelMetadata;
+    extern const std::unordered_map<std::string, ::MphRead::ModelMetadata> FirstHuntModels;
 
     [[nodiscard]] const ::MphRead::ModelMetadata* GetModelByName(
         std::string_view name, MetaDir dir = MetaDir::Models) noexcept;

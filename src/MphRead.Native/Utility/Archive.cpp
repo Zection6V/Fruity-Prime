@@ -989,7 +989,7 @@ namespace MphRead::Archive
 
         if (filePaths->size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
         {
-            throw MphRead::OverflowException();
+            throw System::OverflowException();
         }
 
         std::vector<std::vector<std::uint8_t>> files;
@@ -1085,11 +1085,15 @@ namespace MphRead::Archive
         throw std::logic_error("Could not write archive.");
     }
 
-    std::uint32_t Archiver::NearestMultiple(std::uint32_t value, std::uint32_t of) noexcept
+    std::uint32_t Archiver::NearestMultiple(std::uint32_t value, std::uint32_t of)
     {
         if (value <= of)
         {
             return value;
+        }
+        if (of == 0)
+        {
+            throw std::domain_error("Attempted to divide by zero.");
         }
         while (value % of != 0)
         {

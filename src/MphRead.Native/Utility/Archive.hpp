@@ -183,7 +183,7 @@ namespace MphRead::Archive
     private:
         [[noreturn]] static void ThrowRead();
         [[noreturn]] static void ThrowWrite();
-        [[nodiscard]] static std::uint32_t NearestMultiple(std::uint32_t value, std::uint32_t of) noexcept;
+        [[nodiscard]] static std::uint32_t NearestMultiple(std::uint32_t value, std::uint32_t of);
         static void Nop() noexcept;
     };
 

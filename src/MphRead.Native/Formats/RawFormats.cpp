@@ -7,13 +7,21 @@
 #include <memory>
 #include <new>
 #include <string>
+#include <type_traits>
 
 namespace
 {
     template <std::size_t N>
     [[nodiscard]] std::string MarshalString(
-        const std::array<std::uint8_t, N>& array)
+        const MphRead::NativeRuntime::ByValByteArray<N>& array)
     {
+        // C# MarshalExtensions.MarshalString checks null before constructing
+        // the managed string or inspecting any element.
+        if (array.IsNull())
+        {
+            throw System::ArgumentNullException("array");
+        }
+
         std::string result;
         result.reserve(N);
         for (std::uint8_t value : array)
@@ -38,7 +46,8 @@ namespace
     }
 
     template <typename T>
-    T& AssignReadonly(T& target, const T& source) noexcept
+    T& AssignReadonly(T& target, const T& source)
+        noexcept(std::is_nothrow_copy_constructible_v<T>)
     {
         if (std::addressof(target) != std::addressof(source))
         {
@@ -46,6 +55,43 @@ namespace
             ::new (static_cast<void*>(std::addressof(target))) T(source);
         }
         return target;
+    }
+
+    template <std::size_t Offset>
+    [[nodiscard]] std::int32_t ReadInt32(
+        const std::array<std::uint8_t, 64>& bytes) noexcept
+    {
+        static_assert(Offset + sizeof(std::int32_t) <= 64);
+        std::int32_t value = 0;
+        std::memcpy(
+            static_cast<void*>(std::addressof(value)),
+            bytes.data() + Offset,
+            sizeof(value));
+        return value;
+    }
+
+    template <std::size_t Offset>
+    [[nodiscard]] std::uint32_t ReadUInt32(
+        const std::array<std::uint8_t, 64>& bytes) noexcept
+    {
+        static_assert(Offset + sizeof(std::uint32_t) <= 64);
+        std::uint32_t value = 0;
+        std::memcpy(
+            static_cast<void*>(std::addressof(value)),
+            bytes.data() + Offset,
+            sizeof(value));
+        return value;
+    }
+
+    template <std::size_t Offset>
+    [[nodiscard]] MphRead::Vector3Fx ReadVector3Fx(
+        const std::array<std::uint8_t, 64>& bytes) noexcept
+    {
+        static_assert(Offset + 12 <= 64);
+        return MphRead::Vector3Fx(
+            ReadInt32<Offset>(bytes),
+            ReadInt32<Offset + 4>(bytes),
+            ReadInt32<Offset + 8>(bytes));
     }
 }
 
@@ -90,36 +136,43 @@ namespace MphRead
         = static_cast<std::int32_t>(
             sizeof(MphRead::Formats::Collision::FhCollisionHeader));
 
-#define MPHREAD_DEFINE_READONLY_ASSIGNMENT(Type) \
+#define MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(Type) \
     Type& Type::operator=(const Type& other) noexcept \
     { \
         return AssignReadonly(*this, other); \
     }
 
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawMesh)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(DisplayList)
+#define MPHREAD_DEFINE_READONLY_ASSIGNMENT(Type) \
+    Type& Type::operator=(const Type& other) \
+    { \
+        return AssignReadonly(*this, other); \
+    }
+
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(RawMesh)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(DisplayList)
     MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawMaterial)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(AnimationHeader)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawMaterialAnimationGroup)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawTextureAnimationGroup)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawTexcoordAnimationGroup)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawNodeAnimationGroup)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(AnimationHeader)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(RawMaterialAnimationGroup)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(RawTextureAnimationGroup)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(RawTexcoordAnimationGroup)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(RawNodeAnimationGroup)
     MPHREAD_DEFINE_READONLY_ASSIGNMENT(MaterialAnimation)
     MPHREAD_DEFINE_READONLY_ASSIGNMENT(TextureAnimation)
     MPHREAD_DEFINE_READONLY_ASSIGNMENT(TexcoordAnimation)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(NodeAnimation)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(Texture)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(Palette)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(Header)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(NodeAnimation)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(Texture)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(Palette)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(Header)
     MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawNode)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(CameraSequenceHeader)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(CameraSequenceHeader)
     MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawCameraSequenceKeyframe)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawEffect)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(RawEffect)
     MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawEffectElement)
     MPHREAD_DEFINE_READONLY_ASSIGNMENT(RawStringTableEntry)
-    MPHREAD_DEFINE_READONLY_ASSIGNMENT(TextFileEntry)
+    MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT(TextFileEntry)
 
 #undef MPHREAD_DEFINE_READONLY_ASSIGNMENT
+#undef MPHREAD_DEFINE_READONLY_ASSIGNMENT_NOEXCEPT
 
     std::string RawMaterial::NameString() const
     {
@@ -163,18 +216,6 @@ namespace MphRead
         return MarshalString(Name);
     }
 
-    RawCollisionVolume::RawCollisionVolume() noexcept
-        : Type{},
-          BoxVector1{},
-          BoxVector2{},
-          BoxVector3{},
-          BoxPosition{},
-          BoxDot1{},
-          BoxDot2{},
-          BoxDot3{}
-    {
-    }
-
     RawCollisionVolume::RawCollisionVolume(
         Vector3Fx boxVector1,
         Vector3Fx boxVector2,
@@ -183,16 +224,13 @@ namespace MphRead
         Fixed boxDot1,
         Fixed boxDot2,
         Fixed boxDot3) noexcept
-        : RawCollisionVolume()
+        : NativeRuntime::RawCollisionTypeSlot(VolumeType::Box),
+          NativeRuntime::RawCollisionOffset4(boxVector1),
+          NativeRuntime::RawCollisionOffset16(boxVector2),
+          NativeRuntime::RawCollisionOffset28(boxVector3),
+          NativeRuntime::RawCollisionOffset40(
+              boxPosition, boxDot1, boxDot2, boxDot3)
     {
-        Type = VolumeType::Box;
-        BoxVector1 = boxVector1;
-        BoxVector2 = boxVector2;
-        BoxVector3 = boxVector3;
-        BoxPosition = boxPosition;
-        BoxDot1 = boxDot1;
-        BoxDot2 = boxDot2;
-        BoxDot3 = boxDot3;
     }
 
     RawCollisionVolume::RawCollisionVolume(
@@ -200,85 +238,112 @@ namespace MphRead
         Vector3Fx cylinderPosition,
         Fixed cylinderRadius,
         Fixed cylinderDot) noexcept
-        : RawCollisionVolume()
+        : NativeRuntime::RawCollisionTypeSlot(VolumeType::Cylinder),
+          NativeRuntime::RawCollisionOffset4(cylinderVector),
+          NativeRuntime::RawCollisionOffset16(cylinderPosition),
+          NativeRuntime::RawCollisionOffset28(cylinderRadius, cylinderDot),
+          NativeRuntime::RawCollisionOffset40()
     {
-        Type = VolumeType::Cylinder;
-        ::new (static_cast<void*>(std::addressof(CylinderVector)))
-            Vector3Fx(cylinderVector);
-        ::new (static_cast<void*>(std::addressof(CylinderPosition)))
-            Vector3Fx(cylinderPosition);
-        CylinderRadius.Value = cylinderRadius.Value;
-        CylinderDot.Value = cylinderDot.Value;
     }
 
     RawCollisionVolume::RawCollisionVolume(
         Vector3Fx spherePosition,
         Fixed sphereRadius) noexcept
-        : RawCollisionVolume()
+        : NativeRuntime::RawCollisionTypeSlot(VolumeType::Sphere),
+          NativeRuntime::RawCollisionOffset4(spherePosition),
+          NativeRuntime::RawCollisionOffset16(
+              Vector3Fx(sphereRadius.Value, 0, 0)),
+          NativeRuntime::RawCollisionOffset28(),
+          NativeRuntime::RawCollisionOffset40()
     {
-        Type = VolumeType::Sphere;
-        ::new (static_cast<void*>(std::addressof(SpherePosition)))
-            Vector3Fx(spherePosition);
-        ::new (static_cast<void*>(std::addressof(SphereRadius)))
-            Fixed(sphereRadius);
     }
 
     RawCollisionVolume::RawCollisionVolume(
-        const RawCollisionVolume& other) noexcept
-        : RawCollisionVolume()
+        MarshaledTag,
+        VolumeType type,
+        Vector3Fx offset4,
+        Vector3Fx offset16,
+        Fixed offset28,
+        Fixed offset32,
+        std::int32_t offset36,
+        Vector3Fx offset40,
+        Fixed offset52,
+        Fixed offset56,
+        Fixed offset60) noexcept
+        : NativeRuntime::RawCollisionTypeSlot(type),
+          NativeRuntime::RawCollisionOffset4(offset4),
+          NativeRuntime::RawCollisionOffset16(offset16),
+          NativeRuntime::RawCollisionOffset28(offset28, offset32, offset36),
+          NativeRuntime::RawCollisionOffset40(
+              offset40, offset52, offset56, offset60)
     {
-        std::memcpy(
-            static_cast<void*>(this),
-            static_cast<const void*>(std::addressof(other)),
-            sizeof(*this));
+    }
+
+    RawCollisionVolume RawCollisionVolume::FromMarshaledBytes(
+        const std::array<std::uint8_t, 64>& bytes) noexcept
+    {
+        return RawCollisionVolume(
+            MarshaledTag{},
+            static_cast<VolumeType>(ReadUInt32<0>(bytes)),
+            ReadVector3Fx<4>(bytes),
+            ReadVector3Fx<16>(bytes),
+            Fixed(ReadInt32<28>(bytes)),
+            Fixed(ReadInt32<32>(bytes)),
+            ReadInt32<36>(bytes),
+            ReadVector3Fx<40>(bytes),
+            Fixed(ReadInt32<52>(bytes)),
+            Fixed(ReadInt32<56>(bytes)),
+            Fixed(ReadInt32<60>(bytes)));
     }
 
     RawCollisionVolume& RawCollisionVolume::operator=(
         const RawCollisionVolume& other) noexcept
     {
-        if (this != std::addressof(other))
-        {
-            std::memcpy(
-                static_cast<void*>(this),
-                static_cast<const void*>(std::addressof(other)),
-                sizeof(*this));
-        }
-        return *this;
-    }
-
-    FhRawCollisionVolume::FhRawCollisionVolume() noexcept
-        : Type{},
-          BoxPosition{},
-          BoxVector1{},
-          BoxVector2{},
-          BoxVector3{},
-          BoxDot1{},
-          BoxDot2{},
-          BoxDot3{}
-    {
+        return AssignReadonly(*this, other);
     }
 
     FhRawCollisionVolume::FhRawCollisionVolume(
-        const FhRawCollisionVolume& other) noexcept
-        : FhRawCollisionVolume()
+        MarshaledTag,
+        FhVolumeType type,
+        Vector3Fx offset4,
+        Vector3Fx offset16,
+        Fixed offset28,
+        Fixed offset32,
+        std::int32_t offset36,
+        Vector3Fx offset40,
+        Fixed offset52,
+        Fixed offset56,
+        Fixed offset60) noexcept
+        : NativeRuntime::FhRawCollisionTypeSlot(type),
+          NativeRuntime::FhRawCollisionOffset4(offset4),
+          NativeRuntime::FhRawCollisionOffset16(offset16),
+          NativeRuntime::FhRawCollisionOffset28(offset28, offset32, offset36),
+          NativeRuntime::FhRawCollisionOffset40(
+              offset40, offset52, offset56, offset60)
     {
-        std::memcpy(
-            static_cast<void*>(this),
-            static_cast<const void*>(std::addressof(other)),
-            sizeof(*this));
+    }
+
+    FhRawCollisionVolume FhRawCollisionVolume::FromMarshaledBytes(
+        const std::array<std::uint8_t, 64>& bytes) noexcept
+    {
+        return FhRawCollisionVolume(
+            MarshaledTag{},
+            static_cast<FhVolumeType>(ReadUInt32<0>(bytes)),
+            ReadVector3Fx<4>(bytes),
+            ReadVector3Fx<16>(bytes),
+            Fixed(ReadInt32<28>(bytes)),
+            Fixed(ReadInt32<32>(bytes)),
+            ReadInt32<36>(bytes),
+            ReadVector3Fx<40>(bytes),
+            Fixed(ReadInt32<52>(bytes)),
+            Fixed(ReadInt32<56>(bytes)),
+            Fixed(ReadInt32<60>(bytes)));
     }
 
     FhRawCollisionVolume& FhRawCollisionVolume::operator=(
         const FhRawCollisionVolume& other) noexcept
     {
-        if (this != std::addressof(other))
-        {
-            std::memcpy(
-                static_cast<void*>(this),
-                static_cast<const void*>(std::addressof(other)),
-                sizeof(*this));
-        }
-        return *this;
+        return AssignReadonly(*this, other);
     }
 
     std::string RawCameraSequenceKeyframe::NodeNameString() const

@@ -14,18 +14,11 @@
 #include <utility>
 namespace MphRead::Text
 {
-std::unordered_map<Language, std::unordered_map<std::string, Strings::StringTable>> Strings::_cache{};
+std::unordered_map<Language,
+    std::unordered_map<std::string,
+        std::shared_ptr<const std::vector<std::shared_ptr<StringTableEntry>>>>> Strings::_cache{};
 const std::unordered_map<char, std::int32_t> Strings::_categoryMap{
-{'L', 0},
-{'l', 0},
-{'B', 1},
-{'b', 1},
-{'O', 2},
-{'o', 2},
-{'E', 3},
-{'e', 3},
-{'X', 4},
-{'x', 4}
+{'L', 0}, {'l', 0}, {'B', 1}, {'b', 1}, {'O', 2}, {'o', 2}, {'E', 3}, {'e', 3}, {'X', 4}, {'x', 4}
 };
 const std::shared_ptr<StringTableEntry> Strings::EmptyScanEntry = std::make_shared<StringTableEntry>(
 "000", '\0', "INVALID LOG ENTRY", "This object has no entry in the log book.", 0, 'S');
@@ -51,292 +44,235 @@ const std::vector<std::string> Strings::_nonAscii{
 };
 void Strings::ClearCache()
 {
-_cache.clear();
+    _cache.clear();
 }
-Strings::StringTable Strings::ReadStringTable(const std::string& name)
+std::shared_ptr<const std::vector<std::shared_ptr<StringTableEntry>>>
+Strings::ReadStringTable(const std::string& name)
 {
-Language language = Scene::Language();
-auto languageIt = _cache.find(language);
-if (languageIt != _cache.end())
-{
-auto tableIt = languageIt->second.find(name);
-if (tableIt != languageIt->second.end())
-{
-return tableIt->second;
-}
-}
-else
-{
-languageIt = _cache.emplace(language, std::unordered_map<std::string, StringTable>{}).first;
-}
-auto entries = std::make_shared<std::vector<std::shared_ptr<StringTableEntry>>>();
-const std::string filename = name == StringTables::ScanLog && Paths::MphKey() == Ver::AMHK0
-? StringTables::ScanLogSorted
-: name;
-const std::string path = Paths::Combine(Paths::FileSystem(), GetFolder(), filename);
-std::ifstream stream;
-stream.exceptions(std::ifstream::failbit | std::ifstream::badbit);
-stream.open(path, std::ios::binary);
-stream.seekg(0, std::ios::end);
-const std::streamoff length = stream.tellg();
-stream.seekg(0, std::ios::beg);
-std::vector<std::uint8_t> data(static_cast<std::size_t>(length));
-if (!data.empty())
-{
-stream.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
-}
-stream.close();
-const std::span<const std::uint8_t> bytes(data.data(), data.size());
-const std::uint32_t count = Read::SpanReadUint(bytes, static_cast<std::int32_t>(0));
-const std::int32_t offset = name == StringTables::ScanLog ? 8 : 4;
-for (const RawStringTableEntry& entry : Read::DoOffsets<RawStringTableEntry>(bytes, offset, count))
-{
-if (entry.Offset < bytes.size())
-{
-std::string value = Read::ReadStringTable(bytes, entry.Offset, entry.Length);
-value.erase(std::remove(value.begin(), value.end(), '$'), value.end());
-char prefix = '\0';
-if (name == StringTables::GameMessages)
-{
-prefix = value.at(0);
-value = value.substr(1);
-}
-std::string value1 = value;
-std::string value2;
-const std::size_t slashCount = static_cast<std::size_t>(std::count(value.begin(), value.end(), '\\'));
-if (slashCount == 1)
-{
-const std::size_t slash = value.find('\\');
-value1 = value.substr(0, slash);
-value2 = value.substr(slash + 1);
-}
-entries->push_back(std::make_shared<StringTableEntry>(entry, prefix, value1, value2));
-}
-}
-StringTable table = entries;
-languageIt->second.emplace(name, table);
-return table;
+    Language language = Scene::Language();
+    auto languageIt = _cache.find(language);
+    if (languageIt != _cache.end())
+    {
+        auto tableIt = languageIt->second.find(name);
+        if (tableIt != languageIt->second.end())
+        {
+            return tableIt->second;
+        }
+    }
+    else
+    {
+        languageIt = _cache.emplace(language,
+            std::unordered_map<std::string,
+                std::shared_ptr<const std::vector<std::shared_ptr<StringTableEntry>>>>{}).first;
+    }
+    auto entries = std::make_shared<std::vector<std::shared_ptr<StringTableEntry>>>();
+    const std::string filename = name == StringTables::ScanLog && Paths::MphKey() == Ver::AMHK0
+        ? StringTables::ScanLogSorted
+        : name;
+    const std::string path = Paths::Combine(Paths::FileSystem(), GetFolder(), filename);
+    std::ifstream stream;
+    stream.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+    stream.open(path, std::ios::binary);
+    stream.seekg(0, std::ios::end);
+    const std::streamoff length = stream.tellg();
+    stream.seekg(0, std::ios::beg);
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(length));
+    if (!data.empty())
+    {
+        stream.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    }
+    stream.close();
+    const std::span<const std::uint8_t> bytes(data.data(), data.size());
+    const std::uint32_t count = Read::SpanReadUint(bytes, static_cast<std::int32_t>(0));
+    const std::int32_t offset = name == StringTables::ScanLog ? 8 : 4;
+    for (const RawStringTableEntry& entry : Read::DoOffsets<RawStringTableEntry>(bytes, offset, count))
+    {
+        if (entry.Offset < bytes.size())
+        {
+            std::string value = Read::ReadStringTable(bytes, entry.Offset, entry.Length);
+            value.erase(std::remove(value.begin(), value.end(), '$'), value.end());
+            char prefix = '\0';
+            if (name == StringTables::GameMessages)
+            {
+                prefix = value.at(0);
+                value = value.substr(1);
+            }
+            std::string value1 = value;
+            std::string value2;
+            const std::size_t slashCount
+                = static_cast<std::size_t>(std::count(value.begin(), value.end(), '\\'));
+            if (slashCount == 1)
+            {
+                const std::size_t slash = value.find('\\');
+                value1 = value.substr(0, slash);
+                value2 = value.substr(slash + 1);
+            }
+            entries->push_back(std::make_shared<StringTableEntry>(entry, prefix, value1, value2));
+        }
+    }
+    std::shared_ptr<const std::vector<std::shared_ptr<StringTableEntry>>> table = entries;
+    languageIt->second.emplace(name, table);
+    return table;
 }
 std::string Strings::GetHudMessage(std::int32_t id)
 {
-return GetHudMessage(static_cast<std::uint32_t>(id));
+    return GetHudMessage(static_cast<std::uint32_t>(id));
 }
 std::string Strings::GetHudMessage(std::uint32_t id)
 {
-if (id >= 1 && id <= 11)
-{
-return GetMessage('H', id, StringTables::HudMsgsCommon);
-}
-if (id >= 101 && id <= 122)
-{
-return GetMessage('H', id, StringTables::HudMessagesSP);
-}
-if (id >= 201 && id <= 257)
-{
-return GetMessage('H', id, StringTables::HudMessagesMP);
-}
-if (id >= 301 && id <= 305)
-{
-return GetMessage('W', id - 300, StringTables::HudMessagesMP);
-}
-return " ";
+    if (id >= 1 && id <= 11) return GetMessage('H', id, StringTables::HudMsgsCommon);
+    if (id >= 101 && id <= 122) return GetMessage('H', id, StringTables::HudMessagesSP);
+    if (id >= 201 && id <= 257) return GetMessage('H', id, StringTables::HudMessagesMP);
+    if (id >= 301 && id <= 305) return GetMessage('W', id - 300, StringTables::HudMessagesMP);
+    return " ";
 }
 std::string Strings::GetMessage(char type, std::int32_t id, const std::string& table)
 {
-return GetMessage(type, static_cast<std::uint32_t>(id), table);
+    return GetMessage(type, static_cast<std::uint32_t>(id), table);
 }
 std::string Strings::GetMessage(char type, std::uint32_t id, const std::string& table)
 {
-std::shared_ptr<StringTableEntry> entry = GetEntry(type, id, table);
-return entry ? entry->Value1() : " ";
+    std::shared_ptr<StringTableEntry> entry = GetEntry(type, id, table);
+    return entry ? entry->Value1() : " ";
 }
 std::shared_ptr<StringTableEntry> Strings::GetEntry(char type, std::int32_t id, const std::string& table)
 {
-return GetEntry(type, static_cast<std::uint32_t>(id), table);
+    return GetEntry(type, static_cast<std::uint32_t>(id), table);
 }
 std::shared_ptr<StringTableEntry> Strings::GetEntry(char type, std::uint32_t id, const std::string& table)
 {
-std::ostringstream builder;
-builder << type << std::setfill('0') << std::setw(3) << id;
-const std::string fullId = builder.str();
-StringTable list = ReadStringTable(table);
-for (const std::shared_ptr<StringTableEntry>& entry : *list)
-{
-if (entry->Id() == fullId)
-{
-return entry;
-}
-}
-return nullptr;
+    std::ostringstream builder;
+    builder << type << std::setfill('0') << std::setw(3) << id;
+    const std::string fullId = builder.str();
+    std::shared_ptr<const std::vector<std::shared_ptr<StringTableEntry>>> list = ReadStringTable(table);
+    for (const std::shared_ptr<StringTableEntry>& entry : *list)
+    {
+        if (entry->Id() == fullId) return entry;
+    }
+    return nullptr;
 }
 std::shared_ptr<StringTableEntry> Strings::GetScanEntry(std::int32_t scanId)
 {
-return GetEntry('L', static_cast<std::uint32_t>(scanId), StringTables::ScanLog);
+    return GetEntry('L', static_cast<std::uint32_t>(scanId), StringTables::ScanLog);
 }
 std::int32_t Strings::GetScanEntryCategory(std::int32_t scanId)
 {
-std::shared_ptr<StringTableEntry> entry = GetEntry('L', static_cast<std::uint32_t>(scanId), StringTables::ScanLog);
-if (!entry)
-{
-return 0;
-}
-const auto found = _categoryMap.find(entry->Category());
-if (found != _categoryMap.end())
-{
-return found->second;
-}
-return 5;
+    std::shared_ptr<StringTableEntry> entry
+        = GetEntry('L', static_cast<std::uint32_t>(scanId), StringTables::ScanLog);
+    if (!entry) return 0;
+    const auto found = _categoryMap.find(entry->Category());
+    if (found != _categoryMap.end()) return found->second;
+    return 5;
 }
 float Strings::GetScanEntryTime(std::int32_t scanId)
 {
-std::shared_ptr<StringTableEntry> entry = GetEntry('L', static_cast<std::uint32_t>(scanId), StringTables::ScanLog);
-if (!entry)
-{
-return 60 / 30.0F;
-}
-return 10 * (entry->Speed() & 7) / 30.0F;
+    std::shared_ptr<StringTableEntry> entry
+        = GetEntry('L', static_cast<std::uint32_t>(scanId), StringTables::ScanLog);
+    if (!entry) return 60 / 30.0F;
+    return 10 * (entry->Speed() & 7) / 30.0F;
 }
 std::string Strings::GetFolder()
 {
-std::string folder = "stringTables";
-if (Scene::Language() == Language::French)
-{
-folder += "_fr";
-}
-else if (Scene::Language() == Language::German)
-{
-folder += "_gr";
-}
-else if (Scene::Language() == Language::Italian)
-{
-folder += "_it";
-}
-else if (Scene::Language() == Language::Japanese)
-{
-folder += "_jp";
-}
-else if (Scene::Language() == Language::Spanish)
-{
-folder += "_sp";
-}
-return folder;
+    std::string folder = "stringTables";
+    if (Scene::Language() == Language::French) folder += "_fr";
+    else if (Scene::Language() == Language::German) folder += "_gr";
+    else if (Scene::Language() == Language::Italian) folder += "_it";
+    else if (Scene::Language() == Language::Japanese) folder += "_jp";
+    else if (Scene::Language() == Language::Spanish) folder += "_sp";
+    return folder;
 }
 std::shared_ptr<const std::vector<std::string>> Strings::ReadTextFile(bool downloadPlay)
 {
-std::string suffix = Paths::IsMphEurope() ? "en-gb" : "en";
-if (Scene::Language() == Language::French)
-{
-suffix = "fr";
-}
-else if (Scene::Language() == Language::German)
-{
-suffix = "de";
-}
-else if (Scene::Language() == Language::Italian)
-{
-suffix = "it";
-}
-else if (Scene::Language() == Language::Japanese)
-{
-suffix = "jp";
-}
-else if (Scene::Language() == Language::Spanish)
-{
-suffix = "es";
-}
-const std::string prefix = downloadPlay ? "single_" : "";
-const std::string name = prefix + "metroidhunters_text_" + suffix + ".bin";
-std::string path = Paths::Combine(Paths::FileSystem(), "frontend", name);
-if (suffix == "en-gb")
-{
-std::size_t position = 0;
-while ((position = path.find("amhe0", position)) != std::string::npos)
-{
-path.replace(position, 5, "amhp1");
-position += 5;
-}
-}
-std::ifstream stream;
-stream.exceptions(std::ifstream::failbit | std::ifstream::badbit);
-stream.open(path, std::ios::binary);
-stream.seekg(0, std::ios::end);
-const std::streamoff length = stream.tellg();
-stream.seekg(0, std::ios::beg);
-std::vector<std::uint8_t> data(static_cast<std::size_t>(length));
-if (!data.empty())
-{
-stream.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
-}
-stream.close();
-const std::span<const std::uint8_t> bytes(data.data(), data.size());
-std::int32_t offset = 0;
-std::vector<std::uint32_t> list;
-while (true)
-{
-const std::uint32_t item = Read::SpanReadUint(bytes, static_cast<std::int32_t>(offset));
-offset += 4;
-if (item == 0)
-{
-break;
-}
-list.push_back(item);
-}
-auto strings = std::make_shared<std::vector<std::string>>();
-for (std::uint32_t item : list)
-{
-const TextFileEntry entry = Read::DoOffset<TextFileEntry>(bytes, item);
-assert(entry.Offset1 == entry.Offset2);
-assert(entry.Length1 == entry.Length2);
-std::string text = Read::ReadString(bytes, entry.Offset1, entry.Length1);
-while (text.size() != entry.Length1)
-{
-text.push_back('\0');
-}
-strings->push_back(std::move(text));
-}
-return strings;
+    std::string suffix = Paths::IsMphEurope() ? "en-gb" : "en";
+    if (Scene::Language() == Language::French) suffix = "fr";
+    else if (Scene::Language() == Language::German) suffix = "de";
+    else if (Scene::Language() == Language::Italian) suffix = "it";
+    else if (Scene::Language() == Language::Japanese) suffix = "jp";
+    else if (Scene::Language() == Language::Spanish) suffix = "es";
+    const std::string prefix = downloadPlay ? "single_" : "";
+    const std::string name = prefix + "metroidhunters_text_" + suffix + ".bin";
+    std::string path = Paths::Combine(Paths::FileSystem(), "frontend", name);
+    if (suffix == "en-gb")
+    {
+        std::size_t position = 0;
+        while ((position = path.find("amhe0", position)) != std::string::npos)
+        {
+            path.replace(position, 5, "amhp1");
+            position += 5;
+        }
+    }
+    std::ifstream stream;
+    stream.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+    stream.open(path, std::ios::binary);
+    stream.seekg(0, std::ios::end);
+    const std::streamoff length = stream.tellg();
+    stream.seekg(0, std::ios::beg);
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(length));
+    if (!data.empty())
+    {
+        stream.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    }
+    stream.close();
+    const std::span<const std::uint8_t> bytes(data.data(), data.size());
+    std::int32_t offset = 0;
+    std::vector<std::uint32_t> list;
+    while (true)
+    {
+        const std::uint32_t item = Read::SpanReadUint(bytes, static_cast<std::int32_t>(offset));
+        offset += 4;
+        if (item == 0) break;
+        list.push_back(item);
+    }
+    auto strings = std::make_shared<std::vector<std::string>>();
+    for (std::uint32_t item : list)
+    {
+        const TextFileEntry entry = Read::DoOffset<TextFileEntry>(bytes, item);
+        assert(entry.Offset1 == entry.Offset2);
+        assert(entry.Length1 == entry.Length2);
+        std::string text = Read::ReadString(bytes, entry.Offset1, entry.Length1);
+        while (text.size() != entry.Length1) text.push_back('\0');
+        strings->push_back(std::move(text));
+    }
+    return strings;
 }
 std::string Strings::ReplaceNonAscii(const std::string& value)
 {
-std::string result;
-for (std::size_t i = 0; i < value.size(); i++)
-{
-const std::uint8_t c = static_cast<std::uint8_t>(value[i]);
-if ((c & 0xA0U) == 0xA0U)
-{
-return "<kanji>";
-}
-if ((c & 0x80U) == 0)
-{
-result.push_back(static_cast<char>(c));
-}
-else
-{
-const std::uint8_t next = static_cast<std::uint8_t>(value.at(++i));
-const std::int32_t index = static_cast<std::int32_t>(next & 0x3FU)
-| (static_cast<std::int32_t>(c & 0x1FU) << 6);
-if (index >= 128 && static_cast<std::size_t>(index - 128) <= _nonAscii.size())
-{
-result += _nonAscii.at(static_cast<std::size_t>(index - 128));
-}
-else if (index <= 0x7F)
-{
-result.push_back(static_cast<char>(index));
-}
-else if (index <= 0x7FF)
-{
-result.push_back(static_cast<char>(0xC0 | (index >> 6)));
-result.push_back(static_cast<char>(0x80 | (index & 0x3F)));
-}
-else
-{
-result.push_back(static_cast<char>(0xE0 | (index >> 12)));
-result.push_back(static_cast<char>(0x80 | ((index >> 6) & 0x3F)));
-result.push_back(static_cast<char>(0x80 | (index & 0x3F)));
-}
-}
-}
-return result;
+    std::string result;
+    for (std::size_t i = 0; i < value.size(); i++)
+    {
+        const std::uint8_t c = static_cast<std::uint8_t>(value[i]);
+        if ((c & 0xA0U) == 0xA0U) return "<kanji>";
+        if ((c & 0x80U) == 0)
+        {
+            result.push_back(static_cast<char>(c));
+        }
+        else
+        {
+            const std::uint8_t next = static_cast<std::uint8_t>(value.at(++i));
+            const std::int32_t index = static_cast<std::int32_t>(next & 0x3FU)
+                | (static_cast<std::int32_t>(c & 0x1FU) << 6);
+            if (index >= 128 && static_cast<std::size_t>(index - 128) <= _nonAscii.size())
+            {
+                result += _nonAscii.at(static_cast<std::size_t>(index - 128));
+            }
+            else if (index <= 0x7F)
+            {
+                result.push_back(static_cast<char>(index));
+            }
+            else if (index <= 0x7FF)
+            {
+                result.push_back(static_cast<char>(0xC0 | (index >> 6)));
+                result.push_back(static_cast<char>(0x80 | (index & 0x3F)));
+            }
+            else
+            {
+                result.push_back(static_cast<char>(0xE0 | (index >> 12)));
+                result.push_back(static_cast<char>(0x80 | ((index >> 6) & 0x3F)));
+                result.push_back(static_cast<char>(0x80 | (index & 0x3F)));
+            }
+        }
+    }
+    return result;
 }
 const std::string StringTables::GameMessages = "GameMessages.bin";
 const std::string StringTables::HudMessagesMP = "HudMessagesMP.bin";
@@ -350,10 +286,10 @@ const std::string StringTables::ShipInSpace = "ShipInSpace.bin";
 const std::string StringTables::ShipOnGround = "ShipOnGround.bin";
 const std::string StringTables::WeaponNames = "WeaponNames.bin";
 const std::shared_ptr<const std::vector<std::string>> StringTables::_all
-= std::make_shared<const std::vector<std::string>>(std::vector<std::string>{
-GameMessages, HudMessagesMP, HudMessagesSP, HudMsgsCommon, LocationNames,
-MBBanner, ScanLog, ShipInSpace, ShipOnGround, WeaponNames
-});
+    = std::make_shared<const std::vector<std::string>>(std::vector<std::string>{
+        GameMessages, HudMessagesMP, HudMessagesSP, HudMsgsCommon, LocationNames,
+        MBBanner, ScanLog, ShipInSpace, ShipOnGround, WeaponNames
+    });
 const std::shared_ptr<Font> Font::_normal = std::make_shared<Font>();
 const std::shared_ptr<Font> Font::_kanji = std::make_shared<Font>();
 }

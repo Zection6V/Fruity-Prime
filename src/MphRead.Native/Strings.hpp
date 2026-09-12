@@ -19,10 +19,9 @@ namespace MphRead::Text
     class Strings final
     {
     public:
-        using StringTable = std::shared_ptr<const std::vector<std::shared_ptr<StringTableEntry>>>;
-
         static void ClearCache();
-        static StringTable ReadStringTable(const std::string& name);
+        static std::shared_ptr<const std::vector<std::shared_ptr<StringTableEntry>>>
+            ReadStringTable(const std::string& name);
         static std::string GetHudMessage(std::int32_t id);
         static std::string GetHudMessage(std::uint32_t id);
         static std::string GetMessage(char type, std::int32_t id, const std::string& table);
@@ -45,7 +44,9 @@ namespace MphRead::Text
     private:
         static std::string GetFolder();
 
-        static std::unordered_map<Language, std::unordered_map<std::string, StringTable>> _cache;
+        static std::unordered_map<Language,
+            std::unordered_map<std::string,
+                std::shared_ptr<const std::vector<std::shared_ptr<StringTableEntry>>>>> _cache;
         static const std::unordered_map<char, std::int32_t> _categoryMap;
         static const std::vector<std::string> _nonAscii;
     };
@@ -82,6 +83,10 @@ namespace MphRead::Text
     {
     public:
         Font() = default;
+        Font(const Font&) = delete;
+        Font(Font&&) = delete;
+        Font& operator=(const Font&) = delete;
+        Font& operator=(Font&&) = delete;
 
         static const std::shared_ptr<Font>& Normal()
         {

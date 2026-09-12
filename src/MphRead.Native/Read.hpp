@@ -38,7 +38,7 @@ namespace MphRead
             const std::string& third, const std::string& fourth);
     }
 
-    class AnimationResults final
+    class AnimationResults
     {
     public:
         const std::shared_ptr<std::vector<std::shared_ptr<NodeAnimationGroup>>> NodeAnimationGroups

@@ -2,7 +2,6 @@
 
 #include "Types.hpp"
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -142,7 +141,7 @@ namespace MphRead::Formats
         const std::shared_ptr<const std::vector<
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<std::shared_ptr<NodeData3>>>>>>> Data;
-        const std::shared_ptr<std::array<bool, 16>> SetSelector;
+        const std::shared_ptr<MphRead::ManagedArray<bool>> SetSelector;
 
         NodeData(
             NodeDataHeader header,
@@ -166,7 +165,7 @@ namespace MphRead::Formats
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<
                     std::shared_ptr<const std::vector<std::shared_ptr<NodeData3>>>>>>> Data;
-            std::shared_ptr<std::array<bool, 16>> SetSelector;
+            std::shared_ptr<MphRead::ManagedArray<bool>> SetSelector;
         };
 
         explicit NodeData(Init init);

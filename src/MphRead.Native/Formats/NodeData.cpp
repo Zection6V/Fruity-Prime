@@ -7,14 +7,22 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
+#include <functional>
 #include <limits>
-#include <stdexcept>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
+
+namespace MphRead::NativeRuntime
+{
+    [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path);
+    void DirectoryEnumerateFiles(
+        const std::string& path,
+        const std::function<void(const std::string&)>& visitor);
+    [[nodiscard]] std::string PathGetFileName(const std::string& path);
+    [[noreturn]] void ThrowListIndexOutOfRange();
+    void DebugAssert(bool condition);
+}
 
 namespace
 {
@@ -76,29 +84,15 @@ namespace
         return ManagedInt32(static_cast<std::uint32_t>(value));
     }
 
-    [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
+    template <typename T>
+    [[nodiscard]] const T& ManagedListAt(
+        const std::vector<T>& values, std::size_t index)
     {
-        std::ifstream stream(path, std::ios::binary);
-        if (!stream)
+        if (index >= values.size())
         {
-            throw std::ios_base::failure("Failed to open file: " + path);
+            MphRead::NativeRuntime::ThrowListIndexOutOfRange();
         }
-
-        std::vector<std::uint8_t> bytes;
-        for (std::istreambuf_iterator<char> iterator(stream), end; iterator != end; ++iterator)
-        {
-            bytes.push_back(static_cast<std::uint8_t>(static_cast<unsigned char>(*iterator)));
-        }
-        if (stream.bad())
-        {
-            throw std::ios_base::failure("Failed to read file: " + path);
-        }
-        return bytes;
-    }
-
-    [[nodiscard]] std::string FileName(const std::string& path)
-    {
-        return std::filesystem::path(path).filename().string();
+        return values[index];
     }
 }
 
@@ -141,8 +135,7 @@ namespace MphRead::Formats
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<std::shared_ptr<NodeData3>>>>>>> data)
     {
-        auto setSelector
-            = std::make_shared<std::array<bool, 16>>(std::array<bool, 16>{});
+        auto setSelector = std::make_shared<MphRead::ManagedArray<bool>>(16);
         return Init{
             header,
             std::move(setIndices),
@@ -171,7 +164,7 @@ namespace MphRead::Formats
           Index2(index2),
           Values(std::move(values)),
           Transform(CreateTranslation(Position)),
-          Color(_nodeDataColors.at(raw.NodeType))
+          Color(ManagedListAt(_nodeDataColors, raw.NodeType))
     {
     }
 
@@ -186,7 +179,7 @@ namespace MphRead::Formats
           Index2(0),
           Values(std::make_shared<const std::vector<std::uint16_t>>()),
           Transform(CreateTranslation(Position)),
-          Color(_nodeDataColors.at(0))
+          Color(ManagedListAt(_nodeDataColors, 0))
     {
     }
 
@@ -194,30 +187,28 @@ namespace MphRead::Formats
     {
         const std::string directory = MphRead::Paths::Combine(
             MphRead::Paths::FileSystem(), "levels\\nodeData");
-        for (const std::filesystem::directory_entry& entry
-            : std::filesystem::directory_iterator(directory))
-        {
-            if (!entry.is_regular_file())
+        MphRead::NativeRuntime::DirectoryEnumerateFiles(
+            directory,
+            [](const std::string& path)
             {
-                continue;
-            }
-
-            const std::string path = entry.path().string();
-            constexpr std::string_view excluded = "levels\\nodeData\\unit2_Land_Node.bin";
-            if (!std::string_view(path).ends_with(excluded))
-            {
-                static_cast<void>(ReadData(
-                    MphRead::Paths::Combine("levels\\nodeData", FileName(path)),
-                    false));
-            }
-        }
+                constexpr std::string_view excluded
+                    = "levels\\nodeData\\unit2_Land_Node.bin";
+                if (!std::string_view(path).ends_with(excluded))
+                {
+                    static_cast<void>(ReadNodeData::ReadData(
+                        MphRead::Paths::Combine(
+                            "levels\\nodeData",
+                            MphRead::NativeRuntime::PathGetFileName(path)),
+                        false));
+                }
+            });
         Nop();
     }
 
     std::shared_ptr<NodeData> ReadNodeData::ReadData(
         const std::string& path, bool firstHunt)
     {
-        const std::vector<std::uint8_t> storage = ReadAllBytes(MphRead::Paths::Combine(
+        const std::vector<std::uint8_t> storage = MphRead::NativeRuntime::FileReadAllBytes(MphRead::Paths::Combine(
             firstHunt ? MphRead::Paths::FhFileSystem() : MphRead::Paths::FileSystem(),
             path));
         const std::span<const std::uint8_t> bytes(storage);
@@ -341,10 +332,14 @@ namespace MphRead::Formats
     {
         NodeData& dataObject = Require(nodeData);
         const auto& outer = Require(dataObject.Data);
-        assert(!outer.empty() && !Require(outer[0]).empty());
+#ifndef NDEBUG
+        const bool hasFirstList
+            = !outer.empty() && !Require(outer[0]).empty();
+        MphRead::NativeRuntime::DebugAssert(hasFirstList);
+#endif
 
-        const auto& middle = Require(outer.at(0));
-        const auto& list = Require(middle.at(0));
+        const auto& middle = Require(ManagedListAt(outer, 0));
+        const auto& list = Require(ManagedListAt(middle, 0));
 
         std::shared_ptr<NodeData3> result{};
         float minDist = std::numeric_limits<float>::max();

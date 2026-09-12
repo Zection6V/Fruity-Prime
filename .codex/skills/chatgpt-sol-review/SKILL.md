@@ -56,34 +56,50 @@ perform the requested local work yourself.
   before treating the request as submitted and running.
 - Rebind a known tab with `cua.getTab` when a diff is ambiguous and inspect its
   full current accessibility state. A no-change result from `getAXState` is not
-  proof that the remote repository is unchanged; independently poll
-  `git ls-remote origin refs/heads/develop2`, then fetch/pull and verify the
-  commit parent, exact changed paths, and blob IDs locally.
+  proof that the response or remote repository is unchanged; independently
+  inspect the live composer/stop button and, when needed, use a small DOM
+  check. Independently poll `git ls-remote origin refs/heads/develop2`, then
+  fetch/pull and verify the commit parent, exact changed paths, and blob IDs
+  locally.
 - Treat `回答を停止` (the blue stop-square action) as the running-state
   authority even when the visible progress text mentions a connection
   interruption or waiting for completion. Do not send another prompt while it
   is present. Detect an explicit delivery failure such as
   `メッセージ配信がタイムアウトしました` / `Message delivery timed out`
-  together with a `再試行` / `Retry` control as a terminal timeout state; do
-  not keep polling it as if it were still streaming. Use the retry control at
-  most once, verify that a new stop-square or a final answer appears, and only
-  then send a short continuation if necessary. If the retry also times out or
-  the response remains incomplete, record the usable revision/byte ledger and
-  switch to the local reconstruction or exact missing-fragment fallback instead
-  of waiting indefinitely.
+  together with a `再試行` / `Retry` control as a terminal timeout state. Do
+  not click `再試行` / `Retry`: it restarts the answer and can discard the
+  usable partial work. After the stop-square is gone and the composer is live,
+  send exactly one short same-chat continuation, `Continue.`, then wait for
+  the response. Do not send that continuation while the stop-square is still
+  present. If the resumed answer is still incomplete, record the usable
+  revision/byte ledger and switch to local reconstruction or an exact
+  missing-fragment fallback instead of repeatedly restarting the investigation.
 - For large generated files, keep the fixed blob SHA and size in the working
   ledger. If analysis/tests finished but upload or commit timed out, send a
   short same-chat continuation that resumes from those fixed blobs and finishes
   the tree/commit/push; do not restart the broad investigation. A focused test
   pass without a verified commit/push is incomplete.
-- If the direct GitHub push remains blocked and a ZIP attachment cannot be
-  retrieved reliably, use a same-chat artifact fallback: ask ChatGPT to output
-  each generated target file in full, in its own fenced code block, without
-  ellipses or omitted sections. Require the exact repository-relative path,
-  byte count, Git blob SHA-1, and a clear start/end marker for each file. The
-  local agent must reconstruct the files, verify the byte count and Git blob
-  SHA-1, and only then perform the two-file commit/push; never treat a partial
-  code block or an unverified attachment as complete.
+- Prefer asking ChatGPT to attach each generated target as its own complete,
+  directly downloadable file artifact (`.hpp` and `.cpp` separately), rather
+  than bundling the pair into a ZIP. Require the exact repository-relative
+  path, byte count, and Git blob SHA-1 for each artifact. If direct GitHub push
+  remains blocked and the individual file attachments cannot be retrieved
+  reliably, use a same-chat artifact fallback: ask ChatGPT to output each
+  generated target file in full, in its own fenced code block, without ellipses
+  or omitted sections, with clear start/end markers. The local agent must
+  reconstruct the files, verify the byte count and Git blob SHA-1, and only
+  then perform the two-file commit/push; never treat a partial code block, ZIP,
+  or unverified attachment as complete.
+- Artifact download buttons may open a virtualized CodeMirror preview without
+  creating a file in the host Downloads directory. For a source artifact in
+  that preview, reconstruct it in the page by scrolling the `.cm-scroller` in
+  bounded increments, collecting each `.cm-line`'s `textContent` keyed by its
+  absolute vertical position, sorting by position, and joining with one `\n`.
+  Use `textContent`, not `innerText`: a blank CodeMirror line can make
+  `innerText` contain an extra newline. Transfer the reconstructed bytes in
+  chunks through the local bridge or another exact-text path, then verify the
+  reported byte count and Git blob SHA-1 before installing; never trust the
+  visible viewport or a partial clipboard selection.
 - Prompts should include the current source revision/blob, exact native paths,
   the instruction to refresh `develop2` immediately before committing, and the
   no-`git clone` constraint. Recheck the C# blob immediately before generation:

@@ -145,6 +145,20 @@ namespace
         return std::bit_cast<std::int32_t>(result);
     }
 
+    [[nodiscard]] constexpr std::int32_t UncheckedIncrement(
+        std::int32_t value) noexcept
+    {
+        return UncheckedAdd(value, 1);
+    }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedPostIncrement(
+        std::int32_t& value) noexcept
+    {
+        const std::int32_t previous = value;
+        value = UncheckedIncrement(value);
+        return previous;
+    }
+
     [[nodiscard]] constexpr std::uint16_t ToBits(CollisionFlags value) noexcept
     {
         return static_cast<std::uint16_t>(value);
@@ -257,10 +271,9 @@ namespace
     [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
     {
         // Fixed::ToInt is the shared .NET-compatible float-to-Int32
-        // conversion.  The collision grid uses Fixed.ToFloat(0x400),
-        // which is exactly 1/4, so feed that same conversion its
-        // equivalent fixed-point input without changing the source scale.
-        return Fixed::ToInt(value / 16384.0F);
+        // conversion.  Feed it the original value after its fixed-point
+        // scaling so this cast has the same source scale as C#.
+        return Fixed::ToInt(value / 4096.0F);
     }
 
     [[nodiscard]] std::string FormatOneDecimal(float value)
@@ -1715,15 +1728,15 @@ namespace MphRead::Formats
                 maxXPart
                     = std::min(
                         maxXPart,
-                        partsX - 1);
+                        UncheckedAdd(partsX, -1));
                 maxYPart
                     = std::min(
                         maxYPart,
-                        partsY - 1);
+                        UncheckedAdd(partsY, -1));
                 maxZPart
                     = std::min(
                         maxZPart,
-                        partsZ - 1);
+                        UncheckedAdd(partsZ, -1));
 
                 std::int32_t xIndex = minXPart;
                 std::int32_t yIndex = minYPart;
@@ -1751,7 +1764,7 @@ namespace MphRead::Formats
                             const CollisionEntry entry
                                 = Require(info.Entries).at(
                                     static_cast<std::size_t>(
-                                        entryIndex++));
+                                        UncheckedPostIncrement(entryIndex)));
 
                             if (entry.DataCount > 0)
                             {
@@ -1802,16 +1815,16 @@ namespace MphRead::Formats
                                     std::move(item));
                             }
 
-                            xIndex++;
+                            xIndex = UncheckedIncrement(xIndex);
                         }
 
                         xIndex = minXPart;
-                        zIndex++;
+                        zIndex = UncheckedIncrement(zIndex);
                     }
 
                     xIndex = minXPart;
                     zIndex = minZPart;
-                    yIndex++;
+                    yIndex = UncheckedIncrement(yIndex);
                 }
             }
         }
@@ -1975,7 +1988,7 @@ namespace MphRead::Formats
                                 const CollisionEntry entry
                                     = Require(info.Entries).at(
                                         static_cast<std::size_t>(
-                                            entryIndex++));
+                                            UncheckedPostIncrement(entryIndex)));
 
                                 if (entry.DataCount > 0)
                                 {
@@ -1998,16 +2011,16 @@ namespace MphRead::Formats
                                         std::move(item));
                                 }
 
-                                xIndex++;
+                                xIndex = UncheckedIncrement(xIndex);
                             }
 
                             xIndex = 0;
-                            zIndex++;
+                            zIndex = UncheckedIncrement(zIndex);
                         }
 
                         xIndex = 0;
                         zIndex = 0;
-                        yIndex++;
+                        yIndex = UncheckedIncrement(yIndex);
                     }
                 }
             }
@@ -2326,19 +2339,19 @@ namespace MphRead::Formats
             const float xStart
                 = (dir.X <= 0.0F
                     ? curX * size
-                    : (curX + 1) * size)
+                    : UncheckedAdd(curX, 1) * size)
                 + minPos.X;
 
             const float yStart
                 = (dir.Y <= 0.0F
                     ? curY * size
-                    : (curY + 1) * size)
+                    : UncheckedAdd(curY, 1) * size)
                 + minPos.Y;
 
             const float zStart
                 = (dir.Z <= 0.0F
                     ? curZ * size
-                    : (curZ + 1) * size)
+                    : UncheckedAdd(curZ, 1) * size)
                 + minPos.Z;
 
             float xNext = 1000000.0F;
@@ -2428,7 +2441,7 @@ namespace MphRead::Formats
                 {
                     if (yNext >= zNext)
                     {
-                        curZ += zSign;
+                        curZ = UncheckedAdd(curZ, zSign);
 
                         if (curZ == zLimit)
                         {
@@ -2439,7 +2452,7 @@ namespace MphRead::Formats
                     }
                     else
                     {
-                        curY += ySign;
+                        curY = UncheckedAdd(curY, ySign);
 
                         if (curY == yLimit)
                         {
@@ -2451,7 +2464,7 @@ namespace MphRead::Formats
                 }
                 else if (xNext >= zNext)
                 {
-                    curZ += zSign;
+                    curZ = UncheckedAdd(curZ, zSign);
 
                     if (curZ == zLimit)
                     {
@@ -2462,7 +2475,7 @@ namespace MphRead::Formats
                 }
                 else
                 {
-                    curX += xSign;
+                    curX = UncheckedAdd(curX, xSign);
 
                     if (curX == xLimit)
                     {

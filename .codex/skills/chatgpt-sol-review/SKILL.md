@@ -62,14 +62,28 @@ perform the requested local work yourself.
 - Treat `回答を停止` (the blue stop-square action) as the running-state
   authority even when the visible progress text mentions a connection
   interruption or waiting for completion. Do not send another prompt while it
-  is present. If an explicit delivery-timeout/error with a retry control
-  appears, use the retry control once, wait for a new active or terminal state,
-  and only then send a short continuation if necessary.
+  is present. Detect an explicit delivery failure such as
+  `メッセージ配信がタイムアウトしました` / `Message delivery timed out`
+  together with a `再試行` / `Retry` control as a terminal timeout state; do
+  not keep polling it as if it were still streaming. Use the retry control at
+  most once, verify that a new stop-square or a final answer appears, and only
+  then send a short continuation if necessary. If the retry also times out or
+  the response remains incomplete, record the usable revision/byte ledger and
+  switch to the local reconstruction or exact missing-fragment fallback instead
+  of waiting indefinitely.
 - For large generated files, keep the fixed blob SHA and size in the working
   ledger. If analysis/tests finished but upload or commit timed out, send a
   short same-chat continuation that resumes from those fixed blobs and finishes
   the tree/commit/push; do not restart the broad investigation. A focused test
   pass without a verified commit/push is incomplete.
+- If the direct GitHub push remains blocked and a ZIP attachment cannot be
+  retrieved reliably, use a same-chat artifact fallback: ask ChatGPT to output
+  each generated target file in full, in its own fenced code block, without
+  ellipses or omitted sections. Require the exact repository-relative path,
+  byte count, Git blob SHA-1, and a clear start/end marker for each file. The
+  local agent must reconstruct the files, verify the byte count and Git blob
+  SHA-1, and only then perform the two-file commit/push; never treat a partial
+  code block or an unverified attachment as complete.
 - Prompts should include the current source revision/blob, exact native paths,
   the instruction to refresh `develop2` immediately before committing, and the
   no-`git clone` constraint. Recheck the C# blob immediately before generation:

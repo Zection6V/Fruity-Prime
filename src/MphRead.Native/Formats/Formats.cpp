@@ -803,28 +803,78 @@ namespace
         return SplitManagedLines(text);
     }
 
+    [[nodiscard]] bool IsManagedDirectorySeparator(char value) noexcept
+    {
+        const char separator = std::filesystem::path::preferred_separator;
+        if (separator == '\\')
+        {
+            return value == '\\' || value == '/';
+        }
+        return value == separator;
+    }
+
+    [[nodiscard]] bool IsManagedPathRooted(std::string_view path) noexcept
+    {
+        if (path.empty())
+        {
+            return false;
+        }
+
+        const char separator = std::filesystem::path::preferred_separator;
+        if (separator == '\\')
+        {
+            if (IsManagedDirectorySeparator(path[0]))
+            {
+                return true;
+            }
+            if (path.size() >= 2 && path[1] == ':')
+            {
+                const unsigned char drive = static_cast<unsigned char>(path[0]);
+                return (drive >= 'A' && drive <= 'Z')
+                    || (drive >= 'a' && drive <= 'z');
+            }
+            return false;
+        }
+
+        return path[0] == separator;
+    }
+
     [[nodiscard]] std::string CombinePaths(
         const std::vector<std::string>& paths)
     {
-        std::filesystem::path result;
-        bool hasComponent = false;
-        for (const std::string& path : paths)
+        std::size_t firstComponent = 0;
+        for (std::size_t index = 0; index < paths.size(); ++index)
         {
+            if (!paths[index].empty() && IsManagedPathRooted(paths[index]))
+            {
+                firstComponent = index;
+            }
+        }
+
+        std::string result;
+        const char separator = std::filesystem::path::preferred_separator;
+        for (std::size_t index = firstComponent; index < paths.size(); ++index)
+        {
+            const std::string& path = paths[index];
             if (path.empty())
             {
                 continue;
             }
-            if (!hasComponent)
+
+            if (result.empty())
             {
-                result = PathFromUtf8(path);
-                hasComponent = true;
+                result = path;
             }
             else
             {
-                result /= PathFromUtf8(path);
+                if (!IsManagedDirectorySeparator(result.back()))
+                {
+                    result.push_back(separator);
+                }
+                result += path;
             }
         }
-        return hasComponent ? PathToUtf8(result) : std::string();
+        return result;
     }
 
     template <typename T>
@@ -834,7 +884,7 @@ namespace
     }
 
     [[nodiscard]] MphRead::NativeRuntime::CoroutineSequence<std::int32_t>
-        EnumerateMeshIds(const MphRead::Node* node)
+        EnumerateMeshIds(std::shared_ptr<const MphRead::Node> node)
     {
         const std::int32_t start = node->MeshId / 2;
         for (std::int32_t index = 0; index < node->MeshCount; ++index)
@@ -845,8 +895,8 @@ namespace
 
     [[nodiscard]] MphRead::NativeRuntime::CoroutineSequence<std::int32_t>
         EnumerateAllMeshIds(
-            const MphRead::Node* node,
-            const std::vector<std::shared_ptr<MphRead::Node>>* nodes,
+            std::shared_ptr<const MphRead::Node> node,
+            std::shared_ptr<const std::vector<std::shared_ptr<MphRead::Node>>> nodes,
             bool root)
     {
         const std::int32_t start = node->MeshId / 2;
@@ -857,9 +907,10 @@ namespace
 
         if (!root && node->NextIndex != -1)
         {
-            const MphRead::Node& next = Require(
-                nodes->at(static_cast<std::size_t>(node->NextIndex)));
-            for (std::int32_t value : next.GetAllMeshIds(*nodes, false))
+            const auto& list = Require(nodes);
+            const auto& next = list.at(static_cast<std::size_t>(node->NextIndex));
+            Require(next);
+            for (std::int32_t value : next->GetAllMeshIds(nodes, false))
             {
                 co_yield value;
             }
@@ -867,9 +918,10 @@ namespace
 
         if (node->ChildIndex != -1)
         {
-            const MphRead::Node& child = Require(
-                nodes->at(static_cast<std::size_t>(node->ChildIndex)));
-            for (std::int32_t value : child.GetAllMeshIds(*nodes, false))
+            const auto& list = Require(nodes);
+            const auto& child = list.at(static_cast<std::size_t>(node->ChildIndex));
+            Require(child);
+            for (std::int32_t value : child->GetAllMeshIds(nodes, false))
             {
                 co_yield value;
             }
@@ -912,19 +964,23 @@ namespace MphRead
 
     Enumerable<std::int32_t> Node::GetMeshIds() const
     {
-        return Enumerable<std::int32_t>([this]()
+        std::shared_ptr<const Node> self = shared_from_this();
+        return Enumerable<std::int32_t>([self = std::move(self)]()
         {
-            return EnumerateMeshIds(this);
+            return EnumerateMeshIds(self);
         });
     }
 
     Enumerable<std::int32_t> Node::GetAllMeshIds(
-        const std::vector<std::shared_ptr<Node>>& nodes, bool root) const
+        std::shared_ptr<const std::vector<std::shared_ptr<Node>>> nodes,
+        bool root) const
     {
-        return Enumerable<std::int32_t>([this, nodes = std::addressof(nodes), root]()
-        {
-            return EnumerateAllMeshIds(this, nodes, root);
-        });
+        std::shared_ptr<const Node> self = shared_from_this();
+        return Enumerable<std::int32_t>(
+            [self = std::move(self), nodes = std::move(nodes), root]()
+            {
+                return EnumerateAllMeshIds(self, nodes, root);
+            });
     }
 
     Mesh::Mesh(RawMesh raw)
@@ -1642,7 +1698,7 @@ namespace MphRead
     {
         if (index == 7)
         {
-            return Color1;
+            return Color1();
         }
         return std::nullopt;
     }
@@ -1674,7 +1730,7 @@ namespace MphRead
     {
         if (index == 8)
         {
-            return Color1;
+            return Color1();
         }
         return std::nullopt;
     }
@@ -1692,7 +1748,7 @@ namespace MphRead
     {
         if (index == 9)
         {
-            return Color1;
+            return Color1();
         }
         return std::nullopt;
     }
@@ -1710,7 +1766,7 @@ namespace MphRead
     {
         if (index == 10)
         {
-            return Color1;
+            return Color1();
         }
         return std::nullopt;
     }
@@ -1728,7 +1784,7 @@ namespace MphRead
     {
         if (index == 11)
         {
-            return Color1;
+            return Color1();
         }
         return std::nullopt;
     }
@@ -1756,11 +1812,11 @@ namespace MphRead
     {
         if (index == 3)
         {
-            return Color1;
+            return Color1();
         }
         if (index == 4)
         {
-            return Color2;
+            return Color2();
         }
         return std::nullopt;
     }
@@ -1788,11 +1844,11 @@ namespace MphRead
     {
         if (index == 5)
         {
-            return Color1;
+            return Color1();
         }
         if (index == 6)
         {
-            return Color2;
+            return Color2();
         }
         return std::nullopt;
     }
@@ -1815,11 +1871,11 @@ namespace MphRead
     {
         if (index == 1)
         {
-            return Light1Enabled ? Color1 : Vector3::Zero;
+            return Light1Enabled ? Color1() : Vector3::Zero;
         }
         if (index == 2)
         {
-            return Light2Enabled ? Color2 : Vector3::Zero;
+            return Light2Enabled ? Color2() : Vector3::Zero;
         }
         return std::nullopt;
     }

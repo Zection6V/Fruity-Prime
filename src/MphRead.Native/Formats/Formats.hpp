@@ -212,7 +212,7 @@ namespace MphRead
 
     class Model;
 
-    class Node
+    class Node : public std::enable_shared_from_this<Node>
     {
     public:
         const std::string Name;
@@ -258,7 +258,8 @@ namespace MphRead
 
         [[nodiscard]] Enumerable<std::int32_t> GetMeshIds() const;
         [[nodiscard]] Enumerable<std::int32_t> GetAllMeshIds(
-            const std::vector<std::shared_ptr<Node>>& nodes, bool root) const;
+            std::shared_ptr<const std::vector<std::shared_ptr<Node>>> nodes,
+            bool root) const;
     };
 
     enum class SelectionType : std::int32_t;
@@ -863,8 +864,15 @@ namespace MphRead
         OpenTK::Mathematics::Vector3 _color2 = OpenTK::Mathematics::Vector3::Zero;
 
     public:
-        const OpenTK::Mathematics::Vector3& Color1 = _color1;
-        const OpenTK::Mathematics::Vector3& Color2 = _color2;
+        [[nodiscard]] OpenTK::Mathematics::Vector3 Color1() const noexcept
+        {
+            return _color1;
+        }
+
+        [[nodiscard]] OpenTK::Mathematics::Vector3 Color2() const noexcept
+        {
+            return _color2;
+        }
 
         DisplayVolume(
             RawCollisionVolume volume,

@@ -8,9 +8,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <locale>
 #include <numbers>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -302,26 +304,163 @@ namespace
 
     [[nodiscard]] bool IsManagedWhitespace(char32_t value) noexcept
     {
+        if (value >= 0x0009 && value <= 0x000D)
+        {
+            return true;
+        }
         switch (value)
         {
-        case U'\t':
-        case U'\n':
-        case U'\v':
-        case U'\f':
-        case U'\r':
-        case U' ':
+        case 0x0020:
         case 0x0085:
         case 0x00A0:
+        case 0x1680:
+        case 0x2028:
+        case 0x2029:
+        case 0x202F:
+        case 0x205F:
+        case 0x3000:
             return true;
         default:
+            return value >= 0x2000 && value <= 0x200A;
+        }
+    }
+
+    [[nodiscard]] std::vector<char32_t> DecodeUtf8Scalars(
+        const std::string& value)
+    {
+        std::vector<char32_t> result;
+        for (std::size_t i = 0; i < value.size();)
+        {
+            const auto first = static_cast<std::uint8_t>(value[i]);
+            if (first < 0x80U)
+            {
+                result.push_back(first);
+                ++i;
+            }
+            else if ((first & 0xE0U) == 0xC0U && i + 1 < value.size())
+            {
+                const auto second = static_cast<std::uint8_t>(value[i + 1]);
+                result.push_back(static_cast<char32_t>(
+                    ((first & 0x1FU) << 6) | (second & 0x3FU)));
+                i += 2;
+            }
+            else if ((first & 0xF0U) == 0xE0U && i + 2 < value.size())
+            {
+                const auto second = static_cast<std::uint8_t>(value[i + 1]);
+                const auto third = static_cast<std::uint8_t>(value[i + 2]);
+                result.push_back(static_cast<char32_t>(
+                    ((first & 0x0FU) << 12)
+                    | ((second & 0x3FU) << 6)
+                    | (third & 0x3FU)));
+                i += 3;
+            }
+            else if ((first & 0xF8U) == 0xF0U && i + 3 < value.size())
+            {
+                const auto second = static_cast<std::uint8_t>(value[i + 1]);
+                const auto third = static_cast<std::uint8_t>(value[i + 2]);
+                const auto fourth = static_cast<std::uint8_t>(value[i + 3]);
+                result.push_back(static_cast<char32_t>(
+                    ((first & 0x07U) << 18)
+                    | ((second & 0x3FU) << 12)
+                    | ((third & 0x3FU) << 6)
+                    | (fourth & 0x3FU)));
+                i += 4;
+            }
+            else
+            {
+                result.push_back(first);
+                ++i;
+            }
+        }
+        return result;
+    }
+
+    [[nodiscard]] bool ManagedStartsWithCurrentCulture(
+        const std::vector<char32_t>& text,
+        std::size_t start,
+        std::u32string_view prefix)
+    {
+        if (start > text.size() || text.size() - start < prefix.size())
+        {
             return false;
         }
+
+        // C# String.StartsWith(string) uses CurrentCulture. Node names are
+        // byte-derived BMP characters, so the native current locale's collation
+        // facet is the thinnest language/runtime equivalent for this comparison.
+        try
+        {
+            const std::locale locale;
+            const auto& collate = std::use_facet<std::collate<wchar_t>>(locale);
+            std::wstring left;
+            std::wstring right;
+            left.reserve(prefix.size());
+            right.reserve(prefix.size());
+            for (std::size_t i = 0; i < prefix.size(); ++i)
+            {
+                left.push_back(static_cast<wchar_t>(text[start + i]));
+                right.push_back(static_cast<wchar_t>(prefix[i]));
+            }
+            return collate.compare(
+                left.data(), left.data() + left.size(),
+                right.data(), right.data() + right.size()) == 0;
+        }
+        catch (const std::runtime_error&)
+        {
+            for (std::size_t i = 0; i < prefix.size(); ++i)
+            {
+                if (text[start + i] != prefix[i])
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    [[nodiscard]] bool SignMatches(
+        const char32_t* values,
+        std::size_t start,
+        std::size_t end,
+        const std::vector<char32_t>& sign) noexcept
+    {
+        if (sign.empty() || end - start < sign.size())
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < sign.size(); ++i)
+        {
+            if (values[start + i] != sign[i])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] std::vector<char32_t> ManagedCurrentNegativeSign()
+    {
+        std::string formatted = MphRead::Fixed(-1).ToString();
+        if (!formatted.empty() && formatted.back() == '1')
+        {
+            formatted.pop_back();
+            return DecodeUtf8Scalars(formatted);
+        }
+        return std::vector<char32_t>{U'-'};
+    }
+
+    [[nodiscard]] std::vector<char32_t> ManagedCurrentPositiveSign()
+    {
+        // .NET's built-in NumberFormatInfo cultures use "+" here. The existing
+        // Native culture bridge exposes a configurable negative sign, which is
+        // the culture-dependent sign needed by the repository today.
+        return std::vector<char32_t>{U'+'};
     }
 
     [[nodiscard]] bool TryParseChunkInt32(
         char32_t first,
         char32_t second,
-        std::int32_t& result) noexcept
+        std::int32_t& result)
     {
         const char32_t values[2] = {first, second};
         std::size_t start = 0;
@@ -341,10 +480,16 @@ namespace
         }
 
         bool negative = false;
-        if (values[start] == U'+' || values[start] == U'-')
+        const std::vector<char32_t> negativeSign = ManagedCurrentNegativeSign();
+        const std::vector<char32_t> positiveSign = ManagedCurrentPositiveSign();
+        if (SignMatches(values, start, end, negativeSign))
         {
-            negative = values[start] == U'-';
-            ++start;
+            negative = true;
+            start += negativeSign.size();
+        }
+        else if (SignMatches(values, start, end, positiveSign))
+        {
+            start += positiveSign.size();
         }
         if (start == end)
         {
@@ -364,27 +509,9 @@ namespace
                 + static_cast<std::uint32_t>(values[i] - U'0');
         }
 
-        if (negative)
-        {
-            if (magnitude > 0x80000000U)
-            {
-                result = 0;
-                return false;
-            }
-            result = magnitude == 0x80000000U
-                ? std::numeric_limits<std::int32_t>::min()
-                : -static_cast<std::int32_t>(magnitude);
-        }
-        else
-        {
-            if (magnitude > static_cast<std::uint32_t>(
-                std::numeric_limits<std::int32_t>::max()))
-            {
-                result = 0;
-                return false;
-            }
-            result = static_cast<std::int32_t>(magnitude);
-        }
+        result = negative
+            ? -static_cast<std::int32_t>(magnitude)
+            : static_cast<std::int32_t>(magnitude);
         return true;
     }
 
@@ -500,9 +627,13 @@ namespace MphRead
 
     ModelInstance::ModelInstance(std::shared_ptr<MphRead::Model> model)
         : _model(std::move(model)),
-          Model(_model),
           AnimInfo(std::make_shared<AnimationInfo>())
     {
+    }
+
+    std::shared_ptr<MphRead::Model> ModelInstance::Model() const noexcept
+    {
+        return _model;
     }
 
     void ModelInstance::SetModel(std::shared_ptr<MphRead::Model> model)
@@ -736,13 +867,19 @@ namespace MphRead
 
     void ModelInstance::SetNodeAnim(std::int32_t index)
     {
-        auto& model = Require(_model);
-        auto& groups = Require(model.AnimationGroups);
         auto& info = Require(AnimInfo);
         auto& nodeInfo = Require(info.Node);
 
-        if (index <= -1
-            || index >= static_cast<std::int32_t>(Require(groups.Node).size()))
+        if (index <= -1)
+        {
+            (*info.Index)[static_cast<std::size_t>(nodeInfo.Slot)] = -1;
+            nodeInfo.Group.reset();
+            return;
+        }
+
+        auto& model = Require(_model);
+        auto& groups = Require(model.AnimationGroups);
+        if (index >= static_cast<std::int32_t>(Require(groups.Node).size()))
         {
             (*info.Index)[static_cast<std::size_t>(nodeInfo.Slot)] = -1;
             nodeInfo.Group.reset();
@@ -755,13 +892,19 @@ namespace MphRead
 
     void ModelInstance::SetMaterialAnim(std::int32_t index)
     {
-        auto& model = Require(_model);
-        auto& groups = Require(model.AnimationGroups);
         auto& info = Require(AnimInfo);
         auto& materialInfo = Require(info.Material);
 
-        if (index <= -1
-            || index >= static_cast<std::int32_t>(Require(groups.Material).size()))
+        if (index <= -1)
+        {
+            (*info.Index)[static_cast<std::size_t>(materialInfo.Slot)] = -1;
+            materialInfo.Group.reset();
+            return;
+        }
+
+        auto& model = Require(_model);
+        auto& groups = Require(model.AnimationGroups);
+        if (index >= static_cast<std::int32_t>(Require(groups.Material).size()))
         {
             (*info.Index)[static_cast<std::size_t>(materialInfo.Slot)] = -1;
             materialInfo.Group.reset();
@@ -814,7 +957,7 @@ namespace MphRead
             node.Enabled = true;
 
             const std::vector<char32_t> name = DecodeManagedByteString(node.Name);
-            if (name.empty() || name[0] != U'_')
+            if (!ManagedStartsWithCurrentCulture(name, 0, U"_"))
             {
                 continue;
             }
@@ -823,8 +966,7 @@ namespace MphRead
             for (std::size_t i = 0; name.size() - i >= 4; i += 4)
             {
                 std::int32_t id = 0;
-                if (name[i] == U'_'
-                    && name[i + 1] == U's'
+                if (ManagedStartsWithCurrentCulture(name, i, U"_s")
                     && TryParseChunkInt32(name[i + 2], name[i + 3], id))
                 {
                     const std::uint32_t oldFlags
@@ -1332,7 +1474,7 @@ namespace MphRead
 
         if (blend == 0)
         {
-            throw std::domain_error("Attempted to divide by zero.");
+            throw System::DivideByZeroException();
         }
         if (frame == std::numeric_limits<std::int32_t>::min()
             && blend == -1)
@@ -1468,10 +1610,13 @@ namespace MphRead
         const auto& recolors = Require(Recolors);
         auto& recolor = Require(
             recolors.at(static_cast<std::size_t>(recolorId)));
-        const auto& textureData = Require(recolor.TextureData);
 
-        if (textureId < 0
-            || textureId >= static_cast<std::int32_t>(textureData.size()))
+        if (textureId < 0)
+        {
+            throw std::invalid_argument("textureId");
+        }
+        const auto& textureData = Require(recolor.TextureData);
+        if (textureId >= static_cast<std::int32_t>(textureData.size()))
         {
             throw std::invalid_argument("textureId");
         }
@@ -1479,12 +1624,12 @@ namespace MphRead
         std::vector<ColorRgba> pixels;
         const TextureFormat textureFormat
             = At(recolor.Textures, textureId).Format;
-        const auto& source
-            = Require(textureData.at(static_cast<std::size_t>(textureId)));
-        pixels.reserve(source.size());
 
         if (textureFormat == TextureFormat::DirectRgb)
         {
+            const auto& source
+                = Require(textureData.at(static_cast<std::size_t>(textureId)));
+            pixels.reserve(source.size());
             for (const MphRead::TextureData& data : source)
             {
                 pixels.emplace_back(data.Data, data.Alpha);
@@ -1492,18 +1637,24 @@ namespace MphRead
         }
         else
         {
+            if (paletteId < 0)
+            {
+                throw std::invalid_argument("paletteId");
+            }
             const auto& paletteData = Require(recolor.PaletteData);
-            if (paletteId < 0
-                || paletteId >= static_cast<std::int32_t>(paletteData.size()))
+            if (paletteId >= static_cast<std::int32_t>(paletteData.size()))
             {
                 throw std::invalid_argument("paletteId");
             }
 
-            const auto& palette
-                = Require(paletteData.at(static_cast<std::size_t>(paletteId)));
+            const auto& source
+                = Require(textureData.at(static_cast<std::size_t>(textureId)));
+            pixels.reserve(source.size());
             for (const MphRead::TextureData& data : source)
             {
                 const std::int32_t index = std::bit_cast<std::int32_t>(data.Data);
+                const auto& palette = Require(
+                    paletteData.at(static_cast<std::size_t>(paletteId)));
                 const std::uint16_t color
                     = palette.at(static_cast<std::size_t>(index)).Data;
                 pixels.emplace_back(color, data.Alpha);
@@ -1564,21 +1715,24 @@ namespace MphRead
         std::int32_t textureId,
         std::int32_t palettteId) const
     {
+        if (textureId < 0)
+        {
+            throw std::invalid_argument("textureId");
+        }
         const auto& textureData = Require(TextureData);
-        if (textureId < 0
-            || textureId >= static_cast<std::int32_t>(textureData.size()))
+        if (textureId >= static_cast<std::int32_t>(textureData.size()))
         {
             throw std::invalid_argument("textureId");
         }
 
         std::vector<ColorRgba> pixels;
         const TextureFormat textureFormat = At(Textures, textureId).Format;
-        const auto& source = Require(
-            textureData.at(static_cast<std::size_t>(textureId)));
-        pixels.reserve(source.size());
 
         if (textureFormat == TextureFormat::DirectRgb)
         {
+            const auto& source = Require(
+                textureData.at(static_cast<std::size_t>(textureId)));
+            pixels.reserve(source.size());
             for (const MphRead::TextureData& data : source)
             {
                 pixels.push_back(ColorFromShort(data.Data, data.Alpha));
@@ -1586,18 +1740,24 @@ namespace MphRead
         }
         else
         {
+            if (palettteId < 0)
+            {
+                throw std::invalid_argument("palettteId");
+            }
             const auto& paletteData = Require(PaletteData);
-            if (palettteId < 0
-                || palettteId >= static_cast<std::int32_t>(paletteData.size()))
+            if (palettteId >= static_cast<std::int32_t>(paletteData.size()))
             {
                 throw std::invalid_argument("palettteId");
             }
 
-            const auto& palette = Require(
-                paletteData.at(static_cast<std::size_t>(palettteId)));
+            const auto& source = Require(
+                textureData.at(static_cast<std::size_t>(textureId)));
+            pixels.reserve(source.size());
             for (const MphRead::TextureData& data : source)
             {
                 const std::int32_t index = std::bit_cast<std::int32_t>(data.Data);
+                const auto& palette = Require(
+                    paletteData.at(static_cast<std::size_t>(palettteId)));
                 const std::uint16_t color
                     = palette.at(static_cast<std::size_t>(index)).Data;
                 pixels.push_back(ColorFromShort(color, data.Alpha));
@@ -1609,9 +1769,12 @@ namespace MphRead
     std::vector<ColorRgba> Recolor::GetPalettePixels(
         std::int32_t palettteId) const
     {
+        if (palettteId < 0)
+        {
+            throw std::invalid_argument("palettteId");
+        }
         const auto& paletteData = Require(PaletteData);
-        if (palettteId < 0
-            || palettteId >= static_cast<std::int32_t>(paletteData.size()))
+        if (palettteId >= static_cast<std::int32_t>(paletteData.size()))
         {
             throw std::invalid_argument("palettteId");
         }

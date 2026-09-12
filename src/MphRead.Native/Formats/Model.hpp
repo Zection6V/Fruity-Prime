@@ -7,10 +7,23 @@
 #include <concepts>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+namespace System
+{
+    class DivideByZeroException final : public std::runtime_error
+    {
+    public:
+        DivideByZeroException()
+            : std::runtime_error("Attempted to divide by zero.")
+        {
+        }
+    };
+}
 
 namespace MphRead
 {
@@ -44,6 +57,13 @@ namespace MphRead
     {
         return static_cast<AnimFlags>(
             static_cast<std::uint16_t>(left) ^ static_cast<std::uint16_t>(right));
+    }
+
+    [[nodiscard]] constexpr AnimFlags operator~(AnimFlags value) noexcept
+    {
+        return static_cast<AnimFlags>(
+            static_cast<std::uint16_t>(
+                ~static_cast<std::uint16_t>(value)));
     }
 
     constexpr AnimFlags& operator|=(AnimFlags& left, AnimFlags right) noexcept
@@ -91,6 +111,13 @@ namespace MphRead
     {
         return static_cast<SetFlags>(
             static_cast<std::uint16_t>(left) ^ static_cast<std::uint16_t>(right));
+    }
+
+    [[nodiscard]] constexpr SetFlags operator~(SetFlags value) noexcept
+    {
+        return static_cast<SetFlags>(
+            static_cast<std::uint16_t>(
+                ~static_cast<std::uint16_t>(value)));
     }
 
     constexpr SetFlags& operator|=(SetFlags& left, SetFlags right) noexcept
@@ -202,7 +229,7 @@ namespace MphRead
         const std::shared_ptr<const std::vector<std::uint32_t>> Texture;
 
         template <typename TAnimationResults>
-        requires std::same_as<std::remove_cv_t<TAnimationResults>, AnimationResults>
+        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
         explicit AnimationOffsets(const std::shared_ptr<TAnimationResults>& animations)
             : AnimationOffsets(BuildInit(animations))
         {
@@ -225,7 +252,7 @@ namespace MphRead
         explicit AnimationOffsets(Init init);
 
         template <typename TAnimationResults>
-        requires std::same_as<std::remove_cv_t<TAnimationResults>, AnimationResults>
+        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
         [[nodiscard]] static Init BuildInit(
             const std::shared_ptr<TAnimationResults>& animations)
         {
@@ -252,7 +279,7 @@ namespace MphRead
         const std::shared_ptr<AnimationOffsets> Offsets;
 
         template <typename TAnimationResults>
-        requires std::same_as<std::remove_cv_t<TAnimationResults>, AnimationResults>
+        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
         explicit AnimationGroups(const std::shared_ptr<TAnimationResults>& animations)
             : AnimationGroups(BuildInit(animations))
         {
@@ -287,7 +314,7 @@ namespace MphRead
         }
 
         template <typename TAnimationResults>
-        requires std::same_as<std::remove_cv_t<TAnimationResults>, AnimationResults>
+        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
         [[nodiscard]] static Init BuildInit(
             const std::shared_ptr<TAnimationResults>& animations)
         {
@@ -334,13 +361,13 @@ namespace MphRead
         std::shared_ptr<MphRead::Model> _model;
 
     public:
-        const std::shared_ptr<MphRead::Model>& Model;
         const std::shared_ptr<AnimationInfo> AnimInfo;
         bool IsPlaceholder = false;
         bool Active = true;
         bool NodeAnimIgnoreRoot = false;
 
         explicit ModelInstance(std::shared_ptr<MphRead::Model> model);
+        [[nodiscard]] std::shared_ptr<MphRead::Model> Model() const noexcept;
         ModelInstance(const ModelInstance&) = delete;
         ModelInstance& operator=(const ModelInstance&) = delete;
         ModelInstance(ModelInstance&&) = delete;
@@ -390,15 +417,19 @@ namespace MphRead
 
         const OpenTK::Mathematics::Vector3 Scale;
 
-        template <typename TAnimationResults>
-        requires std::same_as<std::remove_cv_t<TAnimationResults>, AnimationResults>
+        template <
+            typename TNodeEnumerable,
+            typename TMeshEnumerable,
+            typename TMaterialEnumerable,
+            typename TAnimationResults>
+        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
         Model(
             std::string name,
             bool firstHunt,
             MphRead::Header header,
-            std::shared_ptr<const std::vector<RawNode>> nodes,
-            std::shared_ptr<const std::vector<RawMesh>> meshes,
-            std::shared_ptr<const std::vector<RawMaterial>> materials,
+            std::shared_ptr<TNodeEnumerable> nodes,
+            std::shared_ptr<TMeshEnumerable> meshes,
+            std::shared_ptr<TMaterialEnumerable> materials,
             std::shared_ptr<const std::vector<DisplayList>> dlists,
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<std::shared_ptr<RenderInstruction>>>>> renderInstructions,
@@ -518,15 +549,19 @@ namespace MphRead
             OpenTK::Mathematics::Vector3 modelScale,
             std::int32_t currentFrame) const;
 
-        template <typename TAnimationResults>
-        requires std::same_as<std::remove_cv_t<TAnimationResults>, AnimationResults>
+        template <
+            typename TNodeEnumerable,
+            typename TMeshEnumerable,
+            typename TMaterialEnumerable,
+            typename TAnimationResults>
+        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
         [[nodiscard]] static Init BuildInit(
             std::string name,
             bool firstHunt,
             MphRead::Header header,
-            std::shared_ptr<const std::vector<RawNode>> nodes,
-            std::shared_ptr<const std::vector<RawMesh>> meshes,
-            std::shared_ptr<const std::vector<RawMaterial>> materials,
+            std::shared_ptr<TNodeEnumerable> nodes,
+            std::shared_ptr<TMeshEnumerable> meshes,
+            std::shared_ptr<TMaterialEnumerable> materials,
             std::shared_ptr<const std::vector<DisplayList>> dlists,
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<std::shared_ptr<RenderInstruction>>>>> renderInstructions,
@@ -548,24 +583,26 @@ namespace MphRead
                 throw System::ArgumentNullException("source");
             }
             auto nativeNodes = std::make_shared<std::vector<std::shared_ptr<Node>>>();
-            nativeNodes->reserve(nodes->size());
-            for (const RawNode& raw : *nodes)
+            for (const auto& raw : *nodes)
             {
-                nativeNodes->push_back(std::make_shared<Node>(raw));
+                nativeNodes->push_back(std::make_shared<Node>(RawNode(raw)));
             }
 
-            // Model.cs enumerates the node source a second time for RawNodes.
-            auto rawNodes = std::make_shared<std::vector<RawNode>>(nodes->begin(), nodes->end());
+            // Model.cs enumerates the node IEnumerable a second time for RawNodes.
+            auto rawNodes = std::make_shared<std::vector<RawNode>>();
+            for (const auto& raw : *nodes)
+            {
+                rawNodes->push_back(RawNode(raw));
+            }
 
             if (!meshes)
             {
                 throw System::ArgumentNullException("source");
             }
             auto nativeMeshes = std::make_shared<std::vector<std::shared_ptr<Mesh>>>();
-            nativeMeshes->reserve(meshes->size());
-            for (const RawMesh& raw : *meshes)
+            for (const auto& raw : *meshes)
             {
-                nativeMeshes->push_back(std::make_shared<Mesh>(raw));
+                nativeMeshes->push_back(std::make_shared<Mesh>(RawMesh(raw)));
             }
 
             if (!materials)
@@ -573,10 +610,9 @@ namespace MphRead
                 throw System::ArgumentNullException("source");
             }
             auto nativeMaterials = std::make_shared<std::vector<std::shared_ptr<Material>>>();
-            nativeMaterials->reserve(materials->size());
-            for (const RawMaterial& raw : *materials)
+            for (const auto& raw : *materials)
             {
-                nativeMaterials->push_back(std::make_shared<Material>(raw));
+                nativeMaterials->push_back(std::make_shared<Material>(RawMaterial(raw)));
             }
 
 #ifndef NDEBUG

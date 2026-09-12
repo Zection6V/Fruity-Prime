@@ -46,6 +46,43 @@ perform the requested local work yourself.
   from its last usable response. Apply the normal review rules below: the
   returned text is a proposal, and local authoritative sources decide the work.
 
+## Computer Use and GitHub invariants
+
+- Re-observe a newly opened tab after the page settles. Accessibility-tree
+  indices can reflow, so never reuse an initial textbox or submit-button index.
+  Locate the live `prompt-textarea`, set the prompt, then locate the live
+  `composer-submit-button` and click it. Pressing Enter alone is not sufficient;
+  confirm the prompt is visible in the conversation and `回答を停止` appears
+  before treating the request as submitted and running.
+- Rebind a known tab with `cua.getTab` when a diff is ambiguous and inspect its
+  full current accessibility state. A no-change result from `getAXState` is not
+  proof that the remote repository is unchanged; independently poll
+  `git ls-remote origin refs/heads/develop2`, then fetch/pull and verify the
+  commit parent, exact changed paths, and blob IDs locally.
+- Treat `回答を停止` (the blue stop-square action) as the running-state
+  authority even when the visible progress text mentions a connection
+  interruption or waiting for completion. Do not send another prompt while it
+  is present. If an explicit delivery-timeout/error with a retry control
+  appears, use the retry control once, wait for a new active or terminal state,
+  and only then send a short continuation if necessary.
+- For large generated files, keep the fixed blob SHA and size in the working
+  ledger. If analysis/tests finished but upload or commit timed out, send a
+  short same-chat continuation that resumes from those fixed blobs and finishes
+  the tree/commit/push; do not restart the broad investigation. A focused test
+  pass without a verified commit/push is incomplete.
+- Prompts should include the current source revision/blob, exact native paths,
+  the instruction to refresh `develop2` immediately before committing, and the
+  no-`git clone` constraint. Recheck the C# blob immediately before generation:
+  an earlier retrieval may be stale if the branch advanced.
+- Distinguish implementation, correction, and final review. Review the actual
+  commit against the C# source blob in the same conversation; if a defect is
+  found, make the smallest correction in that pair, rerun focused checks, and
+  re-review it. Once PASS/NO-OP and SHA evidence are terminal, close the tab.
+- Do not re-audit pairs already marked audited or complete in the migration
+  ledger. Start the next genuinely missing pair, while keeping two independent
+  items live when possible; preserve concurrent non-overlapping commits by
+  refreshing `develop2` before every write.
+
 ## Keep the browser footprint small
 
 - Keep at most two ChatGPT tabs for active work: the current implementation or

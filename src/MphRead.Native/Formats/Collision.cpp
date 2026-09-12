@@ -10,9 +10,10 @@
 
 #include <algorithm>
 #include <array>
-#include <cassert>
 #include <bit>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -21,12 +22,26 @@
 #include <utility>
 #include <vector>
 
+#if defined(DEBUG)
+#define MPHREAD_COLLISION_DEBUG_ASSERT(condition) \
+    do \
+    { \
+        if (!(condition)) \
+        { \
+            std::abort(); \
+        } \
+    } while (false)
+#else
+#define MPHREAD_COLLISION_DEBUG_ASSERT(condition) ((void)0)
+#endif
+
 namespace MphRead::Formats::Collision
 {
     namespace
     {
         template <typename T>
-        T& ReassignReadonlyValue(T* self, const T& other) noexcept
+        T& ReassignReadonlyValue(
+            T* self, const T& other) noexcept
         {
             if (self != &other)
             {
@@ -37,7 +52,8 @@ namespace MphRead::Formats::Collision
         }
 
         template <std::size_t N>
-        std::string MarshalString(const std::array<char, N>& value)
+        std::string MarshalString(
+            const std::array<char, N>& value)
         {
             std::size_t length = 0;
             while (length < N && value[length] != '\0')
@@ -82,7 +98,9 @@ namespace MphRead::Formats::Collision
             return values->size();
         }
 
-        bool HasFlag(CollisionFlags value, CollisionFlags flag) noexcept
+        bool HasFlag(
+            CollisionFlags value,
+            CollisionFlags flag) noexcept
         {
             return (
                 static_cast<std::uint16_t>(value)
@@ -90,17 +108,20 @@ namespace MphRead::Formats::Collision
             ) != 0;
         }
 
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>>
+        std::shared_ptr<
+            const std::vector<OpenTK::Mathematics::Vector3>>
         ConvertPoints(
-            const std::shared_ptr<const std::vector<MphRead::Vector3Fx>>& values)
+            const std::shared_ptr<
+                const std::vector<MphRead::Vector3Fx>>& values)
         {
             if (!values)
             {
                 throw System::ArgumentNullException("source");
             }
 
-            auto result
-                = std::make_shared<std::vector<OpenTK::Mathematics::Vector3>>();
+            auto result = std::make_shared<
+                std::vector<OpenTK::Mathematics::Vector3>>();
+
             result->reserve(values->size());
 
             for (const MphRead::Vector3Fx& value : *values)
@@ -111,17 +132,20 @@ namespace MphRead::Formats::Collision
             return result;
         }
 
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector4>>
+        std::shared_ptr<
+            const std::vector<OpenTK::Mathematics::Vector4>>
         ConvertPlanes(
-            const std::shared_ptr<const std::vector<MphRead::Vector4Fx>>& values)
+            const std::shared_ptr<
+                const std::vector<MphRead::Vector4Fx>>& values)
         {
             if (!values)
             {
                 throw System::ArgumentNullException("source");
             }
 
-            auto result
-                = std::make_shared<std::vector<OpenTK::Mathematics::Vector4>>();
+            auto result = std::make_shared<
+                std::vector<OpenTK::Mathematics::Vector4>>();
+
             result->reserve(values->size());
 
             for (const MphRead::Vector4Fx& value : *values)
@@ -133,7 +157,9 @@ namespace MphRead::Formats::Collision
         }
 
         OpenTK::Mathematics::Vector3 Average(
-            const std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>>& points)
+            const std::shared_ptr<
+                const std::vector<
+                    OpenTK::Mathematics::Vector3>>& points)
         {
             if (!points)
             {
@@ -151,88 +177,13 @@ namespace MphRead::Formats::Collision
                 z += point.Z;
             }
 
-            const float count = static_cast<float>(points->size());
+            const float count
+                = static_cast<float>(points->size());
 
             return OpenTK::Mathematics::Vector3(
                 x / count,
                 y / count,
                 z / count);
-        }
-
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>>
-        MakeMphPortalPoints(const RawCollisionPortal& raw)
-        {
-            auto points
-                = std::make_shared<std::vector<OpenTK::Mathematics::Vector3>>();
-
-            points->reserve(4);
-            points->push_back(raw.Point1.ToFloatVector());
-            points->push_back(raw.Point2.ToFloatVector());
-            points->push_back(raw.Point3.ToFloatVector());
-            points->push_back(raw.Point4.ToFloatVector());
-
-            return points;
-        }
-
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector4>>
-        MakeMphPortalPlanes(const RawCollisionPortal& raw)
-        {
-            auto planes
-                = std::make_shared<std::vector<OpenTK::Mathematics::Vector4>>();
-
-            planes->reserve(4);
-            planes->push_back(raw.Plane1.ToFloatVector());
-            planes->push_back(raw.Plane2.ToFloatVector());
-            planes->push_back(raw.Plane3.ToFloatVector());
-            planes->push_back(raw.Plane4.ToFloatVector());
-
-            return planes;
-        }
-
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>>
-        MakeFhPortalPoints(
-            const FhCollisionPortal& raw,
-            const std::shared_ptr<const std::vector<FhCollisionVector>>& rawVectors,
-            const std::shared_ptr<const std::vector<MphRead::Vector3Fx>>& rawPoints)
-        {
-            auto points
-                = std::make_shared<std::vector<OpenTK::Mathematics::Vector3>>();
-            points->reserve(raw.VectorCount);
-
-            for (std::int32_t i = 0; i < raw.VectorCount; ++i)
-            {
-                const FhCollisionVector& vector = At(
-                    rawVectors,
-                    static_cast<std::size_t>(raw.VectorStartIndex) + i);
-
-                points->push_back(
-                    At(rawPoints, vector.Point2Index).ToFloatVector());
-            }
-
-            return points;
-        }
-
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector4>>
-        MakeFhPortalPlanes(
-            const FhCollisionPortal& raw,
-            const std::shared_ptr<const std::vector<FhCollisionVector>>& rawVectors,
-            const std::shared_ptr<const std::vector<MphRead::Vector4Fx>>& rawPlanes)
-        {
-            auto planes
-                = std::make_shared<std::vector<OpenTK::Mathematics::Vector4>>();
-            planes->reserve(raw.VectorCount);
-
-            for (std::int32_t i = 0; i < raw.VectorCount; ++i)
-            {
-                const FhCollisionVector& vector = At(
-                    rawVectors,
-                    static_cast<std::size_t>(raw.VectorStartIndex) + i);
-
-                planes->push_back(
-                    At(rawPlanes, vector.PlaneIndex).ToFloatVector());
-            }
-
-            return planes;
         }
 
         std::int32_t WrapMultiply(
@@ -242,6 +193,7 @@ namespace MphRead::Formats::Collision
             const std::uint32_t value
                 = static_cast<std::uint32_t>(left)
                 * static_cast<std::uint32_t>(right);
+
             return std::bit_cast<std::int32_t>(value);
         }
 
@@ -252,6 +204,7 @@ namespace MphRead::Formats::Collision
             const std::uint32_t value
                 = static_cast<std::uint32_t>(left)
                 + static_cast<std::uint32_t>(right);
+
             return std::bit_cast<std::int32_t>(value);
         }
 
@@ -262,6 +215,7 @@ namespace MphRead::Formats::Collision
             const std::uint32_t value
                 = static_cast<std::uint32_t>(left)
                 - static_cast<std::uint32_t>(right);
+
             return std::bit_cast<std::int32_t>(value);
         }
 
@@ -271,12 +225,14 @@ namespace MphRead::Formats::Collision
         {
             if (denominator == 0)
             {
-                // The common Native runtime must translate this to the
-                // managed DivideByZeroException category.
-                throw std::domain_error("Attempted to divide by zero.");
+                // Exact DivideByZeroException translation belongs to the
+                // common managed-exception prerequisite.
+                throw std::domain_error(
+                    "Attempted to divide by zero.");
             }
 
-            if (numerator == std::numeric_limits<std::int32_t>::min()
+            if (numerator
+                    == std::numeric_limits<std::int32_t>::min()
                 && denominator == -1)
             {
                 throw System::OverflowException();
@@ -285,7 +241,36 @@ namespace MphRead::Formats::Collision
             return numerator / denominator;
         }
 
-        MphRead::Scene& RequireScene(MphRead::Scene* scene)
+        std::int32_t ConvertToInt32Net9(
+            float value) noexcept
+        {
+            if (std::isnan(value))
+            {
+                return 0;
+            }
+
+            const double wide = static_cast<double>(value);
+
+            if (wide
+                < static_cast<double>(
+                    std::numeric_limits<std::int32_t>::min()))
+            {
+                return std::numeric_limits<std::int32_t>::min();
+            }
+
+            if (wide
+                > static_cast<double>(
+                    std::numeric_limits<std::int32_t>::max()))
+            {
+                return std::numeric_limits<std::int32_t>::max();
+            }
+
+            return static_cast<std::int32_t>(
+                std::trunc(wide));
+        }
+
+        MphRead::Scene& RequireScene(
+            MphRead::Scene* scene)
         {
             if (scene == nullptr)
             {
@@ -296,8 +281,13 @@ namespace MphRead::Formats::Collision
 
         struct CollisionCaches
         {
-            std::unordered_map<std::string, std::shared_ptr<CollisionInfo>> Mph;
-            std::unordered_map<std::string, std::shared_ptr<CollisionInfo>> Fh;
+            std::unordered_map<
+                std::string,
+                std::shared_ptr<CollisionInfo>> Mph;
+
+            std::unordered_map<
+                std::string,
+                std::shared_ptr<CollisionInfo>> Fh;
         };
 
         CollisionCaches& Caches()
@@ -361,7 +351,8 @@ namespace MphRead::Formats::Collision
         return ReassignReadonlyValue(this, other);
     }
 
-    FhCollisionTreeNode& FhCollisionTreeNode::operator=(
+    FhCollisionTreeNode&
+    FhCollisionTreeNode::operator=(
         const FhCollisionTreeNode& other) noexcept
     {
         return ReassignReadonlyValue(this, other);
@@ -373,18 +364,22 @@ namespace MphRead::Formats::Collision
         : Entity(std::move(entity)),
           Collision(std::move(collision)),
           DrawPoints(
-              std::make_shared<std::vector<OpenTK::Mathematics::Vector3>>())
+              std::make_shared<
+                  std::vector<
+                      OpenTK::Mathematics::Vector3>>())
     {
     }
 
     std::int32_t CollisionData::Slipperiness() const noexcept
     {
         return (
-            static_cast<std::uint16_t>(Flags) & 0x0018U
+            static_cast<std::uint16_t>(Flags)
+            & 0x0018U
         ) >> 3;
     }
 
-    MphRead::Terrain CollisionData::Terrain() const noexcept
+    MphRead::Terrain
+    CollisionData::Terrain() const noexcept
     {
         return static_cast<MphRead::Terrain>(
             (
@@ -395,12 +390,16 @@ namespace MphRead::Formats::Collision
 
     bool CollisionData::IgnorePlayers() const noexcept
     {
-        return HasFlag(Flags, CollisionFlags::IgnorePlayers);
+        return HasFlag(
+            Flags,
+            CollisionFlags::IgnorePlayers);
     }
 
     bool CollisionData::IgnoreBeams() const noexcept
     {
-        return HasFlag(Flags, CollisionFlags::IgnoreBeams);
+        return HasFlag(
+            Flags,
+            CollisionFlags::IgnoreBeams);
     }
 
     std::int32_t CollisionData::Axis() const noexcept
@@ -408,48 +407,188 @@ namespace MphRead::Formats::Collision
         return LayerMask & 3;
     }
 
-    Portal::Portal(RawCollisionPortal raw)
-        : Name(MarshalString(raw.Name)),
-          NodeName1(MarshalString(raw.NodeName1)),
-          NodeName2(MarshalString(raw.NodeName2)),
-          LayerMask(raw.LayerMask),
-          IsForceField(Name.starts_with("pmag")),
-          Points(MakeMphPortalPoints(raw)),
-          Planes(MakeMphPortalPlanes(raw)),
-          Plane(raw.Plane.ToFloatVector()),
-          Position(Average(Points)),
-          Flags(raw.Flags),
-          Unknown00(raw.UnusedDE),
-          Unknown01(raw.UnusedDF)
+    struct Portal::Initializer
     {
-        assert(raw.PointCount == 4);
+        std::string Name;
+        std::string NodeName1;
+        std::string NodeName2;
+
+        std::uint16_t LayerMask = 0;
+        bool IsForceField = false;
+
+        std::shared_ptr<
+            const std::vector<
+                OpenTK::Mathematics::Vector3>> Points;
+
+        std::shared_ptr<
+            const std::vector<
+                OpenTK::Mathematics::Vector4>> Planes;
+
+        OpenTK::Mathematics::Vector4 Plane{};
+        OpenTK::Mathematics::Vector3 Position{};
+
+        std::uint16_t Flags = 0;
+        std::uint8_t Unknown00 = 0;
+        std::uint8_t Unknown01 = 0;
+    };
+
+    Portal::Initializer Portal::Initialize(
+        RawCollisionPortal raw)
+    {
+        MPHREAD_COLLISION_DEBUG_ASSERT(
+            raw.PointCount == 4);
+
+        Initializer result{};
+
+        result.Name = MarshalString(raw.Name);
+        result.NodeName1 = MarshalString(raw.NodeName1);
+        result.NodeName2 = MarshalString(raw.NodeName2);
+
+        result.LayerMask = raw.LayerMask;
+        result.IsForceField
+            = result.Name.starts_with("pmag");
+
+        auto points = std::make_shared<
+            std::vector<
+                OpenTK::Mathematics::Vector3>>();
+
+        points->reserve(4);
+        points->push_back(raw.Point1.ToFloatVector());
+        points->push_back(raw.Point2.ToFloatVector());
+        points->push_back(raw.Point3.ToFloatVector());
+        points->push_back(raw.Point4.ToFloatVector());
+
+        result.Points = points;
+        result.Position = Average(result.Points);
+
+        auto planes = std::make_shared<
+            std::vector<
+                OpenTK::Mathematics::Vector4>>();
+
+        planes->reserve(4);
+        planes->push_back(raw.Plane1.ToFloatVector());
+        planes->push_back(raw.Plane2.ToFloatVector());
+        planes->push_back(raw.Plane3.ToFloatVector());
+        planes->push_back(raw.Plane4.ToFloatVector());
+
+        result.Planes = planes;
+        result.Plane = raw.Plane.ToFloatVector();
+        result.Flags = raw.Flags;
+        result.Unknown00 = raw.UnusedDE;
+        result.Unknown01 = raw.UnusedDF;
+
+        return result;
+    }
+
+    Portal::Initializer Portal::Initialize(
+        FhCollisionPortal raw,
+        const std::shared_ptr<
+            const std::vector<FhCollisionVector>>& rawVectors,
+        const std::shared_ptr<
+            const std::vector<MphRead::Vector3Fx>>& rawPoints,
+        const std::shared_ptr<
+            const std::vector<MphRead::Vector4Fx>>& rawPlanes)
+    {
+        Initializer result{};
+
+        result.Name = MarshalString(raw.Name);
+        result.NodeName1 = MarshalString(raw.NodeName1);
+        result.NodeName2 = MarshalString(raw.NodeName2);
+        result.LayerMask = 4;
+
+        auto points = std::make_shared<
+            std::vector<
+                OpenTK::Mathematics::Vector3>>();
+
+        auto planes = std::make_shared<
+            std::vector<
+                OpenTK::Mathematics::Vector4>>();
+
+        points->reserve(raw.VectorCount);
+        planes->reserve(raw.VectorCount);
+
+        for (std::int32_t i = 0;
+            i < raw.VectorCount;
+            ++i)
+        {
+            const FhCollisionVector& vector = At(
+                rawVectors,
+                static_cast<std::size_t>(
+                    raw.VectorStartIndex) + i);
+
+            points->push_back(
+                At(
+                    rawPoints,
+                    vector.Point2Index)
+                    .ToFloatVector());
+
+            planes->push_back(
+                At(
+                    rawPlanes,
+                    vector.PlaneIndex)
+                    .ToFloatVector());
+        }
+
+        result.Points = points;
+        result.Position = Average(result.Points);
+        result.Planes = planes;
+        result.Plane = raw.Plane.ToFloatVector();
+
+        result.Unknown00 = raw.Field5C;
+        result.Unknown01 = raw.Field5D;
+
+        return result;
+    }
+
+    Portal::Portal(
+        Initializer initializer)
+        : Name(std::move(initializer.Name)),
+          NodeName1(std::move(initializer.NodeName1)),
+          NodeName2(std::move(initializer.NodeName2)),
+          LayerMask(initializer.LayerMask),
+          IsForceField(initializer.IsForceField),
+          Points(std::move(initializer.Points)),
+          Planes(std::move(initializer.Planes)),
+          Plane(initializer.Plane),
+          Position(initializer.Position),
+          Flags(initializer.Flags),
+          Unknown00(initializer.Unknown00),
+          Unknown01(initializer.Unknown01)
+    {
+    }
+
+    Portal::Portal(
+        RawCollisionPortal raw)
+        : Portal(Initialize(raw))
+    {
     }
 
     Portal::Portal(
         FhCollisionPortal raw,
-        std::shared_ptr<const std::vector<FhCollisionVector>> rawVectors,
-        std::shared_ptr<const std::vector<MphRead::Vector3Fx>> rawPoints,
-        std::shared_ptr<const std::vector<MphRead::Vector4Fx>> rawPlanes)
-        : Name(MarshalString(raw.Name)),
-          NodeName1(MarshalString(raw.NodeName1)),
-          NodeName2(MarshalString(raw.NodeName2)),
-          LayerMask(4),
-          IsForceField(false),
-          Points(MakeFhPortalPoints(raw, rawVectors, rawPoints)),
-          Planes(MakeFhPortalPlanes(raw, rawVectors, rawPlanes)),
-          Plane(raw.Plane.ToFloatVector()),
-          Position(Average(Points)),
-          Flags(0),
-          Unknown00(raw.Field5C),
-          Unknown01(raw.Field5D)
+        std::shared_ptr<
+            const std::vector<FhCollisionVector>> rawVectors,
+        std::shared_ptr<
+            const std::vector<MphRead::Vector3Fx>> rawPoints,
+        std::shared_ptr<
+            const std::vector<MphRead::Vector4Fx>> rawPlanes)
+        : Portal(
+              Initialize(
+                  raw,
+                  rawVectors,
+                  rawPoints,
+                  rawPlanes))
     {
     }
 
     Portal::Portal(
         std::string nodeName1,
         std::string nodeName2,
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> points,
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector4>> planes,
+        std::shared_ptr<
+            const std::vector<
+                OpenTK::Mathematics::Vector3>> points,
+        std::shared_ptr<
+            const std::vector<
+                OpenTK::Mathematics::Vector4>> planes,
         OpenTK::Mathematics::Vector4 plane)
         : Name(
               "port_"
@@ -481,9 +620,13 @@ namespace MphRead::Formats::Collision
     }
 
     CollisionInfo::CollisionInfo(
-        std::shared_ptr<const std::vector<MphRead::Vector3Fx>> points,
-        std::shared_ptr<const std::vector<MphRead::Vector4Fx>> planes,
-        std::shared_ptr<const std::vector<std::shared_ptr<Portal>>> portals,
+        std::shared_ptr<
+            const std::vector<MphRead::Vector3Fx>> points,
+        std::shared_ptr<
+            const std::vector<MphRead::Vector4Fx>> planes,
+        std::shared_ptr<
+            const std::vector<
+                std::shared_ptr<Portal>>> portals,
         bool firstHunt)
         : FirstHunt(firstHunt),
           Points(ConvertPoints(points)),
@@ -494,13 +637,21 @@ namespace MphRead::Formats::Collision
 
     MphCollisionInfo::MphCollisionInfo(
         CollisionHeader header,
-        std::shared_ptr<const std::vector<MphRead::Vector3Fx>> points,
-        std::shared_ptr<const std::vector<MphRead::Vector4Fx>> planes,
-        std::shared_ptr<const std::vector<std::uint16_t>> ptIdxs,
-        std::shared_ptr<const std::vector<CollisionData>> data,
-        std::shared_ptr<const std::vector<std::uint16_t>> dataIdxs,
-        std::shared_ptr<const std::vector<CollisionEntry>> entries,
-        std::shared_ptr<const std::vector<std::shared_ptr<Portal>>> portals)
+        std::shared_ptr<
+            const std::vector<MphRead::Vector3Fx>> points,
+        std::shared_ptr<
+            const std::vector<MphRead::Vector4Fx>> planes,
+        std::shared_ptr<
+            const std::vector<std::uint16_t>> ptIdxs,
+        std::shared_ptr<
+            const std::vector<CollisionData>> data,
+        std::shared_ptr<
+            const std::vector<std::uint16_t>> dataIdxs,
+        std::shared_ptr<
+            const std::vector<CollisionEntry>> entries,
+        std::shared_ptr<
+            const std::vector<
+                std::shared_ptr<Portal>>> portals)
         : CollisionInfo(
               std::move(points),
               std::move(planes),
@@ -511,136 +662,203 @@ namespace MphRead::Formats::Collision
           Data(std::move(data)),
           DataIndices(std::move(dataIdxs)),
           Entries(std::move(entries)),
-          MinPosition(header.MinPosition.ToFloatVector())
+          MinPosition(
+              header.MinPosition.ToFloatVector())
     {
     }
 
-    const std::array<OpenTK::Mathematics::Vector4, 12>&
+    const std::array<
+        OpenTK::Mathematics::Vector4, 12>&
     MphCollisionInfo::Colors()
     {
-        static const std::array<OpenTK::Mathematics::Vector4, 12> colors
+        static const std::array<
+            OpenTK::Mathematics::Vector4, 12> colors
         {
-            OpenTK::Mathematics::Vector4(0.69F, 0.69F, 0.69F, 1.0F),
-            OpenTK::Mathematics::Vector4(1.0F, 0.612F, 0.153F, 1.0F),
-            OpenTK::Mathematics::Vector4(0.0F, 1.0F, 0.0F, 1.0F),
-            OpenTK::Mathematics::Vector4(0.0F, 0.0F, 0.858F, 1.0F),
-            OpenTK::Mathematics::Vector4(0.141F, 1.0F, 1.0F, 1.0F),
-            OpenTK::Mathematics::Vector4(1.0F, 1.0F, 1.0F, 1.0F),
-            OpenTK::Mathematics::Vector4(0.964F, 1.0F, 0.058F, 1.0F),
-            OpenTK::Mathematics::Vector4(0.505F, 0.364F, 0.211F, 1.0F),
-            OpenTK::Mathematics::Vector4(0.984F, 0.701F, 0.576F, 1.0F),
-            OpenTK::Mathematics::Vector4(0.988F, 0.463F, 0.824F, 1.0F),
-            OpenTK::Mathematics::Vector4(0.615F, 0.0F, 0.909F, 1.0F),
-            OpenTK::Mathematics::Vector4(0.85F, 0.85F, 0.85F, 1.0F)
+            OpenTK::Mathematics::Vector4(
+                0.69F, 0.69F, 0.69F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                1.0F, 0.612F, 0.153F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                0.0F, 1.0F, 0.0F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                0.0F, 0.0F, 0.858F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                0.141F, 1.0F, 1.0F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                1.0F, 1.0F, 1.0F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                0.964F, 1.0F, 0.058F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                0.505F, 0.364F, 0.211F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                0.984F, 0.701F, 0.576F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                0.988F, 0.463F, 0.824F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                0.615F, 0.0F, 0.909F, 1.0F),
+            OpenTK::Mathematics::Vector4(
+                0.85F, 0.85F, 0.85F, 1.0F)
         };
 
         return colors;
     }
 
     void MphCollisionInfo::GetDrawInfo(
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> points,
+        std::shared_ptr<
+            const std::vector<
+                OpenTK::Mathematics::Vector3>> points,
         OpenTK::Mathematics::Vector3 translation,
         MphRead::EntityType entityType,
         MphRead::Scene* scenePtr)
     {
-        MphRead::Scene& scene = RequireScene(scenePtr);
+        MphRead::Scene& scene
+            = RequireScene(scenePtr);
 
-        const std::int32_t polygonId = scene.GetNextPolygonId();
+        const std::int32_t polygonId
+            = scene.GetNextPolygonId();
 
         if (!Data)
         {
             throw System::NullReferenceException();
         }
 
-        for (std::size_t i = 0; i < Data->size(); ++i)
+        for (std::size_t i = 0;
+            i < Data->size();
+            ++i)
         {
-            const CollisionData& data = (*Data)[i];
+            const CollisionData& data
+                = (*Data)[i];
 
-            if (scene.ColTerDisplay != MphRead::Terrain::All
-                && scene.ColTerDisplay != data.Terrain())
+            if (scene.ColTerDisplay
+                    != MphRead::Terrain::All
+                && scene.ColTerDisplay
+                    != data.Terrain())
             {
                 continue;
             }
 
-            if ((scene.ColTypeDisplay == CollisionType::Player
+            if ((scene.ColTypeDisplay
+                        == CollisionType::Player
                     && data.IgnorePlayers())
-                || (scene.ColTypeDisplay == CollisionType::Beam
+                || (scene.ColTypeDisplay
+                        == CollisionType::Beam
                     && data.IgnoreBeams())
-                || (scene.ColTypeDisplay == CollisionType::Both
-                    && (data.IgnorePlayers() || data.IgnoreBeams())))
+                || (scene.ColTypeDisplay
+                        == CollisionType::Both
+                    && (data.IgnorePlayers()
+                        || data.IgnoreBeams())))
             {
                 continue;
             }
 
             OpenTK::Mathematics::Vector4 color{};
 
-            if (scene.ColDisplayColor == CollisionColor::Entity)
+            if (scene.ColDisplayColor
+                == CollisionColor::Entity)
             {
-                if (entityType == MphRead::EntityType::Platform)
+                if (entityType
+                    == MphRead::EntityType::Platform)
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.109F, 0.768F, 0.850F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.109F,
+                            0.768F,
+                            0.850F,
+                            1.0F);
                 }
-                else if (entityType == MphRead::EntityType::Object)
+                else if (entityType
+                    == MphRead::EntityType::Object)
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.952F, 0.105F, 0.635F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.952F,
+                            0.105F,
+                            0.635F,
+                            1.0F);
                 }
                 else
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.952F, 0.694F, 0.105F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.952F,
+                            0.694F,
+                            0.105F,
+                            1.0F);
                 }
             }
-            else if (scene.ColDisplayColor == CollisionColor::Terrain)
+            else if (scene.ColDisplayColor
+                == CollisionColor::Terrain)
             {
                 color = Colors().at(
-                    static_cast<std::size_t>(data.Terrain()));
+                    static_cast<std::size_t>(
+                        data.Terrain()));
             }
-            else if (scene.ColDisplayColor == CollisionColor::Type)
+            else if (scene.ColDisplayColor
+                == CollisionColor::Type)
             {
                 if (data.IgnoreBeams())
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.956F, 0.933F, 0.203F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.956F,
+                            0.933F,
+                            0.203F,
+                            1.0F);
                 }
                 else if (data.IgnorePlayers())
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.250F, 0.807F, 0.250F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.250F,
+                            0.807F,
+                            0.250F,
+                            1.0F);
                 }
                 else
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.807F, 0.250F, 0.776F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.807F,
+                            0.250F,
+                            0.776F,
+                            1.0F);
                 }
             }
             else
             {
-                color = OpenTK::Mathematics::Vector4(
-                    1.0F, 0.0F, 0.0F, 1.0F);
+                color
+                    = OpenTK::Mathematics::Vector4(
+                        1.0F,
+                        0.0F,
+                        0.0F,
+                        1.0F);
             }
 
             color.W = scene.ColDisplayAlpha;
 
-            assert(
+            MPHREAD_COLLISION_DEBUG_ASSERT(
                 data.PointIndexCount >= 3
                 && data.PointIndexCount <= 10);
 
             auto verts = std::make_shared<
-                MphRead::ManagedArray<OpenTK::Mathematics::Vector3>>(
-                    data.PointIndexCount);
+                MphRead::ManagedArray<
+                    OpenTK::Mathematics::Vector3>>(
+                        data.PointIndexCount);
 
             for (std::int32_t j = 0;
                 j < data.PointIndexCount;
                 ++j)
             {
-                const std::uint16_t pointIndex = At(
-                    PointIndices,
-                    static_cast<std::size_t>(data.PointStartIndex) + j);
+                const std::uint16_t pointIndex
+                    = At(
+                        PointIndices,
+                        static_cast<std::size_t>(
+                            data.PointStartIndex)
+                            + j);
 
                 (*verts)[j]
-                    = At(points, pointIndex) + translation;
+                    = At(points, pointIndex)
+                    + translation;
             }
 
             scene.AddRenderItem(
@@ -657,25 +875,37 @@ namespace MphRead::Formats::Collision
     MphCollisionInfo::PartIndexFromEntry(
         std::int32_t index) const
     {
-        const std::int32_t x = Header.PartsX;
+        const std::int32_t x
+            = Header.PartsX;
+
         const std::int32_t xz
-            = WrapMultiply(x, Header.PartsZ);
+            = WrapMultiply(
+                x,
+                Header.PartsZ);
 
         const std::int32_t yInc
-            = ManagedDivide(index, xz);
+            = ManagedDivide(
+                index,
+                xz);
 
         const std::int32_t afterY
             = WrapSubtract(
                 index,
-                WrapMultiply(yInc, xz));
+                WrapMultiply(
+                    yInc,
+                    xz));
 
         const std::int32_t zInc
-            = ManagedDivide(afterY, x);
+            = ManagedDivide(
+                afterY,
+                x);
 
         const std::int32_t xInc
             = WrapSubtract(
                 afterY,
-                WrapMultiply(zInc, x));
+                WrapMultiply(
+                    zInc,
+                    x));
 
         return OpenTK::Mathematics::Vector3i(
             xInc,
@@ -683,7 +913,8 @@ namespace MphRead::Formats::Collision
             zInc);
     }
 
-    std::int32_t MphCollisionInfo::EntryIndexFromPoint(
+    std::int32_t
+    MphCollisionInfo::EntryIndexFromPoint(
         OpenTK::Mathematics::Vector3 point) const
     {
         if (point.X < MinPosition.X
@@ -694,16 +925,19 @@ namespace MphRead::Formats::Collision
         }
 
         const std::int32_t xInc
-            = static_cast<std::int32_t>(
-                (point.X - MinPosition.X) / 4.0F);
+            = ConvertToInt32Net9(
+                (point.X - MinPosition.X)
+                / 4.0F);
 
         const std::int32_t yInc
-            = static_cast<std::int32_t>(
-                (point.Y - MinPosition.Y) / 4.0F);
+            = ConvertToInt32Net9(
+                (point.Y - MinPosition.Y)
+                / 4.0F);
 
         const std::int32_t zInc
-            = static_cast<std::int32_t>(
-                (point.Z - MinPosition.Z) / 4.0F);
+            = ConvertToInt32Net9(
+                (point.Z - MinPosition.Z)
+                / 4.0F);
 
         if (xInc >= Header.PartsX
             || yInc >= Header.PartsY
@@ -716,130 +950,189 @@ namespace MphRead::Formats::Collision
             WrapAdd(
                 WrapMultiply(
                     yInc,
-                    WrapMultiply(Header.PartsX, Header.PartsZ)),
-                WrapMultiply(zInc, Header.PartsX)),
+                    WrapMultiply(
+                        Header.PartsX,
+                        Header.PartsZ)),
+                WrapMultiply(
+                    zInc,
+                    Header.PartsX)),
             xInc);
     }
 
     void MphCollisionInfo::GetPartition(
         OpenTK::Mathematics::Vector3 point,
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> points,
+        std::shared_ptr<
+            const std::vector<
+                OpenTK::Mathematics::Vector3>> points,
         MphRead::EntityType entityType,
         MphRead::Scene* scenePtr) const
     {
         const std::int32_t entryIndex
             = EntryIndexFromPoint(point);
 
-        MphRead::Scene& scene = RequireScene(scenePtr);
-        std::int32_t polygonId = scene.GetNextPolygonId();
+        MphRead::Scene& scene
+            = RequireScene(scenePtr);
 
-        const std::size_t entryCount = Count(Entries);
+        std::int32_t polygonId
+            = scene.GetNextPolygonId();
 
-        // Deliberately ">" rather than ">=" to reproduce the C# behavior.
         if (entryIndex < 0
-            || entryIndex > static_cast<std::int32_t>(entryCount))
+            || entryIndex
+                > static_cast<std::int32_t>(
+                    Count(Entries)))
         {
             return;
         }
 
         const CollisionEntry& entry
-            = Entries->at(static_cast<std::size_t>(entryIndex));
+            = At(
+                Entries,
+                static_cast<std::size_t>(
+                    entryIndex));
 
         for (std::int32_t i = 0;
             i < entry.DataCount;
             ++i)
         {
-            const std::uint16_t dataIndex = At(
-                DataIndices,
-                static_cast<std::size_t>(entry.DataStartIndex) + i);
+            const std::uint16_t dataIndex
+                = At(
+                    DataIndices,
+                    static_cast<std::size_t>(
+                        entry.DataStartIndex)
+                        + i);
 
             const CollisionData& data
                 = At(Data, dataIndex);
 
-            if (scene.ColTerDisplay != MphRead::Terrain::All
-                && scene.ColTerDisplay != data.Terrain())
+            if (scene.ColTerDisplay
+                    != MphRead::Terrain::All
+                && scene.ColTerDisplay
+                    != data.Terrain())
             {
                 continue;
             }
 
-            if ((scene.ColTypeDisplay == CollisionType::Player
+            if ((scene.ColTypeDisplay
+                        == CollisionType::Player
                     && data.IgnorePlayers())
-                || (scene.ColTypeDisplay == CollisionType::Beam
+                || (scene.ColTypeDisplay
+                        == CollisionType::Beam
                     && data.IgnoreBeams())
-                || (scene.ColTypeDisplay == CollisionType::Both
-                    && (data.IgnorePlayers() || data.IgnoreBeams())))
+                || (scene.ColTypeDisplay
+                        == CollisionType::Both
+                    && (data.IgnorePlayers()
+                        || data.IgnoreBeams())))
             {
                 continue;
             }
 
             OpenTK::Mathematics::Vector4 color{};
 
-            if (scene.ColDisplayColor == CollisionColor::Entity)
+            if (scene.ColDisplayColor
+                == CollisionColor::Entity)
             {
-                if (entityType == MphRead::EntityType::Platform)
+                if (entityType
+                    == MphRead::EntityType::Platform)
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.109F, 0.768F, 0.850F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.109F,
+                            0.768F,
+                            0.850F,
+                            1.0F);
                 }
-                else if (entityType == MphRead::EntityType::Object)
+                else if (entityType
+                    == MphRead::EntityType::Object)
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.952F, 0.105F, 0.635F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.952F,
+                            0.105F,
+                            0.635F,
+                            1.0F);
                 }
                 else
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.952F, 0.694F, 0.105F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.952F,
+                            0.694F,
+                            0.105F,
+                            1.0F);
                 }
             }
-            else if (scene.ColDisplayColor == CollisionColor::Terrain)
+            else if (scene.ColDisplayColor
+                == CollisionColor::Terrain)
             {
                 color = Colors().at(
-                    static_cast<std::size_t>(data.Terrain()));
+                    static_cast<std::size_t>(
+                        data.Terrain()));
             }
-            else if (scene.ColDisplayColor == CollisionColor::Type)
+            else if (scene.ColDisplayColor
+                == CollisionColor::Type)
             {
                 if (data.IgnoreBeams())
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.956F, 0.933F, 0.203F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.956F,
+                            0.933F,
+                            0.203F,
+                            1.0F);
                 }
                 else if (data.IgnorePlayers())
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.250F, 0.807F, 0.250F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.250F,
+                            0.807F,
+                            0.250F,
+                            1.0F);
                 }
                 else
                 {
-                    color = OpenTK::Mathematics::Vector4(
-                        0.807F, 0.250F, 0.776F, 1.0F);
+                    color
+                        = OpenTK::Mathematics::Vector4(
+                            0.807F,
+                            0.250F,
+                            0.776F,
+                            1.0F);
                 }
             }
             else
             {
-                color = OpenTK::Mathematics::Vector4(
-                    1.0F, 0.0F, 0.0F, 1.0F);
+                color
+                    = OpenTK::Mathematics::Vector4(
+                        1.0F,
+                        0.0F,
+                        0.0F,
+                        1.0F);
             }
 
             color.W = scene.ColDisplayAlpha;
 
-            assert(
+            MPHREAD_COLLISION_DEBUG_ASSERT(
                 data.PointIndexCount >= 3
                 && data.PointIndexCount <= 10);
 
             auto verts = std::make_shared<
-                MphRead::ManagedArray<OpenTK::Mathematics::Vector3>>(
-                    data.PointIndexCount);
+                MphRead::ManagedArray<
+                    OpenTK::Mathematics::Vector3>>(
+                        data.PointIndexCount);
 
             for (std::int32_t j = 0;
                 j < data.PointIndexCount;
                 ++j)
             {
-                const std::uint16_t pointIndex = At(
-                    PointIndices,
-                    static_cast<std::size_t>(data.PointStartIndex) + j);
+                const std::uint16_t pointIndex
+                    = At(
+                        PointIndices,
+                        static_cast<std::size_t>(
+                            data.PointStartIndex)
+                            + j);
 
-                (*verts)[j] = At(points, pointIndex);
+                (*verts)[j]
+                    = At(points, pointIndex);
             }
 
             scene.AddRenderItem(
@@ -852,16 +1145,23 @@ namespace MphRead::Formats::Collision
         }
 
         auto bverts = std::make_shared<
-            MphRead::ManagedArray<OpenTK::Mathematics::Vector3>>(8);
+            MphRead::ManagedArray<
+                OpenTK::Mathematics::Vector3>>(8);
 
-        OpenTK::Mathematics::Vector3 point0 = MinPosition;
+        OpenTK::Mathematics::Vector3 point0
+            = MinPosition;
 
         const OpenTK::Mathematics::Vector3i partInc
             = PartIndexFromEntry(entryIndex);
 
-        point0.X += static_cast<float>(partInc.X * 4);
-        point0.Y += static_cast<float>(partInc.Y * 4);
-        point0.Z += static_cast<float>(partInc.Z * 4);
+        point0.X += static_cast<float>(
+            WrapMultiply(partInc.X, 4));
+
+        point0.Y += static_cast<float>(
+            WrapMultiply(partInc.Y, 4));
+
+        point0.Z += static_cast<float>(
+            WrapMultiply(partInc.Z, 4));
 
         const OpenTK::Mathematics::Vector3 sideX(
             4.0F, 0.0F, 0.0F);
@@ -877,12 +1177,16 @@ namespace MphRead::Formats::Collision
         (*bverts)[4] = point0 + sideY;
         (*bverts)[5] = point0 + sideY + sideZ;
         (*bverts)[6] = point0 + sideX + sideY;
-        (*bverts)[7] = point0 + sideX + sideY + sideZ;
+        (*bverts)[7]
+            = point0 + sideX + sideY + sideZ;
 
         polygonId = scene.GetNextPolygonId();
 
         const OpenTK::Mathematics::Vector4 bcolor(
-            1.0F, 0.3F, 1.0F, 0.5F);
+            1.0F,
+            0.3F,
+            1.0F,
+            0.5F);
 
         scene.AddRenderItem(
             MphRead::CullingMode::Front,
@@ -895,15 +1199,25 @@ namespace MphRead::Formats::Collision
 
     FhCollisionInfo::FhCollisionInfo(
         FhCollisionHeader header,
-        std::shared_ptr<const std::vector<MphRead::Vector3Fx>> points,
-        std::shared_ptr<const std::vector<MphRead::Vector4Fx>> planes,
-        std::shared_ptr<const std::vector<FhCollisionData>> data,
-        std::shared_ptr<const std::vector<FhCollisionVector>> vectors,
-        std::shared_ptr<const std::vector<std::uint16_t>> dataIndices,
-        std::shared_ptr<const std::vector<std::shared_ptr<Portal>>> portals,
-        std::shared_ptr<const std::vector<FhCollisionEntry>> entries,
-        std::shared_ptr<const std::vector<std::int32_t>> treeNodeIndices,
-        std::shared_ptr<const std::vector<FhCollisionTreeNode>> treeNodes)
+        std::shared_ptr<
+            const std::vector<MphRead::Vector3Fx>> points,
+        std::shared_ptr<
+            const std::vector<MphRead::Vector4Fx>> planes,
+        std::shared_ptr<
+            const std::vector<FhCollisionData>> data,
+        std::shared_ptr<
+            const std::vector<FhCollisionVector>> vectors,
+        std::shared_ptr<
+            const std::vector<std::uint16_t>> dataIndices,
+        std::shared_ptr<
+            const std::vector<
+                std::shared_ptr<Portal>>> portals,
+        std::shared_ptr<
+            const std::vector<FhCollisionEntry>> entries,
+        std::shared_ptr<
+            const std::vector<std::int32_t>> treeNodeIndices,
+        std::shared_ptr<
+            const std::vector<FhCollisionTreeNode>> treeNodes)
         : CollisionInfo(
               std::move(points),
               std::move(planes),
@@ -914,23 +1228,28 @@ namespace MphRead::Formats::Collision
           Vectors(std::move(vectors)),
           DataIndices(std::move(dataIndices)),
           Entries(std::move(entries)),
-          TreeNodeIndices(std::move(treeNodeIndices)),
+          TreeNodeIndices(
+              std::move(treeNodeIndices)),
           TreeNodes(std::move(treeNodes))
     {
     }
 
     void FhCollisionInfo::GetDrawInfo(
-        std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> points,
+        std::shared_ptr<
+            const std::vector<
+                OpenTK::Mathematics::Vector3>> points,
         OpenTK::Mathematics::Vector3 translation,
         MphRead::EntityType entityType,
         MphRead::Scene* scenePtr)
     {
         static_cast<void>(entityType);
 
-        MphRead::Scene& scene = RequireScene(scenePtr);
+        MphRead::Scene& scene
+            = RequireScene(scenePtr);
 
         OpenTK::Mathematics::Vector4 color(
-            OpenTK::Mathematics::Vector3(1.0F, 0.0F, 0.0F),
+            OpenTK::Mathematics::Vector3(
+                1.0F, 0.0F, 0.0F),
             0.5F);
 
         color.W = scene.ColDisplayAlpha;
@@ -938,33 +1257,41 @@ namespace MphRead::Formats::Collision
         const std::int32_t polygonId
             = scene.GetNextPolygonId();
 
-        const std::size_t portalCount = Count(Portals);
-        const std::size_t dataCount = Count(Data);
+        const std::size_t portalCount
+            = Count(Portals);
 
         for (std::size_t i = portalCount;
-            i < dataCount;
+            i < Count(Data);
             ++i)
         {
-            const FhCollisionData& data = (*Data)[i];
+            const FhCollisionData& data
+                = At(Data, i);
 
-            assert(
+            MPHREAD_COLLISION_DEBUG_ASSERT(
                 data.VectorCount >= 3
                 && data.VectorCount <= 8);
 
             auto verts = std::make_shared<
-                MphRead::ManagedArray<OpenTK::Mathematics::Vector3>>(
-                    data.VectorCount);
+                MphRead::ManagedArray<
+                    OpenTK::Mathematics::Vector3>>(
+                        data.VectorCount);
 
             for (std::int32_t j = 0;
                 j < data.VectorCount;
                 ++j)
             {
-                const FhCollisionVector& vector = At(
-                    Vectors,
-                    static_cast<std::size_t>(data.VectorStartIndex) + j);
+                const FhCollisionVector& vector
+                    = At(
+                        Vectors,
+                        static_cast<std::size_t>(
+                            data.VectorStartIndex)
+                            + j);
 
                 (*verts)[j]
-                    = At(points, vector.Point2Index) + translation;
+                    = At(
+                        points,
+                        vector.Point2Index)
+                    + translation;
             }
 
             scene.AddRenderItem(
@@ -978,13 +1305,17 @@ namespace MphRead::Formats::Collision
     }
 
     void FhCollisionInfo::GetPartition(
-        std::shared_ptr<std::vector<OpenTK::Mathematics::Vector3>> points,
+        std::shared_ptr<
+            std::vector<
+                OpenTK::Mathematics::Vector3>> points,
         MphRead::Scene* scenePtr) const
     {
-        MphRead::Scene& scene = RequireScene(scenePtr);
+        MphRead::Scene& scene
+            = RequireScene(scenePtr);
 
         const std::int32_t entryIndex
-            = static_cast<std::int32_t>(scene.ShowVolumes);
+            = static_cast<std::int32_t>(
+                scene.ShowVolumes);
 
         if (entryIndex <= 0)
         {
@@ -992,7 +1323,8 @@ namespace MphRead::Formats::Collision
         }
 
         OpenTK::Mathematics::Vector4 color(
-            OpenTK::Mathematics::Vector3(1.0F, 0.0F, 0.0F),
+            OpenTK::Mathematics::Vector3(
+                1.0F, 0.0F, 0.0F),
             0.5F);
 
         color.W = scene.ColDisplayAlpha;
@@ -1000,38 +1332,53 @@ namespace MphRead::Formats::Collision
         std::int32_t polygonId
             = scene.GetNextPolygonId();
 
-        // Deliberately no upper-bound guard: C# indexes directly here.
         const FhCollisionEntry& entry
-            = At(Entries, static_cast<std::size_t>(entryIndex));
+            = At(
+                Entries,
+                static_cast<std::size_t>(
+                    entryIndex));
 
         for (std::int32_t i = 0;
             i < entry.DataCount;
             ++i)
         {
-            const std::int32_t dataIndex = At(
-                DataIndices,
-                static_cast<std::size_t>(entry.DataStartIndex) + i);
+            const std::int32_t dataIndex
+                = At(
+                    DataIndices,
+                    static_cast<std::size_t>(
+                        entry.DataStartIndex)
+                        + i);
 
             const FhCollisionData& data
-                = At(Data, static_cast<std::size_t>(dataIndex));
+                = At(
+                    Data,
+                    static_cast<std::size_t>(
+                        dataIndex));
 
-            assert(
+            MPHREAD_COLLISION_DEBUG_ASSERT(
                 data.VectorCount >= 3
                 && data.VectorCount <= 8);
 
             auto verts = std::make_shared<
-                MphRead::ManagedArray<OpenTK::Mathematics::Vector3>>(
-                    data.VectorCount);
+                MphRead::ManagedArray<
+                    OpenTK::Mathematics::Vector3>>(
+                        data.VectorCount);
 
             for (std::int32_t j = 0;
                 j < data.VectorCount;
                 ++j)
             {
-                const FhCollisionVector& vector = At(
-                    Vectors,
-                    static_cast<std::size_t>(data.VectorStartIndex) + j);
+                const FhCollisionVector& vector
+                    = At(
+                        Vectors,
+                        static_cast<std::size_t>(
+                            data.VectorStartIndex)
+                            + j);
 
-                (*verts)[j] = At(points, vector.Point2Index);
+                (*verts)[j]
+                    = At(
+                        points,
+                        vector.Point2Index);
             }
 
             scene.AddRenderItem(
@@ -1044,7 +1391,8 @@ namespace MphRead::Formats::Collision
         }
 
         auto bverts = std::make_shared<
-            MphRead::ManagedArray<OpenTK::Mathematics::Vector3>>(8);
+            MphRead::ManagedArray<
+                OpenTK::Mathematics::Vector3>>(8);
 
         const OpenTK::Mathematics::Vector3 minPoint
             = entry.MinBounds.ToFloatVector();
@@ -1073,13 +1421,18 @@ namespace MphRead::Formats::Collision
         (*bverts)[3] = minPoint + sideX + sideZ;
         (*bverts)[4] = minPoint + sideY;
         (*bverts)[5] = minPoint + sideY + sideZ;
-        (*bverts)[6] = minPoint + sideX + sideY;
-        (*bverts)[7] = minPoint + sideX + sideY + sideZ;
+        (*bverts)[6]
+            = minPoint + sideX + sideY;
+        (*bverts)[7]
+            = minPoint + sideX + sideY + sideZ;
 
         polygonId = scene.GetNextPolygonId();
 
         const OpenTK::Mathematics::Vector4 bcolor(
-            1.0F, 0.3F, 1.0F, 0.5F);
+            1.0F,
+            0.3F,
+            1.0F,
+            0.5F);
 
         scene.AddRenderItem(
             MphRead::CullingMode::Front,
@@ -1090,7 +1443,8 @@ namespace MphRead::Formats::Collision
             8);
     }
 
-    std::shared_ptr<CollisionInstance> Collision::GetCollision(
+    std::shared_ptr<CollisionInstance>
+    Collision::GetCollision(
         const MphRead::ModelMetadata* meta,
         bool extra)
     {
@@ -1104,11 +1458,13 @@ namespace MphRead::Formats::Collision
             ? meta->ExtraCollisionPath
             : meta->CollisionPath;
 
-        assert(path.has_value());
+        MPHREAD_COLLISION_DEBUG_ASSERT(
+            path.has_value());
 
         std::string name = meta->Name;
 
-        if (name == "AlimbicCapsule" && extra)
+        if (name == "AlimbicCapsule"
+            && extra)
         {
             name = "AlmbCapsuleShld";
         }
@@ -1121,7 +1477,8 @@ namespace MphRead::Formats::Collision
             true);
     }
 
-    std::shared_ptr<CollisionInstance> Collision::GetCollision(
+    std::shared_ptr<CollisionInstance>
+    Collision::GetCollision(
         const MphRead::RoomMetadata* meta,
         std::int32_t roomLayerMask)
     {
@@ -1136,32 +1493,38 @@ namespace MphRead::Formats::Collision
             const std::uint32_t bit
                 = 1U
                 << (
-                    static_cast<std::uint32_t>(meta->NodeLayer)
+                    static_cast<std::uint32_t>(
+                        meta->NodeLayer)
                     & 31U
                 );
 
-            roomLayerMask = static_cast<std::int32_t>(
-                (bit & 0xFFU) << 6);
+            roomLayerMask
+                = static_cast<std::int32_t>(
+                    (bit & 0xFFU) << 6);
         }
 
         return GetCollision(
-            std::optional<std::string>(meta->CollisionPath),
+            std::optional<std::string>(
+                meta->CollisionPath),
             meta->Name,
             meta->FirstHunt || meta->Hybrid,
             roomLayerMask,
             false);
     }
 
-    std::shared_ptr<CollisionInstance> Collision::GetCollision(
+    std::shared_ptr<CollisionInstance>
+    Collision::GetCollision(
         std::optional<std::string> path,
         std::string name,
         bool firstHunt,
         std::int32_t roomLayerMask,
         bool isEntity)
     {
-        CollisionCaches& caches = Caches();
+        CollisionCaches& caches
+            = Caches();
 
-        auto& cache = firstHunt
+        auto& cache
+            = firstHunt
             ? caches.Fh
             : caches.Mph;
 
@@ -1169,22 +1532,29 @@ namespace MphRead::Formats::Collision
         {
             if (!path)
             {
-                throw System::ArgumentNullException("key");
+                throw System::ArgumentNullException(
+                    "key");
             }
 
-            const auto existing = cache.find(*path);
+            const auto existing
+                = cache.find(*path);
+
             if (existing != cache.end())
             {
-                return std::make_shared<CollisionInstance>(
-                    std::move(name),
-                    existing->second,
-                    isEntity);
+                return std::make_shared<
+                    CollisionInstance>(
+                        std::move(name),
+                        existing->second,
+                        isEntity);
             }
         }
 
         if (!path)
         {
-            throw System::ArgumentNullException("path");
+            // Exact behavior at this point ultimately depends on the
+            // prerequisite Paths.Combine contract.
+            throw System::ArgumentNullException(
+                "path");
         }
 
         // Exact prerequisite contracts:
@@ -1192,36 +1562,36 @@ namespace MphRead::Formats::Collision
         // Paths::FileSystem
         // Paths::FhFileSystem
         // Paths::Combine(root, relativePath)
-        // System.IO File.ReadAllBytes equivalent
+        // System::IO::File::ReadAllBytes
+        // Read::ReadStruct<T>
+        // Read::DoOffsets<T>
+        // Scene
         //
-        // The actual call must remain behaviorally identical to:
-        //
-        // File.ReadAllBytes(Paths.Combine(
-        //     firstHunt ? Paths.FhFileSystem : Paths.FileSystem,
-        //     path))
-        //
-        // The following names intentionally assume those exact prerequisite
-        // Native counterparts.
+        // They remain external to this Collision slice.
 
-        const std::string fullPath = Paths::Combine(
-            firstHunt
-                ? Paths::FhFileSystem
-                : Paths::FileSystem,
-            *path);
+        const std::string fullPath
+            = Paths::Combine(
+                firstHunt
+                    ? Paths::FhFileSystem
+                    : Paths::FileSystem,
+                *path);
 
         const std::vector<std::uint8_t> storage
-            = System::IO::File::ReadAllBytes(fullPath);
+            = System::IO::File::ReadAllBytes(
+                fullPath);
 
         const std::span<const std::uint8_t> bytes(
             storage.data(),
             storage.size());
 
         const CollisionHeader header
-            = Read::ReadStruct<CollisionHeader>(bytes);
+            = Read::ReadStruct<CollisionHeader>(
+                bytes);
 
         std::shared_ptr<CollisionInfo> info;
 
-        if (MarshalString(header.Type) == "wc01")
+        if (MarshalString(header.Type)
+            == "wc01")
         {
             info = ReadMphCollision(
                 header,
@@ -1236,23 +1606,30 @@ namespace MphRead::Formats::Collision
         if (roomLayerMask == -1)
         {
             const auto [iterator, inserted]
-                = cache.emplace(*path, info);
+                = cache.emplace(
+                    *path,
+                    info);
+
+            static_cast<void>(iterator);
 
             if (!inserted)
             {
-                // Dictionary.Add would fail rather than overwrite.
+                // Exact Dictionary.Add ArgumentException translation
+                // belongs to the managed exception prerequisite.
                 throw std::runtime_error(
                     "An item with the same key has already been added.");
             }
         }
 
-        return std::make_shared<CollisionInstance>(
-            std::move(name),
-            std::move(info),
-            isEntity);
+        return std::make_shared<
+            CollisionInstance>(
+                std::move(name),
+                std::move(info),
+                isEntity);
     }
 
-    std::shared_ptr<MphCollisionInfo> Collision::ReadMphCollision(
+    std::shared_ptr<MphCollisionInfo>
+    Collision::ReadMphCollision(
         CollisionHeader header,
         std::span<const std::uint8_t> bytes,
         std::int32_t roomLayerMask)
@@ -1293,34 +1670,39 @@ namespace MphRead::Formats::Collision
                 header.EntryOffset,
                 header.EntryCount);
 
-        auto portals
-            = std::make_shared<std::vector<std::shared_ptr<Portal>>>();
+        auto portals = std::make_shared<
+            std::vector<
+                std::shared_ptr<Portal>>>();
 
         const auto rawPortals
-            = Read::DoOffsets<RawCollisionPortal>(
-                bytes,
-                header.PortalOffset,
-                header.PortalCount);
+            = Read::DoOffsets<
+                RawCollisionPortal>(
+                    bytes,
+                    header.PortalOffset,
+                    header.PortalCount);
 
-        for (const RawCollisionPortal& portal : *rawPortals)
+        for (const RawCollisionPortal& portal
+            : *rawPortals)
         {
             if ((portal.LayerMask & 4) != 0
                 || roomLayerMask == -1
-                || (portal.LayerMask & roomLayerMask) != 0)
+                || (portal.LayerMask
+                    & roomLayerMask) != 0)
             {
                 portals->push_back(
-                    std::make_shared<Portal>(portal));
+                    std::make_shared<Portal>(
+                        portal));
             }
         }
 
-        auto finalData
-            = std::make_shared<std::vector<CollisionData>>();
+        auto finalData = std::make_shared<
+            std::vector<CollisionData>>();
 
-        auto finalIndices
-            = std::make_shared<std::vector<std::uint16_t>>();
+        auto finalIndices = std::make_shared<
+            std::vector<std::uint16_t>>();
 
-        auto finalEntries
-            = std::make_shared<std::vector<CollisionEntry>>();
+        auto finalEntries = std::make_shared<
+            std::vector<CollisionEntry>>();
 
         if (roomLayerMask == -1)
         {
@@ -1341,55 +1723,86 @@ namespace MphRead::Formats::Collision
         }
         else
         {
-            std::unordered_map<std::uint16_t, std::uint16_t> indexMap;
+            std::unordered_map<
+                std::uint16_t,
+                std::uint16_t> indexMap;
 
-            for (const CollisionEntry& entry : *entries)
+            for (const CollisionEntry& entry
+                : *entries)
             {
                 if (entry.DataCount > 0)
                 {
                     std::uint16_t newCount = 0;
 
-                    const std::uint16_t newStartIndex
-                        = static_cast<std::uint16_t>(
-                            finalIndices->size());
+                    const std::uint16_t
+                        newStartIndex
+                        = static_cast<
+                            std::uint16_t>(
+                                finalIndices
+                                    ->size());
 
                     for (std::int32_t i = 0;
                         i < entry.DataCount;
                         ++i)
                     {
-                        const std::uint16_t oldIndex = dataIdxs->at(
-                            static_cast<std::size_t>(
-                                entry.DataStartIndex) + i);
+                        const std::uint16_t
+                            oldIndex
+                            = dataIdxs->at(
+                                static_cast<
+                                    std::size_t>(
+                                        entry
+                                            .DataStartIndex)
+                                    + i);
 
                         const auto mapped
-                            = indexMap.find(oldIndex);
+                            = indexMap.find(
+                                oldIndex);
 
-                        if (mapped != indexMap.end())
+                        if (mapped
+                            != indexMap.end())
                         {
-                            finalIndices->push_back(
-                                mapped->second);
+                            finalIndices
+                                ->push_back(
+                                    mapped->second);
 
-                            newCount = static_cast<std::uint16_t>(
-                                newCount + 1);
+                            newCount
+                                = static_cast<
+                                    std::uint16_t>(
+                                        newCount + 1);
                         }
                         else
                         {
-                            const CollisionData& item
-                                = data->at(oldIndex);
+                            const CollisionData&
+                                item
+                                = data->at(
+                                    oldIndex);
 
-                            if ((item.LayerMask & 4) != 0
-                                || (item.LayerMask & roomLayerMask) != 0)
+                            if ((item.LayerMask & 4)
+                                    != 0
+                                || (item.LayerMask
+                                    & roomLayerMask)
+                                    != 0)
                             {
-                                const std::uint16_t newIndex
-                                    = static_cast<std::uint16_t>(
-                                        finalData->size());
+                                const std::uint16_t
+                                    newIndex
+                                    = static_cast<
+                                        std::uint16_t>(
+                                            finalData
+                                                ->size());
 
-                                finalIndices->push_back(newIndex);
-                                finalData->push_back(item);
+                                finalIndices
+                                    ->push_back(
+                                        newIndex);
+
+                                finalData
+                                    ->push_back(
+                                        item);
 
                                 newCount
-                                    = static_cast<std::uint16_t>(
-                                        newCount + 1);
+                                    = static_cast<
+                                        std::uint16_t>(
+                                            newCount
+                                            + 1);
 
                                 indexMap.emplace(
                                     oldIndex,
@@ -1398,45 +1811,52 @@ namespace MphRead::Formats::Collision
                         }
                     }
 
-                    finalEntries->emplace_back(
-                        newCount,
-                        newStartIndex);
+                    finalEntries
+                        ->emplace_back(
+                            newCount,
+                            newStartIndex);
                 }
                 else
                 {
-                    finalEntries->push_back(entry);
+                    finalEntries
+                        ->push_back(entry);
                 }
             }
         }
 
-        return std::make_shared<MphCollisionInfo>(
-            header,
-            points,
-            planes,
-            pointIdxs,
-            finalData,
-            finalIndices,
-            finalEntries,
-            portals);
+        return std::make_shared<
+            MphCollisionInfo>(
+                header,
+                points,
+                planes,
+                pointIdxs,
+                finalData,
+                finalIndices,
+                finalEntries,
+                portals);
     }
 
-    std::shared_ptr<FhCollisionInfo> Collision::ReadFhCollision(
+    std::shared_ptr<FhCollisionInfo>
+    Collision::ReadFhCollision(
         std::span<const std::uint8_t> bytes)
     {
         const FhCollisionHeader header
-            = Read::ReadStruct<FhCollisionHeader>(bytes);
+            = Read::ReadStruct<
+                FhCollisionHeader>(bytes);
 
         const auto data
-            = Read::DoOffsets<FhCollisionData>(
-                bytes,
-                header.DataOffset,
-                header.DataCount);
+            = Read::DoOffsets<
+                FhCollisionData>(
+                    bytes,
+                    header.DataOffset,
+                    header.DataCount);
 
         const auto vectors
-            = Read::DoOffsets<FhCollisionVector>(
-                bytes,
-                header.VectorOffset,
-                header.VectorCount);
+            = Read::DoOffsets<
+                FhCollisionVector>(
+                    bytes,
+                    header.VectorOffset,
+                    header.VectorCount);
 
         const auto dataIndices
             = Read::DoOffsets<std::uint16_t>(
@@ -1445,45 +1865,53 @@ namespace MphRead::Formats::Collision
                 header.DataIndexCount);
 
         const auto points
-            = Read::DoOffsets<MphRead::Vector3Fx>(
-                bytes,
-                header.PointOffset,
-                header.PointCount);
+            = Read::DoOffsets<
+                MphRead::Vector3Fx>(
+                    bytes,
+                    header.PointOffset,
+                    header.PointCount);
 
         const auto planes
-            = Read::DoOffsets<MphRead::Vector4Fx>(
-                bytes,
-                header.PlaneOffset,
-                header.PlaneCount);
+            = Read::DoOffsets<
+                MphRead::Vector4Fx>(
+                    bytes,
+                    header.PlaneOffset,
+                    header.PlaneCount);
 
         const auto entries
-            = Read::DoOffsets<FhCollisionEntry>(
-                bytes,
-                header.EntryOffset,
-                header.EntryCount);
+            = Read::DoOffsets<
+                FhCollisionEntry>(
+                    bytes,
+                    header.EntryOffset,
+                    header.EntryCount);
 
         const auto treeNodeIndices
-            = Read::DoOffsets<std::int32_t>(
-                bytes,
-                header.TreeNodeIndexOffset,
-                header.TreeNodeIndexCount);
+            = Read::DoOffsets<
+                std::int32_t>(
+                    bytes,
+                    header.TreeNodeIndexOffset,
+                    header.TreeNodeIndexCount);
 
         const auto treeNodes
-            = Read::DoOffsets<FhCollisionTreeNode>(
-                bytes,
-                header.TreeNodeOffset,
-                header.TreeNodeCount);
+            = Read::DoOffsets<
+                FhCollisionTreeNode>(
+                    bytes,
+                    header.TreeNodeOffset,
+                    header.TreeNodeCount);
 
-        auto portals
-            = std::make_shared<std::vector<std::shared_ptr<Portal>>>();
+        auto portals = std::make_shared<
+            std::vector<
+                std::shared_ptr<Portal>>>();
 
         const auto rawPortals
-            = Read::DoOffsets<FhCollisionPortal>(
-                bytes,
-                header.PortalOffset,
-                header.PortalCount);
+            = Read::DoOffsets<
+                FhCollisionPortal>(
+                    bytes,
+                    header.PortalOffset,
+                    header.PortalCount);
 
-        for (const FhCollisionPortal& portal : *rawPortals)
+        for (const FhCollisionPortal& portal
+            : *rawPortals)
         {
             portals->push_back(
                 std::make_shared<Portal>(
@@ -1493,16 +1921,19 @@ namespace MphRead::Formats::Collision
                     planes));
         }
 
-        return std::make_shared<FhCollisionInfo>(
-            header,
-            points,
-            planes,
-            data,
-            vectors,
-            dataIndices,
-            portals,
-            entries,
-            treeNodeIndices,
-            treeNodes);
+        return std::make_shared<
+            FhCollisionInfo>(
+                header,
+                points,
+                planes,
+                data,
+                vectors,
+                dataIndices,
+                portals,
+                entries,
+                treeNodeIndices,
+                treeNodes);
     }
 }
+
+#undef MPHREAD_COLLISION_DEBUG_ASSERT

@@ -20,6 +20,7 @@ namespace MphRead
     class RoomMetadata;
     class Scene;
 }
+
 namespace MphRead::Formats::Collision
 {
     class CollisionInstance;
@@ -47,6 +48,11 @@ namespace MphRead::Formats::Collision
         EntityCollision(
             std::shared_ptr<CollisionInstance> collision,
             std::shared_ptr<MphRead::EntityBase> entity);
+
+        EntityCollision(const EntityCollision&) = delete;
+        EntityCollision& operator=(const EntityCollision&) = delete;
+        EntityCollision(EntityCollision&&) = delete;
+        EntityCollision& operator=(EntityCollision&&) = delete;
     };
 
     enum class CollisionFlags : std::uint16_t
@@ -80,7 +86,44 @@ namespace MphRead::Formats::Collision
             & static_cast<std::uint16_t>(right));
     }
 
-    struct CollisionHeader
+    [[nodiscard]] constexpr CollisionFlags operator^(
+        CollisionFlags left, CollisionFlags right) noexcept
+    {
+        return static_cast<CollisionFlags>(
+            static_cast<std::uint16_t>(left)
+            ^ static_cast<std::uint16_t>(right));
+    }
+
+    [[nodiscard]] constexpr CollisionFlags operator~(
+        CollisionFlags value) noexcept
+    {
+        return static_cast<CollisionFlags>(
+            static_cast<std::uint16_t>(
+                ~static_cast<std::uint16_t>(value)));
+    }
+
+    constexpr CollisionFlags& operator|=(
+        CollisionFlags& left, CollisionFlags right) noexcept
+    {
+        left = left | right;
+        return left;
+    }
+
+    constexpr CollisionFlags& operator&=(
+        CollisionFlags& left, CollisionFlags right) noexcept
+    {
+        left = left & right;
+        return left;
+    }
+
+    constexpr CollisionFlags& operator^=(
+        CollisionFlags& left, CollisionFlags right) noexcept
+    {
+        left = left ^ right;
+        return left;
+    }
+
+    struct CollisionHeader final
     {
         const std::array<char, 4> Type{};
         const std::uint32_t PointCount = 0;
@@ -107,7 +150,7 @@ namespace MphRead::Formats::Collision
         CollisionHeader& operator=(const CollisionHeader& other) noexcept;
     };
 
-    struct CollisionData
+    struct CollisionData final
     {
         const std::int32_t Counter = 0;
         const std::uint16_t PlaneIndex = 0;
@@ -128,7 +171,7 @@ namespace MphRead::Formats::Collision
         [[nodiscard]] std::int32_t Axis() const noexcept;
     };
 
-    struct CollisionEntry
+    struct CollisionEntry final
     {
         const std::uint16_t DataCount = 0;
         const std::uint16_t DataStartIndex = 0;
@@ -147,7 +190,7 @@ namespace MphRead::Formats::Collision
         CollisionEntry& operator=(const CollisionEntry& other) noexcept;
     };
 
-    struct RawCollisionPortal
+    struct RawCollisionPortal final
     {
         const std::array<char, 40> Name{};
         const std::array<char, 24> NodeName1{};
@@ -189,8 +232,10 @@ namespace MphRead::Formats::Collision
         const std::uint16_t LayerMask;
         const bool IsForceField;
 
-        const std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> Points;
-        const std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector4>> Planes;
+        const std::shared_ptr<
+            const std::vector<OpenTK::Mathematics::Vector3>> Points;
+        const std::shared_ptr<
+            const std::vector<OpenTK::Mathematics::Vector4>> Planes;
 
         const OpenTK::Mathematics::Vector4 Plane;
         const OpenTK::Mathematics::Vector3 Position;
@@ -210,14 +255,33 @@ namespace MphRead::Formats::Collision
         Portal(
             std::string nodeName1,
             std::string nodeName2,
-            std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> points,
-            std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector4>> planes,
+            std::shared_ptr<
+                const std::vector<OpenTK::Mathematics::Vector3>> points,
+            std::shared_ptr<
+                const std::vector<OpenTK::Mathematics::Vector4>> planes,
             OpenTK::Mathematics::Vector4 plane);
 
         Portal(const Portal&) = delete;
         Portal& operator=(const Portal&) = delete;
         Portal(Portal&&) = delete;
         Portal& operator=(Portal&&) = delete;
+
+    private:
+        struct Initializer;
+
+        explicit Portal(Initializer initializer);
+
+        [[nodiscard]] static Initializer Initialize(
+            RawCollisionPortal raw);
+
+        [[nodiscard]] static Initializer Initialize(
+            FhCollisionPortal raw,
+            const std::shared_ptr<
+                const std::vector<FhCollisionVector>>& rawVectors,
+            const std::shared_ptr<
+                const std::vector<MphRead::Vector3Fx>>& rawPoints,
+            const std::shared_ptr<
+                const std::vector<MphRead::Vector4Fx>>& rawPlanes);
     };
 
     class CollisionInstance
@@ -235,6 +299,11 @@ namespace MphRead::Formats::Collision
             std::string name,
             std::shared_ptr<CollisionInfo> info,
             bool isEntity);
+
+        CollisionInstance(const CollisionInstance&) = delete;
+        CollisionInstance& operator=(const CollisionInstance&) = delete;
+        CollisionInstance(CollisionInstance&&) = delete;
+        CollisionInstance& operator=(CollisionInstance&&) = delete;
     };
 
     class CollisionInfo
@@ -242,33 +311,47 @@ namespace MphRead::Formats::Collision
     public:
         const bool FirstHunt;
 
-        const std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> Points;
-        const std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector4>> Planes;
-        const std::shared_ptr<const std::vector<std::shared_ptr<Portal>>> Portals;
+        const std::shared_ptr<
+            const std::vector<OpenTK::Mathematics::Vector3>> Points;
+        const std::shared_ptr<
+            const std::vector<OpenTK::Mathematics::Vector4>> Planes;
+        const std::shared_ptr<
+            const std::vector<std::shared_ptr<Portal>>> Portals;
 
         CollisionInfo(
             std::shared_ptr<const std::vector<MphRead::Vector3Fx>> points,
             std::shared_ptr<const std::vector<MphRead::Vector4Fx>> planes,
-            std::shared_ptr<const std::vector<std::shared_ptr<Portal>>> portals,
+            std::shared_ptr<
+                const std::vector<std::shared_ptr<Portal>>> portals,
             bool firstHunt);
 
         virtual ~CollisionInfo() = default;
 
+        CollisionInfo(const CollisionInfo&) = delete;
+        CollisionInfo& operator=(const CollisionInfo&) = delete;
+        CollisionInfo(CollisionInfo&&) = delete;
+        CollisionInfo& operator=(CollisionInfo&&) = delete;
+
         virtual void GetDrawInfo(
-            std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> points,
+            std::shared_ptr<
+                const std::vector<OpenTK::Mathematics::Vector3>> points,
             OpenTK::Mathematics::Vector3 translation,
             MphRead::EntityType entityType,
             MphRead::Scene* scene) = 0;
     };
 
-    class MphCollisionInfo final : public CollisionInfo
+    class MphCollisionInfo : public CollisionInfo
     {
     public:
         const CollisionHeader Header;
-        const std::shared_ptr<const std::vector<std::uint16_t>> PointIndices;
-        const std::shared_ptr<const std::vector<CollisionData>> Data;
-        const std::shared_ptr<const std::vector<std::uint16_t>> DataIndices;
-        const std::shared_ptr<const std::vector<CollisionEntry>> Entries;
+        const std::shared_ptr<
+            const std::vector<std::uint16_t>> PointIndices;
+        const std::shared_ptr<
+            const std::vector<CollisionData>> Data;
+        const std::shared_ptr<
+            const std::vector<std::uint16_t>> DataIndices;
+        const std::shared_ptr<
+            const std::vector<CollisionEntry>> Entries;
         const OpenTK::Mathematics::Vector3 MinPosition;
 
         MphCollisionInfo(
@@ -279,10 +362,12 @@ namespace MphRead::Formats::Collision
             std::shared_ptr<const std::vector<CollisionData>> data,
             std::shared_ptr<const std::vector<std::uint16_t>> dataIdxs,
             std::shared_ptr<const std::vector<CollisionEntry>> entries,
-            std::shared_ptr<const std::vector<std::shared_ptr<Portal>>> portals);
+            std::shared_ptr<
+                const std::vector<std::shared_ptr<Portal>>> portals);
 
         void GetDrawInfo(
-            std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> points,
+            std::shared_ptr<
+                const std::vector<OpenTK::Mathematics::Vector3>> points,
             OpenTK::Mathematics::Vector3 translation,
             MphRead::EntityType entityType,
             MphRead::Scene* scene) override;
@@ -295,15 +380,17 @@ namespace MphRead::Formats::Collision
 
         void GetPartition(
             OpenTK::Mathematics::Vector3 point,
-            std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> points,
+            std::shared_ptr<
+                const std::vector<OpenTK::Mathematics::Vector3>> points,
             MphRead::EntityType entityType,
             MphRead::Scene* scene) const;
 
     private:
-        [[nodiscard]] static const std::array<OpenTK::Mathematics::Vector4, 12>& Colors();
+        [[nodiscard]] static const std::array<
+            OpenTK::Mathematics::Vector4, 12>& Colors();
     };
 
-    struct FhCollisionPortal
+    struct FhCollisionPortal final
     {
         const std::array<char, 40> Name{};
         const std::array<char, 16> NodeName1{};
@@ -317,10 +404,11 @@ namespace MphRead::Formats::Collision
 
         FhCollisionPortal() noexcept = default;
         FhCollisionPortal(const FhCollisionPortal&) noexcept = default;
-        FhCollisionPortal& operator=(const FhCollisionPortal& other) noexcept;
+        FhCollisionPortal& operator=(
+            const FhCollisionPortal& other) noexcept;
     };
 
-    struct FhCollisionHeader
+    struct FhCollisionHeader final
     {
         const std::uint32_t PointCount = 0;
         const std::uint32_t PointOffset = 0;
@@ -344,10 +432,11 @@ namespace MphRead::Formats::Collision
 
         FhCollisionHeader() noexcept = default;
         FhCollisionHeader(const FhCollisionHeader&) noexcept = default;
-        FhCollisionHeader& operator=(const FhCollisionHeader& other) noexcept;
+        FhCollisionHeader& operator=(
+            const FhCollisionHeader& other) noexcept;
     };
 
-    struct FhCollisionData
+    struct FhCollisionData final
     {
         const std::uint16_t PlaneIndex = 0;
         const std::uint16_t VectorCount = 0;
@@ -355,10 +444,11 @@ namespace MphRead::Formats::Collision
 
         FhCollisionData() noexcept = default;
         FhCollisionData(const FhCollisionData&) noexcept = default;
-        FhCollisionData& operator=(const FhCollisionData& other) noexcept;
+        FhCollisionData& operator=(
+            const FhCollisionData& other) noexcept;
     };
 
-    struct FhCollisionVector
+    struct FhCollisionVector final
     {
         const std::uint16_t Point1Index = 0;
         const std::uint16_t Point2Index = 0;
@@ -366,10 +456,11 @@ namespace MphRead::Formats::Collision
 
         FhCollisionVector() noexcept = default;
         FhCollisionVector(const FhCollisionVector&) noexcept = default;
-        FhCollisionVector& operator=(const FhCollisionVector& other) noexcept;
+        FhCollisionVector& operator=(
+            const FhCollisionVector& other) noexcept;
     };
 
-    struct FhCollisionEntry
+    struct FhCollisionEntry final
     {
         const MphRead::Vector3Fx MinBounds{};
         const MphRead::Vector3Fx MaxBounds{};
@@ -378,10 +469,11 @@ namespace MphRead::Formats::Collision
 
         FhCollisionEntry() noexcept = default;
         FhCollisionEntry(const FhCollisionEntry&) noexcept = default;
-        FhCollisionEntry& operator=(const FhCollisionEntry& other) noexcept;
+        FhCollisionEntry& operator=(
+            const FhCollisionEntry& other) noexcept;
     };
 
-    struct FhCollisionTreeNode
+    struct FhCollisionTreeNode final
     {
         const MphRead::Vector3Fx MinBounds{};
         const MphRead::Vector3Fx MaxBounds{};
@@ -389,20 +481,28 @@ namespace MphRead::Formats::Collision
         const std::uint16_t RightIndex = 0;
 
         FhCollisionTreeNode() noexcept = default;
-        FhCollisionTreeNode(const FhCollisionTreeNode&) noexcept = default;
-        FhCollisionTreeNode& operator=(const FhCollisionTreeNode& other) noexcept;
+        FhCollisionTreeNode(
+            const FhCollisionTreeNode&) noexcept = default;
+        FhCollisionTreeNode& operator=(
+            const FhCollisionTreeNode& other) noexcept;
     };
 
-    class FhCollisionInfo final : public CollisionInfo
+    class FhCollisionInfo : public CollisionInfo
     {
     public:
         const FhCollisionHeader Header;
-        const std::shared_ptr<const std::vector<FhCollisionData>> Data;
-        const std::shared_ptr<const std::vector<FhCollisionVector>> Vectors;
-        const std::shared_ptr<const std::vector<std::uint16_t>> DataIndices;
-        const std::shared_ptr<const std::vector<FhCollisionEntry>> Entries;
-        const std::shared_ptr<const std::vector<std::int32_t>> TreeNodeIndices;
-        const std::shared_ptr<const std::vector<FhCollisionTreeNode>> TreeNodes;
+        const std::shared_ptr<
+            const std::vector<FhCollisionData>> Data;
+        const std::shared_ptr<
+            const std::vector<FhCollisionVector>> Vectors;
+        const std::shared_ptr<
+            const std::vector<std::uint16_t>> DataIndices;
+        const std::shared_ptr<
+            const std::vector<FhCollisionEntry>> Entries;
+        const std::shared_ptr<
+            const std::vector<std::int32_t>> TreeNodeIndices;
+        const std::shared_ptr<
+            const std::vector<FhCollisionTreeNode>> TreeNodes;
 
         FhCollisionInfo(
             FhCollisionHeader header,
@@ -411,19 +511,24 @@ namespace MphRead::Formats::Collision
             std::shared_ptr<const std::vector<FhCollisionData>> data,
             std::shared_ptr<const std::vector<FhCollisionVector>> vectors,
             std::shared_ptr<const std::vector<std::uint16_t>> dataIndices,
-            std::shared_ptr<const std::vector<std::shared_ptr<Portal>>> portals,
+            std::shared_ptr<
+                const std::vector<std::shared_ptr<Portal>>> portals,
             std::shared_ptr<const std::vector<FhCollisionEntry>> entries,
-            std::shared_ptr<const std::vector<std::int32_t>> treeNodeIndices,
-            std::shared_ptr<const std::vector<FhCollisionTreeNode>> treeNodes);
+            std::shared_ptr<
+                const std::vector<std::int32_t>> treeNodeIndices,
+            std::shared_ptr<
+                const std::vector<FhCollisionTreeNode>> treeNodes);
 
         void GetDrawInfo(
-            std::shared_ptr<const std::vector<OpenTK::Mathematics::Vector3>> points,
+            std::shared_ptr<
+                const std::vector<OpenTK::Mathematics::Vector3>> points,
             OpenTK::Mathematics::Vector3 translation,
             MphRead::EntityType entityType,
             MphRead::Scene* scene) override;
 
         void GetPartition(
-            std::shared_ptr<std::vector<OpenTK::Mathematics::Vector3>> points,
+            std::shared_ptr<
+                std::vector<OpenTK::Mathematics::Vector3>> points,
             MphRead::Scene* scene) const;
     };
 
@@ -440,7 +545,8 @@ namespace MphRead::Formats::Collision
             const MphRead::RoomMetadata* meta,
             std::int32_t roomLayerMask = 0);
 
-        [[nodiscard]] static std::shared_ptr<MphCollisionInfo> ReadMphCollision(
+        [[nodiscard]] static std::shared_ptr<MphCollisionInfo>
+        ReadMphCollision(
             CollisionHeader header,
             std::span<const std::uint8_t> bytes,
             std::int32_t roomLayerMask);

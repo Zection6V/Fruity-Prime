@@ -1837,7 +1837,7 @@ namespace MphRead
         std::int32_t end = offset;
         for (std::int32_t i = 0; i < length; i = UncheckedAdd(i, 1))
         {
-            if (AtByte(bytes, static_cast<std::int64_t>(offset) + i) == 0)
+            if (AtByte(bytes, UncheckedAdd(offset, i)) == 0)
             {
                 break;
             }
@@ -1862,7 +1862,7 @@ namespace MphRead
         std::int32_t end = offset;
         for (std::int32_t i = 0; i < length; i = UncheckedAdd(i, 1))
         {
-            if (AtByte(bytes, static_cast<std::int64_t>(offset) + i) == 0)
+            if (AtByte(bytes, UncheckedAdd(offset, i)) == 0)
             {
                 break;
             }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Formats/Types.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -77,20 +79,47 @@ namespace MphRead
 
             [[nodiscard]] char16_t& operator[](std::size_t index) const
             {
-                return RequireStorage()->at(index);
+                auto storage = TryGetStorage();
+                if (!storage)
+                {
+                    throw System::NullReferenceException();
+                }
+                return storage->at(index);
             }
 
             [[nodiscard]] std::string MarshalString() const
             {
-                const auto storage = RequireStorage();
-                std::string result;
-                for (char16_t value : *storage)
+                const auto storage = TryGetStorage();
+                if (!storage)
                 {
-                    if (value == u'\0')
+                    throw System::ArgumentNullException("array");
+                }
+
+                std::string result;
+                for (std::size_t index = 0; index < N; ++index)
+                {
+                    const std::uint16_t first = static_cast<std::uint16_t>((*storage)[index]);
+                    if (first == 0)
                     {
                         break;
                     }
-                    const std::uint32_t codePoint = static_cast<std::uint32_t>(value);
+
+                    std::uint32_t codePoint = first;
+                    if (first >= 0xD800U && first <= 0xDBFFU && index + 1 < N)
+                    {
+                        const std::uint16_t second = static_cast<std::uint16_t>((*storage)[index + 1]);
+                        if (second >= 0xDC00U && second <= 0xDFFFU)
+                        {
+                            codePoint = 0x10000U
+                                + ((static_cast<std::uint32_t>(first) - 0xD800U) << 10)
+                                + (static_cast<std::uint32_t>(second) - 0xDC00U);
+                            ++index;
+                        }
+                    }
+                    if (codePoint > 0x10FFFFU || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
+                    {
+                        codePoint = 0xFFFDU;
+                    }
                     if (codePoint <= 0x7FU)
                     {
                         result.push_back(static_cast<char>(codePoint));
@@ -100,9 +129,16 @@ namespace MphRead
                         result.push_back(static_cast<char>(0xC0U | (codePoint >> 6)));
                         result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
                     }
-                    else
+                    else if (codePoint <= 0xFFFFU)
                     {
                         result.push_back(static_cast<char>(0xE0U | (codePoint >> 12)));
+                        result.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
+                        result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+                    }
+                    else
+                    {
+                        result.push_back(static_cast<char>(0xF0U | (codePoint >> 18)));
+                        result.push_back(static_cast<char>(0x80U | ((codePoint >> 12) & 0x3FU)));
                         result.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
                         result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
                     }
@@ -114,7 +150,7 @@ namespace MphRead
             {
                 if (bytes == nullptr)
                 {
-                    throw std::invalid_argument("Value cannot be null. (Parameter 'bytes')");
+                    throw System::ArgumentNullException("bytes");
                 }
                 auto storage = std::make_shared<ManagedStorage>();
                 for (std::size_t i = 0; i < N; ++i)
@@ -129,9 +165,11 @@ namespace MphRead
             {
                 if (auto storage = TryGetStorage())
                 {
+                    _wire.fill(0);
                     for (std::size_t i = 0; i < N; ++i)
                     {
-                        _wire[i] = static_cast<std::uint8_t>((*storage)[i] & 0x00FFU);
+                        const std::uint16_t ch = static_cast<std::uint16_t>((*storage)[i]);
+                        _wire[i] = static_cast<std::uint8_t>(ch <= 0x7FU ? ch : '?');
                     }
                 }
                 return _wire;
@@ -156,16 +194,6 @@ namespace MphRead
                 std::lock_guard<std::mutex> lock(registry.Mutex);
                 const auto iterator = registry.Storage.find(this);
                 return iterator == registry.Storage.end() ? nullptr : iterator->second;
-            }
-
-            [[nodiscard]] std::shared_ptr<ManagedStorage> RequireStorage() const
-            {
-                auto storage = TryGetStorage();
-                if (!storage)
-                {
-                    throw std::invalid_argument("Value cannot be null. (Parameter 'array')");
-                }
-                return storage;
             }
 
             void SetStorage(std::shared_ptr<ManagedStorage> storage) const
@@ -378,8 +406,6 @@ namespace MphRead
                 std::int32_t arm7Size,
                 std::uint32_t fntOffset,
                 std::uint32_t fntSize,
-                std::uint32_t fatOffset,
-                std::uint32_t fatSize,
                 std::int32_t overlay9Offset,
                 std::int32_t overlay9Size,
                 std::int32_t overlay7Offset,

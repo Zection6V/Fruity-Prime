@@ -6,10 +6,8 @@
 
 #include <algorithm>
 #include <bit>
-#include <cassert>
 #include <functional>
 #include <limits>
-#include <string_view>
 #include <unordered_set>
 #include <utility>
 
@@ -20,6 +18,8 @@ namespace MphRead::NativeRuntime
         const std::string& path,
         const std::function<void(const std::string&)>& visitor);
     [[nodiscard]] std::string PathGetFileName(const std::string& path);
+    [[nodiscard]] bool StringEndsWithCurrentCulture(
+        const std::string& value, const std::string& suffix);
     [[noreturn]] void ThrowListIndexOutOfRange();
     void DebugAssert(bool condition);
 }
@@ -135,7 +135,7 @@ namespace MphRead::Formats
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<std::shared_ptr<NodeData3>>>>>>> data)
     {
-        auto setSelector = std::make_shared<MphRead::ManagedArray<bool>>(16);
+        auto setSelector = MphRead::NativeRuntime::CreateManagedBoolArray(16);
         return Init{
             header,
             std::move(setIndices),
@@ -191,9 +191,8 @@ namespace MphRead::Formats
             directory,
             [](const std::string& path)
             {
-                constexpr std::string_view excluded
-                    = "levels\\nodeData\\unit2_Land_Node.bin";
-                if (!std::string_view(path).ends_with(excluded))
+                if (!MphRead::NativeRuntime::StringEndsWithCurrentCulture(
+                        path, "levels\\nodeData\\unit2_Land_Node.bin"))
                 {
                     static_cast<void>(ReadNodeData::ReadData(
                         MphRead::Paths::Combine(
@@ -216,7 +215,7 @@ namespace MphRead::Formats
         const std::uint16_t version = MphRead::Read::SpanReadUshort(bytes, 0);
         if (firstHunt)
         {
-            assert(version == 0);
+            MphRead::NativeRuntime::DebugAssert(version == 0);
         }
         if (version == 0)
         {
@@ -230,8 +229,10 @@ namespace MphRead::Formats
 
         const NodeDataHeader header = MphRead::Read::ReadStruct<NodeDataHeader>(bytes);
         const std::int32_t setIndexCount = header.IndexCount;
-        assert(setIndexCount == 0 || setIndexCount == 1);
-        assert(header.DataOffset == header.IndexOffset + 2U);
+        MphRead::NativeRuntime::DebugAssert(
+            setIndexCount == 0 || setIndexCount == 1);
+        MphRead::NativeRuntime::DebugAssert(
+            header.DataOffset == header.IndexOffset + 2U);
 
         std::unordered_set<std::uint32_t> types;
         std::uint32_t min = std::numeric_limits<std::uint32_t>::max();

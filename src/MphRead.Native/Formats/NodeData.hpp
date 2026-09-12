@@ -11,6 +11,22 @@
 #include <type_traits>
 #include <vector>
 
+namespace MphRead::NativeRuntime
+{
+    class ManagedBoolArray;
+
+    [[nodiscard]] std::shared_ptr<ManagedBoolArray> CreateManagedBoolArray(
+        std::int32_t length);
+    [[nodiscard]] std::int32_t ManagedBoolArrayLength(
+        const std::shared_ptr<const ManagedBoolArray>& array);
+    [[nodiscard]] bool ManagedBoolArrayGet(
+        const std::shared_ptr<const ManagedBoolArray>& array, std::int32_t index);
+    void ManagedBoolArraySet(
+        const std::shared_ptr<ManagedBoolArray>& array,
+        std::int32_t index,
+        bool value);
+}
+
 namespace MphRead::Formats
 {
     class NodeData;
@@ -141,7 +157,7 @@ namespace MphRead::Formats
         const std::shared_ptr<const std::vector<
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<std::shared_ptr<NodeData3>>>>>>> Data;
-        const std::shared_ptr<MphRead::ManagedArray<bool>> SetSelector;
+        const std::shared_ptr<MphRead::NativeRuntime::ManagedBoolArray> SetSelector;
 
         NodeData(
             NodeDataHeader header,
@@ -165,7 +181,7 @@ namespace MphRead::Formats
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<
                     std::shared_ptr<const std::vector<std::shared_ptr<NodeData3>>>>>>> Data;
-            std::shared_ptr<MphRead::ManagedArray<bool>> SetSelector;
+            std::shared_ptr<MphRead::NativeRuntime::ManagedBoolArray> SetSelector;
         };
 
         explicit NodeData(Init init);

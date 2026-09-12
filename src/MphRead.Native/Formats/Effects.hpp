@@ -111,11 +111,11 @@ namespace MphRead::Effects
         virtual void SetFuncs(std::shared_ptr<const EffectFuncDictionary> value);
 
         void InvokeVecFunc(
-            const MphRead::FxFuncInfo& info,
+            std::shared_ptr<MphRead::FxFuncInfo> info,
             TimeValues times,
             OpenTK::Mathematics::Vector3& vec);
         [[nodiscard]] float InvokeFloatFunc(
-            const MphRead::FxFuncInfo& info,
+            std::shared_ptr<MphRead::FxFuncInfo> info,
             TimeValues times);
 
         [[nodiscard]] static std::pair<std::int32_t, std::int32_t> GetFuncIds(

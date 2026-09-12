@@ -7,7 +7,6 @@
 #include "../Renderer.hpp"
 #include "../Utility/Rng.hpp"
 
-#include <cassert>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -16,9 +15,17 @@
 #include <memory>
 #include <new>
 #include <optional>
-#include <stdexcept>
 #include <utility>
 #include <vector>
+
+// External dependency gates intentionally remain unresolved in this pair:
+// - System::Buffers::ArrayPool<T> for ArrayPool<T>.Shared.Rent
+// - System::NotImplementedException for the CLR exception type
+// - System::Diagnostics::Debug for Debug.Assert semantics
+// - the shared managed IReadOnlyList/collection adapter for nullable parameter
+//   lists and CLR indexer exception taxonomy
+// These owners must be supplied by their one-to-one/shared Native units; Effects
+// does not redeclare or substitute them.
 
 namespace
 {
@@ -78,12 +85,12 @@ namespace
         return Require(info.Parameters);
     }
 
-    [[nodiscard]] const FxFuncInfo& FuncAt(
+    [[nodiscard]] std::shared_ptr<FxFuncInfo> FuncAt(
         const std::shared_ptr<const EffectFuncDictionary>& funcs,
         std::uint32_t key)
     {
         const EffectFuncDictionary& dictionary = Require(funcs);
-        return Require(dictionary.at(key));
+        return dictionary.at(key);
     }
 
     [[nodiscard]] bool HasFlag(
@@ -261,15 +268,6 @@ namespace
             std::bit_cast<std::uint32_t>(value) - subtrahend);
     }
 
-    [[nodiscard]] std::shared_ptr<ManagedArray<Vector3>> RentEightVector3()
-    {
-        return std::make_shared<ManagedArray<Vector3>>(8);
-    }
-
-    [[noreturn]] void ThrowNotImplemented()
-    {
-        throw std::logic_error("The method or operation is not implemented.");
-    }
 }
 
 namespace MphRead::Effects
@@ -348,7 +346,7 @@ namespace MphRead::Effects
 
     void SingleParticle::AddRenderItem(Scene* scene)
     {
-        auto uvsAndVerts = RentEightVector3();
+        auto uvsAndVerts = System::Buffers::ArrayPool<Vector3>::Shared().Rent(8);
         (*uvsAndVerts)[0] = Vector3(_texcoord0.X, _texcoord0.Y, 0.0F);
         (*uvsAndVerts)[1] = _vertex0;
         (*uvsAndVerts)[2] = Vector3(_texcoord1.X, _texcoord1.Y, 0.0F);
@@ -361,7 +359,7 @@ namespace MphRead::Effects
         Particle& particleForModel = Require(ParticleDefinition);
         Model& materialModel = Require(particleForModel.Model);
         Particle& particleForMaterialId = Require(ParticleDefinition);
-        Material& material = materialModel.Materials.at(
+        std::shared_ptr<Material> materialRef = materialModel.Materials.at(
             static_cast<std::size_t>(particleForMaterialId.MaterialId));
 
         // C# evaluates the instance expression, then arguments, and only then
@@ -370,6 +368,7 @@ namespace MphRead::Effects
         Scene* sceneTarget = scene;
         Particle& particleForBinding = Require(ParticleDefinition);
         Model& bindingModel = Require(particleForBinding.Model);
+        Material& material = Require(materialRef);
         std::int32_t textureId = material.TextureId;
         std::int32_t paletteId = material.PaletteId;
         Scene& sceneRef = Require(sceneTarget);
@@ -388,19 +387,33 @@ namespace MphRead::Effects
             scaleT = material.ScaleT;
         }
         Matrix4 transform = CreateTranslation(Position);
+
+        // Preserve C# argument evaluation order for the render submission.
+        MphRead::RenderItemType type = MphRead::RenderItemType::Particle;
+        float alpha = Alpha;
+        std::int32_t polygonId = sceneRef.GetNextPolygonId();
+        Vector3 color = Color;
+        RepeatMode renderXRepeat = xRepeat;
+        RepeatMode renderYRepeat = yRepeat;
+        float renderScaleS = scaleS;
+        float renderScaleT = scaleT;
+        Matrix4 renderTransform = transform;
+        auto renderPoints = uvsAndVerts;
+        std::int32_t renderBindingId = bindingId;
+        BillboardMode renderBillboardMode = BillboardMode::Sphere;
         sceneRef.AddRenderItem(
-            MphRead::RenderItemType::Particle,
-            Alpha,
-            sceneRef.GetNextPolygonId(),
-            Color,
-            xRepeat,
-            yRepeat,
-            scaleS,
-            scaleT,
-            transform,
-            uvsAndVerts,
-            bindingId,
-            BillboardMode::Sphere);
+            type,
+            alpha,
+            polygonId,
+            color,
+            renderXRepeat,
+            renderYRepeat,
+            renderScaleS,
+            renderScaleT,
+            renderTransform,
+            renderPoints,
+            renderBindingId,
+            renderBillboardMode);
     }
 
     std::shared_ptr<const EffectActionDictionary> EffectFuncBase::Actions() const
@@ -503,19 +516,23 @@ namespace MphRead::Effects
         std::uint32_t offset = static_cast<std::uint32_t>(param.at(1));
         while (true)
         {
-            std::shared_ptr<const EffectFuncDictionary> funcs = Funcs();
-            const EffectFuncDictionary& dictionary = Require(funcs);
+            std::shared_ptr<const EffectFuncDictionary> funcsForContains = Funcs();
+            const EffectFuncDictionary& dictionary = Require(funcsForContains);
             if (dictionary.find(offset) != dictionary.end())
             {
                 break;
             }
             offset += 4U;
         }
-        const FxFuncInfo& info = FuncAt(Funcs(), offset);
-        float value = InvokeFloatFunc(
-            static_cast<std::uint32_t>(param.at(0)),
-            ParametersOf(info),
-            times);
+
+        // C#: InvokeFloatFunc((uint)param[0], Funcs[offset].Parameters, times)
+        // evaluates the first argument before the Funcs/indexer expression.
+        std::uint32_t funcId = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<const EffectFuncDictionary> funcsForParameters = Funcs();
+        std::shared_ptr<FxFuncInfo> info = FuncAt(funcsForParameters, offset);
+        const FxFuncInfo& infoValue = Require(info);
+        const std::vector<std::int32_t>& parameters = ParametersOf(infoValue);
+        float value = InvokeFloatFunc(funcId, parameters, times);
         float percent = times.Elapsed / value;
         if (value < 0.0F)
         {
@@ -533,13 +550,15 @@ namespace MphRead::Effects
         Vector3& vec)
     {
         Vector3 temp = Vector3::Zero;
-        InvokeVecFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times,
-            temp);
-        float value = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        InvokeVecFunc(info0, times, temp);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        float value = InvokeFloatFunc(info1, times);
         float div = times.Elapsed / value;
         if (value < 0.0F)
         {
@@ -555,12 +574,15 @@ namespace MphRead::Effects
         TimeValues times,
         Vector3& vec)
     {
-        float value1 = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times);
-        float value2 = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        float value1 = InvokeFloatFunc(info0, times);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        float value2 = InvokeFloatFunc(info1, times);
         float angle = DegreesToRadians(
             static_cast<float>(Rng::GetRandomInt1(0xFFFF) >> 4)
             * (360.0F / 4096.0F));
@@ -574,12 +596,15 @@ namespace MphRead::Effects
         TimeValues times,
         Vector3& vec)
     {
-        float value1 = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times);
-        float value2 = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        float value1 = InvokeFloatFunc(info0, times);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        float value2 = InvokeFloatFunc(info1, times);
         vec.X = (Fixed::ToFloat(Rng::GetRandomInt1(4096)) - 0.5F) * value1;
         vec.Y = 0.0F;
         vec.Z = (Fixed::ToFloat(Rng::GetRandomInt1(4096)) - 0.5F) * value2;
@@ -592,14 +617,15 @@ namespace MphRead::Effects
     {
         Vector3 temp1 = Vector3::Zero;
         Vector3 temp2 = Vector3::Zero;
-        InvokeVecFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times,
-            temp1);
-        InvokeVecFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times,
-            temp2);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        InvokeVecFunc(info0, times, temp1);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        InvokeVecFunc(info1, times, temp2);
         vec.X = temp1.X + temp2.X;
         vec.Y = temp1.Y + temp2.Y;
         vec.Z = temp1.Z + temp2.Z;
@@ -612,14 +638,15 @@ namespace MphRead::Effects
     {
         Vector3 temp1 = Vector3::Zero;
         Vector3 temp2 = Vector3::Zero;
-        InvokeVecFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times,
-            temp1);
-        InvokeVecFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times,
-            temp2);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        InvokeVecFunc(info0, times, temp1);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        InvokeVecFunc(info1, times, temp2);
         vec.X = temp1.X - temp2.X;
         vec.Y = temp1.Y - temp2.Y;
         vec.Z = temp1.Z - temp2.Z;
@@ -632,14 +659,15 @@ namespace MphRead::Effects
     {
         Vector3 temp1 = Vector3::Zero;
         Vector3 temp2 = Vector3::Zero;
-        InvokeVecFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times,
-            temp1);
-        InvokeVecFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times,
-            temp2);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        InvokeVecFunc(info0, times, temp1);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        InvokeVecFunc(info1, times, temp2);
         vec.X = temp1.X * temp2.X;
         vec.Y = temp1.Y * temp2.Y;
         vec.Z = temp1.Z * temp2.Z;
@@ -651,13 +679,15 @@ namespace MphRead::Effects
         Vector3& vec)
     {
         Vector3 temp = Vector3::Zero;
-        float value = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times);
-        InvokeVecFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times,
-            temp);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        float value = InvokeFloatFunc(info0, times);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        InvokeVecFunc(info1, times, temp);
         vec.X = temp.X * value;
         vec.Y = temp.Y * value;
         vec.Z = temp.Z * value;
@@ -754,12 +784,15 @@ namespace MphRead::Effects
         const std::vector<std::int32_t>& param,
         TimeValues times)
     {
-        float left = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times);
-        float right = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        float left = InvokeFloatFunc(info0, times);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        float right = InvokeFloatFunc(info1, times);
         return left + right;
     }
 
@@ -767,12 +800,15 @@ namespace MphRead::Effects
         const std::vector<std::int32_t>& param,
         TimeValues times)
     {
-        float left = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times);
-        float right = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        float left = InvokeFloatFunc(info0, times);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        float right = InvokeFloatFunc(info1, times);
         return left - right;
     }
 
@@ -780,12 +816,15 @@ namespace MphRead::Effects
         const std::vector<std::int32_t>& param,
         TimeValues times)
     {
-        float left = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times);
-        float right = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        float left = InvokeFloatFunc(info0, times);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        float right = InvokeFloatFunc(info1, times);
         return left * right;
     }
 
@@ -793,85 +832,90 @@ namespace MphRead::Effects
         const std::vector<std::int32_t>& param,
         TimeValues times)
     {
-        float left = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(0))),
-            times);
-        float right = InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(1))),
-            times);
+        std::shared_ptr<const EffectFuncDictionary> funcs0 = Funcs();
+        std::uint32_t key0 = static_cast<std::uint32_t>(param.at(0));
+        std::shared_ptr<FxFuncInfo> info0 = FuncAt(funcs0, key0);
+        float left = InvokeFloatFunc(info0, times);
+
+        std::shared_ptr<const EffectFuncDictionary> funcs1 = Funcs();
+        std::uint32_t key1 = static_cast<std::uint32_t>(param.at(1));
+        std::shared_ptr<FxFuncInfo> info1 = FuncAt(funcs1, key1);
+        float right = InvokeFloatFunc(info1, times);
         if (left >= right)
         {
-            return InvokeFloatFunc(
-                FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(2))),
-                times);
+            std::shared_ptr<const EffectFuncDictionary> funcs2 = Funcs();
+            std::uint32_t key2 = static_cast<std::uint32_t>(param.at(2));
+            std::shared_ptr<FxFuncInfo> info2 = FuncAt(funcs2, key2);
+            return InvokeFloatFunc(info2, times);
         }
-        return InvokeFloatFunc(
-            FuncAt(Funcs(), static_cast<std::uint32_t>(param.at(3))),
-            times);
+        std::shared_ptr<const EffectFuncDictionary> funcs3 = Funcs();
+        std::uint32_t key3 = static_cast<std::uint32_t>(param.at(3));
+        std::shared_ptr<FxFuncInfo> info3 = FuncAt(funcs3, key3);
+        return InvokeFloatFunc(info3, times);
     }
 
     void EffectFuncBase::InvokeVecFunc(
-        const FxFuncInfo& info,
+        std::shared_ptr<FxFuncInfo> info,
         TimeValues times,
         Vector3& vec)
     {
-        const std::vector<std::int32_t>& parameters = ParametersOf(info);
-        switch (info.FuncId)
+        const FxFuncInfo& infoValue = Require(info);
+        switch (infoValue.FuncId)
         {
         case 1:
         case 2:
-            FxFunc01(parameters, times, vec);
+            FxFunc01(ParametersOf(infoValue), times, vec);
             break;
         case 3:
-            FxFunc03(parameters, times, vec);
+            FxFunc03(ParametersOf(infoValue), times, vec);
             break;
         case 4:
-            FxFunc04(parameters, times, vec);
+            FxFunc04(ParametersOf(infoValue), times, vec);
             break;
         case 5:
-            FxFunc05(parameters, times, vec);
+            FxFunc05(ParametersOf(infoValue), times, vec);
             break;
         case 6:
-            FxFunc06(parameters, times, vec);
+            FxFunc06(ParametersOf(infoValue), times, vec);
             break;
         case 7:
-            FxFunc07(parameters, times, vec);
+            FxFunc07(ParametersOf(infoValue), times, vec);
             break;
         case 8:
-            FxFunc08(parameters, times, vec);
+            FxFunc08(ParametersOf(infoValue), times, vec);
             break;
         case 9:
-            FxFunc09(parameters, times, vec);
+            FxFunc09(ParametersOf(infoValue), times, vec);
             break;
         case 10:
-            FxFunc10(parameters, times, vec);
+            FxFunc10(ParametersOf(infoValue), times, vec);
             break;
         case 11:
-            FxFunc11(parameters, times, vec);
+            FxFunc11(ParametersOf(infoValue), times, vec);
             break;
         case 13:
-            FxFunc13(parameters, times, vec);
+            FxFunc13(ParametersOf(infoValue), times, vec);
             break;
         case 14:
-            FxFunc14(parameters, times, vec);
+            FxFunc14(ParametersOf(infoValue), times, vec);
             break;
         case 15:
-            FxFunc15(parameters, times, vec);
+            FxFunc15(ParametersOf(infoValue), times, vec);
             break;
         case 16:
-            FxFunc16(parameters, times, vec);
+            FxFunc16(ParametersOf(infoValue), times, vec);
             break;
         case 17:
-            FxFunc17(parameters, times, vec);
+            FxFunc17(ParametersOf(infoValue), times, vec);
             break;
         case 18:
-            FxFunc18(parameters, times, vec);
+            FxFunc18(ParametersOf(infoValue), times, vec);
             break;
         case 19:
-            FxFunc19(parameters, times, vec);
+            FxFunc19(ParametersOf(infoValue), times, vec);
             break;
         case 20:
-            FxFunc20(parameters, times, vec);
+            FxFunc20(ParametersOf(infoValue), times, vec);
             break;
         default:
             throw MphRead::ProgramException("Invalid effect func.");
@@ -879,10 +923,13 @@ namespace MphRead::Effects
     }
 
     float EffectFuncBase::InvokeFloatFunc(
-        const FxFuncInfo& info,
+        std::shared_ptr<FxFuncInfo> info,
         TimeValues times)
     {
-        return InvokeFloatFunc(info.FuncId, ParametersOf(info), times);
+        const FxFuncInfo& infoValue = Require(info);
+        std::uint32_t funcId = infoValue.FuncId;
+        const std::vector<std::int32_t>& parameters = ParametersOf(infoValue);
+        return InvokeFloatFunc(funcId, parameters, times);
     }
 
     float EffectFuncBase::InvokeFloatFunc(
@@ -1150,7 +1197,7 @@ namespace MphRead::Effects
         TimeValues,
         Vector3&)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     void EffectElementEntry::FxFunc11(
@@ -1158,7 +1205,7 @@ namespace MphRead::Effects
         TimeValues,
         Vector3&)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc22(
@@ -1179,98 +1226,98 @@ namespace MphRead::Effects
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc25(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc26(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc27(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc29(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc30(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc31(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc32(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc33(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc34(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc35(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc36(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc37(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc38(
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        ThrowNotImplemented();
+        throw System::NotImplementedException();
     }
 
     float EffectElementEntry::FxFunc39(
@@ -1429,7 +1476,9 @@ namespace MphRead::Effects
         const std::vector<std::int32_t>&,
         TimeValues times)
     {
-        return times.Global - Require(Owner).CreationTime;
+        float global = times.Global;
+        float creationTime = Require(Owner).CreationTime;
+        return global - creationTime;
     }
 
     float EffectParticle::FxFunc24(
@@ -1534,12 +1583,13 @@ namespace MphRead::Effects
         const std::vector<std::int32_t>& param,
         TimeValues)
     {
-        EffectElementEntry& owner = Require(Owner);
-        if (owner.Func39Called)
+        EffectElementEntry& ownerForCheck = Require(Owner);
+        if (ownerForCheck.Func39Called)
         {
             return 0.0F;
         }
-        owner.Func39Called = true;
+        EffectElementEntry& ownerForSet = Require(Owner);
+        ownerForSet.Func39Called = true;
         return Fixed::ToFloat(param.at(0));
     }
 
@@ -1567,7 +1617,7 @@ namespace MphRead::Effects
 
     void EffectParticle::SetVecsD4()
     {
-        assert(false && "SetVecsD4 was called");
+        System::Diagnostics::Debug::Assert(false, "SetVecsD4 was called");
         Matrix4 viewMatrix = IdentityMatrix4();
         Vector3 vec1 = Speed.Normalized();
         Vector3 vec2(viewMatrix.M13, viewMatrix.M23, viewMatrix.M33);
@@ -1623,9 +1673,10 @@ namespace MphRead::Effects
             Vector3 ev1 = Multiply(_effectVec1, Scale);
             Vector3 ev2 = Multiply(_effectVec2, Scale);
 
-            EffectElementEntry& owner = Require(Owner);
+            Vector3 sourcePosition = Position;
+            EffectElementEntry& ownerForTransform = Require(Owner);
             Vector3 position = MphRead::Matrix::Vec3MultMtx4(
-                Position, ClearTranslation(owner.Transform));
+                sourcePosition, ClearTranslation(ownerForTransform.Transform));
             float v19 = position.X + (-ev1.X / 2.0F) + (ev2.X / 2.0F);
             float v22 = position.Y + (-ev1.Y / 2.0F) + (ev2.Y / 2.0F);
             float v23 = position.Z + (-ev1.Z / 2.0F) + (ev2.Z / 2.0F);
@@ -1698,9 +1749,10 @@ namespace MphRead::Effects
             float v28 = (vec1.Y * sin1 + vec2.Y * cos1) * Scale;
             float v29 = (vec1.Z * sin1 + vec2.Z * cos1) * Scale;
 
-            EffectElementEntry& owner = Require(Owner);
+            Vector3 sourcePosition = Position;
+            EffectElementEntry& ownerForTransform = Require(Owner);
             Vector3 position = MphRead::Matrix::Vec3MultMtx4(
-                Position, ClearTranslation(owner.Transform));
+                sourcePosition, ClearTranslation(ownerForTransform.Transform));
             float v27 = position.X + (-v20 / 2.0F) + (v26 / 2.0F);
             float v30 = position.Y + (-v24 / 2.0F) + (v28 / 2.0F);
             float v31 = position.Z + (-v25 / 2.0F) + (v29 / 2.0F);
@@ -1752,15 +1804,17 @@ namespace MphRead::Effects
             _shouldDraw = true;
             _drawNode = true;
             _color = Vector3(Red, Green, Blue);
-            EffectElementEntry& owner = Require(Owner);
             Vector4 ev4;
-            if (HasFlag(owner.Flags, EffElemFlags::UseTransform))
+            EffectElementEntry& ownerForFlags = Require(Owner);
+            if (HasFlag(ownerForFlags.Flags, EffElemFlags::UseTransform))
             {
+                Vector3 position = Position;
+                EffectElementEntry& ownerForTransform = Require(Owner);
                 ev4 = Vector4(
-                    Position + Vector3(
-                        owner.Transform.M41,
-                        owner.Transform.M42,
-                        owner.Transform.M43),
+                    position + Vector3(
+                        ownerForTransform.Transform.M41,
+                        ownerForTransform.Transform.M42,
+                        ownerForTransform.Transform.M43),
                     1.0F);
             }
             else
@@ -1775,7 +1829,7 @@ namespace MphRead::Effects
             }
             else
             {
-                assert(false && "DrawDC was called with non-billboard");
+                System::Diagnostics::Debug::Assert(false, "DrawDC was called with non-billboard");
                 Vector4 ev1(Multiply(_effectVec1, Scale));
                 Vector4 ev2(Multiply(_effectVec2, Scale));
                 Vector4 ev3(Multiply(_effectVec3, Scale));
@@ -1865,8 +1919,9 @@ namespace MphRead::Effects
 
     void EffectParticle::SetFuncIds()
     {
-        EffectElementEntry& owner = Require(Owner);
-        auto ids = GetFuncIds(owner.Flags, owner.DrawType);
+        EffElemFlags flags = Require(Owner).Flags;
+        std::int32_t drawType = Require(Owner).DrawType;
+        auto ids = GetFuncIds(flags, drawType);
         SetVecsId = ids.first;
         DrawId = ids.second;
     }
@@ -1875,19 +1930,30 @@ namespace MphRead::Effects
     {
         if (_drawNode)
         {
-            EffectElementEntry& owner = Require(Owner);
-            std::shared_ptr<Model> modelRef = owner.Model;
-            Node& node = Require(owner.Nodes->at(
-                static_cast<std::size_t>(ParticleId)));
-            Model& meshModel = Require(owner.Model);
-            auto& mesh = meshModel.Meshes.at(
-                static_cast<std::size_t>(node.MeshId / 2));
-            Model& materialModel = Require(owner.Model);
-            Material& material = materialModel.Materials.at(
-                static_cast<std::size_t>(MaterialId));
+            EffectElementEntry& ownerForModel = Require(Owner);
+            std::shared_ptr<Model> modelRef = ownerForModel.Model;
+
+            EffectElementEntry& ownerForNode = Require(Owner);
+            std::int32_t particleIdForNode = ParticleId;
+            std::shared_ptr<Node> nodeRef = ownerForNode.Nodes->at(
+                static_cast<std::size_t>(particleIdForNode));
+
+            EffectElementEntry& ownerForMeshModel = Require(Owner);
+            Model& meshModel = Require(ownerForMeshModel.Model);
+            Node& node = Require(nodeRef);
+            std::int32_t meshIndex = node.MeshId / 2;
+            std::shared_ptr<Mesh> meshRef = meshModel.Meshes.at(
+                static_cast<std::size_t>(meshIndex));
+
+            EffectElementEntry& ownerForMaterialModel = Require(Owner);
+            Model& materialModel = Require(ownerForMaterialModel.Model);
+            std::int32_t materialIdForMaterial = MaterialId;
+            std::shared_ptr<Material> materialRef = materialModel.Materials.at(
+                static_cast<std::size_t>(materialIdForMaterial));
 
             Matrix4 transform = _nodeTransform;
             Matrix4 texcoordMtx = IdentityMatrix4();
+            Material& material = Require(materialRef);
             if (material.TexgenMode == TexgenMode::Texcoord)
             {
                 texcoordMtx = CreateTranslation(
@@ -1904,35 +1970,55 @@ namespace MphRead::Effects
             material.CurrentDiffuse = _color;
             material.CurrentAlpha = Alpha;
             Model& model = Require(modelRef);
-            assert(model.NodeMatrixIds.empty());
-            Scene& sceneRef = Require(scene);
-            sceneRef.UpdateMaterials(model, 0);
-            sceneRef.AddRenderItem(
-                material,
-                sceneRef.GetNextPolygonId(),
-                1.0F,
-                Vector3::Zero,
-                MphRead::LightInfo::Zero,
-                texcoordMtx,
-                transform,
-                mesh.ListId,
-                0,
-                ManagedArray<float>::Empty(),
-                std::nullopt,
-                std::nullopt,
-                SelectionType::None,
-                _billboardMode);
+            System::Diagnostics::Debug::Assert(model.NodeMatrixIds.empty());
+            Scene& updateScene = Require(scene);
+            updateScene.UpdateMaterials(model, 0);
+
+            // C# evaluates AddRenderItem arguments left-to-right.
+            Material& renderMaterial = material;
+            std::int32_t polygonId = updateScene.GetNextPolygonId();
+            float renderAlpha = 1.0F;
+            Vector3 renderPosition = Vector3::Zero;
+            MphRead::LightInfo renderLightInfo = MphRead::LightInfo::Zero;
+            Matrix4 renderTexcoordMtx = texcoordMtx;
+            Matrix4 renderTransform = transform;
+            Mesh& mesh = Require(meshRef);
+            std::int32_t renderListId = mesh.ListId;
+            std::int32_t matrixStackCount = 0;
+            auto matrixStack = ManagedArray<float>::Empty();
+            std::optional<Vector4> overrideColor = std::nullopt;
+            std::optional<Vector4> paletteOverride = std::nullopt;
+            SelectionType selection = SelectionType::None;
+            BillboardMode billboardMode = _billboardMode;
+            updateScene.AddRenderItem(
+                renderMaterial,
+                polygonId,
+                renderAlpha,
+                renderPosition,
+                renderLightInfo,
+                renderTexcoordMtx,
+                renderTransform,
+                renderListId,
+                matrixStackCount,
+                matrixStack,
+                overrideColor,
+                paletteOverride,
+                selection,
+                billboardMode);
         }
         else
         {
-            EffectElementEntry& owner = Require(Owner);
-            Model& ownerModel = Require(owner.Model);
-            if (MaterialId >= static_cast<std::int32_t>(ownerModel.Materials.size()))
+            // C#: MaterialId is evaluated before Owner.Model.Materials.Count.
+            std::int32_t materialIdForCount = MaterialId;
+            EffectElementEntry& ownerForCount = Require(Owner);
+            Model& modelForCount = Require(ownerForCount.Model);
+            if (materialIdForCount
+                >= static_cast<std::int32_t>(modelForCount.Materials.size()))
             {
                 return;
             }
 
-            auto uvsAndVerts = RentEightVector3();
+            auto uvsAndVerts = System::Buffers::ArrayPool<Vector3>::Shared().Rent(8);
             (*uvsAndVerts)[0] = Vector3(_texcoord0.X, _texcoord0.Y, 0.0F);
             (*uvsAndVerts)[1] = _vertex0;
             (*uvsAndVerts)[2] = Vector3(_texcoord1.X, _texcoord1.Y, 0.0F);
@@ -1942,11 +2028,17 @@ namespace MphRead::Effects
             (*uvsAndVerts)[6] = Vector3(_texcoord3.X, _texcoord3.Y, 0.0F);
             (*uvsAndVerts)[7] = _vertex3;
 
-            Model& materialModel = Require(owner.Model);
-            Material& material = materialModel.Materials.at(
-                static_cast<std::size_t>(MaterialId));
-            std::int32_t bindingId = owner.TextureBindingIds->at(
-                static_cast<std::size_t>(ParticleId));
+            EffectElementEntry& ownerForMaterial = Require(Owner);
+            Model& materialModel = Require(ownerForMaterial.Model);
+            std::int32_t materialIdForMaterial = MaterialId;
+            std::shared_ptr<Material> materialRef = materialModel.Materials.at(
+                static_cast<std::size_t>(materialIdForMaterial));
+
+            EffectElementEntry& ownerForBinding = Require(Owner);
+            std::int32_t particleIdForBinding = ParticleId;
+            std::int32_t bindingId = ownerForBinding.TextureBindingIds->at(
+                static_cast<std::size_t>(particleIdForBinding));
+            Material& material = Require(materialRef);
             RepeatMode xRepeat = material.XRepeat;
             RepeatMode yRepeat = material.YRepeat;
             float scaleS = 1.0F;
@@ -1961,23 +2053,28 @@ namespace MphRead::Effects
             }
 
             Matrix4 transform;
-            if (HasFlag(owner.Flags, EffElemFlags::UseTransform))
+            EffectElementEntry& ownerForFlags = Require(Owner);
+            if (HasFlag(ownerForFlags.Flags, EffElemFlags::UseTransform))
             {
                 if (_billboardMode != BillboardMode::None)
                 {
+                    Vector3 sourcePosition = Position;
+                    EffectElementEntry& ownerForFirstTransform = Require(Owner);
                     Vector3 position = MphRead::Matrix::Vec3MultMtx4(
-                        Position, ClearTranslation(owner.Transform));
-                    transform = CreateTranslation(
-                        position + Vector3(
-                            owner.Transform.M41,
-                            owner.Transform.M42,
-                            owner.Transform.M43));
+                        sourcePosition,
+                        ClearTranslation(ownerForFirstTransform.Transform));
+                    EffectElementEntry& ownerForSecondTransform = Require(Owner);
+                    Vector3 translation(
+                        ownerForSecondTransform.Transform.M41,
+                        ownerForSecondTransform.Transform.M42,
+                        ownerForSecondTransform.Transform.M43);
+                    transform = CreateTranslation(position + translation);
                 }
                 else
                 {
-                    transform = Multiply(
-                        CreateTranslation(Position),
-                        owner.Transform);
+                    Matrix4 positionTransform = CreateTranslation(Position);
+                    EffectElementEntry& ownerForTransform = Require(Owner);
+                    transform = Multiply(positionTransform, ownerForTransform.Transform);
                 }
             }
             else
@@ -1985,22 +2082,34 @@ namespace MphRead::Effects
                 transform = CreateTranslation(Position);
             }
 
+            // C# outer call evaluates Alpha before the nested GetNextPolygonId().
             Scene* sceneTarget = scene;
-            std::int32_t polygonId = Require(scene).GetNextPolygonId();
+            MphRead::RenderItemType type = MphRead::RenderItemType::Particle;
+            float alpha = Alpha;
+            std::int32_t polygonId = Require(sceneTarget).GetNextPolygonId();
+            Vector3 color = _color;
+            RepeatMode renderXRepeat = xRepeat;
+            RepeatMode renderYRepeat = yRepeat;
+            float renderScaleS = scaleS;
+            float renderScaleT = scaleT;
+            Matrix4 renderTransform = transform;
+            auto renderPoints = uvsAndVerts;
+            std::int32_t renderBindingId = bindingId;
+            BillboardMode renderBillboardMode = _billboardMode;
             Scene& sceneRef = Require(sceneTarget);
             sceneRef.AddRenderItem(
-                MphRead::RenderItemType::Particle,
-                Alpha,
+                type,
+                alpha,
                 polygonId,
-                _color,
-                xRepeat,
-                yRepeat,
-                scaleS,
-                scaleT,
-                transform,
-                uvsAndVerts,
-                bindingId,
-                _billboardMode);
+                color,
+                renderXRepeat,
+                renderYRepeat,
+                renderScaleS,
+                renderScaleT,
+                renderTransform,
+                renderPoints,
+                renderBindingId,
+                renderBillboardMode);
         }
     }
 }

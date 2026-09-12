@@ -1,21 +1,12 @@
 #pragma once
 
 #include "Entity.hpp"
+#include "Formats.hpp"
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
-
-namespace MphRead
-{
-    class CollisionVolume;
-
-    namespace Entities
-    {
-        class Entity;
-    }
-}
 
 namespace MphRead::Editor
 {
@@ -31,7 +22,7 @@ namespace MphRead::Editor
         std::shared_ptr<std::string> NodeName{};
 
         explicit EntityEditorBase(EntityType type);
-        explicit EntityEditorBase(const std::shared_ptr<Entities::Entity>& header);
+        explicit EntityEditorBase(const std::shared_ptr<Entity>& header);
         EntityEditorBase(const EntityEditorBase&) = delete;
         EntityEditorBase& operator=(const EntityEditorBase&) = delete;
         EntityEditorBase(EntityEditorBase&&) = delete;
@@ -124,7 +115,7 @@ namespace MphRead::Editor
         std::int32_t LifetimeMsg4Param2 = 0;
 
         PlatformEntityEditor();
-        PlatformEntityEditor(const std::shared_ptr<Entities::Entity>& header, PlatformEntityData raw);
+        PlatformEntityEditor(const std::shared_ptr<Entity>& header, PlatformEntityData raw);
         void CompareTo(const std::shared_ptr<PlatformEntityEditor>& other) const;
     };
 
@@ -143,7 +134,7 @@ namespace MphRead::Editor
         std::shared_ptr<std::string> PortalName{};
 
         FhPlatformEntityEditor();
-        FhPlatformEntityEditor(const std::shared_ptr<Entities::Entity>& header, FhPlatformEntityData raw);
+        FhPlatformEntityEditor(const std::shared_ptr<Entity>& header, FhPlatformEntityData raw);
         void CompareTo(const std::shared_ptr<FhPlatformEntityEditor>& other) const;
     };
 
@@ -164,7 +155,7 @@ namespace MphRead::Editor
         CollisionVolume Volume;
 
         ObjectEntityEditor();
-        ObjectEntityEditor(const std::shared_ptr<Entities::Entity>& header, ObjectEntityData raw);
+        ObjectEntityEditor(const std::shared_ptr<Entity>& header, ObjectEntityData raw);
         void CompareTo(const std::shared_ptr<ObjectEntityEditor>& other) const;
     };
 
@@ -176,7 +167,7 @@ namespace MphRead::Editor
         std::int8_t TeamIndex = -1;
 
         PlayerSpawnEntityEditor();
-        PlayerSpawnEntityEditor(const std::shared_ptr<Entities::Entity>& header, PlayerSpawnEntityData raw);
+        PlayerSpawnEntityEditor(const std::shared_ptr<Entity>& header, PlayerSpawnEntityData raw);
         void CompareTo(const std::shared_ptr<PlayerSpawnEntityEditor>& other) const;
     };
 
@@ -195,7 +186,7 @@ namespace MphRead::Editor
         std::shared_ptr<std::string> RoomName{};
 
         DoorEntityEditor();
-        DoorEntityEditor(const std::shared_ptr<Entities::Entity>& header, DoorEntityData raw);
+        DoorEntityEditor(const std::shared_ptr<Entity>& header, DoorEntityData raw);
         void CompareTo(const std::shared_ptr<DoorEntityEditor>& other) const;
     };
 
@@ -207,7 +198,7 @@ namespace MphRead::Editor
         std::uint32_t ModelId = 0;
 
         FhDoorEntityEditor();
-        FhDoorEntityEditor(const std::shared_ptr<Entities::Entity>& header, FhDoorEntityData raw);
+        FhDoorEntityEditor(const std::shared_ptr<Entity>& header, FhDoorEntityData raw);
         void CompareTo(const std::shared_ptr<FhDoorEntityEditor>& other) const;
     };
 
@@ -228,7 +219,7 @@ namespace MphRead::Editor
         std::int32_t CollectedMsgParam2 = 0;
 
         ItemSpawnEntityEditor();
-        ItemSpawnEntityEditor(const std::shared_ptr<Entities::Entity>& header, ItemSpawnEntityData raw);
+        ItemSpawnEntityEditor(const std::shared_ptr<Entity>& header, ItemSpawnEntityData raw);
         void CompareTo(const std::shared_ptr<ItemSpawnEntityEditor>& other) const;
     };
 
@@ -241,7 +232,7 @@ namespace MphRead::Editor
         std::uint16_t Unused2C = 0;
 
         FhItemSpawnEntityEditor();
-        FhItemSpawnEntityEditor(const std::shared_ptr<Entities::Entity>& header, FhItemSpawnEntityData raw);
+        FhItemSpawnEntityEditor(const std::shared_ptr<Entity>& header, FhItemSpawnEntityData raw);
         void CompareTo(const std::shared_ptr<FhItemSpawnEntityEditor>& other) const;
     };
 
@@ -268,7 +259,7 @@ namespace MphRead::Editor
         std::int32_t ChildMsgParam2 = 0;
 
         TriggerVolumeEntityEditor();
-        TriggerVolumeEntityEditor(const std::shared_ptr<Entities::Entity>& header, TriggerVolumeEntityData raw);
+        TriggerVolumeEntityEditor(const std::shared_ptr<Entity>& header, TriggerVolumeEntityData raw);
         void CompareTo(const std::shared_ptr<TriggerVolumeEntityEditor>& other) const;
     };
 
@@ -291,7 +282,7 @@ namespace MphRead::Editor
         std::int32_t ChildMsgParam1 = 0;
 
         FhTriggerVolumeEntityEditor();
-        FhTriggerVolumeEntityEditor(const std::shared_ptr<Entities::Entity>& header, FhTriggerVolumeEntityData raw);
+        FhTriggerVolumeEntityEditor(const std::shared_ptr<Entity>& header, FhTriggerVolumeEntityData raw);
         void CompareTo(const std::shared_ptr<FhTriggerVolumeEntityEditor>& other) const;
     };
 
@@ -317,7 +308,7 @@ namespace MphRead::Editor
         Entities::TriggerFlags TriggerFlags{};
 
         AreaVolumeEntityEditor();
-        AreaVolumeEntityEditor(const std::shared_ptr<Entities::Entity>& header, AreaVolumeEntityData raw);
+        AreaVolumeEntityEditor(const std::shared_ptr<Entity>& header, AreaVolumeEntityData raw);
         void CompareTo(const std::shared_ptr<AreaVolumeEntityEditor>& other) const;
     };
 
@@ -336,7 +327,7 @@ namespace MphRead::Editor
         Entities::FhTriggerFlags TriggerFlags{};
 
         FhAreaVolumeEntityEditor();
-        FhAreaVolumeEntityEditor(const std::shared_ptr<Entities::Entity>& header, FhAreaVolumeEntityData raw);
+        FhAreaVolumeEntityEditor(const std::shared_ptr<Entity>& header, FhAreaVolumeEntityData raw);
         void CompareTo(const std::shared_ptr<FhAreaVolumeEntityEditor>& other) const;
     };
 
@@ -356,7 +347,7 @@ namespace MphRead::Editor
         Entities::TriggerFlags TriggerFlags{};
 
         JumpPadEntityEditor();
-        JumpPadEntityEditor(const std::shared_ptr<Entities::Entity>& header, JumpPadEntityData raw);
+        JumpPadEntityEditor(const std::shared_ptr<Entity>& header, JumpPadEntityData raw);
         void CompareTo(const std::shared_ptr<JumpPadEntityEditor>& other) const;
     };
 
@@ -376,7 +367,7 @@ namespace MphRead::Editor
         Entities::FhTriggerFlags TriggerFlags{};
 
         FhJumpPadEntityEditor();
-        FhJumpPadEntityEditor(const std::shared_ptr<Entities::Entity>& header, FhJumpPadEntityData raw);
+        FhJumpPadEntityEditor(const std::shared_ptr<Entity>& header, FhJumpPadEntityData raw);
         void CompareTo(const std::shared_ptr<FhJumpPadEntityEditor>& other) const;
     };
 
@@ -388,7 +379,7 @@ namespace MphRead::Editor
         bool Active = false;
 
         PointModuleEntityEditor();
-        PointModuleEntityEditor(const std::shared_ptr<Entities::Entity>& header, PointModuleEntityData raw);
+        PointModuleEntityEditor(const std::shared_ptr<Entity>& header, PointModuleEntityData raw);
         void CompareTo(const std::shared_ptr<PointModuleEntityEditor>& other) const;
     };
 
@@ -398,8 +389,8 @@ namespace MphRead::Editor
         CollisionVolume Volume;
 
         MorphCameraEntityEditor();
-        MorphCameraEntityEditor(const std::shared_ptr<Entities::Entity>& header, MorphCameraEntityData raw);
-        MorphCameraEntityEditor(const std::shared_ptr<Entities::Entity>& header, FhMorphCameraEntityData raw);
+        MorphCameraEntityEditor(const std::shared_ptr<Entity>& header, MorphCameraEntityData raw);
+        MorphCameraEntityEditor(const std::shared_ptr<Entity>& header, FhMorphCameraEntityData raw);
         void CompareTo(const std::shared_ptr<MorphCameraEntityEditor>& other) const;
     };
 
@@ -409,7 +400,7 @@ namespace MphRead::Editor
         std::uint8_t TeamId = 0;
 
         OctolithFlagEntityEditor();
-        OctolithFlagEntityEditor(const std::shared_ptr<Entities::Entity>& header, OctolithFlagEntityData raw);
+        OctolithFlagEntityEditor(const std::shared_ptr<Entity>& header, OctolithFlagEntityData raw);
         void CompareTo(const std::shared_ptr<OctolithFlagEntityEditor>& other) const;
     };
 
@@ -420,7 +411,7 @@ namespace MphRead::Editor
         CollisionVolume Volume;
 
         FlagBaseEntityEditor();
-        FlagBaseEntityEditor(const std::shared_ptr<Entities::Entity>& header, FlagBaseEntityData raw);
+        FlagBaseEntityEditor(const std::shared_ptr<Entity>& header, FlagBaseEntityData raw);
         void CompareTo(const std::shared_ptr<FlagBaseEntityEditor>& other) const;
     };
 
@@ -437,7 +428,7 @@ namespace MphRead::Editor
         std::shared_ptr<std::string> TeleporterNodeName{};
 
         TeleporterEntityEditor();
-        TeleporterEntityEditor(const std::shared_ptr<Entities::Entity>& header, TeleporterEntityData raw);
+        TeleporterEntityEditor(const std::shared_ptr<Entity>& header, TeleporterEntityData raw);
         void CompareTo(const std::shared_ptr<TeleporterEntityEditor>& other) const;
     };
 
@@ -447,7 +438,7 @@ namespace MphRead::Editor
         CollisionVolume Volume;
 
         NodeDefenseEntityEditor();
-        NodeDefenseEntityEditor(const std::shared_ptr<Entities::Entity>& header, NodeDefenseEntityData raw);
+        NodeDefenseEntityEditor(const std::shared_ptr<Entity>& header, NodeDefenseEntityData raw);
         void CompareTo(const std::shared_ptr<NodeDefenseEntityEditor>& other) const;
     };
 
@@ -463,7 +454,7 @@ namespace MphRead::Editor
         OpenTK::Mathematics::Vector3 Light2Vector{};
 
         LightSourceEntityEditor();
-        LightSourceEntityEditor(const std::shared_ptr<Entities::Entity>& header, LightSourceEntityData raw);
+        LightSourceEntityEditor(const std::shared_ptr<Entity>& header, LightSourceEntityData raw);
         void CompareTo(const std::shared_ptr<LightSourceEntityEditor>& other) const;
     };
 
@@ -483,7 +474,7 @@ namespace MphRead::Editor
         std::int16_t LinkedEntityId = 0;
 
         ArtifactEntityEditor();
-        ArtifactEntityEditor(const std::shared_ptr<Entities::Entity>& header, ArtifactEntityData raw);
+        ArtifactEntityEditor(const std::shared_ptr<Entity>& header, ArtifactEntityData raw);
         void CompareTo(const std::shared_ptr<ArtifactEntityEditor>& other) const;
     };
 
@@ -506,7 +497,7 @@ namespace MphRead::Editor
         std::int32_t EndMessageParam = 0;
 
         CameraSequenceEntityEditor();
-        CameraSequenceEntityEditor(const std::shared_ptr<Entities::Entity>& header, CameraSequenceEntityData raw);
+        CameraSequenceEntityEditor(const std::shared_ptr<Entity>& header, CameraSequenceEntityData raw);
         void CompareTo(const std::shared_ptr<CameraSequenceEntityEditor>& other) const;
     };
 
@@ -519,7 +510,7 @@ namespace MphRead::Editor
         bool Active = false;
 
         ForceFieldEntityEditor();
-        ForceFieldEntityEditor(const std::shared_ptr<Entities::Entity>& header, ForceFieldEntityData raw);
+        ForceFieldEntityEditor(const std::shared_ptr<Entity>& header, ForceFieldEntityData raw);
         void CompareTo(const std::shared_ptr<ForceFieldEntityEditor>& other) const;
     };
 }

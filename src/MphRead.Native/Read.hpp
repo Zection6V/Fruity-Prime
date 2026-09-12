@@ -57,6 +57,12 @@ namespace MphRead
             = std::make_shared<std::vector<std::uint32_t>>();
         const std::shared_ptr<std::vector<std::uint32_t>> TextureGroupOffsets
             = std::make_shared<std::vector<std::uint32_t>>();
+
+        AnimationResults() = default;
+        AnimationResults(const AnimationResults&) = delete;
+        AnimationResults& operator=(const AnimationResults&) = delete;
+        AnimationResults(AnimationResults&&) = delete;
+        AnimationResults& operator=(AnimationResults&&) = delete;
     };
 
     namespace ReadDetail

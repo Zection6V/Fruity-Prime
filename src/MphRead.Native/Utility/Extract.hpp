@@ -242,10 +242,6 @@ namespace MphRead
             const std::uint16_t DirNum = 0;
 
             constexpr DirTableEntry() noexcept = default;
-            constexpr DirTableEntry(std::uint32_t offset, std::uint16_t firstFileIndex, std::uint16_t dirNum) noexcept
-                : Offset(offset), FirstFileIndex(firstFileIndex), DirNum(dirNum)
-            {
-            }
 
             DirTableEntry(const DirTableEntry&) noexcept = default;
 
@@ -266,6 +262,13 @@ namespace MphRead
                     LoadNative<std::uint32_t>(raw, 0),
                     LoadNative<std::uint16_t>(raw, 4),
                     LoadNative<std::uint16_t>(raw, 6));
+            }
+
+        private:
+            constexpr DirTableEntry(
+                std::uint32_t offset, std::uint16_t firstFileIndex, std::uint16_t dirNum) noexcept
+                : Offset(offset), FirstFileIndex(firstFileIndex), DirNum(dirNum)
+            {
             }
         };
 

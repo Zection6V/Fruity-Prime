@@ -23,7 +23,7 @@ namespace MphRead::Entities
     class PlayerSpawnEntity;
     class DoorEntity;
     class ItemSpawnEntity;
-    class ItemInstance;
+    class ItemInstanceEntity;
     class EnemySpawnEntity;
     class TriggerVolumeEntity;
     class AreaVolumeEntity;
@@ -40,7 +40,7 @@ namespace MphRead::Entities
     class ForceFieldEntity;
     class BeamEffectEntity;
     class BombEntity;
-    class EnemyInstance;
+    class EnemyInstanceEntity;
     class HalfturretEntity;
     class PlayerEntity;
     class BeamProjectileEntity;
@@ -90,6 +90,15 @@ namespace MphRead
         public:
             DuplicateKeyException()
                 : std::invalid_argument("An item with the same key has already been added.")
+            {
+            }
+        };
+
+        class IndexOutOfRangeException final : public std::out_of_range
+        {
+        public:
+            IndexOutOfRangeException()
+                : std::out_of_range("Index was outside the bounds of the array.")
             {
             }
         };
@@ -220,7 +229,7 @@ namespace MphRead
                 {TypeToken<Entities::PlayerSpawnEntity>(), EntityType::PlayerSpawn},
                 {TypeToken<Entities::DoorEntity>(), EntityType::Door},
                 {TypeToken<Entities::ItemSpawnEntity>(), EntityType::ItemSpawn},
-                {TypeToken<Entities::ItemInstance>(), EntityType::ItemInstance},
+                {TypeToken<Entities::ItemInstanceEntity>(), EntityType::ItemInstance},
                 {TypeToken<Entities::EnemySpawnEntity>(), EntityType::EnemySpawn},
                 {TypeToken<Entities::TriggerVolumeEntity>(), EntityType::TriggerVolume},
                 {TypeToken<Entities::AreaVolumeEntity>(), EntityType::AreaVolume},
@@ -237,7 +246,7 @@ namespace MphRead
                 {TypeToken<Entities::ForceFieldEntity>(), EntityType::ForceField},
                 {TypeToken<Entities::BeamEffectEntity>(), EntityType::BeamEffect},
                 {TypeToken<Entities::BombEntity>(), EntityType::Bomb},
-                {TypeToken<Entities::EnemyInstance>(), EntityType::EnemyInstance},
+                {TypeToken<Entities::EnemyInstanceEntity>(), EntityType::EnemyInstance},
                 {TypeToken<Entities::HalfturretEntity>(), EntityType::Halfturret},
                 {TypeToken<Entities::PlayerEntity>(), EntityType::Player},
                 {TypeToken<Entities::BeamProjectileEntity>(), EntityType::BeamProjectile},
@@ -521,8 +530,8 @@ namespace MphRead
     public:
         LinkedListIterator() noexcept = default;
 
-        explicit LinkedListIterator(LinkedList<T>* list) noexcept
-            : _list(list)
+        explicit LinkedListIterator(std::shared_ptr<LinkedList<T>> list) noexcept
+            : _list(std::move(list))
         {
         }
 
@@ -549,14 +558,14 @@ namespace MphRead
     private:
         [[nodiscard]] LinkedList<T>& List() const
         {
-            if (_list == nullptr)
+            if (!_list)
             {
                 throw System::NullReferenceException();
             }
             return *_list;
         }
 
-        LinkedList<T>* _list = nullptr;
+        std::shared_ptr<LinkedList<T>> _list{};
     };
 
     template <typename T>
@@ -676,6 +685,55 @@ namespace MphRead
         using Value = std::shared_ptr<T>;
         using Storage = std::vector<Value>;
 
+        class ConstIterator final
+        {
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = Value;
+            using difference_type = std::ptrdiff_t;
+            using reference = Value;
+            using pointer = void;
+
+            ConstIterator() noexcept = default;
+            explicit ConstIterator(typename Storage::const_iterator iterator) noexcept
+                : _iterator(iterator)
+            {
+            }
+
+            [[nodiscard]] Value operator*() const
+            {
+                return *_iterator;
+            }
+
+            ConstIterator& operator++() noexcept
+            {
+                ++_iterator;
+                return *this;
+            }
+
+            ConstIterator operator++(int) noexcept
+            {
+                ConstIterator copy = *this;
+                ++*this;
+                return copy;
+            }
+
+            [[nodiscard]] friend bool operator==(
+                const ConstIterator& left, const ConstIterator& right) noexcept
+            {
+                return left._iterator == right._iterator;
+            }
+
+            [[nodiscard]] friend bool operator!=(
+                const ConstIterator& left, const ConstIterator& right) noexcept
+            {
+                return !(left == right);
+            }
+
+        private:
+            typename Storage::const_iterator _iterator{};
+        };
+
         ImmutableArray() noexcept = default;
 
         [[nodiscard]] static ImmutableArray AsImmutableArray(
@@ -707,26 +765,26 @@ namespace MphRead
             return static_cast<std::int32_t>(_storage->size());
         }
 
-        [[nodiscard]] const Value& operator[](std::int32_t index) const
+        [[nodiscard]] Value operator[](std::int32_t index) const
         {
             RequireStorage();
             if (index < 0 || static_cast<std::size_t>(index) >= _storage->size())
             {
-                throw std::out_of_range("Index was outside the bounds of the array.");
+                throw SceneDetail::IndexOutOfRangeException();
             }
             return (*_storage)[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] typename Storage::const_iterator begin() const
+        [[nodiscard]] ConstIterator begin() const
         {
             RequireStorage();
-            return _storage->begin();
+            return ConstIterator(_storage->begin());
         }
 
-        [[nodiscard]] typename Storage::const_iterator end() const
+        [[nodiscard]] ConstIterator end() const
         {
             RequireStorage();
-            return _storage->end();
+            return ConstIterator(_storage->end());
         }
 
     private:
@@ -741,7 +799,7 @@ namespace MphRead
         std::shared_ptr<const Storage> _storage{};
     };
 
-    class NavMapEntitySymbol final
+    class NavMapEntitySymbol
     {
     public:
         const EntityType Type;
@@ -767,7 +825,7 @@ namespace MphRead
         NavMapEntitySymbol& operator=(NavMapEntitySymbol&&) = delete;
     };
 
-    class NavMapRoomSymbols final
+    class NavMapRoomSymbols
     {
     public:
         const std::string Name;
@@ -806,7 +864,7 @@ namespace MphRead
         void RemoveEntity(const std::shared_ptr<Entities::EntityBase>& entity);
         void RemoveEntityFromMap(const std::shared_ptr<Entities::EntityBase>& entity);
 
-        [[nodiscard]] const std::optional<ImmutableArray<::MphRead::NavMapRoomSymbols>>&
+        [[nodiscard]] std::optional<ImmutableArray<::MphRead::NavMapRoomSymbols>>
             NavMapRoomSymbols() const noexcept;
         void LoadMapSymbolEntities(std::int32_t areaId);
 
@@ -815,7 +873,7 @@ namespace MphRead
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::PlayerSpawnEntity> GetPlayerSpawnEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::DoorEntity> GetDoorEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::ItemSpawnEntity> GetItemSpawnEntities() const;
-        [[nodiscard]] LinkedListIteratorSpecialized<Entities::ItemInstance> GetItemInstances() const;
+        [[nodiscard]] LinkedListIteratorSpecialized<Entities::ItemInstanceEntity> GetItemInstanceEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::EnemySpawnEntity> GetEnemySpawnEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::TriggerVolumeEntity> GetTriggerVolumeEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::AreaVolumeEntity> GetAreaVolumeEntities() const;
@@ -832,7 +890,7 @@ namespace MphRead
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::ForceFieldEntity> GetForceFieldEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::BeamEffectEntity> GetBeamEffectEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::BombEntity> GetBombEntities() const;
-        [[nodiscard]] LinkedListIteratorSpecialized<Entities::EnemyInstance> GetEnemyInstances() const;
+        [[nodiscard]] LinkedListIteratorSpecialized<Entities::EnemyInstanceEntity> GetEnemyInstanceEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::HalfturretEntity> GetHalfturretEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::PlayerEntity> GetPlayerEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::BeamProjectileEntity> GetBeamProjectileEntities() const;
@@ -849,7 +907,6 @@ namespace MphRead
         // Implementations belong to the corresponding C# partials, not Scene.cs.
         void InitEntity(const std::shared_ptr<Entities::EntityBase>& entity);
         [[nodiscard]] static MphRead::Language Language();
-        static void Language(MphRead::Language value);
 
         MPHREAD_SCENE_MESSAGING_MEMBERS
 
@@ -861,7 +918,8 @@ namespace MphRead
         static EntityNodeMap MakeEntityNodeMap();
         void InsertEntityByType(const std::shared_ptr<Entities::EntityBase>& entity);
 
-        LinkedList<Entities::EntityBase> _entities{};
+        const std::shared_ptr<LinkedList<Entities::EntityBase>> _entities
+            = std::make_shared<LinkedList<Entities::EntityBase>>();
         SceneDetail::ManagedDictionary<std::int32_t, std::shared_ptr<Entities::EntityBase>> _entityMap{};
         std::optional<ImmutableArray<::MphRead::NavMapRoomSymbols>> _navMapRoomSymbols{};
         EntityNodeMap _entityNodesByType = MakeEntityNodeMap();

@@ -19,7 +19,6 @@
 
 namespace
 {
-    using MphRead::Entities::EntityBase;
     using OpenTK::Mathematics::Vector3;
 
     [[nodiscard]] std::int32_t WrapAdd(std::int32_t left, std::int32_t right) noexcept
@@ -91,22 +90,6 @@ namespace
 #endif
     }
 
-    template <typename T>
-    [[nodiscard]] const T& Sequence(const T& value) noexcept
-    {
-        return value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& Sequence(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     template <typename T, typename U>
     [[nodiscard]] std::shared_ptr<T> ManagedCast(const std::shared_ptr<U>& value)
     {
@@ -116,21 +99,6 @@ namespace
         }
         std::shared_ptr<T> cast = std::dynamic_pointer_cast<T>(value);
         if (!cast)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-        return cast;
-    }
-
-    template <typename T, typename U>
-    [[nodiscard]] T* ManagedCast(U* value)
-    {
-        if (value == nullptr)
-        {
-            return nullptr;
-        }
-        T* cast = dynamic_cast<T*>(value);
-        if (cast == nullptr)
         {
             throw MphRead::SceneDetail::InvalidCastException();
         }
@@ -220,7 +188,7 @@ namespace MphRead
 
     LinkedListIterator<Entities::EntityBase> Scene::Entities() noexcept
     {
-        return LinkedListIterator<Entities::EntityBase>(&_entities);
+        return LinkedListIterator<Entities::EntityBase>(_entities);
     }
 
     void Scene::AddEntity(std::shared_ptr<Entities::EntityBase> entity)
@@ -246,7 +214,7 @@ namespace MphRead
         }
 
         bool isFirstOfType = true;
-        for (EntityNodePtr item = _entities.First(); item; item = item->Next())
+        for (EntityNodePtr item = _entities->First(); item; item = item->Next())
         {
             const std::shared_ptr<Entities::EntityBase>& existing = item->Value();
             if (!existing)
@@ -259,7 +227,7 @@ namespace MphRead
             }
             if (existing->Type != EntityType::Room && existing->Type > entity->Type)
             {
-                EntityNodePtr newNode = _entities.AddBefore(item, entity);
+                EntityNodePtr newNode = _entities->AddBefore(item, entity);
                 if (isFirstOfType)
                 {
                     _entityNodesByType.Set(entity->Type, newNode);
@@ -268,7 +236,7 @@ namespace MphRead
             }
         }
 
-        EntityNodePtr lastNode = _entities.AddLast(entity);
+        EntityNodePtr lastNode = _entities->AddLast(entity);
         if (isFirstOfType)
         {
             _entityNodesByType.Set(entity->Type, lastNode);
@@ -311,7 +279,7 @@ namespace MphRead
         }
         else
         {
-            node = _entities.Find(entity);
+            node = _entities->Find(entity);
         }
 
         if (node)
@@ -335,7 +303,7 @@ namespace MphRead
                     _entityNodesByType.Set(entity->Type, nullptr);
                 }
             }
-            _entities.Remove(node);
+            _entities->Remove(node);
         }
     }
 
@@ -348,7 +316,7 @@ namespace MphRead
         (void)_entityMap.Remove(entity->Id);
     }
 
-    const std::optional<ImmutableArray<::MphRead::NavMapRoomSymbols>>&
+    std::optional<ImmutableArray<::MphRead::NavMapRoomSymbols>>
         Scene::NavMapRoomSymbols() const noexcept
     {
         return _navMapRoomSymbols;
@@ -394,9 +362,13 @@ namespace MphRead
 
                 const auto entities = Read::GetEntities(
                     *meta->EntityPath, layerId, false, false);
+                if (!entities)
+                {
+                    throw System::NullReferenceException();
+                }
 
                 std::int32_t count = 0;
-                for (const auto& entity : Sequence(entities))
+                for (const auto& entity : *entities)
                 {
                     if (!entity)
                     {
@@ -418,7 +390,7 @@ namespace MphRead
                         static_cast<std::size_t>(count));
 
                 count = 0;
-                for (const auto& entity : Sequence(entities))
+                for (const auto& entity : *entities)
                 {
                     if (!entity)
                     {
@@ -438,11 +410,22 @@ namespace MphRead
                             heightFactor = 1.305F;
                         }
 
-                        const auto& doorMeta = Metadata::Doors.at(
-                            static_cast<std::size_t>(data.DoorType));
+                        const std::int32_t doorIndex = std::bit_cast<std::int32_t>(
+                            static_cast<std::uint32_t>(data.DoorType));
+                        if (doorIndex < 0
+                            || static_cast<std::size_t>(doorIndex) >= Metadata::Doors.size())
+                        {
+                            throw SceneDetail::IndexOutOfRangeException();
+                        }
+                        const auto& doorMeta = Metadata::Doors[static_cast<std::size_t>(doorIndex)];
                         Vector3 lockPos = entity->Position
                             + Multiply(entity->UpVector, doorMeta.LockOffset);
                         lockPos = WithY(lockPos, lockPos.Y * heightFactor);
+                        if (count < 0
+                            || static_cast<std::size_t>(count) >= symbols->size())
+                        {
+                            throw SceneDetail::IndexOutOfRangeException();
+                        }
                         (*symbols)[static_cast<std::size_t>(count++)]
                             = std::make_shared<NavMapEntitySymbol>(
                                 EntityType::Door,
@@ -460,6 +443,11 @@ namespace MphRead
                         const TeleporterEntityData& data = teleporter->Data;
                         const std::int32_t type
                             = data.ArtifactId < 8 && data.Invisible == 0 ? 1 : 0;
+                        if (count < 0
+                            || static_cast<std::size_t>(count) >= symbols->size())
+                        {
+                            throw SceneDetail::IndexOutOfRangeException();
+                        }
                         (*symbols)[static_cast<std::size_t>(count++)]
                             = std::make_shared<NavMapEntitySymbol>(
                                 EntityType::Teleporter,
@@ -514,9 +502,9 @@ namespace MphRead
             _entityNodesByType.At(EntityType::ItemSpawn));
     }
 
-    LinkedListIteratorSpecialized<Entities::ItemInstance> Scene::GetItemInstances() const
+    LinkedListIteratorSpecialized<Entities::ItemInstanceEntity> Scene::GetItemInstanceEntities() const
     {
-        return LinkedListIteratorSpecialized<Entities::ItemInstance>(
+        return LinkedListIteratorSpecialized<Entities::ItemInstanceEntity>(
             _entityNodesByType.At(EntityType::ItemInstance));
     }
 
@@ -616,9 +604,9 @@ namespace MphRead
             _entityNodesByType.At(EntityType::Bomb));
     }
 
-    LinkedListIteratorSpecialized<Entities::EnemyInstance> Scene::GetEnemyInstances() const
+    LinkedListIteratorSpecialized<Entities::EnemyInstanceEntity> Scene::GetEnemyInstanceEntities() const
     {
-        return LinkedListIteratorSpecialized<Entities::EnemyInstance>(
+        return LinkedListIteratorSpecialized<Entities::EnemyInstanceEntity>(
             _entityNodesByType.At(EntityType::EnemyInstance));
     }
 

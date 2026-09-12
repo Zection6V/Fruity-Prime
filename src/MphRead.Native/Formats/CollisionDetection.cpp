@@ -5,6 +5,7 @@
 #include "../Mods/Network/NetLog.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -124,6 +125,26 @@ namespace
             & static_cast<std::int32_t>(flag)) != 0;
     }
 
+    [[nodiscard]] constexpr std::int32_t UncheckedAdd(
+        std::int32_t left,
+        std::int32_t right) noexcept
+    {
+        const std::uint32_t result
+            = static_cast<std::uint32_t>(left)
+            + static_cast<std::uint32_t>(right);
+        return std::bit_cast<std::int32_t>(result);
+    }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedMultiply(
+        std::int32_t left,
+        std::int32_t right) noexcept
+    {
+        const std::uint32_t result
+            = static_cast<std::uint32_t>(left)
+            * static_cast<std::uint32_t>(right);
+        return std::bit_cast<std::int32_t>(result);
+    }
+
     [[nodiscard]] constexpr std::uint16_t ToBits(CollisionFlags value) noexcept
     {
         return static_cast<std::uint16_t>(value);
@@ -235,16 +256,11 @@ namespace
 
     [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
     {
-        constexpr float minValue = -2147483648.0F;
-        constexpr float maxExclusive = 2147483648.0F;
-
-        if (!std::isfinite(value)
-            || value < minValue
-            || value >= maxExclusive)
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        return static_cast<std::int32_t>(value);
+        // Fixed::ToInt is the shared .NET-compatible float-to-Int32
+        // conversion.  The collision grid uses Fixed.ToFloat(0x400),
+        // which is exactly 1/4, so feed that same conversion its
+        // equivalent fixed-point input without changing the source scale.
+        return Fixed::ToInt(value / 16384.0F);
     }
 
     [[nodiscard]] std::string FormatOneDecimal(float value)
@@ -434,9 +450,9 @@ namespace MphRead::Formats
                     = static_cast<std::size_t>(
                         candidate.Entry.DataStartIndex + j);
                 const std::uint16_t dataIndex
-                    = info.DataIndices.at(dataIndexListIndex);
+                    = Require(info.DataIndices).at(dataIndexListIndex);
                 const CollisionData data
-                    = info.Data.at(dataIndex);
+                    = Require(info.Data).at(dataIndex);
 
                 if ((ToBits(data.Flags) & mask) != 0
                     || SeenContains(_seenData, data))
@@ -449,7 +465,7 @@ namespace MphRead::Formats
                     _seenData.push_back(data);
                 }
 
-                Vector4 plane = info.Planes.at(data.PlaneIndex);
+                Vector4 plane = Require(info.Planes).at(data.PlaneIndex);
                 const float dot1
                     = Vector3::Dot(transPoint1, plane.Xyz())
                     - plane.W;
@@ -576,8 +592,8 @@ namespace MphRead::Formats
         const float pointB = secondCoordinate(point);
 
         Vector3 curVert
-            = info.Points.at(
-                info.PointIndices.at(data.PointStartIndex));
+            = Require(info.Points).at(
+                Require(info.PointIndices).at(data.PointStartIndex));
         const Vector3 firstVert = curVert;
 
         std::int32_t v8 = 0;
@@ -604,8 +620,8 @@ namespace MphRead::Formats
                 v8 = 0;
             }
 
-            nextVert = info.Points.at(
-                info.PointIndices.at(
+            nextVert = Require(info.Points).at(
+                Require(info.PointIndices).at(
                     static_cast<std::size_t>(
                         data.PointStartIndex + v8)));
 
@@ -799,12 +815,12 @@ namespace MphRead::Formats
                 }
 
                 const std::uint16_t dataIndex
-                    = info.DataIndices.at(
+                    = Require(info.DataIndices).at(
                         static_cast<std::size_t>(
                             candidate.Entry.DataStartIndex + j));
 
                 const CollisionData data
-                    = info.Data.at(dataIndex);
+                    = Require(info.Data).at(dataIndex);
 
                 if ((ToBits(data.Flags) & mask) != 0
                     || SeenContains(_seenData, data))
@@ -818,7 +834,7 @@ namespace MphRead::Formats
                 }
 
                 const Vector4 plane
-                    = info.Planes.at(data.PlaneIndex);
+                    = Require(info.Planes).at(data.PlaneIndex);
 
                 const float dot1
                     = Vector3::Dot(
@@ -867,12 +883,12 @@ namespace MphRead::Formats
                             data.PointStartIndex + pIndex);
 
                     const Vector3 dataPoint1
-                        = info.Points.at(
-                            info.PointIndices.at(index));
+                        = Require(info.Points).at(
+                            Require(info.PointIndices).at(index));
 
                     const Vector3 dataPoint2
-                        = info.Points.at(
-                            info.PointIndices.at(index + 1));
+                        = Require(info.Points).at(
+                            Require(info.PointIndices).at(index + 1));
 
                     const Vector3 edgeDir
                         = Normalize(
@@ -921,12 +937,12 @@ namespace MphRead::Formats
                                     data.PointStartIndex + p1);
 
                             const Vector3 edgePoint1
-                                = info.Points.at(
-                                    info.PointIndices.at(epIndex));
+                                = Require(info.Points).at(
+                                    Require(info.PointIndices).at(epIndex));
 
                             const Vector3 edgePoint2
-                                = info.Points.at(
-                                    info.PointIndices.at(
+                                = Require(info.Points).at(
+                                    Require(info.PointIndices).at(
                                         epIndex + 1));
 
                             CollisionResult result
@@ -1253,12 +1269,12 @@ namespace MphRead::Formats
                 }
 
                 const std::uint16_t dataIndex
-                    = info.DataIndices.at(
+                    = Require(info.DataIndices).at(
                         static_cast<std::size_t>(
                             candidate.Entry.DataStartIndex + j));
 
                 const CollisionData data
-                    = info.Data.at(dataIndex);
+                    = Require(info.Data).at(dataIndex);
 
                 if ((ToBits(data.Flags) & mask) != 0
                     || SeenContains(_seenData, data))
@@ -1273,7 +1289,7 @@ namespace MphRead::Formats
                 }
 
                 const Vector4 plane
-                    = info.Planes.at(
+                    = Require(info.Planes).at(
                         data.PlaneIndex);
 
                 const float dot
@@ -1299,12 +1315,12 @@ namespace MphRead::Formats
                             + pIndex);
 
                     const Vector3 point1
-                        = info.Points.at(
-                            info.PointIndices.at(index));
+                        = Require(info.Points).at(
+                            Require(info.PointIndices).at(index));
 
                     const Vector3 point2
-                        = info.Points.at(
-                            info.PointIndices.at(
+                        = Require(info.Points).at(
+                            Require(info.PointIndices).at(
                                 index + 1));
 
                     const Vector3 edgeDir
@@ -1385,12 +1401,12 @@ namespace MphRead::Formats
                                     + p2);
 
                             const Vector3 point1
-                                = info.Points.at(
-                                    info.PointIndices.at(index));
+                                = Require(info.Points).at(
+                                    Require(info.PointIndices).at(index));
 
                             const Vector3 point2
-                                = info.Points.at(
-                                    info.PointIndices.at(
+                                = Require(info.Points).at(
+                                    Require(info.PointIndices).at(
                                         index + 1));
 
                             const Vector3 edge
@@ -1720,15 +1736,20 @@ namespace MphRead::Formats
                         while (xIndex <= maxXPart)
                         {
                             std::int32_t entryIndex
-                                = yIndex
-                                    * partsX
-                                    * partsZ
-                                + zIndex
-                                    * partsX
-                                + xIndex;
+                                = UncheckedAdd(
+                                    UncheckedAdd(
+                                        UncheckedMultiply(
+                                            UncheckedMultiply(
+                                                yIndex,
+                                                partsX),
+                                            partsZ),
+                                        UncheckedMultiply(
+                                            zIndex,
+                                            partsX)),
+                                    xIndex);
 
                             const CollisionEntry entry
-                                = info.Entries.at(
+                                = Require(info.Entries).at(
                                     static_cast<std::size_t>(
                                         entryIndex++));
 
@@ -1952,7 +1973,7 @@ namespace MphRead::Formats
                             while (xIndex < info.Header.PartsX)
                             {
                                 const CollisionEntry entry
-                                    = info.Entries.at(
+                                    = Require(info.Entries).at(
                                         static_cast<std::size_t>(
                                             entryIndex++));
 
@@ -2359,13 +2380,18 @@ namespace MphRead::Formats
                     && curZ < partsZ)
                 {
                     const std::int32_t entryIndex
-                        = curX
-                        + partsX
-                            * (curZ
-                                + curY * partsZ);
+                        = UncheckedAdd(
+                            curX,
+                            UncheckedMultiply(
+                                partsX,
+                                UncheckedAdd(
+                                    curZ,
+                                    UncheckedMultiply(
+                                        curY,
+                                        partsZ))));
 
                     const CollisionEntry entry
-                        = info.Entries.at(
+                        = Require(info.Entries).at(
                             static_cast<std::size_t>(
                                 entryIndex));
 
@@ -2594,35 +2620,31 @@ namespace MphRead::Formats
                     volume.BoxVector1,
                     between);
 
-            if (dot1 < -radius
-                || dot1 > volume.BoxDot1 + radius)
+            if (dot1 >= -radius
+                && dot1 <= volume.BoxDot1 + radius)
             {
-                return false;
+                const float dot2
+                    = Vector3::Dot(
+                        volume.BoxVector2,
+                        between);
+
+                if (dot2 >= -radius
+                    && dot2 <= volume.BoxDot2 + radius)
+                {
+                    const float dot3
+                        = Vector3::Dot(
+                            volume.BoxVector3,
+                            between);
+
+                    if (dot3 >= -radius
+                        && dot3 <= volume.BoxDot3 + radius)
+                    {
+                        return true;
+                    }
+                }
             }
 
-            const float dot2
-                = Vector3::Dot(
-                    volume.BoxVector2,
-                    between);
-
-            if (dot2 < -radius
-                || dot2 > volume.BoxDot2 + radius)
-            {
-                return false;
-            }
-
-            const float dot3
-                = Vector3::Dot(
-                    volume.BoxVector3,
-                    between);
-
-            if (dot3 < -radius
-                || dot3 > volume.BoxDot3 + radius)
-            {
-                return false;
-            }
-
-            return true;
+            return false;
         }
 
         return false;
@@ -2829,13 +2851,16 @@ namespace MphRead::Formats
             = v17
             - (radii - v20) / v21;
 
-        if (v22 < v9)
+        if (v22 >= v9)
+        {
+            if (v22 > v10)
+            {
+                v22 = v10;
+            }
+        }
+        else
         {
             v22 = v9;
-        }
-        else if (v22 > v10)
-        {
-            v22 = v10;
         }
 
         result.Field0 = 0;
@@ -3246,17 +3271,17 @@ namespace MphRead::Formats
                         div));
 
             assert(
-                value.Points.size()
-                == value.Planes.size());
+                Require(value.Points).size()
+                == Require(value.Planes).size());
 
-            assert(!value.Planes.empty());
+            assert(!Require(value.Planes).empty());
 
             for (std::size_t i = 0;
-                i < value.Planes.size();
+                i < Require(value.Planes).size();
                 i++)
             {
                 const Vector4 sidePlane
-                    = value.Planes[i];
+                    = Require(value.Planes)[i];
 
                 if (Vector3::Dot(
                         vec,

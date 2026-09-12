@@ -27,6 +27,11 @@ namespace MphRead::Formats
         CollisionCandidate(
             std::shared_ptr<MphRead::Formats::Collision::CollisionInstance> collision,
             MphRead::Formats::Collision::CollisionEntry entry);
+
+        CollisionCandidate(const CollisionCandidate&) = delete;
+        CollisionCandidate& operator=(const CollisionCandidate&) = delete;
+        CollisionCandidate(CollisionCandidate&&) = delete;
+        CollisionCandidate& operator=(CollisionCandidate&&) = delete;
     };
 
     enum class TestFlags : std::int32_t
@@ -36,6 +41,51 @@ namespace MphRead::Formats
         Beams = 0x4000,
         Scan = 0x8000
     };
+
+    [[nodiscard]] constexpr TestFlags operator|(TestFlags lhs, TestFlags rhs) noexcept
+    {
+        return static_cast<TestFlags>(
+            static_cast<std::int32_t>(lhs)
+            | static_cast<std::int32_t>(rhs));
+    }
+
+    [[nodiscard]] constexpr TestFlags operator&(TestFlags lhs, TestFlags rhs) noexcept
+    {
+        return static_cast<TestFlags>(
+            static_cast<std::int32_t>(lhs)
+            & static_cast<std::int32_t>(rhs));
+    }
+
+    [[nodiscard]] constexpr TestFlags operator^(TestFlags lhs, TestFlags rhs) noexcept
+    {
+        return static_cast<TestFlags>(
+            static_cast<std::int32_t>(lhs)
+            ^ static_cast<std::int32_t>(rhs));
+    }
+
+    [[nodiscard]] constexpr TestFlags operator~(TestFlags value) noexcept
+    {
+        return static_cast<TestFlags>(
+            ~static_cast<std::int32_t>(value));
+    }
+
+    constexpr TestFlags& operator|=(TestFlags& lhs, TestFlags rhs) noexcept
+    {
+        lhs = lhs | rhs;
+        return lhs;
+    }
+
+    constexpr TestFlags& operator&=(TestFlags& lhs, TestFlags rhs) noexcept
+    {
+        lhs = lhs & rhs;
+        return lhs;
+    }
+
+    constexpr TestFlags& operator^=(TestFlags& lhs, TestFlags rhs) noexcept
+    {
+        lhs = lhs ^ rhs;
+        return lhs;
+    }
 
     struct CollisionResult
     {
@@ -145,6 +195,15 @@ namespace MphRead::Formats
             float radius,
             CollisionResult& result);
 
+        [[nodiscard]] static bool CheckCylindersOverlap(
+            OpenTK::Mathematics::Vector3 oneBottom,
+            OpenTK::Mathematics::Vector3 oneTop,
+            OpenTK::Mathematics::Vector3 twoBottom,
+            OpenTK::Mathematics::Vector3 twoVector,
+            float twoDot,
+            float radii,
+            CollisionResult& result);
+
         [[nodiscard]] static bool CheckVolumesOverlap(
             const MphRead::CollisionVolume* one,
             const MphRead::CollisionVolume* two,
@@ -212,15 +271,6 @@ namespace MphRead::Formats
             OpenTK::Mathematics::Vector3 point1,
             OpenTK::Mathematics::Vector3 point2,
             MphRead::Scene* scene);
-
-        [[nodiscard]] static bool CheckCylindersOverlap(
-            OpenTK::Mathematics::Vector3 oneBottom,
-            OpenTK::Mathematics::Vector3 oneTop,
-            OpenTK::Mathematics::Vector3 twoBottom,
-            OpenTK::Mathematics::Vector3 twoVector,
-            float twoDot,
-            float radii,
-            CollisionResult& result);
 
         [[nodiscard]] static bool CheckCylinderOverlapVolumeHelper(
             const MphRead::CollisionVolume* other,

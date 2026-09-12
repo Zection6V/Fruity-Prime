@@ -3,11 +3,11 @@
 #include "Formats/Enums.hpp"
 
 #include <any>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <new>
-#include <vector>
 
 namespace MphRead::Entities
 {
@@ -18,21 +18,22 @@ namespace MphRead
 {
     class Scene;
 
+    using MessageObject = std::shared_ptr<const std::any>;
+
     struct MessageInfo
     {
         const MphRead::Message Message = MphRead::Message::None;
         Entities::EntityBase* const Sender = nullptr;
         Entities::EntityBase* const Target = nullptr;
-        const std::shared_ptr<std::any> Param1{};
-        const std::shared_ptr<std::any> Param2{};
+        const MessageObject Param1{};
+        const MessageObject Param2{};
         const std::uint64_t ExecuteFrame = 0;
         const std::uint64_t QueuedFrame = 0;
 
         MessageInfo() = default;
         MessageInfo(MphRead::Message message, Entities::EntityBase* sender,
-            Entities::EntityBase* target, std::shared_ptr<std::any> param1,
-            std::shared_ptr<std::any> param2, std::uint64_t executeFrame,
-            std::uint64_t queuedFrame) noexcept;
+            Entities::EntityBase* target, MessageObject param1, MessageObject param2,
+            std::uint64_t executeFrame, std::uint64_t queuedFrame) noexcept;
 
         MessageInfo(const MessageInfo&) noexcept = default;
         MessageInfo& operator=(const MessageInfo& other) noexcept
@@ -46,45 +47,61 @@ namespace MphRead
         }
     };
 
-    class MessageQueueView
+    class MessageQueueReadOnly
     {
     public:
-        [[nodiscard]] std::int32_t Count() const noexcept;
-        [[nodiscard]] MessageInfo operator[](std::int32_t index) const;
+        MessageQueueReadOnly() = default;
+        MessageQueueReadOnly(const MessageQueueReadOnly&) = delete;
+        MessageQueueReadOnly(MessageQueueReadOnly&&) = delete;
+        MessageQueueReadOnly& operator=(const MessageQueueReadOnly&) = delete;
+        MessageQueueReadOnly& operator=(MessageQueueReadOnly&&) = delete;
+        virtual ~MessageQueueReadOnly() = default;
 
-    private:
-        friend class Scene;
-
-        explicit MessageQueueView(const std::shared_ptr<std::vector<MessageInfo>>& queue) noexcept
-            : _queue(queue)
-        {
-        }
-
-        std::shared_ptr<const std::vector<MessageInfo>> _queue;
+        [[nodiscard]] virtual std::int32_t Count() const noexcept = 0;
+        [[nodiscard]] virtual MessageInfo operator[](std::int32_t index) const = 0;
     };
+
+    namespace MessagingDetail
+    {
+        class MessageQueueStorage final : public MessageQueueReadOnly
+        {
+        public:
+            [[nodiscard]] std::int32_t Count() const noexcept override;
+            [[nodiscard]] MessageInfo operator[](std::int32_t index) const override;
+
+        private:
+            friend class ::MphRead::Scene;
+
+            static constexpr std::size_t Capacity = 40;
+
+            void Add(MessageInfo info) noexcept;
+            void RemoveAt(std::int32_t index);
+            void Clear() noexcept;
+
+            [[nodiscard]] const MessageInfo& Item(std::int32_t index) const;
+
+            std::array<MessageInfo, Capacity> _items{};
+            std::int32_t _count = 0;
+        };
+    }
 }
 
 #define MPHREAD_SCENE_MESSAGING_MEMBERS \
 private: \
     static constexpr std::int32_t _queueSize = 40; \
-    std::shared_ptr<std::vector<::MphRead::MessageInfo>> _queue = []() \
-    { \
-        auto queue = std::make_shared<std::vector<::MphRead::MessageInfo>>(); \
-        queue->reserve(static_cast<std::size_t>(_queueSize)); \
-        return queue; \
-    }(); \
+    ::MphRead::MessagingDetail::MessageQueueStorage _queue{}; \
 public: \
-    [[nodiscard]] ::MphRead::MessageQueueView MessageQueue() const noexcept; \
+    [[nodiscard]] const ::MphRead::MessageQueueReadOnly& MessageQueue() const noexcept; \
     void SendMessage(::MphRead::Message message, ::MphRead::Entities::EntityBase* sender, \
-        ::MphRead::Entities::EntityBase* target, std::shared_ptr<std::any> param1, \
-        std::shared_ptr<std::any> param2); \
+        ::MphRead::Entities::EntityBase* target, ::MphRead::MessageObject param1, \
+        ::MphRead::MessageObject param2); \
     void SendMessage(::MphRead::Message message, ::MphRead::Entities::EntityBase* sender, \
-        ::MphRead::Entities::EntityBase* target, std::shared_ptr<std::any> param1, \
-        std::shared_ptr<std::any> param2, std::int32_t delay); \
+        ::MphRead::Entities::EntityBase* target, ::MphRead::MessageObject param1, \
+        ::MphRead::MessageObject param2, std::int32_t delay); \
 private: \
     void DispatchOrQueueMessage(::MphRead::Message message, \
         ::MphRead::Entities::EntityBase* sender, ::MphRead::Entities::EntityBase* target, \
-        std::shared_ptr<std::any> param1, std::shared_ptr<std::any> param2, \
+        ::MphRead::MessageObject param1, ::MphRead::MessageObject param2, \
         std::uint64_t frame); \
     void DispatchMessage(::MphRead::MessageInfo info); \
     void QueueMessage(::MphRead::MessageInfo info); \

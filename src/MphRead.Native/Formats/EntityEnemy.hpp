@@ -7,9 +7,14 @@
 #include "RawFormats.hpp"
 #include "Types.hpp"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
+#include <new>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace MphRead
@@ -203,26 +208,48 @@ namespace MphRead
         EnemySpawnFields12& operator=(const EnemySpawnFields12& other) noexcept;
     };
 
-    union EnumSpawnUnion
+    struct alignas(4) EnumSpawnUnion
     {
-        const EnemySpawnFields00 S00;
-        const EnemySpawnFields01 S01;
-        const EnemySpawnFields02 S02;
-        const EnemySpawnFields03 S03;
-        const EnemySpawnFields04 S04;
-        const EnemySpawnFields05 S05;
-        const EnemySpawnFields06 S06;
-        const EnemySpawnFields07 S07;
-        const EnemySpawnFields08 S08;
-        const EnemySpawnFields09 S09;
-        const EnemySpawnFields10 S10;
-        const EnemySpawnFields11 S11;
-        const EnemySpawnFields12 S12;
+    private:
+        static constexpr std::size_t StorageSize = 400;
+        static constexpr std::size_t ExplicitLayoutOffset = 0;
+        std::array<std::byte, StorageSize> _storage{};
 
-        EnumSpawnUnion() noexcept;
+        template <typename T>
+        [[nodiscard]] T View() const noexcept
+        {
+            static_assert(sizeof(T) <= StorageSize);
+            static_assert(std::is_trivially_copy_constructible_v<T>);
+            static_assert(std::is_trivially_destructible_v<T>);
+
+            // In C++20, memcpy implicitly starts the lifetime of an implicit-lifetime
+            // object in byte-array storage. These raw readonly structs have trivial copy
+            // construction/destruction, so each accessor materializes an independent
+            // view from the same byte offset without reading an inactive union member.
+            alignas(T) std::byte viewStorage[sizeof(T)];
+            std::memcpy(viewStorage, _storage.data() + ExplicitLayoutOffset, sizeof(T));
+            const T* view = std::launder(reinterpret_cast<const T*>(viewStorage));
+            return *view;
+        }
+
+    public:
+        EnumSpawnUnion() noexcept = default;
         EnumSpawnUnion(const EnumSpawnUnion&) noexcept = default;
-        EnumSpawnUnion& operator=(const EnumSpawnUnion& other) noexcept;
-        ~EnumSpawnUnion() noexcept = default;
+        EnumSpawnUnion& operator=(const EnumSpawnUnion&) noexcept = default;
+
+        [[nodiscard]] EnemySpawnFields00 S00() const noexcept { return View<EnemySpawnFields00>(); }
+        [[nodiscard]] EnemySpawnFields01 S01() const noexcept { return View<EnemySpawnFields01>(); }
+        [[nodiscard]] EnemySpawnFields02 S02() const noexcept { return View<EnemySpawnFields02>(); }
+        [[nodiscard]] EnemySpawnFields03 S03() const noexcept { return View<EnemySpawnFields03>(); }
+        [[nodiscard]] EnemySpawnFields04 S04() const noexcept { return View<EnemySpawnFields04>(); }
+        [[nodiscard]] EnemySpawnFields05 S05() const noexcept { return View<EnemySpawnFields05>(); }
+        [[nodiscard]] EnemySpawnFields06 S06() const noexcept { return View<EnemySpawnFields06>(); }
+        [[nodiscard]] EnemySpawnFields07 S07() const noexcept { return View<EnemySpawnFields07>(); }
+        [[nodiscard]] EnemySpawnFields08 S08() const noexcept { return View<EnemySpawnFields08>(); }
+        [[nodiscard]] EnemySpawnFields09 S09() const noexcept { return View<EnemySpawnFields09>(); }
+        [[nodiscard]] EnemySpawnFields10 S10() const noexcept { return View<EnemySpawnFields10>(); }
+        [[nodiscard]] EnemySpawnFields11 S11() const noexcept { return View<EnemySpawnFields11>(); }
+        [[nodiscard]] EnemySpawnFields12 S12() const noexcept { return View<EnemySpawnFields12>(); }
     };
 
     struct EnemySpawnEntityData
@@ -245,7 +272,7 @@ namespace MphRead
         const std::uint16_t Padding1C6 = 0;
         const Fixed ActiveDistance{};
         const Fixed EnemyActiveDistance{};
-        char NodeName[16]{};
+        const std::shared_ptr<ManagedArray<char16_t>> NodeName{};
         const std::int16_t EntityId1 = 0;
         const std::uint16_t Padding1E2 = 0;
         const Message Message1{};
@@ -275,7 +302,7 @@ namespace MphRead
         const std::uint8_t PaddingEB = 0;
         const std::uint16_t Cooldown = 0;
         const std::uint16_t StartFrame = 0;
-        char NodeName[16]{};
+        const std::shared_ptr<ManagedArray<char16_t>> NodeName{};
         const std::int16_t ParentId = 0;
         const std::uint16_t Padding102 = 0;
         const FhMessage EmptyMessage{};
@@ -285,9 +312,72 @@ namespace MphRead
         FhEnemySpawnEntityData& operator=(const FhEnemySpawnEntityData& other) noexcept;
     };
 
+    namespace NativeInteropDetail
+    {
+        // C# char[] remains a managed reference. MarshalAs(ByValArray, SizeConst = 16)
+        // is an unmanaged-view contract, so keep the managed and ABI representations
+        // separate rather than replacing the managed reference with an inline C++ array.
+        struct EnemySpawnEntityDataUnmanagedLayout
+        {
+            EntityDataHeader Header{};
+            MphRead::EnemyType EnemyType{};
+            std::uint8_t Padding25 = 0;
+            std::uint16_t Padding26 = 0;
+            EnumSpawnUnion Fields{};
+            std::int16_t LinkedEntityId = 0;
+            std::uint8_t SpawnTotal = 0;
+            std::uint8_t SpawnLimit = 0;
+            std::uint8_t SpawnCount = 0;
+            std::uint8_t Active = 0;
+            std::uint8_t AlwaysActive = 0;
+            std::uint8_t ItemChance = 0;
+            std::uint16_t SpawnerHealth = 0;
+            std::uint16_t CooldownTime = 0;
+            std::uint16_t InitialCooldown = 0;
+            std::uint16_t Padding1C6 = 0;
+            Fixed ActiveDistance{};
+            Fixed EnemyActiveDistance{};
+            std::array<char, 16> NodeName{};
+            std::int16_t EntityId1 = 0;
+            std::uint16_t Padding1E2 = 0;
+            Message Message1{};
+            std::int16_t EntityId2 = 0;
+            std::uint16_t Padding1EA = 0;
+            Message Message2{};
+            std::int16_t EntityId3 = 0;
+            std::uint16_t Padding1F2 = 0;
+            Message Message3{};
+            MphRead::ItemType ItemType{};
+        };
+
+        struct FhEnemySpawnEntityDataUnmanagedLayout
+        {
+            EntityDataHeader Header{};
+            FhRawCollisionVolume Box{};
+            FhRawCollisionVolume Cylinder{};
+            FhRawCollisionVolume Sphere{};
+            MphRead::FhEnemyType EnemyType{};
+            std::uint8_t SpawnTotal = 0;
+            std::uint8_t SpawnLimit = 0;
+            std::uint8_t SpawnCount = 0;
+            std::uint8_t PaddingEB = 0;
+            std::uint16_t Cooldown = 0;
+            std::uint16_t StartFrame = 0;
+            std::array<char, 16> NodeName{};
+            std::int16_t ParentId = 0;
+            std::uint16_t Padding102 = 0;
+            FhMessage EmptyMessage{};
+        };
+    }
+
     static_assert(sizeof(EnumSpawnUnion) == 400);
-    static_assert(sizeof(EnemySpawnEntityData) == 512);
-    static_assert(sizeof(FhEnemySpawnEntityData) == 268);
+    static_assert(alignof(EnumSpawnUnion) == 4);
+    static_assert(sizeof(NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout) == 512);
+    static_assert(offsetof(NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout, NodeName) == 468);
+    static_assert(offsetof(NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout, EntityId1) == 484);
+    static_assert(sizeof(NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout) == 268);
+    static_assert(offsetof(NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout, NodeName) == 244);
+    static_assert(offsetof(NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout, ParentId) == 260);
 }
 
 namespace MphRead::Editor

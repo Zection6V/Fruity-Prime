@@ -5,6 +5,8 @@
 #include <memory>
 #include <new>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 namespace
 {
@@ -19,21 +21,22 @@ namespace
         return self;
     }
 
-    std::shared_ptr<std::string> EmptyString()
+    template <typename TResult>
+    std::shared_ptr<std::string> BindManagedEditorString(TResult&& value)
     {
-        static const auto value = std::make_shared<std::string>();
-        return value;
-    }
-
-    template <std::size_t N>
-    std::shared_ptr<std::string> MarshalString(const char (&value)[N])
-    {
-        std::size_t length = 0;
-        while (length < N && value[length] != '\0')
+        if constexpr (std::is_convertible_v<TResult, std::shared_ptr<std::string>>)
         {
-            ++length;
+            return std::forward<TResult>(value);
         }
-        return length == 0 ? EmptyString() : std::make_shared<std::string>(value, length);
+        else
+        {
+            using MissingManagedStringOwner = std::remove_cvref_t<TResult>;
+            static_assert(!std::is_same_v<MissingManagedStringOwner, MissingManagedStringOwner>,
+                "EntityEnemy requires the missing shared managed-string owner to bind "
+                "MarshalExtensions' UTF-16 result to EntityClass editor string references. "
+                "Do not narrow or allocate a pair-local string here.");
+            return {};
+        }
     }
 
     void RequireReference(bool present)
@@ -117,16 +120,6 @@ namespace MphRead
         return AssignReadonly(*this, other);
     }
 
-    EnumSpawnUnion::EnumSpawnUnion() noexcept
-        : S00{}
-    {
-    }
-
-    EnumSpawnUnion& EnumSpawnUnion::operator=(const EnumSpawnUnion& other) noexcept
-    {
-        return AssignReadonly(*this, other);
-    }
-
     EnemySpawnEntityData& EnemySpawnEntityData::operator=(const EnemySpawnEntityData& other) noexcept
     {
         return AssignReadonly(*this, other);
@@ -206,22 +199,22 @@ namespace MphRead::Editor
         {
             return 12;
         }
-#ifndef NDEBUG
-#error "EntityEnemy DEBUG parity requires the missing one-to-one Native owner for System.Diagnostics.Debug.Assert."
+#if defined(DEBUG)
+#error "EntityEnemy DEBUG parity requires the missing shared Native owner for System.Diagnostics.Debug.Assert."
 #endif
         return 0;
     }
 
     EnemySpawnEntityEditor::EnemySpawnEntityEditor()
         : EntityEditorBase(EntityType::EnemySpawn),
-          SpawnNodeName(EmptyString())
+          SpawnNodeName(NodeName)
     {
     }
 
     EnemySpawnEntityEditor::EnemySpawnEntityEditor(
         const std::shared_ptr<Entity>& header, EnemySpawnEntityData raw)
         : EntityEditorBase(header),
-          SpawnNodeName(EmptyString())
+          SpawnNodeName(NodeName)
     {
         EnemyType = raw.EnemyType;
         LinkedEntityId = raw.LinkedEntityId;
@@ -236,7 +229,7 @@ namespace MphRead::Editor
         InitialCooldown = raw.InitialCooldown;
         ActiveDistance = raw.ActiveDistance.FloatValue();
         EnemyActiveDistance = raw.ActiveDistance.FloatValue();
-        SpawnNodeName = MarshalString(raw.NodeName);
+        SpawnNodeName = BindManagedEditorString(MarshalExtensions::MarshalString(raw.NodeName));
         EntityId1 = raw.EntityId1;
         Message1 = raw.Message1;
         EntityId2 = raw.EntityId2;
@@ -248,42 +241,42 @@ namespace MphRead::Editor
         const std::int32_t spawnerType = GetSpawnerType(EnemyType);
         if (spawnerType == 0)
         {
-            Volume0 = CollisionVolume(raw.Fields.S00.Volume0);
-            Volume1 = CollisionVolume(raw.Fields.S00.Volume1);
-            Volume2 = CollisionVolume(raw.Fields.S00.Volume2);
-            Volume3 = CollisionVolume(raw.Fields.S00.Volume3);
+            Volume0 = CollisionVolume(raw.Fields.S00().Volume0);
+            Volume1 = CollisionVolume(raw.Fields.S00().Volume1);
+            Volume2 = CollisionVolume(raw.Fields.S00().Volume2);
+            Volume3 = CollisionVolume(raw.Fields.S00().Volume3);
         }
         else if (spawnerType == 2)
         {
-            Volume0 = CollisionVolume(raw.Fields.S02.Volume0);
-            Volume1 = CollisionVolume(raw.Fields.S02.Volume1);
-            Volume2 = CollisionVolume(raw.Fields.S02.Volume2);
-            PathVector = raw.Fields.S02.PathVector.ToFloatVector();
+            Volume0 = CollisionVolume(raw.Fields.S02().Volume0);
+            Volume1 = CollisionVolume(raw.Fields.S02().Volume1);
+            Volume2 = CollisionVolume(raw.Fields.S02().Volume2);
+            PathVector = raw.Fields.S02().PathVector.ToFloatVector();
         }
         else if (spawnerType == 3)
         {
-            Volume0 = CollisionVolume(raw.Fields.S03.Volume0);
-            EnemyPosition = raw.Fields.S03.Position.ToFloatVector();
-            EnemyFacing = raw.Fields.S03.Facing.ToFloatVector();
-            IdleRange = raw.Fields.S03.IdleRange.ToFloatVector();
-            Unused68 = raw.Fields.S03.Unused68;
-            Unused6C = raw.Fields.S03.Unused6C;
-            Unused70 = raw.Fields.S03.Unused70;
-            Unused74 = raw.Fields.S03.Unused74;
-            Unused78 = raw.Fields.S03.Unused78;
-            Unused7C = raw.Fields.S03.Unused7C;
-            Unused80 = raw.Fields.S03.Unused80;
+            Volume0 = CollisionVolume(raw.Fields.S03().Volume0);
+            EnemyPosition = raw.Fields.S03().Position.ToFloatVector();
+            EnemyFacing = raw.Fields.S03().Facing.ToFloatVector();
+            IdleRange = raw.Fields.S03().IdleRange.ToFloatVector();
+            Unused68 = raw.Fields.S03().Unused68;
+            Unused6C = raw.Fields.S03().Unused6C;
+            Unused70 = raw.Fields.S03().Unused70;
+            Unused74 = raw.Fields.S03().Unused74;
+            Unused78 = raw.Fields.S03().Unused78;
+            Unused7C = raw.Fields.S03().Unused7C;
+            Unused80 = raw.Fields.S03().Unused80;
         }
         else if (spawnerType == 4)
         {
-            Volume0 = CollisionVolume(raw.Fields.S04.Volume0);
-            EnemyPosition = raw.Fields.S04.Position.ToFloatVector();
-            WeaveOffset = raw.Fields.S04.WeaveOffset;
-            Unknown01 = raw.Fields.S04.Field88;
-            Unused68 = raw.Fields.S04.Unused68;
-            Unused6C = raw.Fields.S04.Unused6C;
-            Unused70 = raw.Fields.S04.Unused70;
-            Unused74 = raw.Fields.S04.Unused74;
+            Volume0 = CollisionVolume(raw.Fields.S04().Volume0);
+            EnemyPosition = raw.Fields.S04().Position.ToFloatVector();
+            WeaveOffset = raw.Fields.S04().WeaveOffset;
+            Unknown01 = raw.Fields.S04().Field88;
+            Unused68 = raw.Fields.S04().Unused68;
+            Unused6C = raw.Fields.S04().Unused6C;
+            Unused70 = raw.Fields.S04().Unused70;
+            Unused74 = raw.Fields.S04().Unused74;
         }
         else if (spawnerType == 1 || spawnerType == 8)
         {
@@ -302,70 +295,70 @@ namespace MphRead::Editor
 
             if (EnemyType == MphRead::EnemyType::WarWasp)
             {
-                setWarWaspFields(raw.Fields.S01.WarWasp);
+                setWarWaspFields(raw.Fields.S01().WarWasp);
             }
             else
             {
-                EnemySubtype = raw.Fields.S08.EnemySubtype;
-                EnemyVersion = raw.Fields.S08.EnemyVersion;
-                setWarWaspFields(raw.Fields.S08.WarWasp);
+                EnemySubtype = raw.Fields.S08().EnemySubtype;
+                EnemyVersion = raw.Fields.S08().EnemyVersion;
+                setWarWaspFields(raw.Fields.S08().WarWasp);
             }
         }
         else if (spawnerType == 5)
         {
-            EnemySubtype = raw.Fields.S05.EnemySubtype;
-            Volume0 = CollisionVolume(raw.Fields.S05.Volume0);
-            Volume1 = CollisionVolume(raw.Fields.S05.Volume1);
-            Volume2 = CollisionVolume(raw.Fields.S05.Volume2);
-            Volume3 = CollisionVolume(raw.Fields.S05.Volume3);
+            EnemySubtype = raw.Fields.S05().EnemySubtype;
+            Volume0 = CollisionVolume(raw.Fields.S05().Volume0);
+            Volume1 = CollisionVolume(raw.Fields.S05().Volume1);
+            Volume2 = CollisionVolume(raw.Fields.S05().Volume2);
+            Volume3 = CollisionVolume(raw.Fields.S05().Volume3);
         }
         else if (spawnerType == 6)
         {
-            EnemySubtype = raw.Fields.S06.EnemySubtype;
-            EnemyVersion = raw.Fields.S06.EnemyVersion;
-            Volume0 = CollisionVolume(raw.Fields.S06.Volume0);
-            Volume1 = CollisionVolume(raw.Fields.S06.Volume1);
-            Volume2 = CollisionVolume(raw.Fields.S06.Volume2);
-            Volume3 = CollisionVolume(raw.Fields.S06.Volume3);
+            EnemySubtype = raw.Fields.S06().EnemySubtype;
+            EnemyVersion = raw.Fields.S06().EnemyVersion;
+            Volume0 = CollisionVolume(raw.Fields.S06().Volume0);
+            Volume1 = CollisionVolume(raw.Fields.S06().Volume1);
+            Volume2 = CollisionVolume(raw.Fields.S06().Volume2);
+            Volume3 = CollisionVolume(raw.Fields.S06().Volume3);
         }
         else if (spawnerType == 7)
         {
-            EnemySubtype = raw.Fields.S07.EnemySubtype;
-            EnemyHealth = raw.Fields.S07.EnemyHealth;
-            EnemyDamage = raw.Fields.S07.EnemyDamage;
-            Volume0 = CollisionVolume(raw.Fields.S07.Volume0);
+            EnemySubtype = raw.Fields.S07().EnemySubtype;
+            EnemyHealth = raw.Fields.S07().EnemyHealth;
+            EnemyDamage = raw.Fields.S07().EnemyDamage;
+            Volume0 = CollisionVolume(raw.Fields.S07().Volume0);
         }
         else if (spawnerType == 9)
         {
-            Hunter = static_cast<MphRead::Hunter>(raw.Fields.S09.HunterId);
-            EncounterType = raw.Fields.S09.EncounterType;
-            HunterWeapon = raw.Fields.S09.HunterWeapon;
-            HunterHealth = raw.Fields.S09.HunterHealth;
-            HunterHealthMax = raw.Fields.S09.HunterHealthMax;
-            HunterHealthThreshold = raw.Fields.S09.HunterHealthThreshold;
-            HunterColor = raw.Fields.S09.HunterColor;
-            HunterChance = raw.Fields.S09.HunterChance;
+            Hunter = static_cast<MphRead::Hunter>(raw.Fields.S09().HunterId);
+            EncounterType = raw.Fields.S09().EncounterType;
+            HunterWeapon = raw.Fields.S09().HunterWeapon;
+            HunterHealth = raw.Fields.S09().HunterHealth;
+            HunterHealthMax = raw.Fields.S09().HunterHealthMax;
+            HunterHealthThreshold = raw.Fields.S09().HunterHealthThreshold;
+            HunterColor = raw.Fields.S09().HunterColor;
+            HunterChance = raw.Fields.S09().HunterChance;
         }
         else if (spawnerType == 10)
         {
-            EnemySubtype = raw.Fields.S10.EnemySubtype;
-            EnemyVersion = raw.Fields.S10.EnemyVersion;
-            Volume0 = CollisionVolume(raw.Fields.S10.Volume0);
-            Volume1 = CollisionVolume(raw.Fields.S10.Volume1);
-            Index = raw.Fields.S10.Index;
+            EnemySubtype = raw.Fields.S10().EnemySubtype;
+            EnemyVersion = raw.Fields.S10().EnemyVersion;
+            Volume0 = CollisionVolume(raw.Fields.S10().Volume0);
+            Volume1 = CollisionVolume(raw.Fields.S10().Volume1);
+            Index = raw.Fields.S10().Index;
         }
         else if (spawnerType == 11)
         {
             Volume0 = CollisionVolume(
-                raw.Fields.S11.Sphere1Position.ToFloatVector(), raw.Fields.S11.Sphere1Radius.FloatValue());
+                raw.Fields.S11().Sphere1Position.ToFloatVector(), raw.Fields.S11().Sphere1Radius.FloatValue());
             Volume1 = CollisionVolume(
-                raw.Fields.S11.Sphere2Position.ToFloatVector(), raw.Fields.S11.Sphere2Radius.FloatValue());
+                raw.Fields.S11().Sphere2Position.ToFloatVector(), raw.Fields.S11().Sphere2Radius.FloatValue());
         }
         else if (spawnerType == 12)
         {
-            Unknown05 = raw.Fields.S12.Field28.ToFloatVector();
-            Unknown06 = raw.Fields.S12.Field34.FloatValue();
-            Unknown07 = raw.Fields.S12.Field38.FloatValue();
+            Unknown05 = raw.Fields.S12().Field28.ToFloatVector();
+            Unknown06 = raw.Fields.S12().Field34.FloatValue();
+            Unknown07 = raw.Fields.S12().Field38.FloatValue();
         }
     }
 
@@ -432,14 +425,14 @@ namespace MphRead::Editor
 
     FhEnemySpawnEntityEditor::FhEnemySpawnEntityEditor()
         : EntityEditorBase(EntityType::FhEnemySpawn),
-          SpawnNodeName(EmptyString())
+          SpawnNodeName(NodeName)
     {
     }
 
     FhEnemySpawnEntityEditor::FhEnemySpawnEntityEditor(
         const std::shared_ptr<Entity>& header, FhEnemySpawnEntityData raw)
         : EntityEditorBase(header),
-          SpawnNodeName(EmptyString())
+          SpawnNodeName(NodeName)
     {
         Box = CollisionVolume(raw.Box);
         Cylinder = CollisionVolume(raw.Cylinder);
@@ -450,7 +443,7 @@ namespace MphRead::Editor
         SpawnCount = raw.SpawnCount;
         Cooldown = raw.Cooldown;
         StartFrame = raw.StartFrame;
-        SpawnNodeName = MarshalString(raw.NodeName);
+        SpawnNodeName = BindManagedEditorString(MarshalExtensions::MarshalString(raw.NodeName));
         ParentId = raw.ParentId;
         EmptyMessage = raw.EmptyMessage;
     }

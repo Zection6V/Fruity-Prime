@@ -124,9 +124,9 @@ namespace
     }
 
     template <typename TArray>
-    [[nodiscard]] std::shared_ptr<std::string> MarshalManagedString(const TArray& array)
+    [[nodiscard]] std::shared_ptr<const std::string> MarshalManagedString(const TArray& array)
     {
-        return std::make_shared<std::string>(MarshalString(array));
+        return std::make_shared<const std::string>(MarshalString(array));
     }
 
     template <typename TArray>
@@ -806,22 +806,74 @@ namespace
     [[nodiscard]] std::string CombinePaths(
         const std::vector<std::string>& paths)
     {
-        if (paths.empty())
+        std::filesystem::path result;
+        bool hasComponent = false;
+        for (const std::string& path : paths)
         {
-            return std::string();
+            if (path.empty())
+            {
+                continue;
+            }
+            if (!hasComponent)
+            {
+                result = PathFromUtf8(path);
+                hasComponent = true;
+            }
+            else
+            {
+                result /= PathFromUtf8(path);
+            }
         }
-        std::filesystem::path result = PathFromUtf8(paths.front());
-        for (std::size_t index = 1; index < paths.size(); ++index)
-        {
-            result /= PathFromUtf8(paths[index]);
-        }
-        return PathToUtf8(result);
+        return hasComponent ? PathToUtf8(result) : std::string();
     }
 
     template <typename T>
     [[nodiscard]] const T& EntityDataOf(const std::shared_ptr<MphRead::EntityOf<T>>& entity)
     {
         return Require(entity).Data;
+    }
+
+    [[nodiscard]] MphRead::NativeRuntime::CoroutineSequence<std::int32_t>
+        EnumerateMeshIds(const MphRead::Node* node)
+    {
+        const std::int32_t start = node->MeshId / 2;
+        for (std::int32_t index = 0; index < node->MeshCount; ++index)
+        {
+            co_yield start + index;
+        }
+    }
+
+    [[nodiscard]] MphRead::NativeRuntime::CoroutineSequence<std::int32_t>
+        EnumerateAllMeshIds(
+            const MphRead::Node* node,
+            const std::vector<std::shared_ptr<MphRead::Node>>* nodes,
+            bool root)
+    {
+        const std::int32_t start = node->MeshId / 2;
+        for (std::int32_t index = 0; index < node->MeshCount; ++index)
+        {
+            co_yield start + index;
+        }
+
+        if (!root && node->NextIndex != -1)
+        {
+            const MphRead::Node& next = Require(
+                nodes->at(static_cast<std::size_t>(node->NextIndex)));
+            for (std::int32_t value : next.GetAllMeshIds(*nodes, false))
+            {
+                co_yield value;
+            }
+        }
+
+        if (node->ChildIndex != -1)
+        {
+            const MphRead::Node& child = Require(
+                nodes->at(static_cast<std::size_t>(node->ChildIndex)));
+            for (std::int32_t value : child.GetAllMeshIds(*nodes, false))
+            {
+                co_yield value;
+            }
+        }
     }
 
 }
@@ -858,38 +910,21 @@ namespace MphRead
         (*Bounds)[5] = MaxBounds.Z;
     }
 
-    std::vector<std::int32_t> Node::GetMeshIds() const
+    Enumerable<std::int32_t> Node::GetMeshIds() const
     {
-        std::vector<std::int32_t> values;
-        if (MeshCount > 0)
+        return Enumerable<std::int32_t>([this]()
         {
-            values.reserve(static_cast<std::size_t>(MeshCount));
-        }
-        const std::int32_t start = MeshId / 2;
-        for (std::int32_t index = 0; index < MeshCount; ++index)
-        {
-            values.push_back(start + index);
-        }
-        return values;
+            return EnumerateMeshIds(this);
+        });
     }
 
-    std::vector<std::int32_t> Node::GetAllMeshIds(
+    Enumerable<std::int32_t> Node::GetAllMeshIds(
         const std::vector<std::shared_ptr<Node>>& nodes, bool root) const
     {
-        std::vector<std::int32_t> values = GetMeshIds();
-        if (!root && NextIndex != -1)
+        return Enumerable<std::int32_t>([this, nodes = std::addressof(nodes), root]()
         {
-            const Node& next = Require(nodes.at(static_cast<std::size_t>(NextIndex)));
-            std::vector<std::int32_t> nextValues = next.GetAllMeshIds(nodes, false);
-            values.insert(values.end(), nextValues.begin(), nextValues.end());
-        }
-        if (ChildIndex != -1)
-        {
-            const Node& child = Require(nodes.at(static_cast<std::size_t>(ChildIndex)));
-            std::vector<std::int32_t> childValues = child.GetAllMeshIds(nodes, false);
-            values.insert(values.end(), childValues.begin(), childValues.end());
-        }
-        return values;
+            return EnumerateAllMeshIds(this, nodes, root);
+        });
     }
 
     Mesh::Mesh(RawMesh raw)
@@ -1591,7 +1626,7 @@ namespace MphRead
         Vector3 position)
         : DisplayVolume(EntityDataOf(entity).Volume, position)
     {
-        Color1 = Vector3(1.0F, 1.0F, 0.0F);
+        SetColor1(Vector3(1.0F, 1.0F, 0.0F));
     }
 
     MorphCameraDisplay::MorphCameraDisplay(
@@ -1599,7 +1634,7 @@ namespace MphRead
         Vector3 position)
         : DisplayVolume(EntityDataOf(entity).Volume, position)
     {
-        Color1 = Vector3(1.0F, 1.0F, 0.0F);
+        SetColor1(Vector3(1.0F, 1.0F, 0.0F));
     }
 
     std::optional<Vector3> MorphCameraDisplay::GetColor(
@@ -1620,7 +1655,7 @@ namespace MphRead
           Speed(EntityDataOf(entity).Speed.FloatValue()),
           Active(EntityDataOf(entity).Active != 0)
     {
-        Color1 = Vector3(0.0F, 1.0F, 0.0F);
+        SetColor1(Vector3(0.0F, 1.0F, 0.0F));
     }
 
     JumpPadDisplay::JumpPadDisplay(
@@ -1631,7 +1666,7 @@ namespace MphRead
           Speed(EntityDataOf(entity).Speed.FloatValue()),
           Active(true)
     {
-        Color1 = Vector3(0.0F, 1.0F, 0.0F);
+        SetColor1(Vector3(0.0F, 1.0F, 0.0F));
     }
 
     std::optional<Vector3> JumpPadDisplay::GetColor(
@@ -1649,7 +1684,7 @@ namespace MphRead
         Matrix4 transform)
         : DisplayVolume(EntityDataOf(entity).Volume, transform)
     {
-        Color1 = Vector3(1.0F, 0.0F, 0.0F);
+        SetColor1(Vector3(1.0F, 0.0F, 0.0F));
     }
 
     std::optional<Vector3> ObjectDisplay::GetColor(
@@ -1667,7 +1702,7 @@ namespace MphRead
         Vector3 position)
         : DisplayVolume(EntityDataOf(entity).Volume, position)
     {
-        Color1 = Vector3(1.0F, 1.0F, 1.0F);
+        SetColor1(Vector3(1.0F, 1.0F, 1.0F));
     }
 
     std::optional<Vector3> FlagBaseDisplay::GetColor(
@@ -1685,7 +1720,7 @@ namespace MphRead
         Vector3 position)
         : DisplayVolume(EntityDataOf(entity).Volume, position)
     {
-        Color1 = Vector3(1.0F, 1.0F, 1.0F);
+        SetColor1(Vector3(1.0F, 1.0F, 1.0F));
     }
 
     std::optional<Vector3> NodeDefenseDisplay::GetColor(
@@ -1703,8 +1738,8 @@ namespace MphRead
         Vector3 position)
         : DisplayVolume(EntityDataOf(entity).Volume, position)
     {
-        Color1 = Metadata::GetEventColor(EntityDataOf(entity).ParentMessage);
-        Color2 = Metadata::GetEventColor(EntityDataOf(entity).ChildMessage);
+        SetColor1(Metadata::GetEventColor(EntityDataOf(entity).ParentMessage));
+        SetColor2(Metadata::GetEventColor(EntityDataOf(entity).ChildMessage));
     }
 
     TriggerVolumeDisplay::TriggerVolumeDisplay(
@@ -1712,8 +1747,8 @@ namespace MphRead
         Vector3 position)
         : DisplayVolume(EntityDataOf(entity).ActiveVolume(), position)
     {
-        Color1 = Metadata::GetEventColor(EntityDataOf(entity).ParentMessage);
-        Color2 = Metadata::GetEventColor(EntityDataOf(entity).ChildMessage);
+        SetColor1(Metadata::GetEventColor(EntityDataOf(entity).ParentMessage));
+        SetColor2(Metadata::GetEventColor(EntityDataOf(entity).ChildMessage));
     }
 
     std::optional<Vector3> TriggerVolumeDisplay::GetColor(
@@ -1735,8 +1770,8 @@ namespace MphRead
         Vector3 position)
         : DisplayVolume(EntityDataOf(entity).Volume, position)
     {
-        Color1 = Metadata::GetEventColor(EntityDataOf(entity).InsideMessage);
-        Color2 = Metadata::GetEventColor(EntityDataOf(entity).ExitMessage);
+        SetColor1(Metadata::GetEventColor(EntityDataOf(entity).InsideMessage));
+        SetColor2(Metadata::GetEventColor(EntityDataOf(entity).ExitMessage));
     }
 
     AreaVolumeDisplay::AreaVolumeDisplay(
@@ -1744,8 +1779,8 @@ namespace MphRead
         Vector3 position)
         : DisplayVolume(EntityDataOf(entity).ActiveVolume(), position)
     {
-        Color1 = Metadata::GetEventColor(EntityDataOf(entity).InsideMessage);
-        Color2 = Metadata::GetEventColor(EntityDataOf(entity).ExitMessage);
+        SetColor1(Metadata::GetEventColor(EntityDataOf(entity).InsideMessage));
+        SetColor2(Metadata::GetEventColor(EntityDataOf(entity).ExitMessage));
     }
 
     std::optional<Vector3> AreaVolumeDisplay::GetColor(
@@ -1771,8 +1806,8 @@ namespace MphRead
           Light2Enabled(EntityDataOf(entity).Light2Enabled != 0),
           Light2Vector(EntityDataOf(entity).Light2Vector.ToFloatVector())
     {
-        Color1 = EntityDataOf(entity).Light1Color.AsVector3();
-        Color2 = EntityDataOf(entity).Light2Color.AsVector3();
+        SetColor1(EntityDataOf(entity).Light1Color.AsVector3());
+        SetColor2(EntityDataOf(entity).Light2Color.AsVector3());
     }
 
     std::optional<Vector3> LightSource::GetColor(

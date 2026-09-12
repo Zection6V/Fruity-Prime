@@ -10,8 +10,11 @@
 #include <array>
 #include <bit>
 #include <cstddef>
+#include <coroutine>
 #include <cstdint>
+#include <exception>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <span>
@@ -28,8 +31,185 @@ namespace MphRead::Entities
     class EntityBase;
 }
 
+namespace MphRead::NativeRuntime
+{
+    template <typename T>
+    class CoroutineSequence final
+    {
+    public:
+        struct promise_type;
+        using Handle = std::coroutine_handle<promise_type>;
+
+        struct promise_type
+        {
+            std::optional<T> Current{};
+            std::exception_ptr Exception{};
+
+            [[nodiscard]] CoroutineSequence get_return_object() noexcept
+            {
+                return CoroutineSequence(Handle::from_promise(*this));
+            }
+
+            [[nodiscard]] std::suspend_always initial_suspend() noexcept
+            {
+                return {};
+            }
+
+            [[nodiscard]] std::suspend_always final_suspend() noexcept
+            {
+                return {};
+            }
+
+            std::suspend_always yield_value(T value)
+            {
+                Current.emplace(std::move(value));
+                return {};
+            }
+
+            void return_void() noexcept
+            {
+            }
+
+            void unhandled_exception() noexcept
+            {
+                Exception = std::current_exception();
+            }
+        };
+
+        CoroutineSequence(const CoroutineSequence&) = delete;
+        CoroutineSequence& operator=(const CoroutineSequence&) = delete;
+
+        CoroutineSequence(CoroutineSequence&& other) noexcept
+            : _handle(std::exchange(other._handle, {}))
+        {
+        }
+
+        CoroutineSequence& operator=(CoroutineSequence&& other) noexcept
+        {
+            if (this != std::addressof(other))
+            {
+                if (_handle)
+                {
+                    _handle.destroy();
+                }
+                _handle = std::exchange(other._handle, {});
+            }
+            return *this;
+        }
+
+        ~CoroutineSequence()
+        {
+            if (_handle)
+            {
+                _handle.destroy();
+            }
+        }
+
+        [[nodiscard]] bool MoveNext()
+        {
+            if (!_handle || _handle.done())
+            {
+                return false;
+            }
+
+            _handle.promise().Current.reset();
+            _handle.resume();
+            if (_handle.promise().Exception)
+            {
+                std::rethrow_exception(_handle.promise().Exception);
+            }
+            return !_handle.done();
+        }
+
+        [[nodiscard]] const T& Current() const
+        {
+            return *_handle.promise().Current;
+        }
+
+    private:
+        explicit CoroutineSequence(Handle handle) noexcept
+            : _handle(handle)
+        {
+        }
+
+        Handle _handle{};
+    };
+}
+
 namespace MphRead
 {
+    template <typename T>
+    class Enumerable final
+    {
+    public:
+        using Factory = std::function<NativeRuntime::CoroutineSequence<T>()>;
+
+        explicit Enumerable(Factory factory)
+            : _factory(std::move(factory))
+        {
+        }
+
+        class Iterator final
+        {
+        public:
+            explicit Iterator(NativeRuntime::CoroutineSequence<T> sequence)
+                : _sequence(std::move(sequence)),
+                  _finished(!_sequence.MoveNext())
+            {
+            }
+
+            Iterator(const Iterator&) = delete;
+            Iterator& operator=(const Iterator&) = delete;
+            Iterator(Iterator&&) noexcept = default;
+            Iterator& operator=(Iterator&&) noexcept = default;
+
+            [[nodiscard]] T operator*() const
+            {
+                return _sequence.Current();
+            }
+
+            Iterator& operator++()
+            {
+                _finished = !_sequence.MoveNext();
+                return *this;
+            }
+
+            void operator++(int)
+            {
+                ++*this;
+            }
+
+            [[nodiscard]] friend bool operator==(
+                const Iterator& iterator, std::default_sentinel_t) noexcept
+            {
+                return iterator._finished;
+            }
+
+            [[nodiscard]] friend bool operator!=(
+                const Iterator& iterator, std::default_sentinel_t sentinel) noexcept
+            {
+                return !(iterator == sentinel);
+            }
+
+        private:
+            NativeRuntime::CoroutineSequence<T> _sequence;
+            bool _finished = true;
+        };
+
+        [[nodiscard]] Iterator begin() const
+        {
+            return Iterator(_factory());
+        }
+
+        [[nodiscard]] std::default_sentinel_t end() const noexcept
+        {
+            return {};
+        }
+
+    private:
+        Factory _factory;
+    };
+
     class Model;
 
     class Node
@@ -76,8 +256,8 @@ namespace MphRead
         Node(Node&&) = delete;
         Node& operator=(Node&&) = delete;
 
-        [[nodiscard]] std::vector<std::int32_t> GetMeshIds() const;
-        [[nodiscard]] std::vector<std::int32_t> GetAllMeshIds(
+        [[nodiscard]] Enumerable<std::int32_t> GetMeshIds() const;
+        [[nodiscard]] Enumerable<std::int32_t> GetAllMeshIds(
             const std::vector<std::shared_ptr<Node>>& nodes, bool root) const;
     };
 
@@ -459,7 +639,7 @@ namespace MphRead
     class Entity
     {
     public:
-        const std::shared_ptr<std::string> NodeName;
+        const std::shared_ptr<const std::string> NodeName;
         const std::uint16_t LayerMask;
         const std::uint16_t Length;
         const EntityType Type;
@@ -494,7 +674,7 @@ namespace MphRead
     };
 
     template <typename T>
-    class EntityOf final : public Entity
+    class EntityOf : public Entity
     {
     public:
         const T Data;
@@ -677,8 +857,14 @@ namespace MphRead
     {
     public:
         const CollisionVolume Volume;
-        OpenTK::Mathematics::Vector3 Color1 = OpenTK::Mathematics::Vector3::Zero;
-        OpenTK::Mathematics::Vector3 Color2 = OpenTK::Mathematics::Vector3::Zero;
+
+    protected:
+        OpenTK::Mathematics::Vector3 _color1 = OpenTK::Mathematics::Vector3::Zero;
+        OpenTK::Mathematics::Vector3 _color2 = OpenTK::Mathematics::Vector3::Zero;
+
+    public:
+        const OpenTK::Mathematics::Vector3& Color1 = _color1;
+        const OpenTK::Mathematics::Vector3& Color2 = _color2;
 
         DisplayVolume(
             RawCollisionVolume volume,
@@ -705,9 +891,20 @@ namespace MphRead
 
         [[nodiscard]] virtual std::optional<OpenTK::Mathematics::Vector3> GetColor(
             std::int32_t index) const = 0;
+
+    protected:
+        void SetColor1(OpenTK::Mathematics::Vector3 color) noexcept
+        {
+            _color1 = color;
+        }
+
+        void SetColor2(OpenTK::Mathematics::Vector3 color) noexcept
+        {
+            _color2 = color;
+        }
     };
 
-    class MorphCameraDisplay final : public DisplayVolume
+    class MorphCameraDisplay : public DisplayVolume
     {
     public:
         MorphCameraDisplay(
@@ -721,7 +918,7 @@ namespace MphRead
             std::int32_t index) const override;
     };
 
-    class JumpPadDisplay final : public DisplayVolume
+    class JumpPadDisplay : public DisplayVolume
     {
     public:
         const OpenTK::Mathematics::Vector3 Vector;
@@ -739,7 +936,7 @@ namespace MphRead
             std::int32_t index) const override;
     };
 
-    class ObjectDisplay final : public DisplayVolume
+    class ObjectDisplay : public DisplayVolume
     {
     public:
         ObjectDisplay(
@@ -750,7 +947,7 @@ namespace MphRead
             std::int32_t index) const override;
     };
 
-    class FlagBaseDisplay final : public DisplayVolume
+    class FlagBaseDisplay : public DisplayVolume
     {
     public:
         FlagBaseDisplay(
@@ -761,7 +958,7 @@ namespace MphRead
             std::int32_t index) const override;
     };
 
-    class NodeDefenseDisplay final : public DisplayVolume
+    class NodeDefenseDisplay : public DisplayVolume
     {
     public:
         NodeDefenseDisplay(
@@ -772,7 +969,7 @@ namespace MphRead
             std::int32_t index) const override;
     };
 
-    class TriggerVolumeDisplay final : public DisplayVolume
+    class TriggerVolumeDisplay : public DisplayVolume
     {
     public:
         TriggerVolumeDisplay(
@@ -786,7 +983,7 @@ namespace MphRead
             std::int32_t index) const override;
     };
 
-    class AreaVolumeDisplay final : public DisplayVolume
+    class AreaVolumeDisplay : public DisplayVolume
     {
     public:
         AreaVolumeDisplay(
@@ -800,7 +997,7 @@ namespace MphRead
             std::int32_t index) const override;
     };
 
-    class LightSource final : public DisplayVolume
+    class LightSource : public DisplayVolume
     {
     public:
         const bool Light1Enabled;

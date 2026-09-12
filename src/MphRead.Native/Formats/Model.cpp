@@ -1,6 +1,7 @@
 #include "Model.hpp"
 
 #include "../Program.hpp"
+#include "../Read.hpp"
 
 #include <bit>
 #include <cassert>
@@ -8,13 +9,23 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <locale>
 #include <numbers>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+namespace MphRead::NativeRuntime
+{
+    [[nodiscard]] bool StringStartsWithCurrentCulture(
+        std::u32string_view value,
+        std::u32string_view prefix);
+    [[nodiscard]] bool Int32TryParseCurrentCulture(
+        std::u32string_view value,
+        std::int32_t& result);
+    [[noreturn]] void ThrowDivideByZeroException();
+}
 
 namespace
 {
@@ -302,219 +313,6 @@ namespace
             && text[start + 3] == c3;
     }
 
-    [[nodiscard]] bool IsManagedWhitespace(char32_t value) noexcept
-    {
-        if (value >= 0x0009 && value <= 0x000D)
-        {
-            return true;
-        }
-        switch (value)
-        {
-        case 0x0020:
-        case 0x0085:
-        case 0x00A0:
-        case 0x1680:
-        case 0x2028:
-        case 0x2029:
-        case 0x202F:
-        case 0x205F:
-        case 0x3000:
-            return true;
-        default:
-            return value >= 0x2000 && value <= 0x200A;
-        }
-    }
-
-    [[nodiscard]] std::vector<char32_t> DecodeUtf8Scalars(
-        const std::string& value)
-    {
-        std::vector<char32_t> result;
-        for (std::size_t i = 0; i < value.size();)
-        {
-            const auto first = static_cast<std::uint8_t>(value[i]);
-            if (first < 0x80U)
-            {
-                result.push_back(first);
-                ++i;
-            }
-            else if ((first & 0xE0U) == 0xC0U && i + 1 < value.size())
-            {
-                const auto second = static_cast<std::uint8_t>(value[i + 1]);
-                result.push_back(static_cast<char32_t>(
-                    ((first & 0x1FU) << 6) | (second & 0x3FU)));
-                i += 2;
-            }
-            else if ((first & 0xF0U) == 0xE0U && i + 2 < value.size())
-            {
-                const auto second = static_cast<std::uint8_t>(value[i + 1]);
-                const auto third = static_cast<std::uint8_t>(value[i + 2]);
-                result.push_back(static_cast<char32_t>(
-                    ((first & 0x0FU) << 12)
-                    | ((second & 0x3FU) << 6)
-                    | (third & 0x3FU)));
-                i += 3;
-            }
-            else if ((first & 0xF8U) == 0xF0U && i + 3 < value.size())
-            {
-                const auto second = static_cast<std::uint8_t>(value[i + 1]);
-                const auto third = static_cast<std::uint8_t>(value[i + 2]);
-                const auto fourth = static_cast<std::uint8_t>(value[i + 3]);
-                result.push_back(static_cast<char32_t>(
-                    ((first & 0x07U) << 18)
-                    | ((second & 0x3FU) << 12)
-                    | ((third & 0x3FU) << 6)
-                    | (fourth & 0x3FU)));
-                i += 4;
-            }
-            else
-            {
-                result.push_back(first);
-                ++i;
-            }
-        }
-        return result;
-    }
-
-    [[nodiscard]] bool ManagedStartsWithCurrentCulture(
-        const std::vector<char32_t>& text,
-        std::size_t start,
-        std::u32string_view prefix)
-    {
-        if (start > text.size() || text.size() - start < prefix.size())
-        {
-            return false;
-        }
-
-        // C# String.StartsWith(string) uses CurrentCulture. Node names are
-        // byte-derived BMP characters, so the native current locale's collation
-        // facet is the thinnest language/runtime equivalent for this comparison.
-        try
-        {
-            const std::locale locale;
-            const auto& collate = std::use_facet<std::collate<wchar_t>>(locale);
-            std::wstring left;
-            std::wstring right;
-            left.reserve(prefix.size());
-            right.reserve(prefix.size());
-            for (std::size_t i = 0; i < prefix.size(); ++i)
-            {
-                left.push_back(static_cast<wchar_t>(text[start + i]));
-                right.push_back(static_cast<wchar_t>(prefix[i]));
-            }
-            return collate.compare(
-                left.data(), left.data() + left.size(),
-                right.data(), right.data() + right.size()) == 0;
-        }
-        catch (const std::runtime_error&)
-        {
-            for (std::size_t i = 0; i < prefix.size(); ++i)
-            {
-                if (text[start + i] != prefix[i])
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-    }
-
-    [[nodiscard]] bool SignMatches(
-        const char32_t* values,
-        std::size_t start,
-        std::size_t end,
-        const std::vector<char32_t>& sign) noexcept
-    {
-        if (sign.empty() || end - start < sign.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < sign.size(); ++i)
-        {
-            if (values[start + i] != sign[i])
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    [[nodiscard]] std::vector<char32_t> ManagedCurrentNegativeSign()
-    {
-        std::string formatted = MphRead::Fixed(-1).ToString();
-        if (!formatted.empty() && formatted.back() == '1')
-        {
-            formatted.pop_back();
-            return DecodeUtf8Scalars(formatted);
-        }
-        return std::vector<char32_t>{U'-'};
-    }
-
-    [[nodiscard]] std::vector<char32_t> ManagedCurrentPositiveSign()
-    {
-        // .NET's built-in NumberFormatInfo cultures use "+" here. The existing
-        // Native culture bridge exposes a configurable negative sign, which is
-        // the culture-dependent sign needed by the repository today.
-        return std::vector<char32_t>{U'+'};
-    }
-
-    [[nodiscard]] bool TryParseChunkInt32(
-        char32_t first,
-        char32_t second,
-        std::int32_t& result)
-    {
-        const char32_t values[2] = {first, second};
-        std::size_t start = 0;
-        std::size_t end = 2;
-        while (start < end && IsManagedWhitespace(values[start]))
-        {
-            ++start;
-        }
-        while (end > start && IsManagedWhitespace(values[end - 1]))
-        {
-            --end;
-        }
-        if (start == end)
-        {
-            result = 0;
-            return false;
-        }
-
-        bool negative = false;
-        const std::vector<char32_t> negativeSign = ManagedCurrentNegativeSign();
-        const std::vector<char32_t> positiveSign = ManagedCurrentPositiveSign();
-        if (SignMatches(values, start, end, negativeSign))
-        {
-            negative = true;
-            start += negativeSign.size();
-        }
-        else if (SignMatches(values, start, end, positiveSign))
-        {
-            start += positiveSign.size();
-        }
-        if (start == end)
-        {
-            result = 0;
-            return false;
-        }
-
-        std::uint32_t magnitude = 0;
-        for (std::size_t i = start; i < end; ++i)
-        {
-            if (values[i] < U'0' || values[i] > U'9')
-            {
-                result = 0;
-                return false;
-            }
-            magnitude = magnitude * 10U
-                + static_cast<std::uint32_t>(values[i] - U'0');
-        }
-
-        result = negative
-            ? -static_cast<std::int32_t>(magnitude)
-            : static_cast<std::int32_t>(magnitude);
-        return true;
-    }
-
     [[nodiscard]] bool IsDefinedTextureFormat(
         MphRead::TextureFormat format) noexcept
     {
@@ -607,12 +405,77 @@ namespace MphRead
         return (*Index)[static_cast<std::size_t>(Require(Texcoord).Slot)];
     }
 
+    AnimationOffsets::AnimationOffsets(
+        const std::shared_ptr<AnimationResults>& animations)
+        : AnimationOffsets(BuildInit(animations))
+    {
+    }
+
+    AnimationOffsets::Init AnimationOffsets::BuildInit(
+        const std::shared_ptr<AnimationResults>& animations)
+    {
+        if (!animations)
+        {
+            throw System::NullReferenceException();
+        }
+        return Init{
+            animations->NodeGroupOffsets,
+            animations->MaterialGroupOffsets,
+            animations->TexcoordGroupOffsets,
+            animations->TextureGroupOffsets};
+    }
+
     AnimationOffsets::AnimationOffsets(Init init)
         : Node(std::move(init.Node)),
           Material(std::move(init.Material)),
           Texcoord(std::move(init.Texcoord)),
           Texture(std::move(init.Texture))
     {
+    }
+
+    AnimationGroups::AnimationGroups(
+        const std::shared_ptr<AnimationResults>& animations)
+        : AnimationGroups(BuildInit(animations))
+    {
+    }
+
+    AnimationGroups::Init AnimationGroups::BuildInit(
+        const std::shared_ptr<AnimationResults>& animations)
+    {
+        if (!animations)
+        {
+            throw System::NullReferenceException();
+        }
+
+        std::shared_ptr<const std::vector<std::shared_ptr<NodeAnimationGroup>>> node
+            = animations->NodeAnimationGroups;
+        std::shared_ptr<const std::vector<std::shared_ptr<MaterialAnimationGroup>>> material
+            = animations->MaterialAnimationGroups;
+        std::shared_ptr<const std::vector<std::shared_ptr<TexcoordAnimationGroup>>> texcoord
+            = animations->TexcoordAnimationGroups;
+        std::shared_ptr<const std::vector<std::shared_ptr<TextureAnimationGroup>>> texture
+            = animations->TextureAnimationGroups;
+
+        const bool any = !Require(node).empty()
+            || !Require(material).empty()
+            || !Require(texcoord).empty()
+            || !Require(texture).empty();
+
+        auto offsets = std::make_shared<AnimationOffsets>(animations);
+#ifndef NDEBUG
+        assert(Require(offsets->Node).size() >= Require(node).size());
+        assert(Require(offsets->Material).size() >= Require(material).size());
+        assert(Require(offsets->Texcoord).size() >= Require(texcoord).size());
+        assert(Require(offsets->Texture).size() >= Require(texture).size());
+#endif
+
+        return Init{
+            any,
+            std::move(node),
+            std::move(material),
+            std::move(texcoord),
+            std::move(texture),
+            std::move(offsets)};
     }
 
     AnimationGroups::AnimationGroups(Init init)
@@ -957,7 +820,10 @@ namespace MphRead
             node.Enabled = true;
 
             const std::vector<char32_t> name = DecodeManagedByteString(node.Name);
-            if (!ManagedStartsWithCurrentCulture(name, 0, U"_"))
+            const std::u32string_view nameView = name.empty()
+                ? std::u32string_view{}
+                : std::u32string_view(name.data(), name.size());
+            if (!NativeRuntime::StringStartsWithCurrentCulture(nameView, U"_"))
             {
                 continue;
             }
@@ -965,9 +831,11 @@ namespace MphRead
             std::int32_t flags = 0;
             for (std::size_t i = 0; name.size() - i >= 4; i += 4)
             {
+                const std::u32string_view chunk(name.data() + i, 4);
                 std::int32_t id = 0;
-                if (ManagedStartsWithCurrentCulture(name, i, U"_s")
-                    && TryParseChunkInt32(name[i + 2], name[i + 3], id))
+                if (NativeRuntime::StringStartsWithCurrentCulture(chunk, U"_s")
+                    && NativeRuntime::Int32TryParseCurrentCulture(
+                        chunk.substr(2), id))
                 {
                     const std::uint32_t oldFlags
                         = std::bit_cast<std::uint32_t>(flags);
@@ -1474,7 +1342,7 @@ namespace MphRead
 
         if (blend == 0)
         {
-            throw System::DivideByZeroException();
+            NativeRuntime::ThrowDivideByZeroException();
         }
         if (frame == std::numeric_limits<std::int32_t>::min()
             && blend == -1)

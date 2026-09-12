@@ -4,26 +4,11 @@
 
 #include <bit>
 #include <cassert>
-#include <concepts>
 #include <cstdint>
 #include <memory>
-#include <stdexcept>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
-
-namespace System
-{
-    class DivideByZeroException final : public std::runtime_error
-    {
-    public:
-        DivideByZeroException()
-            : std::runtime_error("Attempted to divide by zero.")
-        {
-        }
-    };
-}
 
 namespace MphRead
 {
@@ -228,12 +213,8 @@ namespace MphRead
         const std::shared_ptr<const std::vector<std::uint32_t>> Texcoord;
         const std::shared_ptr<const std::vector<std::uint32_t>> Texture;
 
-        template <typename TAnimationResults>
-        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
-        explicit AnimationOffsets(const std::shared_ptr<TAnimationResults>& animations)
-            : AnimationOffsets(BuildInit(animations))
-        {
-        }
+        explicit AnimationOffsets(
+            const std::shared_ptr<AnimationResults>& animations);
 
         AnimationOffsets(const AnimationOffsets&) = delete;
         AnimationOffsets& operator=(const AnimationOffsets&) = delete;
@@ -251,21 +232,8 @@ namespace MphRead
 
         explicit AnimationOffsets(Init init);
 
-        template <typename TAnimationResults>
-        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
         [[nodiscard]] static Init BuildInit(
-            const std::shared_ptr<TAnimationResults>& animations)
-        {
-            if (!animations)
-            {
-                throw System::NullReferenceException();
-            }
-            return Init{
-                animations->NodeGroupOffsets,
-                animations->MaterialGroupOffsets,
-                animations->TexcoordGroupOffsets,
-                animations->TextureGroupOffsets};
-        }
+            const std::shared_ptr<AnimationResults>& animations);
     };
 
     class AnimationGroups
@@ -278,12 +246,8 @@ namespace MphRead
         const std::shared_ptr<const std::vector<std::shared_ptr<TextureAnimationGroup>>> Texture;
         const std::shared_ptr<AnimationOffsets> Offsets;
 
-        template <typename TAnimationResults>
-        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
-        explicit AnimationGroups(const std::shared_ptr<TAnimationResults>& animations)
-            : AnimationGroups(BuildInit(animations))
-        {
-        }
+        explicit AnimationGroups(
+            const std::shared_ptr<AnimationResults>& animations);
 
         AnimationGroups(const AnimationGroups&) = delete;
         AnimationGroups& operator=(const AnimationGroups&) = delete;
@@ -313,46 +277,8 @@ namespace MphRead
             return *value;
         }
 
-        template <typename TAnimationResults>
-        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
         [[nodiscard]] static Init BuildInit(
-            const std::shared_ptr<TAnimationResults>& animations)
-        {
-            if (!animations)
-            {
-                throw System::NullReferenceException();
-            }
-
-            std::shared_ptr<const std::vector<std::shared_ptr<NodeAnimationGroup>>> node
-                = animations->NodeAnimationGroups;
-            std::shared_ptr<const std::vector<std::shared_ptr<MaterialAnimationGroup>>> material
-                = animations->MaterialAnimationGroups;
-            std::shared_ptr<const std::vector<std::shared_ptr<TexcoordAnimationGroup>>> texcoord
-                = animations->TexcoordAnimationGroups;
-            std::shared_ptr<const std::vector<std::shared_ptr<TextureAnimationGroup>>> texture
-                = animations->TextureAnimationGroups;
-
-            const bool any = !Require(node).empty()
-                || !Require(material).empty()
-                || !Require(texcoord).empty()
-                || !Require(texture).empty();
-
-            auto offsets = std::make_shared<AnimationOffsets>(animations);
-#ifndef NDEBUG
-            assert(Require(offsets->Node).size() >= Require(node).size());
-            assert(Require(offsets->Material).size() >= Require(material).size());
-            assert(Require(offsets->Texcoord).size() >= Require(texcoord).size());
-            assert(Require(offsets->Texture).size() >= Require(texture).size());
-#endif
-
-            return Init{
-                any,
-                std::move(node),
-                std::move(material),
-                std::move(texcoord),
-                std::move(texture),
-                std::move(offsets)};
-        }
+            const std::shared_ptr<AnimationResults>& animations);
     };
 
     class ModelInstance
@@ -420,9 +346,7 @@ namespace MphRead
         template <
             typename TNodeEnumerable,
             typename TMeshEnumerable,
-            typename TMaterialEnumerable,
-            typename TAnimationResults>
-        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
+            typename TMaterialEnumerable>
         Model(
             std::string name,
             bool firstHunt,
@@ -433,7 +357,7 @@ namespace MphRead
             std::shared_ptr<const std::vector<DisplayList>> dlists,
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<std::shared_ptr<RenderInstruction>>>>> renderInstructions,
-            const std::shared_ptr<TAnimationResults>& animations,
+            const std::shared_ptr<AnimationResults>& animations,
             std::shared_ptr<const std::vector<OpenTK::Mathematics::Matrix4>> textureMatrices,
             std::shared_ptr<const std::vector<std::shared_ptr<Recolor>>> recolors,
             std::shared_ptr<const std::vector<std::int32_t>> nodeWeights,
@@ -552,9 +476,7 @@ namespace MphRead
         template <
             typename TNodeEnumerable,
             typename TMeshEnumerable,
-            typename TMaterialEnumerable,
-            typename TAnimationResults>
-        requires std::derived_from<std::remove_cv_t<TAnimationResults>, AnimationResults>
+            typename TMaterialEnumerable>
         [[nodiscard]] static Init BuildInit(
             std::string name,
             bool firstHunt,
@@ -565,7 +487,7 @@ namespace MphRead
             std::shared_ptr<const std::vector<DisplayList>> dlists,
             std::shared_ptr<const std::vector<
                 std::shared_ptr<const std::vector<std::shared_ptr<RenderInstruction>>>>> renderInstructions,
-            const std::shared_ptr<TAnimationResults>& animations,
+            const std::shared_ptr<AnimationResults>& animations,
             std::shared_ptr<const std::vector<OpenTK::Mathematics::Matrix4>> textureMatrices,
             std::shared_ptr<const std::vector<std::shared_ptr<Recolor>>> recolors,
             std::shared_ptr<const std::vector<std::int32_t>> nodeWeights,

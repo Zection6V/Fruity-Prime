@@ -73,12 +73,12 @@ namespace
         {
             return value;
         }
-        constexpr float scale = 1000.0F;
-        const float scaled = value * scale;
-        if (!std::isfinite(scaled))
+        if (std::fabs(value) >= 1.0e8F)
         {
             return value;
         }
+        constexpr float scale = 1000.0F;
+        const float scaled = value * scale;
         const float lower = std::floor(scaled);
         const float fraction = scaled - lower;
         float rounded = lower;
@@ -86,6 +86,10 @@ namespace
             || (fraction == 0.5F && std::fmod(lower, 2.0F) != 0.0F))
         {
             rounded = lower + 1.0F;
+        }
+        if (rounded == 0.0F)
+        {
+            rounded = std::copysign(0.0F, scaled);
         }
         return rounded / scale;
     }

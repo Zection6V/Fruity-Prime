@@ -406,6 +406,8 @@ namespace MphRead
                 std::int32_t arm7Size,
                 std::uint32_t fntOffset,
                 std::uint32_t fntSize,
+                std::uint32_t fatOffset,
+                std::uint32_t fatSize,
                 std::int32_t overlay9Offset,
                 std::int32_t overlay9Size,
                 std::int32_t overlay7Offset,

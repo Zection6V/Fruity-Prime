@@ -41,6 +41,10 @@ namespace MphRead::Entities
         public:
             explicit MatrixProperty(EntityBase* owner) noexcept;
             MatrixProperty& operator=(::OpenTK::Mathematics::Matrix4 value);
+            MatrixProperty& operator=(const MatrixProperty& value)
+            {
+                return operator=(static_cast<::OpenTK::Mathematics::Matrix4>(value));
+            }
             [[nodiscard]] operator ::OpenTK::Mathematics::Matrix4() const noexcept;
             [[nodiscard]] ::OpenTK::Mathematics::Vector4 Row0() const noexcept;
             [[nodiscard]] ::OpenTK::Mathematics::Vector4 Row1() const noexcept;
@@ -68,6 +72,10 @@ namespace MphRead::Entities
         public:
             VectorProperty(EntityBase* owner, VectorPropertyKind kind) noexcept;
             VectorProperty& operator=(::OpenTK::Mathematics::Vector3 value);
+            VectorProperty& operator=(const VectorProperty& value)
+            {
+                return operator=(static_cast<::OpenTK::Mathematics::Vector3>(value));
+            }
             [[nodiscard]] operator ::OpenTK::Mathematics::Vector3() const noexcept;
             [[nodiscard]] ::OpenTK::Mathematics::Vector3 Normalized() const;
 

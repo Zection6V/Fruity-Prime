@@ -79,27 +79,56 @@ perform the requested local work yourself.
   short same-chat continuation that resumes from those fixed blobs and finishes
   the tree/commit/push; do not restart the broad investigation. A focused test
   pass without a verified commit/push is incomplete.
-- Prefer asking ChatGPT to attach each generated target as its own complete,
-  directly downloadable file artifact (`.hpp` and `.cpp` separately), rather
-  than bundling the pair into a ZIP. Require the exact repository-relative
-  path, byte count, and Git blob SHA-1 for each artifact. If direct GitHub push
-  remains blocked and the individual file attachments cannot be retrieved
-  reliably, use a same-chat artifact fallback: ask ChatGPT to output each
-  generated target file in full, in its own fenced code block, without ellipses
-  or omitted sections, with clear start/end markers. The local agent must
-  reconstruct the files, verify the byte count and Git blob SHA-1, and only
-  then perform the two-file commit/push; never treat a partial code block, ZIP,
-  or unverified attachment as complete.
-- Artifact download buttons may open a virtualized CodeMirror preview without
-  creating a file in the host Downloads directory. For a source artifact in
-  that preview, reconstruct it in the page by scrolling the `.cm-scroller` in
-  bounded increments, collecting each `.cm-line`'s `textContent` keyed by its
-  absolute vertical position, sorting by position, and joining with one `\n`.
-  Use `textContent`, not `innerText`: a blank CodeMirror line can make
-  `innerText` contain an extra newline. Transfer the reconstructed bytes in
-  chunks through the local bridge or another exact-text path, then verify the
-  reported byte count and Git blob SHA-1 before installing; never trust the
-  visible viewport or a partial clipboard selection.
+- Prefer a verified GitHub write, commit, and push. If the first GitHub write,
+  commit, or push fails after the generated pair is ready, do not leave the
+  result as an uncommitted report or switch to attachment recovery yet. After
+  the stop-square is gone, send exactly one concrete
+  same-chat continuation rather than a bare `Continue.`: state which GitHub
+  operation failed and ask ChatGPT to resume from the already-finalized bytes,
+  repair only the transfer/commit/push, refresh `develop2`, and finish the
+  GitHub commit/push. Do not click the UI Retry control, regenerate the pair,
+  or restart the broad investigation. A focused test pass without a verified
+  commit/push is incomplete. If that concrete continuation also fails, or
+  ChatGPT explicitly cannot write GitHub, use attachment recovery as the final
+  last resort: ask for each completed target as a separate directly downloadable
+  file attachment (one `.hpp` and one `.cpp`), never inline source, a fenced
+  code block, or a ZIP. Require the exact repository-relative path, byte count,
+  and Git blob SHA-1 for every attachment, and preserve the existing finalized
+  bytes rather than regenerating them. Install an attachment only after its
+  bytes and blob ID are independently verified, then perform the local
+  commit/push; if only one file arrived, request only the missing individual
+  file and do not restart or regenerate the pair.
+- Attachment recovery is a per-file, byte-exact procedure. Keep the source chat
+  tab open until every attachment is installed and independently verified. Open
+  each artifact through its own file preview (or use the direct downloaded file
+  when one was actually created); never copy the visible answer, a partial
+  selection, or a generated code block. Confirm the artifact's repository path,
+  encoding/newline convention, declared byte count, and Git blob SHA-1 before
+  transfer. If the host download is missing, the preview may be a virtualized
+  CodeMirror editor: scroll `.cm-scroller` in bounded increments, collect every
+  `.cm-line`'s `textContent` keyed by absolute vertical position plus a stable
+  tie-breaker, scan the whole editor twice, sort by position, and require both
+  scans to have identical ordered line counts and text. Use `textContent`, not
+  `innerText`, because a blank CodeMirror line can add an extra newline. Preserve
+  blank lines, encoding, and line endings; do not guess a line ending that is not
+  stated or independently derivable. Transfer the exact text/bytes in bounded
+  chunks through the local bridge, without text-mode normalization or shell
+  redirection. Reconstruct only the individual missing file, then compute its
+  byte count and Git blob SHA-1 (`SHA-1("blob " + decimal_byte_count + NUL +
+  bytes)`) locally. Install it only when both values match the artifact report;
+  otherwise discard the candidate and request that same individual attachment
+  again. Verify the pair and the exact two-path diff before the local
+  commit/push; never treat a partial, reordered, normalized, or unverified
+  recovery as complete.
+- Two recovery details are mandatory. A CodeMirror document ending in an empty
+  line already represents one terminating `\n`; when converting it to an
+  `apply_patch` Add File payload, omit the patch-only synthetic empty line so a
+  second newline is not introduced. Verify the installed file immediately and
+  correct any one-byte terminator mismatch before staging. Also do not assume
+  the browser download or browser clipboard reaches the host: the in-app
+  browser's clipboard/download context can be separate. Prefer a localhost-only
+  exact-text bridge (or the actual downloaded file when its path is visible),
+  and never use an external paste service or text-mode shell redirection.
 - Prompts should include the current source revision/blob, exact native paths,
   the instruction to refresh `develop2` immediately before committing, and the
   no-`git clone` constraint. Recheck the C# blob immediately before generation:

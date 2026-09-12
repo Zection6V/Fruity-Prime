@@ -2,10 +2,15 @@
 
 #include <cstdint>
 #include <string>
-#include <utility>
 
 namespace MphRead::Mods::Network
 {
+    struct NetProbeResult
+    {
+        bool Ok;
+        std::string Message;
+    };
+
     class NetProbe final
     {
     public:
@@ -15,9 +20,7 @@ namespace MphRead::Mods::Network
         NetProbe& operator=(const NetProbe&) = delete;
         NetProbe& operator=(NetProbe&&) = delete;
 
-        static std::pair<bool, std::string> Probe(
-            const std::string& address,
-            std::int32_t port,
-            std::int32_t timeoutMs = 3000);
+        [[nodiscard]] static NetProbeResult Probe(const std::string& address,
+            std::int32_t port, std::int32_t timeoutMs = 3000);
     };
 }

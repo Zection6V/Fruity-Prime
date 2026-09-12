@@ -30,6 +30,13 @@ namespace MphRead
     // Exact declaration seam for the already-owned Metadata counterpart. Read.cpp
     // cannot include Metadata.hpp together with Formats.hpp until the existing
     // duplicate PaletteData declaration in those prerequisite headers is closed.
+    enum class MdlSuffix : std::int32_t
+    {
+        None,
+        All,
+        Model
+    };
+
     enum class MetaDir : std::int32_t
     {
         Models,
@@ -56,13 +63,6 @@ namespace MphRead
         TouchToStart2,
         WifiCreate,
         WifiGames
-    };
-
-    enum class MdlSuffix : std::int32_t
-    {
-        None,
-        All,
-        Model
     };
 
     class RecolorMetadata
@@ -230,6 +230,13 @@ namespace
         return cache;
     }
 
+    template <typename T>
+    [[nodiscard]] std::shared_ptr<const std::vector<T>> EmptyArray()
+    {
+        static const auto empty = std::make_shared<const std::vector<T>>();
+        return empty;
+    }
+
     [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
     {
         std::ifstream stream(path, std::ios::binary | std::ios::ate);
@@ -323,8 +330,8 @@ namespace
         case EntityType::Room: return "Room";
         case EntityType::Model: return "Model";
         case EntityType::All: return "All";
-        default: return std::to_string(static_cast<std::uint16_t>(type));
         }
+        return std::to_string(static_cast<std::uint16_t>(type));
     }
 
     template <typename T>
@@ -335,6 +342,12 @@ namespace
             throw System::NullReferenceException();
         }
         target.insert(target.end(), source->begin(), source->end());
+    }
+
+    template <typename T>
+    void AddRange(std::vector<T>& target, const std::vector<T>& source)
+    {
+        target.insert(target.end(), source.begin(), source.end());
     }
 
     template <typename K, typename V>
@@ -445,16 +458,24 @@ namespace
             static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
     }
 
-    [[nodiscard]] std::int32_t UncheckedMul(std::int32_t left, std::int32_t right) noexcept
+    [[nodiscard]] std::int32_t UncheckedMultiply(std::int32_t left, std::int32_t right) noexcept
     {
         return std::bit_cast<std::int32_t>(
             static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
     }
 
-    [[nodiscard]] std::int32_t UncheckedInt32(std::int64_t value) noexcept
+    [[nodiscard]] std::int32_t ManagedInt64ToInt32(std::int64_t value) noexcept
     {
-        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(
-            static_cast<std::uint64_t>(value)));
+        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(static_cast<std::uint64_t>(value)));
+    }
+
+    [[nodiscard]] std::size_t ManagedCapacity(std::int32_t capacity)
+    {
+        if (capacity < 0)
+        {
+            throw std::out_of_range("Non-negative number required. (Parameter 'capacity')");
+        }
+        return static_cast<std::size_t>(capacity);
     }
 }
 
@@ -498,9 +519,12 @@ namespace MphRead
             {
                 return nullptr;
             }
-            if (!noCache && !cache.emplace(name, model).second)
+            if (!noCache)
             {
-                throw std::invalid_argument("An item with the same key has already been added.");
+                if (!cache.emplace(name, model).second)
+                {
+                    throw std::invalid_argument("An item with the same key has already been added.");
+                }
             }
         }
         return std::make_shared<ModelInstance>(model);
@@ -570,7 +594,14 @@ namespace MphRead
 
     void Read::RemoveModel(const std::string& name, bool firstHunt)
     {
-        (firstHunt ? FhModels() : Models()).erase(name);
+        if (firstHunt)
+        {
+            FhModels().erase(name);
+        }
+        else
+        {
+            Models().erase(name);
+        }
     }
 
     std::pair<std::int32_t, std::vector<std::uint8_t>> Read::ReadKanjiFont(bool singlePlayer)
@@ -585,7 +616,7 @@ namespace MphRead
         assert(width == 16);
 #endif
         const std::uint16_t height = SpanReadUshort(bytes, 6);
-        const std::int32_t outputCount = UncheckedMul(count, 128) / 4;
+        const std::int32_t outputCount = UncheckedMultiply(count, 128) / 4;
         if (outputCount < 0)
         {
             throw OverflowException();
@@ -593,9 +624,9 @@ namespace MphRead
         std::vector<std::uint32_t> output(static_cast<std::size_t>(outputCount));
         static constexpr std::array<std::int32_t, 8> table = {128, 64, 32, 16, 8, 4, 2, 1};
         std::int32_t ch = 0;
-        const std::int32_t stride = UncheckedMul(2, static_cast<std::int32_t>(height));
-        const std::int32_t finish = UncheckedAdd(UncheckedMul(stride, count), 8);
-        for (std::int32_t c = 8; c < finish; c = UncheckedAdd(c, stride))
+        const std::int32_t rowBytes = UncheckedMultiply(2, static_cast<std::int32_t>(height));
+        const std::int32_t byteEnd = UncheckedAdd(UncheckedMultiply(rowBytes, count), 8);
+        for (std::int32_t c = 8; c < byteEnd; c = UncheckedAdd(c, rowBytes))
         {
             const std::span<const std::uint8_t> data = ReadDetail::Slice(bytes, c);
             for (std::int32_t y = 0; y < height; ++y)
@@ -607,21 +638,29 @@ namespace MphRead
                     const std::int32_t shift = 4 * (x & 7);
                     const std::int32_t mask = table[static_cast<std::size_t>(x & 7)];
                     const std::uint32_t value
-                        = (AtByte(data, y * 2 + x / 8) & mask) != 0 ? (3U << shift) : 0U;
-                    const std::int32_t outputIndex = UncheckedAdd(UncheckedMul(ch, 128) / 4, offset);
+                        = (AtByte(data, y * 2 + x / 8) & mask) != 0
+                        ? (3U << shift) : 0U;
+                    const std::int32_t outputIndex = UncheckedAdd(
+                        UncheckedMultiply(ch, 128) / 4, offset);
                     output.at(static_cast<std::size_t>(outputIndex)) |= value;
                 }
             }
             ch = UncheckedAdd(ch, 1);
         }
-        std::vector<std::uint8_t> result(output.size() * 4U);
-        for (std::size_t i = 0; i < result.size(); i += 4U)
+        const std::int32_t resultLength = UncheckedMultiply(
+            static_cast<std::int32_t>(output.size()), 4);
+        if (resultLength < 0)
         {
-            const std::uint32_t value = output[i / 4U];
-            result[i] = static_cast<std::uint8_t>(value & 0xFFU);
-            result[i + 1U] = static_cast<std::uint8_t>((value & 0xFF00U) >> 8);
-            result[i + 2U] = static_cast<std::uint8_t>((value & 0xFF0000U) >> 16);
-            result[i + 3U] = static_cast<std::uint8_t>((value & 0xFF000000U) >> 24);
+            throw OverflowException();
+        }
+        std::vector<std::uint8_t> result(static_cast<std::size_t>(resultLength));
+        for (std::int32_t i = 0; i < resultLength; i = UncheckedAdd(i, 4))
+        {
+            const std::uint32_t value = output[static_cast<std::size_t>(i / 4)];
+            result[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(value & 0xFFU);
+            result[static_cast<std::size_t>(i + 1)] = static_cast<std::uint8_t>((value & 0xFF00U) >> 8);
+            result[static_cast<std::size_t>(i + 2)] = static_cast<std::uint8_t>((value & 0xFF0000U) >> 16);
+            result[static_cast<std::size_t>(i + 3)] = static_cast<std::uint8_t>((value & 0xFF000000U) >> 24);
         }
         return {count, std::move(result)};
     }
@@ -645,15 +684,9 @@ namespace MphRead
         instructionLists->reserve(dlists->size());
         for (const DisplayList& dlist : *dlists)
         {
-            if (Mods::Headless::Active())
-            {
-                instructionLists->push_back(
-                    std::make_shared<const std::vector<std::shared_ptr<RenderInstruction>>>());
-            }
-            else
-            {
-                instructionLists->push_back(DoRenderInstructions(initialBytes, dlist));
-            }
+            instructionLists->push_back(Mods::Headless::Active()
+                ? EmptyArray<std::shared_ptr<RenderInstruction>>()
+                : DoRenderInstructions(initialBytes, dlist));
         }
         const auto materials = DoOffsets<RawMaterial>(
             initialBytes, header.MaterialOffset, header.MaterialCount);
@@ -776,15 +809,8 @@ namespace MphRead
             textureData->reserve(textures->size());
             for (const Texture& texture : *textures)
             {
-                if (Mods::Headless::Active())
-                {
-                    textureData->push_back(
-                        std::make_shared<const std::vector<TextureData>>());
-                }
-                else
-                {
-                    textureData->push_back(GetTextureData(texture, textureBytes));
-                }
+                textureData->push_back(Mods::Headless::Active()
+                    ? EmptyArray<TextureData>() : GetTextureData(texture, textureBytes));
             }
             auto paletteData = std::make_shared<std::vector<
                 std::shared_ptr<const std::vector<PaletteData>>>>();
@@ -923,7 +949,7 @@ namespace MphRead
         if (header.NodePosCounts != 0 && header.NodeWeightCount == 0)
         {
             const std::int32_t nodeWeightCount
-                = (ReadDetail::ManagedInt32(header.NodePosCounts) - Sizes::Header) / 4;
+                = UncheckedAdd(ReadDetail::ManagedInt32(header.NodePosCounts), -Sizes::Header) / 4;
             posCounts = DoOffsets<std::int32_t>(initialBytes, header.NodePosCounts, nodeWeightCount);
         }
         else
@@ -944,7 +970,8 @@ namespace MphRead
                 }
             }
         }
-        const auto posScales = DoOffsets<Fixed>(initialBytes, header.NodePosScales, UncheckedAdd(maxIndex, 1));
+        const auto posScales = DoOffsets<Fixed>(
+            initialBytes, header.NodePosScales, UncheckedAdd(maxIndex, 1));
         return std::make_shared<Model>(name, firstHunt, header, nodes, meshes, materials,
             dlists, instructionLists, animations, textureMatrices, recolors, nodeWeights,
             nodePos, nodeInitPos, posCounts, posScales);
@@ -1006,7 +1033,7 @@ namespace MphRead
             assert(raw.AnimationOffset > raw.TranslateLutOffset);
             assert((raw.AnimationOffset - raw.TranslateLutOffset) % 4 == 0);
 #endif
-            const std::int32_t count = static_cast<std::int32_t>(offset - raw.AnimationOffset)
+            const std::int32_t count = ReadDetail::ManagedInt32(offset - raw.AnimationOffset)
                 / Sizes::NodeAnimation;
             const auto rawAnimations = DoOffsets<NodeAnimation>(bytes, raw.AnimationOffset, count);
             auto animations = std::make_shared<NodeAnimationDictionary>();
@@ -1016,11 +1043,11 @@ namespace MphRead
                     ? nodes->at(i).NameString() : NoNodeName(i);
                 DictionaryAdd(*animations, animationName, rawAnimations->at(i));
             }
-            const std::int32_t scaleCount = static_cast<std::int32_t>(
+            const std::int32_t scaleCount = ReadDetail::ManagedInt32(
                 raw.RotateLutOffset - raw.ScaleLutOffset) / 4;
-            const std::int32_t rotationCount = static_cast<std::int32_t>(
+            const std::int32_t rotationCount = ReadDetail::ManagedInt32(
                 raw.TranslateLutOffset - raw.RotateLutOffset) / 2;
-            const std::int32_t translationCount = static_cast<std::int32_t>(
+            const std::int32_t translationCount = ReadDetail::ManagedInt32(
                 raw.AnimationOffset - raw.TranslateLutOffset) / 4;
             auto scales = std::make_shared<std::vector<float>>();
             for (const Fixed& value : *DoOffsets<Fixed>(bytes, raw.ScaleLutOffset, scaleCount))
@@ -1028,7 +1055,7 @@ namespace MphRead
                 scales->push_back(value.FloatValue());
             }
             auto rotations = std::make_shared<std::vector<float>>();
-            rotations->reserve(static_cast<std::size_t>(rotationCount));
+            rotations->reserve(ManagedCapacity(rotationCount));
             for (std::uint16_t value : *DoOffsets<std::uint16_t>(bytes, raw.RotateLutOffset, rotationCount))
             {
                 rotations->push_back(static_cast<float>(value) / 65536.0F
@@ -1065,13 +1092,13 @@ namespace MphRead
             assert(raw.AnimationOffset > raw.ColorLutOffset);
 #endif
             const auto rawAnimations = DoOffsets<MaterialAnimation>(
-                bytes, raw.AnimationOffset, static_cast<std::int32_t>(raw.AnimationCount));
+                bytes, raw.AnimationOffset, ReadDetail::ManagedInt32(raw.AnimationCount));
             auto animations = std::make_shared<MaterialAnimationDictionary>();
             for (const MaterialAnimation& animation : *rawAnimations)
             {
                 DictionaryAdd(*animations, animation.NameString(), animation);
             }
-            const std::int32_t colorCount = static_cast<std::int32_t>(
+            const std::int32_t colorCount = ReadDetail::ManagedInt32(
                 raw.AnimationOffset - raw.ColorLutOffset);
             auto colors = std::make_shared<std::vector<float>>();
             for (std::uint8_t value : *DoOffsets<std::uint8_t>(bytes, raw.ColorLutOffset, colorCount))
@@ -1112,17 +1139,17 @@ namespace MphRead
             assert((raw.AnimationOffset - raw.TranslateLutOffset) % 4 == 0);
 #endif
             const auto rawAnimations = DoOffsets<TexcoordAnimation>(
-                bytes, raw.AnimationOffset, static_cast<std::int32_t>(raw.AnimationCount));
+                bytes, raw.AnimationOffset, ReadDetail::ManagedInt32(raw.AnimationCount));
             auto animations = std::make_shared<TexcoordAnimationDictionary>();
             for (const TexcoordAnimation& animation : *rawAnimations)
             {
                 DictionaryAdd(*animations, animation.NameString(), animation);
             }
-            const std::int32_t scaleCount = static_cast<std::int32_t>(
+            const std::int32_t scaleCount = ReadDetail::ManagedInt32(
                 raw.RotateLutOffset - raw.ScaleLutOffset) / 4;
-            const std::int32_t rotationCount = static_cast<std::int32_t>(
+            const std::int32_t rotationCount = ReadDetail::ManagedInt32(
                 raw.TranslateLutOffset - raw.RotateLutOffset) / 2;
-            std::int32_t translationCount = static_cast<std::int32_t>(
+            std::int32_t translationCount = ReadDetail::ManagedInt32(
                 raw.AnimationOffset - raw.TranslateLutOffset) / 4;
             auto scales = std::make_shared<std::vector<float>>();
             for (const Fixed& value : *DoOffsets<Fixed>(bytes, raw.ScaleLutOffset, scaleCount))
@@ -1130,6 +1157,7 @@ namespace MphRead
                 scales->push_back(value.FloatValue());
             }
             auto rotations = std::make_shared<std::vector<float>>();
+            rotations->reserve(ManagedCapacity(rotationCount));
             for (std::uint16_t value : *DoOffsets<std::uint16_t>(bytes, raw.RotateLutOffset, rotationCount))
             {
                 rotations->push_back(static_cast<float>(value) / 65536.0F
@@ -1217,9 +1245,9 @@ namespace MphRead
         {
             for (std::int32_t pixelIndex = 0; pixelIndex < pixelCount; ++pixelIndex)
             {
-                const std::uint16_t color = SpanReadUshort(textureBytes,
-                    ReadDetail::ManagedInt32(texture.ImageOffset)
-                    + pixelIndex * static_cast<std::int32_t>(sizeof(std::uint16_t)));
+                const std::int32_t byteOffset = UncheckedAdd(
+                    ReadDetail::ManagedInt32(texture.ImageOffset), UncheckedMultiply(pixelIndex, 2));
+                const std::uint16_t color = SpanReadUshort(textureBytes, byteOffset);
                 data->push_back(TextureData(color, AlphaFromShort(color)));
             }
         }
@@ -1227,8 +1255,9 @@ namespace MphRead
         {
             for (std::int32_t pixelIndex = 0; pixelIndex < pixelCount; ++pixelIndex)
             {
-                const std::uint8_t entry = AtByte(textureBytes,
-                    static_cast<std::int64_t>(texture.ImageOffset) + pixelIndex);
+                const std::int32_t byteOffset = UncheckedAdd(
+                    ReadDetail::ManagedInt32(texture.ImageOffset), pixelIndex);
+                const std::uint8_t entry = AtByte(textureBytes, byteOffset);
                 for (std::int32_t entryIndex = 0; entryIndex < entriesPerByte; ++entryIndex)
                 {
                     std::uint32_t index = static_cast<std::uint32_t>(entry >>
@@ -1253,12 +1282,14 @@ namespace MphRead
                         index &= 0x1FU;
                         alpha = AlphaFromA3I5(entry);
                     }
-                    if ((texture.Format == TextureFormat::Palette2Bit
+                    if (texture.Format == TextureFormat::Palette2Bit
                         || texture.Format == TextureFormat::Palette4Bit
                         || texture.Format == TextureFormat::Palette8Bit)
-                        && texture.Opaque == 0 && index == 0)
                     {
-                        alpha = 0;
+                        if (texture.Opaque == 0 && index == 0)
+                        {
+                            alpha = 0;
+                        }
                     }
                     data->push_back(TextureData(index, alpha));
                 }
@@ -1275,12 +1306,15 @@ namespace MphRead
             throw ProgramException("Palette size " + std::to_string(palette.Size)
                 + " is not divisible by 2.");
         }
+        const std::int32_t count = ReadDetail::ManagedInt32(palette.Size) / 2;
         auto data = std::make_shared<std::vector<PaletteData>>();
-        data->reserve(palette.Size / 2U);
-        for (std::uint32_t i = 0; i < palette.Size / 2U; ++i)
+        data->reserve(ManagedCapacity(count));
+        for (std::int32_t i = 0; i < static_cast<std::int64_t>(palette.Size) / 2; ++i)
         {
-            data->push_back(PaletteData(SpanReadUshort(paletteBytes,
-                palette.Offset + i * static_cast<std::uint32_t>(sizeof(std::uint16_t)))));
+            const std::int32_t byteOffset = UncheckedAdd(
+                ReadDetail::ManagedInt32(palette.Offset), UncheckedMultiply(i, 2));
+            const std::uint16_t entry = SpanReadUshort(paletteBytes, byteOffset);
+            data->push_back(PaletteData(entry));
         }
         return data;
     }
@@ -1314,7 +1348,8 @@ namespace MphRead
         const std::string path = Paths::Combine(
             firstHunt ? Paths::FhFileSystem() : Paths::FileSystem(), inputPath);
         const std::vector<std::uint8_t> storage = allowHook
-            ? Utility::Repack::RepackHook(path, firstHunt) : ReadBytes(path, firstHunt);
+            ? Utility::Repack::RepackHook(path, firstHunt)
+            : ReadBytes(path, firstHunt);
         const std::span<const std::uint8_t> bytes(storage);
         const std::uint32_t version = SpanReadUint(bytes, 0);
         if (version == 1)
@@ -1331,7 +1366,7 @@ namespace MphRead
         for (std::int32_t i = 0;; i = UncheckedAdd(i, 1))
         {
             const std::int32_t start = UncheckedAdd(
-                Sizes::EntityHeader, UncheckedMul(Sizes::EntityEntry, i));
+                Sizes::EntityHeader, UncheckedMultiply(Sizes::EntityEntry, i));
             const EntityEntry entry = ReadStruct<EntityEntry>(
                 ReadDetail::Slice(bytes, start, Sizes::EntityEntry));
             if (entry.DataOffset == 0)
@@ -1381,7 +1416,8 @@ namespace MphRead
         case EntityType::Artifact: return ReadEntityOf<ArtifactEntityData>(bytes, entry, header);
         case EntityType::CameraSequence: return ReadEntityOf<CameraSequenceEntityData>(bytes, entry, header);
         case EntityType::ForceField: return ReadEntityOf<ForceFieldEntityData>(bytes, entry, header);
-        default: throw ProgramException("Invalid entity type " + EntityTypeString(type));
+        default:
+            throw ProgramException("Invalid entity type " + EntityTypeString(type));
         }
     }
 
@@ -1393,7 +1429,7 @@ namespace MphRead
         {
             const std::int32_t start = UncheckedAdd(
                 static_cast<std::int32_t>(sizeof(std::uint32_t)),
-                UncheckedMul(Sizes::FhEntityEntry, i));
+                UncheckedMultiply(Sizes::FhEntityEntry, i));
             const FhEntityEntry entry = ReadStruct<FhEntityEntry>(
                 ReadDetail::Slice(bytes, start, Sizes::EntityEntry));
             if (entry.DataOffset == 0)
@@ -1425,7 +1461,8 @@ namespace MphRead
         case EntityType::FhJumpPad: return ReadFirstHuntEntityOf<FhJumpPadEntityData>(bytes, entry, header);
         case EntityType::FhPointModule: return ReadFirstHuntEntityOf<PointModuleEntityData>(bytes, entry, header);
         case EntityType::FhMorphCamera: return ReadFirstHuntEntityOf<FhMorphCameraEntityData>(bytes, entry, header);
-        default: throw ProgramException("Invalid entity type " + EntityTypeString(type));
+        default:
+            throw ProgramException("Invalid entity type " + EntityTypeString(type));
         }
     }
 
@@ -1505,7 +1542,7 @@ namespace MphRead
         {
             const RawEffectElement element = DoOffset<RawEffectElement>(bytes, offset);
             auto particles = std::make_shared<std::vector<std::shared_ptr<Particle>>>();
-            particles->reserve(element.ParticleCount);
+            particles->reserve(ManagedCapacity(ReadDetail::ManagedInt32(element.ParticleCount)));
             for (std::uint32_t nameOffset : *DoOffsets<std::uint32_t>(
                 bytes, element.ParticleOffset, element.ParticleCount))
             {
@@ -1531,9 +1568,12 @@ namespace MphRead
             elements->push_back(std::make_shared<EffectElement>(element, particles, funcs, actions));
         }
         auto effect = std::make_shared<Effect>(id, rawEffect, funcs, list2, elements, path);
-        if (id != -1 && !Effects().emplace(id, effect).second)
+        if (id != -1)
         {
-            throw std::invalid_argument("An item with the same key has already been added.");
+            if (!Effects().emplace(id, effect).second)
+            {
+                throw std::invalid_argument("An item with the same key has already been added.");
+            }
         }
         return effect;
     }
@@ -1613,13 +1653,19 @@ namespace MphRead
         case 1: case 5: case 8: case 9: case 11: case 22: case 23: case 24:
         case 25: case 26: case 29: case 31: case 32: case 35: case 43: case 44: case 45:
             assert(count == 0); break;
-        case 39: case 42: assert(count == 1); break;
+        case 39: case 42:
+            assert(count == 1); break;
         case 13: case 14: case 15: case 16: case 17: case 19: case 20:
-        case 46: case 47: case 48: assert(count == 2); break;
-        case 4: case 40: assert(count == 3); break;
-        case 49: assert(count == 4); break;
-        case 41: assert(count >= 4); break;
-        default: assert(false); break;
+        case 46: case 47: case 48:
+            assert(count == 2); break;
+        case 4: case 40:
+            assert(count == 3); break;
+        case 49:
+            assert(count == 4); break;
+        case 41:
+            assert(count >= 4); break;
+        default:
+            assert(false); break;
         }
 #else
         (void)funcId;
@@ -1656,11 +1702,7 @@ namespace MphRead
                     ((packed & 0xFFU) << 2U) + 0x400U);
                 const std::int32_t arity = RenderInstruction::GetArity(instruction);
                 auto arguments = std::make_shared<std::vector<std::uint32_t>>();
-                if (arity < 0)
-                {
-                    throw std::out_of_range("Non-negative number required. (Parameter 'capacity')");
-                }
-                arguments->reserve(static_cast<std::size_t>(arity));
+                arguments->reserve(ManagedCapacity(arity));
                 for (std::int32_t j = 0; j < arity; ++j)
                 {
                     arguments->push_back(SpanReadUint(bytes, std::ref(pointer)));
@@ -1793,7 +1835,7 @@ namespace MphRead
         std::span<const std::uint8_t> bytes, std::int32_t offset, std::int32_t length)
     {
         std::int32_t end = offset;
-        for (std::int32_t i = 0; i < length; ++i)
+        for (std::int32_t i = 0; i < length; i = UncheckedAdd(i, 1))
         {
             if (AtByte(bytes, static_cast<std::int64_t>(offset) + i) == 0)
             {
@@ -1818,7 +1860,7 @@ namespace MphRead
         std::span<const std::uint8_t> bytes, std::int32_t offset, std::int32_t length)
     {
         std::int32_t end = offset;
-        for (std::int32_t i = 0; i < length; ++i)
+        for (std::int32_t i = 0; i < length; i = UncheckedAdd(i, 1))
         {
             if (AtByte(bytes, static_cast<std::int64_t>(offset) + i) == 0)
             {
@@ -1831,7 +1873,7 @@ namespace MphRead
             return {};
         }
         std::string result;
-        for (std::int32_t i = offset; i < end; ++i)
+        for (std::int32_t i = offset; i < end; i = UncheckedAdd(i, 1))
         {
             AppendLatin1CodePoint(result, AtByte(bytes, i));
         }
@@ -1841,13 +1883,13 @@ namespace MphRead
     std::shared_ptr<const std::vector<std::string>> Read::ReadStrings(
         std::span<const std::uint8_t> bytes, std::int64_t offset, std::int32_t count)
     {
-        return ReadStrings(bytes, UncheckedInt32(offset), count);
+        return ReadStrings(bytes, ManagedInt64ToInt32(offset), count);
     }
 
     std::shared_ptr<const std::vector<std::string>> Read::ReadStrings(
         std::span<const std::uint8_t> bytes, std::int64_t offset, std::uint32_t count)
     {
-        return ReadStrings(bytes, UncheckedInt32(offset), ReadDetail::ManagedInt32(count));
+        return ReadStrings(bytes, ManagedInt64ToInt32(offset), ReadDetail::ManagedInt32(count));
     }
 
     std::shared_ptr<const std::vector<std::string>> Read::ReadStrings(
@@ -1859,12 +1901,8 @@ namespace MphRead
     std::shared_ptr<const std::vector<std::string>> Read::ReadStrings(
         std::span<const std::uint8_t> bytes, std::int32_t offset, std::int32_t count)
     {
-        if (count < 0)
-        {
-            throw std::out_of_range("Non-negative number required. (Parameter 'capacity')");
-        }
         auto strings = std::make_shared<std::vector<std::string>>();
-        strings->reserve(static_cast<std::size_t>(count));
+        strings->reserve(ManagedCapacity(count));
         while (static_cast<std::int32_t>(strings->size()) < count)
         {
             std::int32_t end = offset;
@@ -1891,8 +1929,7 @@ namespace MphRead
     {
         const std::filesystem::path input(path);
         const std::string name = input.stem().string();
-        const std::filesystem::path parent = input.has_parent_path()
-            ? input.parent_path() : std::filesystem::path();
+        const std::filesystem::path parent = input.has_parent_path() ? input.parent_path() : std::filesystem::path();
         const std::filesystem::path outputPath = std::filesystem::absolute(
             parent / ".." / "_archives" / name).lexically_normal();
         const std::string output = outputPath.string();
@@ -1951,11 +1988,11 @@ namespace MphRead
             {
                 model = room->Model();
             }
-            if (!model)
-            {
-                std::cout << "No model or room with the name " << name << " could be found." << std::endl;
-                return;
-            }
+        }
+        if (!model)
+        {
+            std::cout << "No model or room with the name " << name << " could be found." << std::endl;
+            return;
         }
         try
         {

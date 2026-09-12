@@ -2,8 +2,8 @@
 
 ## 1. Reviewed state, authority, and scope
 
-**Reviewed `develop2` parent commit:** `e815670581c01684afa3e7e1d9acb908fb518464`  
-**Reviewed parent tree:** `3e56f2c41e1d921d9303973a49b4d11568b239b7`
+**Reviewed `develop2` parent commit:** `17f4216d59be3cbdead0e8cbf6ffac169872df8c`  
+**Reviewed parent tree:** `59488f2506427a06574a5f2ad334c20d42984e05`
 
 This document is the authoritative implementation-order and dependency-closure plan for the strict C# -> C++20 migration of three separate source-to-Native targets:
 
@@ -15,14 +15,14 @@ The C# source in the corresponding source project is the sole behavioral specifi
 
 ### 1.1 Live inventory reconciliation
 
-The live source trees contain **354 unique physical C# migration units**:
+The live source trees contain **356 unique physical C# migration units**:
 
 | Source project | Physical C# files | Native owner | Live same-path Native pairs | Physical C# files without a live pair |
 |---|---:|---|---:|---:|
 | `src/MphRead` | 302 | `src/MphRead.Native` | 83 | 219 |
 | `src/NcsfPlay` | 36 | `src/NcsfPlay.Native` | 0 | 36 |
-| local `src/MphRead.Android` | 16 | `src/MphRead.Native.Android` | 0 | 16 |
-| **Total unique physical C# files** | **354** |  | **83** | **271** |
+| local `src/MphRead.Android` | 18 | `src/MphRead.Native.Android` | 0 | 18 |
+| **Total unique physical C# files** | **356** |  | **83** | **273** |
 
 Inventory facts are not parity claims:
 
@@ -30,16 +30,17 @@ Inventory facts are not parity claims:
 - The old Native count of 48 pairs is stale. The live `src/MphRead.Native` tree now has **83** same-relative-path `.hpp/.cpp` pairs.
 - The former `SetupProgress` relocation mismatch is resolved: the live pair is now correctly colocated at `src/MphRead.Native/Mods/Launcher/Portable/SetupProgress.hpp/.cpp`.
 - `src/NcsfPlay.Native` does **not** exist at the reviewed parent. Its 36 one-file counterparts are therefore all still structurally absent.
-- `src/MphRead.Native.Android` does **not** exist at the reviewed parent. Its 16 local Android one-file counterparts are therefore all still structurally absent.
-- Android recompiles all 302 `src/MphRead/**/*.cs` files in its C# project. Those are **shared source inputs, not 302 additional physical migration units**. Their Native ownership remains `src/MphRead.Native`; the Android Native target must consume that translated shared core under Android build/platform semantics instead of creating a second fork of those 302 implementations.
+- `src/MphRead.Native.Android` does **not** exist at the reviewed parent. Its 18 local Android one-file counterparts are therefore all still structurally absent.
+- `MphRead.Android.csproj` disables default compile items and explicitly includes `*.cs`, so all 18 local C# files in `src/MphRead.Android` are in scope, including `TouchControls.cs` and `TouchOverlayView.cs`.
+- Android also recompiles all 302 `src/MphRead/**/*.cs` files in its C# project. Those are **shared source inputs, not 302 additional physical migration units**. Their Native ownership remains `src/MphRead.Native`; the Android Native target must consume that translated shared core under Android build/platform semantics instead of creating a second fork of those 302 implementations.
 - A live Native pair means only that implementation artifacts exist. It does not, by itself, establish a strict parity audit, focused synthetic checks, repository build/link, runtime/device validation, C# differential validation, or CI validation.
 
 The exact assignment sections below reconcile to:
 
 - MphRead: 302 scheduled rows, 302 unique paths, 0 missing, 0 extra, 0 duplicate.
 - NcsfPlay: 36 scheduled rows, 36 unique paths, 0 missing, 0 extra, 0 duplicate.
-- MphRead.Android local: 16 scheduled rows, 16 unique paths, 0 missing, 0 extra, 0 duplicate.
-- Combined physical source set: **354 scheduled rows and 354 unique paths**.
+- MphRead.Android local: 18 scheduled rows, 18 unique paths, 0 missing, 0 extra, 0 duplicate.
+- Combined physical source set: **356 scheduled rows and 356 unique paths**.
 
 The three order sequences are dependency-aware authoring bands, not one flattened project graph and not a claim that an earlier band is automatically behavior-complete before a later band.
 
@@ -118,7 +119,7 @@ src/MphRead (302)
            ^
            | shared core reused under Android platform semantics
            |
-src/MphRead.Android local adapters (16)
+src/MphRead.Android local adapters (18)
     -> src/MphRead.Native.Android
 ```
 
@@ -297,9 +298,9 @@ NDS header / FAT / INFO / SYMB primitives
 
 ### 6.4 Android source reuse and platform boundary
 
-`MphRead.Android.csproj` targets `net9.0-android35.0`, requires the Android workload/SDK, uses a minimum supported Android version of 24, and deliberately is not the normal desktop solution head. It has default compile items disabled and compiles:
+`MphRead.Android.csproj` targets `net9.0-android35.0`, requires the Android workload/SDK, uses a minimum supported Android version of 24, and deliberately is not the normal desktop solution head. It has default compile items disabled and explicitly compiles:
 
-- all 16 local `src/MphRead.Android/*.cs` files;
+- all 18 local `src/MphRead.Android/*.cs` files through `<Compile Include="*.cs" />`;
 - all `../MphRead/**/*.cs` shared sources directly;
 - a project reference to `../NcsfPlay/NcsfPlay.csproj`.
 
@@ -313,16 +314,16 @@ Therefore:
 
 - the 302 shared MphRead translations remain owned by `MphRead.Native`;
 - the 36 NcsfPlay translations remain owned by `NcsfPlay.Native`;
-- only the 16 Android-local C# files map to `MphRead.Native.Android` pairs;
+- only the 18 Android-local C# files map to `MphRead.Native.Android` pairs;
 - `MphRead.Native.Android` must consume the shared native libraries under Android-compatible compile/link settings rather than copy/fork them;
 - Android resources/manifest/build metadata are platform assets, not extra C# parity rows;
 - any JNI/activity/native loader/bootstrap necessary to enter the translated Android head is a mechanical adapter only and cannot replace the C# lifecycle/GUI/match policy.
 
-The 16 local Android files divide by role:
+The 18 local Android files divide by role:
 
 - lifecycle/GUI composition: `AndroidApp.cs`, `MainActivity.cs`;
 - GL/render host: `GameView.cs`, `OffscreenGl.cs`;
-- input: `AndroidInput.cs`, `GamepadBridge.cs`;
+- input/touch controls: `AndroidInput.cs`, `GamepadBridge.cs`, `TouchControls.cs`, `TouchOverlayView.cs`;
 - match/room integration: `AndroidMatch.cs`, `AndroidMaps.cs`;
 - preview/resource/image integration: `AndroidPng.cs`, `AndroidThumbnails.cs`, `PreviewRun.cs`, `PreviewService.cs`;
 - update/install/log/platform utility adapters: `AndroidConsole.cs`, `AndroidLogShare.cs`, `ApkInstaller.cs`, `AndroidUpdateInstaller.cs`.
@@ -399,24 +400,26 @@ NcsfPlay closure notes:
 | Band | Files | Prerequisites / closure purpose |
 |---:|---:|---|
 | A1 | 5 | Leaf platform mechanics: console, PNG, maps/resource staging, log sharing, APK install. Shared MphRead declarations already available. |
-| A2 | 3 | Android input/gamepad bridge and update installer after shared input/update contracts plus A1 installer mechanics. |
+| A2 | 4 | Android keyboard/mouse/gamepad/touch-control state plus update installer after shared input/update contracts and A1 installer mechanics. `TouchControls` is available before its Android view/GL-thread consumers. |
 | A3 | 2 | Offscreen GL then preview rendering core after shared GLES/capture/thumbnail contracts and Android input/PNG. |
 | A4 | 2 | Preview service workers then thumbnail host/worker coordinator; service owns worker types consumed by the coordinator. |
-| A5 | 2 | Android match builder and GameView render/input host after shared Scene/network/match contracts plus input/GL platform seams. |
+| A5 | 3 | Android match builder, touch overlay view, and GameView render/input host after shared Scene/network/match contracts plus A2 touch/input state and GL platform seams. |
 | A6 | 2 | AndroidApp front-screen lifetime then MainActivity lifecycle composition; `MainActivity` is the final Android-local integration unit. |
-| **Total** | **16** |  |
+| **Total** | **18** |  |
 
 Android closure notes:
 
 - `AndroidInput.cs` creates/mechanically drives the OpenTK keyboard/mouse state that shared input code consumes; it must not fork `PlayerEntity.ProcessAllInput` policy.
 - `GamepadBridge.cs` translates Android key/motion events into shared `GamepadInput.State`; shared mapping/dead-zone/action policy remains in MphRead.
+- `TouchControls.cs` is deliberately free of Android framework types. It owns the synchronized touch-control state, layout, held actions, aim deltas, taps, swipe boost/double-tap behavior, and visibility rules consumed by the Android head, and it consults shared `MphRead.Mods.Input.TouchSettings`. It therefore belongs in A2 before its `TouchOverlayView` and `GameView` consumers; its behavior must be translated from C# rather than replaced by a Native-only input policy.
+- `TouchOverlayView.cs` is an Android `View` adapter over `TouchControls`: it lays out/draws the controls and forwards Android `MotionEvent` down/move/up/cancel events into the A2 state. It belongs in A5 with the Android match/render/input view host and does not own shared gameplay policy.
 - `OffscreenGl.cs` is GL context mechanics. `PreviewRun.cs` assumes a current context and uses shared `EsBindings`, `GlEs`, Scene, capture, thumbnail, and audio-silencing behavior.
 - `PreviewService.cs` depends on `AndroidPng`, `OffscreenGl`, and `PreviewRun` and defines the worker service types. `AndroidThumbnails.cs` depends on those worker types and coordinates them; therefore service precedes coordinator.
 - `AndroidMatch.cs` translates a `LaunchPlan` into a shared Scene without inventing a second gameplay policy; it reuses shared network/demo/adventure/match contracts and calls `AndroidMaps.EnsureBuilt`.
-- `GameView.cs` owns Android surface/EGL/render-thread/input delivery mechanics and consumes `AndroidInput`, `GamepadBridge`, shared Scene/render/chat/end-screen behavior, and match callbacks.
+- `GameView.cs` owns Android surface/EGL/render-thread/input delivery mechanics and consumes `TouchControls`, `AndroidInput`, `GamepadBridge`, shared Scene/render/chat/end-screen behavior, and match callbacks.
 - `AndroidApp.cs` uses the shared `HomeView`, launcher preferences, game settings, files, thumbnail contracts, and delegates actual match launch to `MainActivity`.
-- `MainActivity.cs` composes console, writable-root selection, maps, thumbnails, update installer, log sharing, PNG writer, launcher view, match view, preview workers, lifecycle and display/input hooks. It is intentionally last among local Android files.
-- Android runtime/device parity cannot be inferred from desktop compilation. EGL/surface lifecycle, activity/service behavior, touch/gamepad delivery, installer/share intents, storage roots, orientation/display changes, preview worker processes, and package resources require Android-specific build and device/emulator gates.
+- `MainActivity.cs` composes console, writable-root selection, maps, thumbnails, update installer, log sharing, PNG writer, launcher view, `TouchControls`, `TouchOverlayView`, match view, preview workers, lifecycle and display/input hooks. It is intentionally last among local Android files.
+- Android runtime/device parity cannot be inferred from desktop compilation. EGL/surface lifecycle, activity/service behavior, touch overlay layout/rendering, touch/gamepad delivery, installer/share intents, storage roots, orientation/display changes, preview worker processes, and package resources require Android-specific build and device/emulator gates.
 
 ## 8. Exact per-file assignment
 
@@ -770,7 +773,7 @@ Every physical C# source file in the three reviewed source trees appears exactly
 | N7 | `src/NcsfPlay/ReplayGain/TrackGain.cs` |
 | N7 | `src/NcsfPlay/ReplayGain/ReplayGain.cs` |
 
-### 8.3 local `src/MphRead.Android` -> `src/MphRead.Native.Android` (16)
+### 8.3 local `src/MphRead.Android` -> `src/MphRead.Native.Android` (18)
 
 | Band | C# source |
 |---:|---|
@@ -781,12 +784,14 @@ Every physical C# source file in the three reviewed source trees appears exactly
 | A1 | `src/MphRead.Android/ApkInstaller.cs` |
 | A2 | `src/MphRead.Android/AndroidInput.cs` |
 | A2 | `src/MphRead.Android/GamepadBridge.cs` |
+| A2 | `src/MphRead.Android/TouchControls.cs` |
 | A2 | `src/MphRead.Android/AndroidUpdateInstaller.cs` |
 | A3 | `src/MphRead.Android/OffscreenGl.cs` |
 | A3 | `src/MphRead.Android/PreviewRun.cs` |
 | A4 | `src/MphRead.Android/PreviewService.cs` |
 | A4 | `src/MphRead.Android/AndroidThumbnails.cs` |
 | A5 | `src/MphRead.Android/AndroidMatch.cs` |
+| A5 | `src/MphRead.Android/TouchOverlayView.cs` |
 | A5 | `src/MphRead.Android/GameView.cs` |
 | A6 | `src/MphRead.Android/AndroidApp.cs` |
 | A6 | `src/MphRead.Android/MainActivity.cs` |
@@ -799,13 +804,13 @@ Status terminology in this section is intentionally narrower than “done”. A 
 |---|---|---|---|
 | `src/MphRead/Mods/Chat/ChatFont.cs` | matching Native pair exists | **Completed/audited file-level parity evidence retained**; implementation commit `36b70de7cfc95e0d7f7c744b4a9e25f245df2134` | Do not move or re-audit merely because this document was expanded. Repository-wide build/runtime/differential/CI are separate gates. |
 | `src/MphRead/Mods/Input/StylusZone.cs` | matching Native pair exists | **Completed/audited file-level parity evidence retained**; implementation commit `f8ec61db336916027ae6234d7f4e18337e846694` | Do not move or re-audit merely because this document was expanded. Repository-wide build/runtime/differential/CI are separate gates. |
-| `src/MphRead/Formats/RawFormats.cs` | matching Native pair exists; reviewed parent is a strict-parity-fix commit | **Not marked complete by this plan** | Pair presence and a fix commit do not substitute for a final accepted strict parity review plus applicable build/differential evidence. Remains W4. |
+| `src/MphRead/Formats/RawFormats.cs` | matching Native pair exists; reviewed parent contains its strict-parity-fix history | **Not marked complete by this plan** | Pair presence and a fix commit do not substitute for a final accepted strict parity review plus applicable build/differential evidence. Remains W4. |
 | `src/MphRead/Messaging.cs` | matching Native pair exists; contributes to `Scene` | **Not marked complete by this plan** | Its own audit remains distinct from aggregate `Scene` closure, which remains open through W12 contributors. Remains W4. |
 | `src/MphRead/Mods/Launcher/Portable/SetupProgress.cs` | matching pair now at the correct relative path | prior relocation blocker **resolved structurally** | Behavioral parity status is whatever accepted file review evidence establishes; path correction alone is not parity. |
 | `src/MphRead/Mods/ModEntry.cs` | matching Native pair exists | terminal integration remains W14 | Pair existence does not move it ahead of downstream closures. |
 | `src/MphRead/Program.cs` | matching Native pair exists | terminal integration remains W15 and final | Pair existence does not make startup/dispatch parity complete early. |
 | all NcsfPlay C# files | `src/NcsfPlay.Native` absent | not implemented in the target tree | Create only the per-file pairs/build mechanics required by the library boundary; no invented policy. |
-| all Android-local C# files | `src/MphRead.Native.Android` absent | not implemented in the target tree | Create local pairs only after shared MphRead/NcsfPlay contracts needed by each band are available. |
+| all 18 Android-local C# files | `src/MphRead.Native.Android` absent | not implemented in the target tree | Create local pairs only after shared MphRead/NcsfPlay contracts needed by each band are available. |
 
 Additional special cases retained from the original plan:
 
@@ -870,7 +875,7 @@ Where practical, run C# and Native against the same fixture/input/state and comp
 - network packets and state transitions;
 - NcsfPlay sample/sequence/stream outputs and ReplayGain values;
 - launcher plans/settings and command routing;
-- Android adapter inputs translated into the same shared state as C#.
+- Android adapter inputs, including touch-control state and MotionEvent translation, producing the same shared state/observable behavior as C#.
 
 ### 10.8 Gate 6: repository build/link matrix
 
@@ -891,7 +896,7 @@ Exercise behavior that compilation cannot prove:
 - desktop window/input/GL/audio/process paths on applicable OSes;
 - dedicated-server startup/shutdown/network/update/process behavior;
 - NcsfPlay real file playback/stream seeking/timing/audio output where applicable;
-- Android activity/service lifecycle, surface/EGL context loss/recreation, pause/resume, orientation/display rotation, soft keyboard/chat, touch, gamepad, storage root selection, PNG capture, preview workers, install/share intents, update flow, and resources on emulator/device.
+- Android activity/service lifecycle, surface/EGL context loss/recreation, pause/resume, orientation/display rotation, soft keyboard/chat, touch-control layout/overlay drawing, multi-touch input, gamepad, storage root selection, PNG capture, preview workers, install/share intents, update flow, and resources on emulator/device.
 
 ### 10.10 Gate 8: terminal entry/integration
 
@@ -930,10 +935,11 @@ Parallel work is safe only for independent leaves within the same currently-open
 
 The migration is not complete until all of the following are true:
 
-- all **354** physical C# files have exactly one correctly owned colocated Native pair;
+- all **356** physical C# files have exactly one correctly owned colocated Native pair;
 - the 302 MphRead rows preserve W1-W15 order with `Mods/ModEntry.cs` W14 and `Program.cs` W15 final;
 - all 36 NcsfPlay rows close from low-level NC structures through SDAT/NCSF, sequencer/player/stream, and ReplayGain without library-policy invention;
-- all 16 Android-local rows close through the separate `MphRead.Native.Android` owner while consuming, not duplicating, shared `MphRead.Native` and `NcsfPlay.Native` code;
+- all 18 Android-local rows close through the separate `MphRead.Native.Android` owner while consuming, not duplicating, shared `MphRead.Native` and `NcsfPlay.Native` code;
+- `TouchControls.cs` and `TouchOverlayView.cs` each retain their own `MphRead.Native.Android` pair and remain ordered by their actual C# dependency, with `TouchControls` preceding the overlay/view host that consumes it;
 - all partial C# aggregates have one canonical Native declaration owner and every contributing file retains its own pair/body ownership;
 - no generic include-directory relocation or unmatched aggregation/policy source has been introduced;
 - no Native-only main/WinMain/service/Android bootstrap has replaced C# dispatch/lifecycle policy;

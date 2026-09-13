@@ -2,6 +2,7 @@
 
 #include "../../Formats/CollisionDetection.hpp"
 #include "../../Metadata/Enemies.hpp"
+#include "../../Scene.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 
@@ -12,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 namespace MphRead::Entities::Enemies
 {
@@ -19,14 +21,10 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Vector3;
 
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner)
+        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
         {
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
-            if (typedSpawner == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
             return typedSpawner;
         }
 
@@ -63,9 +61,62 @@ namespace MphRead::Entities::Enemies
             }
             return *enemy;
         }
+    }
+}
 
+namespace MphRead::Metadata
+{
+    namespace
+    {
+        using Entities::EnemyBehavior;
+        using Entities::EnemySubroutine;
+        using Entities::Enemies::Enemy00Entity;
+
+        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State0{
+            {0, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior02)},
+            {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior03)}
+        };
+        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State1{
+            {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior02)},
+            {2, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior06)},
+            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior07)},
+            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior08)}
+        };
+        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State2{
+            {3, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior09)},
+            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior07)},
+            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior10)},
+            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior08)}
+        };
+        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State3{
+            {4, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior00)}
+        };
+        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State4{
+            {5, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior04)},
+            {5, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior05)}
+        };
+        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State5{
+            {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior01)}
+        };
+        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State6{
+            {0, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior02)},
+            {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior03)}
+        };
     }
 
+    std::vector<EnemySubroutine<Enemy00Entity>> Enemy00Subroutines{
+        EnemySubroutine<Enemy00Entity>(Enemy00State0),
+        EnemySubroutine<Enemy00Entity>(Enemy00State1),
+        EnemySubroutine<Enemy00Entity>(Enemy00State2),
+        EnemySubroutine<Enemy00Entity>(Enemy00State3),
+        EnemySubroutine<Enemy00Entity>(Enemy00State4),
+        EnemySubroutine<Enemy00Entity>(Enemy00State5),
+        EnemySubroutine<Enemy00Entity>(Enemy00State6)
+    };
+}
+
+namespace MphRead::Entities::Enemies
+{
     Enemy00Entity::Enemy00Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
@@ -84,6 +135,10 @@ namespace MphRead::Entities::Enemies
 
     void Enemy00Entity::EnemyInitialize()
     {
+        if (_spawner == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
         Vector3 facing = _spawner->Data.Header.FacingVector.ToFloatVector();
         Vector3 up = FixParallelVectors(facing, Vector3(0.0F, 1.0F, 0.0F));
         SetTransform(facing, up, _spawner->Data.Header.Position.ToFloatVector());
@@ -163,7 +218,12 @@ namespace MphRead::Entities::Enemies
 
     void Enemy00Entity::StartMovingTowardPosition()
     {
-        _moveTarget = _movePositions.at(_moveIndex);
+        const std::size_t moveIndex = static_cast<std::size_t>(_moveIndex);
+        if (moveIndex >= _movePositions.size())
+        {
+            throw SceneDetail::IndexOutOfRangeException();
+        }
+        _moveTarget = _movePositions[moveIndex];
         StartMovingToward(_moveTarget, _movementType == 3 ? 0.25F : 0.2F);
         Vector3 facing = Equal(_speed, Vector3::Zero) ? FacingVector() : _speed.Normalized();
         (void)facing;
@@ -231,7 +291,12 @@ namespace MphRead::Entities::Enemies
     void Enemy00Entity::State4()
     {
         PlayerEntity& player = MainPlayer();
-        if (HitPlayers.at(static_cast<std::size_t>(player.SlotIndex())))
+        const std::int32_t slotIndex = player.SlotIndex();
+        if (slotIndex < 0 || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
+        {
+            throw SceneDetail::IndexOutOfRangeException();
+        }
+        if (HitPlayers[static_cast<std::size_t>(slotIndex)])
         {
             player.TakeDamage(25, DamageFlags::None, std::nullopt, this);
             _stepCount = 0;
@@ -242,7 +307,12 @@ namespace MphRead::Entities::Enemies
     void Enemy00Entity::State5()
     {
         PlayerEntity& player = MainPlayer();
-        if (HitPlayers.at(static_cast<std::size_t>(player.SlotIndex())))
+        const std::int32_t slotIndex = player.SlotIndex();
+        if (slotIndex < 0 || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
+        {
+            throw SceneDetail::IndexOutOfRangeException();
+        }
+        if (HitPlayers[static_cast<std::size_t>(slotIndex)])
         {
             player.TakeDamage(25, DamageFlags::None, std::nullopt, this);
         }
@@ -321,7 +391,12 @@ namespace MphRead::Entities::Enemies
             {
                 _moveIndex--;
             }
-            _moveTarget = _movePositions.at(_moveIndex);
+            const std::size_t moveIndex = static_cast<std::size_t>(_moveIndex);
+            if (moveIndex >= _movePositions.size())
+            {
+                throw SceneDetail::IndexOutOfRangeException();
+            }
+            _moveTarget = _movePositions[moveIndex];
             StartMovingToward(_moveTarget, _state1 == 6 ? 0.2F : _stepDistance);
             SetTransform(_speed.Normalized(), Vector3(0.0F, 1.0F, 0.0F), Position);
         }

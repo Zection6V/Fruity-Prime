@@ -483,8 +483,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy36Entity::Behavior04()
     {
-        PlayerEntity& player = MainPlayer();
-        const std::int32_t slotIndex = player.SlotIndex();
+        const std::int32_t slotIndex = MainPlayer().SlotIndex();
         if (slotIndex < 0
             || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
         {
@@ -496,21 +495,24 @@ namespace MphRead::Entities::Enemies
         }
 
         const Vector3 between
-            = player.Volume().SpherePosition - static_cast<Vector3>(Position);
+            = MainPlayer().Volume().SpherePosition - static_cast<Vector3>(Position);
         const float mag = Length(between) * 5.0F;
-        const Vector3 speed = player.Speed();
-        player.SetSpeed(Vector3(
-            speed.X + between.X / mag,
-            speed.Y,
-            speed.Z + between.Z / mag));
-        player.TakeDamage(
+        PlayerEntity& speedTarget = MainPlayer();
+        const float speedX = MainPlayer().Speed().X;
+        const float speedY = MainPlayer().Speed().Y;
+        const float speedZ = MainPlayer().Speed().Z;
+        speedTarget.SetSpeed(Vector3(
+            speedX + between.X / mag,
+            speedY,
+            speedZ + between.Z / mag));
+        MainPlayer().TakeDamage(
             _values.ContactDamage, DamageFlags::NoDmgInvuln, std::nullopt, this);
 
         PickRoamTarget();
         if (_state1 == 5)
         {
             _targetVec = WithY(
-                static_cast<Vector3>(player.Position)
+                static_cast<Vector3>(MainPlayer().Position)
                     - static_cast<Vector3>(Position),
                 0.0F).Normalized();
             const float angle = RadiansToDegrees(
@@ -527,13 +529,12 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy36Entity::Behavior05()
     {
-        PlayerEntity& player = MainPlayer();
-        if (player.Health() == 0)
+        if (MainPlayer().Health() == 0)
         {
             return false;
         }
         const Vector3 between = (
-            static_cast<Vector3>(player.Position)
+            static_cast<Vector3>(MainPlayer().Position)
             - static_cast<Vector3>(Position)).Normalized();
         if (Vector3::Dot(FacingVector(), between)
             <= Fixed::ToFloat(_values.RangeMaxCosine))

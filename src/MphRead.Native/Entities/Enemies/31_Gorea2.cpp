@@ -136,28 +136,30 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
         {
-            const float x = axis.X;
-            const float y = axis.Y;
-            const float z = axis.Z;
-            const float cosine = std::cos(angle);
-            const float sine = std::sin(angle);
-            const float oneMinus = 1.0F - cosine;
+            axis = axis.Normalized();
+            const float axisX = axis.X;
+            const float axisY = axis.Y;
+            const float axisZ = axis.Z;
+
+            const float cosine = std::cos(-angle);
+            const float sine = std::sin(-angle);
+            const float t = 1.0F - cosine;
+
+            const float tXX = t * axisX * axisX;
+            const float tXY = t * axisX * axisY;
+            const float tXZ = t * axisX * axisZ;
+            const float tYY = t * axisY * axisY;
+            const float tYZ = t * axisY * axisZ;
+            const float tZZ = t * axisZ * axisZ;
+
+            const float sinX = sine * axisX;
+            const float sinY = sine * axisY;
+            const float sinZ = sine * axisZ;
+
             return Matrix4(
-                Vector4(
-                    cosine + x * x * oneMinus,
-                    x * y * oneMinus + z * sine,
-                    x * z * oneMinus - y * sine,
-                    0.0F),
-                Vector4(
-                    y * x * oneMinus - z * sine,
-                    cosine + y * y * oneMinus,
-                    y * z * oneMinus + x * sine,
-                    0.0F),
-                Vector4(
-                    z * x * oneMinus + y * sine,
-                    z * y * oneMinus - x * sine,
-                    cosine + z * z * oneMinus,
-                    0.0F),
+                Vector4(tXX + cosine, tXY - sinZ, tXZ + sinY, 0.0F),
+                Vector4(tXY + sinZ, tYY + cosine, tYZ - sinX, 0.0F),
+                Vector4(tXZ - sinY, tYZ + sinX, tZZ + cosine, 0.0F),
                 Vector4(0.0F, 0.0F, 0.0F, 1.0F));
         }
 

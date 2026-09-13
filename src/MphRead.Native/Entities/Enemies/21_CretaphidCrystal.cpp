@@ -4,6 +4,7 @@
 #include "../../Metadata/Enemies.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../Scene.hpp"
+#include "../../Messaging.hpp"
 #include "../BeamProjectileEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 
@@ -12,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace MphRead::Entities::Enemies
@@ -48,36 +50,9 @@ namespace MphRead::Entities::Enemies
             return *value;
         }
 
-        template <typename T>
-        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
         }
 
         [[nodiscard]] std::shared_ptr<EntityBase> SharedEntity(
@@ -98,6 +73,22 @@ namespace MphRead::Entities::Enemies
                 }
             }
             throw SceneDetail::InvalidOperationException();
+        }
+
+        template <typename T>
+        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
+        {
+            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+            {
+                throw SceneDetail::IndexOutOfRangeException();
+            }
+            return values[static_cast<std::size_t>(index)];
+        }
+
+        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
+        {
+            value.Y += amount;
+            return value;
         }
 
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
@@ -137,13 +128,13 @@ namespace MphRead::Entities::Enemies
         _hurtVolumeInit = CollisionVolume(Vector3::Zero, 1.0F);
         _boundingRadius = 1.0F;
 
-        const std::shared_ptr<WeaponInfo> weapon
-            = VectorAt(Weapons::BossWeapons, 0);
-        _equipInfo = std::make_shared<::MphRead::EquipInfo>();
-        _equipInfo->SetWeapon(weapon);
-        _equipInfo->SetBeams(RequireReference(_beams));
-        _equipInfo->SetGetAmmo([this]() { return _ammo; });
-        _equipInfo->SetSetAmmo(
+        const std::shared_ptr<WeaponInfo> weapon = VectorAt(Weapons::BossWeapons, 0);
+        std::shared_ptr<EquipInfo> equipInfo = std::make_shared<EquipInfo>();
+        RequireReference(equipInfo).SetWeapon(weapon);
+        RequireReference(equipInfo).SetBeams(RequireReference(_beams));
+        _equipInfo = std::move(equipInfo);
+        RequireReference(_equipInfo).SetGetAmmo([this]() { return _ammo; });
+        RequireReference(_equipInfo).SetSetAmmo(
             [this](std::int32_t newAmmo) { _ammo = newAmmo; });
     }
 
@@ -151,9 +142,12 @@ namespace MphRead::Entities::Enemies
     {
         Enemy19Entity& cretaphid = RequireReference(_cretaphid);
         cretaphid.UpdateTransforms(false);
-        Position = RequireReference(_attachNode).Animation.Row3().Xyz()
-            + cretaphid.Position;
-        if (_health > 0 && !cretaphid.SoundSource().CheckEnvironmentSfx(5))
+
+        Node& attachNode = RequireReference(_attachNode);
+        Position = attachNode.Animation.Row3().Xyz() + cretaphid.Position;
+
+        if (_health > 0
+            && !cretaphid.SoundSource().CheckEnvironmentSfx(5))
         {
             cretaphid.SoundSource().PlayEnvironmentSfx(6);
         }
@@ -161,19 +155,16 @@ namespace MphRead::Entities::Enemies
 
     void Enemy21Entity::SpawnBeam(std::uint16_t damage)
     {
-        EquipInfo& equip = RequireReference(_equipInfo);
-        equip.SetUnchargedDamage(damage);
-        equip.SetSplashDamage(damage);
-        equip.SetHeadshotDamage(damage);
+        EquipInfo& equipInfo = RequireReference(_equipInfo);
+        equipInfo.SetUnchargedDamage(damage);
+        equipInfo.SetSplashDamage(damage);
+        equipInfo.SetHeadshotDamage(damage);
 
         const Vector3 spawnDir
             = (AddY(MainPlayer().Position, 0.5F) - Position).Normalized();
-        const std::shared_ptr<EntityBase> owner = SharedEntity(_scene, this);
-        const Formats::Culling::NodeRef nodeRef
-            = RequireReference(_cretaphid).NodeRef;
         (void)BeamProjectileEntity::Spawn(
-            owner, _equipInfo, Position, spawnDir,
-            BeamSpawnFlags::None, nodeRef, _scene);
+            SharedEntity(_scene, this), _equipInfo, Position, spawnDir,
+            BeamSpawnFlags::None, RequireReference(_cretaphid).NodeRef, _scene);
     }
 
     bool Enemy21Entity::EnemyTakeDamage(EntityBase* source)

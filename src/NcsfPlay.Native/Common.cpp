@@ -497,10 +497,16 @@ namespace
         return ToU16(std::to_string(static_cast<std::uint8_t>(keep)));
     }
 
-    [[nodiscard]] std::size_t RecordHashCombine(std::size_t hash, std::size_t value) noexcept
+    [[nodiscard]] std::int32_t NarrowRecordHash(std::size_t value) noexcept
     {
-        constexpr std::size_t multiplier = static_cast<std::uint32_t>(2773833001U);
-        return hash * multiplier + value;
+        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
+    }
+
+    [[nodiscard]] std::int32_t RecordHashCombine(std::int32_t hash, std::int32_t value) noexcept
+    {
+        const std::uint32_t result = static_cast<std::uint32_t>(hash) * 2773833001U
+            + static_cast<std::uint32_t>(value);
+        return std::bit_cast<std::int32_t>(result);
     }
 
     enum class UnicodeCategory : std::uint8_t
@@ -948,6 +954,12 @@ namespace
         }
     }
 
+    [[nodiscard]] bool IsBoundaryWordChar(char16_t value) noexcept
+    {
+        return IsWordChar(value) || value == static_cast<char16_t>(0x200CU)
+            || value == static_cast<char16_t>(0x200DU);
+    }
+
     [[nodiscard]] bool IsDigitChar(char16_t value) noexcept
     {
         return GetUnicodeCategory(value) == UnicodeCategory::Nd;
@@ -1137,78 +1149,150 @@ namespace
         }
     }
 
-    [[nodiscard]] bool MatchesNamedBlock(char16_t value, std::u16string_view name) noexcept
+    struct NamedBlock final
     {
-        const std::uint16_t code = static_cast<std::uint16_t>(value);
-        struct Block final
-        {
-            std::u16string_view Name;
-            std::uint16_t First;
-            std::uint16_t Last;
-        };
-        static constexpr Block blocks[] = {
-            {u"IsBasicLatin", 0x0000, 0x007F},
-            {u"IsLatin-1Supplement", 0x0080, 0x00FF},
-            {u"IsLatinExtended-A", 0x0100, 0x017F},
-            {u"IsLatinExtended-B", 0x0180, 0x024F},
-            {u"IsIPAExtensions", 0x0250, 0x02AF},
-            {u"IsSpacingModifierLetters", 0x02B0, 0x02FF},
-            {u"IsCombiningDiacriticalMarks", 0x0300, 0x036F},
-            {u"IsGreek", 0x0370, 0x03FF},
-            {u"IsGreekandCoptic", 0x0370, 0x03FF},
-            {u"IsCyrillic", 0x0400, 0x04FF},
-            {u"IsCyrillicSupplement", 0x0500, 0x052F},
-            {u"IsArmenian", 0x0530, 0x058F},
-            {u"IsHebrew", 0x0590, 0x05FF},
-            {u"IsArabic", 0x0600, 0x06FF},
-            {u"IsSyriac", 0x0700, 0x074F},
-            {u"IsThaana", 0x0780, 0x07BF},
-            {u"IsDevanagari", 0x0900, 0x097F},
-            {u"IsBengali", 0x0980, 0x09FF},
-            {u"IsGurmukhi", 0x0A00, 0x0A7F},
-            {u"IsGujarati", 0x0A80, 0x0AFF},
-            {u"IsOriya", 0x0B00, 0x0B7F},
-            {u"IsTamil", 0x0B80, 0x0BFF},
-            {u"IsTelugu", 0x0C00, 0x0C7F},
-            {u"IsKannada", 0x0C80, 0x0CFF}
-        };
-        for (const Block& block : blocks)
+        std::u16string_view Name;
+        std::uint16_t First;
+        std::uint16_t Last;
+    };
+
+    constexpr NamedBlock NamedBlocks[] = {
+        {u"IsAlphabeticPresentationForms", 0xFB00, 0xFB4F},
+        {u"IsArabic", 0x0600, 0x06FF},
+        {u"IsArabicPresentationForms-A", 0xFB50, 0xFDFF},
+        {u"IsArabicPresentationForms-B", 0xFE70, 0xFEFF},
+        {u"IsArmenian", 0x0530, 0x058F},
+        {u"IsArrows", 0x2190, 0x21FF},
+        {u"IsBasicLatin", 0x0000, 0x007F},
+        {u"IsBengali", 0x0980, 0x09FF},
+        {u"IsBlockElements", 0x2580, 0x259F},
+        {u"IsBopomofo", 0x3100, 0x312F},
+        {u"IsBopomofoExtended", 0x31A0, 0x31BF},
+        {u"IsBoxDrawing", 0x2500, 0x257F},
+        {u"IsBraillePatterns", 0x2800, 0x28FF},
+        {u"IsBuhid", 0x1740, 0x175F},
+        {u"IsCJKCompatibility", 0x3300, 0x33FF},
+        {u"IsCJKCompatibilityForms", 0xFE30, 0xFE4F},
+        {u"IsCJKCompatibilityIdeographs", 0xF900, 0xFAFF},
+        {u"IsCJKRadicalsSupplement", 0x2E80, 0x2EFF},
+        {u"IsCJKSymbolsandPunctuation", 0x3000, 0x303F},
+        {u"IsCJKUnifiedIdeographs", 0x4E00, 0x9FFF},
+        {u"IsCJKUnifiedIdeographsExtensionA", 0x3400, 0x4DBF},
+        {u"IsCherokee", 0x13A0, 0x13FF},
+        {u"IsCombiningDiacriticalMarks", 0x0300, 0x036F},
+        {u"IsCombiningDiacriticalMarksforSymbols", 0x20D0, 0x20FF},
+        {u"IsCombiningHalfMarks", 0xFE20, 0xFE2F},
+        {u"IsCombiningMarksforSymbols", 0x20D0, 0x20FF},
+        {u"IsControlPictures", 0x2400, 0x243F},
+        {u"IsCurrencySymbols", 0x20A0, 0x20CF},
+        {u"IsCyrillic", 0x0400, 0x04FF},
+        {u"IsCyrillicSupplement", 0x0500, 0x052F},
+        {u"IsDevanagari", 0x0900, 0x097F},
+        {u"IsDingbats", 0x2700, 0x27BF},
+        {u"IsEnclosedAlphanumerics", 0x2460, 0x24FF},
+        {u"IsEnclosedCJKLettersandMonths", 0x3200, 0x32FF},
+        {u"IsEthiopic", 0x1200, 0x137F},
+        {u"IsGeneralPunctuation", 0x2000, 0x206F},
+        {u"IsGeometricShapes", 0x25A0, 0x25FF},
+        {u"IsGeorgian", 0x10A0, 0x10FF},
+        {u"IsGreek", 0x0370, 0x03FF},
+        {u"IsGreekExtended", 0x1F00, 0x1FFF},
+        {u"IsGreekandCoptic", 0x0370, 0x03FF},
+        {u"IsGujarati", 0x0A80, 0x0AFF},
+        {u"IsGurmukhi", 0x0A00, 0x0A7F},
+        {u"IsHalfwidthandFullwidthForms", 0xFF00, 0xFFEF},
+        {u"IsHangulCompatibilityJamo", 0x3130, 0x318F},
+        {u"IsHangulJamo", 0x1100, 0x11FF},
+        {u"IsHangulSyllables", 0xAC00, 0xD7AF},
+        {u"IsHanunoo", 0x1720, 0x173F},
+        {u"IsHebrew", 0x0590, 0x05FF},
+        {u"IsHighPrivateUseSurrogates", 0xDB80, 0xDBFF},
+        {u"IsHighSurrogates", 0xD800, 0xDB7F},
+        {u"IsHiragana", 0x3040, 0x309F},
+        {u"IsIPAExtensions", 0x0250, 0x02AF},
+        {u"IsIdeographicDescriptionCharacters", 0x2FF0, 0x2FFF},
+        {u"IsKanbun", 0x3190, 0x319F},
+        {u"IsKangxiRadicals", 0x2F00, 0x2FDF},
+        {u"IsKannada", 0x0C80, 0x0CFF},
+        {u"IsKatakana", 0x30A0, 0x30FF},
+        {u"IsKatakanaPhoneticExtensions", 0x31F0, 0x31FF},
+        {u"IsKhmer", 0x1780, 0x17FF},
+        {u"IsKhmerSymbols", 0x19E0, 0x19FF},
+        {u"IsLao", 0x0E80, 0x0EFF},
+        {u"IsLatin-1Supplement", 0x0080, 0x00FF},
+        {u"IsLatinExtended-A", 0x0100, 0x017F},
+        {u"IsLatinExtended-B", 0x0180, 0x024F},
+        {u"IsLatinExtendedAdditional", 0x1E00, 0x1EFF},
+        {u"IsLetterlikeSymbols", 0x2100, 0x214F},
+        {u"IsLimbu", 0x1900, 0x194F},
+        {u"IsLowSurrogates", 0xDC00, 0xDFFF},
+        {u"IsMalayalam", 0x0D00, 0x0D7F},
+        {u"IsMathematicalOperators", 0x2200, 0x22FF},
+        {u"IsMiscellaneousMathematicalSymbols-A", 0x27C0, 0x27EF},
+        {u"IsMiscellaneousMathematicalSymbols-B", 0x2980, 0x29FF},
+        {u"IsMiscellaneousSymbols", 0x2600, 0x26FF},
+        {u"IsMiscellaneousSymbolsandArrows", 0x2B00, 0x2BFF},
+        {u"IsMiscellaneousTechnical", 0x2300, 0x23FF},
+        {u"IsMongolian", 0x1800, 0x18AF},
+        {u"IsMyanmar", 0x1000, 0x109F},
+        {u"IsNumberForms", 0x2150, 0x218F},
+        {u"IsOgham", 0x1680, 0x169F},
+        {u"IsOpticalCharacterRecognition", 0x2440, 0x245F},
+        {u"IsOriya", 0x0B00, 0x0B7F},
+        {u"IsPhoneticExtensions", 0x1D00, 0x1D7F},
+        {u"IsPrivateUse", 0xE000, 0xF8FF},
+        {u"IsPrivateUseArea", 0xE000, 0xF8FF},
+        {u"IsRunic", 0x16A0, 0x16FF},
+        {u"IsSinhala", 0x0D80, 0x0DFF},
+        {u"IsSmallFormVariants", 0xFE50, 0xFE6F},
+        {u"IsSpacingModifierLetters", 0x02B0, 0x02FF},
+        {u"IsSpecials", 0xFFF0, 0xFFFF},
+        {u"IsSuperscriptsandSubscripts", 0x2070, 0x209F},
+        {u"IsSupplementalArrows-A", 0x27F0, 0x27FF},
+        {u"IsSupplementalArrows-B", 0x2900, 0x297F},
+        {u"IsSupplementalMathematicalOperators", 0x2A00, 0x2AFF},
+        {u"IsSyriac", 0x0700, 0x074F},
+        {u"IsTagalog", 0x1700, 0x171F},
+        {u"IsTagbanwa", 0x1760, 0x177F},
+        {u"IsTaiLe", 0x1950, 0x197F},
+        {u"IsTamil", 0x0B80, 0x0BFF},
+        {u"IsTelugu", 0x0C00, 0x0C7F},
+        {u"IsThaana", 0x0780, 0x07BF},
+        {u"IsThai", 0x0E00, 0x0E7F},
+        {u"IsTibetan", 0x0F00, 0x0FFF},
+        {u"IsUnifiedCanadianAboriginalSyllabics", 0x1400, 0x167F},
+        {u"IsVariationSelectors", 0xFE00, 0xFE0F},
+        {u"IsYiRadicals", 0xA490, 0xA4CF},
+        {u"IsYiSyllables", 0xA000, 0xA48F},
+        {u"IsYijingHexagramSymbols", 0x4DC0, 0x4DFF}
+    };
+
+    [[nodiscard]] const NamedBlock* FindNamedBlock(std::u16string_view name) noexcept
+    {
+        for (const NamedBlock& block : NamedBlocks)
         {
             if (name == block.Name)
             {
-                return code >= block.First && code <= block.Last;
+                return &block;
             }
         }
-        return false;
+        return nullptr;
+    }
+
+    [[nodiscard]] bool MatchesNamedBlock(char16_t value, std::u16string_view name) noexcept
+    {
+        const NamedBlock* block = FindNamedBlock(name);
+        if (block == nullptr)
+        {
+            return false;
+        }
+        const std::uint16_t code = static_cast<std::uint16_t>(value);
+        return code >= block->First && code <= block->Last;
     }
 
     [[nodiscard]] bool IsKnownNamedBlock(std::u16string_view name) noexcept
     {
-        return MatchesNamedBlock(u'\0', name)
-            || name == u"IsBasicLatin"
-            || name == u"IsLatin-1Supplement"
-            || name == u"IsLatinExtended-A"
-            || name == u"IsLatinExtended-B"
-            || name == u"IsIPAExtensions"
-            || name == u"IsSpacingModifierLetters"
-            || name == u"IsCombiningDiacriticalMarks"
-            || name == u"IsGreek"
-            || name == u"IsGreekandCoptic"
-            || name == u"IsCyrillic"
-            || name == u"IsCyrillicSupplement"
-            || name == u"IsArmenian"
-            || name == u"IsHebrew"
-            || name == u"IsArabic"
-            || name == u"IsSyriac"
-            || name == u"IsThaana"
-            || name == u"IsDevanagari"
-            || name == u"IsBengali"
-            || name == u"IsGurmukhi"
-            || name == u"IsGujarati"
-            || name == u"IsOriya"
-            || name == u"IsTamil"
-            || name == u"IsTelugu"
-            || name == u"IsKannada";
+        return FindNamedBlock(name) != nullptr;
     }
 
     enum class ClassTermKind : std::uint8_t
@@ -1310,6 +1394,7 @@ namespace
         Start,
         End,
         AbsoluteStart,
+        ContiguousStart,
         AbsoluteEnd,
         EndBeforeFinalNewline,
         WordBoundary,
@@ -1424,6 +1509,39 @@ namespace
             return static_cast<char16_t>(value);
         }
 
+        char16_t ParseOctal()
+        {
+            std::uint32_t value = 0;
+            std::size_t digits = 0;
+            while (digits < 3 && !AtEnd() && Peek() >= u'0' && Peek() <= u'7')
+            {
+                value = value * 8U + static_cast<std::uint32_t>(Take() - u'0');
+                ++digits;
+            }
+            return static_cast<char16_t>(value & 0xFFU);
+        }
+
+        char16_t ParseControl()
+        {
+            if (AtEnd())
+            {
+                ThrowInvalid();
+            }
+            char16_t value = Take();
+            if (value >= u'a' && value <= u'z')
+            {
+                value = static_cast<char16_t>(value - (u'a' - u'A'));
+            }
+            const std::uint16_t raw = static_cast<std::uint16_t>(value);
+            const std::uint16_t at = static_cast<std::uint16_t>(u'@');
+            if (raw >= at
+                && static_cast<std::uint16_t>(raw - at) < static_cast<std::uint16_t>(0x20U))
+            {
+                return static_cast<char16_t>(raw - at);
+            }
+            ThrowInvalid();
+        }
+
         RegexClassTerm ParseProperty(bool negated)
         {
             if (Take() != u'{')
@@ -1482,8 +1600,14 @@ namespace
             {
                 ThrowInvalid();
             }
+            const std::size_t escapePosition = _position;
             const char16_t escape = Take();
             RegexClassTerm term;
+            if (escape >= u'0' && escape <= u'7')
+            {
+                _position = escapePosition;
+                return {true, ParseOctal(), {}};
+            }
             switch (escape)
             {
             case u'w':
@@ -1524,17 +1648,17 @@ namespace
                 return {true, u'\a', {}};
             case u'e':
                 return {true, static_cast<char16_t>(0x001B), {}};
+            case u'c':
+                return {true, ParseControl(), {}};
             case u'u':
                 return {true, ParseHex(4), {}};
             case u'x':
-            {
-                if (_position + 2 > _pattern.size())
+                return {true, ParseHex(2), {}};
+            default:
+                if (IsBoundaryWordChar(escape))
                 {
                     ThrowInvalid();
                 }
-                return {true, ParseHex(2), {}};
-            }
-            default:
                 return {true, escape, {}};
             }
         }
@@ -1635,12 +1759,63 @@ namespace
             return result;
         }
 
+        [[nodiscard]] std::shared_ptr<RegexNode> ParseReference(char16_t close)
+        {
+            const std::size_t start = _position;
+            while (!AtEnd() && Peek() != close)
+            {
+                ++_position;
+            }
+            if (AtEnd() || _position == start)
+            {
+                ThrowInvalid();
+            }
+            const std::u16string name(_pattern.substr(start, _position - start));
+            ++_position;
+
+            std::size_t group = 0;
+            bool numeric = true;
+            for (char16_t value : name)
+            {
+                if (value < u'0' || value > u'9')
+                {
+                    numeric = false;
+                    break;
+                }
+                const std::size_t digit = static_cast<std::size_t>(value - u'0');
+                if (group > (std::numeric_limits<std::size_t>::max() - digit) / 10)
+                {
+                    ThrowInvalid();
+                }
+                group = group * 10 + digit;
+            }
+
+            if (!numeric)
+            {
+                const auto iterator = _namedGroups.find(name);
+                if (iterator == _namedGroups.end())
+                {
+                    ThrowInvalid();
+                }
+                group = iterator->second;
+            }
+            else if (group > _captureCount)
+            {
+                ThrowInvalid();
+            }
+
+            auto node = MakeNode(RegexNodeKind::Backreference);
+            node->Group = group;
+            return node;
+        }
+
         [[nodiscard]] std::shared_ptr<RegexNode> ParseEscape()
         {
             if (Take() != u'\\' || AtEnd())
             {
                 ThrowInvalid();
             }
+            const std::size_t escapePosition = _position;
             const char16_t escape = Take();
             RegexClassTerm term;
             switch (escape)
@@ -1673,6 +1848,8 @@ namespace
                 return MakeNode(RegexNodeKind::NotWordBoundary);
             case u'A':
                 return MakeNode(RegexNodeKind::AbsoluteStart);
+            case u'G':
+                return MakeNode(RegexNodeKind::ContiguousStart);
             case u'z':
                 return MakeNode(RegexNodeKind::AbsoluteEnd);
             case u'Z':
@@ -1691,10 +1868,15 @@ namespace
                 return MakeLiteral(u'\a');
             case u'e':
                 return MakeLiteral(static_cast<char16_t>(0x001B));
+            case u'c':
+                return MakeLiteral(ParseControl());
             case u'u':
                 return MakeLiteral(ParseHex(4));
             case u'x':
                 return MakeLiteral(ParseHex(2));
+            case u'0':
+                _position = escapePosition;
+                return MakeLiteral(ParseOctal());
             case u'k':
             {
                 if (AtEnd() || (Peek() != u'<' && Peek() != u'\''))
@@ -1702,47 +1884,46 @@ namespace
                     ThrowInvalid();
                 }
                 const char16_t close = Take() == u'<' ? u'>' : u'\'';
-                const std::size_t start = _position;
-                while (!AtEnd() && Peek() != close)
-                {
-                    ++_position;
-                }
-                if (AtEnd() || _position == start)
-                {
-                    ThrowInvalid();
-                }
-                const std::u16string name(_pattern.substr(start, _position - start));
-                ++_position;
-                const auto iterator = _namedGroups.find(name);
-                if (iterator == _namedGroups.end())
-                {
-                    ThrowInvalid();
-                }
-                auto node = MakeNode(RegexNodeKind::Backreference);
-                node->Group = iterator->second;
-                return node;
+                return ParseReference(close);
             }
+            case u'<':
+                return ParseReference(u'>');
+            case u'\'':
+                return ParseReference(u'\'');
             default:
                 if (escape >= u'1' && escape <= u'9')
                 {
                     std::size_t group = static_cast<std::size_t>(escape - u'0');
                     while (!AtEnd() && Peek() >= u'0' && Peek() <= u'9')
                     {
-                        const std::size_t next = group * 10 + static_cast<std::size_t>(Peek() - u'0');
-                        if (next > _captureCount)
+                        const std::size_t digit = static_cast<std::size_t>(Peek() - u'0');
+                        if (group > (std::numeric_limits<std::size_t>::max() - digit) / 10)
                         {
-                            break;
+                            ThrowInvalid();
                         }
-                        group = next;
+                        group = group * 10 + digit;
                         ++_position;
                     }
-                    if (group == 0 || group > _captureCount)
+                    if (group <= _captureCount)
+                    {
+                        auto node = MakeNode(RegexNodeKind::Backreference);
+                        node->Group = group;
+                        return node;
+                    }
+                    if (group <= 9)
                     {
                         ThrowInvalid();
                     }
-                    auto node = MakeNode(RegexNodeKind::Backreference);
-                    node->Group = group;
-                    return node;
+                    _position = escapePosition;
+                    if (Peek() >= u'0' && Peek() <= u'7')
+                    {
+                        return MakeLiteral(ParseOctal());
+                    }
+                    ThrowInvalid();
+                }
+                if (IsBoundaryWordChar(escape))
+                {
+                    ThrowInvalid();
                 }
                 return MakeLiteral(escape);
             }
@@ -2150,6 +2331,7 @@ namespace
 
         case RegexNodeKind::Start:
         case RegexNodeKind::AbsoluteStart:
+        case RegexNodeKind::ContiguousStart:
             return state.Position == 0 ? RegexStates{state} : RegexStates{};
 
         case RegexNodeKind::End:
@@ -2446,12 +2628,13 @@ namespace NCSFCommon
         return !Equals(std::addressof(other));
     }
 
-    std::size_t Common::KeepInfo::GetHashCode() const noexcept
+    std::int32_t Common::KeepInfo::GetHashCode() const noexcept
     {
-        std::size_t hash = EqualityContract().hash_code();
-        hash = RecordHashCombine(hash, std::hash<std::u16string>{}(Filename));
+        std::int32_t hash = NarrowRecordHash(EqualityContract().hash_code());
+        hash = RecordHashCombine(hash, NarrowRecordHash(std::hash<std::u16string>{}(Filename)));
         hash = RecordHashCombine(
-            hash, std::hash<std::uint8_t>{}(static_cast<std::uint8_t>(Keep)));
+            hash,
+            NarrowRecordHash(std::hash<std::uint8_t>{}(static_cast<std::uint8_t>(Keep))));
         return hash;
     }
 

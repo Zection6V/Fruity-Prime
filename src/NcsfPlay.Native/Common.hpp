@@ -427,7 +427,7 @@ namespace NCSFCommon
             [[nodiscard]] virtual bool Equals(const KeepInfo* other) const noexcept;
             [[nodiscard]] bool operator==(const KeepInfo& other) const noexcept;
             [[nodiscard]] bool operator!=(const KeepInfo& other) const noexcept;
-            [[nodiscard]] virtual std::size_t GetHashCode() const noexcept;
+            [[nodiscard]] virtual std::int32_t GetHashCode() const noexcept;
             [[nodiscard]] virtual std::u16string ToString() const;
             void Deconstruct(std::u16string& filename, KeepType& keep) const;
 

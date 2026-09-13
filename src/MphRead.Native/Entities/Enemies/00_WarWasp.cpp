@@ -1,10 +1,10 @@
 #include "00_WarWasp.hpp"
 
 #include "../../Formats/CollisionDetection.hpp"
+#include "../../Metadata/Enemies.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 
-#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -12,7 +12,6 @@
 #include <memory>
 #include <optional>
 #include <utility>
-#include <vector>
 
 namespace MphRead::Entities::Enemies
 {
@@ -20,10 +19,14 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Vector3;
 
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
+        EnemySpawnEntity* CastSpawner(EntityBase* spawner)
         {
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
+            if (typedSpawner == nullptr)
+            {
+                throw System::NullReferenceException();
+            }
             return typedSpawner;
         }
 
@@ -61,49 +64,6 @@ namespace MphRead::Entities::Enemies
             return *enemy;
         }
 
-        [[nodiscard]] const std::array<EnemySubroutine<Enemy00Entity>, 7>& Enemy00Subroutines()
-        {
-            static const std::vector<EnemyBehavior<Enemy00Entity>> state0{
-                {0, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior02)},
-                {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior03)}
-            };
-            static const std::vector<EnemyBehavior<Enemy00Entity>> state1{
-                {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior02)},
-                {2, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior06)},
-                {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior07)},
-                {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior08)}
-            };
-            static const std::vector<EnemyBehavior<Enemy00Entity>> state2{
-                {3, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior09)},
-                {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior07)},
-                {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior10)},
-                {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior08)}
-            };
-            static const std::vector<EnemyBehavior<Enemy00Entity>> state3{
-                {4, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior00)}
-            };
-            static const std::vector<EnemyBehavior<Enemy00Entity>> state4{
-                {5, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior04)},
-                {5, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior05)}
-            };
-            static const std::vector<EnemyBehavior<Enemy00Entity>> state5{
-                {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior01)}
-            };
-            static const std::vector<EnemyBehavior<Enemy00Entity>> state6{
-                {0, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior02)},
-                {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior03)}
-            };
-            static const std::array<EnemySubroutine<Enemy00Entity>, 7> subroutines{
-                EnemySubroutine<Enemy00Entity>(state0),
-                EnemySubroutine<Enemy00Entity>(state1),
-                EnemySubroutine<Enemy00Entity>(state2),
-                EnemySubroutine<Enemy00Entity>(state3),
-                EnemySubroutine<Enemy00Entity>(state4),
-                EnemySubroutine<Enemy00Entity>(state5),
-                EnemySubroutine<Enemy00Entity>(state6)
-            };
-            return subroutines;
-        }
     }
 
     Enemy00Entity::Enemy00Entity(EnemyInstanceEntityData data,
@@ -135,7 +95,7 @@ namespace MphRead::Entities::Enemies
         _hurtVolumeInit = CollisionVolume(Vector3(0.0F, -0.45F, 0.0F), 1.4F);
         _homeVolume = CollisionVolume::Move(_spawner->Data.Fields.S01.WarWasp.Volume2, Position);
         _movementVolume = CollisionVolume::Move(_spawner->Data.Fields.S01.WarWasp.Volume1, Position);
-        SetUpModel("warwasp_lod0", 1);
+        SetUpModel(Metadata::EnemyModelNames[0], 1);
         _stepDistance = 0.2F;
         _attackDelay = 30 * 2; // todo: FPS stuff
         _attackTarget = _initialPos = Position;
@@ -244,7 +204,7 @@ namespace MphRead::Entities::Enemies
             SetTransform((_moveTarget - static_cast<Vector3>(Position)).Normalized(),
                 Vector3(0.0F, 1.0F, 0.0F), Position);
         }
-        (void)CallSubroutine<Enemy00Entity>(Enemy00Subroutines(), this);
+        (void)CallSubroutine<Enemy00Entity>(Metadata::Enemy00Subroutines, this);
     }
 
     void Enemy00Entity::State1()
@@ -255,7 +215,7 @@ namespace MphRead::Entities::Enemies
             SetTransform((playerPos - static_cast<Vector3>(Position)).Normalized(),
                 Vector3(0.0F, 1.0F, 0.0F), Position);
         }
-        (void)CallSubroutine<Enemy00Entity>(Enemy00Subroutines(), this);
+        (void)CallSubroutine<Enemy00Entity>(Metadata::Enemy00Subroutines, this);
     }
 
     void Enemy00Entity::State2()
@@ -276,7 +236,7 @@ namespace MphRead::Entities::Enemies
             player.TakeDamage(25, DamageFlags::None, std::nullopt, this);
             _stepCount = 0;
         }
-        (void)CallSubroutine<Enemy00Entity>(Enemy00Subroutines(), this);
+        (void)CallSubroutine<Enemy00Entity>(Metadata::Enemy00Subroutines, this);
     }
 
     void Enemy00Entity::State5()
@@ -286,7 +246,7 @@ namespace MphRead::Entities::Enemies
         {
             player.TakeDamage(25, DamageFlags::None, std::nullopt, this);
         }
-        (void)CallSubroutine<Enemy00Entity>(Enemy00Subroutines(), this);
+        (void)CallSubroutine<Enemy00Entity>(Metadata::Enemy00Subroutines, this);
     }
 
     void Enemy00Entity::State6()
@@ -296,7 +256,7 @@ namespace MphRead::Entities::Enemies
             SetTransform((_moveTarget - static_cast<Vector3>(Position)).Normalized(),
                 Vector3(0.0F, 1.0F, 0.0F), Position);
         }
-        (void)CallSubroutine<Enemy00Entity>(Enemy00Subroutines(), this);
+        (void)CallSubroutine<Enemy00Entity>(Metadata::Enemy00Subroutines, this);
     }
 
     bool Enemy00Entity::Behavior00()

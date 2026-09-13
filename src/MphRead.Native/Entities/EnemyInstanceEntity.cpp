@@ -196,6 +196,11 @@ namespace MphRead::Entities
         return _owner;
     }
 
+    std::int32_t EnemyInstanceEntity::HealthbarMessageId() const noexcept
+    {
+        return _healthbarMessageId;
+    }
+
     void EnemyInstanceEntity::DestroyBeams()
     {
         _beams.reset();
@@ -299,11 +304,10 @@ namespace MphRead::Entities
 
     bool EnemyInstanceEntity::Process()
     {
-        Scene& scene = RequireReference(_scene);
         bool inRange = false;
         if (_data.Type == MphRead::EnemyType::Spawner
             || TestFlag(Flags(), EnemyFlags::NoMaxDistance)
-            || scene.CameraMode() != MphRead::CameraMode::Player)
+            || RequireReference(_scene).CameraMode() != MphRead::CameraMode::Player)
         {
             inRange = true;
         }
@@ -325,7 +329,7 @@ namespace MphRead::Entities
             };
             if (GameState::Multiplayer())
             {
-                auto enumerator = scene.GetPlayerEntities().GetEnumerator();
+                auto enumerator = RequireReference(_scene).GetPlayerEntities().GetEnumerator();
                 while (enumerator.MoveNext())
                 {
                     PlayerEntity& player = RequireReference(enumerator.Current());
@@ -363,7 +367,7 @@ namespace MphRead::Entities
                 _soundSource.Update(static_cast<Vector3>(Position), rangeIndex);
                 UpdateNodeRefVolume();
                 ClearHitPlayers();
-                auto enumerator = scene.GetPlayerEntities().GetEnumerator();
+                auto enumerator = RequireReference(_scene).GetPlayerEntities().GetEnumerator();
                 while (enumerator.MoveNext())
                 {
                     PlayerEntity& player = RequireReference(enumerator.Current());
@@ -400,12 +404,13 @@ namespace MphRead::Entities
                 }
                 if (NodeRef != Formats::Culling::NodeRef::None)
                 {
-                    NodeRef = scene.UpdateNodeRef(
+                    NodeRef = RequireReference(_scene).UpdateNodeRef(
                         NodeRef, _prevPos, static_cast<Vector3>(Position));
                 }
                 return BaseProcess();
             }
-            scene.SendMessage(Message::Destroyed, this, _owner, BoxInt32(0), BoxInt32(0));
+            RequireReference(_scene).SendMessage(
+                Message::Destroyed, this, _owner, BoxInt32(0), BoxInt32(0));
             if (_owner != nullptr && _owner->Type == EntityType::EnemySpawn)
             {
                 EnemySpawnEntity& spawner
@@ -417,7 +422,8 @@ namespace MphRead::Entities
             }
             return false;
         }
-        scene.SendMessage(Message::Destroyed, this, _owner, BoxInt32(1), BoxInt32(0));
+        RequireReference(_scene).SendMessage(
+            Message::Destroyed, this, _owner, BoxInt32(1), BoxInt32(0));
         return false;
     }
 
@@ -722,6 +728,11 @@ namespace MphRead::Entities
     bool EnemyInstanceEntity::EnemyTakeDamage(EntityBase*)
     {
         return false;
+    }
+
+    void EnemyInstanceEntity::SetHealthbarMessageId(std::int32_t value) noexcept
+    {
+        _healthbarMessageId = value;
     }
 
     void EnemyInstanceEntity::CallStateProcess()

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -101,10 +102,10 @@ namespace MphRead::Entities
         }
     };
 
-    template <typename T>
+    template <typename T, typename = void>
     struct EnemyBehavior;
 
-    template <typename T>
+    template <typename T, typename = void>
     struct EnemySubroutine;
 
     class EnemyInstanceEntity : public EntityBase
@@ -153,32 +154,6 @@ namespace MphRead::Entities
             EnemyFlags _value{};
         };
 
-        class Int32Property final
-        {
-        public:
-            Int32Property() noexcept = default;
-            explicit Int32Property(std::int32_t value) noexcept : _value(value) {}
-
-            Int32Property& operator=(std::int32_t value) noexcept
-            {
-                _value = value;
-                return *this;
-            }
-
-            [[nodiscard]] operator std::int32_t() const noexcept
-            {
-                return _value;
-            }
-
-            [[nodiscard]] std::int32_t operator()() const noexcept
-            {
-                return _value;
-            }
-
-        private:
-            std::int32_t _value = 0;
-        };
-
         EnemyInstanceEntity(EnemyInstanceEntityData data,
             Formats::Culling::NodeRef nodeRef, Scene* scene);
 
@@ -194,11 +169,11 @@ namespace MphRead::Entities
         [[nodiscard]] CollisionVolume HurtVolume() const noexcept;
         [[nodiscard]] MphRead::EnemyType EnemyType() const noexcept;
         [[nodiscard]] EntityBase* Owner() const noexcept;
+        [[nodiscard]] std::int32_t HealthbarMessageId() const noexcept;
 
         std::array<bool, 8> HitPlayers{};
         std::array<Effectiveness, 9> BeamEffectiveness{};
         FlagsProperty Flags{};
-        Int32Property HealthbarMessageId{};
 
         static void DestroyBeams();
 
@@ -265,10 +240,11 @@ namespace MphRead::Entities
         virtual void Detach();
         [[nodiscard]] virtual bool EnemyTakeDamage(EntityBase* source);
         void CallStateProcess();
+        void SetHealthbarMessageId(std::int32_t value) noexcept;
 
         template <typename T>
         [[nodiscard]] bool CallSubroutine(
-            const std::vector<EnemySubroutine<T>>& subroutines, T* enemy);
+            std::type_identity_t<std::span<const EnemySubroutine<T>>> subroutines, T* enemy);
 
         [[nodiscard]] bool HandleBlockingCollision(
             OpenTK::Mathematics::Vector3 position,
@@ -284,6 +260,7 @@ namespace MphRead::Entities
     private:
         bool _onlyMoveHurtVolume = false;
         bool _noIneffectiveEffect = false;
+        std::int32_t _healthbarMessageId = 0;
 
         void DoMovement();
         void UpdateHurtVolume();
@@ -291,7 +268,7 @@ namespace MphRead::Entities
     };
 
     template <typename T>
-    struct EnemyBehavior
+    struct EnemyBehavior<T, std::enable_if_t<std::is_base_of_v<EnemyInstanceEntity, T>>>
     {
         const std::uint8_t NextState;
         const std::function<bool(T*)> Function;
@@ -308,40 +285,32 @@ namespace MphRead::Entities
     };
 
     template <typename T>
-    struct EnemySubroutine
+    struct EnemySubroutine<T, std::enable_if_t<std::is_base_of_v<EnemyInstanceEntity, T>>>
     {
-        const std::shared_ptr<std::vector<EnemyBehavior<T>>> Behaviors;
+        const std::vector<EnemyBehavior<T>>* const Behaviors;
 
         EnemySubroutine() noexcept
-            : Behaviors{}
+            : Behaviors(nullptr)
         {
         }
 
-        explicit EnemySubroutine(std::vector<EnemyBehavior<T>> behaviors)
-            : Behaviors(std::make_shared<std::vector<EnemyBehavior<T>>>(
-                std::move(behaviors)))
-        {
-        }
-
-        explicit EnemySubroutine(
-            std::shared_ptr<std::vector<EnemyBehavior<T>>> behaviors) noexcept
-            : Behaviors(std::move(behaviors))
+        explicit EnemySubroutine(const std::vector<EnemyBehavior<T>>& behaviors) noexcept
+            : Behaviors(&behaviors)
         {
         }
     };
 
     template <typename T>
     bool EnemyInstanceEntity::CallSubroutine(
-        const std::vector<EnemySubroutine<T>>& subroutines, T* enemy)
+        std::type_identity_t<std::span<const EnemySubroutine<T>>> subroutines, T* enemy)
     {
-        static_assert(std::is_base_of_v<EnemyInstanceEntity, T>);
         assert(enemy == this);
         if (static_cast<std::size_t>(_subId) >= subroutines.size())
         {
             throw std::out_of_range("Index was outside the bounds of the array.");
         }
         const EnemySubroutine<T>& subroutine = subroutines[static_cast<std::size_t>(_subId)];
-        if (!subroutine.Behaviors)
+        if (subroutine.Behaviors == nullptr)
         {
             throw System::NullReferenceException();
         }

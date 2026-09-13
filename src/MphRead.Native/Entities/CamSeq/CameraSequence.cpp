@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <new>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -35,6 +36,7 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -179,6 +181,42 @@ namespace
         throw System::IO::EndOfStreamException();
     }
 
+    [[noreturn]] void ThrowOutOfMemory()
+    {
+        throw System::OutOfMemoryException();
+    }
+
+    void AppendUnknownBytes(
+        std::vector<std::uint8_t>& bytes,
+        const std::uint8_t* data,
+        std::size_t count)
+    {
+        if (count > MaxManagedByteArrayLength
+            || bytes.size() > MaxManagedByteArrayLength - count)
+        {
+            ThrowOutOfMemory();
+        }
+        try
+        {
+            bytes.insert(bytes.end(), data, data + count);
+        }
+        catch (const std::bad_alloc&)
+        {
+            ThrowOutOfMemory();
+        }
+        catch (const std::length_error&)
+        {
+            ThrowOutOfMemory();
+        }
+    }
+
+    [[noreturn]] void ThrowSharingViolation(const std::string& path)
+    {
+        throw System::IO::IOException(
+            "The process cannot access the file '" + path
+            + "' because it is being used by another process.");
+    }
+
 #ifdef _WIN32
     class FileHandle final
     {
@@ -235,7 +273,7 @@ namespace
         return result;
     }
 
-    [[noreturn]] void ThrowOpenError(const std::string& path, DWORD error)
+    [[noreturn]] void ThrowWindowsError(const std::string& path, DWORD error)
     {
         if (error == ERROR_FILE_NOT_FOUND)
         {
@@ -252,6 +290,14 @@ namespace
         if (error == ERROR_FILENAME_EXCED_RANGE)
         {
             throw System::IO::PathTooLongException(path);
+        }
+        if (error == ERROR_SHARING_VIOLATION)
+        {
+            ThrowSharingViolation(path);
+        }
+        if (error == ERROR_OPERATION_ABORTED)
+        {
+            throw System::OperationCanceledException();
         }
         ThrowIOException(path);
     }
@@ -273,18 +319,14 @@ namespace
                 {
                     return bytes;
                 }
-                ThrowIOException(path);
+                ThrowWindowsError(path, error);
             }
             if (readCount == 0)
             {
                 return bytes;
             }
-            if (bytes.size() > MaxManagedByteArrayLength - readCount)
-            {
-                ThrowFileTooLong();
-            }
-            bytes.insert(
-                bytes.end(), buffer.begin(), buffer.begin() + readCount);
+            AppendUnknownBytes(
+                bytes, buffer.data(), static_cast<std::size_t>(readCount));
         }
     }
 
@@ -296,7 +338,7 @@ namespace
             FILE_ATTRIBUTE_NORMAL, nullptr));
         if (file.Get() == INVALID_HANDLE_VALUE)
         {
-            ThrowOpenError(path, GetLastError());
+            ThrowWindowsError(path, GetLastError());
         }
 
         const DWORD fileType = GetFileType(file.Get());
@@ -306,7 +348,11 @@ namespace
         }
 
         LARGE_INTEGER length{};
-        if (!GetFileSizeEx(file.Get(), &length) || length.QuadPart < 0)
+        if (!GetFileSizeEx(file.Get(), &length))
+        {
+            ThrowWindowsError(path, GetLastError());
+        }
+        if (length.QuadPart < 0)
         {
             ThrowIOException(path);
         }
@@ -330,11 +376,12 @@ namespace
             if (!ReadFile(
                     file.Get(), bytes.data() + offset, requested, &readCount, nullptr))
             {
-                if (GetLastError() == ERROR_HANDLE_EOF)
+                const DWORD error = GetLastError();
+                if (error == ERROR_HANDLE_EOF)
                 {
                     ThrowEndOfStream();
                 }
-                ThrowIOException(path);
+                ThrowWindowsError(path, error);
             }
             if (readCount == 0)
             {
@@ -385,7 +432,7 @@ namespace
         return stat(parent.c_str(), &status) != 0 && errno == ENOENT;
     }
 
-    [[noreturn]] void ThrowOpenError(const std::string& path, int error)
+    [[noreturn]] void ThrowPosixError(const std::string& path, int error)
     {
         if (error == EACCES || error == EBADF || error == EPERM || error == EISDIR)
         {
@@ -407,6 +454,24 @@ namespace
         {
             throw System::IO::PathTooLongException(path);
         }
+#if defined(EWOULDBLOCK)
+        if (error == EWOULDBLOCK)
+        {
+            ThrowSharingViolation(path);
+        }
+#endif
+#if defined(EAGAIN) && (!defined(EWOULDBLOCK) || EAGAIN != EWOULDBLOCK)
+        if (error == EAGAIN)
+        {
+            ThrowSharingViolation(path);
+        }
+#endif
+#ifdef ECANCELED
+        if (error == ECANCELED)
+        {
+            throw System::OperationCanceledException();
+        }
+#endif
         ThrowIOException(path);
     }
 
@@ -424,39 +489,88 @@ namespace
                 {
                     continue;
                 }
-                ThrowIOException(path);
+                ThrowPosixError(path, errno);
             }
             if (readCount == 0)
             {
                 return bytes;
             }
-            const std::size_t count = static_cast<std::size_t>(readCount);
-            if (bytes.size() > MaxManagedByteArrayLength - count)
-            {
-                ThrowFileTooLong();
-            }
-            bytes.insert(bytes.end(), buffer.begin(), buffer.begin() + count);
+            AppendUnknownBytes(
+                bytes, buffer.data(), static_cast<std::size_t>(readCount));
         }
     }
 
     [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
     {
-        FileDescriptor file(open(path.c_str(), O_RDONLY));
+        int flags = O_RDONLY;
+#ifdef O_CLOEXEC
+        flags |= O_CLOEXEC;
+#endif
+        int descriptor = -1;
+        do
+        {
+            descriptor = open(path.c_str(), flags);
+        } while (descriptor < 0 && errno == EINTR);
+        FileDescriptor file(descriptor);
         if (file.Get() < 0)
         {
-            ThrowOpenError(path, errno);
+            ThrowPosixError(path, errno);
         }
+#ifndef O_CLOEXEC
+        int closeOnExecResult = -1;
+        do
+        {
+            closeOnExecResult = fcntl(file.Get(), F_SETFD, FD_CLOEXEC);
+        } while (closeOnExecResult < 0 && errno == EINTR);
+        if (closeOnExecResult < 0)
+        {
+            ThrowPosixError(path, errno);
+        }
+#endif
 
         struct stat status{};
-        if (fstat(file.Get(), &status) != 0)
+        int statResult = -1;
+        do
         {
-            ThrowIOException(path);
+            statResult = fstat(file.Get(), &status);
+        } while (statResult < 0 && errno == EINTR);
+        if (statResult != 0)
+        {
+            ThrowPosixError(path, errno);
         }
         if (S_ISDIR(status.st_mode))
         {
             throw System::UnauthorizedAccessException(path);
         }
-        const bool canSeek = lseek(file.Get(), 0, SEEK_CUR) >= 0;
+
+        int lockResult = -1;
+        do
+        {
+            lockResult = flock(file.Get(), LOCK_SH | LOCK_NB);
+        } while (lockResult < 0 && errno == EINTR);
+        if (lockResult < 0)
+        {
+            const int lockError = errno;
+#if defined(EWOULDBLOCK)
+            if (lockError == EWOULDBLOCK)
+            {
+                ThrowSharingViolation(path);
+            }
+#endif
+#if defined(EAGAIN) && (!defined(EWOULDBLOCK) || EAGAIN != EWOULDBLOCK)
+            if (lockError == EAGAIN)
+            {
+                ThrowSharingViolation(path);
+            }
+#endif
+        }
+
+        off_t seekResult = -1;
+        do
+        {
+            seekResult = lseek(file.Get(), 0, SEEK_CUR);
+        } while (seekResult < 0 && errno == EINTR);
+        const bool canSeek = seekResult >= 0;
         if (!canSeek)
         {
             return ReadUnknownLength(file.Get(), path);
@@ -486,7 +600,7 @@ namespace
                 {
                     continue;
                 }
-                ThrowIOException(path);
+                ThrowPosixError(path, errno);
             }
             if (readCount == 0)
             {

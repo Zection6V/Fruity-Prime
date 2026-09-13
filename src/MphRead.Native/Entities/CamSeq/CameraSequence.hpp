@@ -22,6 +22,25 @@ namespace System
         }
     };
 
+    class OperationCanceledException final : public std::runtime_error
+    {
+    public:
+        OperationCanceledException()
+            : std::runtime_error("The operation was canceled.")
+        {
+        }
+    };
+
+    class OutOfMemoryException final : public std::runtime_error
+    {
+    public:
+        OutOfMemoryException()
+            : std::runtime_error(
+                "Insufficient memory to continue the execution of the program.")
+        {
+        }
+    };
+
     namespace IO
     {
         class IOException : public std::runtime_error

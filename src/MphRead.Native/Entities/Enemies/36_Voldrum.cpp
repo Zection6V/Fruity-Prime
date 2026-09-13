@@ -367,10 +367,10 @@ namespace MphRead::Entities::Enemies
                 static_cast<Vector3>(Position), 0.43F);
 
             EquipInfo& equip1 = RequireReference(_equipInfo1);
-            EquipInfo& equip2 = RequireReference(_equipInfo2);
             equip1.SetUnchargedDamage(_values.BeamDamage);
             equip1.SetSplashDamage(_values.SplashDamage);
             equip1.SetHeadshotDamage(_values.BeamDamage);
+            EquipInfo& equip2 = RequireReference(_equipInfo2);
             equip2.SetUnchargedDamage(_values.BeamDamage);
             equip2.SetSplashDamage(_values.SplashDamage);
             equip2.SetHeadshotDamage(_values.BeamDamage);

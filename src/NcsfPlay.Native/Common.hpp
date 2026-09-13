@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <iterator>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -20,229 +22,223 @@
 
 namespace NCSFCommon
 {
+    struct NumberFormatInfo final
+    {
+        std::u16string PositiveSign;
+        std::u16string NegativeSign;
+        std::u16string NumberDecimalSeparator;
+        std::u16string NaNSymbol;
+        std::u16string PositiveInfinitySymbol;
+        std::u16string NegativeInfinitySymbol;
+    };
+
+    // Native execution-context boundary corresponding to CultureInfo.CurrentCulture.NumberFormat.
+    // Each thread owns its value; hosts with a managed/custom culture can replace it for that thread.
+    extern thread_local NumberFormatInfo CurrentCultureNumberFormat;
+
     template <typename T>
-    class Memory final
+    class Memory;
+
+    template <typename T>
+    class List final
     {
     private:
+        struct Allocation final
+        {
+            std::allocator<T> Allocator;
+            T* Data = nullptr;
+            std::size_t Count = 0;
+            std::size_t Capacity = 0;
+
+            explicit Allocation(std::size_t capacity = 0)
+                : Capacity(capacity)
+            {
+                if (Capacity != 0)
+                {
+                    Data = std::allocator_traits<std::allocator<T>>::allocate(Allocator, Capacity);
+                }
+            }
+
+            Allocation(const Allocation&) = delete;
+            Allocation& operator=(const Allocation&) = delete;
+
+            ~Allocation()
+            {
+                for (std::size_t index = Count; index > 0; --index)
+                {
+                    std::allocator_traits<std::allocator<T>>::destroy(Allocator, Data + index - 1);
+                }
+                if (Data != nullptr)
+                {
+                    std::allocator_traits<std::allocator<T>>::deallocate(Allocator, Data, Capacity);
+                }
+            }
+
+            template <typename U>
+            void Add(U&& value)
+            {
+                std::allocator_traits<std::allocator<T>>::construct(
+                    Allocator, Data + Count, std::forward<U>(value));
+                ++Count;
+            }
+        };
+
         struct State final
         {
-            std::vector<T>* List;
-            const std::size_t CapturedCapacity;
-            const T* CapturedData;
-            const std::size_t Length;
-            std::vector<T> Captured;
-            bool Detached = false;
+            std::shared_ptr<Allocation> Current;
 
-            explicit State(std::vector<T>& list)
-                : List(std::addressof(list)),
-                  CapturedCapacity(list.capacity()),
-                  CapturedData(GetData(list)),
-                  Length(list.size()),
-                  Captured(list.begin(), list.end())
+            explicit State(std::size_t capacity = 0)
+                : Current(std::make_shared<Allocation>(capacity))
             {
-            }
-
-            [[nodiscard]] static const T* GetData(const std::vector<T>& list) noexcept
-            {
-                if constexpr (requires { list.data(); })
-                {
-                    return list.data();
-                }
-                else
-                {
-                    return nullptr;
-                }
-            }
-
-            [[nodiscard]] bool StillUsesCapturedStorage() const noexcept
-            {
-                if constexpr (requires { List->data(); })
-                {
-                    return List->data() == CapturedData;
-                }
-                else
-                {
-                    return List->capacity() == CapturedCapacity;
-                }
-            }
-
-            void Refresh()
-            {
-                if (Detached)
-                {
-                    return;
-                }
-
-                if (!StillUsesCapturedStorage())
-                {
-                    const std::size_t copyLength = std::min(Length, List->size());
-                    for (std::size_t index = 0; index < copyLength; ++index)
-                    {
-                        Captured[index] = (*List)[index];
-                    }
-                    Detached = true;
-                    List = nullptr;
-                    return;
-                }
-
-                const std::size_t copyLength = std::min(Length, List->size());
-                for (std::size_t index = 0; index < copyLength; ++index)
-                {
-                    Captured[index] = (*List)[index];
-                }
-            }
-
-            [[nodiscard]] T Read(std::size_t index)
-            {
-                if (index >= Length)
-                {
-                    throw std::out_of_range("Index was outside the bounds of the array.");
-                }
-
-                Refresh();
-                if (!Detached && index < List->size())
-                {
-                    return (*List)[index];
-                }
-                return Captured[index];
-            }
-
-            void Write(std::size_t index, const T& value)
-            {
-                if (index >= Length)
-                {
-                    throw std::out_of_range("Index was outside the bounds of the array.");
-                }
-
-                Refresh();
-                Captured[index] = value;
-                if (!Detached && index < List->size())
-                {
-                    (*List)[index] = value;
-                }
             }
         };
 
         std::shared_ptr<State> _state;
 
-        explicit Memory(std::vector<T>& list)
-            : _state(std::make_shared<State>(list))
+        [[nodiscard]] static std::size_t NextCapacity(
+            std::size_t current, std::size_t required) noexcept
+        {
+            std::size_t capacity = current == 0 ? 4 : current;
+            while (capacity < required)
+            {
+                if (capacity > std::numeric_limits<std::size_t>::max() / 2)
+                {
+                    return required;
+                }
+                capacity *= 2;
+            }
+            return capacity;
+        }
+
+        void Grow(std::size_t required)
+        {
+            const std::shared_ptr<Allocation>& current = _state->Current;
+            if (required <= current->Capacity)
+            {
+                return;
+            }
+
+            auto next = std::make_shared<Allocation>(NextCapacity(current->Capacity, required));
+            for (std::size_t index = 0; index < current->Count; ++index)
+            {
+                if constexpr (std::is_copy_constructible_v<T>)
+                {
+                    next->Add(current->Data[index]);
+                }
+                else
+                {
+                    next->Add(std::move(current->Data[index]));
+                }
+            }
+            _state->Current = std::move(next);
+        }
+
+        template <typename>
+        friend class Memory;
+
+    public:
+        List()
+            : _state(std::make_shared<State>())
+        {
+        }
+
+        explicit List(std::size_t capacity)
+            : _state(std::make_shared<State>(capacity))
+        {
+        }
+
+        [[nodiscard]] std::size_t Count() const noexcept
+        {
+            return _state->Current->Count;
+        }
+
+        [[nodiscard]] std::size_t Capacity() const noexcept
+        {
+            return _state->Current->Capacity;
+        }
+
+        std::size_t EnsureCapacity(std::size_t capacity)
+        {
+            Grow(capacity);
+            return Capacity();
+        }
+
+        void Add(const T& value)
+            requires std::is_copy_constructible_v<T>
+        {
+            Grow(Count() + 1);
+            _state->Current->Add(value);
+        }
+
+        void Add(T&& value)
+        {
+            Grow(Count() + 1);
+            _state->Current->Add(std::move(value));
+        }
+
+        [[nodiscard]] T& operator[](std::size_t index)
+        {
+            if (index >= Count())
+            {
+                throw std::out_of_range("Index was outside the bounds of the array.");
+            }
+            return _state->Current->Data[index];
+        }
+
+        [[nodiscard]] const T& operator[](std::size_t index) const
+        {
+            if (index >= Count())
+            {
+                throw std::out_of_range("Index was outside the bounds of the array.");
+            }
+            return _state->Current->Data[index];
+        }
+    };
+
+    template <typename T>
+    class Memory final
+    {
+    private:
+        using Allocation = typename List<T>::Allocation;
+
+        std::shared_ptr<Allocation> _allocation;
+        T* _data = nullptr;
+        std::size_t _length = 0;
+
+        explicit Memory(List<T>& list) noexcept
+            : _allocation(list._state->Current),
+              _data(_allocation->Data),
+              _length(_allocation->Count)
         {
         }
 
         friend class Common;
 
     public:
-        class Reference final
-        {
-        private:
-            std::shared_ptr<State> _state;
-            std::size_t _index;
-
-            Reference(std::shared_ptr<State> state, std::size_t index)
-                : _state(std::move(state)),
-                  _index(index)
-            {
-            }
-
-            friend class Memory<T>;
-            friend class SpanView;
-
-        public:
-            Reference(const Reference&) noexcept = default;
-
-            Reference& operator=(const T& value)
-            {
-                _state->Write(_index, value);
-                return *this;
-            }
-
-            Reference& operator=(const Reference& other)
-            {
-                return operator=(static_cast<T>(other));
-            }
-
-            [[nodiscard]] operator T() const
-            {
-                return _state->Read(_index);
-            }
-        };
-
-        class SpanView final
-        {
-        private:
-            std::shared_ptr<State> _state;
-
-            explicit SpanView(std::shared_ptr<State> state)
-                : _state(std::move(state))
-            {
-            }
-
-            friend class Memory<T>;
-
-        public:
-            [[nodiscard]] std::size_t size() const noexcept
-            {
-                return _state == nullptr ? 0 : _state->Length;
-            }
-
-            [[nodiscard]] bool empty() const noexcept
-            {
-                return size() == 0;
-            }
-
-            [[nodiscard]] Reference operator[](std::size_t index)
-            {
-                if (_state == nullptr || index >= _state->Length)
-                {
-                    throw std::out_of_range("Index was outside the bounds of the array.");
-                }
-                return Reference(_state, index);
-            }
-
-            [[nodiscard]] T operator[](std::size_t index) const
-            {
-                if (_state == nullptr)
-                {
-                    throw std::out_of_range("Index was outside the bounds of the array.");
-                }
-                return _state->Read(index);
-            }
-        };
-
-        Memory() = default;
+        Memory() noexcept = default;
 
         [[nodiscard]] std::size_t Length() const noexcept
         {
-            return _state == nullptr ? 0 : _state->Length;
+            return _length;
         }
 
         [[nodiscard]] bool IsEmpty() const noexcept
         {
-            return Length() == 0;
+            return _length == 0;
         }
 
-        [[nodiscard]] SpanView Span() const
+        [[nodiscard]] std::span<T> Span() const noexcept
         {
-            return SpanView(_state);
+            return std::span<T>(_data, _length);
         }
 
-        [[nodiscard]] Reference operator[](std::size_t index)
+        [[nodiscard]] T& operator[](std::size_t index) const
         {
-            if (_state == nullptr || index >= _state->Length)
+            if (index >= _length)
             {
                 throw std::out_of_range("Index was outside the bounds of the array.");
             }
-            return Reference(_state, index);
-        }
-
-        [[nodiscard]] T operator[](std::size_t index) const
-        {
-            if (_state == nullptr)
-            {
-                throw std::out_of_range("Index was outside the bounds of the array.");
-            }
-            return _state->Read(index);
+            return _data[index];
         }
     };
 
@@ -316,23 +312,25 @@ namespace NCSFCommon
         private:
             ListMemory() = delete;
 
+            using Delegate = std::function<Memory<T>(List<T>&)>;
+
             struct LazyState final
             {
                 std::once_flag Once;
-                std::unique_ptr<std::function<Memory<T>(std::vector<T>&)>> Value;
+                std::unique_ptr<Delegate> Value;
                 std::exception_ptr Error;
             };
 
         public:
-            [[nodiscard]] static const std::function<Memory<T>(std::vector<T>&)>& AsMemory()
+            [[nodiscard]] static const Delegate& AsMemory()
             {
                 static LazyState state;
                 std::call_once(state.Once, []
                 {
                     try
                     {
-                        state.Value = std::make_unique<std::function<Memory<T>(std::vector<T>&)>>(
-                            [](std::vector<T>& list)
+                        state.Value = std::make_unique<Delegate>(
+                            [](List<T>& list)
                             {
                                 return Memory<T>(list);
                             });
@@ -352,7 +350,7 @@ namespace NCSFCommon
         };
 
         template <typename T>
-        [[nodiscard]] static Memory<T> AsMemory(std::vector<T>& list)
+        [[nodiscard]] static Memory<T> AsMemory(List<T>& list)
         {
             return ListMemory<T>::AsMemory()(list);
         }
@@ -421,27 +419,47 @@ namespace NCSFCommon
             const KeepType Keep;
 
             KeepInfo(std::u16string filename, KeepType keep);
-            KeepInfo(const KeepInfo&) = default;
-            KeepInfo(KeepInfo&&) noexcept = default;
             virtual ~KeepInfo() = default;
 
             KeepInfo& operator=(const KeepInfo&) = delete;
             KeepInfo& operator=(KeepInfo&&) = delete;
 
-            [[nodiscard]] virtual bool Equals(const KeepInfo& other) const noexcept;
+            [[nodiscard]] virtual bool Equals(const KeepInfo* other) const noexcept;
             [[nodiscard]] bool operator==(const KeepInfo& other) const noexcept;
             [[nodiscard]] bool operator!=(const KeepInfo& other) const noexcept;
             [[nodiscard]] virtual std::size_t GetHashCode() const noexcept;
             [[nodiscard]] virtual std::u16string ToString() const;
             void Deconstruct(std::u16string& filename, KeepType& keep) const;
-            [[nodiscard]] std::shared_ptr<KeepInfo> WithFilename(std::u16string filename) const;
-            [[nodiscard]] std::shared_ptr<KeepInfo> WithKeep(KeepType keep) const;
-            [[nodiscard]] std::shared_ptr<KeepInfo> With(std::u16string filename, KeepType keep) const;
+
+            friend bool operator==(
+                const std::shared_ptr<KeepInfo>& left,
+                const std::shared_ptr<KeepInfo>& right) noexcept
+            {
+                if (left.get() == right.get())
+                {
+                    return true;
+                }
+                if (!left || !right)
+                {
+                    return false;
+                }
+                return left->Equals(right.get());
+            }
+
+            friend bool operator!=(
+                const std::shared_ptr<KeepInfo>& left,
+                const std::shared_ptr<KeepInfo>& right) noexcept
+            {
+                return !(left == right);
+            }
 
         protected:
+            KeepInfo(const KeepInfo&) = default;
+            KeepInfo(KeepInfo&&) noexcept = default;
+
             [[nodiscard]] virtual const std::type_info& EqualityContract() const noexcept;
-            [[nodiscard]] virtual std::shared_ptr<KeepInfo> CloneWith(
-                std::u16string filename, KeepType keep) const;
+            [[nodiscard]] virtual std::shared_ptr<KeepInfo> Clone() const;
+            virtual bool PrintMembers(std::u16string& result) const;
         };
 
         [[nodiscard]] static KeepType IncludeFilename(

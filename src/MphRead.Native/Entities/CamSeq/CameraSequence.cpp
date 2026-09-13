@@ -309,10 +309,17 @@ namespace
         std::array<std::uint8_t, 512> buffer{};
         while (true)
         {
+            if (bytes.size() >= MaxManagedByteArrayLength)
+            {
+                ThrowOutOfMemory();
+            }
+            const std::uint64_t remaining
+                = MaxManagedByteArrayLength - bytes.size();
+            const DWORD requested = static_cast<DWORD>(std::min<std::uint64_t>(
+                buffer.size(), remaining));
             DWORD readCount = 0;
             if (!ReadFile(
-                    file, buffer.data(), static_cast<DWORD>(buffer.size()),
-                    &readCount, nullptr))
+                    file, buffer.data(), requested, &readCount, nullptr))
             {
                 const DWORD error = GetLastError();
                 if (error == ERROR_BROKEN_PIPE || error == ERROR_HANDLE_EOF)
@@ -429,7 +436,12 @@ namespace
         }
         const std::string parent = slash == 0 ? "/" : path.substr(0, slash);
         struct stat status{};
-        return stat(parent.c_str(), &status) != 0 && errno == ENOENT;
+        int statResult = -1;
+        do
+        {
+            statResult = stat(parent.c_str(), &status);
+        } while (statResult < 0 && errno == EINTR);
+        return statResult != 0 && errno == ENOENT;
     }
 
     [[noreturn]] void ThrowPosixError(const std::string& path, int error)
@@ -482,7 +494,15 @@ namespace
         std::array<std::uint8_t, 512> buffer{};
         while (true)
         {
-            const ssize_t readCount = read(file, buffer.data(), buffer.size());
+            if (bytes.size() >= MaxManagedByteArrayLength)
+            {
+                ThrowOutOfMemory();
+            }
+            const std::uint64_t remaining
+                = MaxManagedByteArrayLength - bytes.size();
+            const std::size_t requested = static_cast<std::size_t>(
+                std::min<std::uint64_t>(buffer.size(), remaining));
+            const ssize_t readCount = read(file, buffer.data(), requested);
             if (readCount < 0)
             {
                 if (errno == EINTR)

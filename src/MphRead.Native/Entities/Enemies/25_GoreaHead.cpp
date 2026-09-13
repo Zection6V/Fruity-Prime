@@ -58,12 +58,8 @@ namespace MphRead::Entities::Enemies
             Flags &= ~EnemyFlags::Visible;
             _state1 = _state2 = 255;
 
-            const auto& models = _owner->GetModels();
-            if (models.empty())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            ModelInstance& ownerModel = RequireReference(models[0]);
+            ModelInstance& ownerModel
+                = RequireReference(_owner->GetModels().at(0));
             Model& model = RequireReference(ownerModel.Model());
             _attachNode = model.GetNodeByName("Head");
 

@@ -661,7 +661,7 @@ namespace MphRead::Entities
                 && TestFlag(player.Flags2(), PlayerFlags2::Halfturret);
             const std::shared_ptr<HalfturretEntity> playerTurret = player.Halfturret();
             if ((_owner.get() == playerPtr.get()
-                    || (hasHalfturret && playerTurret && _owner.get() == playerTurret.get()))
+                    || (hasHalfturret && _owner.get() == playerTurret.get()))
                 && (!TestFlag(_flags, BeamFlags::SelfDamage) || _age < (1.0F / 30.0F) * 4.0F))
             {
                 continue;
@@ -1272,7 +1272,7 @@ namespace MphRead::Entities
             {
                 const std::shared_ptr<HalfturretEntity> turret = player.Halfturret();
                 if (!TestFlag(player.Flags2(), PlayerFlags2::Halfturret)
-                    || !turret || _owner.get() != turret.get())
+                    || _owner.get() != turret.get())
                 {
                     Formats::CollisionResult discard{};
                     const float dist = Vector3::Distance(player.Position, Position);
@@ -2147,12 +2147,10 @@ namespace MphRead::Entities
         Scene* scene)
     {
         bool result = false;
-        BeamProjectileEntity& beamRef = RequireReference(beam);
         EquipInfo& equipRef = RequireReference(equip);
-        WeaponInfo& weapon = RequireReference(equipRef.Weapon());
-        Scene& sceneRef = RequireReference(scene);
+        const std::shared_ptr<WeaponInfo> weapon = equipRef.Weapon();
+        BeamProjectileEntity& beamRef = RequireReference(beam);
         assert(beamRef._owner != nullptr);
-        EntityBase& owner = RequireReference(beamRef._owner);
         const float tolerance = Fixed::ToFloat(equipRef.HomingTolerance());
         float curDiv = tolerance;
 
@@ -2160,12 +2158,13 @@ namespace MphRead::Entities
         {
             const EntityType type = _homingTargetTypes[i];
             if (type == EntityType::EnemyInstance
-                && (owner.Type == EntityType::EnemyInstance || owner.Type == EntityType::Platform))
+                && (RequireReference(beamRef._owner).Type == EntityType::EnemyInstance
+                    || RequireReference(beamRef._owner).Type == EntityType::Platform))
             {
                 continue;
             }
 
-            auto enumerator = sceneRef.Entities().GetEnumerator();
+            auto enumerator = RequireReference(scene).Entities().GetEnumerator();
             while (enumerator.MoveNext())
             {
                 const std::shared_ptr<EntityBase> entityPtr = enumerator.Current();
@@ -2179,26 +2178,28 @@ namespace MphRead::Entities
                 if (type == EntityType::Player)
                 {
                     PlayerEntity& player = static_cast<PlayerEntity&>(entity);
-                    if (owner.Type != EntityType::Player)
+                    if (RequireReference(beamRef._owner).Type != EntityType::Player)
                     {
                         tryTarget = true;
                     }
                     else
                     {
-                        PlayerEntity& ownerPlayer = static_cast<PlayerEntity&>(owner);
+                        PlayerEntity& ownerPlayer
+                            = static_cast<PlayerEntity&>(RequireReference(beamRef._owner));
                         tryTarget = player.TeamIndex() != ownerPlayer.TeamIndex();
                     }
                 }
                 else if (type == EntityType::Halfturret)
                 {
                     HalfturretEntity& halfturret = static_cast<HalfturretEntity&>(entity);
-                    if (owner.Type != EntityType::Player)
+                    if (RequireReference(beamRef._owner).Type != EntityType::Player)
                     {
                         tryTarget = true;
                     }
                     else
                     {
-                        PlayerEntity& ownerPlayer = static_cast<PlayerEntity&>(owner);
+                        PlayerEntity& ownerPlayer
+                            = static_cast<PlayerEntity&>(RequireReference(beamRef._owner));
                         tryTarget = RequireReference(halfturret.Owner()).TeamIndex() != ownerPlayer.TeamIndex();
                     }
                 }
@@ -2231,8 +2232,9 @@ namespace MphRead::Entities
                     entity.GetPosition(targetPosition);
                     const Vector3 between = targetPosition - static_cast<Vector3>(beamRef.Position);
                     const float distSqr = Vector3::Dot(between, between);
-                    const float range = Fixed::ToFloat(weapon.HomingRange());
-                    if ((TestFlag(weapon.Flags(), WeaponFlags::Continuous)
+                    WeaponInfo& weaponRef = RequireReference(weapon);
+                    const float range = Fixed::ToFloat(weaponRef.HomingRange());
+                    if ((TestFlag(weaponRef.Flags(), WeaponFlags::Continuous)
                             && beamRef._beamKind != BeamType::Platform
                         || distSqr <= range * range)
                         && distSqr > 0.0F)
@@ -2243,7 +2245,7 @@ namespace MphRead::Entities
                         const float div1 = dot / dist;
                         if (div1 >= curDiv)
                         {
-                            if (TestFlag(weapon.Flags(), WeaponFlags::Continuous))
+                            if (TestFlag(weaponRef.Flags(), WeaponFlags::Continuous))
                             {
                                 bool canTarget = false;
                                 if (type == EntityType::Player)

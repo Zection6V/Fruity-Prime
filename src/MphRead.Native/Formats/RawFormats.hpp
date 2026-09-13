@@ -18,6 +18,854 @@
 #else
 #define MPHREAD_RAW_NO_UNIQUE_ADDRESS [[no_unique_address]]
 #endif
-namespace MphRead{struct RawCollisionVolume;struct FhRawCollisionVolume;namespace NativeRuntime{template<std::size_t N>class ByValByteArray final{public:using value_type=std::uint8_t;using ManagedStorage=ManagedArray<value_type>;class const_iterator final{public:using iterator_category=std::bidirectional_iterator_tag;using iterator_concept=std::bidirectional_iterator_tag;using value_type=std::uint8_t;using difference_type=std::ptrdiff_t;using reference=value_type;using pointer=void;const_iterator()noexcept=default;[[nodiscard]]value_type operator*()const{return(*_storage)[_index];}const_iterator&operator++()noexcept{++_index;return*this;}const_iterator operator++(int)noexcept{const_iterator copy=*this;++*this;return copy;}const_iterator&operator--()noexcept{--_index;return*this;}const_iterator operator--(int)noexcept{const_iterator copy=*this;--*this;return copy;}[[nodiscard]]friend bool operator==(const const_iterator&left,const const_iterator&right)noexcept{return left._storage==right._storage&&left._index==right._index;}[[nodiscard]]friend bool operator!=(const const_iterator&left,const const_iterator&right)noexcept{return!(left==right);}private:friend class ByValByteArray<N>;const_iterator(std::shared_ptr<ManagedStorage>storage,std::size_t index)noexcept:_storage(std::move(storage)),_index(index){}std::shared_ptr<ManagedStorage>_storage{};std::size_t _index=0;};using const_reverse_iterator=std::reverse_iterator<const_iterator>;ByValByteArray()noexcept=default;explicit ByValByteArray(const std::array<value_type,N>&bytes){SetMarshaledBytes(bytes);}ByValByteArray(const ByValByteArray&other):_wire(other.WireBytes()){if(auto storage=other.TryGetStorage()){SetStorage(std::move(storage));}}ByValByteArray&operator=(const ByValByteArray&other){if(this!=std::addressof(other)){const std::array<value_type,N>wire=other.WireBytes();auto storage=other.TryGetStorage();_wire=wire;if(storage){SetStorage(std::move(storage));}else{ClearStorage();}}return*this;}~ByValByteArray()noexcept{ClearStorageNoThrow();}[[nodiscard]]bool IsNull()const{return!TryGetStorage();}[[nodiscard]]constexpr std::size_t size()const noexcept{return N;}[[nodiscard]]constexpr bool empty()const noexcept{return N==0;}[[nodiscard]]value_type&operator[](std::size_t index)const{return(*RequireStorageForDereference())[index];}[[nodiscard]]const_iterator begin()const{return const_iterator(RequireStorageForMarshal(),0);}[[nodiscard]]const_iterator end()const{return const_iterator(RequireStorageForMarshal(),N);}[[nodiscard]]const_reverse_iterator rbegin()const{return const_reverse_iterator(end());}[[nodiscard]]const_reverse_iterator rend()const{return const_reverse_iterator(begin());}void SetMarshaledBytes(const value_type*bytes)const{if(bytes==nullptr){throw System::ArgumentNullException("bytes");}auto storage=std::make_shared<ManagedStorage>(N);for(std::size_t index=0;index<N;++index){_wire[index]=bytes[index];(*storage)[index]=bytes[index];}SetStorage(std::move(storage));}void SetMarshaledBytes(const std::array<value_type,N>&bytes)const{SetMarshaledBytes(bytes.data());}[[nodiscard]]const std::array<value_type,N>&WireBytes()const{if(auto storage=TryGetStorage()){for(std::size_t index=0;index<N;++index){_wire[index]=(*storage)[index];}}return _wire;}private:struct Registry final{std::mutex Mutex;std::unordered_map<const ByValByteArray<N>*,std::shared_ptr<ManagedStorage>>Storage;};[[nodiscard]]static Registry&GetRegistry(){static Registry*registry=new Registry();return*registry;}[[nodiscard]]std::shared_ptr<ManagedStorage>TryGetStorage()const{Registry&registry=GetRegistry();std::lock_guard<std::mutex>lock(registry.Mutex);const auto iterator=registry.Storage.find(this);if(iterator==registry.Storage.end()){return nullptr;}return iterator->second;}void SetStorage(std::shared_ptr<ManagedStorage>storage)const{Registry&registry=GetRegistry();std::lock_guard<std::mutex>lock(registry.Mutex);registry.Storage[this]=std::move(storage);}void ClearStorage()const{Registry&registry=GetRegistry();std::lock_guard<std::mutex>lock(registry.Mutex);registry.Storage.erase(this);}void ClearStorageNoThrow()const noexcept{try{ClearStorage();}catch(...){}}[[nodiscard]]std::shared_ptr<ManagedStorage>RequireStorageForMarshal()const{auto storage=TryGetStorage();if(!storage){throw System::ArgumentNullException("array");}return storage;}[[nodiscard]]std::shared_ptr<ManagedStorage>RequireStorageForDereference()const{auto storage=TryGetStorage();if(!storage){throw System::NullReferenceException();}return storage;}mutable std::array<value_type,N>_wire{};};/* C# System.Char ABI adapter: RawStringTableEntry marshals Category as one ANSI byte at offset 11, while managed Char is UTF-16. Store unsigned wire byte and expose U+0000..U+00FF as char16_t; char has implementation-defined high-byte signedness and char16_t storage would break the authoritative wire size/offset. */struct SystemCharAnsiByte final{const std::uint8_t Value=0;constexpr SystemCharAnsiByte()noexcept=default;constexpr explicit SystemCharAnsiByte(std::uint8_t value)noexcept:Value(value){}[[nodiscard]]constexpr char16_t ManagedValue()const noexcept{return static_cast<char16_t>(Value);}[[nodiscard]]constexpr operator char16_t()const noexcept{return ManagedValue();}};template<typename TOwner,std::size_t AnchorOffset>[[nodiscard]]const std::byte*ExplicitOwnerBytes(const void*view)noexcept{const std::uintptr_t viewAddress=reinterpret_cast<std::uintptr_t>(view);const std::uintptr_t ownerAddress=viewAddress-AnchorOffset;const auto*owner=reinterpret_cast<const TOwner*>(ownerAddress);return reinterpret_cast<const std::byte*>(owner);}template<typename TOwner,std::size_t AnchorOffset,std::size_t ValueOffset,int Tag>struct ExplicitInt32View final{[[nodiscard]]operator std::int32_t()const noexcept{std::int32_t value=0;const std::byte*bytes=ExplicitOwnerBytes<TOwner,AnchorOffset>(this);std::memcpy(static_cast<void*>(std::addressof(value)),bytes+ValueOffset,sizeof(value));return value;}};template<typename TOwner,std::size_t AnchorOffset,std::size_t ValueOffset,int Tag>struct ExplicitFixedView final{MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitInt32View<TOwner,AnchorOffset,ValueOffset,Tag>Value{};[[nodiscard]]Fixed Read()const noexcept{return Fixed(static_cast<std::int32_t>(Value));}[[nodiscard]]float FloatValue()const noexcept{return Read().FloatValue();}[[nodiscard]]std::string ToString()const{return Read().ToString();}[[nodiscard]]operator Fixed()const noexcept{return Read();}};template<typename TOwner,std::size_t AnchorOffset,int Tag>struct ExplicitVector3FxView final{MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<TOwner,AnchorOffset,AnchorOffset,Tag*3+0>X{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<TOwner,AnchorOffset,AnchorOffset+4,Tag*3+1>Y{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<TOwner,AnchorOffset,AnchorOffset+8,Tag*3+2>Z{};[[nodiscard]]Vector3Fx Read()const noexcept{return Vector3Fx(static_cast<std::int32_t>(X.Value),static_cast<std::int32_t>(Y.Value),static_cast<std::int32_t>(Z.Value));}[[nodiscard]]OpenTK::Mathematics::Vector3 ToFloatVector()const noexcept{return Read().ToFloatVector();}[[nodiscard]]OpenTK::Mathematics::Vector3i ToIntVector()const noexcept{return Read().ToIntVector();}[[nodiscard]]operator Vector3Fx()const noexcept{return Read();}};struct RawCollisionTypeSlot{const VolumeType Type{};constexpr RawCollisionTypeSlot()noexcept=default;constexpr explicit RawCollisionTypeSlot(VolumeType type)noexcept:Type(type){}};struct RawCollisionOffset4{const Vector3Fx CylinderVector{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<RawCollisionVolume,4,1>BoxVector1{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<RawCollisionVolume,4,2>SpherePosition{};constexpr RawCollisionOffset4()noexcept=default;constexpr explicit RawCollisionOffset4(Vector3Fx value)noexcept:CylinderVector(value){}};struct RawCollisionOffset16{const Vector3Fx CylinderPosition{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<RawCollisionVolume,16,3>BoxVector2{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<RawCollisionVolume,16,16,10>SphereRadius{};constexpr RawCollisionOffset16()noexcept=default;constexpr explicit RawCollisionOffset16(Vector3Fx value)noexcept:CylinderPosition(value){}};struct RawCollisionOffset28{const Fixed CylinderRadius{};const Fixed CylinderDot{};const std::int32_t Padding24=0;MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<RawCollisionVolume,28,4>BoxVector3{};constexpr RawCollisionOffset28()noexcept=default;constexpr RawCollisionOffset28(Fixed radius,Fixed dot,std::int32_t padding=0)noexcept:CylinderRadius(radius),CylinderDot(dot),Padding24(padding){}constexpr explicit RawCollisionOffset28(Vector3Fx value)noexcept:CylinderRadius(value.X.Value),CylinderDot(value.Y.Value),Padding24(value.Z.Value){}};struct RawCollisionOffset40{const Vector3Fx BoxPosition{};const Fixed BoxDot1{};const Fixed BoxDot2{};const Fixed BoxDot3{};constexpr RawCollisionOffset40()noexcept=default;constexpr RawCollisionOffset40(Vector3Fx position,Fixed dot1,Fixed dot2,Fixed dot3)noexcept:BoxPosition(position),BoxDot1(dot1),BoxDot2(dot2),BoxDot3(dot3){}};struct FhRawCollisionTypeSlot{const FhVolumeType Type{};constexpr FhRawCollisionTypeSlot()noexcept=default;constexpr explicit FhRawCollisionTypeSlot(FhVolumeType type)noexcept:Type(type){}};struct FhRawCollisionOffset4{const Vector3Fx CylinderPosition{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<FhRawCollisionVolume,4,11>BoxPosition{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<FhRawCollisionVolume,4,12>SpherePosition{};constexpr FhRawCollisionOffset4()noexcept=default;constexpr explicit FhRawCollisionOffset4(Vector3Fx value)noexcept:CylinderPosition(value){}};struct FhRawCollisionOffset16{const Vector3Fx CylinderVector{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<FhRawCollisionVolume,16,13>BoxVector1{};MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<FhRawCollisionVolume,16,16,40>SphereRadius{};constexpr FhRawCollisionOffset16()noexcept=default;constexpr explicit FhRawCollisionOffset16(Vector3Fx value)noexcept:CylinderVector(value){}};struct FhRawCollisionOffset28{const Fixed CylinderDot{};const Fixed CylinderRadius{};const std::int32_t Padding24=0;MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<FhRawCollisionVolume,28,14>BoxVector2{};constexpr FhRawCollisionOffset28()noexcept=default;constexpr FhRawCollisionOffset28(Fixed dot,Fixed radius,std::int32_t padding=0)noexcept:CylinderDot(dot),CylinderRadius(radius),Padding24(padding){}};struct FhRawCollisionOffset40{const Vector3Fx BoxVector3{};const Fixed BoxDot1{};const Fixed BoxDot2{};const Fixed BoxDot3{};constexpr FhRawCollisionOffset40()noexcept=default;constexpr FhRawCollisionOffset40(Vector3Fx vector3,Fixed dot1,Fixed dot2,Fixed dot3)noexcept:BoxVector3(vector3),BoxDot1(dot1),BoxDot2(dot2),BoxDot3(dot3){}};}class Sizes final{public:static const std::int32_t Header;static const std::int32_t Texture;static const std::int32_t Palette;static const std::int32_t Material;static const std::int32_t Node;static const std::int32_t Mesh;static const std::int32_t Dlist;static const std::int32_t EntityHeader;static const std::int32_t EntityEntry;static const std::int32_t FhEntityEntry;static const std::int32_t EntityDataHeader;static const std::int32_t JumpPadEntityData;static const std::int32_t AnimationHeader;static const std::int32_t NodeAnimation;static const std::int32_t CameraSequenceHeader;static const std::int32_t CameraSequenceKeyframe;static const std::int32_t CollisionHeader;static const std::int32_t FhCollisionHeader;Sizes()=delete;};struct RawMesh{const std::uint16_t MaterialId=0;const std::uint16_t DlistId=0;RawMesh()noexcept=default;RawMesh(const RawMesh&)noexcept=default;RawMesh&operator=(const RawMesh&other)noexcept;};struct DisplayList{const std::uint32_t Offset=0;const std::uint32_t Size=0;const Vector3Fx MinBounds{};const Vector3Fx MaxBounds{};DisplayList()noexcept=default;DisplayList(const DisplayList&)noexcept=default;DisplayList&operator=(const DisplayList&other)noexcept;};struct RawMaterial{const NativeRuntime::ByValByteArray<64>Name{};const std::uint8_t Lighting=0;const CullingMode Culling{};const std::uint8_t Alpha=0;const std::uint8_t Wireframe=0;const std::int16_t PaletteId=0;const std::int16_t TextureId=0;const RepeatMode XRepeat{};const RepeatMode YRepeat{};const ColorRgb Diffuse{};const ColorRgb Ambient{};const ColorRgb Specular{};const std::uint8_t Padding53=0;const MphRead::PolygonMode PolygonMode{};const MphRead::RenderMode RenderMode{};const std::uint8_t AnimationFlags=0;const std::uint16_t Padding5A=0;const TexgenMode TexcoordTransformMode{};const std::uint16_t TexcoordAnimationId=0;const std::uint16_t Padding62=0;const std::uint32_t MatrixId=0;const Fixed ScaleS{};const Fixed ScaleT{};const std::uint16_t RotateZ=0;const std::uint16_t Padding72=0;const Fixed TranslateS{};const Fixed TranslateT{};const std::uint16_t MaterialAnimationId=0;const std::uint16_t TextureAnimationId=0;const std::uint8_t PackedRepeatMode=0;const std::uint8_t Padding81=0;const std::uint16_t Padding82=0;RawMaterial()noexcept=default;RawMaterial(const RawMaterial&)=default;RawMaterial&operator=(const RawMaterial&other);[[nodiscard]]std::string NameString()const;};struct AnimationHeader{const std::uint32_t NodeGroupOffset=0;const std::uint32_t UnusedGroupOffset=0;const std::uint32_t MaterialGroupOffset=0;const std::uint32_t TexcoordGroupOffset=0;const std::uint32_t TextureGroupOffset=0;const std::uint16_t Count=0;const std::uint16_t Padding16=0;AnimationHeader()noexcept=default;AnimationHeader(const AnimationHeader&)noexcept=default;AnimationHeader&operator=(const AnimationHeader&other)noexcept;};struct RawMaterialAnimationGroup{const std::uint32_t FrameCount=0;const std::uint32_t ColorLutOffset=0;const std::uint32_t AnimationCount=0;const std::uint32_t AnimationOffset=0;const std::uint16_t AnimationFrame=0;const std::uint16_t Unused12=0;RawMaterialAnimationGroup()noexcept=default;RawMaterialAnimationGroup(const RawMaterialAnimationGroup&)noexcept=default;RawMaterialAnimationGroup&operator=(const RawMaterialAnimationGroup&other)noexcept;};struct RawTextureAnimationGroup{const std::uint16_t FrameCount=0;const std::uint16_t FrameIndexCount=0;const std::uint16_t TextureIdCount=0;const std::uint16_t PaletteIdCount=0;const std::uint16_t AnimationCount=0;const std::uint16_t UnusedA=0;const std::uint32_t FrameIndexOffset=0;const std::uint32_t TextureIdOffset=0;const std::uint32_t PaletteIdOffset=0;const std::uint32_t AnimationOffset=0;const std::uint16_t AnimationFrame=0;const std::uint16_t Unused1C=0;RawTextureAnimationGroup()noexcept=default;RawTextureAnimationGroup(const RawTextureAnimationGroup&)noexcept=default;RawTextureAnimationGroup&operator=(const RawTextureAnimationGroup&other)noexcept;};struct RawTexcoordAnimationGroup{const std::uint32_t FrameCount=0;const std::uint32_t ScaleLutOffset=0;const std::uint32_t RotateLutOffset=0;const std::uint32_t TranslateLutOffset=0;const std::uint32_t AnimationCount=0;const std::uint32_t AnimationOffset=0;const std::uint16_t AnimationFrame=0;const std::uint16_t Unused1A=0;RawTexcoordAnimationGroup()noexcept=default;RawTexcoordAnimationGroup(const RawTexcoordAnimationGroup&)noexcept=default;RawTexcoordAnimationGroup&operator=(const RawTexcoordAnimationGroup&other)noexcept;};struct RawNodeAnimationGroup{const std::uint32_t FrameCount=0;const std::uint32_t ScaleLutOffset=0;const std::uint32_t RotateLutOffset=0;const std::uint32_t TranslateLutOffset=0;const std::uint32_t AnimationOffset=0;RawNodeAnimationGroup()noexcept=default;RawNodeAnimationGroup(const RawNodeAnimationGroup&)noexcept=default;RawNodeAnimationGroup&operator=(const RawNodeAnimationGroup&other)noexcept;};struct MaterialAnimation{const NativeRuntime::ByValByteArray<64>Name{};const std::uint32_t Unused40=0;const std::uint8_t DiffuseBlendR=0;const std::uint8_t DiffuseBlendG=0;const std::uint8_t DiffuseBlendB=0;const std::uint8_t Unused47=0;const std::uint16_t DiffuseLutLengthR=0;const std::uint16_t DiffuseLutLengthG=0;const std::uint16_t DiffuseLutLengthB=0;const std::uint16_t DiffuseLutIndexR=0;const std::uint16_t DiffuseLutIndexG=0;const std::uint16_t DiffuseLutIndexB=0;const std::uint8_t AmbientBlendR=0;const std::uint8_t AmbientBlendG=0;const std::uint8_t AmbientBlendB=0;const std::uint8_t Unused57=0;const std::uint16_t AmbientLutLengthR=0;const std::uint16_t AmbientLutLengthG=0;const std::uint16_t AmbientLutLengthB=0;const std::uint16_t AmbientLutIndexR=0;const std::uint16_t AmbientLutIndexG=0;const std::uint16_t AmbientLutIndexB=0;const std::uint8_t SpecularBlendR=0;const std::uint8_t SpecularBlendG=0;const std::uint8_t SpecularBlendB=0;const std::uint8_t Unused67=0;const std::uint16_t SpecularLutLengthR=0;const std::uint16_t SpecularLutLengthG=0;const std::uint16_t SpecularLutLengthB=0;const std::uint16_t SpecularLutIndexR=0;const std::uint16_t SpecularLutIndexG=0;const std::uint16_t SpecularLutIndexB=0;const std::uint32_t Unused74=0;const std::uint32_t Unused78=0;const std::uint32_t Unused7C=0;const std::uint32_t Unused80=0;const std::uint8_t AlphaBlend=0;const std::uint8_t Unused85=0;const std::uint16_t AlphaLutLength=0;const std::uint16_t AlphaLutIndex=0;const std::uint16_t MaterialId=0;MaterialAnimation()noexcept=default;MaterialAnimation(const MaterialAnimation&)=default;MaterialAnimation&operator=(const MaterialAnimation&other);[[nodiscard]]std::string NameString()const;};struct TextureAnimation{const NativeRuntime::ByValByteArray<32>Name{};const std::uint16_t Count=0;const std::uint16_t StartIndex=0;const std::uint16_t MinimumPaletteId=0;const std::uint16_t MaterialId=0;const std::uint16_t MinimumTextureId=0;const std::uint16_t Field2A=0;TextureAnimation()noexcept=default;TextureAnimation(const TextureAnimation&)=default;TextureAnimation&operator=(const TextureAnimation&other);};struct TexcoordAnimation{const NativeRuntime::ByValByteArray<32>Name{};const std::uint8_t ScaleBlendS=0;const std::uint8_t ScaleBlendT=0;const std::uint16_t ScaleLutLengthS=0;const std::uint16_t ScaleLutLengthT=0;const std::uint16_t ScaleLutIndexS=0;const std::uint16_t ScaleLutIndexT=0;const std::uint8_t RotateBlendZ=0;const std::uint8_t Unused2B=0;const std::uint16_t RotateLutLengthZ=0;const std::uint16_t RotateLutIndexZ=0;const std::uint8_t TranslateBlendS=0;const std::uint8_t TranslateBlendT=0;const std::uint16_t TranslateLutLengthS=0;const std::uint16_t TranslateLutLengthT=0;const std::uint16_t TranslateLutIndexS=0;const std::uint16_t TranslateLutIndexT=0;const std::uint16_t Padding3A=0;TexcoordAnimation()noexcept=default;TexcoordAnimation(const TexcoordAnimation&)=default;TexcoordAnimation&operator=(const TexcoordAnimation&other);[[nodiscard]]std::string NameString()const;};struct NodeAnimation{const std::uint8_t ScaleBlendX=0;const std::uint8_t ScaleBlendY=0;const std::uint8_t ScaleBlendZ=0;const std::uint8_t Flags=0;const std::uint16_t ScaleLutLengthX=0;const std::uint16_t ScaleLutLengthY=0;const std::uint16_t ScaleLutLengthZ=0;const std::uint16_t ScaleLutIndexX=0;const std::uint16_t ScaleLutIndexY=0;const std::uint16_t ScaleLutIndexZ=0;const std::uint8_t RotateBlendX=0;const std::uint8_t RotateBlendY=0;const std::uint8_t RotateBlendZ=0;const std::uint8_t Padding13=0;const std::uint16_t RotateLutLengthX=0;const std::uint16_t RotateLutLengthY=0;const std::uint16_t RotateLutLengthZ=0;const std::uint16_t RotateLutIndexX=0;const std::uint16_t RotateLutIndexY=0;const std::uint16_t RotateLutIndexZ=0;const std::uint8_t TranslateBlendX=0;const std::uint8_t TranslateBlendY=0;const std::uint8_t TranslateBlendZ=0;const std::uint8_t Padding23=0;const std::uint16_t TranslateLutLengthX=0;const std::uint16_t TranslateLutLengthY=0;const std::uint16_t TranslateLutLengthZ=0;const std::uint16_t TranslateLutIndexX=0;const std::uint16_t TranslateLutIndexY=0;const std::uint16_t TranslateLutIndexZ=0;NodeAnimation()noexcept=default;NodeAnimation(const NodeAnimation&)noexcept=default;NodeAnimation&operator=(const NodeAnimation&other)noexcept;};struct Texture{const TextureFormat Format{};const std::uint8_t Padding1=0;const std::uint16_t Width=0;const std::uint16_t Height=0;const std::uint16_t Padding6=0;const std::uint32_t ImageOffset=0;const std::uint32_t ImageSize=0;const std::uint32_t UnusedOffset=0;const std::uint32_t UnusedCount=0;const std::uint32_t VramOffset=0;const std::uint32_t Opaque=0;const std::uint32_t SkipVram=0;const std::uint8_t PackedSize=0;const std::uint8_t NativeTextureFormat=0;const std::uint16_t ObjectRef=0;Texture()noexcept=default;Texture(TextureFormat format,std::uint16_t width,std::uint16_t height)noexcept;Texture(const Texture&)noexcept=default;Texture&operator=(const Texture&other)noexcept;};struct Palette{const std::uint32_t Offset=0;const std::uint32_t Size=0;const std::uint32_t VramOffset=0;const std::uint32_t ObjectRef=0;Palette()noexcept=default;Palette(const Palette&)noexcept=default;Palette&operator=(const Palette&other)noexcept;};struct Header{const std::uint32_t ScaleFactor=0;const Fixed ScaleBase{};const std::uint32_t PrimitiveCount=0;const std::uint32_t VertexCount=0;const std::uint32_t MaterialOffset=0;const std::uint32_t DlistOffset=0;const std::uint32_t NodeOffset=0;const std::uint16_t NodeWeightCount=0;const std::uint8_t Flags=0;const std::uint8_t Padding1F=0;const std::uint32_t NodeWeightOffset=0;const std::uint32_t MeshOffset=0;const std::uint16_t TextureCount=0;const std::uint16_t Padding2A=0;const std::uint32_t TextureOffset=0;const std::uint16_t PaletteCount=0;const std::uint16_t Padding32=0;const std::uint32_t PaletteOffset=0;const std::uint32_t NodePosCounts=0;const std::uint32_t NodePosScales=0;const std::uint32_t NodeInitialPosition=0;const std::uint32_t NodePosition=0;const std::uint16_t MaterialCount=0;const std::uint16_t NodeCount=0;const std::uint32_t TextureMatrixOffset=0;const std::uint32_t NodeAnimationOffset=0;const std::uint32_t TextureCoordinateAnimations=0;const std::uint32_t MaterialAnimations=0;const std::uint32_t TextureAnimations=0;const std::uint16_t MeshCount=0;const std::uint16_t TextureMatrixCount=0;Header()noexcept=default;Header(const Header&)noexcept=default;Header&operator=(const Header&other)noexcept;};struct RawNode{const NativeRuntime::ByValByteArray<64>Name{};const std::int16_t ParentId=0;const std::int16_t ChildId=0;const std::int16_t NextId=0;const std::uint16_t Padding46=0;const std::uint32_t Enabled=0;const std::uint16_t MeshCount=0;const std::uint16_t MeshId=0;const Vector3Fx Scale{};const std::int16_t AngleX=0;const std::int16_t AngleY=0;const std::int16_t AngleZ=0;const std::uint16_t Padding62=0;const Vector3Fx Position{};const Fixed BoundingRadius{};const Vector3Fx MinBounds{};const Vector3Fx MaxBounds{};const MphRead::BillboardMode BillboardMode{};const std::uint8_t Padding8D=0;const std::uint16_t Padding8E=0;const Matrix43Fx Transform{};const std::uint32_t BeforeTransform=0;const std::uint32_t AfterTransform=0;const std::uint32_t UnusedC8=0;const std::uint32_t UnusedCC=0;const std::uint32_t UnusedD0=0;const std::uint32_t UnusedD4=0;const std::uint32_t UnusedD8=0;const std::uint32_t UnusedDC=0;const std::uint32_t UnusedE0=0;const std::uint32_t UnusedE4=0;const std::uint32_t UnusedE8=0;const std::uint32_t UnusedEC=0;RawNode()noexcept=default;RawNode(const RawNode&)=default;RawNode&operator=(const RawNode&other);[[nodiscard]]std::string NameString()const;};struct RawCollisionVolume:private NativeRuntime::RawCollisionTypeSlot,private NativeRuntime::RawCollisionOffset4,private NativeRuntime::RawCollisionOffset16,private NativeRuntime::RawCollisionOffset28,private NativeRuntime::RawCollisionOffset40{public:using NativeRuntime::RawCollisionTypeSlot::Type;using NativeRuntime::RawCollisionOffset4::BoxVector1;using NativeRuntime::RawCollisionOffset4::CylinderVector;using NativeRuntime::RawCollisionOffset4::SpherePosition;using NativeRuntime::RawCollisionOffset16::BoxVector2;using NativeRuntime::RawCollisionOffset16::CylinderPosition;using NativeRuntime::RawCollisionOffset16::SphereRadius;using NativeRuntime::RawCollisionOffset28::BoxVector3;using NativeRuntime::RawCollisionOffset28::CylinderRadius;using NativeRuntime::RawCollisionOffset28::CylinderDot;using NativeRuntime::RawCollisionOffset40::BoxPosition;using NativeRuntime::RawCollisionOffset40::BoxDot1;using NativeRuntime::RawCollisionOffset40::BoxDot2;using NativeRuntime::RawCollisionOffset40::BoxDot3;RawCollisionVolume()noexcept=default;RawCollisionVolume(Vector3Fx boxVector1,Vector3Fx boxVector2,Vector3Fx boxVector3,Vector3Fx boxPosition,Fixed boxDot1,Fixed boxDot2,Fixed boxDot3)noexcept;RawCollisionVolume(Vector3Fx cylinderVector,Vector3Fx cylinderPosition,Fixed cylinderRadius,Fixed cylinderDot)noexcept;RawCollisionVolume(Vector3Fx spherePosition,Fixed sphereRadius)noexcept;RawCollisionVolume(const RawCollisionVolume&)noexcept=default;RawCollisionVolume&operator=(const RawCollisionVolume&other)noexcept;[[nodiscard]]static RawCollisionVolume FromMarshaledBytes(const std::array<std::uint8_t,64>&bytes)noexcept;private:struct MarshaledTag final{};RawCollisionVolume(MarshaledTag,VolumeType type,Vector3Fx offset4,Vector3Fx offset16,Fixed offset28,Fixed offset32,std::int32_t offset36,Vector3Fx offset40,Fixed offset52,Fixed offset56,Fixed offset60)noexcept;};struct FhRawCollisionVolume:private NativeRuntime::FhRawCollisionTypeSlot,private NativeRuntime::FhRawCollisionOffset4,private NativeRuntime::FhRawCollisionOffset16,private NativeRuntime::FhRawCollisionOffset28,private NativeRuntime::FhRawCollisionOffset40{public:using NativeRuntime::FhRawCollisionTypeSlot::Type;using NativeRuntime::FhRawCollisionOffset4::BoxPosition;using NativeRuntime::FhRawCollisionOffset4::CylinderPosition;using NativeRuntime::FhRawCollisionOffset4::SpherePosition;using NativeRuntime::FhRawCollisionOffset16::BoxVector1;using NativeRuntime::FhRawCollisionOffset16::CylinderVector;using NativeRuntime::FhRawCollisionOffset16::SphereRadius;using NativeRuntime::FhRawCollisionOffset28::BoxVector2;using NativeRuntime::FhRawCollisionOffset28::CylinderDot;using NativeRuntime::FhRawCollisionOffset28::CylinderRadius;using NativeRuntime::FhRawCollisionOffset40::BoxVector3;using NativeRuntime::FhRawCollisionOffset40::BoxDot1;using NativeRuntime::FhRawCollisionOffset40::BoxDot2;using NativeRuntime::FhRawCollisionOffset40::BoxDot3;FhRawCollisionVolume()noexcept=default;FhRawCollisionVolume(const FhRawCollisionVolume&)noexcept=default;FhRawCollisionVolume&operator=(const FhRawCollisionVolume&other)noexcept;[[nodiscard]]static FhRawCollisionVolume FromMarshaledBytes(const std::array<std::uint8_t,64>&bytes)noexcept;private:struct MarshaledTag final{};FhRawCollisionVolume(MarshaledTag,FhVolumeType type,Vector3Fx offset4,Vector3Fx offset16,Fixed offset28,Fixed offset32,std::int32_t offset36,Vector3Fx offset40,Fixed offset52,Fixed offset56,Fixed offset60)noexcept;};struct CameraSequenceHeader{const std::uint16_t Count=0;const std::uint8_t Version=0;const std::uint8_t Padding3=0;const std::uint32_t Padding4=0;CameraSequenceHeader()noexcept=default;CameraSequenceHeader(const CameraSequenceHeader&)noexcept=default;CameraSequenceHeader&operator=(const CameraSequenceHeader&other)noexcept;};struct RawCameraSequenceKeyframe{const Vector3Fx Position{};const Vector3Fx ToTarget{};const Fixed Roll{};const Fixed Fov{};const Fixed MoveTime{};const Fixed HoldTime{};const Fixed FadeInTime{};const Fixed FadeOutTime{};const FadeType FadeInType{};const FadeType FadeOutType{};const std::uint8_t PrevFrameInfluence=0;const std::uint8_t AfterFrameInfluence=0;const std::uint8_t UseEntityTransform=0;const std::uint8_t Padding35=0;const std::uint16_t Padding36=0;const std::int16_t PosEntityType=0;const std::int16_t PosEntityId=0;const std::int16_t TargetEntityType=0;const std::int16_t TargetEntityId=0;const std::int16_t MessageTargetType=0;const std::int16_t MessageTargetId=0;const std::uint16_t MessageId=0;const std::uint16_t MessageParam=0;const Fixed Easing{};const std::uint32_t Unused4C=0;const std::uint32_t Unused50=0;const NativeRuntime::ByValByteArray<16>NodeName{};RawCameraSequenceKeyframe()noexcept=default;RawCameraSequenceKeyframe(const RawCameraSequenceKeyframe&)=default;RawCameraSequenceKeyframe&operator=(const RawCameraSequenceKeyframe&other);[[nodiscard]]std::string NodeNameString()const;};struct RawEffect{const std::uint32_t Field0=0;const std::uint32_t FuncCount=0;const std::uint32_t FuncOffset=0;const std::uint32_t Count2=0;const std::uint32_t Offset2=0;const std::uint32_t ElementCount=0;const std::uint32_t ElementOffset=0;RawEffect()noexcept=default;RawEffect(const RawEffect&)noexcept=default;RawEffect&operator=(const RawEffect&other)noexcept;};struct RawEffectElement{const NativeRuntime::ByValByteArray<32>Name{};const NativeRuntime::ByValByteArray<32>ModelName{};const std::uint32_t ParticleCount=0;const std::uint32_t ParticleOffset=0;const Effects::EffElemFlags Flags{};const Vector3Fx Acceleration{};const std::uint32_t ChildEffectId=0;const Fixed Lifespan{};const Fixed DrainTime{};const Fixed BufferTime{};const std::int32_t DrawType=0;const std::uint32_t FuncCount=0;const std::uint32_t FuncOffset=0;RawEffectElement()noexcept=default;RawEffectElement(const RawEffectElement&)=default;RawEffectElement&operator=(const RawEffectElement&other);[[nodiscard]]std::string NameString()const;[[nodiscard]]std::string ModelNameString()const;};struct RawStringTableEntry{const NativeRuntime::ByValByteArray<4>Id{};const std::uint32_t Offset=0;const std::uint16_t Length=0;const std::uint8_t Speed=0;const NativeRuntime::SystemCharAnsiByte Category{};RawStringTableEntry()noexcept=default;RawStringTableEntry(const RawStringTableEntry&)=default;RawStringTableEntry&operator=(const RawStringTableEntry&other);[[nodiscard]]std::string IdString()const;};struct TextFileEntry{const std::uint32_t Offset1=0;const std::uint32_t Offset2=0;const std::uint16_t Length1=0;const std::uint16_t Length2=0;TextFileEntry()noexcept=default;TextFileEntry(const TextFileEntry&)noexcept=default;TextFileEntry&operator=(const TextFileEntry&other)noexcept;};}
-#undef MPHREAD_RAW_NO_UNIQUE_ADDRESS
+namespace MphRead
+{
+    struct RawCollisionVolume;
+    struct FhRawCollisionVolume;
+    namespace NativeRuntime
+    {
+        template <std::size_t N>
+        class ByValByteArray final
+        {
+        public:
+            using value_type = std::uint8_t;
+            using ManagedStorage = ManagedArray<value_type>;
+            class const_iterator final
+            {
+            public:
+                using iterator_category = std::bidirectional_iterator_tag;
+                using iterator_concept = std::bidirectional_iterator_tag;
+                using value_type = std::uint8_t;
+                using difference_type = std::ptrdiff_t;
+                using reference = value_type;
+                using pointer = void;
+                const_iterator() noexcept = default;
+                [[nodiscard]] value_type operator*() const { return (*_storage)[_index]; }
+                const_iterator &operator++() noexcept
+                {
+                    ++_index;
+                    return *this;
+                }
+                const_iterator operator++(int) noexcept
+                {
+                    const_iterator copy = *this;
+                    ++*this;
+                    return copy;
+                }
+                const_iterator &operator--() noexcept
+                {
+                    --_index;
+                    return *this;
+                }
+                const_iterator operator--(int) noexcept
+                {
+                    const_iterator copy = *this;
+                    --*this;
+                    return copy;
+                }
+                [[nodiscard]] friend bool operator==(const const_iterator &left, const const_iterator &right) noexcept { return left._storage == right._storage && left._index == right._index; }
+                [[nodiscard]] friend bool operator!=(const const_iterator &left, const const_iterator &right) noexcept { return !(left == right); }
 
+            private:
+                friend class ByValByteArray<N>;
+                const_iterator(std::shared_ptr<ManagedStorage> storage, std::size_t index) noexcept : _storage(std::move(storage)), _index(index) {}
+                std::shared_ptr<ManagedStorage> _storage{};
+                std::size_t _index = 0;
+            };
+            using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+            ByValByteArray() noexcept = default;
+            explicit ByValByteArray(const std::array<value_type, N> &bytes) { SetMarshaledBytes(bytes); }
+            ByValByteArray(const ByValByteArray &other) : _wire(other.WireBytes())
+            {
+                if (auto storage = other.TryGetStorage())
+                {
+                    SetStorage(std::move(storage));
+                }
+            }
+            ByValByteArray &operator=(const ByValByteArray &other)
+            {
+                if (this != std::addressof(other))
+                {
+                    const std::array<value_type, N> wire = other.WireBytes();
+                    auto storage = other.TryGetStorage();
+                    _wire = wire;
+                    if (storage)
+                    {
+                        SetStorage(std::move(storage));
+                    }
+                    else
+                    {
+                        ClearStorage();
+                    }
+                }
+                return *this;
+            }
+            ~ByValByteArray() noexcept { ClearStorageNoThrow(); }
+            [[nodiscard]] bool IsNull() const { return !TryGetStorage(); }
+            [[nodiscard]] constexpr std::size_t size() const noexcept { return N; }
+            [[nodiscard]] constexpr bool empty() const noexcept { return N == 0; }
+            [[nodiscard]] value_type &operator[](std::size_t index) const { return (*RequireStorageForDereference())[index]; }
+            [[nodiscard]] const_iterator begin() const { return const_iterator(RequireStorageForMarshal(), 0); }
+            [[nodiscard]] const_iterator end() const { return const_iterator(RequireStorageForMarshal(), N); }
+            [[nodiscard]] const_reverse_iterator rbegin() const { return const_reverse_iterator(end()); }
+            [[nodiscard]] const_reverse_iterator rend() const { return const_reverse_iterator(begin()); }
+            void SetMarshaledBytes(const value_type *bytes) const
+            {
+                if (bytes == nullptr)
+                {
+                    throw System::ArgumentNullException("bytes");
+                }
+                auto storage = std::make_shared<ManagedStorage>(N);
+                for (std::size_t index = 0; index < N; ++index)
+                {
+                    _wire[index] = bytes[index];
+                    (*storage)[index] = bytes[index];
+                }
+                SetStorage(std::move(storage));
+            }
+            void SetMarshaledBytes(const std::array<value_type, N> &bytes) const { SetMarshaledBytes(bytes.data()); }
+            [[nodiscard]] const std::array<value_type, N> &WireBytes() const
+            {
+                if (auto storage = TryGetStorage())
+                {
+                    for (std::size_t index = 0; index < N; ++index)
+                    {
+                        _wire[index] = (*storage)[index];
+                    }
+                }
+                return _wire;
+            }
+
+        private:
+            struct Registry final
+            {
+                std::mutex Mutex;
+                std::unordered_map<const ByValByteArray<N> *, std::shared_ptr<ManagedStorage>> Storage;
+            };
+            [[nodiscard]] static Registry &GetRegistry()
+            {
+                static Registry *registry = new Registry();
+                return *registry;
+            }
+            [[nodiscard]] std::shared_ptr<ManagedStorage> TryGetStorage() const
+            {
+                Registry &registry = GetRegistry();
+                std::lock_guard<std::mutex> lock(registry.Mutex);
+                const auto iterator = registry.Storage.find(this);
+                if (iterator == registry.Storage.end())
+                {
+                    return nullptr;
+                }
+                return iterator->second;
+            }
+            void SetStorage(std::shared_ptr<ManagedStorage> storage) const
+            {
+                Registry &registry = GetRegistry();
+                std::lock_guard<std::mutex> lock(registry.Mutex);
+                registry.Storage[this] = std::move(storage);
+            }
+            void ClearStorage() const
+            {
+                Registry &registry = GetRegistry();
+                std::lock_guard<std::mutex> lock(registry.Mutex);
+                registry.Storage.erase(this);
+            }
+            void ClearStorageNoThrow() const noexcept
+            {
+                try
+                {
+                    ClearStorage();
+                }
+                catch (...)
+                {
+                }
+            }
+            [[nodiscard]] std::shared_ptr<ManagedStorage> RequireStorageForMarshal() const
+            {
+                auto storage = TryGetStorage();
+                if (!storage)
+                {
+                    throw System::ArgumentNullException("array");
+                }
+                return storage;
+            }
+            [[nodiscard]] std::shared_ptr<ManagedStorage> RequireStorageForDereference() const
+            {
+                auto storage = TryGetStorage();
+                if (!storage)
+                {
+                    throw System::NullReferenceException();
+                }
+                return storage;
+            }
+            mutable std::array<value_type, N> _wire{};
+        }; /* C# System.Char ABI adapter: RawStringTableEntry marshals Category as one ANSI byte at offset 11, while managed Char is UTF-16. Store unsigned wire byte and expose U+0000..U+00FF as char16_t; char has implementation-defined high-byte signedness and char16_t storage would break the authoritative wire size/offset. */
+        struct SystemCharAnsiByte final
+        {
+            const std::uint8_t Value = 0;
+            constexpr SystemCharAnsiByte() noexcept = default;
+            constexpr explicit SystemCharAnsiByte(std::uint8_t value) noexcept : Value(value) {}
+            [[nodiscard]] constexpr char16_t ManagedValue() const noexcept { return static_cast<char16_t>(Value); }
+            [[nodiscard]] constexpr operator char16_t() const noexcept { return ManagedValue(); }
+        };
+        template <typename TOwner, std::size_t AnchorOffset>
+        [[nodiscard]] const std::byte *ExplicitOwnerBytes(const void *view) noexcept
+        {
+            const std::uintptr_t viewAddress = reinterpret_cast<std::uintptr_t>(view);
+            const std::uintptr_t ownerAddress = viewAddress - AnchorOffset;
+            const auto *owner = reinterpret_cast<const TOwner *>(ownerAddress);
+            return reinterpret_cast<const std::byte *>(owner);
+        }
+        template <typename TOwner, std::size_t AnchorOffset, std::size_t ValueOffset, int Tag>
+        struct ExplicitInt32View final
+        {
+            [[nodiscard]] operator std::int32_t() const noexcept
+            {
+                std::int32_t value = 0;
+                const std::byte *bytes = ExplicitOwnerBytes<TOwner, AnchorOffset>(this);
+                std::memcpy(static_cast<void *>(std::addressof(value)), bytes + ValueOffset, sizeof(value));
+                return value;
+            }
+        };
+        template <typename TOwner, std::size_t AnchorOffset, std::size_t ValueOffset, int Tag>
+        struct ExplicitFixedView final
+        {
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitInt32View<TOwner, AnchorOffset, ValueOffset, Tag> Value{};
+            [[nodiscard]] Fixed Read() const noexcept { return Fixed(static_cast<std::int32_t>(Value)); }
+            [[nodiscard]] float FloatValue() const noexcept { return Read().FloatValue(); }
+            [[nodiscard]] std::string ToString() const { return Read().ToString(); }
+            [[nodiscard]] operator Fixed() const noexcept { return Read(); }
+        };
+        template <typename TOwner, std::size_t AnchorOffset, int Tag>
+        struct ExplicitVector3FxView final
+        {
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<TOwner, AnchorOffset, AnchorOffset, Tag * 3 + 0> X{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<TOwner, AnchorOffset, AnchorOffset + 4, Tag * 3 + 1> Y{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<TOwner, AnchorOffset, AnchorOffset + 8, Tag * 3 + 2> Z{};
+            [[nodiscard]] Vector3Fx Read() const noexcept { return Vector3Fx(static_cast<std::int32_t>(X.Value), static_cast<std::int32_t>(Y.Value), static_cast<std::int32_t>(Z.Value)); }
+            [[nodiscard]] OpenTK::Mathematics::Vector3 ToFloatVector() const noexcept { return Read().ToFloatVector(); }
+            [[nodiscard]] OpenTK::Mathematics::Vector3i ToIntVector() const noexcept { return Read().ToIntVector(); }
+            [[nodiscard]] operator Vector3Fx() const noexcept { return Read(); }
+        };
+        struct RawCollisionTypeSlot
+        {
+            const VolumeType Type{};
+            constexpr RawCollisionTypeSlot() noexcept = default;
+            constexpr explicit RawCollisionTypeSlot(VolumeType type) noexcept : Type(type) {}
+        };
+        struct RawCollisionOffset4
+        {
+            const Vector3Fx CylinderVector{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<RawCollisionVolume, 4, 1> BoxVector1{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<RawCollisionVolume, 4, 2> SpherePosition{};
+            constexpr RawCollisionOffset4() noexcept = default;
+            constexpr explicit RawCollisionOffset4(Vector3Fx value) noexcept : CylinderVector(value) {}
+        };
+        struct RawCollisionOffset16
+        {
+            const Vector3Fx CylinderPosition{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<RawCollisionVolume, 16, 3> BoxVector2{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<RawCollisionVolume, 16, 16, 10> SphereRadius{};
+            constexpr RawCollisionOffset16() noexcept = default;
+            constexpr explicit RawCollisionOffset16(Vector3Fx value) noexcept : CylinderPosition(value) {}
+        };
+        struct RawCollisionOffset28
+        {
+            const Fixed CylinderRadius{};
+            const Fixed CylinderDot{};
+            const std::int32_t Padding24 = 0;
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<RawCollisionVolume, 28, 4> BoxVector3{};
+            constexpr RawCollisionOffset28() noexcept = default;
+            constexpr RawCollisionOffset28(Fixed radius, Fixed dot, std::int32_t padding = 0) noexcept : CylinderRadius(radius), CylinderDot(dot), Padding24(padding) {}
+            constexpr explicit RawCollisionOffset28(Vector3Fx value) noexcept : CylinderRadius(value.X.Value), CylinderDot(value.Y.Value), Padding24(value.Z.Value) {}
+        };
+        struct RawCollisionOffset40
+        {
+            const Vector3Fx BoxPosition{};
+            const Fixed BoxDot1{};
+            const Fixed BoxDot2{};
+            const Fixed BoxDot3{};
+            constexpr RawCollisionOffset40() noexcept = default;
+            constexpr RawCollisionOffset40(Vector3Fx position, Fixed dot1, Fixed dot2, Fixed dot3) noexcept : BoxPosition(position), BoxDot1(dot1), BoxDot2(dot2), BoxDot3(dot3) {}
+        };
+        struct FhRawCollisionTypeSlot
+        {
+            const FhVolumeType Type{};
+            constexpr FhRawCollisionTypeSlot() noexcept = default;
+            constexpr explicit FhRawCollisionTypeSlot(FhVolumeType type) noexcept : Type(type) {}
+        };
+        struct FhRawCollisionOffset4
+        {
+            const Vector3Fx CylinderPosition{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<FhRawCollisionVolume, 4, 11> BoxPosition{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<FhRawCollisionVolume, 4, 12> SpherePosition{};
+            constexpr FhRawCollisionOffset4() noexcept = default;
+            constexpr explicit FhRawCollisionOffset4(Vector3Fx value) noexcept : CylinderPosition(value) {}
+        };
+        struct FhRawCollisionOffset16
+        {
+            const Vector3Fx CylinderVector{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<FhRawCollisionVolume, 16, 13> BoxVector1{};
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitFixedView<FhRawCollisionVolume, 16, 16, 40> SphereRadius{};
+            constexpr FhRawCollisionOffset16() noexcept = default;
+            constexpr explicit FhRawCollisionOffset16(Vector3Fx value) noexcept : CylinderVector(value) {}
+        };
+        struct FhRawCollisionOffset28
+        {
+            const Fixed CylinderDot{};
+            const Fixed CylinderRadius{};
+            const std::int32_t Padding24 = 0;
+            MPHREAD_RAW_NO_UNIQUE_ADDRESS const ExplicitVector3FxView<FhRawCollisionVolume, 28, 14> BoxVector2{};
+            constexpr FhRawCollisionOffset28() noexcept = default;
+            constexpr FhRawCollisionOffset28(Fixed dot, Fixed radius, std::int32_t padding = 0) noexcept : CylinderDot(dot), CylinderRadius(radius), Padding24(padding) {}
+        };
+        struct FhRawCollisionOffset40
+        {
+            const Vector3Fx BoxVector3{};
+            const Fixed BoxDot1{};
+            const Fixed BoxDot2{};
+            const Fixed BoxDot3{};
+            constexpr FhRawCollisionOffset40() noexcept = default;
+            constexpr FhRawCollisionOffset40(Vector3Fx vector3, Fixed dot1, Fixed dot2, Fixed dot3) noexcept : BoxVector3(vector3), BoxDot1(dot1), BoxDot2(dot2), BoxDot3(dot3) {}
+        };
+    }
+    class Sizes final
+    {
+    public:
+        static const std::int32_t Header;
+        static const std::int32_t Texture;
+        static const std::int32_t Palette;
+        static const std::int32_t Material;
+        static const std::int32_t Node;
+        static const std::int32_t Mesh;
+        static const std::int32_t Dlist;
+        static const std::int32_t EntityHeader;
+        static const std::int32_t EntityEntry;
+        static const std::int32_t FhEntityEntry;
+        static const std::int32_t EntityDataHeader;
+        static const std::int32_t JumpPadEntityData;
+        static const std::int32_t AnimationHeader;
+        static const std::int32_t NodeAnimation;
+        static const std::int32_t CameraSequenceHeader;
+        static const std::int32_t CameraSequenceKeyframe;
+        static const std::int32_t CollisionHeader;
+        static const std::int32_t FhCollisionHeader;
+        Sizes() = delete;
+    };
+    struct RawMesh
+    {
+        const std::uint16_t MaterialId = 0;
+        const std::uint16_t DlistId = 0;
+        RawMesh() noexcept = default;
+        RawMesh(const RawMesh &) noexcept = default;
+        RawMesh &operator=(const RawMesh &other) noexcept;
+    };
+    struct DisplayList
+    {
+        const std::uint32_t Offset = 0;
+        const std::uint32_t Size = 0;
+        const Vector3Fx MinBounds{};
+        const Vector3Fx MaxBounds{};
+        DisplayList() noexcept = default;
+        DisplayList(const DisplayList &) noexcept = default;
+        DisplayList &operator=(const DisplayList &other) noexcept;
+    };
+    struct RawMaterial
+    {
+        const NativeRuntime::ByValByteArray<64> Name{};
+        const std::uint8_t Lighting = 0;
+        const CullingMode Culling{};
+        const std::uint8_t Alpha = 0;
+        const std::uint8_t Wireframe = 0;
+        const std::int16_t PaletteId = 0;
+        const std::int16_t TextureId = 0;
+        const RepeatMode XRepeat{};
+        const RepeatMode YRepeat{};
+        const ColorRgb Diffuse{};
+        const ColorRgb Ambient{};
+        const ColorRgb Specular{};
+        const std::uint8_t Padding53 = 0;
+        const MphRead::PolygonMode PolygonMode{};
+        const MphRead::RenderMode RenderMode{};
+        const std::uint8_t AnimationFlags = 0;
+        const std::uint16_t Padding5A = 0;
+        const TexgenMode TexcoordTransformMode{};
+        const std::uint16_t TexcoordAnimationId = 0;
+        const std::uint16_t Padding62 = 0;
+        const std::uint32_t MatrixId = 0;
+        const Fixed ScaleS{};
+        const Fixed ScaleT{};
+        const std::uint16_t RotateZ = 0;
+        const std::uint16_t Padding72 = 0;
+        const Fixed TranslateS{};
+        const Fixed TranslateT{};
+        const std::uint16_t MaterialAnimationId = 0;
+        const std::uint16_t TextureAnimationId = 0;
+        const std::uint8_t PackedRepeatMode = 0;
+        const std::uint8_t Padding81 = 0;
+        const std::uint16_t Padding82 = 0;
+        RawMaterial() noexcept = default;
+        RawMaterial(const RawMaterial &) = default;
+        RawMaterial &operator=(const RawMaterial &other);
+        [[nodiscard]] std::string NameString() const;
+    };
+    struct AnimationHeader
+    {
+        const std::uint32_t NodeGroupOffset = 0;
+        const std::uint32_t UnusedGroupOffset = 0;
+        const std::uint32_t MaterialGroupOffset = 0;
+        const std::uint32_t TexcoordGroupOffset = 0;
+        const std::uint32_t TextureGroupOffset = 0;
+        const std::uint16_t Count = 0;
+        const std::uint16_t Padding16 = 0;
+        AnimationHeader() noexcept = default;
+        AnimationHeader(const AnimationHeader &) noexcept = default;
+        AnimationHeader &operator=(const AnimationHeader &other) noexcept;
+    };
+    struct RawMaterialAnimationGroup
+    {
+        const std::uint32_t FrameCount = 0;
+        const std::uint32_t ColorLutOffset = 0;
+        const std::uint32_t AnimationCount = 0;
+        const std::uint32_t AnimationOffset = 0;
+        const std::uint16_t AnimationFrame = 0;
+        const std::uint16_t Unused12 = 0;
+        RawMaterialAnimationGroup() noexcept = default;
+        RawMaterialAnimationGroup(const RawMaterialAnimationGroup &) noexcept = default;
+        RawMaterialAnimationGroup &operator=(const RawMaterialAnimationGroup &other) noexcept;
+    };
+    struct RawTextureAnimationGroup
+    {
+        const std::uint16_t FrameCount = 0;
+        const std::uint16_t FrameIndexCount = 0;
+        const std::uint16_t TextureIdCount = 0;
+        const std::uint16_t PaletteIdCount = 0;
+        const std::uint16_t AnimationCount = 0;
+        const std::uint16_t UnusedA = 0;
+        const std::uint32_t FrameIndexOffset = 0;
+        const std::uint32_t TextureIdOffset = 0;
+        const std::uint32_t PaletteIdOffset = 0;
+        const std::uint32_t AnimationOffset = 0;
+        const std::uint16_t AnimationFrame = 0;
+        const std::uint16_t Unused1C = 0;
+        RawTextureAnimationGroup() noexcept = default;
+        RawTextureAnimationGroup(const RawTextureAnimationGroup &) noexcept = default;
+        RawTextureAnimationGroup &operator=(const RawTextureAnimationGroup &other) noexcept;
+    };
+    struct RawTexcoordAnimationGroup
+    {
+        const std::uint32_t FrameCount = 0;
+        const std::uint32_t ScaleLutOffset = 0;
+        const std::uint32_t RotateLutOffset = 0;
+        const std::uint32_t TranslateLutOffset = 0;
+        const std::uint32_t AnimationCount = 0;
+        const std::uint32_t AnimationOffset = 0;
+        const std::uint16_t AnimationFrame = 0;
+        const std::uint16_t Unused1A = 0;
+        RawTexcoordAnimationGroup() noexcept = default;
+        RawTexcoordAnimationGroup(const RawTexcoordAnimationGroup &) noexcept = default;
+        RawTexcoordAnimationGroup &operator=(const RawTexcoordAnimationGroup &other) noexcept;
+    };
+    struct RawNodeAnimationGroup
+    {
+        const std::uint32_t FrameCount = 0;
+        const std::uint32_t ScaleLutOffset = 0;
+        const std::uint32_t RotateLutOffset = 0;
+        const std::uint32_t TranslateLutOffset = 0;
+        const std::uint32_t AnimationOffset = 0;
+        RawNodeAnimationGroup() noexcept = default;
+        RawNodeAnimationGroup(const RawNodeAnimationGroup &) noexcept = default;
+        RawNodeAnimationGroup &operator=(const RawNodeAnimationGroup &other) noexcept;
+    };
+    struct MaterialAnimation
+    {
+        const NativeRuntime::ByValByteArray<64> Name{};
+        const std::uint32_t Unused40 = 0;
+        const std::uint8_t DiffuseBlendR = 0;
+        const std::uint8_t DiffuseBlendG = 0;
+        const std::uint8_t DiffuseBlendB = 0;
+        const std::uint8_t Unused47 = 0;
+        const std::uint16_t DiffuseLutLengthR = 0;
+        const std::uint16_t DiffuseLutLengthG = 0;
+        const std::uint16_t DiffuseLutLengthB = 0;
+        const std::uint16_t DiffuseLutIndexR = 0;
+        const std::uint16_t DiffuseLutIndexG = 0;
+        const std::uint16_t DiffuseLutIndexB = 0;
+        const std::uint8_t AmbientBlendR = 0;
+        const std::uint8_t AmbientBlendG = 0;
+        const std::uint8_t AmbientBlendB = 0;
+        const std::uint8_t Unused57 = 0;
+        const std::uint16_t AmbientLutLengthR = 0;
+        const std::uint16_t AmbientLutLengthG = 0;
+        const std::uint16_t AmbientLutLengthB = 0;
+        const std::uint16_t AmbientLutIndexR = 0;
+        const std::uint16_t AmbientLutIndexG = 0;
+        const std::uint16_t AmbientLutIndexB = 0;
+        const std::uint8_t SpecularBlendR = 0;
+        const std::uint8_t SpecularBlendG = 0;
+        const std::uint8_t SpecularBlendB = 0;
+        const std::uint8_t Unused67 = 0;
+        const std::uint16_t SpecularLutLengthR = 0;
+        const std::uint16_t SpecularLutLengthG = 0;
+        const std::uint16_t SpecularLutLengthB = 0;
+        const std::uint16_t SpecularLutIndexR = 0;
+        const std::uint16_t SpecularLutIndexG = 0;
+        const std::uint16_t SpecularLutIndexB = 0;
+        const std::uint32_t Unused74 = 0;
+        const std::uint32_t Unused78 = 0;
+        const std::uint32_t Unused7C = 0;
+        const std::uint32_t Unused80 = 0;
+        const std::uint8_t AlphaBlend = 0;
+        const std::uint8_t Unused85 = 0;
+        const std::uint16_t AlphaLutLength = 0;
+        const std::uint16_t AlphaLutIndex = 0;
+        const std::uint16_t MaterialId = 0;
+        MaterialAnimation() noexcept = default;
+        MaterialAnimation(const MaterialAnimation &) = default;
+        MaterialAnimation &operator=(const MaterialAnimation &other);
+        [[nodiscard]] std::string NameString() const;
+    };
+    struct TextureAnimation
+    {
+        const NativeRuntime::ByValByteArray<32> Name{};
+        const std::uint16_t Count = 0;
+        const std::uint16_t StartIndex = 0;
+        const std::uint16_t MinimumPaletteId = 0;
+        const std::uint16_t MaterialId = 0;
+        const std::uint16_t MinimumTextureId = 0;
+        const std::uint16_t Field2A = 0;
+        TextureAnimation() noexcept = default;
+        TextureAnimation(const TextureAnimation &) = default;
+        TextureAnimation &operator=(const TextureAnimation &other);
+    };
+    struct TexcoordAnimation
+    {
+        const NativeRuntime::ByValByteArray<32> Name{};
+        const std::uint8_t ScaleBlendS = 0;
+        const std::uint8_t ScaleBlendT = 0;
+        const std::uint16_t ScaleLutLengthS = 0;
+        const std::uint16_t ScaleLutLengthT = 0;
+        const std::uint16_t ScaleLutIndexS = 0;
+        const std::uint16_t ScaleLutIndexT = 0;
+        const std::uint8_t RotateBlendZ = 0;
+        const std::uint8_t Unused2B = 0;
+        const std::uint16_t RotateLutLengthZ = 0;
+        const std::uint16_t RotateLutIndexZ = 0;
+        const std::uint8_t TranslateBlendS = 0;
+        const std::uint8_t TranslateBlendT = 0;
+        const std::uint16_t TranslateLutLengthS = 0;
+        const std::uint16_t TranslateLutLengthT = 0;
+        const std::uint16_t TranslateLutIndexS = 0;
+        const std::uint16_t TranslateLutIndexT = 0;
+        const std::uint16_t Padding3A = 0;
+        TexcoordAnimation() noexcept = default;
+        TexcoordAnimation(const TexcoordAnimation &) = default;
+        TexcoordAnimation &operator=(const TexcoordAnimation &other);
+        [[nodiscard]] std::string NameString() const;
+    };
+    struct NodeAnimation
+    {
+        const std::uint8_t ScaleBlendX = 0;
+        const std::uint8_t ScaleBlendY = 0;
+        const std::uint8_t ScaleBlendZ = 0;
+        const std::uint8_t Flags = 0;
+        const std::uint16_t ScaleLutLengthX = 0;
+        const std::uint16_t ScaleLutLengthY = 0;
+        const std::uint16_t ScaleLutLengthZ = 0;
+        const std::uint16_t ScaleLutIndexX = 0;
+        const std::uint16_t ScaleLutIndexY = 0;
+        const std::uint16_t ScaleLutIndexZ = 0;
+        const std::uint8_t RotateBlendX = 0;
+        const std::uint8_t RotateBlendY = 0;
+        const std::uint8_t RotateBlendZ = 0;
+        const std::uint8_t Padding13 = 0;
+        const std::uint16_t RotateLutLengthX = 0;
+        const std::uint16_t RotateLutLengthY = 0;
+        const std::uint16_t RotateLutLengthZ = 0;
+        const std::uint16_t RotateLutIndexX = 0;
+        const std::uint16_t RotateLutIndexY = 0;
+        const std::uint16_t RotateLutIndexZ = 0;
+        const std::uint8_t TranslateBlendX = 0;
+        const std::uint8_t TranslateBlendY = 0;
+        const std::uint8_t TranslateBlendZ = 0;
+        const std::uint8_t Padding23 = 0;
+        const std::uint16_t TranslateLutLengthX = 0;
+        const std::uint16_t TranslateLutLengthY = 0;
+        const std::uint16_t TranslateLutLengthZ = 0;
+        const std::uint16_t TranslateLutIndexX = 0;
+        const std::uint16_t TranslateLutIndexY = 0;
+        const std::uint16_t TranslateLutIndexZ = 0;
+        NodeAnimation() noexcept = default;
+        NodeAnimation(const NodeAnimation &) noexcept = default;
+        NodeAnimation &operator=(const NodeAnimation &other) noexcept;
+    };
+    struct Texture
+    {
+        const TextureFormat Format{};
+        const std::uint8_t Padding1 = 0;
+        const std::uint16_t Width = 0;
+        const std::uint16_t Height = 0;
+        const std::uint16_t Padding6 = 0;
+        const std::uint32_t ImageOffset = 0;
+        const std::uint32_t ImageSize = 0;
+        const std::uint32_t UnusedOffset = 0;
+        const std::uint32_t UnusedCount = 0;
+        const std::uint32_t VramOffset = 0;
+        const std::uint32_t Opaque = 0;
+        const std::uint32_t SkipVram = 0;
+        const std::uint8_t PackedSize = 0;
+        const std::uint8_t NativeTextureFormat = 0;
+        const std::uint16_t ObjectRef = 0;
+        Texture() noexcept = default;
+        Texture(TextureFormat format, std::uint16_t width, std::uint16_t height) noexcept;
+        Texture(const Texture &) noexcept = default;
+        Texture &operator=(const Texture &other) noexcept;
+    };
+    struct Palette
+    {
+        const std::uint32_t Offset = 0;
+        const std::uint32_t Size = 0;
+        const std::uint32_t VramOffset = 0;
+        const std::uint32_t ObjectRef = 0;
+        Palette() noexcept = default;
+        Palette(const Palette &) noexcept = default;
+        Palette &operator=(const Palette &other) noexcept;
+    };
+    struct Header
+    {
+        const std::uint32_t ScaleFactor = 0;
+        const Fixed ScaleBase{};
+        const std::uint32_t PrimitiveCount = 0;
+        const std::uint32_t VertexCount = 0;
+        const std::uint32_t MaterialOffset = 0;
+        const std::uint32_t DlistOffset = 0;
+        const std::uint32_t NodeOffset = 0;
+        const std::uint16_t NodeWeightCount = 0;
+        const std::uint8_t Flags = 0;
+        const std::uint8_t Padding1F = 0;
+        const std::uint32_t NodeWeightOffset = 0;
+        const std::uint32_t MeshOffset = 0;
+        const std::uint16_t TextureCount = 0;
+        const std::uint16_t Padding2A = 0;
+        const std::uint32_t TextureOffset = 0;
+        const std::uint16_t PaletteCount = 0;
+        const std::uint16_t Padding32 = 0;
+        const std::uint32_t PaletteOffset = 0;
+        const std::uint32_t NodePosCounts = 0;
+        const std::uint32_t NodePosScales = 0;
+        const std::uint32_t NodeInitialPosition = 0;
+        const std::uint32_t NodePosition = 0;
+        const std::uint16_t MaterialCount = 0;
+        const std::uint16_t NodeCount = 0;
+        const std::uint32_t TextureMatrixOffset = 0;
+        const std::uint32_t NodeAnimationOffset = 0;
+        const std::uint32_t TextureCoordinateAnimations = 0;
+        const std::uint32_t MaterialAnimations = 0;
+        const std::uint32_t TextureAnimations = 0;
+        const std::uint16_t MeshCount = 0;
+        const std::uint16_t TextureMatrixCount = 0;
+        Header() noexcept = default;
+        Header(const Header &) noexcept = default;
+        Header &operator=(const Header &other) noexcept;
+    };
+    struct RawNode
+    {
+        const NativeRuntime::ByValByteArray<64> Name{};
+        const std::int16_t ParentId = 0;
+        const std::int16_t ChildId = 0;
+        const std::int16_t NextId = 0;
+        const std::uint16_t Padding46 = 0;
+        const std::uint32_t Enabled = 0;
+        const std::uint16_t MeshCount = 0;
+        const std::uint16_t MeshId = 0;
+        const Vector3Fx Scale{};
+        const std::int16_t AngleX = 0;
+        const std::int16_t AngleY = 0;
+        const std::int16_t AngleZ = 0;
+        const std::uint16_t Padding62 = 0;
+        const Vector3Fx Position{};
+        const Fixed BoundingRadius{};
+        const Vector3Fx MinBounds{};
+        const Vector3Fx MaxBounds{};
+        const MphRead::BillboardMode BillboardMode{};
+        const std::uint8_t Padding8D = 0;
+        const std::uint16_t Padding8E = 0;
+        const Matrix43Fx Transform{};
+        const std::uint32_t BeforeTransform = 0;
+        const std::uint32_t AfterTransform = 0;
+        const std::uint32_t UnusedC8 = 0;
+        const std::uint32_t UnusedCC = 0;
+        const std::uint32_t UnusedD0 = 0;
+        const std::uint32_t UnusedD4 = 0;
+        const std::uint32_t UnusedD8 = 0;
+        const std::uint32_t UnusedDC = 0;
+        const std::uint32_t UnusedE0 = 0;
+        const std::uint32_t UnusedE4 = 0;
+        const std::uint32_t UnusedE8 = 0;
+        const std::uint32_t UnusedEC = 0;
+        RawNode() noexcept = default;
+        RawNode(const RawNode &) = default;
+        RawNode &operator=(const RawNode &other);
+        [[nodiscard]] std::string NameString() const;
+    };
+    struct RawCollisionVolume : private NativeRuntime::RawCollisionTypeSlot, private NativeRuntime::RawCollisionOffset4, private NativeRuntime::RawCollisionOffset16, private NativeRuntime::RawCollisionOffset28, private NativeRuntime::RawCollisionOffset40
+    {
+    public:
+        using NativeRuntime::RawCollisionOffset16::BoxVector2;
+        using NativeRuntime::RawCollisionOffset16::CylinderPosition;
+        using NativeRuntime::RawCollisionOffset16::SphereRadius;
+        using NativeRuntime::RawCollisionOffset28::BoxVector3;
+        using NativeRuntime::RawCollisionOffset28::CylinderDot;
+        using NativeRuntime::RawCollisionOffset28::CylinderRadius;
+        using NativeRuntime::RawCollisionOffset4::BoxVector1;
+        using NativeRuntime::RawCollisionOffset4::CylinderVector;
+        using NativeRuntime::RawCollisionOffset4::SpherePosition;
+        using NativeRuntime::RawCollisionOffset40::BoxDot1;
+        using NativeRuntime::RawCollisionOffset40::BoxDot2;
+        using NativeRuntime::RawCollisionOffset40::BoxDot3;
+        using NativeRuntime::RawCollisionOffset40::BoxPosition;
+        using NativeRuntime::RawCollisionTypeSlot::Type;
+        RawCollisionVolume() noexcept = default;
+        RawCollisionVolume(Vector3Fx boxVector1, Vector3Fx boxVector2, Vector3Fx boxVector3, Vector3Fx boxPosition, Fixed boxDot1, Fixed boxDot2, Fixed boxDot3) noexcept;
+        RawCollisionVolume(Vector3Fx cylinderVector, Vector3Fx cylinderPosition, Fixed cylinderRadius, Fixed cylinderDot) noexcept;
+        RawCollisionVolume(Vector3Fx spherePosition, Fixed sphereRadius) noexcept;
+        RawCollisionVolume(const RawCollisionVolume &) noexcept = default;
+        RawCollisionVolume &operator=(const RawCollisionVolume &other) noexcept;
+        [[nodiscard]] static RawCollisionVolume FromMarshaledBytes(const std::array<std::uint8_t, 64> &bytes) noexcept;
+
+    private:
+        struct MarshaledTag final
+        {
+        };
+        RawCollisionVolume(MarshaledTag, VolumeType type, Vector3Fx offset4, Vector3Fx offset16, Fixed offset28, Fixed offset32, std::int32_t offset36, Vector3Fx offset40, Fixed offset52, Fixed offset56, Fixed offset60) noexcept;
+    };
+    struct FhRawCollisionVolume : private NativeRuntime::FhRawCollisionTypeSlot, private NativeRuntime::FhRawCollisionOffset4, private NativeRuntime::FhRawCollisionOffset16, private NativeRuntime::FhRawCollisionOffset28, private NativeRuntime::FhRawCollisionOffset40
+    {
+    public:
+        using NativeRuntime::FhRawCollisionOffset16::BoxVector1;
+        using NativeRuntime::FhRawCollisionOffset16::CylinderVector;
+        using NativeRuntime::FhRawCollisionOffset16::SphereRadius;
+        using NativeRuntime::FhRawCollisionOffset28::BoxVector2;
+        using NativeRuntime::FhRawCollisionOffset28::CylinderDot;
+        using NativeRuntime::FhRawCollisionOffset28::CylinderRadius;
+        using NativeRuntime::FhRawCollisionOffset4::BoxPosition;
+        using NativeRuntime::FhRawCollisionOffset4::CylinderPosition;
+        using NativeRuntime::FhRawCollisionOffset4::SpherePosition;
+        using NativeRuntime::FhRawCollisionOffset40::BoxDot1;
+        using NativeRuntime::FhRawCollisionOffset40::BoxDot2;
+        using NativeRuntime::FhRawCollisionOffset40::BoxDot3;
+        using NativeRuntime::FhRawCollisionOffset40::BoxVector3;
+        using NativeRuntime::FhRawCollisionTypeSlot::Type;
+        FhRawCollisionVolume() noexcept = default;
+        FhRawCollisionVolume(const FhRawCollisionVolume &) noexcept = default;
+        FhRawCollisionVolume &operator=(const FhRawCollisionVolume &other) noexcept;
+        [[nodiscard]] static FhRawCollisionVolume FromMarshaledBytes(const std::array<std::uint8_t, 64> &bytes) noexcept;
+
+    private:
+        struct MarshaledTag final
+        {
+        };
+        FhRawCollisionVolume(MarshaledTag, FhVolumeType type, Vector3Fx offset4, Vector3Fx offset16, Fixed offset28, Fixed offset32, std::int32_t offset36, Vector3Fx offset40, Fixed offset52, Fixed offset56, Fixed offset60) noexcept;
+    };
+    struct CameraSequenceHeader
+    {
+        const std::uint16_t Count = 0;
+        const std::uint8_t Version = 0;
+        const std::uint8_t Padding3 = 0;
+        const std::uint32_t Padding4 = 0;
+        CameraSequenceHeader() noexcept = default;
+        CameraSequenceHeader(const CameraSequenceHeader &) noexcept = default;
+        CameraSequenceHeader &operator=(const CameraSequenceHeader &other) noexcept;
+    };
+    struct RawCameraSequenceKeyframe
+    {
+        const Vector3Fx Position{};
+        const Vector3Fx ToTarget{};
+        const Fixed Roll{};
+        const Fixed Fov{};
+        const Fixed MoveTime{};
+        const Fixed HoldTime{};
+        const Fixed FadeInTime{};
+        const Fixed FadeOutTime{};
+        const FadeType FadeInType{};
+        const FadeType FadeOutType{};
+        const std::uint8_t PrevFrameInfluence = 0;
+        const std::uint8_t AfterFrameInfluence = 0;
+        const std::uint8_t UseEntityTransform = 0;
+        const std::uint8_t Padding35 = 0;
+        const std::uint16_t Padding36 = 0;
+        const std::int16_t PosEntityType = 0;
+        const std::int16_t PosEntityId = 0;
+        const std::int16_t TargetEntityType = 0;
+        const std::int16_t TargetEntityId = 0;
+        const std::int16_t MessageTargetType = 0;
+        const std::int16_t MessageTargetId = 0;
+        const std::uint16_t MessageId = 0;
+        const std::uint16_t MessageParam = 0;
+        const Fixed Easing{};
+        const std::uint32_t Unused4C = 0;
+        const std::uint32_t Unused50 = 0;
+        const NativeRuntime::ByValByteArray<16> NodeName{};
+        RawCameraSequenceKeyframe() noexcept = default;
+        RawCameraSequenceKeyframe(const RawCameraSequenceKeyframe &) = default;
+        RawCameraSequenceKeyframe &operator=(const RawCameraSequenceKeyframe &other);
+        [[nodiscard]] std::string NodeNameString() const;
+    };
+    struct RawEffect
+    {
+        const std::uint32_t Field0 = 0;
+        const std::uint32_t FuncCount = 0;
+        const std::uint32_t FuncOffset = 0;
+        const std::uint32_t Count2 = 0;
+        const std::uint32_t Offset2 = 0;
+        const std::uint32_t ElementCount = 0;
+        const std::uint32_t ElementOffset = 0;
+        RawEffect() noexcept = default;
+        RawEffect(const RawEffect &) noexcept = default;
+        RawEffect &operator=(const RawEffect &other) noexcept;
+    };
+    struct RawEffectElement
+    {
+        const NativeRuntime::ByValByteArray<32> Name{};
+        const NativeRuntime::ByValByteArray<32> ModelName{};
+        const std::uint32_t ParticleCount = 0;
+        const std::uint32_t ParticleOffset = 0;
+        const Effects::EffElemFlags Flags{};
+        const Vector3Fx Acceleration{};
+        const std::uint32_t ChildEffectId = 0;
+        const Fixed Lifespan{};
+        const Fixed DrainTime{};
+        const Fixed BufferTime{};
+        const std::int32_t DrawType = 0;
+        const std::uint32_t FuncCount = 0;
+        const std::uint32_t FuncOffset = 0;
+        RawEffectElement() noexcept = default;
+        RawEffectElement(const RawEffectElement &) = default;
+        RawEffectElement &operator=(const RawEffectElement &other);
+        [[nodiscard]] std::string NameString() const;
+        [[nodiscard]] std::string ModelNameString() const;
+    };
+    struct RawStringTableEntry
+    {
+        const NativeRuntime::ByValByteArray<4> Id{};
+        const std::uint32_t Offset = 0;
+        const std::uint16_t Length = 0;
+        const std::uint8_t Speed = 0;
+        const NativeRuntime::SystemCharAnsiByte Category{};
+        RawStringTableEntry() noexcept = default;
+        RawStringTableEntry(const RawStringTableEntry &) = default;
+        RawStringTableEntry &operator=(const RawStringTableEntry &other);
+        [[nodiscard]] std::string IdString() const;
+    };
+    struct TextFileEntry
+    {
+        const std::uint32_t Offset1 = 0;
+        const std::uint32_t Offset2 = 0;
+        const std::uint16_t Length1 = 0;
+        const std::uint16_t Length2 = 0;
+        TextFileEntry() noexcept = default;
+        TextFileEntry(const TextFileEntry &) noexcept = default;
+        TextFileEntry &operator=(const TextFileEntry &other) noexcept;
+    };
+}
+#undef MPHREAD_RAW_NO_UNIQUE_ADDRESS

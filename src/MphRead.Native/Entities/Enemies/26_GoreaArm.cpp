@@ -370,7 +370,7 @@ namespace MphRead::Entities::Enemies
             position = upperArmPos;
             Vector3 between = elbowPos - upperArmPos;
             up = between;
-            facing = Vector3::UnitZ;
+            facing = Vector3(0.0F, 0.0F, 1.0F);
             if (LengthSquared(between) > 1.0F / 128.0F
                 && LengthSquared(upperArmFacing) > 1.0F / 128.0F)
             {

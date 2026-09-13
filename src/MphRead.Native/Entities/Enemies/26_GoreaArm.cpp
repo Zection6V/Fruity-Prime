@@ -1,6 +1,7 @@
 #include "26_GoreaArm.hpp"
 
 #include "../../Formats/Effects.hpp"
+#include "../../MemoryArrays.hpp"
 #include "../../Metadata/Enemies.hpp"
 #include "../../Metadata/SoundMeta.hpp"
 #include "../../Metadata/Weapons.hpp"
@@ -43,12 +44,23 @@ namespace MphRead::Entities::Enemies
         }
 
         template <typename T>
-        [[nodiscard]] const T& ManagedListAt(
+        [[nodiscard]] const T& ManagedArrayAt(
             const std::vector<T>& values, std::int32_t index)
         {
             if (index < 0 || static_cast<std::size_t>(index) >= values.size())
             {
                 throw SceneDetail::IndexOutOfRangeException();
+            }
+            return values[static_cast<std::size_t>(index)];
+        }
+
+        template <typename T>
+        [[nodiscard]] const T& ManagedListAt(
+            const std::vector<T>& values, std::int32_t index)
+        {
+            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+            {
+                throw Memory::Detail::ArgumentOutOfRangeException();
             }
             return values[static_cast<std::size_t>(index)];
         }
@@ -85,23 +97,11 @@ namespace MphRead::Entities::Enemies
 
     Enemy26Entity::Enemy26Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
-        : GoreaEnemyEntityBase(data, nodeRef, scene)
+        : GoreaEnemyEntityBase(data, nodeRef, scene),
+          ScanId(_scanId),
+          EquipInfo(_equipInfo),
+          ColorTimer(_colorTimer)
     {
-    }
-
-    std::int32_t Enemy26Entity::ScanId() const noexcept
-    {
-        return _scanId;
-    }
-
-    std::shared_ptr<MphRead::EquipInfo> Enemy26Entity::EquipInfo() const noexcept
-    {
-        return _equipInfo;
-    }
-
-    std::int32_t Enemy26Entity::ColorTimer() const noexcept
-    {
-        return _colorTimer;
     }
 
     void Enemy26Entity::EnemyInitialize()
@@ -115,7 +115,7 @@ namespace MphRead::Entities::Enemies
             _state1 = _state2 = 255;
 
             ModelInstance& ownerModel
-                = RequireReference(_owner->GetModels().at(0));
+                = RequireReference(ManagedListAt(_owner->GetModels(), 0));
             Model& model = RequireReference(ownerModel.Model());
             _shoulderNode = model.GetNodeByName(
                 Index == 0 ? "L_Shoulder" : "R_Shoulder");
@@ -150,7 +150,7 @@ namespace MphRead::Entities::Enemies
     void Enemy26Entity::Activate()
     {
         const std::int32_t index = static_cast<std::int32_t>(EnemyType::GoreaArm);
-        _scanId = ManagedListAt(Metadata::EnemyScanIds, index);
+        _scanId = ManagedArrayAt(Metadata::EnemyScanIds, index);
         _health = 65535;
         _healthMax = 120;
         Flags |= EnemyFlags::CollidePlayer;
@@ -175,11 +175,11 @@ namespace MphRead::Entities::Enemies
     void Enemy26Entity::GetElbowNodeVectors(
         Vector3& position, Vector3& up, Vector3& facing)
     {
-        GetNodeVectors(_elbowNode, position, up, facing);
+        GetNodeVectors(_elbowNode.get(), position, up, facing);
     }
 
     void Enemy26Entity::GetNodeVectors(
-        const std::shared_ptr<Node>& node,
+        Node* node,
         Vector3& position, Vector3& up, Vector3& facing)
     {
         Matrix4 transform = GetNodeTransform(_gorea1A, node);
@@ -195,7 +195,7 @@ namespace MphRead::Entities::Enemies
             return;
         }
 
-        Matrix4 transform = GetNodeTransform(_gorea1A, _shoulderNode);
+        Matrix4 transform = GetNodeTransform(_gorea1A, _shoulderNode.get());
         Position = transform.Row3().Xyz();
 
         if (_damageEffect)
@@ -308,7 +308,7 @@ namespace MphRead::Entities::Enemies
                 = Index == 0 ? "L_ShoulderTarget" : "R_ShoulderTarget";
             Enemy24Entity& gorea = RequireReference(_gorea1A);
             ModelInstance& instance
-                = RequireReference(gorea.GetModels().at(0));
+                = RequireReference(ManagedListAt(gorea.GetModels(), 0));
             Model& model = RequireReference(instance.Model());
             Material& material
                 = RequireReference(model.GetMaterialByName(matName));
@@ -351,7 +351,7 @@ namespace MphRead::Entities::Enemies
 
         if (Index == 0)
         {
-            GetNodeVectors(_upperArmNode, position, up, facing);
+            GetNodeVectors(_upperArmNode.get(), position, up, facing);
         }
         else
         {
@@ -364,7 +364,7 @@ namespace MphRead::Entities::Enemies
             Vector3 ignoredUpperArmUp{};
             Vector3 upperArmFacing{};
             GetNodeVectors(
-                _upperArmNode,
+                _upperArmNode.get(),
                 upperArmPos, ignoredUpperArmUp, upperArmFacing);
 
             position = upperArmPos;

@@ -102,10 +102,12 @@ namespace MphRead::Entities
         }
     };
 
-    template <typename T, typename = void>
+    template <typename T>
+        requires std::is_convertible_v<T*, EnemyInstanceEntity*>
     struct EnemyBehavior;
 
-    template <typename T, typename = void>
+    template <typename T>
+        requires std::is_convertible_v<T*, EnemyInstanceEntity*>
     struct EnemySubroutine;
 
     class EnemyInstanceEntity : public EntityBase
@@ -243,6 +245,7 @@ namespace MphRead::Entities
         void SetHealthbarMessageId(std::int32_t value) noexcept;
 
         template <typename T>
+            requires std::is_convertible_v<T*, EnemyInstanceEntity*>
         [[nodiscard]] bool CallSubroutine(
             std::type_identity_t<std::span<const EnemySubroutine<T>>> subroutines, T* enemy);
 
@@ -268,7 +271,8 @@ namespace MphRead::Entities
     };
 
     template <typename T>
-    struct EnemyBehavior<T, std::enable_if_t<std::is_base_of_v<EnemyInstanceEntity, T>>>
+        requires std::is_convertible_v<T*, EnemyInstanceEntity*>
+    struct EnemyBehavior
     {
         const std::uint8_t NextState;
         const std::function<bool(T*)> Function;
@@ -285,7 +289,8 @@ namespace MphRead::Entities
     };
 
     template <typename T>
-    struct EnemySubroutine<T, std::enable_if_t<std::is_base_of_v<EnemyInstanceEntity, T>>>
+        requires std::is_convertible_v<T*, EnemyInstanceEntity*>
+    struct EnemySubroutine
     {
         const std::vector<EnemyBehavior<T>>* const Behaviors;
 
@@ -301,6 +306,7 @@ namespace MphRead::Entities
     };
 
     template <typename T>
+        requires std::is_convertible_v<T*, EnemyInstanceEntity*>
     bool EnemyInstanceEntity::CallSubroutine(
         std::type_identity_t<std::span<const EnemySubroutine<T>>> subroutines, T* enemy)
     {

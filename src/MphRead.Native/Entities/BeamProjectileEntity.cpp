@@ -222,6 +222,23 @@ namespace
         return std::bit_cast<std::int32_t>(value);
     }
 
+    [[nodiscard]] std::int32_t ManagedSubtract(std::int32_t left, std::int32_t right) noexcept
+    {
+        const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
+            - std::bit_cast<std::uint32_t>(right);
+        return std::bit_cast<std::int32_t>(value);
+    }
+
+    template <typename TContainer>
+    [[nodiscard]] decltype(auto) ManagedListAt(const TContainer& container, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= container.size())
+        {
+            throw MphRead::Memory::Detail::ArgumentOutOfRangeException();
+        }
+        return container[static_cast<std::size_t>(index)];
+    }
+
     [[nodiscard]] float DegreesToRadians(float degrees) noexcept
     {
         return degrees * (3.14159265358979323846F / 180.0F);
@@ -1723,12 +1740,13 @@ namespace MphRead::Entities
             }
         }
 
-        const auto getAmount = [chargePct](auto unchargedAmt, auto minChargeAmt, auto fullChargeAmt) -> float
+        const auto getAmount = [chargePct](std::int32_t unchargedAmt,
+            std::int32_t minChargeAmt, std::int32_t fullChargeAmt) -> float
         {
             return chargePct <= 0.0F
                 ? static_cast<float>(unchargedAmt)
                 : static_cast<float>(minChargeAmt)
-                    + (static_cast<float>(fullChargeAmt) - static_cast<float>(minChargeAmt)) * chargePct;
+                    + static_cast<float>(ManagedSubtract(fullChargeAmt, minChargeAmt)) * chargePct;
         };
 
         std::int32_t cost = static_cast<std::int32_t>(
@@ -1755,7 +1773,7 @@ namespace MphRead::Entities
         {
             return BeamResultFlags::NoSpawn;
         }
-        equipRef.SetAmmo(ammo - cost);
+        equipRef.SetAmmo(ManagedSubtract(ammo, cost));
 
         std::shared_ptr<Effects::EffectEntry> muzzleEffect{};
         if (!TestFlag(spawnFlags, BeamSpawnFlags::NoMuzzle))
@@ -2292,8 +2310,8 @@ namespace MphRead::Entities
         float angle = chargePct <= 0.0F
             ? static_cast<float>(weapon.UnchargedSpread())
             : static_cast<float>(weapon.MinChargeSpread())
-                + (static_cast<float>(weapon.ChargedSpread()) - static_cast<float>(weapon.MinChargeSpread()))
-                    * chargePct;
+                + static_cast<float>(ManagedSubtract(
+                    weapon.ChargedSpread(), weapon.MinChargeSpread())) * chargePct;
         angle /= 4096.0F;
         assert(angle == 60.0F);
         CheckIceWaveCollision(angle);
@@ -2446,8 +2464,9 @@ namespace MphRead::Entities
                     RequireReference(_scene).AddEntity(ent);
                 }
             }
-            const std::uint8_t splatEffect = ManagedAt(ManagedAt(_terSplat1P, Index(static_cast<std::int32_t>(_beamKind))),
-                    Index(static_cast<std::int32_t>(colRes.Terrain())));
+            const auto& splatRow = ManagedListAt(_terSplat1P, static_cast<std::int32_t>(_beamKind));
+            const std::uint8_t splatEffect
+                = ManagedListAt(splatRow, static_cast<std::int32_t>(colRes.Terrain()));
             if (GameState::SinglePlayer && splatEffect != 255)
             {
                 const std::uint8_t adjusted = static_cast<std::uint8_t>(splatEffect + 3);

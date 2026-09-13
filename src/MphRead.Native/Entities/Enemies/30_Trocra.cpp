@@ -162,8 +162,9 @@ namespace MphRead::Entities::Enemies
     {
         SpawnEffect(effectId, Position);
 
-        Vector3 between
-            = static_cast<Vector3>(MainPlayer().Position) - static_cast<Vector3>(Position);
+        const Vector3 playerPosition = MainPlayer().Position;
+        const Vector3 entityPosition = Position;
+        Vector3 between = playerPosition - entityPosition;
         const float distance = Length(between);
         if (distance < 2.0F)
         {

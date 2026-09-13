@@ -144,6 +144,11 @@ namespace MphRead::Entities::Enemies
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
 
+        [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
+        {
+            return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
+        }
+
         [[nodiscard]] Matrix4 CreateScale(Vector3 scale) noexcept
         {
             return Matrix4(
@@ -308,12 +313,12 @@ namespace MphRead::Entities::Enemies
 
     void GoreaEnemyEntityBase::InitializeCommon(EnemySpawnEntity* spawner)
     {
-        EnemySpawnEntity& spawnerRef = RequireReference(spawner);
         Flags |= EnemyFlags::Visible;
         Flags |= EnemyFlags::NoHomingNc;
         Flags |= EnemyFlags::NoHomingCo;
         Flags |= EnemyFlags::NoMaxDistance;
         SetHealthbarMessageId(3);
+        EnemySpawnEntity& spawnerRef = RequireReference(spawner);
         SetTransform(spawnerRef.FacingVector(), Vector3(0.0F, 1.0F, 0.0F), spawnerRef.Position);
         _prevPos = Position;
         _boundingRadius = 1.0F;
@@ -619,7 +624,6 @@ namespace MphRead::Entities::Enemies
 
     void Enemy24Entity::EnemyInitialize()
     {
-        EnemySpawnEntity& spawner = RequireReference(_spawner);
         InitializeCommon(_spawner);
         Flags |= EnemyFlags::Invincible;
         Flags |= EnemyFlags::OnRadar;
@@ -633,6 +637,7 @@ namespace MphRead::Entities::Enemies
         _regenModel = &SetUpModel("goreaArmRegen");
         _regenModel->Active = false;
         _spineNode = RequireReference(_model->Model()).GetNodeByName("Spine_02");
+        EnemySpawnEntity& spawner = RequireReference(_spawner);
         _volume = CollisionVolume::Move(
             CollisionVolume(
                 spawner.Data.Fields.S11().Sphere1Position.ToFloatVector(),
@@ -750,7 +755,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy24Entity::ChangeWeapon()
     {
-        ++_weaponIndex;
+        _weaponIndex = AddInt32Unchecked(_weaponIndex, 1);
         if (_weaponIndex >= 6)
         {
             _weaponIndex = 0;
@@ -983,7 +988,8 @@ namespace MphRead::Entities::Enemies
         {
             (void)SeekTargetFacing(_targetFacing, 3.0F);
         }
-        _speed = ScaleVector(TypeExtensions::WithY(FacingVector(), 0.0F), _speedFactor / 2.0F);
+        _speed = DivideVector(
+            ScaleVector(TypeExtensions::WithY(FacingVector(), 0.0F), _speedFactor), 2.0F);
         EnsureAnimation(25, 0, _animSetNoMat);
         (void)CallSubroutine<Enemy24Entity>(Metadata::Enemy24Subroutines, this);
     }
@@ -992,7 +998,8 @@ namespace MphRead::Entities::Enemies
     {
         _targetFacing = SeekTargetSetAnim(
             _targetFacing, (*RequireReference(_model).AnimInfo->Index)[0], 0, _animSetNoMat);
-        _speed = ScaleVector(FacingVector(), _speedFactor * 5.0F / 2.0F);
+        _speed = DivideVector(
+            ScaleVector(ScaleVector(FacingVector(), _speedFactor), 5.0F), 2.0F);
         (void)CallSubroutine<Enemy24Entity>(Metadata::Enemy24Subroutines, this);
     }
 
@@ -1015,7 +1022,7 @@ namespace MphRead::Entities::Enemies
                 Enemy26Entity& armRef = RequireReference(arm);
                 armRef.Ammo = 65535;
                 (void)BeamProjectileEntity::Spawn(
-                    arm, armRef.EquipInfo, spawnPos, spawnDir,
+                    arm, armRef.EquipInfo(), spawnPos, spawnDir,
                     BeamSpawnFlags::None, armRef.NodeRef, _scene);
                 const std::int32_t shotEffect = ArrayAt(_shotEffects, WeaponIndex());
                 CreateShotEffectLoose(arm.get(), shotEffect);
@@ -1047,7 +1054,7 @@ namespace MphRead::Entities::Enemies
             bool shoot = false;
             if (TypeExtensions::TestFlag(arm.ArmFlags, GoreaArmFlags::Bit2))
             {
-                WeaponInfo& weapon = RequireReference(RequireReference(arm.EquipInfo).Weapon);
+                WeaponInfo& weapon = RequireReference(RequireReference(arm.EquipInfo()).Weapon);
                 const std::int32_t shotCooldown
                     = MulInt32Unchecked(weapon.ShotCooldown, 2);
                 const std::int32_t autoCooldown
@@ -1114,7 +1121,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 playerPosition = TypeExtensions::AddY(
             static_cast<Vector3>(MainPlayer().Position), 0.5F);
         if (!HalfturretEntity::UpdateAim(
-                position, playerPosition, arm.EquipInfo, direction))
+                position, playerPosition, arm.EquipInfo(), direction))
         {
             _goreaFlags |= Gorea1AFlags::Bit4;
         }
@@ -1416,7 +1423,7 @@ namespace MphRead::Entities::Enemies
             for (std::int32_t i = 0; i < 2; ++i)
             {
                 Enemy26Entity& arm = RequireReference(ArrayAt(_arms, i));
-                RequireReference(arm.EquipInfo).ChargeLevel
+                RequireReference(arm.EquipInfo()).ChargeLevel
                     = IntToUInt16Unchecked(static_cast<std::int32_t>(charge) * 2);
                 arm.ArmFlags |= GoreaArmFlags::Bit1;
             }
@@ -1491,8 +1498,8 @@ namespace MphRead::Entities::Enemies
         _goreaFlags &= ~Gorea1AFlags::Bit4;
         const std::shared_ptr<Enemy26Entity>& armL = ArrayAt(_arms, 0);
         const std::shared_ptr<Enemy26Entity>& armR = ArrayAt(_arms, 1);
-        RequireReference(RequireReference(armL).EquipInfo).ChargeLevel = 0;
-        RequireReference(RequireReference(armR).EquipInfo).ChargeLevel = 0;
+        RequireReference(RequireReference(armL).EquipInfo()).ChargeLevel = 0;
+        RequireReference(RequireReference(armR).EquipInfo()).ChargeLevel = 0;
         const std::shared_ptr<WeaponInfo> weapon = VectorAt(Weapons::GoreaWeapons, WeaponIndex());
         WeaponInfo& weaponRef = RequireReference(weapon);
         RequireReference(armL).Cooldown = MulInt32Unchecked(weaponRef.ShotCooldown, 2);
@@ -1513,7 +1520,7 @@ namespace MphRead::Entities::Enemies
             RequireReference(armL).ArmFlags |= GoreaArmFlags::Bit2;
             RequireReference(armR).ArmFlags |= GoreaArmFlags::Bit2;
             WeaponInfo& weapon = RequireReference(VectorAt(Weapons::GoreaWeapons, WeaponIndex()));
-            RequireReference(RequireReference(armL).EquipInfo).ChargeLevel
+            RequireReference(RequireReference(armL).EquipInfo()).ChargeLevel
                 = IntToUInt16Unchecked(static_cast<std::int32_t>(weapon.FullCharge) * 2);
             RequireReference(armL).Cooldown = MulInt32Unchecked(weapon.ShotCooldown, 2);
             RequireReference(armR).Cooldown = MulInt32Unchecked(weapon.ShotCooldown, 2);
@@ -1534,8 +1541,8 @@ namespace MphRead::Entities::Enemies
         {
             RequireReference(armL).ArmFlags &= ~GoreaArmFlags::Bit2;
             RequireReference(armR).ArmFlags &= ~GoreaArmFlags::Bit2;
-            RequireReference(RequireReference(armL).EquipInfo).ChargeLevel = 0;
-            RequireReference(RequireReference(armR).EquipInfo).ChargeLevel = 0;
+            RequireReference(RequireReference(armL).EquipInfo()).ChargeLevel = 0;
+            RequireReference(RequireReference(armR).EquipInfo()).ChargeLevel = 0;
             RequireReference(armL).Cooldown = 6 * 2;
             RequireReference(armR).Cooldown = 6 * 2;
             SetShotAnimation();
@@ -1844,8 +1851,8 @@ namespace MphRead::Entities::Enemies
             {
                 std::int32_t anim = 1;
                 _armBits |= 1 << i;
-                arm.ScanId = VectorAt(Metadata::EnemyScanIds,
-                    static_cast<std::int32_t>(MphRead::EnemyType::GoreaArm));
+                arm.SetScanId(VectorAt(Metadata::EnemyScanIds,
+                    static_cast<std::int32_t>(MphRead::EnemyType::GoreaArm)));
                 arm.Flags |= EnemyFlags::CollidePlayer;
                 arm.Flags |= EnemyFlags::CollideBeam;
                 arm.Flags &= ~EnemyFlags::Invincible;
@@ -1946,7 +1953,7 @@ namespace MphRead::Entities::Enemies
             Material& materialRef = RequireReference(material);
             const std::int32_t maxFrame = 10 * 2;
             const std::int32_t frame
-                = SubInt32Unchecked(maxFrame, RequireReference(arm).ColorTimer);
+                = SubInt32Unchecked(maxFrame, RequireReference(arm).ColorTimer());
             IncrementMaterialColors(&materialRef, white, white, frame, maxFrame);
             if (frame == maxFrame)
             {

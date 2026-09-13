@@ -162,9 +162,12 @@ namespace MphRead::Entities::Enemies
 
         const Vector3 spawnDir
             = (AddY(MainPlayer().Position, 0.5F) - Position).Normalized();
+        const std::shared_ptr<EntityBase> owner = SharedEntity(_scene, this);
+        const Formats::Culling::NodeRef nodeRef
+            = RequireReference(_cretaphid).NodeRef;
         (void)BeamProjectileEntity::Spawn(
-            SharedEntity(_scene, this), _equipInfo, Position, spawnDir,
-            BeamSpawnFlags::None, RequireReference(_cretaphid).NodeRef, _scene);
+            owner, _equipInfo, Position, spawnDir,
+            BeamSpawnFlags::None, nodeRef, _scene);
     }
 
     bool Enemy21Entity::EnemyTakeDamage(EntityBase* source)

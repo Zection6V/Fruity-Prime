@@ -110,16 +110,12 @@ namespace MphRead::Entities::Enemies
 
     void Enemy11Entity::EnemyInitialize()
     {
-        if (_spawner == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-
         _health = _healthMax = 12;
         Flags |= EnemyFlags::Visible;
         Flags |= EnemyFlags::OnRadar;
 
-        const Vector3 position = _spawner->Data.Header.Position.ToFloatVector();
+        const Vector3 position
+            = RequireReference(_spawner).Data.Header.Position.ToFloatVector();
         SetTransform(
             (static_cast<Vector3>(MainPlayer().Position) - position).Normalized(),
             Vector3(0.0F, 1.0F, 0.0F),

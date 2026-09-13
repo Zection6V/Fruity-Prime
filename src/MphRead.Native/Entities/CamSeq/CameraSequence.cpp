@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <any>
+#include <array>
 #include <cassert>
 #include <cerrno>
 #include <cmath>
@@ -158,52 +159,24 @@ namespace
         return id == 0 || id == 3 || id == 167;
     }
 
-    class IOException : public std::runtime_error
-    {
-    public:
-        explicit IOException(std::string message)
-            : std::runtime_error(std::move(message))
-        {
-        }
-    };
-
-    class FileNotFoundException final : public IOException
-    {
-    public:
-        explicit FileNotFoundException(const std::string& path)
-            : IOException("Could not find file '" + path + "'.")
-        {
-        }
-    };
-
-    class DirectoryNotFoundException final : public IOException
-    {
-    public:
-        explicit DirectoryNotFoundException(const std::string& path)
-            : IOException("Could not find a part of the path '" + path + "'.")
-        {
-        }
-    };
-
-    class UnauthorizedAccessException final : public std::runtime_error
-    {
-    public:
-        explicit UnauthorizedAccessException(const std::string& path)
-            : std::runtime_error("Access to the path '" + path + "' is denied.")
-        {
-        }
-    };
+    constexpr std::uint64_t MaxManagedByteArrayLength = 0x7FFFFFC7ULL;
 
     [[noreturn]] void ThrowIOException(const std::string& path)
     {
-        throw IOException("I/O error occurred while reading file '" + path + "'.");
+        throw System::IO::IOException(
+            "I/O error occurred while reading file '" + path + "'.");
     }
 
-    [[noreturn]] void ThrowFileTooLong(const std::string& path)
+    [[noreturn]] void ThrowFileTooLong()
     {
-        throw IOException(
-            "The file '" + path + "' is too long. This operation is limited to files "
-            "less than 2 gigabytes in size.");
+        throw System::IO::IOException(
+            "The file is too long. This operation is currently limited to supporting "
+            "files less than 2 gigabytes in size.");
+    }
+
+    [[noreturn]] void ThrowEndOfStream()
+    {
+        throw System::IO::EndOfStreamException();
     }
 
 #ifdef _WIN32
@@ -243,7 +216,7 @@ namespace
         }
         if (path.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
         {
-            ThrowIOException(path);
+            throw System::IO::PathTooLongException(path);
         }
         const int length = static_cast<int>(path.size());
         const int count = MultiByteToWideChar(
@@ -266,17 +239,53 @@ namespace
     {
         if (error == ERROR_FILE_NOT_FOUND)
         {
-            throw FileNotFoundException(path);
+            throw System::IO::FileNotFoundException(path);
         }
         if (error == ERROR_PATH_NOT_FOUND || error == ERROR_INVALID_DRIVE)
         {
-            throw DirectoryNotFoundException(path);
+            throw System::IO::DirectoryNotFoundException(path);
         }
         if (error == ERROR_ACCESS_DENIED)
         {
-            throw UnauthorizedAccessException(path);
+            throw System::UnauthorizedAccessException(path);
+        }
+        if (error == ERROR_FILENAME_EXCED_RANGE)
+        {
+            throw System::IO::PathTooLongException(path);
         }
         ThrowIOException(path);
+    }
+
+    [[nodiscard]] std::vector<std::uint8_t> ReadUnknownLength(
+        HANDLE file, const std::string& path)
+    {
+        std::vector<std::uint8_t> bytes;
+        std::array<std::uint8_t, 512> buffer{};
+        while (true)
+        {
+            DWORD readCount = 0;
+            if (!ReadFile(
+                    file, buffer.data(), static_cast<DWORD>(buffer.size()),
+                    &readCount, nullptr))
+            {
+                const DWORD error = GetLastError();
+                if (error == ERROR_BROKEN_PIPE || error == ERROR_HANDLE_EOF)
+                {
+                    return bytes;
+                }
+                ThrowIOException(path);
+            }
+            if (readCount == 0)
+            {
+                return bytes;
+            }
+            if (bytes.size() > MaxManagedByteArrayLength - readCount)
+            {
+                ThrowFileTooLong();
+            }
+            bytes.insert(
+                bytes.end(), buffer.begin(), buffer.begin() + readCount);
+        }
     }
 
     [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
@@ -290,15 +299,24 @@ namespace
             ThrowOpenError(path, GetLastError());
         }
 
+        const DWORD fileType = GetFileType(file.Get());
+        if (fileType != FILE_TYPE_DISK)
+        {
+            return ReadUnknownLength(file.Get(), path);
+        }
+
         LARGE_INTEGER length{};
         if (!GetFileSizeEx(file.Get(), &length) || length.QuadPart < 0)
         {
             ThrowIOException(path);
         }
-        constexpr std::uint64_t maxManagedByteArrayLength = 0x7FFFFFC7ULL;
-        if (static_cast<std::uint64_t>(length.QuadPart) > maxManagedByteArrayLength)
+        if (static_cast<std::uint64_t>(length.QuadPart) > MaxManagedByteArrayLength)
         {
-            ThrowFileTooLong(path);
+            ThrowFileTooLong();
+        }
+        if (length.QuadPart == 0)
+        {
+            return ReadUnknownLength(file.Get(), path);
         }
 
         std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length.QuadPart));
@@ -312,12 +330,15 @@ namespace
             if (!ReadFile(
                     file.Get(), bytes.data() + offset, requested, &readCount, nullptr))
             {
+                if (GetLastError() == ERROR_HANDLE_EOF)
+                {
+                    ThrowEndOfStream();
+                }
                 ThrowIOException(path);
             }
             if (readCount == 0)
             {
-                bytes.resize(offset);
-                break;
+                ThrowEndOfStream();
             }
             offset += readCount;
         }
@@ -366,23 +387,56 @@ namespace
 
     [[noreturn]] void ThrowOpenError(const std::string& path, int error)
     {
-        if (error == EACCES || error == EPERM || error == EISDIR)
+        if (error == EACCES || error == EBADF || error == EPERM || error == EISDIR)
         {
-            throw UnauthorizedAccessException(path);
+            throw System::UnauthorizedAccessException(path);
         }
         if (error == ENOTDIR)
         {
-            throw DirectoryNotFoundException(path);
+            throw System::IO::DirectoryNotFoundException(path);
         }
         if (error == ENOENT)
         {
             if (ParentDirectoryIsMissing(path))
             {
-                throw DirectoryNotFoundException(path);
+                throw System::IO::DirectoryNotFoundException(path);
             }
-            throw FileNotFoundException(path);
+            throw System::IO::FileNotFoundException(path);
+        }
+        if (error == ENAMETOOLONG)
+        {
+            throw System::IO::PathTooLongException(path);
         }
         ThrowIOException(path);
+    }
+
+    [[nodiscard]] std::vector<std::uint8_t> ReadUnknownLength(
+        int file, const std::string& path)
+    {
+        std::vector<std::uint8_t> bytes;
+        std::array<std::uint8_t, 512> buffer{};
+        while (true)
+        {
+            const ssize_t readCount = read(file, buffer.data(), buffer.size());
+            if (readCount < 0)
+            {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                ThrowIOException(path);
+            }
+            if (readCount == 0)
+            {
+                return bytes;
+            }
+            const std::size_t count = static_cast<std::size_t>(readCount);
+            if (bytes.size() > MaxManagedByteArrayLength - count)
+            {
+                ThrowFileTooLong();
+            }
+            bytes.insert(bytes.end(), buffer.begin(), buffer.begin() + count);
+        }
     }
 
     [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
@@ -400,16 +454,24 @@ namespace
         }
         if (S_ISDIR(status.st_mode))
         {
-            throw UnauthorizedAccessException(path);
+            throw System::UnauthorizedAccessException(path);
+        }
+        const bool canSeek = lseek(file.Get(), 0, SEEK_CUR) >= 0;
+        if (!canSeek)
+        {
+            return ReadUnknownLength(file.Get(), path);
         }
         if (status.st_size < 0)
         {
             ThrowIOException(path);
         }
-        constexpr std::uint64_t maxManagedByteArrayLength = 0x7FFFFFC7ULL;
-        if (static_cast<std::uint64_t>(status.st_size) > maxManagedByteArrayLength)
+        if (static_cast<std::uint64_t>(status.st_size) > MaxManagedByteArrayLength)
         {
-            ThrowFileTooLong(path);
+            ThrowFileTooLong();
+        }
+        if (status.st_size == 0)
+        {
+            return ReadUnknownLength(file.Get(), path);
         }
 
         std::vector<std::uint8_t> bytes(static_cast<std::size_t>(status.st_size));
@@ -428,8 +490,7 @@ namespace
             }
             if (readCount == 0)
             {
-                bytes.resize(offset);
-                break;
+                ThrowEndOfStream();
             }
             offset += static_cast<std::size_t>(readCount);
         }
@@ -821,19 +882,19 @@ namespace MphRead::Formats
 
     void CameraSequence::Initialize()
     {
-        Scene& scene = RequireReference(_scene);
         for (const std::shared_ptr<CameraSequenceKeyframe>& keyframeRef : _keyframes)
         {
             CameraSequenceKeyframe& keyframe = RequireReference(keyframeRef.get());
             keyframe.PositionEntity = GetKeyframeRef(keyframe.PosEntityType, keyframe.PosEntityId);
             keyframe.TargetEntity = GetKeyframeRef(keyframe.TargetEntityType, keyframe.TargetEntityId);
             keyframe.MessageTarget = GetKeyframeRef(keyframe.MessageTargetType, keyframe.MessageTargetId);
-            keyframe.NodeRef = scene.GetNodeRefByName(keyframe.NodeName);
+            keyframe.NodeRef = RequireReference(_scene).GetNodeRefByName(keyframe.NodeName);
             if (keyframe.NodeRef == Culling::NodeRef::None)
             {
-                keyframe.NodeRef = scene.GetNodeRefByName("rmMain");
+                keyframe.NodeRef = RequireReference(_scene).GetNodeRefByName("rmMain");
             }
-            assert(scene.Room() == nullptr || keyframe.NodeRef != Culling::NodeRef::None);
+            assert(RequireReference(_scene).Room() == nullptr
+                || keyframe.NodeRef != Culling::NodeRef::None);
         }
     }
 
@@ -856,7 +917,6 @@ namespace MphRead::Formats
 
         CalculateFrameValues();
 
-        Scene& scene = RequireReference(_scene);
         if (_keyframeElapsed < 1.0F / 60.0F)
         {
             camInfo.PrevPosition = camInfo.Position;
@@ -867,7 +927,7 @@ namespace MphRead::Formats
                 {
                     Vector3 prevPos;
                     curFrame.PositionEntity->GetPosition(prevPos);
-                    camInfo.NodeRef = scene.UpdateNodeRef(
+                    camInfo.NodeRef = RequireReference(_scene).UpdateNodeRef(
                         camInfo.NodeRef, prevPos, camInfo.Position);
                 }
                 else
@@ -883,7 +943,7 @@ namespace MphRead::Formats
             const Message message = static_cast<Message>(curFrame.MessageId);
             if (message != Message::None)
             {
-                scene.SendMessage(
+                RequireReference(_scene).SendMessage(
                     message,
                     nullptr,
                     curFrame.MessageTarget.get(),
@@ -918,10 +978,10 @@ namespace MphRead::Formats
         if (fadeType != FadeType::None)
         {
             const bool overwrite = _keyframeIndex == 0 && IsLandingIntro(_sequenceId);
-            scene.SetFade(fadeType, fadeTime, overwrite);
+            RequireReference(_scene).SetFade(fadeType, fadeTime, overwrite);
         }
 
-        _keyframeElapsed += scene.FrameTime();
+        _keyframeElapsed += RequireReference(_scene).FrameTime();
         if (_keyframeElapsed >= frameLength)
         {
             _keyframeElapsed -= frameLength;
@@ -951,7 +1011,7 @@ namespace MphRead::Formats
         }
 
         camInfo.Update();
-        camInfo.NodeRef = scene.UpdateNodeRef(
+        camInfo.NodeRef = RequireReference(_scene).UpdateNodeRef(
             camInfo.NodeRef, camInfo.PrevPosition, camInfo.Position);
 
         Entities::PlayerEntity& player
@@ -1032,11 +1092,14 @@ namespace MphRead::Formats
         _transitionTime = transitionTime;
         _keyframeIndex = 0;
 
-        assert(!_keyframes.empty());
+        if (_keyframes.empty())
+        {
+            CameraSequenceDetail::ThrowListIndexOutOfRange();
+        }
         assert(_camInfoRef != nullptr);
 
         CameraSequenceKeyframe& firstFrame
-            = RequireReference(_keyframes.at(0).get());
+            = RequireReference(_keyframes[0].get());
         Entities::CameraInfo& camInfo = RequireReference(_camInfoRef);
         camInfo.NodeRef = firstFrame.NodeRef;
         CalculateFrameValues();

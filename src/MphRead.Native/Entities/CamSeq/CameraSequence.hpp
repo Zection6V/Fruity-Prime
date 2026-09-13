@@ -4,11 +4,73 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+namespace System
+{
+    class UnauthorizedAccessException final : public std::runtime_error
+    {
+    public:
+        explicit UnauthorizedAccessException(const std::string& path)
+            : std::runtime_error("Access to the path '" + path + "' is denied.")
+        {
+        }
+    };
+
+    namespace IO
+    {
+        class IOException : public std::runtime_error
+        {
+        public:
+            explicit IOException(std::string message)
+                : std::runtime_error(std::move(message))
+            {
+            }
+        };
+
+        class FileNotFoundException final : public IOException
+        {
+        public:
+            explicit FileNotFoundException(const std::string& path)
+                : IOException("Could not find file '" + path + "'.")
+            {
+            }
+        };
+
+        class DirectoryNotFoundException final : public IOException
+        {
+        public:
+            explicit DirectoryNotFoundException(const std::string& path)
+                : IOException("Could not find a part of the path '" + path + "'.")
+            {
+            }
+        };
+
+        class PathTooLongException final : public IOException
+        {
+        public:
+            explicit PathTooLongException(const std::string& path)
+                : IOException("The path '" + path
+                    + "' is too long, or a component of the specified path is too long.")
+            {
+            }
+        };
+
+        class EndOfStreamException final : public IOException
+        {
+        public:
+            EndOfStreamException()
+                : IOException("Unable to read beyond the end of the stream.")
+            {
+            }
+        };
+    }
+}
 
 namespace OpenTK::Mathematics
 {

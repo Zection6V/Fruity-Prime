@@ -498,13 +498,10 @@ namespace MphRead::Entities::Enemies
             = MainPlayer().Volume().SpherePosition - static_cast<Vector3>(Position);
         const float mag = Length(between) * 5.0F;
         PlayerEntity& speedTarget = MainPlayer();
-        const float speedX = MainPlayer().Speed().X;
+        const float speedX = MainPlayer().Speed().X + between.X / mag;
         const float speedY = MainPlayer().Speed().Y;
-        const float speedZ = MainPlayer().Speed().Z;
-        speedTarget.SetSpeed(Vector3(
-            speedX + between.X / mag,
-            speedY,
-            speedZ + between.Z / mag));
+        const float speedZ = MainPlayer().Speed().Z + between.Z / mag;
+        speedTarget.SetSpeed(Vector3(speedX, speedY, speedZ));
         MainPlayer().TakeDamage(
             _values.ContactDamage, DamageFlags::NoDmgInvuln, std::nullopt, this);
 

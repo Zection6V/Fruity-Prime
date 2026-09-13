@@ -34,7 +34,7 @@ namespace MphRead::Entities::Enemies
         bool SpawnBurn = false;
         std::int32_t EyeIndex = 0;
         bool BeamColliding = false;
-        std::int32_t SegmentIndex = 0;
+        [[nodiscard]] std::int32_t SegmentIndex() const noexcept;
 
         void SetUp(std::shared_ptr<Node> attachNode, std::int32_t scanId,
             std::uint32_t effectiveness, std::uint16_t health,
@@ -56,6 +56,7 @@ namespace MphRead::Entities::Enemies
             OpenTK::Mathematics::Vector4(0.0F, 1.0F, 0.0F, 0.0F),
             OpenTK::Mathematics::Vector4(0.0F, 0.0F, 1.0F, 0.0F),
             OpenTK::Mathematics::Vector4(0.0F, 0.0F, 0.0F, 1.0F)};
+        std::int32_t _segmentIndex = 0;
         void SpawnBeam();
         void CheckBeamCollision();
         void UpdateTransforms();

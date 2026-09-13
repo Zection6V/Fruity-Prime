@@ -206,6 +206,10 @@ namespace MphRead::Entities::Enemies
             const std::shared_ptr<AnimationInfo> animInfo = model.AnimInfo;
             AnimationInfo& info = RequireReference(animInfo);
             ManagedArray<AnimFlags>& flags = RequireReference(info.Flags);
+            if (flags.Length() == 0)
+            {
+                throw SceneDetail::IndexOutOfRangeException();
+            }
             return (flags[0] & AnimFlags::Ended) != AnimFlags::None;
         }
     }
@@ -217,6 +221,11 @@ namespace MphRead::Entities::Enemies
     {
     }
 
+    std::int32_t Enemy20Entity::SegmentIndex() const noexcept
+    {
+        return _segmentIndex;
+    }
+
     void Enemy20Entity::SetUp(std::shared_ptr<Node> attachNode,
         std::int32_t scanId, std::uint32_t effectiveness,
         std::uint16_t health, Vector3 position, float radius)
@@ -224,15 +233,15 @@ namespace MphRead::Entities::Enemies
         SetHealthbarMessageId(1);
         if (EyeIndex > 6)
         {
-            SegmentIndex = 2;
+            _segmentIndex = 2;
         }
         else if (EyeIndex > 2)
         {
-            SegmentIndex = 1;
+            _segmentIndex = 1;
         }
         else
         {
-            SegmentIndex = 0;
+            _segmentIndex = 0;
         }
         _beamCollisionPos = Vector3::Zero;
         _stateTimer = 0;
@@ -532,7 +541,7 @@ namespace MphRead::Entities::Enemies
         assert(BeamType == 0 || BeamType == 1);
         Enemy19Entity& cretaphid = RequireReference(_cretaphid);
         const std::uint16_t damage = ManagedAt(
-            cretaphid.Values().EyeBeamDamage, SegmentIndex);
+            cretaphid.Values().EyeBeamDamage, _segmentIndex);
 
         auto& equipInfos = cretaphid.EquipInfo;
         if (static_cast<std::size_t>(BeamType) >= equipInfos.size())
@@ -592,7 +601,7 @@ namespace MphRead::Entities::Enemies
         {
             const std::uint16_t damage = ManagedAt(
                 RequireReference(_cretaphid).Values().EyeContactDamage,
-                SegmentIndex);
+                _segmentIndex);
             player.TakeDamage(
                 damage, DamageFlags::None, Vector3::Zero, this);
         }
@@ -662,14 +671,15 @@ namespace MphRead::Entities::Enemies
         RequireReference(_cretaphid).UpdateTransforms(false);
         Matrix4 transform = CreateScale(1.0F, 1.0F, 20.0F);
 
-        const auto& segments = RequireReference(_cretaphid).Segments;
-        if (SegmentIndex < 0
-            || static_cast<std::size_t>(SegmentIndex) >= segments.size())
+        if (_segmentIndex < 0
+            || static_cast<std::size_t>(_segmentIndex)
+                >= RequireReference(_cretaphid).Segments.size())
         {
             throw SceneDetail::IndexOutOfRangeException();
         }
         const float angle = DegreesToRadians(RequireReference(
-            segments[static_cast<std::size_t>(SegmentIndex)]).BeamAngle);
+            RequireReference(_cretaphid).Segments[
+                static_cast<std::size_t>(_segmentIndex)]).BeamAngle);
         transform = Multiply(transform, CreateRotationX(angle));
         transform = Multiply(transform, RequireReference(_attachNode).Animation);
 

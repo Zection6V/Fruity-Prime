@@ -1,6 +1,7 @@
 #include "CameraSequence.hpp"
 
 #include "../../Features.hpp"
+#include "../../MemoryArrays.hpp"
 #include "../../Messaging.hpp"
 #include "../../Read.hpp"
 #include "../../Scene.hpp"
@@ -10,13 +11,14 @@
 #include "../EntityBase.hpp"
 #include "../Players/PlayerEntity.hpp"
 
+#include <algorithm>
 #include <any>
 #include <cassert>
+#include <cerrno>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <fstream>
-#include <iterator>
+#include <limits>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -24,6 +26,17 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace
 {
@@ -145,33 +158,284 @@ namespace
         return id == 0 || id == 3 || id == 167;
     }
 
+    class IOException : public std::runtime_error
+    {
+    public:
+        explicit IOException(std::string message)
+            : std::runtime_error(std::move(message))
+        {
+        }
+    };
+
+    class FileNotFoundException final : public IOException
+    {
+    public:
+        explicit FileNotFoundException(const std::string& path)
+            : IOException("Could not find file '" + path + "'.")
+        {
+        }
+    };
+
+    class DirectoryNotFoundException final : public IOException
+    {
+    public:
+        explicit DirectoryNotFoundException(const std::string& path)
+            : IOException("Could not find a part of the path '" + path + "'.")
+        {
+        }
+    };
+
+    class UnauthorizedAccessException final : public std::runtime_error
+    {
+    public:
+        explicit UnauthorizedAccessException(const std::string& path)
+            : std::runtime_error("Access to the path '" + path + "' is denied.")
+        {
+        }
+    };
+
+    [[noreturn]] void ThrowIOException(const std::string& path)
+    {
+        throw IOException("I/O error occurred while reading file '" + path + "'.");
+    }
+
+    [[noreturn]] void ThrowFileTooLong(const std::string& path)
+    {
+        throw IOException(
+            "The file '" + path + "' is too long. This operation is limited to files "
+            "less than 2 gigabytes in size.");
+    }
+
+#ifdef _WIN32
+    class FileHandle final
+    {
+    public:
+        explicit FileHandle(HANDLE value) noexcept
+            : _value(value)
+        {
+        }
+
+        FileHandle(const FileHandle&) = delete;
+        FileHandle& operator=(const FileHandle&) = delete;
+
+        ~FileHandle()
+        {
+            if (_value != INVALID_HANDLE_VALUE)
+            {
+                CloseHandle(_value);
+            }
+        }
+
+        [[nodiscard]] HANDLE Get() const noexcept
+        {
+            return _value;
+        }
+
+    private:
+        HANDLE _value;
+    };
+
+    [[nodiscard]] std::wstring ToWidePath(const std::string& path)
+    {
+        if (path.empty())
+        {
+            return {};
+        }
+        if (path.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        {
+            ThrowIOException(path);
+        }
+        const int length = static_cast<int>(path.size());
+        const int count = MultiByteToWideChar(
+            CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), length, nullptr, 0);
+        if (count <= 0)
+        {
+            ThrowIOException(path);
+        }
+        std::wstring result(static_cast<std::size_t>(count), L'\0');
+        if (MultiByteToWideChar(
+                CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), length,
+                result.data(), count) != count)
+        {
+            ThrowIOException(path);
+        }
+        return result;
+    }
+
+    [[noreturn]] void ThrowOpenError(const std::string& path, DWORD error)
+    {
+        if (error == ERROR_FILE_NOT_FOUND)
+        {
+            throw FileNotFoundException(path);
+        }
+        if (error == ERROR_PATH_NOT_FOUND || error == ERROR_INVALID_DRIVE)
+        {
+            throw DirectoryNotFoundException(path);
+        }
+        if (error == ERROR_ACCESS_DENIED)
+        {
+            throw UnauthorizedAccessException(path);
+        }
+        ThrowIOException(path);
+    }
+
     [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
     {
-        std::ifstream stream(path, std::ios::binary);
-        if (!stream)
+        const std::wstring widePath = ToWidePath(path);
+        FileHandle file(CreateFileW(
+            widePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (file.Get() == INVALID_HANDLE_VALUE)
         {
-            throw std::ios_base::failure("Could not find file '" + path + "'.");
+            ThrowOpenError(path, GetLastError());
         }
-        stream.seekg(0, std::ios::end);
-        const std::streampos end = stream.tellg();
-        stream.seekg(0, std::ios::beg);
-        if (end < 0)
+
+        LARGE_INTEGER length{};
+        if (!GetFileSizeEx(file.Get(), &length) || length.QuadPart < 0)
         {
-            throw std::ios_base::failure("Unable to read file '" + path + "'.");
+            ThrowIOException(path);
         }
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-        if (!bytes.empty())
+        constexpr std::uint64_t maxManagedByteArrayLength = 0x7FFFFFC7ULL;
+        if (static_cast<std::uint64_t>(length.QuadPart) > maxManagedByteArrayLength)
         {
-            stream.read(
-                reinterpret_cast<char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-            if (!stream)
+            ThrowFileTooLong(path);
+        }
+
+        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length.QuadPart));
+        std::size_t offset = 0;
+        while (offset < bytes.size())
+        {
+            const DWORD requested = static_cast<DWORD>(std::min<std::size_t>(
+                bytes.size() - offset,
+                static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
+            DWORD readCount = 0;
+            if (!ReadFile(
+                    file.Get(), bytes.data() + offset, requested, &readCount, nullptr))
             {
-                throw std::ios_base::failure("Unable to read file '" + path + "'.");
+                ThrowIOException(path);
             }
+            if (readCount == 0)
+            {
+                bytes.resize(offset);
+                break;
+            }
+            offset += readCount;
         }
         return bytes;
     }
+#else
+    class FileDescriptor final
+    {
+    public:
+        explicit FileDescriptor(int value) noexcept
+            : _value(value)
+        {
+        }
+
+        FileDescriptor(const FileDescriptor&) = delete;
+        FileDescriptor& operator=(const FileDescriptor&) = delete;
+
+        ~FileDescriptor()
+        {
+            if (_value >= 0)
+            {
+                close(_value);
+            }
+        }
+
+        [[nodiscard]] int Get() const noexcept
+        {
+            return _value;
+        }
+
+    private:
+        int _value;
+    };
+
+    [[nodiscard]] bool ParentDirectoryIsMissing(const std::string& path)
+    {
+        const std::size_t slash = path.find_last_of('/');
+        if (slash == std::string::npos)
+        {
+            return false;
+        }
+        const std::string parent = slash == 0 ? "/" : path.substr(0, slash);
+        struct stat status{};
+        return stat(parent.c_str(), &status) != 0 && errno == ENOENT;
+    }
+
+    [[noreturn]] void ThrowOpenError(const std::string& path, int error)
+    {
+        if (error == EACCES || error == EPERM || error == EISDIR)
+        {
+            throw UnauthorizedAccessException(path);
+        }
+        if (error == ENOTDIR)
+        {
+            throw DirectoryNotFoundException(path);
+        }
+        if (error == ENOENT)
+        {
+            if (ParentDirectoryIsMissing(path))
+            {
+                throw DirectoryNotFoundException(path);
+            }
+            throw FileNotFoundException(path);
+        }
+        ThrowIOException(path);
+    }
+
+    [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
+    {
+        FileDescriptor file(open(path.c_str(), O_RDONLY));
+        if (file.Get() < 0)
+        {
+            ThrowOpenError(path, errno);
+        }
+
+        struct stat status{};
+        if (fstat(file.Get(), &status) != 0)
+        {
+            ThrowIOException(path);
+        }
+        if (S_ISDIR(status.st_mode))
+        {
+            throw UnauthorizedAccessException(path);
+        }
+        if (status.st_size < 0)
+        {
+            ThrowIOException(path);
+        }
+        constexpr std::uint64_t maxManagedByteArrayLength = 0x7FFFFFC7ULL;
+        if (static_cast<std::uint64_t>(status.st_size) > maxManagedByteArrayLength)
+        {
+            ThrowFileTooLong(path);
+        }
+
+        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(status.st_size));
+        std::size_t offset = 0;
+        while (offset < bytes.size())
+        {
+            const ssize_t readCount = read(
+                file.Get(), bytes.data() + offset, bytes.size() - offset);
+            if (readCount < 0)
+            {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                ThrowIOException(path);
+            }
+            if (readCount == 0)
+            {
+                bytes.resize(offset);
+                break;
+            }
+            offset += static_cast<std::size_t>(readCount);
+        }
+        return bytes;
+    }
+#endif
 
     template <typename T>
     [[nodiscard]] std::shared_ptr<MphRead::Entities::EntityBase> ToEntityShared(
@@ -193,14 +457,27 @@ namespace
     }
 }
 
+namespace MphRead::Formats::CameraSequenceDetail
+{
+    [[noreturn]] void ThrowArrayIndexOutOfRange()
+    {
+        throw Memory::Detail::IndexOutOfRangeException();
+    }
+
+    [[noreturn]] void ThrowListIndexOutOfRange()
+    {
+        throw Memory::Detail::ArgumentOutOfRangeException();
+    }
+}
+
 namespace MphRead::Formats
 {
     std::shared_ptr<CameraSequence> CameraSequence::_current{};
     std::shared_ptr<CameraSequence> CameraSequence::_intro{};
 
-    const CameraSequenceReadOnlyArray<std::int32_t, 198> CameraSequence::MusicData(
-        std::array<std::int32_t, 198>{
-        28, 27, 29, 30, 0, 0, 0, 0, 0, 0, 0, 1|0x4000, 0, 0, 0, 30|0x4000, 0, 0, 3|0x4000, 0, 5|0x4000, 0, 38|0x8000, 0, 0, 0, 0, 0, 16|0x400|0x4000, 14|0x400|0x4000, 0, 49|0x4000, 48|0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 53|0x8000, 9|0x4000, 37|0x4000, 13|0x4000, 0, 0, 41|0x800|0x4000, 0, 19|0x1000|0x4000, 51|0x1000|0x4000, 57|0x1000|0x4000, 44|0x2000|0x4000, 0, 10|0x4000, 5|0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 16|0x4000, 60|0x4000, 50|0x1000|0x4000, 53|0x1000|0x4000, 50|0x1000|0x4000, 53|0x1000|0x4000, 0, 53|0x1000|0x4000, 0, 0, 0, 0, 0, 0, 52|0x1000|0x4000, 0, 0|0x1000|0x4000, 0, 0, 39|0x4000, 0|0x1000|0x4000, 0, 0, 0, 0, 0, 0, 0, 1|0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 53|0x1000|0x4000, 0, 0, 0, 0, 0, 14|0x4000, 0, 0, 0, 0, 0, 0, 28|0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 59, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    const CameraSequenceReadOnlyArray<std::int32_t, 199> CameraSequence::MusicData(
+        std::array<std::int32_t, 199>{
+        28, 27, 29, 30, 0, 0, 0, 0, 0, 0, 0, 1|0x4000, 0, 0, 0, 30|0x4000, 0, 0, 3|0x4000, 0, 5|0x4000, 0, 38|0x8000, 0, 0, 0, 0, 0, 16|0x400|0x4000, 14|0x400|0x4000, 0, 49|0x4000, 48|0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 53|0x8000, 9|0x4000, 37|0x4000, 13|0x4000, 0, 0, 41|0x800|0x4000, 0, 19|0x1000|0x4000, 51|0x1000|0x4000, 57|0x1000|0x4000, 44|0x2000|0x4000, 0, 10|0x4000, 5|0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 16|0x4000, 60|0x4000, 50|0x1000|0x4000, 53|0x1000|0x4000, 50|0x1000|0x4000, 53|0x1000|0x4000, 0, 53|0x1000|0x4000, 0, 0, 0, 0, 0, 0, 52|0x1000|0x4000, 0, 0|0x1000|0x4000, 0, 0, 39|0x4000, 0|0x1000|0x4000, 0, 0, 0, 0, 0, 0, 0, 1|0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 53|0x1000|0x4000, 0, 0, 0, 0, 0, 14|0x4000, 0, 0, 0, 0, 0, 0, 28|0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 59, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     });
 
     const CameraSequenceReadOnlyArray<std::int32_t, 199> CameraSequence::SfxData(
@@ -409,7 +686,7 @@ namespace MphRead::Formats
         "mp24_intro.bin",
         "mp25_intro.bin",
         "mp26_intro.bin"
-    });
+    }, CameraSequenceDetail::IndexSemantics::List);
 
     CameraSequence::CameraSequence(
         std::int32_t id,
@@ -1109,7 +1386,7 @@ namespace MphRead::Formats
         std::int32_t id, Scene* scene)
     {
         assert(id >= 0 && id < 199);
-        return Load(std::string(Filenames[static_cast<std::size_t>(id)]), scene, id);
+        return Load(std::string(Filenames[id]), scene, id);
     }
 
     std::shared_ptr<CameraSequence> CameraSequence::Load(
@@ -1140,12 +1417,12 @@ namespace MphRead::Formats
         {
             if (id < Entities::PlayerEntity::PlayerCount())
             {
+                auto&& players = Entities::PlayerEntity::Players();
                 if (id < 0)
                 {
-                    throw std::out_of_range("Index was outside the bounds of the array.");
+                    CameraSequenceDetail::ThrowArrayIndexOutOfRange();
                 }
-                return ToEntityShared(
-                    Entities::PlayerEntity::Players()[static_cast<std::size_t>(id)]);
+                return ToEntityShared(players[static_cast<std::size_t>(id)]);
             }
             return nullptr;
         }

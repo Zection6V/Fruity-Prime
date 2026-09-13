@@ -6,7 +6,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -32,13 +32,28 @@ namespace MphRead
 
 namespace MphRead::Formats
 {
+    namespace CameraSequenceDetail
+    {
+        enum class IndexSemantics : std::uint8_t
+        {
+            Array,
+            List
+        };
+
+        [[noreturn]] void ThrowArrayIndexOutOfRange();
+        [[noreturn]] void ThrowListIndexOutOfRange();
+    }
 
     template <typename T, std::size_t N>
     class CameraSequenceReadOnlyArray final
     {
     public:
-        constexpr explicit CameraSequenceReadOnlyArray(std::array<T, N> values)
-            : _values(std::move(values))
+        constexpr explicit CameraSequenceReadOnlyArray(
+            std::array<T, N> values,
+            CameraSequenceDetail::IndexSemantics indexSemantics
+                = CameraSequenceDetail::IndexSemantics::Array)
+            : _values(std::move(values)),
+              _indexSemantics(indexSemantics)
         {
         }
 
@@ -47,14 +62,23 @@ namespace MphRead::Formats
             return N;
         }
 
-        [[nodiscard]] const T& operator[](std::size_t index) const
+        template <typename TIndex>
+        [[nodiscard]] const T& operator[](TIndex index) const
         {
-            if (index >= N)
+            static_assert(std::is_integral_v<TIndex>);
+            if constexpr (std::is_signed_v<TIndex>)
             {
-                throw std::out_of_range(
-                    "Index was outside the bounds of the array.");
+                if (index < 0)
+                {
+                    ThrowIndexOutOfRange();
+                }
             }
-            return _values[index];
+            if (static_cast<std::uintmax_t>(index)
+                >= static_cast<std::uintmax_t>(N))
+            {
+                ThrowIndexOutOfRange();
+            }
+            return _values[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] constexpr auto begin() const noexcept
@@ -68,7 +92,17 @@ namespace MphRead::Formats
         }
 
     private:
+        [[noreturn]] void ThrowIndexOutOfRange() const
+        {
+            if (_indexSemantics == CameraSequenceDetail::IndexSemantics::List)
+            {
+                CameraSequenceDetail::ThrowListIndexOutOfRange();
+            }
+            CameraSequenceDetail::ThrowArrayIndexOutOfRange();
+        }
+
         std::array<T, N> _values;
+        CameraSequenceDetail::IndexSemantics _indexSemantics;
     };
 
     enum class CamSeqFlags : std::int32_t
@@ -129,7 +163,7 @@ namespace MphRead::Formats
         [[nodiscard]] static std::shared_ptr<CameraSequence> Load(
             std::string name, ::MphRead::Scene* scene, std::int32_t id = -1);
 
-        static const CameraSequenceReadOnlyArray<std::int32_t, 198> MusicData;
+        static const CameraSequenceReadOnlyArray<std::int32_t, 199> MusicData;
         static const CameraSequenceReadOnlyArray<std::int32_t, 199> SfxData;
         static const CameraSequenceReadOnlyArray<std::string_view, 199> Filenames;
 

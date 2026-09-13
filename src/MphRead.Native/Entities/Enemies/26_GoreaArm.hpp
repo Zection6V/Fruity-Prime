@@ -83,37 +83,6 @@ namespace MphRead::Entities::Enemies
 
     class Enemy26Entity : public GoreaEnemyEntityBase
     {
-    private:
-        Enemy24Entity* _gorea1A = nullptr;
-        std::shared_ptr<Node> _shoulderNode{};
-        std::shared_ptr<Node> _elbowNode{};
-        std::shared_ptr<Node> _upperArmNode{};
-
-    public:
-        std::int32_t Index = 0;
-        std::int32_t& ScanId;
-        GoreaArmFlags ArmFlags = GoreaArmFlags::None;
-
-    private:
-        std::shared_ptr<MphRead::EquipInfo> _equipInfo{};
-
-    public:
-        const std::shared_ptr<MphRead::EquipInfo>& EquipInfo;
-        std::int32_t Ammo = 65535;
-        std::int32_t Damage = 0;
-        std::int32_t Cooldown = 0;
-        std::int32_t RegenTimer = 0;
-
-    private:
-        std::int32_t _colorTimer = 0;
-
-    public:
-        const std::int32_t& ColorTimer;
-
-    private:
-        std::shared_ptr<Effects::EffectEntry> _shotEffect{};
-        std::shared_ptr<Effects::EffectEntry> _damageEffect{};
-
     public:
         Enemy26Entity(EnemyInstanceEntityData data,
             Formats::Culling::NodeRef nodeRef, Scene* scene);
@@ -122,6 +91,17 @@ namespace MphRead::Entities::Enemies
         Enemy26Entity& operator=(const Enemy26Entity&) = delete;
         Enemy26Entity(Enemy26Entity&&) = delete;
         Enemy26Entity& operator=(Enemy26Entity&&) = delete;
+
+        std::int32_t Index = 0;
+        GoreaArmFlags ArmFlags = GoreaArmFlags::None;
+        std::int32_t Ammo = 65535;
+        std::int32_t Damage = 0;
+        std::int32_t Cooldown = 0;
+        std::int32_t RegenTimer = 0;
+
+        [[nodiscard]] std::int32_t ScanId() const noexcept;
+        [[nodiscard]] std::shared_ptr<MphRead::EquipInfo> EquipInfo() const noexcept;
+        [[nodiscard]] std::int32_t ColorTimer() const noexcept;
 
         void Activate();
         void UpdateWeapon(std::shared_ptr<MphRead::WeaponInfo> weapon);
@@ -139,6 +119,15 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] bool EnemyTakeDamage(EntityBase* source) override;
 
     private:
+        Enemy24Entity* _gorea1A = nullptr;
+        std::shared_ptr<Node> _shoulderNode{};
+        std::shared_ptr<Node> _elbowNode{};
+        std::shared_ptr<Node> _upperArmNode{};
+        std::shared_ptr<MphRead::EquipInfo> _equipInfo{};
+        std::int32_t _colorTimer = 0;
+        std::shared_ptr<Effects::EffectEntry> _shotEffect{};
+        std::shared_ptr<Effects::EffectEntry> _damageEffect{};
+
         void GetNodeVectors(
             Node* node,
             OpenTK::Mathematics::Vector3& position,

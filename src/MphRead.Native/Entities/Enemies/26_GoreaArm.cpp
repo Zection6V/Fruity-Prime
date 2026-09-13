@@ -97,11 +97,23 @@ namespace MphRead::Entities::Enemies
 
     Enemy26Entity::Enemy26Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
-        : GoreaEnemyEntityBase(data, nodeRef, scene),
-          ScanId(_scanId),
-          EquipInfo(_equipInfo),
-          ColorTimer(_colorTimer)
+        : GoreaEnemyEntityBase(data, nodeRef, scene)
     {
+    }
+
+    std::int32_t Enemy26Entity::ScanId() const noexcept
+    {
+        return _scanId;
+    }
+
+    std::shared_ptr<MphRead::EquipInfo> Enemy26Entity::EquipInfo() const noexcept
+    {
+        return _equipInfo;
+    }
+
+    std::int32_t Enemy26Entity::ColorTimer() const noexcept
+    {
+        return _colorTimer;
     }
 
     void Enemy26Entity::EnemyInitialize()

@@ -13,7 +13,7 @@ namespace MphRead
         class GameSettings final
         {
         public:
-            [[nodiscard]] static const std::shared_ptr<MenuSettings>& Current() noexcept;
+            [[nodiscard]] static std::shared_ptr<MenuSettings> Current() noexcept;
 
             static void Apply(const std::shared_ptr<MenuSettings>& settings);
             static void ApplyMatchRules();

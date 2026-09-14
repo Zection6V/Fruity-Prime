@@ -243,10 +243,173 @@ namespace
         return true;
     }
 
+    [[nodiscard]] bool TryParseSpecialSingle(
+        std::string_view input, float& result) noexcept
+    {
+        const std::string_view text = TrimDotNetWhiteSpace(input);
+        if (EqualsIgnoreCaseAscii(text, "Infinity")
+            || EqualsIgnoreCaseAscii(text, "+Infinity"))
+        {
+            result = std::numeric_limits<float>::infinity();
+            return true;
+        }
+        if (EqualsIgnoreCaseAscii(text, "-Infinity"))
+        {
+            result = -std::numeric_limits<float>::infinity();
+            return true;
+        }
+        if (EqualsIgnoreCaseAscii(text, "NaN")
+            || EqualsIgnoreCaseAscii(text, "+NaN")
+            || EqualsIgnoreCaseAscii(text, "-NaN"))
+        {
+            result = std::numeric_limits<float>::quiet_NaN();
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool TryValidateFiniteSingle(
+        std::string_view input, bool& isZero,
+        bool& absoluteValueAtLeastOne) noexcept
+    {
+        isZero = false;
+        absoluteValueAtLeastOne = false;
+        if (input.empty())
+        {
+            return false;
+        }
+
+        std::size_t index = 0;
+        if (input[index] == '-')
+        {
+            ++index;
+            if (index == input.size())
+            {
+                return false;
+            }
+        }
+
+        bool sawDigit = false;
+        bool sawDecimal = false;
+        std::size_t digitsBeforeDecimal = 0;
+        std::size_t digitOrdinal = 0;
+        std::size_t firstNonZeroDigit = std::string_view::npos;
+
+        while (index < input.size()
+            && input[index] != 'e' && input[index] != 'E')
+        {
+            const char ch = input[index];
+            if (ch >= '0' && ch <= '9')
+            {
+                sawDigit = true;
+                if (!sawDecimal)
+                {
+                    ++digitsBeforeDecimal;
+                }
+                if (ch != '0' && firstNonZeroDigit == std::string_view::npos)
+                {
+                    firstNonZeroDigit = digitOrdinal;
+                }
+                ++digitOrdinal;
+                ++index;
+                continue;
+            }
+            if (ch == '.' && !sawDecimal)
+            {
+                sawDecimal = true;
+                ++index;
+                continue;
+            }
+            return false;
+        }
+
+        if (!sawDigit)
+        {
+            return false;
+        }
+
+        bool exponentNegative = false;
+        std::size_t exponentMagnitude = 0;
+        if (index < input.size())
+        {
+            ++index;
+            if (index == input.size())
+            {
+                return false;
+            }
+            if (input[index] == '+' || input[index] == '-')
+            {
+                exponentNegative = input[index] == '-';
+                ++index;
+            }
+            if (index == input.size()
+                || input[index] < '0' || input[index] > '9')
+            {
+                return false;
+            }
+
+            constexpr std::size_t MaxSize = std::numeric_limits<std::size_t>::max();
+            while (index < input.size())
+            {
+                const char ch = input[index];
+                if (ch < '0' || ch > '9')
+                {
+                    return false;
+                }
+                const std::size_t digit = static_cast<std::size_t>(ch - '0');
+                if (exponentMagnitude != MaxSize)
+                {
+                    if (exponentMagnitude > (MaxSize - digit) / 10)
+                    {
+                        exponentMagnitude = MaxSize;
+                    }
+                    else
+                    {
+                        exponentMagnitude = exponentMagnitude * 10 + digit;
+                    }
+                }
+                ++index;
+            }
+        }
+
+        if (firstNonZeroDigit == std::string_view::npos)
+        {
+            isZero = true;
+            return true;
+        }
+
+        const bool baseExponentNonNegative
+            = digitsBeforeDecimal > firstNonZeroDigit;
+        const std::size_t baseExponentMagnitude = baseExponentNonNegative
+            ? digitsBeforeDecimal - firstNonZeroDigit - 1
+            : firstNonZeroDigit + 1 - digitsBeforeDecimal;
+
+        if (exponentMagnitude == 0)
+        {
+            absoluteValueAtLeastOne = baseExponentNonNegative;
+        }
+        else if (exponentNegative)
+        {
+            absoluteValueAtLeastOne = baseExponentNonNegative
+                && baseExponentMagnitude >= exponentMagnitude;
+        }
+        else
+        {
+            absoluteValueAtLeastOne = baseExponentNonNegative
+                || exponentMagnitude >= baseExponentMagnitude;
+        }
+        return true;
+    }
+
     [[nodiscard]] bool TryParseSingleCore(
         std::string_view input, char decimalSeparator, float& result)
     {
         result = 0.0F;
+        if (TryParseSpecialSingle(input, result))
+        {
+            return true;
+        }
+
         input = TrimNumberWhiteSpace(input);
         if (input.empty())
         {
@@ -254,11 +417,9 @@ namespace
         }
 
         bool negative = false;
-        bool explicitPositive = false;
         if (input.front() == '+' || input.front() == '-')
         {
             negative = input.front() == '-';
-            explicitPositive = input.front() == '+';
             input.remove_prefix(1);
             if (input.empty())
             {
@@ -266,32 +427,11 @@ namespace
             }
         }
 
-        if (EqualsIgnoreCaseAscii(input, "nan"))
-        {
-            result = std::numeric_limits<float>::quiet_NaN();
-            if (negative)
-            {
-                result = -result;
-            }
-            return true;
-        }
-        if (EqualsIgnoreCaseAscii(input, "infinity"))
-        {
-            result = negative
-                ? -std::numeric_limits<float>::infinity()
-                : std::numeric_limits<float>::infinity();
-            return true;
-        }
-
         std::string normalized;
         normalized.reserve(input.size() + 1);
         if (negative)
         {
             normalized.push_back('-');
-        }
-        else if (explicitPositive)
-        {
-            // std::from_chars does not accept a leading plus sign.
         }
 
         bool sawDecimal = false;
@@ -316,6 +456,19 @@ namespace
             }
         }
 
+        bool isZero = false;
+        bool absoluteValueAtLeastOne = false;
+        if (!TryValidateFiniteSingle(
+            normalized, isZero, absoluteValueAtLeastOne))
+        {
+            return false;
+        }
+        if (isZero)
+        {
+            result = negative ? -0.0F : 0.0F;
+            return true;
+        }
+
         const char* first = normalized.data();
         const char* last = normalized.data() + normalized.size();
         float parsed = 0.0F;
@@ -326,54 +479,22 @@ namespace
             result = parsed;
             return true;
         }
-        if (parsedResult.ec != std::errc::result_out_of_range
-            || parsedResult.ptr != last)
+        if (parsedResult.ec == std::errc::result_out_of_range
+            && parsedResult.ptr == last)
         {
-            return false;
-        }
-
-        long double wide = 0.0L;
-        const auto wideResult = std::from_chars(
-            first, last, wide, std::chars_format::general);
-        if (wideResult.ec == std::errc{} && wideResult.ptr == last)
-        {
-            result = static_cast<float>(wide);
-            return true;
-        }
-        if (wideResult.ec != std::errc::result_out_of_range
-            || wideResult.ptr != last)
-        {
-            return false;
-        }
-
-        const std::size_t exponent = normalized.find_first_of("eE");
-        bool nonZeroMantissa = false;
-        for (std::size_t index = normalized.front() == '-' ? 1U : 0U;
-            index < (exponent == std::string::npos ? normalized.size() : exponent);
-            ++index)
-        {
-            const char ch = normalized[index];
-            if (ch >= '1' && ch <= '9')
+            if (absoluteValueAtLeastOne)
             {
-                nonZeroMantissa = true;
-                break;
+                result = negative
+                    ? -std::numeric_limits<float>::infinity()
+                    : std::numeric_limits<float>::infinity();
             }
-        }
-        if (!nonZeroMantissa)
-        {
-            result = negative ? -0.0F : 0.0F;
+            else
+            {
+                result = negative ? -0.0F : 0.0F;
+            }
             return true;
         }
-
-        const bool negativeExponent = exponent != std::string::npos
-            && exponent + 1 < normalized.size()
-            && normalized[exponent + 1] == '-';
-        result = negativeExponent
-            ? (negative ? -0.0F : 0.0F)
-            : (negative
-                ? -std::numeric_limits<float>::infinity()
-                : std::numeric_limits<float>::infinity());
-        return true;
+        return false;
     }
 
     [[nodiscard]] char CurrentCultureDecimalSeparator()
@@ -503,7 +624,7 @@ namespace MphRead::Mods
 {
     std::shared_ptr<MenuSettings> GameSettings::_current{};
 
-    const std::shared_ptr<MenuSettings>& GameSettings::Current() noexcept
+    std::shared_ptr<MenuSettings> GameSettings::Current() noexcept
     {
         return _current;
     }

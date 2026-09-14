@@ -41,39 +41,22 @@ To convert to floating-point, divide the integer by `1 << 12` as a float. To con
 
 `CollisionVolume` is a union of collision volume structs. It starts with a 4-byte type ID, and then contains the union of box, cylinder, and sphere, which have respective sizes 0x3C (60), 0x20 (32), and 0x10 (16).
 
-<table>
-<thead>
-<tr><th>Offset</th><th>Size</th><th>Type</th><th>Name</th></tr>
-</thead>
-<tbody>
-<tr><td>0x00</td><td>4</td><td>uint</td><td>Type</td></tr>
-</tbody>
-<tbody>
-<tr><td colspan="4"><b>Box</b></td></tr>
-</tbody>
-<tbody>
-<tr><td>0x04</td><td>12</td><td>vec3</td><td>BoxVector1</td></tr>
-<tr><td>0x10</td><td>12</td><td>vec3</td><td>BoxVector2</td></tr>
-<tr><td>0x1C</td><td>12</td><td>vec3</td><td>BoxVector3</td></tr>
-<tr><td>0x28</td><td>12</td><td>vec3</td><td>BoxPosition</td></tr>
-<tr><td>0x34</td><td>4</td><td>fx32</td><td>BoxDot1</td></tr>
-<tr><td>0x38</td><td>4</td><td>fx32</td><td>BoxDot2</td></tr>
-<tr><td>0x3C</td><td>4</td><td>fx32</td><td>BoxDot3</td></tr>
-</tbody>
-<tbody>
-<tr><td colspan="4"><b>Cylinder</b></td></tr>
-</tbody>
-<tbody>
-<tr><td>0x04</td><td>12</td><td>vec3</td><td>CylinderVector</td></tr>
-<tr><td>0x10</td><td>12</td><td>vec3</td><td>CylinderPosition</td></tr>
-<tr><td>0x1C</td><td>4</td><td>vec3</td><td>CylinderRadius</td></tr>
-<tr><td>0x20</td><td>4</td><td>vec3</td><td>CylinderDot</td></tr>
-</tbody>
-<tbody>
-<tr><td colspan="4"><b>Sphere</b></td></tr>
-</tbody>
-<tbody>
-<tr><td>0x04</td><td>12</td><td>vec3</td><td>SpherePosition</td></tr>
-<tr><td>0x10</td><td>4</td><td>fx32</td><td>SphereRadius</td></tr>
-</tbody>
-</table>
+| Offset | Size | Type | Name |
+| :- | :- | :- | :- |
+| 0x00 | 4 | uint | Type |
+| **Box** | | | |
+| 0x04 | 12 | vec3 | BoxVector1 |
+| 0x10 | 12 | vec3 | BoxVector2 |
+| 0x1C | 12 | vec3 | BoxVector3 |
+| 0x28 | 12 | vec3 | BoxPosition |
+| 0x34 | 4 | fx32 | BoxDot1 |
+| 0x38 | 4 | fx32 | BoxDot2 |
+| 0x3C | 4 | fx32 | BoxDot3 |
+| **Cylinder** | | | |
+| 0x04 | 12 | vec3 | CylinderVector |
+| 0x10 | 12 | vec3 | CylinderPosition |
+| 0x1C | 4 | vec3 | CylinderRadius |
+| 0x20 | 4 | vec3 | CylinderDot |
+| **Sphere** | | | |
+| 0x04 | 12 | vec3 | SpherePosition |
+| 0x10 | 4 | fx32 | SphereRadius |

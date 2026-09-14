@@ -289,16 +289,14 @@ Each element sets a pointer to a "set vectors" function and a "draw" function ba
 
 * Else, if bit 2 is cleared:
 
-<table><tbody>
-<tr><th>Draw Type</th><th>Vecs Func</th><th colspan="2">Draw Func</th></tr>
-<tr><th></th><th></th><th>Bit 0 set</th><th>Bit 0 cleared</th></tr>
-<tr><td>1</td><td><code>B0</code></td><td><code>B4</code></td><td><code>B8</code></td></tr>
-<tr><td>2</td><td><code>BC</code></td><td><code>B4</code></td><td><code>B8</code></td></tr>
-<tr><td>3</td><td><code>C0</code></td><td colspan="2"><code>C4</code></td></tr>
-<tr><td>4</td><td><code>B0</code></td><td><code>C8</code></td><td><code>CC</code></td></tr>
-<tr><td>5</td><td><code>BC</code></td><td><code>C8</code></td><td><code>CC</code></td></tr>
-<tr><td>6</td><td><code>C0</code></td><td colspan="2"><code>D0</code></td></tr>
-</tbody></table>
+| Draw Type | Vecs Func | Draw Func (Bit 0 set) | Draw Func (Bit 0 cleared) |
+| :- | :- | :- | :- |
+| 1 | `B0` | `B4` | `B8` |
+| 2 | `BC` | `B4` | `B8` |
+| 3 | `C0` | `C4` | `C4` |
+| 4 | `B0` | `C8` | `CC` |
+| 5 | `BC` | `C8` | `CC` |
+| 6 | `C0` | `D0` | `D0` |
 
 Vecs:
 

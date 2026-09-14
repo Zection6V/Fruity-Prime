@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 
 namespace
@@ -40,15 +41,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        if (MphRead::GameState::StorySave == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *MphRead::GameState::StorySave;
     }
 
     [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
@@ -161,8 +153,14 @@ namespace MphRead::Entities
         _alwaysActive = data.AlwaysActive != 0;
         if (GameState::Mode == GameMode::SinglePlayer)
         {
-            const std::int32_t state = RequireStorySave().InitRoomState(
-                RequireReference(_scene).RoomId,
+            StorySave* storySave = GameState::StorySave;
+            const std::int32_t roomId = RequireReference(_scene).RoomId;
+            if (storySave == nullptr)
+            {
+                throw System::NullReferenceException();
+            }
+            const std::int32_t state = storySave->InitRoomState(
+                roomId,
                 Id,
                 data.Enabled != 0);
             if (_alwaysActive)
@@ -306,12 +304,15 @@ namespace MphRead::Entities
     {
         if (_data.CollectedMessage != Message::None)
         {
-            RequireReference(_scene).SendMessage(
+            Scene* scene = _scene;
+            MessageObject param1 = BoxInt32(_data.CollectedMsgParam1);
+            MessageObject param2 = BoxInt32(_data.CollectedMsgParam2);
+            RequireReference(scene).SendMessage(
                 _data.CollectedMessage,
                 this,
                 _pickupNotifyEntity.get(),
-                BoxInt32(_data.CollectedMsgParam1),
-                BoxInt32(_data.CollectedMsgParam2));
+                std::move(param1),
+                std::move(param2));
         }
     }
 
@@ -325,10 +326,13 @@ namespace MphRead::Entities
             _playKeySfx = true;
             if (GameState::Mode == GameMode::SinglePlayer)
             {
-                RequireStorySave().SetRoomState(
-                    RequireReference(_scene).RoomId,
-                    Id,
-                    3);
+                StorySave* storySave = GameState::StorySave;
+                const std::int32_t roomId = RequireReference(_scene).RoomId;
+                if (storySave == nullptr)
+                {
+                    throw System::NullReferenceException();
+                }
+                storySave->SetRoomState(roomId, Id, 3);
             }
         }
         else if (info.Message == Message::SetActive
@@ -337,10 +341,13 @@ namespace MphRead::Entities
             Active = false;
             if (GameState::Mode == GameMode::SinglePlayer)
             {
-                RequireStorySave().SetRoomState(
-                    RequireReference(_scene).RoomId,
-                    Id,
-                    1);
+                StorySave* storySave = GameState::StorySave;
+                const std::int32_t roomId = RequireReference(_scene).RoomId;
+                if (storySave == nullptr)
+                {
+                    throw System::NullReferenceException();
+                }
+                storySave->SetRoomState(roomId, Id, 1);
             }
             if (_item != nullptr)
             {

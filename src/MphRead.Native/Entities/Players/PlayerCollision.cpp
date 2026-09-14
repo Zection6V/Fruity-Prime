@@ -8,6 +8,7 @@
 #include "../EnemyInstanceEntity.hpp"
 #include "../ForceFieldEntity.hpp"
 #include "../PlatformEntity.hpp"
+#include "HalfturretEntity.hpp"
 #include "PlayerEntity.hpp"
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -128,6 +130,40 @@ namespace
         return storage[static_cast<std::size_t>(index)];
     }
 
+    [[nodiscard]] float MathFMin(float x, float y) noexcept
+    {
+        if (std::isnan(x))
+        {
+            return x;
+        }
+        if (std::isnan(y))
+        {
+            return y;
+        }
+        if (x == y && x == 0.0F)
+        {
+            return std::signbit(x) || std::signbit(y) ? -0.0F : 0.0F;
+        }
+        return x < y ? x : y;
+    }
+
+    [[nodiscard]] float MathFMax(float x, float y) noexcept
+    {
+        if (std::isnan(x))
+        {
+            return x;
+        }
+        if (std::isnan(y))
+        {
+            return y;
+        }
+        if (x == y && x == 0.0F)
+        {
+            return !std::signbit(x) || !std::signbit(y) ? 0.0F : -0.0F;
+        }
+        return x > y ? x : y;
+    }
+
     [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
     {
         return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
@@ -228,10 +264,9 @@ namespace MphRead::Entities
             }
             if (TestFlag(Flags2(), PlayerFlags2::Halfturret))
             {
-                auto&& halfturretValue = Halfturret();
-                auto* halfturret = ObjectPointer(halfturretValue);
+                HalfturretEntity& halfturret = RequireReference(_halfturret);
                 Vector3 toTurret = other.Volume().SpherePosition
-                    - static_cast<Vector3>(RequireReference(halfturret).Position);
+                    - static_cast<Vector3>(halfturret.Position);
                 float radius = other.Volume().SphereRadius + 0.45F + 0.1F;
                 if (LengthSquared(toTurret) <= radius * radius)
                 {
@@ -245,8 +280,7 @@ namespace MphRead::Entities
                     turretRes.Field0 = 0;
                     turretRes.Plane = Vector4(toTurret);
                     toTurret = Scale(toTurret, 0.45F);
-                    toTurret = toTurret
-                        + static_cast<Vector3>(RequireReference(halfturret).Position);
+                    toTurret = toTurret + static_cast<Vector3>(halfturret.Position);
                     turretRes.Plane.W = Vector3::Dot(toTurret, turretRes.Plane.Xyz());
                     other.HandleCollision(turretRes);
                     if (&other != this)
@@ -381,7 +415,7 @@ namespace MphRead::Entities
                     dir.Z = z / factor;
                 }
                 std::uint16_t damage = source.Values().AltAttackDamage;
-                if (source.IsBot() && GameState::SinglePlayer())
+                if (source.IsBot() && GameState::SinglePlayer)
                 {
                     std::int32_t encounter
                         = ManagedAt(GameState::EncounterState, source.SlotIndex());
@@ -439,7 +473,7 @@ namespace MphRead::Entities
                     victim.SetAcceleration(dir);
                     victim._accelerationTimer = 8 * 2;
                     std::uint16_t damage = source.Values().AltAttackDamage;
-                    if (source.IsBot() && GameState::SinglePlayer())
+                    if (source.IsBot() && GameState::SinglePlayer)
                     {
                         std::int32_t encounter
                             = ManagedAt(GameState::EncounterState, source.SlotIndex());
@@ -506,7 +540,7 @@ namespace MphRead::Entities
                 source.Values().AltAttackKnockbackTime * 2);
         }
         std::uint16_t damage = source.Values().AltAttackDamage;
-        if (source.IsBot() && GameState::SinglePlayer())
+        if (source.IsBot() && GameState::SinglePlayer)
         {
             std::int32_t encounter
                 = ManagedAt(GameState::EncounterState, source.SlotIndex());
@@ -679,8 +713,8 @@ namespace MphRead::Entities
         _collidedEntCol.reset();
         _terrainDamage = false;
         ManagedArray<CollisionResult> results(40);
-        CollisionVolume altVolume
-            = PlayerVolumes[static_cast<std::size_t>(Hunter())][2];
+        CollisionVolume altVolume = ManagedAt(
+            ManagedAt(PlayerVolumes, static_cast<std::int32_t>(Hunter())), 2);
         Vector3 point1;
         Vector3 point2;
         Vector3 limitMin;
@@ -692,14 +726,14 @@ namespace MphRead::Entities
             point2 = static_cast<Vector3>(Position) + altVolume.SpherePosition;
             margin = altVolume.SphereRadius + 0.4F;
             limitMin = Vector3(
-                std::min(std::min(std::numeric_limits<float>::max(), point1.X), point2.X) - margin,
-                std::min(std::min(std::numeric_limits<float>::max(), point1.Y), point2.Y) - margin,
-                std::min(std::min(std::numeric_limits<float>::max(), point1.Z), point2.Z) - margin);
+                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.X), point2.X) - margin,
+                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.Y), point2.Y) - margin,
+                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.Z), point2.Z) - margin);
             limitMax = Vector3(
-                std::max(std::max(std::numeric_limits<float>::lowest(), point1.X), point2.X) + margin,
-                std::max(std::max(std::numeric_limits<float>::lowest(), point1.Y), point2.Y) + margin,
-                std::max(std::max(std::numeric_limits<float>::lowest(), point1.Z), point2.Z) + margin);
-            limitMin.Y = std::min(
+                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.X), point2.X) + margin,
+                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.Y), point2.Y) + margin,
+                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.Z), point2.Z) + margin);
+            limitMin.Y = MathFMin(
                 limitMin.Y,
                 static_cast<Vector3>(Position).Y
                     + Fixed::ToFloat(Values().MaxPickupHeight));
@@ -715,16 +749,16 @@ namespace MphRead::Entities
                     - Fixed::ToFloat(Values().MinPickupHeight))
                 / 2.0F + 0.4F;
             limitMin = Vector3(
-                std::min(std::min(std::numeric_limits<float>::max(), point1.X), point2.X) - margin,
-                std::min(std::min(std::numeric_limits<float>::max(), point1.Y), point2.Y) - margin,
-                std::min(std::min(std::numeric_limits<float>::max(), point1.Z), point2.Z) - margin);
+                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.X), point2.X) - margin,
+                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.Y), point2.Y) - margin,
+                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.Z), point2.Z) - margin);
             limitMax = Vector3(
-                std::max(std::max(std::numeric_limits<float>::lowest(), point1.X), point2.X) + margin,
-                std::max(std::max(std::numeric_limits<float>::lowest(), point1.Y), point2.Y) + margin,
-                std::max(std::max(std::numeric_limits<float>::lowest(), point1.Z), point2.Z) + margin);
+                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.X), point2.X) + margin,
+                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.Y), point2.Y) + margin,
+                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.Z), point2.Z) + margin);
         }
         bool includeEntities
-            = GameState::TransitionState() == MphRead::TransitionState::None;
+            = GameState::TransitionState == MphRead::TransitionState::None;
         const auto& candidates = CollisionDetection::GetCandidatesForLimits(
             point1, point2, margin, limitMin, limitMax, includeEntities, _scene);
         if (IsAltForm())
@@ -1265,13 +1299,13 @@ namespace MphRead::Entities
                 = Hunter() == MphRead::Hunter::Spire && result.Field0 == 0;
             if (climbing)
             {
-                if ((RequireReference(_scene).RoomId() == 30
-                        || RequireReference(_scene).RoomId() == 67)
+                if ((RequireReference(_scene).RoomId == 30
+                        || RequireReference(_scene).RoomId == 67)
                     && result.Plane.Y == 0.0F && result.Plane.Z == 0.0F)
                 {
                     climbing = false;
                 }
-                else if (RequireReference(_scene).RoomId() == 80
+                else if (RequireReference(_scene).RoomId == 80
                     && Formats::CameraSequence::Current() != nullptr)
                 {
                     climbing = false;
@@ -1312,7 +1346,7 @@ namespace MphRead::Entities
                             Vector3 speed = Speed();
                             speed.Y += 4.0F * dot * yFactor / 2.0F;
                             SetSpeed(speed);
-                            SetSpeed(WithY(Speed(), std::min(Speed().Y, 0.15F)));
+                            SetSpeed(WithY(Speed(), MathFMin(Speed().Y, 0.15F)));
                         }
                     }
                 }
@@ -1345,7 +1379,7 @@ namespace MphRead::Entities
                         speed = Speed();
                         speed.Y += dot * 0.2F;
                         SetSpeed(speed);
-                        SetSpeed(WithY(Speed(), std::min(Speed().Y, 0.25F)));
+                        SetSpeed(WithY(Speed(), MathFMin(Speed().Y, 0.25F)));
                     }
                 }
             }

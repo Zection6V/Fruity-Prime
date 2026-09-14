@@ -41,6 +41,15 @@ namespace
         return *value;
     }
 
+    [[nodiscard]] std::size_t CheckedSlotIndex(std::int32_t index)
+    {
+        if (index < 0 || index >= MphRead::Entities::PlayerEntity::SlotCapacity)
+        {
+            throw MphRead::Memory::Detail::IndexOutOfRangeException();
+        }
+        return static_cast<std::size_t>(index);
+    }
+
     [[nodiscard]] constexpr Vector3 AddScaled(
         Vector3 value, Vector3 direction, float scale) noexcept
     {
@@ -145,15 +154,6 @@ namespace MphRead::Entities
     void OctolithFlagEntity::GetPosition(Vector3& position)
     {
         position = _basePosition;
-    }
-
-    std::size_t OctolithFlagEntity::CheckedSlotIndex(std::int32_t index) const
-    {
-        if (index < 0 || index >= PlayerEntity::SlotCapacity)
-        {
-            throw Memory::Detail::IndexOutOfRangeException();
-        }
-        return static_cast<std::size_t>(index);
     }
 
     bool OctolithFlagEntity::Process()

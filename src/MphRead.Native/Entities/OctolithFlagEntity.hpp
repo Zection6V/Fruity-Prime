@@ -3,7 +3,6 @@
 #include "../Formats/Entity.hpp"
 #include "EntityBase.hpp"
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 
@@ -54,7 +53,6 @@ namespace MphRead::Entities
         [[nodiscard]] bool OnTouched(const std::shared_ptr<PlayerEntity>& player);
         void Reset();
         void OnDropped(bool reset);
-        [[nodiscard]] std::size_t CheckedSlotIndex(std::int32_t index) const;
 
         const OctolithFlagEntityData _data;
         ::OpenTK::Mathematics::Vector3 _basePosition = ::OpenTK::Mathematics::Vector3::Zero;

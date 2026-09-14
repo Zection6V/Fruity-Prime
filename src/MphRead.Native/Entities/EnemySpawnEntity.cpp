@@ -232,23 +232,23 @@ namespace MphRead::Entities
     EnemySpawnEntity::EnemySpawnEntity(
         EnemySpawnEntityData data, std::string nodeName, Scene* scene)
         : EntityBase(EntityType::EnemySpawn, std::move(nodeName), scene),
-          _data(std::move(data)),
+          _data(data),
           Data(_data),
           SpawnedCount(_spawnedCount),
           ActiveCount(_activeCount),
           ParentEntCol(_parentEntCol)
     {
-        Id = _data.Header.EntityId;
+        Id = data.Header.EntityId;
         _rangeNodeRef = RequireReference(scene).GetNodeRefByName(
-            MarshalString(_data.NodeName));
+            MarshalString(data.NodeName));
         _cooldownTimer = static_cast<std::int32_t>(_data.InitialCooldown) * 2;
         assert(GameState::Mode == GameMode::SinglePlayer);
         bool active = false;
         const std::int32_t state = RequireStorySave().InitRoomState(
-            RequireReference(_scene).RoomId, Id, _data.Active != 0);
-        if (_data.AlwaysActive != 0)
+            RequireReference(_scene).RoomId, Id, data.Active != 0);
+        if (data.AlwaysActive != 0)
         {
-            active = _data.Active != 0;
+            active = data.Active != 0;
         }
         else
         {
@@ -259,7 +259,7 @@ namespace MphRead::Entities
             Flags |= SpawnerFlags::Active;
         }
         SetTransform(
-            _data.Header.FacingVector, _data.Header.UpVector, _data.Header.Position);
+            data.Header.FacingVector, data.Header.UpVector, data.Header.Position);
         AddPlaceholderModel();
         Flags |= SpawnerFlags::Suspended;
     }
@@ -455,8 +455,7 @@ namespace MphRead::Entities
         bool updateSave = false;
         Flags &= ~SpawnerFlags::Active;
         Scene& scene = RequireReference(_scene);
-        StorySave& storySave = RequireStorySave();
-        storySave.SetRoomState(scene.RoomId, Id, 1);
+        RequireStorySave().SetRoomState(scene.RoomId, Id, 1);
 
         if ((_data.EnemyType != MphRead::EnemyType::Hunter
                 || _data.Fields.S09().EncounterType == 1)
@@ -469,7 +468,8 @@ namespace MphRead::Entities
                 {
                     throw SceneDetail::IndexOutOfRangeException();
                 }
-                storySave.EnemyEncounters[static_cast<std::size_t>(scene.AreaId)]
+                RequireStorySave().EnemyEncounters[
+                    static_cast<std::size_t>(scene.AreaId)]
                     [static_cast<std::size_t>(type >> 3)]
                     |= static_cast<std::uint8_t>(1U << (type & 7));
             }
@@ -477,13 +477,13 @@ namespace MphRead::Entities
 
         if (_data.EnemyType == MphRead::EnemyType::Cretaphid)
         {
-            storySave.Areas |= 3;
+            RequireStorySave().Areas |= 3;
             GameState::UpdateBossFlags(scene.AreaId);
             updateSave = true;
         }
         else if (_data.EnemyType == MphRead::EnemyType::Slench)
         {
-            storySave.Areas |= 0xF0;
+            RequireStorySave().Areas |= 0xF0;
             GameState::UpdateBossFlags(scene.AreaId);
             updateSave = true;
         }
@@ -495,18 +495,24 @@ namespace MphRead::Entities
 
         if (_entity1)
         {
+            MessageObject param1 = BoxInt32(-1);
+            MessageObject param2 = BoxInt32(0);
             scene.SendMessage(
-                _data.Message1, this, _entity1.get(), BoxInt32(-1), BoxInt32(0));
+                _data.Message1, this, _entity1.get(), std::move(param1), std::move(param2));
         }
         if (_entity2)
         {
+            MessageObject param1 = BoxInt32(-1);
+            MessageObject param2 = BoxInt32(0);
             scene.SendMessage(
-                _data.Message2, this, _entity2.get(), BoxInt32(-1), BoxInt32(0));
+                _data.Message2, this, _entity2.get(), std::move(param1), std::move(param2));
         }
         if (_entity3)
         {
+            MessageObject param1 = BoxInt32(-1);
+            MessageObject param2 = BoxInt32(0);
             scene.SendMessage(
-                _data.Message3, this, _entity3.get(), BoxInt32(-1), BoxInt32(0));
+                _data.Message3, this, _entity3.get(), std::move(param1), std::move(param2));
         }
         if (updateSave)
         {
@@ -738,11 +744,11 @@ namespace MphRead::Entities
     FhEnemySpawnEntity::FhEnemySpawnEntity(
         FhEnemySpawnEntityData data, Scene* scene)
         : EntityBase(EntityType::FhEnemySpawn, scene),
-          _data(std::move(data))
+          _data(data)
     {
-        Id = _data.Header.EntityId;
+        Id = data.Header.EntityId;
         SetTransform(
-            _data.Header.FacingVector, _data.Header.UpVector, _data.Header.Position);
+            data.Header.FacingVector, data.Header.UpVector, data.Header.Position);
         AddPlaceholderModel();
     }
 

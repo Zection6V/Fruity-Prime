@@ -1,0 +1,933 @@
+#include "NetMaster.hpp"
+
+#include "DedicatedServer.hpp"
+#include "MapRotation.hpp"
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <chrono>
+#include <cstdint>
+#include <exception>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
+
+namespace MphRead::Mods::Network::Detail
+{
+    using NetMasterSocketHandle = std::uintptr_t;
+
+    class NetMasterSocketException final : public std::runtime_error
+    {
+    public:
+        explicit NetMasterSocketException(std::string message)
+            : std::runtime_error(std::move(message))
+        {
+        }
+    };
+
+    // Narrow runtime/provider seams. These are the direct C# contracts touched
+    // by NetMaster.cs but owned by System.Net/System.Threading, GameMode /
+    // PlayerEntity, or the later W10 ServerUpdate slice. They deliberately do
+    // not introduce replacement policy here.
+    std::vector<std::array<std::uint8_t, 4>> NetMasterDnsGetIPv4Addresses(
+        const std::string& host);
+    NetMasterSocketHandle NetMasterUdpClientCreateInterNetwork();
+    void NetMasterUdpClientSetReceiveTimeout(NetMasterSocketHandle socket,
+        std::int32_t timeoutMs);
+    void NetMasterUdpClientSend(NetMasterSocketHandle socket,
+        std::span<const std::uint8_t> data,
+        const std::shared_ptr<System::Net::IPEndPoint>& endPoint);
+    std::vector<std::uint8_t> NetMasterUdpClientReceive(NetMasterSocketHandle socket,
+        std::shared_ptr<System::Net::IPEndPoint>& from);
+    void NetMasterUdpClientDispose(NetMasterSocketHandle socket);
+    [[noreturn]] void NetMasterThrowNullReferenceException();
+
+    std::int64_t NetMasterDateTimeUtcNowTicks();
+    std::string NetMasterDateTimeNowHHmmssCurrentCulture();
+    void NetMasterConsoleWriteLine(std::string_view message);
+    std::string NetMasterFormatInt32CurrentCulture(std::int32_t value);
+    std::int32_t NetMasterSingleToInt32Unchecked(float value);
+
+    bool NetMasterGameModeIsDefined(std::uint8_t value);
+    GameMode NetMasterGameModeBattle();
+    std::string NetMasterGameModeToString(GameMode value);
+    std::int32_t NetMasterPlayerSlotCapacity();
+    bool NetMasterServerUpdateShouldRestart(std::int32_t hostedCount);
+    void NetMasterSetCurrentThreadName(const std::string& name);
+}
+
+namespace
+{
+    using MphRead::Mods::Network::Detail::NetMasterSocketHandle;
+
+    constexpr std::int64_t TicksPerMillisecond = 10'000;
+
+    std::string IPv4ToString(const std::array<std::uint8_t, 4>& address)
+    {
+        return std::to_string(address[0]) + "." + std::to_string(address[1]) + "."
+            + std::to_string(address[2]) + "." + std::to_string(address[3]);
+    }
+
+    std::int32_t UncheckedAddOne(std::int32_t value) noexcept
+    {
+        const std::uint32_t bits = static_cast<std::uint32_t>(value) + 1U;
+        return std::bit_cast<std::int32_t>(bits);
+    }
+
+    std::int32_t UncheckedSlotCount(std::int32_t first, std::int32_t last) noexcept
+    {
+        const std::uint32_t bits = static_cast<std::uint32_t>(last)
+            - static_cast<std::uint32_t>(first) + 1U;
+        return std::bit_cast<std::int32_t>(bits);
+    }
+
+    template <typename TBody>
+    auto WithUdpClient(NetMasterSocketHandle socket, TBody&& body)
+        -> decltype(body())
+    {
+        using TResult = decltype(body());
+        std::optional<TResult> result;
+        std::exception_ptr pending;
+        try
+        {
+            result.emplace(body());
+        }
+        catch (...)
+        {
+            pending = std::current_exception();
+        }
+
+        // C# using-var disposal runs on both return and exception. If Dispose
+        // throws, it replaces the pending completion.
+        MphRead::Mods::Network::Detail::NetMasterUdpClientDispose(socket);
+        if (pending != nullptr)
+        {
+            std::rethrow_exception(pending);
+        }
+        return std::move(*result);
+    }
+}
+
+namespace MphRead::Mods::Network
+{
+    class MasterServer::Entry final
+    {
+    public:
+        std::shared_ptr<System::Net::IPEndPoint> Key{};
+        std::uint32_t Address = 0;
+        std::uint16_t Port = 0;
+        std::uint8_t Players = 0;
+        std::uint8_t MaxPlayers = 0;
+        std::uint8_t Mode = 0;
+        std::uint8_t Protocol = 0;
+        std::string ServerName{};
+        std::string RoomKey{};
+        double LastSeen = 0.0;
+    };
+
+    class MasterServer::Hosted final
+    {
+    public:
+        std::shared_ptr<DedicatedServer> Server{};
+        std::shared_ptr<std::stop_source> Cancel{};
+        std::int32_t Port = 0;
+        std::string Name{};
+        std::array<std::uint8_t, 4> Asker{};
+        double StartedAt = 0.0;
+        double LastOccupied = 0.0;
+    };
+
+    MasterReporter::MasterReporter(std::string host, std::int32_t port)
+        : _host(std::move(host)), _port(port)
+    {
+    }
+
+    void MasterReporter::Beat(double now, const std::string& serverName,
+        std::uint16_t port, std::uint8_t players, std::uint8_t maxPlayers,
+        std::uint8_t mode, const std::string& roomKey)
+    {
+        if (now - _lastBeat < NetMasterConfig::HeartbeatSeconds)
+        {
+            return;
+        }
+        _lastBeat = now;
+        try
+        {
+            if (!Resolve(now))
+            {
+                return;
+            }
+            MasterHeartbeatPacket beat{};
+            beat.Protocol = static_cast<std::uint8_t>(NetConfig::ProtocolVersion);
+            beat.Port = port;
+            beat.Players = players;
+            beat.MaxPlayers = maxPlayers;
+            beat.Mode = mode;
+            beat.ServerName = serverName;
+            beat.RoomKey = roomKey;
+            beat.Write(_scratch);
+
+            std::array<std::uint8_t, 1 + MasterHeartbeatPacket::Size> datagram{};
+            datagram[0] = static_cast<std::uint8_t>(PacketType::MasterHeartbeat);
+            std::copy(_scratch.begin(), _scratch.end(), datagram.begin() + 1);
+            if (!_socket.has_value())
+            {
+                Detail::NetMasterThrowNullReferenceException();
+            }
+            Detail::NetMasterUdpClientSend(*_socket, datagram, _endPoint);
+        }
+        catch (const std::exception& ex)
+        {
+            Complain(ex.what());
+        }
+    }
+
+    void MasterReporter::Farewell(std::uint16_t port)
+    {
+        if (!_socket.has_value() || _endPoint == nullptr)
+        {
+            return;
+        }
+        try
+        {
+            std::array<std::uint8_t, 3> datagram{};
+            datagram[0] = static_cast<std::uint8_t>(PacketType::Bye);
+            datagram[1] = static_cast<std::uint8_t>(port);
+            datagram[2] = static_cast<std::uint8_t>(port >> 8);
+            Detail::NetMasterUdpClientSend(*_socket, datagram, _endPoint);
+        }
+        catch (const std::exception&)
+        {
+        }
+    }
+
+    bool MasterReporter::Resolve(double now)
+    {
+        if (_endPoint != nullptr && now - _lastResolve < 3600.0)
+        {
+            return true;
+        }
+        const std::vector<std::array<std::uint8_t, 4>> addresses
+            = Detail::NetMasterDnsGetIPv4Addresses(_host);
+        if (addresses.empty())
+        {
+            Complain(_host + " has no IPv4 address");
+            return false;
+        }
+        _lastResolve = now;
+        _endPoint = std::make_shared<System::Net::IPEndPoint>(addresses.front(), _port);
+        if (!_socket.has_value())
+        {
+            _socket = Detail::NetMasterUdpClientCreateInterNetwork();
+        }
+        _complained = false;
+        return true;
+    }
+
+    void MasterReporter::Complain(const std::string& message)
+    {
+        if (_complained)
+        {
+            return;
+        }
+        _complained = true;
+        Detail::NetMasterConsoleWriteLine("[master] not listed on " + _host + ":"
+            + Detail::NetMasterFormatInt32CurrentCulture(_port) + " -- " + message);
+        Detail::NetMasterConsoleWriteLine("[master] the server is running normally; "
+            "pass -nomaster to stop trying, or -master HOST to point elsewhere");
+    }
+
+    void MasterReporter::Dispose()
+    {
+        if (_socket.has_value())
+        {
+            Detail::NetMasterUdpClientDispose(*_socket);
+        }
+        _socket.reset();
+    }
+
+    MasterServer::MasterServer(std::int32_t port)
+        : _port(port)
+    {
+    }
+
+    void MasterServer::SetHostPorts(std::int32_t first, std::int32_t last) noexcept
+    {
+        _hostPortFirst = first;
+        _hostPortLast = last;
+    }
+
+    bool MasterServer::CanHost() const noexcept
+    {
+        return _hostPortLast >= _hostPortFirst && _hostPortFirst > 0;
+    }
+
+    bool MasterServer::SetPublicAddress(const std::string& host)
+    {
+        try
+        {
+            const std::vector<std::array<std::uint8_t, 4>> resolved
+                = Detail::NetMasterDnsGetIPv4Addresses(host);
+            if (resolved.empty())
+            {
+                Log("cannot publish local servers as \"" + host + "\": no IPv4 address");
+                return false;
+            }
+            _publicAddress = ToUInt32(resolved.front());
+            _publicName = host + " (" + IPv4ToString(resolved.front()) + ")";
+            return true;
+        }
+        catch (const std::exception& ex)
+        {
+            Log("cannot publish local servers as \"" + host + "\": " + ex.what());
+            return false;
+        }
+    }
+
+    std::uint32_t MasterServer::ToUInt32(
+        const std::array<std::uint8_t, 4>& address) noexcept
+    {
+        return (static_cast<std::uint32_t>(address[0]) << 24)
+            | (static_cast<std::uint32_t>(address[1]) << 16)
+            | (static_cast<std::uint32_t>(address[2]) << 8)
+            | static_cast<std::uint32_t>(address[3]);
+    }
+
+    bool MasterServer::IsLocal(const std::array<std::uint8_t, 4>& address) noexcept
+    {
+        return address[0] == 127 || address[0] == 10
+            || (address[0] == 172 && address[1] >= 16 && address[1] <= 31)
+            || (address[0] == 192 && address[1] == 168)
+            || (address[0] == 169 && address[1] == 254);
+    }
+
+    void MasterServer::Stop() noexcept
+    {
+        _running.store(false);
+    }
+
+    double MasterServer::ClockElapsedSeconds() const noexcept
+    {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - _clockStart).count();
+    }
+
+    void MasterServer::Run(std::stop_token cancel)
+    {
+        _transport = std::make_unique<NetTransport>(_port);
+        _running.store(true);
+        Log("listening on UDP "
+            + Detail::NetMasterFormatInt32CurrentCulture(_transport->LocalPort()));
+        Log("servers are dropped after 50 s of silence");
+        if (_publicAddress != 0)
+        {
+            Log("servers on this machine are listed as " + _publicName);
+        }
+        Log(CanHost()
+            ? "can start games on ports "
+                + Detail::NetMasterFormatInt32CurrentCulture(_hostPortFirst) + "-"
+                + Detail::NetMasterFormatInt32CurrentCulture(_hostPortLast)
+                + " for players who cannot open one of their own"
+            : "not starting games for anybody (no host port range)");
+        _clockStart = std::chrono::steady_clock::now();
+        double lastReport = 0.0;
+        while (_running.load() && !cancel.stop_requested())
+        {
+            const double now = ClockElapsedSeconds();
+            for (const ReceivedPacket packet : _transport->Drain())
+            {
+                Handle(packet, now);
+            }
+            Expire(now);
+            ReapHosted(now);
+            if (Detail::NetMasterServerUpdateShouldRestart(
+                static_cast<std::int32_t>(_hosted.size())))
+            {
+                Log("shutting down to come back on the new build");
+                _running.store(false);
+                break;
+            }
+            if (now - lastReport >= 60.0)
+            {
+                lastReport = now;
+                std::string message = Detail::NetMasterFormatInt32CurrentCulture(
+                    static_cast<std::int32_t>(_entries.size())) + " server(s) listed";
+                if (!_hosted.empty())
+                {
+                    message += ", " + Detail::NetMasterFormatInt32CurrentCulture(
+                        static_cast<std::int32_t>(_hosted.size())) + " started here";
+                }
+                Log(message);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        Log("shutting down");
+        for (std::int32_t i = static_cast<std::int32_t>(_hosted.size()) - 1; i >= 0; --i)
+        {
+            StopHosted(_hosted[static_cast<std::size_t>(i)],
+                "the directory is shutting down");
+        }
+        _transport->Dispose();
+        _transport.reset();
+    }
+
+    void MasterServer::Handle(const ReceivedPacket& packet, double now)
+    {
+        if (packet.Type() == PacketType::MasterHeartbeat)
+        {
+            HandleHeartbeat(packet, now);
+        }
+        else if (packet.Type() == PacketType::MasterQuery)
+        {
+            SendList(packet.Sender);
+        }
+        else if (packet.Type() == PacketType::HostRequest)
+        {
+            HandleHostRequest(packet, now);
+        }
+        else if (packet.Type() == PacketType::Bye)
+        {
+            HandleFarewell(packet);
+        }
+    }
+
+    void MasterServer::HandleFarewell(const ReceivedPacket& packet)
+    {
+        const std::span<const std::uint8_t> payload = packet.Payload();
+        if (payload.size() < 2)
+        {
+            return;
+        }
+        const std::uint16_t port = static_cast<std::uint16_t>(payload[0])
+            | static_cast<std::uint16_t>(static_cast<std::uint16_t>(payload[1]) << 8);
+        const auto key = std::make_shared<System::Net::IPEndPoint>(
+            packet.Sender->AddressBytes(), port);
+        const auto found = std::find_if(_entries.begin(), _entries.end(),
+            [&](const std::shared_ptr<Entry>& entry)
+            {
+                return entry->Key->Equals(*key);
+            });
+        if (found != _entries.end())
+        {
+            const std::shared_ptr<Entry> entry = *found;
+            Log("- " + entry->Key->ToString() + " \"" + entry->ServerName
+                + "\" (said goodbye)");
+            _entries.erase(found);
+        }
+    }
+
+    void MasterServer::HandleHostRequest(const ReceivedPacket& packet, double now)
+    {
+        HostReplyPacket reply{};
+        const std::span<const std::uint8_t> payload = packet.Payload();
+        if (payload.size() < static_cast<std::size_t>(HostRequestPacket::Size))
+        {
+            reply.Reason = "malformed request";
+        }
+        else
+        {
+            const HostRequestPacket request = HostRequestPacket::Read(payload);
+            if (request.Protocol != static_cast<std::uint8_t>(NetConfig::ProtocolVersion))
+            {
+                reply.Reason = "this directory speaks protocol "
+                    + Detail::NetMasterFormatInt32CurrentCulture(NetConfig::ProtocolVersion)
+                    + ", your build speaks "
+                    + Detail::NetMasterFormatInt32CurrentCulture(request.Protocol);
+            }
+            else if (!CanHost())
+            {
+                reply.Reason = "this directory does not start games";
+            }
+            else
+            {
+                reply = StartHosted(request, packet.Sender, now);
+            }
+        }
+        reply.Write(_scratch);
+        if (_transport != nullptr)
+        {
+            _transport->Send(packet.Sender, PacketType::HostReply,
+                std::span<const std::uint8_t>(_scratch.data(), HostReplyPacket::Size));
+        }
+        if (!reply.Started)
+        {
+            Log("refused a game for " + packet.Sender->ToString() + ": "
+                + reply.Reason.value_or(std::string{}));
+        }
+    }
+
+    HostReplyPacket MasterServer::StartHosted(const HostRequestPacket& request,
+        const std::shared_ptr<System::Net::IPEndPoint>& asker, double now)
+    {
+        const std::array<std::uint8_t, 4> askerAddress = asker->AddressBytes();
+        for (std::int32_t i = static_cast<std::int32_t>(_hosted.size()) - 1; i >= 0; --i)
+        {
+            const std::shared_ptr<Hosted> previous = _hosted[static_cast<std::size_t>(i)];
+            if (previous->Asker == askerAddress && previous->Server->PeerCount() == 0)
+            {
+                StopHosted(previous, "the same player asked for another game");
+            }
+        }
+        const std::int32_t port = FreeHostPort(now);
+        if (port < 0)
+        {
+            HostReplyPacket result{};
+            result.Reason = "all " + Detail::NetMasterFormatInt32CurrentCulture(
+                UncheckedSlotCount(_hostPortFirst, _hostPortLast)) + " game slots are busy";
+            return result;
+        }
+        const GameMode mode = Detail::NetMasterGameModeIsDefined(request.Mode)
+            ? static_cast<GameMode>(request.Mode)
+            : Detail::NetMasterGameModeBattle();
+        const std::string& requestedName = request.ServerName.value();
+        const std::string name = !requestedName.empty() ? requestedName : "Hosted game";
+        const std::string& roomKey = request.RoomKey.value();
+        const std::shared_ptr<MapRotation> rotation = MapRotation::SingleMatch(roomKey, mode,
+            static_cast<float>(request.TimeLimit), request.PointGoal);
+        const auto server = std::make_shared<DedicatedServer>(port,
+            std::clamp(static_cast<std::int32_t>(request.MaxPlayers), 2,
+                Detail::NetMasterPlayerSlotCapacity()), rotation);
+        server->ServerName(name);
+        server->Reporter(std::make_shared<MasterReporter>("127.0.0.1", _port));
+
+        const auto cancel = std::make_shared<std::stop_source>();
+        const auto entry = std::make_shared<Hosted>();
+        entry->Server = server;
+        entry->Cancel = cancel;
+        entry->Port = port;
+        entry->Name = name;
+        entry->Asker = askerAddress;
+        entry->StartedAt = now;
+        entry->LastOccupied = now;
+
+        std::thread thread([server, cancel, port]()
+        {
+            Detail::NetMasterSetCurrentThreadName("MphRead hosted "
+                + Detail::NetMasterFormatInt32CurrentCulture(port));
+            try
+            {
+                server->Run(cancel->get_token());
+            }
+            catch (const std::exception& ex)
+            {
+                MasterServer::Log("game on "
+                    + Detail::NetMasterFormatInt32CurrentCulture(port)
+                    + " stopped: " + ex.what());
+            }
+        });
+        thread.detach();
+
+        for (std::int32_t i = 0; i < 50 && !server->Listening(); ++i)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (!server->Listening())
+        {
+            cancel->request_stop();
+            server->Stop();
+            HostReplyPacket result{};
+            result.Reason = "could not listen on port "
+                + Detail::NetMasterFormatInt32CurrentCulture(port);
+            return result;
+        }
+        _hosted.push_back(entry);
+        Log("started \"" + name + "\" on port "
+            + Detail::NetMasterFormatInt32CurrentCulture(port) + " for "
+            + IPv4ToString(askerAddress) + " (" + roomKey + ", "
+            + Detail::NetMasterGameModeToString(mode) + ")");
+        HostReplyPacket result{};
+        result.Started = true;
+        result.Port = static_cast<std::uint16_t>(port);
+        result.Reason = "";
+        return result;
+    }
+
+    std::int32_t MasterServer::FreeHostPort(double now)
+    {
+        std::int32_t port = _hostPortFirst;
+        while (port <= _hostPortLast)
+        {
+            bool taken = false;
+            for (const std::shared_ptr<Hosted>& entry : _hosted)
+            {
+                if (entry->Port == port)
+                {
+                    taken = true;
+                    break;
+                }
+            }
+            if (!taken)
+            {
+                const auto cooling = _cooling.find(port);
+                if (cooling != _cooling.end())
+                {
+                    if (now - cooling->second < PortCooldownSeconds)
+                    {
+                        port = UncheckedAddOne(port);
+                        continue;
+                    }
+                    _cooling.erase(cooling);
+                }
+                return port;
+            }
+            port = UncheckedAddOne(port);
+        }
+        return -1;
+    }
+
+    void MasterServer::ReapHosted(double now)
+    {
+        for (std::int32_t i = static_cast<std::int32_t>(_hosted.size()) - 1; i >= 0; --i)
+        {
+            const std::shared_ptr<Hosted> entry = _hosted[static_cast<std::size_t>(i)];
+            if (entry->Server->PeerCount() > 0)
+            {
+                entry->LastOccupied = now;
+                continue;
+            }
+            const bool played = entry->Server->EverOccupied();
+            const double grace = played ? HostedEmptySeconds : HostedStartupSeconds;
+            if (now - entry->LastOccupied > grace)
+            {
+                StopHosted(entry, played ? "everyone left" : "nobody joined");
+            }
+        }
+    }
+
+    void MasterServer::StopHosted(const std::shared_ptr<Hosted>& entry,
+        const std::string& why)
+    {
+        Log("stopping \"" + entry->Name + "\" on port "
+            + Detail::NetMasterFormatInt32CurrentCulture(entry->Port) + ": " + why);
+        entry->Cancel->request_stop();
+        entry->Server->Stop();
+        for (std::int32_t i = 0; i < 100 && entry->Server->Listening(); ++i)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        const auto found = std::find(_hosted.begin(), _hosted.end(), entry);
+        if (found != _hosted.end())
+        {
+            _hosted.erase(found);
+        }
+        _cooling[entry->Port] = ClockElapsedSeconds();
+        Unlist(entry->Port);
+    }
+
+    void MasterServer::Unlist(std::int32_t port)
+    {
+        for (std::int32_t i = static_cast<std::int32_t>(_entries.size()) - 1; i >= 0; --i)
+        {
+            const std::shared_ptr<Entry>& entry = _entries[static_cast<std::size_t>(i)];
+            if (entry->Port == port && entry->Key->AddressBytes()[0] == 127)
+            {
+                _entries.erase(_entries.begin() + i);
+            }
+        }
+    }
+
+    void MasterServer::HandleHeartbeat(const ReceivedPacket& packet, double now)
+    {
+        const std::span<const std::uint8_t> payload = packet.Payload();
+        if (payload.size() < static_cast<std::size_t>(MasterHeartbeatPacket::Size))
+        {
+            return;
+        }
+        const MasterHeartbeatPacket beat = MasterHeartbeatPacket::Read(payload);
+        const std::array<std::uint8_t, 4> senderAddress = packet.Sender->AddressBytes();
+        std::uint32_t address = ToUInt32(senderAddress);
+        if (_publicAddress != 0 && IsLocal(senderAddress))
+        {
+            address = _publicAddress;
+        }
+        const std::uint16_t port = beat.Port != 0
+            ? beat.Port : static_cast<std::uint16_t>(packet.Sender->Port());
+        const auto key = std::make_shared<System::Net::IPEndPoint>(senderAddress, port);
+        auto found = std::find_if(_entries.begin(), _entries.end(),
+            [&](const std::shared_ptr<Entry>& candidate)
+            {
+                return candidate->Key->Equals(*key);
+            });
+        std::shared_ptr<Entry> entry;
+        if (found == _entries.end())
+        {
+            entry = std::make_shared<Entry>();
+            entry->Key = key;
+            _entries.push_back(entry);
+            Log("+ " + key->ToString() + " \"" + beat.ServerName.value_or(std::string{}) + "\"");
+        }
+        else
+        {
+            entry = *found;
+        }
+        entry->Address = address;
+        entry->Port = port;
+        entry->Players = beat.Players;
+        entry->MaxPlayers = beat.MaxPlayers;
+        entry->Mode = beat.Mode;
+        entry->Protocol = beat.Protocol;
+        entry->ServerName = beat.ServerName.value();
+        entry->RoomKey = beat.RoomKey.value();
+        entry->LastSeen = now;
+    }
+
+    void MasterServer::Expire(double now)
+    {
+        for (std::int32_t i = static_cast<std::int32_t>(_entries.size()) - 1; i >= 0; --i)
+        {
+            const std::shared_ptr<Entry>& entry = _entries[static_cast<std::size_t>(i)];
+            if (now - entry->LastSeen > NetMasterConfig::ExpirySeconds)
+            {
+                Log("- " + entry->Key->ToString() + " \"" + entry->ServerName + "\"");
+                _entries.erase(_entries.begin() + i);
+            }
+        }
+    }
+
+    void MasterServer::SendList(const std::shared_ptr<System::Net::IPEndPoint>& sender)
+    {
+        const std::int32_t perPacket = NetMasterConfig::EntriesPerPacket();
+        const std::int32_t total = std::min(static_cast<std::int32_t>(_entries.size()), 255);
+        std::int32_t sent = 0;
+        do
+        {
+            const std::int32_t count = std::min(perPacket, total - sent);
+            _scratch[0] = static_cast<std::uint8_t>(count);
+            _scratch[1] = static_cast<std::uint8_t>(total);
+            std::int32_t offset = 2;
+            for (std::int32_t i = 0; i < count; ++i)
+            {
+                const std::shared_ptr<Entry>& entry
+                    = _entries[static_cast<std::size_t>(sent + i)];
+                MasterEntryPacket wire{};
+                wire.Address = entry->Address;
+                wire.Port = entry->Port;
+                wire.Players = entry->Players;
+                wire.MaxPlayers = entry->MaxPlayers;
+                wire.Mode = entry->Mode;
+                wire.Protocol = entry->Protocol;
+                wire.ServerName = entry->ServerName;
+                wire.RoomKey = entry->RoomKey;
+                wire.Write(std::span<std::uint8_t>(_scratch.data() + offset,
+                    _scratch.size() - static_cast<std::size_t>(offset)));
+                offset += MasterEntryPacket::Size;
+            }
+            if (_transport != nullptr)
+            {
+                _transport->Send(sender, PacketType::MasterList,
+                    std::span<const std::uint8_t>(_scratch.data(),
+                        static_cast<std::size_t>(offset)));
+            }
+            sent += count;
+        }
+        while (sent < total);
+    }
+
+    void MasterServer::Log(const std::string& message)
+    {
+        Detail::NetMasterConsoleWriteLine("[" + Detail::NetMasterDateTimeNowHHmmssCurrentCulture()
+            + "] [master] " + message);
+    }
+
+    std::string MasterListing::Endpoint() const
+    {
+        return Port == NetConfig::DefaultPort
+            ? Address
+            : Address + ":" + Detail::NetMasterFormatInt32CurrentCulture(Port);
+    }
+
+    HostedGame NetMasterClient::RequestGame(const std::string& masterHost,
+        std::int32_t masterPort, const std::string& roomKey, GameMode mode,
+        float timeLimit, std::int32_t pointGoal, std::int32_t maxPlayers,
+        const std::string& serverName, std::int32_t timeoutMs)
+    {
+        std::shared_ptr<System::Net::IPEndPoint> endPoint;
+        try
+        {
+            const std::vector<std::array<std::uint8_t, 4>> resolved
+                = Detail::NetMasterDnsGetIPv4Addresses(masterHost);
+            if (resolved.empty())
+            {
+                HostedGame result{};
+                result.Reason = masterHost + " has no IPv4 address";
+                return result;
+            }
+            endPoint = std::make_shared<System::Net::IPEndPoint>(resolved.front(), masterPort);
+        }
+        catch (const std::exception& ex)
+        {
+            HostedGame result{};
+            result.Reason = "cannot find " + masterHost + ": " + ex.what();
+            return result;
+        }
+
+        try
+        {
+            const NetMasterSocketHandle socket = Detail::NetMasterUdpClientCreateInterNetwork();
+            return WithUdpClient(socket, [&]() -> HostedGame
+            {
+                Detail::NetMasterUdpClientSetReceiveTimeout(socket, timeoutMs);
+                HostRequestPacket request{};
+                request.Protocol = static_cast<std::uint8_t>(NetConfig::ProtocolVersion);
+                request.MaxPlayers = static_cast<std::uint8_t>(std::clamp(maxPlayers, 2,
+                    Detail::NetMasterPlayerSlotCapacity()));
+                request.Mode = static_cast<std::uint8_t>(static_cast<std::int32_t>(mode));
+                request.TimeLimit = static_cast<std::uint16_t>(std::clamp(
+                    Detail::NetMasterSingleToInt32Unchecked(timeLimit), 0,
+                    static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
+                request.PointGoal = static_cast<std::uint16_t>(std::clamp(pointGoal, 0,
+                    static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
+                request.RoomKey = roomKey;
+                request.ServerName = serverName;
+
+                std::array<std::uint8_t, 1 + HostRequestPacket::Size> datagram{};
+                datagram[0] = static_cast<std::uint8_t>(PacketType::HostRequest);
+                request.Write(std::span<std::uint8_t>(datagram.data() + 1,
+                    HostRequestPacket::Size));
+                Detail::NetMasterUdpClientSend(socket, datagram, endPoint);
+                std::shared_ptr<System::Net::IPEndPoint> from = System::Net::IPEndPoint::Any();
+                const std::int64_t deadline = Detail::NetMasterDateTimeUtcNowTicks()
+                    + static_cast<std::int64_t>(timeoutMs) * TicksPerMillisecond;
+                while (Detail::NetMasterDateTimeUtcNowTicks() < deadline)
+                {
+                    const std::vector<std::uint8_t> reply
+                        = Detail::NetMasterUdpClientReceive(socket, from);
+                    if (reply.size() < static_cast<std::size_t>(1 + HostReplyPacket::Size)
+                        || reply[0] != static_cast<std::uint8_t>(PacketType::HostReply))
+                    {
+                        continue;
+                    }
+                    const HostReplyPacket answer = HostReplyPacket::Read(
+                        std::span<const std::uint8_t>(reply).subspan(1));
+                    HostedGame result{};
+                    result.Started = answer.Started;
+                    result.Host = masterHost;
+                    result.Port = answer.Port;
+                    result.Reason = answer.Reason.value_or(std::string{});
+                    return result;
+                }
+                HostedGame result{};
+                result.Reason = masterHost + " did not answer";
+                return result;
+            });
+        }
+        catch (const Detail::NetMasterSocketException&)
+        {
+            HostedGame result{};
+            result.Reason = "no answer from " + masterHost + ":"
+                + Detail::NetMasterFormatInt32CurrentCulture(masterPort)
+                + " -- it may be down, or UDP may not reach it";
+            return result;
+        }
+        catch (const std::exception& ex)
+        {
+            HostedGame result{};
+            result.Reason = ex.what();
+            return result;
+        }
+    }
+
+    MasterListResult NetMasterClient::Query(const std::string& host,
+        std::int32_t port, std::int32_t timeoutMs)
+    {
+        auto found = std::make_shared<std::vector<MasterListing>>();
+        bool answered = false;
+        std::shared_ptr<System::Net::IPEndPoint> endPoint;
+        try
+        {
+            const std::vector<std::array<std::uint8_t, 4>> resolved
+                = Detail::NetMasterDnsGetIPv4Addresses(host);
+            if (resolved.empty())
+            {
+                return {found, false};
+            }
+            endPoint = std::make_shared<System::Net::IPEndPoint>(resolved.front(), port);
+        }
+        catch (const std::exception&)
+        {
+            return {found, false};
+        }
+
+        try
+        {
+            const NetMasterSocketHandle socket = Detail::NetMasterUdpClientCreateInterNetwork();
+            return WithUdpClient(socket, [&]() -> MasterListResult
+            {
+                Detail::NetMasterUdpClientSetReceiveTimeout(socket, timeoutMs);
+                const std::array<std::uint8_t, 2> query = {
+                    static_cast<std::uint8_t>(PacketType::MasterQuery),
+                    static_cast<std::uint8_t>(NetConfig::ProtocolVersion)
+                };
+                Detail::NetMasterUdpClientSend(socket, query, endPoint);
+                std::shared_ptr<System::Net::IPEndPoint> from = System::Net::IPEndPoint::Any();
+                const std::int64_t deadline = Detail::NetMasterDateTimeUtcNowTicks()
+                    + static_cast<std::int64_t>(timeoutMs) * TicksPerMillisecond;
+                std::int32_t total = -1;
+                while (Detail::NetMasterDateTimeUtcNowTicks() < deadline
+                    && (total < 0 || static_cast<std::int32_t>(found->size()) < total))
+                {
+                    const std::vector<std::uint8_t> reply
+                        = Detail::NetMasterUdpClientReceive(socket, from);
+                    if (reply.size() < 3
+                        || reply[0] != static_cast<std::uint8_t>(PacketType::MasterList))
+                    {
+                        continue;
+                    }
+                    answered = true;
+                    const std::int32_t count = reply[1];
+                    total = reply[2];
+                    std::int32_t offset = 3;
+                    for (std::int32_t i = 0; i < count; ++i)
+                    {
+                        if (offset + MasterEntryPacket::Size
+                            > static_cast<std::int32_t>(reply.size()))
+                        {
+                            break;
+                        }
+                        const MasterEntryPacket entry = MasterEntryPacket::Read(
+                            std::span<const std::uint8_t>(reply).subspan(
+                                static_cast<std::size_t>(offset)));
+                        offset += MasterEntryPacket::Size;
+                        const std::array<std::uint8_t, 4> address = {
+                            static_cast<std::uint8_t>(entry.Address >> 24),
+                            static_cast<std::uint8_t>(entry.Address >> 16),
+                            static_cast<std::uint8_t>(entry.Address >> 8),
+                            static_cast<std::uint8_t>(entry.Address)
+                        };
+                        MasterListing listing{};
+                        listing.Address = IPv4ToString(address);
+                        listing.Port = entry.Port;
+                        listing.ServerName = entry.ServerName.value();
+                        listing.RoomKey = entry.RoomKey.value();
+                        listing.Mode = Detail::NetMasterGameModeIsDefined(entry.Mode)
+                            ? static_cast<GameMode>(entry.Mode)
+                            : Detail::NetMasterGameModeBattle();
+                        listing.Players = entry.Players;
+                        listing.MaxPlayers = entry.MaxPlayers;
+                        listing.Protocol = entry.Protocol;
+                        found->push_back(std::move(listing));
+                    }
+                    if (total == 0)
+                    {
+                        break;
+                    }
+                }
+                return {found, answered};
+            });
+        }
+        catch (const Detail::NetMasterSocketException&)
+        {
+        }
+        catch (const std::exception&)
+        {
+        }
+        return {found, answered};
+    }
+}

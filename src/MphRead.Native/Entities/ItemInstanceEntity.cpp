@@ -70,6 +70,28 @@ namespace
             OpenTK::Mathematics::Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
+    [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
+    {
+        Matrix4 result{};
+        result.M11 = left.M11 * right.M11 + left.M12 * right.M21 + left.M13 * right.M31 + left.M14 * right.M41;
+        result.M12 = left.M11 * right.M12 + left.M12 * right.M22 + left.M13 * right.M32 + left.M14 * right.M42;
+        result.M13 = left.M11 * right.M13 + left.M12 * right.M23 + left.M13 * right.M33 + left.M14 * right.M43;
+        result.M14 = left.M11 * right.M14 + left.M12 * right.M24 + left.M13 * right.M34 + left.M14 * right.M44;
+        result.M21 = left.M21 * right.M11 + left.M22 * right.M21 + left.M23 * right.M31 + left.M24 * right.M41;
+        result.M22 = left.M21 * right.M12 + left.M22 * right.M22 + left.M23 * right.M32 + left.M24 * right.M42;
+        result.M23 = left.M21 * right.M13 + left.M22 * right.M23 + left.M23 * right.M33 + left.M24 * right.M43;
+        result.M24 = left.M21 * right.M14 + left.M22 * right.M24 + left.M23 * right.M34 + left.M24 * right.M44;
+        result.M31 = left.M31 * right.M11 + left.M32 * right.M21 + left.M33 * right.M31 + left.M34 * right.M41;
+        result.M32 = left.M31 * right.M12 + left.M32 * right.M22 + left.M33 * right.M32 + left.M34 * right.M42;
+        result.M33 = left.M31 * right.M13 + left.M32 * right.M23 + left.M33 * right.M33 + left.M34 * right.M43;
+        result.M34 = left.M31 * right.M14 + left.M32 * right.M24 + left.M33 * right.M34 + left.M34 * right.M44;
+        result.M41 = left.M41 * right.M11 + left.M42 * right.M21 + left.M43 * right.M31 + left.M44 * right.M41;
+        result.M42 = left.M41 * right.M12 + left.M42 * right.M22 + left.M43 * right.M32 + left.M44 * right.M42;
+        result.M43 = left.M41 * right.M13 + left.M42 * right.M23 + left.M43 * right.M33 + left.M44 * right.M43;
+        result.M44 = left.M41 * right.M14 + left.M42 * right.M24 + left.M43 * right.M34 + left.M44 * right.M44;
+        return result;
+    }
+
     [[nodiscard]] Matrix4 Invert(Matrix4 value)
     {
         const float a = value.M11;
@@ -273,11 +295,11 @@ namespace MphRead::Entities
                 DegreesToRadians(_spinAxis.X * _spin),
                 DegreesToRadians(_spinAxis.Y * _spin),
                 DegreesToRadians(_spinAxis.Z * _spin));
-            transform = Matrix::Multiply44(
+            transform = Multiply(
                 transform,
                 Matrix::GetTransformSRT(One, rotation, Vector3::Zero));
         }
-        transform = Matrix::Multiply44(transform, _transform);
+        transform = Multiply(transform, _transform);
         if (index == _floatModelIndex)
         {
             transform.M42 += (

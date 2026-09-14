@@ -196,7 +196,7 @@ namespace MphRead::Entities
             {
                 _lock->SetHealth(0);
             }
-            if (GameState::SinglePlayer)
+            if (GameState::SinglePlayer())
             {
                 if (Formats::CameraSequence::Current() == nullptr)
                 {
@@ -214,7 +214,7 @@ namespace MphRead::Entities
         }
         else if (info.Message == Message::Lock)
         {
-            if (!_active && GameState::SinglePlayer
+            if (!_active && GameState::SinglePlayer()
                 && Formats::CameraSequence::Current() != nullptr
                 && _soundSource.CountPlayingSfx(SfxId::FORCEFIELD_APPEAR) == 0)
             {

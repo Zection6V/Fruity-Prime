@@ -1,5 +1,6 @@
 #include "PlatformEntity.hpp"
 
+#include "../Formats/Collision.hpp"
 #include "../GameState.hpp"
 #include "../MemoryArrays.hpp"
 #include "../Metadata/Enemies.hpp"
@@ -121,6 +122,33 @@ namespace
     [[nodiscard]] std::int32_t ManagedMultiply(std::int32_t left, std::int32_t right) noexcept
     {
         return MphRead::Memory::Detail::UncheckedMultiply(left, right);
+    }
+
+    [[nodiscard]] std::int32_t ManagedSubtract(
+        std::int32_t left, std::int32_t right) noexcept
+    {
+        const std::uint32_t value
+            = static_cast<std::uint32_t>(left)
+            - static_cast<std::uint32_t>(right);
+        return std::bit_cast<std::int32_t>(value);
+    }
+
+    [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
+    {
+        if (std::isnan(value))
+        {
+            return 0;
+        }
+        const double wide = static_cast<double>(value);
+        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
+        {
+            return std::numeric_limits<std::int32_t>::min();
+        }
+        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
+        {
+            return std::numeric_limits<std::int32_t>::max();
+        }
+        return static_cast<std::int32_t>(std::trunc(wide));
     }
 
     [[nodiscard]] std::uint16_t IncrementUInt16(std::uint16_t value) noexcept
@@ -1352,7 +1380,7 @@ namespace MphRead::Entities
         float factor;
         if (_data.ForCutscene != 0)
         {
-            _moveTimer = static_cast<std::int32_t>(30.0F / (speed * 2.0F));
+            _moveTimer = ConvertToInt32Net9(30.0F / (speed * 2.0F));
             factor = 1.0F / static_cast<float>(ManagedAdd(_moveTimer, 1));
             _moveTimer = ManagedMultiply(_moveTimer, 2);
             factor /= 2.0F;
@@ -1366,7 +1394,7 @@ namespace MphRead::Entities
             }
             else
             {
-                _moveTimer = static_cast<std::int32_t>(distance / speed);
+                _moveTimer = ConvertToInt32Net9(distance / speed);
                 factor = speed / distance;
             }
         }
@@ -1889,9 +1917,8 @@ namespace MphRead::Entities
                             else
                             {
                                 effectId = _data.DamageEffectId;
-                                _health = ManagedAdd(
-                                    _health,
-                                    -static_cast<std::int32_t>(beam.Damage()));
+                                _health = ManagedSubtract(
+                                    _health, ConvertToInt32Net9(beam.Damage()));
 
                                 if (_health <= _halfHealth)
                                 {
@@ -2140,7 +2167,7 @@ namespace MphRead::Entities
         const Vector3 velocity
             = ListAt(_posList, _toIndex) - ListAt(_posList, _fromIndex);
         const float distance = Length(velocity);
-        _moveTimer = static_cast<std::int32_t>(distance / _speed);
+        _moveTimer = ConvertToInt32Net9(distance / _speed);
         const float factor = _speed / distance;
         _velocity = Scale(velocity, factor);
     }

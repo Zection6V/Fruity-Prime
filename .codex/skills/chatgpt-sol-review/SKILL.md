@@ -39,12 +39,17 @@ perform the requested local work yourself.
   same conversation, then wait for the response. Do not repeat the message in a
   loop.
 - If the same conversation stops again, remains stalled, or its context is no
-  longer reliable, start a new ChatGPT conversation. Set Sol to `high` again
-  and resend the repository link plus the exact task, paths, authoritative
-  source, and constraints. Do not paste a large file merely to recover context.
-- Mark the old conversation as interrupted in your working notes and continue
-  from its last usable response. Apply the normal review rules below: the
-  returned text is a proposal, and local authoritative sources decide the work.
+  longer reliable, keep that conversation tab open: a separate ChatGPT chat is
+  completely context-free and closing the old tab is not a handoff. Record the
+  last usable response, fixed blob/path ledger, and next action, then recover in
+  that same conversation when its composer is live. Do not silently replace it
+  with a fresh chat or assume the new chat inherited any investigation.
+- Use a fresh ChatGPT conversation only as an explicit last-resort replacement
+  when the original is kept open and the new prompt repeats the full task,
+  paths, authoritative source revision, fixed artifacts, and constraints. Mark
+  the old conversation as still unfinished until its work has a terminal
+  PASS/NO-OP or the user explicitly abandons it. Apply the normal review rules:
+  the returned text is a proposal, and local authoritative sources decide the work.
 
 ## Computer Use and GitHub invariants
 
@@ -148,6 +153,12 @@ perform the requested local work yourself.
   recovery conversation and one independent review conversation when both are
   genuinely running. Do not open a new tab merely to duplicate a stalled or
   completed chat.
+- Never close a tab whose response is running, interrupted, stalled, or still
+  awaiting implementation/push/audit. A new ChatGPT chat has no context and
+  cannot inherit the old chat's reasoning or generated artifacts; closing it
+  loses the recovery path rather than handing it off. Keep the unfinished tab
+  until its terminal response/SHA or an explicit user abandonment, even when
+  a fresh replacement is opened.
 - After recording the final response, commit SHA, or explicit NO-OP for an item,
   close its browser tab with the browser tab close control. Close obsolete,
   duplicated, rate-limited, and completed migration tabs promptly so long runs do

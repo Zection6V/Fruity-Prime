@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -185,6 +186,7 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
         {
+            axis = axis.Normalized();
             const float cosine = std::cos(angle);
             const float sine = std::sin(angle);
             const float oneMinusCosine = 1.0F - cosine;
@@ -265,7 +267,11 @@ namespace MphRead::Entities::Enemies
         {
             if (divisor == 0)
             {
-                throw System::DivideByZeroException();
+                throw std::domain_error("Attempted to divide by zero.");
+            }
+            if (dividend == std::numeric_limits<std::int32_t>::min() && divisor == -1)
+            {
+                throw std::overflow_error("Arithmetic operation resulted in an overflow.");
             }
             return dividend / divisor;
         }

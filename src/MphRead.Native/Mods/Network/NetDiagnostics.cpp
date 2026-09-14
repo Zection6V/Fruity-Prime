@@ -97,7 +97,7 @@ namespace
             CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
         return result;
 #else
-        locale_t locale = newlocale(LC_NUMERIC_MASK, "", nullptr);
+        locale_t locale = newlocale(LC_MONETARY_MASK, "", nullptr);
         if (locale == static_cast<locale_t>(0))
         {
             return "-";

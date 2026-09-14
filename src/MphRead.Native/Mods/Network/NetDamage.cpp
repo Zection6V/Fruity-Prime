@@ -12,6 +12,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <numbers>
 #include <stdexcept>
@@ -142,6 +143,70 @@ namespace
 #endif
     }
 
+    [[nodiscard]] bool IsTruthyDotNetInvariantSetting(std::string_view value) noexcept
+    {
+        if (value == "1")
+        {
+            return true;
+        }
+        return value.size() == 4
+            && (value[0] == 't' || value[0] == 'T')
+            && (value[1] == 'r' || value[1] == 'R')
+            && (value[2] == 'u' || value[2] == 'U')
+            && (value[3] == 'e' || value[3] == 'E');
+    }
+
+    [[nodiscard]] bool IsInvariantLocaleName(std::string_view name) noexcept
+    {
+        return name.empty() || name == "C" || name == "POSIX" || name.starts_with("C.");
+    }
+
+    [[nodiscard]] std::string CurrentCulturePositiveInfinitySymbol()
+    {
+#if defined(_WIN32)
+        wchar_t buffer[32]{};
+        const int length = GetLocaleInfoEx(
+            LOCALE_NAME_USER_DEFAULT, LOCALE_SPOSINFINITY, buffer,
+            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
+        if (length <= 1)
+        {
+            return "Infinity";
+        }
+        const int utf8Length = WideCharToMultiByte(
+            CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
+        if (utf8Length <= 0)
+        {
+            return "Infinity";
+        }
+        std::string result(static_cast<std::size_t>(utf8Length), '\0');
+        WideCharToMultiByte(
+            CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
+        return result;
+#else
+        const char* invariantSetting = std::getenv("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT");
+        if (invariantSetting != nullptr
+            && IsTruthyDotNetInvariantSetting(invariantSetting))
+        {
+            return "Infinity";
+        }
+
+        const char* localeName = std::getenv("LC_ALL");
+        if (localeName == nullptr || localeName[0] == '\0')
+        {
+            localeName = std::getenv("LC_NUMERIC");
+        }
+        if (localeName == nullptr || localeName[0] == '\0')
+        {
+            localeName = std::getenv("LANG");
+        }
+        if (localeName == nullptr || IsInvariantLocaleName(localeName))
+        {
+            return "Infinity";
+        }
+        return "\xE2\x88\x9E";
+#endif
+    }
+
     [[nodiscard]] std::string FormatZeroPointHashHash(float value)
     {
         if (std::isnan(value))
@@ -150,7 +215,7 @@ namespace
         }
         if (std::isinf(value))
         {
-            return std::signbit(value) ? "-\xE2\x88\x9E" : "\xE2\x88\x9E";
+            return std::signbit(value) ? "-\xE2\x88\x9E" : CurrentCulturePositiveInfinitySymbol();
         }
 
         const float magnitude = std::fabs(value);

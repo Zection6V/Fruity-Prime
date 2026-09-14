@@ -229,7 +229,7 @@ namespace MphRead::Entities
     {
         _target = std::move(attacker);
         _targetTimer = 30 * 2;
-        const std::uint32_t product = static_cast<std::uint32_t>(61U * damage);
+        const std::int64_t product = 61LL * static_cast<std::int64_t>(damage);
         _cooldownFactor -= static_cast<float>(product);
         if (_cooldownFactor < 0.7F)
         {
@@ -632,7 +632,7 @@ namespace MphRead::Entities
             Matrix4 rot = RotationZ(rotZ * degreesToRadians);
             rot = Matrix::Multiply44(rot, RotationY(rotY * degreesToRadians));
             product = Matrix::Multiply44(rot, product);
-            const float scalar = 1.0F / (static_cast<float>(texture.Width) / 2.0F);
+            const float scalar = 1.0F / static_cast<float>(texture.Width / 2);
             product.M11 *= scalar;
             product.M12 *= scalar;
             product.M13 *= scalar;

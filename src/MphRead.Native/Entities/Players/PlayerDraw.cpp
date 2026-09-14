@@ -1,0 +1,940 @@
+#include "PlayerDraw.hpp"
+
+#include "../../Features.hpp"
+#include "../../Formats/CollisionDetection.hpp"
+#include "../../GameState.hpp"
+#include "../../Metadata/Metadata.hpp"
+#include "../../Renderer.hpp"
+#include "../../Scene.hpp"
+#include "../CamSeq/CameraSequence.hpp"
+#include "PlayerEntity.hpp"
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cassert>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+namespace
+{
+    using MphRead::ManagedArray;
+    using OpenTK::Mathematics::Matrix4;
+    using OpenTK::Mathematics::Vector3;
+    using OpenTK::Mathematics::Vector4;
+
+    template <typename TEnum>
+    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
+    {
+        using U = std::underlying_type_t<TEnum>;
+        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
+    }
+
+    template <typename TEnum>
+    [[nodiscard]] constexpr TEnum AddFlag(TEnum value, TEnum flag) noexcept
+    {
+        using U = std::underlying_type_t<TEnum>;
+        return static_cast<TEnum>(static_cast<U>(value) | static_cast<U>(flag));
+    }
+
+    template <typename TEnum>
+    [[nodiscard]] constexpr TEnum RemoveFlag(TEnum value, TEnum flag) noexcept
+    {
+        using U = std::underlying_type_t<TEnum>;
+        return static_cast<TEnum>(static_cast<U>(value) & ~static_cast<U>(flag));
+    }
+
+    template <typename T>
+    [[nodiscard]] T& RequireReference(T* value)
+    {
+        if (value == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    template <typename T>
+    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
+    {
+        if (!value)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    template <typename T>
+    [[nodiscard]] T& RequireReference(T& value) noexcept
+    {
+        return value;
+    }
+
+    template <typename T>
+    [[nodiscard]] T* ObjectPointer(T* value) noexcept
+    {
+        return value;
+    }
+
+    template <typename T>
+    [[nodiscard]] T* ObjectPointer(const std::shared_ptr<T>& value) noexcept
+    {
+        return value.get();
+    }
+
+    template <typename T>
+    [[nodiscard]] T* ObjectPointer(T& value) noexcept
+    {
+        return std::addressof(value);
+    }
+
+    template <typename T>
+    [[nodiscard]] decltype(auto) Storage(T& value)
+    {
+        if constexpr (std::is_pointer_v<std::remove_reference_t<T>>)
+        {
+            return RequireReference(value);
+        }
+        else if constexpr (requires { value.get(); })
+        {
+            return RequireReference(value);
+        }
+        else
+        {
+            return (value);
+        }
+    }
+
+    template <typename T>
+    [[nodiscard]] std::int32_t ManagedLength(T& values)
+    {
+        auto&& storage = Storage(values);
+        if constexpr (requires { storage.Length(); })
+        {
+            return static_cast<std::int32_t>(storage.Length());
+        }
+        else if constexpr (requires { storage.size(); })
+        {
+            return static_cast<std::int32_t>(storage.size());
+        }
+        else
+        {
+            return static_cast<std::int32_t>(std::size(storage));
+        }
+    }
+
+    template <typename T>
+    [[nodiscard]] decltype(auto) ManagedAt(T& values, std::int32_t index)
+    {
+        auto&& storage = Storage(values);
+        const std::int32_t length = ManagedLength(storage);
+        if (index < 0 || index >= length)
+        {
+            throw MphRead::SceneDetail::IndexOutOfRangeException();
+        }
+        if constexpr (requires { storage.at(static_cast<std::size_t>(index)); })
+        {
+            return storage.at(static_cast<std::size_t>(index));
+        }
+        else
+        {
+            return storage[static_cast<std::size_t>(index)];
+        }
+    }
+
+    [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scalar) noexcept
+    {
+        return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
+    }
+
+    [[nodiscard]] constexpr Vector4 Scale(Vector4 value, float scalar) noexcept
+    {
+        return Vector4(value.X * scalar, value.Y * scalar, value.Z * scalar, value.W * scalar);
+    }
+
+    [[nodiscard]] constexpr Vector3 Negate(Vector3 value) noexcept
+    {
+        return Vector3(-value.X, -value.Y, -value.Z);
+    }
+
+    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
+    {
+        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
+    }
+
+    [[nodiscard]] Matrix4 IdentityMatrix() noexcept
+    {
+        return Matrix4(
+            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
+            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
+            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
+            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
+    }
+
+    [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
+    {
+        Matrix4 result{};
+        result.M11 = left.M11 * right.M11 + left.M12 * right.M21 + left.M13 * right.M31 + left.M14 * right.M41;
+        result.M12 = left.M11 * right.M12 + left.M12 * right.M22 + left.M13 * right.M32 + left.M14 * right.M42;
+        result.M13 = left.M11 * right.M13 + left.M12 * right.M23 + left.M13 * right.M33 + left.M14 * right.M43;
+        result.M14 = left.M11 * right.M14 + left.M12 * right.M24 + left.M13 * right.M34 + left.M14 * right.M44;
+        result.M21 = left.M21 * right.M11 + left.M22 * right.M21 + left.M23 * right.M31 + left.M24 * right.M41;
+        result.M22 = left.M21 * right.M12 + left.M22 * right.M22 + left.M23 * right.M32 + left.M24 * right.M42;
+        result.M23 = left.M21 * right.M13 + left.M22 * right.M23 + left.M23 * right.M33 + left.M24 * right.M43;
+        result.M24 = left.M21 * right.M14 + left.M22 * right.M24 + left.M23 * right.M34 + left.M24 * right.M44;
+        result.M31 = left.M31 * right.M11 + left.M32 * right.M21 + left.M33 * right.M31 + left.M34 * right.M41;
+        result.M32 = left.M31 * right.M12 + left.M32 * right.M22 + left.M33 * right.M32 + left.M34 * right.M42;
+        result.M33 = left.M31 * right.M13 + left.M32 * right.M23 + left.M33 * right.M33 + left.M34 * right.M43;
+        result.M34 = left.M31 * right.M14 + left.M32 * right.M24 + left.M33 * right.M34 + left.M34 * right.M44;
+        result.M41 = left.M41 * right.M11 + left.M42 * right.M21 + left.M43 * right.M31 + left.M44 * right.M41;
+        result.M42 = left.M41 * right.M12 + left.M42 * right.M22 + left.M43 * right.M32 + left.M44 * right.M42;
+        result.M43 = left.M41 * right.M13 + left.M42 * right.M23 + left.M43 * right.M33 + left.M44 * right.M43;
+        result.M44 = left.M41 * right.M14 + left.M42 * right.M24 + left.M43 * right.M34 + left.M44 * right.M44;
+        return result;
+    }
+
+    [[nodiscard]] Matrix4 CreateScale(float scale) noexcept
+    {
+        return Matrix4(
+            Vector4(scale, 0.0F, 0.0F, 0.0F),
+            Vector4(0.0F, scale, 0.0F, 0.0F),
+            Vector4(0.0F, 0.0F, scale, 0.0F),
+            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
+    }
+
+    [[nodiscard]] Matrix4 CreateScale(Vector3 scale) noexcept
+    {
+        return Matrix4(
+            Vector4(scale.X, 0.0F, 0.0F, 0.0F),
+            Vector4(0.0F, scale.Y, 0.0F, 0.0F),
+            Vector4(0.0F, 0.0F, scale.Z, 0.0F),
+            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
+    }
+
+    [[nodiscard]] Matrix4 CreateRotationZ(float angle)
+    {
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        return Matrix4(
+            Vector4(c, s, 0.0F, 0.0F),
+            Vector4(-s, c, 0.0F, 0.0F),
+            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
+            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
+    }
+
+    [[nodiscard]] Matrix4 CreateRotationY(float angle)
+    {
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        return Matrix4(
+            Vector4(c, 0.0F, -s, 0.0F),
+            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
+            Vector4(s, 0.0F, c, 0.0F),
+            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
+    }
+
+    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
+    {
+        return degrees * (3.14159265358979323846F / 180.0F);
+    }
+
+    [[nodiscard]] constexpr Vector3 MatrixRow3(const Matrix4& matrix) noexcept
+    {
+        return Vector3(matrix.M41, matrix.M42, matrix.M43);
+    }
+
+    void SetRow0(Matrix4& matrix, Vector3 value) noexcept
+    {
+        matrix.M11 = value.X; matrix.M12 = value.Y; matrix.M13 = value.Z;
+    }
+
+    void SetRow1(Matrix4& matrix, Vector3 value) noexcept
+    {
+        matrix.M21 = value.X; matrix.M22 = value.Y; matrix.M23 = value.Z;
+    }
+
+    void SetRow2(Matrix4& matrix, Vector3 value) noexcept
+    {
+        matrix.M31 = value.X; matrix.M32 = value.Y; matrix.M33 = value.Z;
+    }
+
+    void SetRow3(Matrix4& matrix, Vector3 value) noexcept
+    {
+        matrix.M41 = value.X; matrix.M42 = value.Y; matrix.M43 = value.Z;
+    }
+
+    [[nodiscard]] Vector3 GetRow0(const Matrix4& matrix) noexcept
+    {
+        return Vector3(matrix.M11, matrix.M12, matrix.M13);
+    }
+
+    [[nodiscard]] Vector3 GetRow1(const Matrix4& matrix) noexcept
+    {
+        return Vector3(matrix.M21, matrix.M22, matrix.M23);
+    }
+
+    [[nodiscard]] Vector3 GetRow2(const Matrix4& matrix) noexcept
+    {
+        return Vector3(matrix.M31, matrix.M32, matrix.M33);
+    }
+
+    [[nodiscard]] std::int32_t ManagedFloatToInt32(float value) noexcept
+    {
+        if (std::isnan(value))
+        {
+            return 0;
+        }
+        if (value <= static_cast<float>(std::numeric_limits<std::int32_t>::min()))
+        {
+            return std::numeric_limits<std::int32_t>::min();
+        }
+        if (value >= static_cast<float>(std::numeric_limits<std::int32_t>::max()))
+        {
+            return std::numeric_limits<std::int32_t>::max();
+        }
+        return static_cast<std::int32_t>(value);
+    }
+
+    [[nodiscard]] std::int32_t RotationValue(std::uint64_t value) noexcept
+    {
+        const std::uint32_t low = static_cast<std::uint32_t>(value);
+        const std::int32_t signedValue = std::bit_cast<std::int32_t>(low);
+        return signedValue >> 20;
+    }
+}
+
+namespace MphRead::Entities
+{
+    using Formats::CameraSequence;
+    using Formats::CollisionDetection;
+    using Formats::CollisionResult;
+    using Formats::TestFlags;
+
+    void PlayerEntity::Draw()
+    {
+        if (TestFlag(Flags2(), PlayerFlags2::Spectating))
+        {
+            return;
+        }
+        DrawShadow();
+        if (IsMainPlayer() && ScanVisor())
+        {
+            DrawScanModels();
+        }
+        if (TestFlag(Flags2(), PlayerFlags2::HideModel))
+        {
+            return;
+        }
+        if (Hunter() == MphRead::Hunter::Spire && TestFlag(Flags2(), PlayerFlags2::AltAttack))
+        {
+            UpdateSpireAltAttack();
+        }
+
+        std::int32_t lod = 0;
+        SetFlags2(RemoveFlag(Flags2(), PlayerFlags2::Lod1));
+        PlayerEntity& main = RequireReference(Main());
+        CameraInfo& mainCamera = RequireReference(main.CameraInfo());
+        if (!IsMainPlayer() && !Features::MaxPlayerDetail
+            && LengthSquared(static_cast<Vector3>(Position) - mainCamera.Position) >= 9.0F)
+        {
+            lod = 1;
+            SetFlags2(AddFlag(Flags2(), PlayerFlags2::Lod1));
+        }
+
+        ModelInstance& biped1 = RequireReference(_bipedModel1);
+        ModelInstance& biped2 = RequireReference(_bipedModel2);
+        ModelInstance& lodModel = RequireReference(ManagedAt(_bipedModelLods, lod));
+        biped1.SetModel(lodModel.Model());
+        biped2.SetModel(lodModel.Model());
+        SetFlags2(RemoveFlag(Flags2(), PlayerFlags2::DrawnThirdPerson));
+
+        bool drawBiped = false;
+        if (IsMainPlayer() || IsVisible(NodeRef) || ModNodeUnresolved)
+        {
+            drawBiped = !IsMainPlayer() || CameraType() != Entities::CameraType::First
+                || CameraSequence::Current != nullptr || _camSwitchTimer < Values().CamSwitchTime * 2;
+            if (IsAltForm())
+            {
+                SetRow3(_modelTransform, Position);
+                if (_timeSinceDamage < Values().DamageFlashTime * 2)
+                {
+                    SetPaletteOverride(Metadata::RedPalette);
+                }
+                if (Hunter() == MphRead::Hunter::Kanden)
+                {
+                    DrawKandenAlt();
+                }
+                else if (Hunter() == MphRead::Hunter::Spire
+                    && TestFlag(Flags2(), PlayerFlags2::AltAttack))
+                {
+                    DrawSpireAltAttack();
+                }
+                else
+                {
+                    ModelInstance& alt = RequireReference(_altModel);
+                    UpdateTransforms(alt, _modelTransform, Recolor());
+                    Model& altModel = RequireReference(alt.Model());
+                    GetDrawItems(alt, RequireReference(ManagedAt(altModel.Nodes, 0)), _curAlpha);
+                }
+                SetPaletteOverride(std::nullopt);
+                if (_frozenGfxTimer > 0)
+                {
+                    const float radius = _volume.SphereRadius + 0.2F;
+                    Matrix4 transform = Multiply(CreateScale(radius), _modelTransform);
+                    transform.M42 += Fixed::ToFloat(Values().AltColYPos);
+                    ModelInstance& altIce = RequireReference(_altIceModel);
+                    UpdateTransforms(altIce, transform, 0);
+                    Model& altIceModel = RequireReference(altIce.Model());
+                    GetDrawItems(altIce, RequireReference(ManagedAt(altIceModel.Nodes, 0)), 1.0F, -1, 0);
+                }
+                if (Hunter() == MphRead::Hunter::Samus
+                    && !TestFlag(Flags2(), PlayerFlags2::Cloaking))
+                {
+                    DrawMorphBallTrail();
+                }
+                SetRow3(_modelTransform, Vector3::Zero);
+                SetFlags2(AddFlag(Flags2(), PlayerFlags2::DrawnThirdPerson));
+            }
+            else if (drawBiped)
+            {
+                Node& spineNode = RequireReference(ManagedAt(_spineNodes, lod));
+                spineNode.AnimIgnoreChild = true;
+                const Vector3 facing = _facingVector;
+                const float limit = Fixed::ToFloat(2896);
+                float cosValue = std::sqrt(1.0F - facing.Y * facing.Y);
+                float sinValue = facing.Y;
+                if (std::abs(facing.Y) > limit)
+                {
+                    cosValue = limit;
+                    sinValue = facing.Y <= 0.0F ? -limit : limit;
+                }
+                const float angle = std::atan2(sinValue, cosValue);
+                spineNode.AfterTransform = CreateRotationZ(angle);
+                Model& model = RequireReference(biped1.Model());
+                model.AnimateNodes(0, false, IdentityMatrix(), Vector3(1.0F, 1.0F, 1.0F), biped1.AnimInfo);
+                spineNode.AnimIgnoreChild = false;
+                model.AnimateNodes(spineNode.ChildIndex, false, IdentityMatrix(),
+                    Vector3(1.0F, 1.0F, 1.0F), biped2.AnimInfo);
+                spineNode.AfterTransform.reset();
+
+                const auto scaleIt = Metadata::HunterScales.find(Hunter());
+                if (scaleIt == Metadata::HunterScales.end())
+                {
+                    throw SceneDetail::KeyNotFoundException();
+                }
+                const float scale = scaleIt->second;
+                const float bottom = Fixed::ToFloat(Values().MinPickupHeight);
+                const Vector3 lateral(_field70, 0.0F, _field74);
+                Matrix4 transform = IdentityMatrix();
+                SetRow0(transform, Negate(_gunVec2));
+                SetRow1(transform, Vector3::Cross(lateral, _gunVec2));
+                SetRow2(transform, Negate(lateral));
+                SetRow3(transform, Position);
+                transform.M42 += bottom + bottom * (1.0F - scale);
+                SetRow0(transform, Scale(GetRow0(transform), scale));
+                SetRow1(transform, Scale(GetRow1(transform), scale));
+                SetRow2(transform, Scale(GetRow2(transform), scale));
+                for (std::int32_t i = 0; i < ManagedLength(model.Nodes); ++i)
+                {
+                    Node& node = RequireReference(ManagedAt(model.Nodes, i));
+                    node.Animation = Multiply(node.Animation, transform);
+                }
+                model.UpdateMatrixStack();
+
+                if (_health > 0)
+                {
+                    if (_timeSinceDamage < Values().DamageFlashTime * 2)
+                    {
+                        SetPaletteOverride(Metadata::RedPalette);
+                    }
+                    float alpha = _curAlpha;
+                    if (IsMainPlayer() && CameraSequence::Current == nullptr
+                        && ManagedAt(biped1.AnimInfo->Index, 0) == static_cast<std::int32_t>(PlayerAnimation::Unmorph))
+                    {
+                        alpha -= alpha * static_cast<float>(ManagedAt(biped1.AnimInfo->Frame, 0))
+                            / static_cast<float>(ManagedAt(biped1.AnimInfo->FrameCount, 0));
+                        alpha = std::clamp(alpha, 0.0F, 1.0F);
+                    }
+                    UpdateMaterials(biped2, Recolor());
+                    GetDrawItems(biped2, RequireReference(ManagedAt(model.Nodes, 0)), alpha);
+                    SetPaletteOverride(std::nullopt);
+                    if (_chargeEffect != nullptr || _muzzleEffect != nullptr)
+                    {
+                        Vector3 muzzlePos = ManagedAt(Metadata::MuzzleOffests,
+                            static_cast<std::int32_t>(Hunter()));
+                        muzzlePos = Matrix::Vec3MultMtx4(
+                            muzzlePos, RequireReference(ManagedAt(_shootNodes, lod)).Animation);
+                        if (_chargeEffect != nullptr)
+                        {
+                            _chargeEffect->SetDrawEnabled(true);
+                            _chargeEffect->Transform(_gunVec2, _gunVec1, muzzlePos);
+                        }
+                        if (_muzzleEffect != nullptr)
+                        {
+                            _muzzleEffect->SetDrawEnabled(true);
+                            _muzzleEffect->Transform(_gunVec2, _gunVec1, muzzlePos);
+                        }
+                    }
+                    if (_frozenGfxTimer > 0)
+                    {
+                        ModelInstance& bipedIce = RequireReference(_bipedIceModel);
+                        Model& iceModel = RequireReference(bipedIce.Model());
+                        for (std::int32_t i = 0; i < ManagedLength(iceModel.Nodes); ++i)
+                        {
+                            const Matrix4 animation = RequireReference(ManagedAt(model.Nodes, i)).Animation;
+                            RequireReference(ManagedAt(iceModel.Nodes, i)).Animation = animation;
+                            ManagedAt(_bipedIceTransforms, i) = animation;
+                        }
+                        iceModel.UpdateMatrixStack();
+                        UpdateMaterials(bipedIce, 0);
+                        GetDrawItems(bipedIce, RequireReference(ManagedAt(iceModel.Nodes, 0)), 1.0F, -1, 0);
+                    }
+                }
+                _modelTransform = transform;
+                if (_health == 0)
+                {
+                    DrawDeathParticles();
+                }
+                SetFlags2(AddFlag(Flags2(), PlayerFlags2::DrawnThirdPerson));
+            }
+            else if (AttachedEnemy() == nullptr && !_field6D0 && Hunter() != MphRead::Hunter::Guardian)
+            {
+                Matrix4 transform = GetTransformMatrix(_aimVec, _upVector, _gunDrawPos);
+                ModelInstance& gun = RequireReference(_gunModel);
+                UpdateTransforms(gun, transform, Recolor());
+                Model& gunModel = RequireReference(gun.Model());
+                GetDrawItems(gun, RequireReference(ManagedAt(gunModel.Nodes, 0)), _curAlpha);
+                if (TestFlag(Flags1(), PlayerFlags1::DrawGunSmoke))
+                {
+                    Vector3 drawPos(0.0F, 0.0F, Fixed::ToFloat(Values().MuzzleOffset));
+                    drawPos = Matrix::Vec3MultMtx4(drawPos, transform);
+                    SetRow3(transform, drawPos);
+                    ModelInstance& smoke = RequireReference(_gunSmokeModel);
+                    UpdateTransforms(smoke, transform, 0);
+                    Model& smokeModel = RequireReference(smoke.Model());
+                    GetDrawItems(smoke, RequireReference(ManagedAt(smokeModel.Nodes, 0)), _smokeAlpha, -1, 0);
+                }
+            }
+        }
+
+        if (!IsMainPlayer() && !drawBiped)
+        {
+            if (_chargeEffect != nullptr)
+            {
+                _chargeEffect->SetDrawEnabled(false);
+            }
+            if (_muzzleEffect != nullptr)
+            {
+                _muzzleEffect->SetDrawEnabled(false);
+            }
+        }
+        if (GameState::SinglePlayer && IsMainPlayer() && _deathCountdown > 0.0F
+            && _deathCountdown <= 119.0F / 30.0F)
+        {
+            if (GameState::StorySave == nullptr)
+            {
+                throw System::NullReferenceException();
+            }
+            if (std::popcount(static_cast<std::uint32_t>(GameState::StorySave->CurrentOctoliths)) > 0)
+            {
+                Matrix4 transform = IdentityMatrix();
+                SetRow3(transform, _lostOctolithDrawPos);
+                ModelInstance& octolith = RequireReference(_octolithSimpleModel);
+                UpdateTransforms(octolith, transform, 0);
+                Model& octolithModel = RequireReference(octolith.Model());
+                GetDrawItems(octolith, RequireReference(ManagedAt(octolithModel.Nodes, 0)), 1.0F, -1, 0);
+            }
+        }
+        DrawVolumes();
+    }
+
+    void PlayerEntity::DrawKandenAlt()
+    {
+        ModelInstance& alt = RequireReference(_altModel);
+        Model& model = RequireReference(alt.Model());
+        for (std::int32_t i = 0; i < ManagedLength(_kandenSegMtx); ++i)
+        {
+            RequireReference(ManagedAt(model.Nodes, i)).Animation = ManagedAt(_kandenSegMtx, i);
+        }
+        model.UpdateMatrixStack();
+        UpdateMaterials(alt, Recolor());
+        GetDrawItems(alt, RequireReference(ManagedAt(model.Nodes, 0)), _curAlpha);
+    }
+
+    void PlayerEntity::UpdateSpireAltAttack()
+    {
+        const Matrix4 transform = GetTransformMatrix(_spireAltFacing, _spireAltUp);
+        ModelInstance& alt = RequireReference(_altModel);
+        Model& model = RequireReference(alt.Model());
+        model.AnimateNodes(0, false, transform, Vector3(1.0F, 1.0F, 1.0F), alt.AnimInfo);
+        _spireRockPosL = MatrixRow3(RequireReference(ManagedAt(_spireAltNodes, 0)).Animation)
+            + static_cast<Vector3>(Position);
+        _spireRockPosR = MatrixRow3(RequireReference(ManagedAt(_spireAltNodes, 1)).Animation)
+            + static_cast<Vector3>(Position);
+    }
+
+    void PlayerEntity::DrawSpireAltAttack()
+    {
+        ModelInstance& alt = RequireReference(_altModel);
+        Model& model = RequireReference(alt.Model());
+        RequireReference(ManagedAt(model.Nodes, 0)).Animation = _modelTransform;
+        for (std::int32_t i = 1; i < ManagedLength(model.Nodes); ++i)
+        {
+            Node& node = RequireReference(ManagedAt(model.Nodes, i));
+            Matrix4 animation = node.Animation;
+            SetRow3(animation, MatrixRow3(animation) + MatrixRow3(_modelTransform));
+            node.Animation = animation;
+        }
+        model.UpdateMatrixStack();
+        UpdateMaterials(alt, Recolor());
+        GetDrawItems(alt, RequireReference(ManagedAt(model.Nodes, 0)), _curAlpha);
+    }
+
+    void PlayerEntity::GetDrawItems(
+        ModelInstance& inst, Node& node, float alpha, std::int32_t polygonId, std::int32_t recolor)
+    {
+        if (alpha <= 0.0F)
+        {
+            return;
+        }
+        if (polygonId == -1)
+        {
+            polygonId = RequireReference(_scene).GetNextPolygonId();
+        }
+        Model& model = RequireReference(inst.Model());
+        if (node.Enabled)
+        {
+            const std::int32_t start = node.MeshId / 2;
+            for (std::int32_t i = 0; i < node.MeshCount; ++i)
+            {
+                Mesh& mesh = RequireReference(ManagedAt(model.Meshes, start + i));
+                if (!mesh.Visible)
+                {
+                    continue;
+                }
+                Material& material = RequireReference(ManagedAt(model.Materials, mesh.MaterialId));
+                const Vector3 emission = GetEmission(inst, material, mesh.MaterialId);
+                const Matrix4 texcoordMatrix = GetTexcoordMatrix(inst, material, mesh.MaterialId, node, recolor);
+                const std::optional<Vector4> color = std::nullopt;
+                const SelectionType selectionType = SelectionType::None;
+                const std::optional<std::int32_t> bindingOverride
+                    = GetBindingOverride(inst, material, mesh.MaterialId);
+                RequireReference(_scene).AddRenderItem(material, polygonId, alpha, emission,
+                    GetLightInfo(), texcoordMatrix, node.Animation, mesh.ListId,
+                    ManagedLength(model.NodeMatrixIds), model.MatrixStackValues, color,
+                    PaletteOverride(), selectionType, node.BillboardMode, _drawScale, bindingOverride);
+            }
+            if (node.ChildIndex != -1)
+            {
+                GetDrawItems(inst, RequireReference(ManagedAt(model.Nodes, node.ChildIndex)),
+                    alpha, polygonId, recolor);
+            }
+        }
+        if (node.NextIndex != -1)
+        {
+            GetDrawItems(inst, RequireReference(ManagedAt(model.Nodes, node.NextIndex)),
+                alpha, polygonId, recolor);
+        }
+    }
+
+    std::optional<std::int32_t> PlayerEntity::GetBindingOverride(
+        ModelInstance& inst, Material& material, std::int32_t index)
+    {
+        if (_doubleDmgTimer > 0
+            && (Hunter() != MphRead::Hunter::Spire
+                || !(&inst == ObjectPointer(_gunModel) && index == 0))
+            && material.Lighting > 0)
+        {
+            return _doubleDmgBindingId;
+        }
+        return EntityBase::GetBindingOverride(inst, material, index);
+    }
+
+    Vector3 PlayerEntity::GetEmission(ModelInstance& inst, Material& material, std::int32_t index)
+    {
+        if (_doubleDmgTimer > 0
+            && (Hunter() != MphRead::Hunter::Spire
+                || !(&inst == ObjectPointer(_gunModel) && index == 0))
+            && material.Lighting > 0)
+        {
+            return Metadata::EmissionGray;
+        }
+        if (Team() == MphRead::Team::Orange)
+        {
+            return Metadata::EmissionOrange;
+        }
+        if (Team() == MphRead::Team::Green)
+        {
+            return Metadata::EmissionGreen;
+        }
+        return EntityBase::GetEmission(inst, material, index);
+    }
+
+    Matrix4 PlayerEntity::GetTexcoordMatrix(
+        ModelInstance& inst, Material& material, std::int32_t materialId,
+        Node& node, std::int32_t recolor)
+    {
+        if (_doubleDmgTimer > 0
+            && (Hunter() != MphRead::Hunter::Spire
+                || !(&inst == ObjectPointer(_gunModel) && materialId == 0))
+            && material.Lighting > 0 && node.BillboardMode == BillboardMode::None)
+        {
+            ModelInstance& doubleDamage = RequireReference(_doubleDmgModel);
+            Model& doubleDamageModel = RequireReference(doubleDamage.Model());
+            Recolor& doubleRecolor = RequireReference(ManagedAt(doubleDamageModel.Recolors, 0));
+            const Texture& texture = ManagedAt(doubleRecolor.Textures, 0);
+
+            Matrix4 texgenMatrix = IdentityMatrix();
+            Model& model = RequireReference(inst.Model());
+            if (model.Scale.X != 1.0F || model.Scale.Y != 1.0F || model.Scale.Z != 1.0F)
+            {
+                texgenMatrix = Multiply(CreateScale(model.Scale), texgenMatrix);
+            }
+            Matrix4 product = texgenMatrix;
+            product.M12 *= -1.0F;
+            product.M13 *= -1.0F;
+            product.M22 *= -1.0F;
+            product.M23 *= -1.0F;
+            product.M32 *= -1.0F;
+            product.M33 *= -1.0F;
+
+            const std::uint64_t frame = RequireReference(_scene).LiveFrames() / 2U;
+            const std::uint64_t zMul = 53248ULL * frame;
+            const std::uint64_t zInner = (781874935307ULL * zMul >> 32U) + 2048ULL;
+            const std::uint64_t yMul = 26624ULL * frame;
+            const std::uint64_t yInner = (781874935307ULL * yMul + 0x80000000000ULL) >> 32U;
+            const float rotZ = static_cast<float>(RotationValue(16ULL * zInner)) * (360.0F / 4096.0F);
+            const float rotY = static_cast<float>(RotationValue(16ULL * yInner)) * (360.0F / 4096.0F);
+            Matrix4 rot = CreateRotationZ(DegreesToRadians(rotZ));
+            rot = Multiply(rot, CreateRotationY(DegreesToRadians(rotY)));
+            product = Multiply(rot, product);
+
+            const std::int32_t halfWidth = texture.Width / 2;
+            const float textureScale = 1.0F / static_cast<float>(halfWidth);
+            product.M11 *= textureScale; product.M12 *= textureScale;
+            product.M13 *= textureScale; product.M14 *= textureScale;
+            product.M21 *= textureScale; product.M22 *= textureScale;
+            product.M23 *= textureScale; product.M24 *= textureScale;
+            product.M31 *= textureScale; product.M32 *= textureScale;
+            product.M33 *= textureScale; product.M34 *= textureScale;
+            product.M41 *= textureScale; product.M42 *= textureScale;
+            product.M43 *= textureScale; product.M44 *= textureScale;
+            return Matrix4(
+                Scale(product.Row0(), 16.0F),
+                Scale(product.Row1(), 16.0F),
+                Scale(product.Row2(), 16.0F),
+                product.Row3());
+        }
+        return EntityBase::GetTexcoordMatrix(inst, material, materialId, node, recolor);
+    }
+
+    void PlayerEntity::DrawShadow()
+    {
+        if (IsMainPlayer() && CameraType() == Entities::CameraType::First)
+        {
+            return;
+        }
+        ModelInstance& trail = RequireReference(_trailModel);
+        Model& trailModel = RequireReference(trail.Model());
+        Material& material = RequireReference(ManagedAt(trailModel.Materials, 1));
+        const Vector3 point1 = _volume.SpherePosition;
+        const Vector3 point2(point1.X, point1.Y - 10.0F, point1.Z);
+        CollisionResult colRes{};
+        if (CollisionDetection::CheckBetweenPoints(
+                point1, point2, TestFlags::None, RequireReference(_scene), colRes)
+            && colRes.Plane.Y >= Fixed::ToFloat(4))
+        {
+            const float height = point1.Y - colRes.Position.Y;
+            if (height < 10.0F)
+            {
+                const float pct = 1.0F - height / 10.0F;
+                float alpha = _curAlpha * pct;
+                if (_health == 0)
+                {
+                    const float respawnTime = _deathCountdown > 0.0F
+                        ? static_cast<float>(std::numeric_limits<std::uint16_t>::max())
+                        : static_cast<float>(RespawnTime());
+                    const float decrease = 2.0F * (respawnTime - _respawnTimer) / 2.0F;
+                    alpha -= decrease;
+                }
+                if (alpha > 0.0F)
+                {
+                    Vector3 row1 = Vector3::Cross(colRes.Plane.Xyz(), Vector3(0.0F, 0.0F, 1.0F)).Normalized();
+                    Vector3 row2 = colRes.Plane.Xyz();
+                    Vector3 row3 = Vector3::Cross(row1, colRes.Plane.Xyz());
+                    row1 = Scale(row1, pct);
+                    row2 = Scale(row2, pct);
+                    row3 = Scale(row3, pct);
+                    const float factor = Fixed::ToFloat(100);
+                    const Vector3 row4(
+                        colRes.Position.X + colRes.Plane.X * factor,
+                        colRes.Position.Y + colRes.Plane.Y * factor,
+                        colRes.Position.Z + colRes.Plane.Z * factor);
+                    const Matrix4 transform(
+                        Vector4(row1, 0.0F), Vector4(row2, 0.0F),
+                        Vector4(row3, 0.0F), Vector4(row4, 1.0F));
+                    std::vector<Vector3> uvsAndVerts(8);
+                    uvsAndVerts[0] = Vector3(0.0F, 0.0F, 0.0F);
+                    uvsAndVerts[1] = Vector3(-0.75F, 0.03125F, -0.75F);
+                    uvsAndVerts[2] = Vector3(0.0F, 1.0F, 0.0F);
+                    uvsAndVerts[3] = Vector3(-0.75F, 0.03125F, 0.75F);
+                    uvsAndVerts[4] = Vector3(1.0F, 1.0F, 0.0F);
+                    uvsAndVerts[5] = Vector3(0.75F, 0.03125F, 0.75F);
+                    uvsAndVerts[6] = Vector3(1.0F, 0.0F, 0.0F);
+                    uvsAndVerts[7] = Vector3(0.75F, 0.03125F, -0.75F);
+                    const std::int32_t polygonId = RequireReference(_scene).GetNextPolygonId();
+                    const Vector3 color(0.0F, 0.0F, 0.0F);
+                    RequireReference(_scene).AddRenderItem(RenderItemType::Particle, alpha,
+                        polygonId, color, material.XRepeat, material.YRepeat,
+                        material.ScaleS, material.ScaleT, transform, uvsAndVerts, _trailBindingId2);
+                }
+            }
+        }
+    }
+
+    void PlayerEntity::DrawMorphBallTrail()
+    {
+        assert(_trailModel != nullptr);
+        ModelInstance& trail = RequireReference(_trailModel);
+        Model& model = RequireReference(trail.Model());
+        Material& material = RequireReference(ManagedAt(model.Materials, 0));
+        Recolor& recolor = RequireReference(ManagedAt(model.Recolors, 0));
+        assert(ManagedAt(recolor.Textures, material.TextureId).Width == 32);
+
+        std::vector<float> matrixStack(static_cast<std::size_t>(16 * _mbTrailSegments));
+        for (std::int32_t i = 0; i < _mbTrailSegments; ++i)
+        {
+            const Matrix4 matrix = ManagedAt(ManagedAt(_mbTrailMatrices, SlotIndex()), i);
+            const std::size_t offset = static_cast<std::size_t>(i) * 16U;
+            matrixStack[offset] = matrix.M11; matrixStack[offset + 1U] = matrix.M12;
+            matrixStack[offset + 2U] = matrix.M13; matrixStack[offset + 3U] = matrix.M14;
+            matrixStack[offset + 4U] = matrix.M21; matrixStack[offset + 5U] = matrix.M22;
+            matrixStack[offset + 6U] = matrix.M23; matrixStack[offset + 7U] = matrix.M24;
+            matrixStack[offset + 8U] = matrix.M31; matrixStack[offset + 9U] = matrix.M32;
+            matrixStack[offset + 10U] = matrix.M33; matrixStack[offset + 11U] = matrix.M34;
+            matrixStack[offset + 12U] = matrix.M41; matrixStack[offset + 13U] = matrix.M42;
+            matrixStack[offset + 14U] = matrix.M43; matrixStack[offset + 15U] = matrix.M44;
+        }
+
+        std::int32_t count = 0;
+        const std::int32_t index = ManagedAt(_mbTrailIndices, SlotIndex());
+        std::vector<Vector3> uvsAndVerts(static_cast<std::size_t>(8 * _mbTrailSegments));
+        for (std::int32_t i = 0; i < _mbTrailSegments; ++i)
+        {
+            const std::int32_t base = index - 1 - i;
+            const std::int32_t mtxId1 = base + (base < 0 ? _mbTrailSegments : 0);
+            const std::int32_t base2 = mtxId1 - 1;
+            const std::int32_t mtxId2 = base2 + (base2 < 0 ? _mbTrailSegments : 0);
+            const float alpha1 = ManagedAt(ManagedAt(_mbTrailAlphas, SlotIndex()), mtxId1);
+            const float alpha2 = ManagedAt(ManagedAt(_mbTrailAlphas, SlotIndex()), mtxId2);
+            if (alpha1 > 0.0F && alpha2 > 0.0F)
+            {
+                const float uvS1 = static_cast<float>(31 - ManagedFloatToInt32(alpha1 * 31.0F)) / 32.0F;
+                const float uvS2 = static_cast<float>(31 - ManagedFloatToInt32(alpha2 * 31.0F)) / 32.0F;
+                const std::size_t offset = static_cast<std::size_t>(i) * 8U;
+                uvsAndVerts[offset] = Vector3(uvS1, 0.0F, static_cast<float>(mtxId1));
+                uvsAndVerts[offset + 1U] = Vector3(0.0F, 0.375F, 0.0F);
+                uvsAndVerts[offset + 2U] = Vector3(uvS1, 1.0F, static_cast<float>(mtxId1));
+                uvsAndVerts[offset + 3U] = Vector3(0.0F, -0.375F, 0.0F);
+                uvsAndVerts[offset + 4U] = Vector3(uvS2, 1.0F, static_cast<float>(mtxId2));
+                uvsAndVerts[offset + 5U] = Vector3(0.0F, -0.375F, 0.0F);
+                uvsAndVerts[offset + 6U] = Vector3(uvS2, 0.0F, static_cast<float>(mtxId2));
+                uvsAndVerts[offset + 7U] = Vector3(0.0F, 0.375F, 0.0F);
+                ++count;
+            }
+        }
+        if (count > 0)
+        {
+            const Vector3 color(1.0F, 27.0F / 31.0F, 11.0F / 31.0F);
+            RequireReference(_scene).AddRenderItem(RenderItemType::TrailStack,
+                RequireReference(_scene).GetNextPolygonId(), color,
+                material.XRepeat, material.YRepeat, material.ScaleS, material.ScaleT,
+                _mbTrailSegments, matrixStack, uvsAndVerts, count, _trailBindingId1);
+        }
+    }
+
+    void PlayerEntity::DrawDeathParticles()
+    {
+        const float respawnTime = static_cast<float>(RespawnTime());
+        const float timePct = 1.0F
+            - ((_respawnTimer - (2.0F / 3.0F * respawnTime)) / (1.0F / 3.0F * respawnTime));
+        if (timePct < 0.0F || timePct > 1.0F)
+        {
+            return;
+        }
+        const float scale = timePct / 2.0F + 0.1F;
+        const float angle = std::sin(DegreesToRadians(270.0F - 90.0F * timePct));
+        const float sin270 = std::sin(DegreesToRadians(270.0F));
+        const float sin180 = std::sin(DegreesToRadians(180.0F));
+        const float offset = (angle - sin270) / (sin180 - sin270);
+        ModelInstance& biped = RequireReference(_bipedModel1);
+        Model& model = RequireReference(biped.Model());
+        for (std::int32_t i = 1; i < ManagedLength(model.Nodes); ++i)
+        {
+            Node& node = RequireReference(ManagedAt(model.Nodes, i));
+            Vector3 nodePos = MatrixRow3(node.Animation);
+            nodePos.Y += offset;
+            if (node.ChildIndex != -1)
+            {
+                assert(node.ChildIndex > 0);
+                Vector3 childPos = MatrixRow3(RequireReference(ManagedAt(model.Nodes, node.ChildIndex)).Animation);
+                childPos.Y += offset;
+                for (std::int32_t j = 1; j < 5; ++j)
+                {
+                    Vector3 segPos(
+                        nodePos.X + static_cast<float>(j) * (childPos.X - nodePos.X) / 5.0F,
+                        nodePos.Y + static_cast<float>(j) * (childPos.Y - nodePos.Y) / 5.0F,
+                        nodePos.Z + static_cast<float>(j) * (childPos.Z - nodePos.Z) / 5.0F);
+                    segPos = segPos + Scale((segPos - static_cast<Vector3>(Position)).Normalized(), offset);
+                    RequireReference(_scene).AddSingleParticle(
+                        SingleType::Death, segPos, Vector3(1.0F, 1.0F, 1.0F), 1.0F - timePct, scale);
+                }
+            }
+            if (node.NextIndex != -1)
+            {
+                assert(node.NextIndex > 0);
+                Vector3 nextPos = MatrixRow3(RequireReference(ManagedAt(model.Nodes, node.NextIndex)).Animation);
+                nextPos.Y += offset;
+                for (std::int32_t j = 1; j < 5; ++j)
+                {
+                    Vector3 segPos(
+                        nodePos.X + static_cast<float>(j) * (nextPos.X - nodePos.X) / 5.0F,
+                        nodePos.Y + static_cast<float>(j) * (nextPos.Y - nodePos.Y) / 5.0F,
+                        nodePos.Z + static_cast<float>(j) * (nextPos.Z - nodePos.Z) / 5.0F);
+                    segPos = segPos + Scale((segPos - static_cast<Vector3>(Position)).Normalized(), offset);
+                    RequireReference(_scene).AddSingleParticle(
+                        SingleType::Death, segPos, Vector3(1.0F, 1.0F, 1.0F), 1.0F - timePct, scale);
+                }
+            }
+            nodePos = nodePos + Scale((nodePos - static_cast<Vector3>(Position)).Normalized(), offset);
+            RequireReference(_scene).AddSingleParticle(
+                SingleType::Death, nodePos, Vector3(1.0F, 1.0F, 1.0F), 1.0F - timePct, scale);
+        }
+    }
+
+    void PlayerEntity::DrawVolumes()
+    {
+        if (RequireReference(_scene).ShowVolumes() == VolumeDisplay::KillPlane)
+        {
+            if (!IsAltForm() && !IsMorphing() && !IsUnmorphing())
+            {
+                AddVectorItem(_gunDrawPos, Scale(_aimVec, 3.0F), Vector3(0.0F, 0.0F, 1.0F));
+                AddDotItem(_muzzlePos, Vector3(1.0F, 0.0F, 0.0F));
+                AddDotItem(_muzzlePos + Scale((_aimPosition - _muzzlePos).Normalized(), 3.0F),
+                    Vector3(1.0F, 0.0F, 0.0F));
+            }
+            AddVectorItem(_position, Scale(_facingVector, 3.0F), Vector3(0.0F, 1.0F, 0.0F));
+        }
+    }
+
+    void PlayerEntity::GetDrawInfo()
+    {
+    }
+}

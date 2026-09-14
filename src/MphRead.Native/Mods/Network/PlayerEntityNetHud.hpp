@@ -9,11 +9,11 @@ namespace MphRead::Entities
     class PlayerEntity
     {
     public:
-        [[nodiscard]] std::int32_t ModScoreColumn1() const;
-        [[nodiscard]] std::int32_t ModScoreColumn2() const;
+        [[nodiscard]] float ModScoreColumn1() const;
+        [[nodiscard]] float ModScoreColumn2() const;
 
         void ModDrawPingHeader(float posY);
-        void ModDrawPingRow(float posY, std::int32_t slot);
+        void ModDrawPingRow(float posY, ColorRgba rowColor, std::int32_t slot);
 
     private:
         static constexpr float _pingColumnX = 236.0F;

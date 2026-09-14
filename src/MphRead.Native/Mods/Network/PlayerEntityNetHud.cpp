@@ -29,14 +29,14 @@ namespace MphRead::Entities::PlayerEntityNetHudDetail
 
 namespace MphRead::Entities
 {
-    std::int32_t PlayerEntity::ModScoreColumn1() const
+    float PlayerEntity::ModScoreColumn1() const
     {
-        return PlayerEntityNetHudDetail::NetSessionActive() ? 145 : 160;
+        return PlayerEntityNetHudDetail::NetSessionActive() ? 145.0F : 160.0F;
     }
 
-    std::int32_t PlayerEntity::ModScoreColumn2() const
+    float PlayerEntity::ModScoreColumn2() const
     {
-        return PlayerEntityNetHudDetail::NetSessionActive() ? 193 : 215;
+        return PlayerEntityNetHudDetail::NetSessionActive() ? 193.0F : 215.0F;
     }
 
     void PlayerEntity::ModDrawPingHeader(float posY)
@@ -57,7 +57,8 @@ namespace MphRead::Entities
             8);
     }
 
-    void PlayerEntity::ModDrawPingRow(float posY, std::int32_t slot)
+    void PlayerEntity::ModDrawPingRow(
+        float posY, ColorRgba, std::int32_t slot)
     {
         if (!PlayerEntityNetHudDetail::NetSessionActive())
         {

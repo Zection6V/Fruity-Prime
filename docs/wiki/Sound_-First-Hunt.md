@@ -1,0 +1,139 @@
+* [SFXDATA](#SFXDATA)
+* [MENUSFXDATA](#MENUSFXDATA)
+* [GLOBALSFXDATA](#GLOBALSFXDATA)
+* [BGMDATA](#BGMDATA)
+
+No sound name metadata is available in FH, but most of the sounds can be found with corresponding names in MPH.
+
+`*` indicates empty/missing sound effects.
+
+### SFXDATA
+
+Gameplay SFX data is contained in `data/sound/SFXDATA.BIN`.
+
+| ID | Name
+:- | :-
+00 | `BEAM`
+01 | `BEAM_HIT`
+02 | `MORPH_BALL`
+03 | `MORPH_BALL_BOMB`
+04 | `MORPH_BALL_BOMB_PLACE`
+05 | `ROLL`
+06 | `JUMP`
+07 | `BEAM_SWITCH`
+08 | `MISSILE`
+09 | `MISSILE_HIT`
+10 | `LAND_METAL`
+11 | `MORPH_BALL_BOUNCE_METAL`
+12 | `WALK_METAL_1`
+13 | `WALK_METAL_2`
+14 | `MENU_CANCEL`
+15 | `MENU_CONFIRM`
+16 | `MENU_CURSOR`
+17 | `QUIT_GAME`
+18 | `BOOST_BALL1`*
+19 | `BOOST_BALL2`
+20 | `MISSILE_OPEN`
+21 | `MISSILE_CLOSE`
+22 | `BEAM_SWITCH_FAIL`
+23 | `POWER_UP2`
+24 | `ITEM_SPAWN1`
+25 | `DAMAGE1`
+26 | `DIE`
+27 | N/A
+28 | N/A
+29 | `PLAYER_SPAWN`
+30 | `POWER_UP1`
+31 | `LOB_GUN`
+32 | `LOB_GUN_HIT`
+33 | `LOB_GUN_SWITCH`
+34 | `LOB_GUN_DRY`
+35 | `MISSILE_DRY`
+36 | `AMMO_POWER_UP1`
+37 | `AMMO_POWER_UP2`
+38 | `EQUIP`
+39 | `DOUBLE_DAMAGE_POWER_UP`
+40 | `ZOOMER_DIE`
+41 | `ZOOMER_DAMAGE`
+42 | `ZOOMER_IDLE_LOOP`
+43 | `MOCHTROID_DAMAGE`
+44 | `MOCHTROID_DIE`
+45 | `MOCHTROID_FLY`
+46 | `MOCHTROID_TELEPORT_IN`
+47 | `MOCHTROID_TELEPORT_OUT`
+48 | `WAR_WASP_CHARGE`*
+49 | `WAR_WASP_DAMAGE`*
+50 | `WAR_WASP_DIE`*
+51 | `WAR_WASP_IDLE`*
+52 | `DOOR_CLOSE`
+53 | `DOOR_OPEN`
+54 | `JUMP_PAD`
+55 | `ALARM`
+56 | `DOOR_UNLOCK`
+57 | `SUCCESS`
+58 | `LOB_GUN_CHARGE1`
+59 | `LOB_GUN_CHARGE2`
+60 | `MISSILE_CHARGE1`
+61 | `MISSILE_CHARGE2`
+62 | `METROID_CHARGE`
+63 | `METROID_DAMAGE`
+64 | `METROID_DIE`
+65 | `METROID_FLY`
+66 | `MISSILE_SWITCH`
+67 | `MODULE_YES`
+68 | `MODULE_NO`
+69 | `DOOR_READY`*
+70 | `EQUIP_POWER_UP`
+71 | `REGULATOR_START`
+72 | `DBL_DAMAGE_A`
+73 | `DBL_DAMAGE_B`
+74 | `DBL_DAMAGE_C`
+75 | `LOB_DISRUPT`
+76 | `LOCKED_ON`*
+77 | `BEAM_CHARGE1`*
+78 | `BEAM_CHARGE2`*
+
+### MENUSFXDATA
+
+Menu SFX data is contained in `data/sound/MENUSFXDATA.BIN`.
+
+| ID | Name
+:- | :-
+00 | `TOUCH_FORWARD`
+01 | `TOUCH_BACK`
+02 | `TOUCH_NEUTRAL`
+03 | `MAIN_MENU_IN`
+04 | `MULTI_MENU_IN`
+05 | `OPTIONS_MENU_IN`
+06 | `TRAINING_MENU_IN`
+07 | `OPTIONS_MENU_OUT`
+08 | `TOUCH_MENU_IN`
+09 | `TOUCH_MENU_OUT`
+
+### GLOBALSFXDATA
+
+Lid SFX data is contained in `data/sound/GLOBALSFXDATA.BIN`.
+
+| ID | Name
+:- | :-
+00 | `LID_CLOSE`
+01 | `LID_OPEN`
+
+### BGMDATA
+
+Music data is contained in `data/sound/BGMDATA.BIN`. Unlike MPH, this data is all in wave format and not sequenced.
+
+| ID | Description
+:- | :-
+00 | Menu theme
+01 | Regulator
+02 | Results
+03 | N/A
+04 | N/A
+05 | Time over
+06 | Ancient Vestige
+07 | Trooper Module
+08 | Morph Ball
+09 | Survivor
+10 | Ambience
+11 | Completion jingle

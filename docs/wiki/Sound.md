@@ -1,0 +1,9 @@
+* <a href="https://github.com/NoneGiven/MphRead/wiki/Sound:-SFX">SFX</a>
+* <a href="https://github.com/NoneGiven/MphRead/wiki/Sound:-Hunter-SFX">Hunter SFX</a>
+* <a href="https://github.com/NoneGiven/MphRead/wiki/Sound:-Beam-SFX">Beam SFX</a>
+* <a href="https://github.com/NoneGiven/MphRead/wiki/Sound:-Platform-SFX">Platform SFX</a>
+* <a href="https://github.com/NoneGiven/MphRead/wiki/Sound:-Environment-&-Effect-SFX">Environment & Effect SFX</a>
+* <a href="https://github.com/NoneGiven/MphRead/wiki/Sound:-Music-&-Voice">Music & Voice</a>
+* <a href="https://github.com/NoneGiven/MphRead/wiki/Sound:-Rooms-&-Music-Tracks">Music Versions & Room Music</a>
+* <a href="https://github.com/NoneGiven/MphRead/wiki/Sound:-Cutscenes">Cutscene Music & SFX</a>
+* <a href="https://github.com/NoneGiven/MphRead/wiki/Sound:-First-Hunt">First Hunt Sounds</a>

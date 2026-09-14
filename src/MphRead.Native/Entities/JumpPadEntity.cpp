@@ -16,6 +16,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 
 namespace
 {
@@ -44,6 +45,15 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
+    }
+
+    [[nodiscard]] std::int32_t GetRoomId(MphRead::Scene* scene)
+    {
+        if (scene == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        return scene->RoomId;
     }
 
     [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
@@ -243,19 +253,20 @@ namespace MphRead::Entities
             beamVector,
             beamVector.X != 0.0F || beamVector.Z != 0.0F ? UnitY : UnitX);
         _beamTransform.M42 = 0.25F;
-        _beamVector = Scale(
-            Matrix::Vec3MultMtx3(beamVector, Transform),
-            _data.Speed.FloatValue());
+        const Vector3 transformedBeam = Matrix::Vec3MultMtx3(beamVector, Transform);
+        const float beamSpeed = _data.Speed.FloatValue();
+        _beamVector = Scale(transformedBeam, beamSpeed);
 
         if (GameState::Mode == GameMode::SinglePlayer)
         {
             StorySave* storySave = GameState::StorySave;
+            const std::int32_t roomId = GetRoomId(_scene);
             if (storySave == nullptr)
             {
                 throw System::NullReferenceException();
             }
             Active = storySave->InitRoomState(
-                RequireReference(_scene).RoomId,
+                roomId,
                 Id,
                 data.Active != 0) != 0;
         }
@@ -313,11 +324,12 @@ namespace MphRead::Entities
             Position = Matrix::Vec3MultMtx4(_invPos, _parent->CollisionTransform());
         }
 
-        const Vector3 positionNow = Position;
-        if (!Equal(_prevPos, positionNow))
+        if (!Equal(_prevPos, static_cast<Vector3>(Position)))
         {
-            _volume = CollisionVolume::Move(_data.Volume, positionNow);
-            _prevPos = positionNow;
+            _volume = CollisionVolume::Move(
+                _data.Volume,
+                static_cast<Vector3>(Position));
+            _prevPos = static_cast<Vector3>(Position);
         }
 
         if (Active && _cooldownTimer == 0)
@@ -376,11 +388,12 @@ namespace MphRead::Entities
             if (GameState::Mode == GameMode::SinglePlayer)
             {
                 StorySave* storySave = GameState::StorySave;
+                const std::int32_t roomId = GetRoomId(_scene);
                 if (storySave == nullptr)
                 {
                     throw System::NullReferenceException();
                 }
-                storySave->SetRoomState(RequireReference(_scene).RoomId, Id, 3);
+                storySave->SetRoomState(roomId, Id, 3);
             }
         }
         else if (info.Message == Message::SetActive)
@@ -391,11 +404,12 @@ namespace MphRead::Entities
                 if (GameState::Mode == GameMode::SinglePlayer)
                 {
                     StorySave* storySave = GameState::StorySave;
+                    const std::int32_t roomId = GetRoomId(_scene);
                     if (storySave == nullptr)
                     {
                         throw System::NullReferenceException();
                     }
-                    storySave->SetRoomState(RequireReference(_scene).RoomId, Id, 3);
+                    storySave->SetRoomState(roomId, Id, 3);
                 }
             }
             else
@@ -404,11 +418,12 @@ namespace MphRead::Entities
                 if (GameState::Mode == GameMode::SinglePlayer)
                 {
                     StorySave* storySave = GameState::StorySave;
+                    const std::int32_t roomId = GetRoomId(_scene);
                     if (storySave == nullptr)
                     {
                         throw System::NullReferenceException();
                     }
-                    storySave->SetRoomState(RequireReference(_scene).RoomId, Id, 1);
+                    storySave->SetRoomState(roomId, Id, 1);
                 }
             }
         }
@@ -420,9 +435,9 @@ namespace MphRead::Entities
         if (index == 1)
         {
             const std::shared_ptr<Model> model = inst.Model();
-            return Multiply(
-                Multiply(CreateScale(RequireReference(model).Scale), _beamTransform),
-                _transform);
+            const Matrix4 scale = CreateScale(RequireReference(model).Scale);
+            const Matrix4 scaleBeam = Multiply(scale, _beamTransform);
+            return Multiply(scaleBeam, _transform);
         }
         return EntityBase::GetModelTransform(inst, index);
     }
@@ -473,9 +488,8 @@ namespace MphRead::Entities
         if (index == 1)
         {
             const std::shared_ptr<Model> model = inst.Model();
-            Matrix4 transform = Multiply(
-                CreateScale(RequireReference(model).Scale),
-                _beamTransform);
+            const Matrix4 scale = CreateScale(RequireReference(model).Scale);
+            Matrix4 transform = Multiply(scale, _beamTransform);
             const Vector3 position = Position;
             transform.M41 = position.X;
             transform.M42 = position.Y + 0.25F;

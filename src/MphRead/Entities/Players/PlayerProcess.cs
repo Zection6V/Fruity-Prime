@@ -2138,6 +2138,24 @@ namespace MphRead.Entities
             var valid = new List<PlayerSpawnEntity>();
             PlayerSpawnEntity? bestAvailable = null;
             float bestDistance = 0;
+
+            bool CanUseSpawn(PlayerSpawnEntity spawn)
+            {
+                byte availability = spawn.Data.Availability;
+                if (!spawn.IsActive
+                    || availability == 1 && _scene.FrameCount == 0
+                    || availability == 2 && !IsBot)
+                {
+                    return false;
+                }
+                if (GameState.Mode == GameMode.Capture && spawn.Data.TeamIndex != -1
+                    && spawn.Data.TeamIndex != TeamIndex)
+                {
+                    return false;
+                }
+                return true;
+            }
+
             // the game iterates 25 entities starting with the first spawn point; we iterate 25 spawn points
             // --> shouldn't matter since spawn points are meant to be together in the entity list
             foreach (PlayerSpawnEntity candidate in _scene.GetPlayerSpawnEntities())
@@ -2146,13 +2164,7 @@ namespace MphRead.Entities
                 {
                     break;
                 }
-                if (!candidate.IsActive || candidate.Cooldown != 0 || _scene.FrameCount == 0 && candidate.Availability)
-                {
-                    limit++;
-                    continue;
-                }
-                if (GameState.Mode == GameMode.Capture && candidate.Data.TeamIndex != -1
-                    && candidate.Data.TeamIndex != TeamIndex)
+                if (!CanUseSpawn(candidate) || candidate.Cooldown != 0)
                 {
                     limit++;
                     continue;
@@ -2197,10 +2209,12 @@ namespace MphRead.Entities
                 // cooldown or crowded at the same moment, and returning null
                 // leaves the player waiting at the origin -- invisible to
                 // everyone, for as long as the crowd lasts. A busy spawn is a
-                // worse spawn, not a reason not to spawn.
+                // worse spawn, not a reason not to spawn. Eligibility still
+                // matters: a human must not fall back to a First Hunt bot-only
+                // point, and Capture must not cross team spawn boundaries.
                 foreach (PlayerSpawnEntity fallback in _scene.GetPlayerSpawnEntities())
                 {
-                    if (fallback.IsActive)
+                    if (CanUseSpawn(fallback))
                     {
                         chosenSpawn = fallback;
                         break;

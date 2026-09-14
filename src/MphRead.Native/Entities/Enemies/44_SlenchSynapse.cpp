@@ -117,6 +117,7 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
         {
+            axis = axis.Normalized();
             const float x = axis.X;
             const float y = axis.Y;
             const float z = axis.Z;

@@ -92,8 +92,41 @@ namespace
         return result;
     }
 
+    [[nodiscard]] float Determinant(Matrix4 value) noexcept
+    {
+        const float m11 = value.M11;
+        const float m12 = value.M12;
+        const float m13 = value.M13;
+        const float m14 = value.M14;
+        const float m21 = value.M21;
+        const float m22 = value.M22;
+        const float m23 = value.M23;
+        const float m24 = value.M24;
+        const float m31 = value.M31;
+        const float m32 = value.M32;
+        const float m33 = value.M33;
+        const float m34 = value.M34;
+        const float m41 = value.M41;
+        const float m42 = value.M42;
+        const float m43 = value.M43;
+        const float m44 = value.M44;
+
+        return
+            (m11 * m22 * m33 * m44) - (m11 * m22 * m34 * m43) + (m11 * m23 * m34 * m42) - (m11 * m23 * m32 * m44)
+            + (m11 * m24 * m32 * m43) - (m11 * m24 * m33 * m42) - (m12 * m23 * m34 * m41) + (m12 * m23 * m31 * m44)
+            - (m12 * m24 * m31 * m43) + (m12 * m24 * m33 * m41) - (m12 * m21 * m33 * m44) + (m12 * m21 * m34 * m43)
+            + (m13 * m24 * m31 * m42) - (m13 * m24 * m32 * m41) + (m13 * m21 * m32 * m44) - (m13 * m21 * m34 * m42)
+            + (m13 * m22 * m34 * m41) - (m13 * m22 * m31 * m44) - (m14 * m21 * m32 * m43) + (m14 * m21 * m33 * m42)
+            - (m14 * m22 * m33 * m41) + (m14 * m22 * m31 * m43) - (m14 * m23 * m31 * m42) + (m14 * m23 * m32 * m41);
+    }
+
     [[nodiscard]] Matrix4 Invert(Matrix4 value)
     {
+        if (Determinant(value) == 0.0F)
+        {
+            return value;
+        }
+
         const float a = value.M11;
         const float b = value.M21;
         const float c = value.M31;
@@ -338,7 +371,7 @@ namespace MphRead::Entities
         _scanId = GetListItem(
             _scanIds,
             static_cast<std::int32_t>(data.ItemType));
-        if (GameState::Mode != GameMode::SinglePlayer
+        if (GameState::Multiplayer
             && GameState::AffinityWeapons
             && (_itemType == MphRead::ItemType::VoltDriver
                 || _itemType == MphRead::ItemType::Battlehammer
@@ -478,7 +511,7 @@ namespace MphRead::Entities
             if (_owner != nullptr)
             {
                 _owner->SetItem(nullptr);
-                if (GameState::Mode == GameMode::SinglePlayer)
+                if (GameState::SinglePlayer)
                 {
                     auto storySave = GameState::StorySave;
                     const std::int32_t roomId = RequireReference(_scene).RoomId;
@@ -512,7 +545,7 @@ namespace MphRead::Entities
         }
 
         if (_owner == nullptr
-            && GameState::Mode == GameMode::SinglePlayer)
+            && GameState::SinglePlayer)
         {
             auto&& conditionMainValue = PlayerEntity::Main();
             PlayerEntity& conditionMain = RequireReference(conditionMainValue);
@@ -561,7 +594,7 @@ namespace MphRead::Entities
         {
             _owner->OnItemPickedUp();
         }
-        if (GameState::Mode == GameMode::SinglePlayer)
+        if (GameState::SinglePlayer)
         {
             const std::int32_t scanId = GetScanId();
             auto storySave = GameState::StorySave;

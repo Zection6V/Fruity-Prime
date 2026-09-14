@@ -1075,6 +1075,23 @@ namespace MphRead.Entities
             {
                 return;
             }
+            // A stale part can still pass the AABB test when neighbouring
+            // room-part boxes overlap. That is most visible immediately after
+            // a spawn/teleport: the position moves in one step while the
+            // camera can still carry a valid-looking ref for a different part.
+            //
+            // Do not replace the authoritative ref with the absolute lookup --
+            // this lookup is deliberately conservative and has historically
+            // been wrong in overlapping portal wedges. It is only a second
+            // opinion here. If both answers are valid and disagree about the
+            // part, culling is ambiguous, so fail open for this frame. Leaving
+            // _partVisInfoHead null makes GetDrawInfo draw every part and lets
+            // the normal portal walk recover without introducing a new ref.
+            NodeRef positionNodeRef = GetNodeRefByPosition(_scene.CameraPosition);
+            if (positionNodeRef != NodeRef.None && positionNodeRef.PartIndex != curNodeRef.PartIndex)
+            {
+                return;
+            }
             Debug.Assert(curNodeRef.NodeIndex != -1);
             RoomPartVisInfo curVisInfo = GetPartVisInfo(curNodeRef);
             curVisInfo.ViewMinX = 0;

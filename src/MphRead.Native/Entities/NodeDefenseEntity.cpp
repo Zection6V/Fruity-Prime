@@ -87,6 +87,78 @@ namespace
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
+    [[nodiscard]] Matrix4 MultiplyMatrix4(Matrix4 left, Matrix4 right) noexcept
+    {
+        const float leftM11 = left.M11;
+        const float leftM12 = left.M12;
+        const float leftM13 = left.M13;
+        const float leftM14 = left.M14;
+        const float leftM21 = left.M21;
+        const float leftM22 = left.M22;
+        const float leftM23 = left.M23;
+        const float leftM24 = left.M24;
+        const float leftM31 = left.M31;
+        const float leftM32 = left.M32;
+        const float leftM33 = left.M33;
+        const float leftM34 = left.M34;
+        const float leftM41 = left.M41;
+        const float leftM42 = left.M42;
+        const float leftM43 = left.M43;
+        const float leftM44 = left.M44;
+
+        const float rightM11 = right.M11;
+        const float rightM12 = right.M12;
+        const float rightM13 = right.M13;
+        const float rightM14 = right.M14;
+        const float rightM21 = right.M21;
+        const float rightM22 = right.M22;
+        const float rightM23 = right.M23;
+        const float rightM24 = right.M24;
+        const float rightM31 = right.M31;
+        const float rightM32 = right.M32;
+        const float rightM33 = right.M33;
+        const float rightM34 = right.M34;
+        const float rightM41 = right.M41;
+        const float rightM42 = right.M42;
+        const float rightM43 = right.M43;
+        const float rightM44 = right.M44;
+
+        Matrix4 result{};
+        result.M11 = (leftM11 * rightM11) + (leftM12 * rightM21)
+            + (leftM13 * rightM31) + (leftM14 * rightM41);
+        result.M12 = (leftM11 * rightM12) + (leftM12 * rightM22)
+            + (leftM13 * rightM32) + (leftM14 * rightM42);
+        result.M13 = (leftM11 * rightM13) + (leftM12 * rightM23)
+            + (leftM13 * rightM33) + (leftM14 * rightM43);
+        result.M14 = (leftM11 * rightM14) + (leftM12 * rightM24)
+            + (leftM13 * rightM34) + (leftM14 * rightM44);
+        result.M21 = (leftM21 * rightM11) + (leftM22 * rightM21)
+            + (leftM23 * rightM31) + (leftM24 * rightM41);
+        result.M22 = (leftM21 * rightM12) + (leftM22 * rightM22)
+            + (leftM23 * rightM32) + (leftM24 * rightM42);
+        result.M23 = (leftM21 * rightM13) + (leftM22 * rightM23)
+            + (leftM23 * rightM33) + (leftM24 * rightM43);
+        result.M24 = (leftM21 * rightM14) + (leftM22 * rightM24)
+            + (leftM23 * rightM34) + (leftM24 * rightM44);
+        result.M31 = (leftM31 * rightM11) + (leftM32 * rightM21)
+            + (leftM33 * rightM31) + (leftM34 * rightM41);
+        result.M32 = (leftM31 * rightM12) + (leftM32 * rightM22)
+            + (leftM33 * rightM32) + (leftM34 * rightM42);
+        result.M33 = (leftM31 * rightM13) + (leftM32 * rightM23)
+            + (leftM33 * rightM33) + (leftM34 * rightM43);
+        result.M34 = (leftM31 * rightM14) + (leftM32 * rightM24)
+            + (leftM33 * rightM34) + (leftM34 * rightM44);
+        result.M41 = (leftM41 * rightM11) + (leftM42 * rightM21)
+            + (leftM43 * rightM31) + (leftM44 * rightM41);
+        result.M42 = (leftM41 * rightM12) + (leftM42 * rightM22)
+            + (leftM43 * rightM32) + (leftM44 * rightM42);
+        result.M43 = (leftM41 * rightM13) + (leftM42 * rightM23)
+            + (leftM43 * rightM33) + (leftM44 * rightM43);
+        result.M44 = (leftM41 * rightM14) + (leftM42 * rightM24)
+            + (leftM43 * rightM34) + (leftM44 * rightM44);
+        return result;
+    }
+
     [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
     {
         return degrees * 0.01745329251994329576923690768489F;
@@ -631,8 +703,7 @@ namespace MphRead::Entities
         if (index == 1)
         {
             const Matrix4 rotY = CreateRotationY(DegreesToRadians(_curRotation));
-            transform = Matrix::Multiply44(
-                Matrix::Multiply44(_circleScale, rotY), transform);
+            transform = MultiplyMatrix4(MultiplyMatrix4(_circleScale, rotY), transform);
             const Vector3 position = TypeExtensions::AddY(Position, 0.7F);
             transform.M41 = position.X;
             transform.M42 = position.Y;

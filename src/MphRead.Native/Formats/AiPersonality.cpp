@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <fstream>
@@ -36,35 +37,6 @@ namespace
     using Data2List = std::vector<std::shared_ptr<AiPersonalityData2>>;
     using Data4List = std::vector<std::shared_ptr<AiPersonalityData4>>;
 
-    struct AiPersonalityState final
-    {
-        std::string CachedVersion{};
-        std::optional<std::vector<std::uint8_t>> Data{};
-        std::unordered_map<std::int32_t, Data1List> Data1Cache{};
-        std::unordered_map<std::int32_t, std::vector<std::int32_t>> Data3Cache{};
-        std::unordered_map<std::int32_t, Data2List> Data2Cache{};
-        std::unordered_map<std::int32_t, Data4List> Data4Cache{};
-        std::shared_ptr<AiPersonalityData5> EmptyParams = std::make_shared<AiPersonalityData5>();
-        std::unordered_map<std::int32_t, std::shared_ptr<AiPersonalityData5>> Data5Cache{};
-    };
-
-    [[nodiscard]] AiPersonalityState& State()
-    {
-        static AiPersonalityState state;
-        return state;
-    }
-
-    [[nodiscard]] const std::array<std::array<std::int32_t, 8>, 4>& EncounterAiOffsets()
-    {
-        static const std::array<std::array<std::int32_t, 8>, 4> offsets{{
-            {{33152, 33152, 33696, 33836, 33556, 33372, 33976, 13480}},
-            {{33152, 33196, 37576, 41948, 35428, 33416, 41492, 13480}},
-            {{33152, 33152, 39420, 42772, 33556, 40312, 33976, 13480}},
-            {{33152, 33152, 33696, 45176, 33556, 40556, 33976, 13480}}
-        }};
-        return offsets;
-    }
-
     [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
     {
         std::ifstream stream(path, std::ios::binary | std::ios::ate);
@@ -88,16 +60,6 @@ namespace
             }
         }
         return bytes;
-    }
-
-    [[nodiscard]] std::span<const std::uint8_t> PersonalityBytes()
-    {
-        AiPersonalityState& state = State();
-        if (!state.Data.has_value())
-        {
-            throw System::NullReferenceException();
-        }
-        return std::span<const std::uint8_t>(*state.Data);
     }
 
     void DictionaryAdd(std::unordered_map<std::int32_t, Data1List>& values,
@@ -193,11 +155,32 @@ namespace
 
 namespace MphRead::Formats
 {
+    const std::array<std::array<std::int32_t, 8>, 4> AiPersonality::_encounterAiOffsets{{
+        {{33152, 33152, 33696, 33836, 33556, 33372, 33976, 13480}},
+        {{33152, 33196, 37576, 41948, 35428, 33416, 41492, 13480}},
+        {{33152, 33152, 39420, 42772, 33556, 40312, 33976, 13480}},
+        {{33152, 33152, 33696, 45176, 33556, 40556, 33976, 13480}}
+    }};
+    std::string AiPersonality::_cachedVersion{};
+    std::optional<std::vector<std::uint8_t>> AiPersonality::_aiPersonalityData{};
+    std::unordered_map<std::int32_t, Data1List> AiPersonality::_data1Cache{};
+    std::unordered_map<std::int32_t, std::vector<std::int32_t>> AiPersonality::_data3Cache{};
+    std::unordered_map<std::int32_t, Data2List> AiPersonality::_data2Cache{};
+    std::unordered_map<std::int32_t, Data4List> AiPersonality::_data4Cache{};
+    const std::shared_ptr<AiPersonalityData5> AiPersonality::_emptyParams
+        = std::make_shared<AiPersonalityData5>();
+    std::unordered_map<std::int32_t, std::shared_ptr<AiPersonalityData5>>
+        AiPersonality::_data5Cache{};
+
     void AiPersonality::LoadAll(GameMode mode)
     {
         for (std::size_t i = 0; i < Entities::PlayerEntity::Players.size(); ++i)
         {
             std::shared_ptr<Entities::PlayerEntity> player = Entities::PlayerEntity::Players[i];
+            if (!player || !player->AiData)
+            {
+                throw System::NullReferenceException();
+            }
             player->AiData->Reset();
             if (!player->IsBot)
             {
@@ -228,7 +211,7 @@ namespace MphRead::Formats
                         case 4: index = 3; break;
                         default: index = 0; break;
                         }
-                        aiOffset = EncounterAiOffsets().at(static_cast<std::size_t>(index)).at(
+                        aiOffset = _encounterAiOffsets.at(static_cast<std::size_t>(index)).at(
                             static_cast<std::size_t>(player->Hunter));
                     }
                     player->AiData->Flags1 = true;
@@ -258,17 +241,16 @@ namespace MphRead::Formats
 
     std::shared_ptr<AiPersonalityData1> AiPersonality::LoadData(std::int32_t offset)
     {
-        AiPersonalityState& state = State();
-        if (Paths::MphKey() != state.CachedVersion)
+        if (Paths::MphKey() != _cachedVersion)
         {
-            state.Data.reset();
-            state.Data1Cache.clear();
-            state.Data2Cache.clear();
-            state.CachedVersion = Paths::MphKey();
+            _aiPersonalityData.reset();
+            _data1Cache.clear();
+            _data2Cache.clear();
+            _cachedVersion = Paths::MphKey();
         }
-        if (!state.Data.has_value())
+        if (!_aiPersonalityData.has_value())
         {
-            state.Data = FileReadAllBytes(Paths::Combine(
+            _aiPersonalityData = FileReadAllBytes(Paths::Combine(
                 Paths::FileSystem(), "aiPersonalityData\\aiPersonalityData.bin"));
         }
 
@@ -281,14 +263,15 @@ namespace MphRead::Formats
     std::vector<std::shared_ptr<AiPersonalityData1>> AiPersonality::ParseData1(
         std::int32_t offset, std::int32_t count)
     {
-        AiPersonalityState& state = State();
-        auto cached = state.Data1Cache.find(offset);
-        if (cached != state.Data1Cache.end())
+        auto cached = _data1Cache.find(offset);
+        if (cached != _data1Cache.end())
         {
             return cached->second;
         }
 
-        const std::span<const std::uint8_t> bytes = PersonalityBytes();
+        const std::span<const std::uint8_t> bytes = _aiPersonalityData.has_value()
+            ? std::span<const std::uint8_t>(*_aiPersonalityData)
+            : std::span<const std::uint8_t>();
         Data1List results;
         if (count > 0)
         {
@@ -313,8 +296,8 @@ namespace MphRead::Formats
             std::vector<std::int32_t> data3a;
             if (data1.Data3aCount > 0)
             {
-                auto cached3a = state.Data3Cache.find(data1.Data3aOffset);
-                if (cached3a != state.Data3Cache.end())
+                auto cached3a = _data3Cache.find(data1.Data3aOffset);
+                if (cached3a != _data3Cache.end())
                 {
                     data3a = cached3a->second;
                 }
@@ -324,15 +307,15 @@ namespace MphRead::Formats
                         = Read::DoOffsets<std::int32_t>(
                             bytes, data1.Data3aOffset, data1.Data3aCount);
                     data3a.assign(parsed->begin(), parsed->end());
-                    DictionaryAdd(state.Data3Cache, data1.Data3aOffset, data3a);
+                    DictionaryAdd(_data3Cache, data1.Data3aOffset, data3a);
                 }
             }
 
             std::vector<std::int32_t> data3b;
             if (data1.Data3bCount > 0)
             {
-                auto cached3b = state.Data3Cache.find(data1.Data3bOffset);
-                if (cached3b != state.Data3Cache.end())
+                auto cached3b = _data3Cache.find(data1.Data3bOffset);
+                if (cached3b != _data3Cache.end())
                 {
                     data3b = cached3b->second;
                 }
@@ -342,7 +325,7 @@ namespace MphRead::Formats
                         = Read::DoOffsets<std::int32_t>(
                             bytes, data1.Data3bOffset, data1.Data3bCount);
                     data3b.assign(parsed->begin(), parsed->end());
-                    DictionaryAdd(state.Data3Cache, data1.Data3bOffset, data3b);
+                    DictionaryAdd(_data3Cache, data1.Data3bOffset, data3b);
                 }
             }
 
@@ -352,21 +335,22 @@ namespace MphRead::Formats
         }
 
         Data1List stored = results;
-        DictionaryAdd(state.Data1Cache, offset, std::move(stored));
+        DictionaryAdd(_data1Cache, offset, std::move(stored));
         return results;
     }
 
     std::vector<std::shared_ptr<AiPersonalityData2>> AiPersonality::ParseData2(
         std::int32_t offset, std::int32_t count)
     {
-        AiPersonalityState& state = State();
-        auto cached = state.Data2Cache.find(offset);
-        if (cached != state.Data2Cache.end())
+        auto cached = _data2Cache.find(offset);
+        if (cached != _data2Cache.end())
         {
             return cached->second;
         }
 
-        const std::span<const std::uint8_t> bytes = PersonalityBytes();
+        const std::span<const std::uint8_t> bytes = _aiPersonalityData.has_value()
+            ? std::span<const std::uint8_t>(*_aiPersonalityData)
+            : std::span<const std::uint8_t>();
         Data2List results;
         if (count > 0)
         {
@@ -382,7 +366,7 @@ namespace MphRead::Formats
                 data4 = ParseData4(data2.Data4Offset, data2.Data4Count);
             }
 
-            std::shared_ptr<AiPersonalityData5> data5 = state.EmptyParams;
+            std::shared_ptr<AiPersonalityData5> data5 = _emptyParams;
             if (data2.Data5Offset != 0)
             {
                 data5 = ParseData5(data2.Data5Type, data2.Data5Offset);
@@ -393,21 +377,22 @@ namespace MphRead::Formats
         }
 
         Data2List stored = results;
-        DictionaryAdd(state.Data2Cache, offset, std::move(stored));
+        DictionaryAdd(_data2Cache, offset, std::move(stored));
         return results;
     }
 
     std::vector<std::shared_ptr<AiPersonalityData4>> AiPersonality::ParseData4(
         std::int32_t offset, std::int32_t count)
     {
-        AiPersonalityState& state = State();
-        auto cached = state.Data4Cache.find(offset);
-        if (cached != state.Data4Cache.end())
+        auto cached = _data4Cache.find(offset);
+        if (cached != _data4Cache.end())
         {
             return cached->second;
         }
 
-        const std::span<const std::uint8_t> bytes = PersonalityBytes();
+        const std::span<const std::uint8_t> bytes = _aiPersonalityData.has_value()
+            ? std::span<const std::uint8_t>(*_aiPersonalityData)
+            : std::span<const std::uint8_t>();
         Data4List results;
         if (count > 0)
         {
@@ -417,7 +402,7 @@ namespace MphRead::Formats
             = Read::DoOffsets<AiData4>(bytes, offset, count);
         for (const AiData4& data4 : *data4s)
         {
-            std::shared_ptr<AiPersonalityData5> data5 = state.EmptyParams;
+            std::shared_ptr<AiPersonalityData5> data5 = _emptyParams;
             if (data4.Data5Offset != 0)
             {
                 data5 = ParseData5(data4.Data5Type, data4.Data5Offset);
@@ -427,23 +412,26 @@ namespace MphRead::Formats
         }
 
         Data4List stored = results;
-        DictionaryAdd(state.Data4Cache, offset, std::move(stored));
+        DictionaryAdd(_data4Cache, offset, std::move(stored));
         return results;
     }
 
     std::shared_ptr<AiPersonalityData5> AiPersonality::ParseData5(
         std::int32_t type, std::int32_t offset)
     {
-        AiPersonalityState& state = State();
-        auto cached = state.Data5Cache.find(offset);
-        if (cached != state.Data5Cache.end())
+        auto cached = _data5Cache.find(offset);
+        if (cached != _data5Cache.end())
         {
             return cached->second;
         }
 
-        const std::span<const std::uint8_t> bytes = PersonalityBytes();
+        const std::span<const std::uint8_t> bytes = _aiPersonalityData.has_value()
+            ? std::span<const std::uint8_t>(*_aiPersonalityData)
+            : std::span<const std::uint8_t>();
         const std::int32_t param1 = Read::SpanReadInt(bytes, offset);
-        const std::int32_t param2 = type == 210 ? Read::SpanReadInt(bytes, offset + 4) : 0;
+        const std::int32_t param2Offset = std::bit_cast<std::int32_t>(
+            static_cast<std::uint32_t>(offset) + 4U);
+        const std::int32_t param2 = type == 210 ? Read::SpanReadInt(bytes, param2Offset) : 0;
         return std::make_shared<AiPersonalityData5>(param1, param2);
     }
 
@@ -605,7 +593,11 @@ namespace MphRead::Formats
             if (sb != nullptr)
             {
                 sb->append(message);
+#ifdef _WIN32
+                sb->append("\r\n");
+#else
                 sb->push_back('\n');
+#endif
             }
             else
             {
@@ -731,16 +723,21 @@ namespace MphRead::Formats
                 }
 
                 assert(node->Parent != nullptr);
-                if (node->Parent == nullptr)
-                {
-                    throw System::NullReferenceException();
-                }
 
                 std::string selection = "-";
                 if (data2->Data1SelectIndex < 20)
                 {
-                    selection = node->Parent->Data1.at(
-                        static_cast<std::size_t>(data2->Data1SelectIndex))->Label;
+                    if (node->Parent == nullptr)
+                    {
+                        throw System::NullReferenceException();
+                    }
+                    const std::shared_ptr<AiPersonalityData1>& selected = node->Parent->Data1.at(
+                        static_cast<std::size_t>(data2->Data1SelectIndex));
+                    if (!selected)
+                    {
+                        throw System::NullReferenceException();
+                    }
+                    selection = selected->Label;
                 }
                 writeLine("Switch(" + str1 + "): " + str2 + ", " + str3
                     + ", s = " + std::to_string(data2->Data1SelectIndex)

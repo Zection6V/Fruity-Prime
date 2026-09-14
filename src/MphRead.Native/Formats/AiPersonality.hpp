@@ -2,9 +2,12 @@
 
 #include "Enums.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -60,13 +63,33 @@ namespace MphRead::Formats
         AiPersonality& operator=(const AiPersonality&) = delete;
 
     private:
+        static const std::array<std::array<std::int32_t, 8>, 4> _encounterAiOffsets;
+        static std::string _cachedVersion;
+        static std::optional<std::vector<std::uint8_t>> _aiPersonalityData;
+
+        static std::unordered_map<std::int32_t,
+            std::vector<std::shared_ptr<AiPersonalityData1>>> _data1Cache;
+        static std::unordered_map<std::int32_t, std::vector<std::int32_t>> _data3Cache;
+
         [[nodiscard]] static std::shared_ptr<AiPersonalityData1> LoadData(std::int32_t offset);
         [[nodiscard]] static std::vector<std::shared_ptr<AiPersonalityData1>> ParseData1(
             std::int32_t offset, std::int32_t count);
+
+        static std::unordered_map<std::int32_t,
+            std::vector<std::shared_ptr<AiPersonalityData2>>> _data2Cache;
+
         [[nodiscard]] static std::vector<std::shared_ptr<AiPersonalityData2>> ParseData2(
             std::int32_t offset, std::int32_t count);
+
+        static std::unordered_map<std::int32_t,
+            std::vector<std::shared_ptr<AiPersonalityData4>>> _data4Cache;
+
         [[nodiscard]] static std::vector<std::shared_ptr<AiPersonalityData4>> ParseData4(
             std::int32_t offset, std::int32_t count);
+
+        static const std::shared_ptr<AiPersonalityData5> _emptyParams;
+        static std::unordered_map<std::int32_t, std::shared_ptr<AiPersonalityData5>> _data5Cache;
+
         [[nodiscard]] static std::shared_ptr<AiPersonalityData5> ParseData5(
             std::int32_t type, std::int32_t offset);
     };

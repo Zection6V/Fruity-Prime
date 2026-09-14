@@ -1,0 +1,1745 @@
+#include "MapAudit.hpp"
+
+#include "NetLaunch.hpp"
+#include "NetTestScript.hpp"
+#include "../ScreenCapture.hpp"
+#include "../WorldEvents.hpp"
+#include "../../Entities/BeamProjectileEntity.hpp"
+#include "../../Entities/ItemInstanceEntity.hpp"
+#include "../../Entities/ItemSpawnEntity.hpp"
+#include "../../Entities/JumpPadEntity.hpp"
+#include "../../Entities/PlayerEntity.hpp"
+#include "../../Formats/Collision.hpp"
+#include "../../Formats/Entity.hpp"
+#include "../../GameState.hpp"
+#include "../../Scene.hpp"
+
+#include <OpenTK/Graphics/OpenGL/GL.hpp>
+#include <OpenTK/Windowing/Common/ContextFlags.hpp>
+#include <OpenTK/Windowing/Common/ContextProfile.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <iomanip>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <typeinfo>
+#include <type_traits>
+#include <utility>
+
+namespace MphRead::Mods::Network
+{
+    using OpenTK::Mathematics::Vector2i;
+    using OpenTK::Mathematics::Vector3;
+    using OpenTK::Windowing::Common::ContextFlags;
+    using OpenTK::Windowing::Common::ContextProfile;
+    using OpenTK::Windowing::Common::FrameEventArgs;
+    using OpenTK::Windowing::Desktop::GameWindow;
+    using OpenTK::Windowing::Desktop::GameWindowSettings;
+    using OpenTK::Windowing::Desktop::NativeWindowSettings;
+
+    namespace
+    {
+        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
+        {
+            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
+        }
+
+        [[nodiscard]] float Length(Vector3 value)
+        {
+            return std::sqrt(LengthSquared(value));
+        }
+
+        [[nodiscard]] Vector3 AddY(Vector3 value, float y) noexcept
+        {
+            value.Y += y;
+            return value;
+        }
+
+        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        {
+            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
+        }
+
+        [[nodiscard]] Vector3 Negate(Vector3 value) noexcept
+        {
+            return Vector3(-value.X, -value.Y, -value.Z);
+        }
+
+        [[nodiscard]] bool IsZero(Vector3 value) noexcept
+        {
+            return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
+        }
+
+        template <typename TEnum>
+        [[nodiscard]] bool TestFlag(TEnum value, TEnum flag) noexcept
+        {
+            using Underlying = std::underlying_type_t<TEnum>;
+            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag))
+                == static_cast<Underlying>(flag);
+        }
+
+        template <typename TEnum>
+        [[nodiscard]] TEnum RemoveFlag(TEnum value, TEnum flag) noexcept
+        {
+            using Underlying = std::underlying_type_t<TEnum>;
+            return static_cast<TEnum>(
+                static_cast<Underlying>(value) & ~static_cast<Underlying>(flag));
+        }
+
+        [[nodiscard]] std::string ReplaceRoomCharacters(std::string value)
+        {
+            std::replace(value.begin(), value.end(), ' ', '_');
+            std::replace(value.begin(), value.end(), '-', '_');
+            return value;
+        }
+
+        [[nodiscard]] std::string Fixed(double value, std::int32_t digits)
+        {
+            std::ostringstream stream;
+            stream << std::fixed << std::setprecision(digits) << value;
+            return stream.str();
+        }
+
+        [[nodiscard]] std::string Fixed(float value, std::int32_t digits)
+        {
+            return Fixed(static_cast<double>(value), digits);
+        }
+
+        [[nodiscard]] std::string TwoDigits(std::int32_t value)
+        {
+            std::ostringstream stream;
+            stream << std::setw(2) << std::setfill('0') << value;
+            return stream.str();
+        }
+
+        [[nodiscard]] std::string ItemTypeName(ItemType value)
+        {
+            switch (value)
+            {
+                case ItemType::None: return "None";
+                case ItemType::HealthMedium: return "HealthMedium";
+                case ItemType::HealthSmall: return "HealthSmall";
+                case ItemType::HealthBig: return "HealthBig";
+                case ItemType::DoubleDamage: return "DoubleDamage";
+                case ItemType::EnergyTank: return "EnergyTank";
+                case ItemType::VoltDriver: return "VoltDriver";
+                case ItemType::MissileExpansion: return "MissileExpansion";
+                case ItemType::Battlehammer: return "Battlehammer";
+                case ItemType::Imperialist: return "Imperialist";
+                case ItemType::Judicator: return "Judicator";
+                case ItemType::Magmaul: return "Magmaul";
+                case ItemType::ShockCoil: return "ShockCoil";
+                case ItemType::OmegaCannon: return "OmegaCannon";
+                case ItemType::UASmall: return "UASmall";
+                case ItemType::UABig: return "UABig";
+                case ItemType::MissileSmall: return "MissileSmall";
+                case ItemType::MissileBig: return "MissileBig";
+                case ItemType::Cloak: return "Cloak";
+                case ItemType::UAExpansion: return "UAExpansion";
+                case ItemType::ArtifactKey: return "ArtifactKey";
+                case ItemType::Deathalt: return "Deathalt";
+                case ItemType::AffinityWeapon: return "AffinityWeapon";
+                case ItemType::PickWpnMissile: return "PickWpnMissile";
+            }
+            return std::to_string(static_cast<std::int32_t>(value));
+        }
+
+        [[nodiscard]] std::string HunterName(Hunter value)
+        {
+            switch (value)
+            {
+                case Hunter::Samus: return "Samus";
+                case Hunter::Kanden: return "Kanden";
+                case Hunter::Trace: return "Trace";
+                case Hunter::Sylux: return "Sylux";
+                case Hunter::Noxus: return "Noxus";
+                case Hunter::Spire: return "Spire";
+                case Hunter::Weavel: return "Weavel";
+                case Hunter::Guardian: return "Guardian";
+                case Hunter::Random: return "Random";
+            }
+            return std::to_string(static_cast<std::uint32_t>(value));
+        }
+
+        [[nodiscard]] std::string AfflictionName(Affliction value)
+        {
+            if (value == Affliction::None)
+            {
+                return "None";
+            }
+            std::string result;
+            auto append = [&result](std::string_view name)
+            {
+                if (!result.empty())
+                {
+                    result += ", ";
+                }
+                result += name;
+            };
+            const std::uint8_t bits = static_cast<std::uint8_t>(value);
+            if ((bits & static_cast<std::uint8_t>(Affliction::Freeze)) != 0)
+            {
+                append("Freeze");
+            }
+            if ((bits & static_cast<std::uint8_t>(Affliction::Disrupt)) != 0)
+            {
+                append("Disrupt");
+            }
+            if ((bits & static_cast<std::uint8_t>(Affliction::Burn)) != 0)
+            {
+                append("Burn");
+            }
+            const std::uint8_t known = static_cast<std::uint8_t>(Affliction::Freeze)
+                | static_cast<std::uint8_t>(Affliction::Disrupt)
+                | static_cast<std::uint8_t>(Affliction::Burn);
+            if ((bits & static_cast<std::uint8_t>(~known)) != 0)
+            {
+                append(std::to_string(bits));
+            }
+            return result;
+        }
+
+        [[nodiscard]] std::string PathCombine(
+            const std::string& directory, const std::string& fileName)
+        {
+            return (std::filesystem::path(directory) / fileName).string();
+        }
+
+        [[nodiscard]] std::string ExceptionTypeName(const std::exception& ex)
+        {
+            return typeid(ex).name();
+        }
+    }
+
+    bool MapAudit::_showWindow = false;
+    std::int32_t MapAudit::_drawRate = 1;
+    std::optional<Vector2i> MapAudit::_windowSize{};
+    bool MapAudit::_forceEveryone = false;
+    bool MapAudit::_diagnostic = false;
+    std::optional<Hunter> MapAudit::_mainHunter{};
+
+    const std::array<std::pair<Hunter, std::string_view>, 3> MapAudit::_afflictions =
+    {{
+        {Hunter::Noxus, "freeze"},
+        {Hunter::Spire, "burn"},
+        {Hunter::Kanden, "disrupt"}
+    }};
+
+    GameWindowSettings MapAudit::GameSettings()
+    {
+        GameWindowSettings settings{};
+        settings.UpdateFrequency = 60;
+        return settings;
+    }
+
+    NativeWindowSettings MapAudit::WindowSettings()
+    {
+        NativeWindowSettings settings{};
+        if (_windowSize.has_value())
+        {
+            settings.ClientSize = *_windowSize;
+        }
+        else
+        {
+            settings.ClientSize = _showWindow ? Vector2i(1024, 576) : Vector2i(320, 180);
+        }
+        settings.Title = "MphRead map audit";
+        settings.Profile = ContextProfile::Compatability;
+        settings.Flags = ContextFlags::Default;
+        settings.APIVersion = {3, 2};
+        settings.StartVisible = _showWindow;
+        return settings;
+    }
+
+    bool MapAudit::ShowWindow() noexcept
+    {
+        return _showWindow;
+    }
+
+    void MapAudit::ShowWindow(bool value) noexcept
+    {
+        _showWindow = value;
+    }
+
+    std::int32_t MapAudit::DrawRate() noexcept
+    {
+        return _drawRate;
+    }
+
+    void MapAudit::DrawRate(std::int32_t value) noexcept
+    {
+        _drawRate = value;
+    }
+
+    std::optional<Vector2i> MapAudit::WindowSize() noexcept
+    {
+        return _windowSize;
+    }
+
+    void MapAudit::WindowSize(std::optional<Vector2i> value) noexcept
+    {
+        _windowSize = value;
+    }
+
+    MphRead::Scene& MapAudit::Scene() noexcept
+    {
+        return *_scene;
+    }
+
+    const MphRead::Scene& MapAudit::Scene() const noexcept
+    {
+        return *_scene;
+    }
+
+    bool MapAudit::ForceEveryone() noexcept
+    {
+        return _forceEveryone;
+    }
+
+    void MapAudit::ForceEveryone(bool value) noexcept
+    {
+        _forceEveryone = value;
+    }
+
+    bool MapAudit::Diagnostic() noexcept
+    {
+        return _diagnostic;
+    }
+
+    void MapAudit::Diagnostic(bool value) noexcept
+    {
+        _diagnostic = value;
+    }
+
+    std::optional<Hunter> MapAudit::MainHunter() noexcept
+    {
+        return _mainHunter;
+    }
+
+    void MapAudit::MainHunter(std::optional<Hunter> value) noexcept
+    {
+        _mainHunter = value;
+    }
+
+    MapAudit::MapAudit(
+        std::string room,
+        std::int32_t players,
+        double seconds,
+        GameMode mode,
+        bool bots,
+        bool renderProbe,
+        bool itemProbe)
+        : GameWindow(GameSettings(), WindowSettings()),
+          _room(std::move(room)),
+          _players(players),
+          _seconds(seconds),
+          _renderProbe(renderProbe),
+          _itemProbe(itemProbe),
+          _scene(nullptr),
+          _bots(bots)
+    {
+        NetTestScript::PhaseSeconds = std::max(1.5, seconds / NetTestScript::PhaseCount);
+        Entities::PlayerEntity::MaxPlayers
+            = std::max(Entities::PlayerEntity::MaxPlayers, players);
+        _forceEveryone = true;
+        Mods::WorldEvents::Watching = true;
+        Mods::WorldEvents::Reset();
+
+        _scene = std::make_unique<MphRead::Scene>(
+            Size,
+            KeyboardState,
+            MouseState,
+            [](auto&&) { },
+            [this]() { Close(); });
+
+        for (std::int32_t i = 0; i < players; ++i)
+        {
+            Hunter hunter = i == 0 && _mainHunter.has_value()
+                ? *_mainHunter
+                : static_cast<Hunter>(i % 7);
+            _scene->AddPlayer(hunter, 0, -1);
+        }
+
+        for (std::int32_t i = 0;
+            i < static_cast<std::int32_t>(Entities::PlayerEntity::Players.size());
+            ++i)
+        {
+            std::shared_ptr<Entities::PlayerEntity> player
+                = Entities::PlayerEntity::Players[static_cast<std::size_t>(i)];
+            player->IsBot = bots && i > 0;
+            player->BotLevel = bots ? 1 : 0;
+            if (i >= players)
+            {
+                player->LoadFlags = RemoveFlag(player->LoadFlags, LoadFlags::Active);
+            }
+        }
+
+        Entities::PlayerEntity::PlayerCount = players;
+        Entities::PlayerEntity::MainPlayerIndex = 0;
+        _scene->AddRoom(_room, mode, NetLaunch::RoomPlayerCount);
+    }
+
+    MapAudit::~MapAudit() = default;
+
+    void MapAudit::OnLoad()
+    {
+        _scene->Size = ClientSize;
+        _scene->OnLoad();
+        GameWindow::OnLoad();
+        OpenTK::Graphics::OpenGL::GL::Viewport(0, 0, ClientSize.X, ClientSize.Y);
+        _scene->OnResize();
+    }
+
+    void MapAudit::OnRenderFrame(FrameEventArgs args)
+    {
+        GameState::ApplyPause();
+        _scene->OnSimulationFrame();
+        const std::uint64_t frameCountBefore = _scene->FrameCount;
+        const std::int32_t draws = std::max<std::int32_t>(1, _drawRate);
+
+        for (std::int32_t i = 0; i < draws; ++i)
+        {
+            _scene->OnDrawFrame();
+            if (!_scene->OnRenderFrame())
+            {
+                return;
+            }
+            if (i < draws - 1)
+            {
+                SwapBuffers();
+                _scene->AfterRenderFrame();
+            }
+        }
+
+        if (_scene->FrameCount != frameCountBefore)
+        {
+            ++_drawAdvancedTheGame;
+        }
+
+        ++_frame;
+
+        if (_itemProbe)
+        {
+            if (!StepItemShots())
+            {
+                SwapBuffers();
+                _scene->AfterRenderFrame();
+                GameWindow::OnRenderFrame(args);
+                Close();
+                return;
+            }
+            SwapBuffers();
+            _scene->AfterRenderFrame();
+            GameWindow::OnRenderFrame(args);
+            return;
+        }
+
+        if (_renderProbe)
+        {
+            if (!StepSpawnRender())
+            {
+                SwapBuffers();
+                _scene->AfterRenderFrame();
+                GameWindow::OnRenderFrame(args);
+                Close();
+                return;
+            }
+            SwapBuffers();
+            _scene->AfterRenderFrame();
+            GameWindow::OnRenderFrame(args);
+            return;
+        }
+
+        Drive();
+        StepScoreboard();
+        Observe();
+        SampleRender();
+        SwapBuffers();
+        _scene->AfterRenderFrame();
+        GameWindow::OnRenderFrame(args);
+
+        if (_frame >= _seconds * 60.0
+            && (_bots || (!StepProbe() && !StepAfflictionProbe())))
+        {
+            Close();
+        }
+    }
+
+    void MapAudit::Drive()
+    {
+        for (std::int32_t slot = 0;
+            slot < _players
+                && slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players.size());
+            ++slot)
+        {
+            std::shared_ptr<Entities::PlayerEntity> player
+                = Entities::PlayerEntity::Players[static_cast<std::size_t>(slot)];
+            if (!TestFlag(player->LoadFlags, LoadFlags::Active))
+            {
+                continue;
+            }
+            if (!TestFlag(player->LoadFlags, LoadFlags::Spawned) || player->Health == 0)
+            {
+                continue;
+            }
+
+            if (_afflictIndex >= 0)
+            {
+                if (slot != _afflictShooter && slot != _afflictVictim)
+                {
+                    NetTestScript::Rest(*player, false);
+                }
+                continue;
+            }
+
+            if (_bots)
+            {
+                continue;
+            }
+
+            if (_probeIndex >= 0 && slot == _probeSlot)
+            {
+                NetTestScript::Rest(*player, true);
+                continue;
+            }
+
+            NetTestScript::ApplyOffline(*player, slot, _frame);
+            player->ModApplyScriptAim(NetTestScript::AimDeltaX, NetTestScript::AimDeltaY);
+        }
+    }
+
+    bool MapAudit::StepProbe()
+    {
+        if (_probeIndex < 0)
+        {
+            CollectProbeTargets();
+            _probeIndex = 0;
+        }
+
+        if (_probeIndex >= static_cast<std::int32_t>(_probeTargets.size())
+            || _probeSlot >= static_cast<std::int32_t>(Entities::PlayerEntity::Players.size()))
+        {
+            return false;
+        }
+
+        std::shared_ptr<Entities::PlayerEntity> player
+            = Entities::PlayerEntity::Players[static_cast<std::size_t>(_probeSlot)];
+        std::shared_ptr<Entities::EntityBase> target
+            = _probeTargets[static_cast<std::size_t>(_probeIndex)];
+
+        if (!_probePlaced)
+        {
+            if (!TestFlag(player->LoadFlags, LoadFlags::Active)
+                || !TestFlag(player->LoadFlags, LoadFlags::Spawned)
+                || player->Health == 0)
+            {
+                NetTestScript::Rest(*player, true);
+                if (++_probeWait > 240)
+                {
+                    _probeIndex = static_cast<std::int32_t>(_probeTargets.size());
+                }
+                return true;
+            }
+
+            _probeWait = 0;
+            _probeMarkPads = Mods::WorldEvents::JumpPadsFor(_probeSlot);
+            _probeMarkTeleports = Mods::WorldEvents::TeleportsFor(_probeSlot);
+
+            const float lift = _probeAttempt == 1 ? 1.6F : 0.5F;
+            player->ModForceForm(_probeAttempt == 2);
+            const Vector3 spot = AddY(TriggerPoint(*target), lift);
+            player->Teleport(spot, target->FacingVector(), _scene->GetNodeRefByPosition(spot));
+            _probePlaced = true;
+            _probeFrames = 0;
+            return true;
+        }
+
+        ++_probeFrames;
+
+        const bool fired = target->Type == EntityType::JumpPad
+            ? Mods::WorldEvents::JumpPadsFor(_probeSlot) > _probeMarkPads
+                && Mods::WorldEvents::LastJumpPadId(_probeSlot) == target->Id
+            : Mods::WorldEvents::TeleportsFor(_probeSlot) > _probeMarkTeleports
+                && Mods::WorldEvents::LastTeleporterId(_probeSlot) == target->Id;
+
+        const std::int32_t limit
+            = _probeAttempt == 0 ? _probeFrameLimit : _probeRetryFrameLimit;
+        if (!fired && _probeFrames < limit)
+        {
+            return true;
+        }
+
+        if (!fired && _probeAttempt < 2)
+        {
+            ++_probeAttempt;
+            _probePlaced = false;
+            return true;
+        }
+
+        _probeAttempt = 0;
+        player->ModForceForm(false);
+
+        if (target->Type == EntityType::JumpPad)
+        {
+            ++_padsProbed;
+            if (fired)
+            {
+                ++_padsFired;
+            }
+        }
+        else
+        {
+            ++_telesProbed;
+            if (fired)
+            {
+                ++_telesFired;
+            }
+        }
+
+        ++_probeIndex;
+        _probePlaced = false;
+        return true;
+    }
+
+    bool MapAudit::StepAfflictionProbe()
+    {
+        if (_afflictIndex < 0)
+        {
+            _afflictIndex = 0;
+            _afflictFrames = 0;
+            _afflictShooter = -1;
+        }
+
+        if (_afflictIndex >= static_cast<std::int32_t>(_afflictions.size()))
+        {
+            return false;
+        }
+
+        if (_afflictShooter < 0)
+        {
+            if (!SetUpAffliction(_afflictions[static_cast<std::size_t>(_afflictIndex)].first))
+            {
+                if (++_afflictSetUpWait > 150)
+                {
+                    _afflictSetUpWait = 0;
+                    ++_afflictIndex;
+                }
+                return true;
+            }
+
+            _afflictSetUpWait = 0;
+            _afflictTried[static_cast<std::size_t>(_afflictIndex)] = true;
+            _afflictFrames = 0;
+            _afflictVictimHealth
+                = Entities::PlayerEntity::Players[static_cast<std::size_t>(_afflictVictim)]->Health;
+            return true;
+        }
+
+        std::shared_ptr<Entities::PlayerEntity> shooter
+            = Entities::PlayerEntity::Players[static_cast<std::size_t>(_afflictShooter)];
+        std::shared_ptr<Entities::PlayerEntity> victim
+            = Entities::PlayerEntity::Players[static_cast<std::size_t>(_afflictVictim)];
+
+        if (!Alive(*shooter) || !Alive(*victim))
+        {
+            NetTestScript::Rest(*shooter, true);
+            NetTestScript::Rest(*victim, true);
+            if (++_afflictWait > 240)
+            {
+                _afflictLanded[static_cast<std::size_t>(_afflictIndex)] = false;
+                ++_afflictIndex;
+                _afflictShooter = -1;
+                _afflictVictim = -1;
+                _afflictWait = 0;
+            }
+            return true;
+        }
+
+        _afflictWait = 0;
+
+        if (shooter->IsAltForm || shooter->IsMorphing || shooter->IsUnmorphing)
+        {
+            NetTestScript::Rest(*shooter, true);
+            NetTestScript::Rest(*victim, true);
+            return true;
+        }
+
+        ++_afflictFrames;
+
+        shooter->ModArmAffinityWeapon();
+
+        const Vector3 shooterChest = AddY(static_cast<Vector3>(shooter->Position), 0.5F);
+        const Vector3 victimChest = AddY(static_cast<Vector3>(victim->Position), 0.5F);
+        const Vector3 toVictim = victimChest - shooterChest;
+        if (LengthSquared(toVictim) > 0.001F)
+        {
+            shooter->ModSetAim(toVictim.Normalized());
+        }
+
+        NetTestScript::HoldFire(*shooter, !shooter->ModChargeReady);
+        NetTestScript::Rest(*victim, true);
+
+        {
+            auto enumerator = _scene->Entities().GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                std::shared_ptr<Entities::EntityBase> entity = enumerator.Current();
+                if (entity->Type != EntityType::BeamProjectile)
+                {
+                    continue;
+                }
+
+                auto shot = std::dynamic_pointer_cast<Entities::BeamProjectileEntity>(entity);
+                if (shot && shot->Owner().get() == shooter.get())
+                {
+                    _afflictFired[static_cast<std::size_t>(_afflictIndex)] = true;
+                    _afflictShotAfflictions = static_cast<Affliction>(
+                        static_cast<std::uint8_t>(_afflictShotAfflictions)
+                        | static_cast<std::uint8_t>(shot->Afflictions()));
+                    break;
+                }
+            }
+        }
+
+        if (victim->Health < _afflictVictimHealth)
+        {
+            _afflictHit[static_cast<std::size_t>(_afflictIndex)] = true;
+        }
+        _afflictVictimHealth = std::min(_afflictVictimHealth, victim->Health);
+        _afflictMaxCharge = std::max(_afflictMaxCharge, shooter->ModChargeLevel);
+
+        bool landed;
+        switch (_afflictIndex)
+        {
+            case 0:
+                landed = victim->ModFrozen;
+                break;
+            case 1:
+                landed = victim->ModBurning;
+                break;
+            default:
+                landed = victim->ModDisrupted;
+                break;
+        }
+
+        if (landed || _afflictFrames >= _afflictFrameLimit)
+        {
+            if (_diagnostic)
+            {
+                std::cout
+                    << "PROBE "
+                    << _afflictions[static_cast<std::size_t>(_afflictIndex)].second
+                    << ": shooter slot " << _afflictShooter << ' '
+                    << HunterName(shooter->Hunter) << ' '
+                    << shooter->ModWeaponState
+                    << ", maxcharge=" << _afflictMaxCharge
+                    << ", shots carried " << AfflictionName(_afflictShotAfflictions)
+                    << ", landed=" << (landed ? "True" : "False")
+                    << '\n';
+            }
+
+            _afflictLanded[static_cast<std::size_t>(_afflictIndex)] = landed;
+            ++_afflictIndex;
+            _afflictShooter = -1;
+            _afflictVictim = -1;
+            _afflictShotAfflictions = Affliction::None;
+            _afflictMaxCharge = 0;
+        }
+
+        return true;
+    }
+
+    bool MapAudit::Alive(Entities::PlayerEntity& player)
+    {
+        return TestFlag(player.LoadFlags, LoadFlags::Active)
+            && TestFlag(player.LoadFlags, LoadFlags::Spawned)
+            && player.Health > 0;
+    }
+
+    bool MapAudit::SetUpAffliction(Hunter hunter)
+    {
+        std::int32_t shooter = -1;
+        std::int32_t victim = -1;
+
+        for (std::int32_t slot = 0;
+            slot < _players
+                && slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players.size());
+            ++slot)
+        {
+            std::shared_ptr<Entities::PlayerEntity> player
+                = Entities::PlayerEntity::Players[static_cast<std::size_t>(slot)];
+            if (!Alive(*player))
+            {
+                continue;
+            }
+            if (shooter < 0 && player->Hunter == hunter)
+            {
+                shooter = slot;
+            }
+            else if (victim < 0)
+            {
+                victim = slot;
+            }
+        }
+
+        if (shooter < 0 || victim < 0)
+        {
+            return false;
+        }
+
+        std::shared_ptr<Entities::PlayerEntity> shooterPlayer
+            = Entities::PlayerEntity::Players[static_cast<std::size_t>(shooter)];
+        std::shared_ptr<Entities::PlayerEntity> victimPlayer
+            = Entities::PlayerEntity::Players[static_cast<std::size_t>(victim)];
+
+        Vector3 facing = victimPlayer->FacingVector();
+        facing = Vector3(facing.X, 0.0F, facing.Z);
+        if (LengthSquared(facing) < 0.001F)
+        {
+            facing = Vector3(0.0F, 0.0F, 1.0F);
+        }
+        facing = facing.Normalized();
+
+        const Vector3 victimPosition = victimPlayer->Position;
+        const Vector3 spot = victimPosition + Scale(facing, 2.2F);
+        shooterPlayer->Teleport(spot, Negate(facing), _scene->GetNodeRefByPosition(spot));
+        shooterPlayer->ModArmAffinityWeapon();
+        _afflictShooter = shooter;
+        _afflictVictim = victim;
+        return true;
+    }
+
+    Vector3 MapAudit::VolumeCenter(const CollisionVolume& volume)
+    {
+        switch (volume.Type)
+        {
+            case VolumeType::Box:
+            {
+                const Vector3 v1 = Scale(volume.BoxVector1, volume.BoxDot1);
+                const Vector3 v2 = Scale(volume.BoxVector2, volume.BoxDot2);
+                const Vector3 v3 = Scale(volume.BoxVector3, volume.BoxDot3);
+                return volume.BoxPosition + Scale(v1 + v2 + v3, 0.5F);
+            }
+            case VolumeType::Cylinder:
+                return volume.CylinderPosition
+                    + Scale(volume.CylinderVector, volume.CylinderDot / 2.0F);
+            case VolumeType::Sphere:
+                return volume.SpherePosition;
+            default:
+                return Vector3::Zero;
+        }
+    }
+
+    Vector3 MapAudit::TriggerPoint(Entities::EntityBase& entity)
+    {
+        if (auto* pad = dynamic_cast<Entities::JumpPadEntity*>(&entity))
+        {
+            const Vector3 center = VolumeCenter(pad->ModVolume());
+            if (!IsZero(center))
+            {
+                return center;
+            }
+        }
+        return entity.Position;
+    }
+
+    void MapAudit::CollectProbeTargets()
+    {
+        auto enumerator = _scene->Entities().GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            if (_probeTargets.size() >= static_cast<std::size_t>(_probeMaxTargets))
+            {
+                break;
+            }
+
+            std::shared_ptr<Entities::EntityBase> entity = enumerator.Current();
+            if (entity->Active
+                && (entity->Type == EntityType::JumpPad
+                    || entity->Type == EntityType::Teleporter))
+            {
+                _probeTargets.push_back(std::move(entity));
+            }
+        }
+    }
+
+    void MapAudit::StepScoreboard()
+    {
+        const std::int32_t total
+            = std::max<std::int32_t>(60, static_cast<std::int32_t>(_seconds * 60.0));
+        const bool show
+            = (_frame > total / 6 && _frame < total / 6 + 90)
+            || (_frame > total * 2 / 3 && _frame < total * 2 / 3 + 90);
+        Entities::PlayerEntity::ModForceScoreboard = show;
+        if (show)
+        {
+            ++_scoreboardFrames;
+        }
+    }
+
+    void MapAudit::Observe()
+    {
+        _spawned = 0;
+
+        for (std::int32_t slot = 0;
+            slot < _players
+                && slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players.size());
+            ++slot)
+        {
+            std::shared_ptr<Entities::PlayerEntity> player
+                = Entities::PlayerEntity::Players[static_cast<std::size_t>(slot)];
+            if (!TestFlag(player->LoadFlags, LoadFlags::Active)
+                || !TestFlag(player->LoadFlags, LoadFlags::Spawned))
+            {
+                continue;
+            }
+
+            ++_spawned;
+            _everSpawned[static_cast<std::size_t>(slot)] = true;
+            SampleNodeLookup(*player);
+            SamplePuppetNode(*player);
+
+            if (player->IsAltForm)
+            {
+                _everAltForm[static_cast<std::size_t>(slot)] = true;
+            }
+            if (player->ModFrozen)
+            {
+                _everFrozen[static_cast<std::size_t>(slot)] = true;
+            }
+            if (player->ModBurning)
+            {
+                _everBurned[static_cast<std::size_t>(slot)] = true;
+            }
+            if (player->ModDisrupted)
+            {
+                _everDisrupted[static_cast<std::size_t>(slot)] = true;
+            }
+
+            if (_lastHealth[static_cast<std::size_t>(slot)] > 0 && player->Health == 0)
+            {
+                ++_deaths[static_cast<std::size_t>(slot)];
+            }
+            _lastHealth[static_cast<std::size_t>(slot)] = player->Health;
+
+            const Vector3 position = player->Position;
+            _lowestY = std::min(_lowestY, static_cast<double>(position.Y));
+
+            if (_haveLastSeen[static_cast<std::size_t>(slot)])
+            {
+                const float step = Length(
+                    position - _lastSeen[static_cast<std::size_t>(slot)]);
+                if (step < 5.0F)
+                {
+                    _travelled[static_cast<std::size_t>(slot)] += step;
+                }
+            }
+
+            _lastSeen[static_cast<std::size_t>(slot)] = position;
+            _haveLastSeen[static_cast<std::size_t>(slot)] = true;
+        }
+
+        auto enumerator = _scene->Entities().GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            std::shared_ptr<Entities::EntityBase> entity = enumerator.Current();
+            if (entity->Type != EntityType::BeamProjectile)
+            {
+                continue;
+            }
+
+            auto shot = std::dynamic_pointer_cast<Entities::BeamProjectileEntity>(entity);
+            if (!shot)
+            {
+                continue;
+            }
+
+            auto owner = std::dynamic_pointer_cast<Entities::PlayerEntity>(shot->Owner());
+            if (owner && owner->SlotIndex >= 0
+                && owner->SlotIndex < static_cast<std::int32_t>(_everFired.size()))
+            {
+                _everFired[static_cast<std::size_t>(owner->SlotIndex)] = true;
+            }
+        }
+    }
+
+    void MapAudit::SampleNodeLookup(Entities::PlayerEntity& player)
+    {
+        const Formats::Culling::NodeRef walked = player.NodeRef;
+        if (walked.PartIndex == -1)
+        {
+            return;
+        }
+
+        const Formats::Culling::NodeRef found
+            = _scene->GetNodeRefByPosition(static_cast<Vector3>(player.Position));
+        ++_nodeLookupSamples;
+
+        const bool walkedVisible = _scene->IsNodeRefVisible(walked);
+        if (walkedVisible)
+        {
+            ++_nodeLookupWalkedVisible;
+        }
+
+        if (found.PartIndex == -1)
+        {
+            ++_nodeLookupNone;
+            return;
+        }
+
+        if (found.PartIndex == walked.PartIndex)
+        {
+            return;
+        }
+
+        ++_nodeLookupWrong;
+        const bool foundVisible = _scene->IsNodeRefVisible(found);
+        if (walkedVisible && !foundVisible)
+        {
+            ++_nodeLookupHidden;
+        }
+        else if (!walkedVisible && foundVisible)
+        {
+            ++_nodeLookupShown;
+        }
+    }
+
+    void MapAudit::SamplePuppetNode(Entities::PlayerEntity& player)
+    {
+        const std::int32_t slot = player.SlotIndex;
+        if (slot < 0 || slot >= static_cast<std::int32_t>(_puppetNode.size()))
+        {
+            return;
+        }
+
+        const std::size_t index = static_cast<std::size_t>(slot);
+        const Vector3 position = player.Position;
+        const Vector3 previous = _puppetPrev[index];
+        _puppetPrev[index] = position;
+
+        if (!_puppetSeeded[index])
+        {
+            _puppetSeeded[index] = true;
+            _puppetNode[index] = Entities::PlayerEntity::ModSpawnNodeRef(*_scene, position);
+            return;
+        }
+
+        Formats::Culling::NodeRef next = Entities::PlayerEntity::ModWalkNodeRef(
+            *_scene, _puppetNode[index], previous, position);
+        if (next == Formats::Culling::NodeRef::None)
+        {
+            next = _scene->GetNodeRefByPosition(position);
+        }
+        if (next != Formats::Culling::NodeRef::None)
+        {
+            _puppetNode[index] = next;
+        }
+
+        const Formats::Culling::NodeRef walked = player.NodeRef;
+        if (walked.PartIndex == -1)
+        {
+            return;
+        }
+
+        ++_puppetSamples;
+        if (next.PartIndex == -1)
+        {
+            ++_puppetNone;
+            return;
+        }
+
+        if (next.PartIndex == walked.PartIndex)
+        {
+            return;
+        }
+
+        ++_puppetWrong;
+        if (_scene->IsNodeRefVisible(walked) && !_scene->IsNodeRefVisible(next))
+        {
+            ++_puppetHidden;
+        }
+    }
+
+    bool MapAudit::StepSpawnRender()
+    {
+        if (_spawnIndex < 0)
+        {
+            CollectSpawnSpots();
+            _spawnIndex = 0;
+            _spawnFrames = -1;
+        }
+
+        if (_spawnIndex >= static_cast<std::int32_t>(_spawnSpots.size()))
+        {
+            return false;
+        }
+
+        std::shared_ptr<Entities::PlayerEntity> player = Entities::PlayerEntity::Main;
+
+        if (_spawnFrames < 0)
+        {
+            if (!TestFlag(player->LoadFlags, LoadFlags::Spawned) || player->Health == 0)
+            {
+                NetTestScript::Rest(*player, true);
+                return true;
+            }
+
+            const std::size_t index = static_cast<std::size_t>(_spawnIndex);
+            const Vector3 spot = _spawnSpots[index];
+            player->ModForceForm(false);
+            player->Teleport(spot, _spawnFacings[index], _spawnNodeRefs[index]);
+            _spawnFrames = 0;
+            _spawnLitWorst = std::numeric_limits<double>::max();
+            NetTestScript::Rest(*player, true);
+            return true;
+        }
+
+        ++_spawnFrames;
+
+        if (_spawnFrames < _spawnSettleFrames)
+        {
+            NetTestScript::Rest(*player, true);
+            return true;
+        }
+
+        if (_spawnFrames == _spawnSettleFrames)
+        {
+            _spawnLitAtSpawn = Mods::ScreenCapture::NonBlackFraction(*_scene);
+            _spawnLitWorst = _spawnLitAtSpawn;
+            SaveSpawnShot("spawn");
+        }
+
+        NetTestScript::WalkForward(*player);
+
+        if (_spawnFrames % 30 == 0)
+        {
+            const double lit = Mods::ScreenCapture::NonBlackFraction(*_scene);
+            if (lit < _spawnLitWorst)
+            {
+                _spawnLitWorst = lit;
+            }
+        }
+
+        if (_spawnFrames < _spawnSettleFrames + _spawnWalkFrames)
+        {
+            return true;
+        }
+
+        SaveSpawnShot("walked");
+
+        const Vector3 at = _spawnSpots[static_cast<std::size_t>(_spawnIndex)];
+        const bool failed = _spawnLitWorst < _renderFloor;
+        if (failed)
+        {
+            ++_spawnFailures;
+        }
+
+        std::shared_ptr<Entities::PlayerEntity> main = Entities::PlayerEntity::Main;
+        std::cout
+            << "RENDERSPAWN " << _room
+            << " | spawn " << _spawnIndex
+            << " at " << Fixed(at.X, 1) << ',' << Fixed(at.Y, 1) << ',' << Fixed(at.Z, 1)
+            << " | at spawn " << Fixed(_spawnLitAtSpawn * 100.0, 1) << '%'
+            << " | worst while walking " << Fixed(_spawnLitWorst * 100.0, 1) << '%'
+            << " | part " << main->NodeRef.PartIndex
+            << (failed ? " | FAIL" : "")
+            << '\n';
+
+        ++_spawnIndex;
+        _spawnFrames = -1;
+        return true;
+    }
+
+    bool MapAudit::StepItemShots()
+    {
+        if (_itemIndex < 0)
+        {
+            CollectItemSpots();
+            _itemIndex = 0;
+            _itemFrames = -1;
+        }
+
+        if (_itemIndex >= static_cast<std::int32_t>(_itemSpots.size()))
+        {
+            return false;
+        }
+
+        std::shared_ptr<Entities::PlayerEntity> player = Entities::PlayerEntity::Main;
+
+        if (_itemFrames < 0)
+        {
+            if (!TestFlag(player->LoadFlags, LoadFlags::Spawned) || player->Health == 0)
+            {
+                NetTestScript::Rest(*player, true);
+                return true;
+            }
+
+            const Vector3 item = _itemSpots[static_cast<std::size_t>(_itemIndex)];
+            const Vector3 stand = item + Vector3(0.0F, 0.4F, _itemStandOff);
+            player->ModForceForm(false);
+            player->Teleport(stand, Negate(Vector3(0.0F, 0.0F, 1.0F)), _scene->GetNodeRefByPosition(stand));
+            _itemFrames = 0;
+            NetTestScript::Rest(*player, true);
+            return true;
+        }
+
+        ++_itemFrames;
+        NetTestScript::Rest(*player, true);
+
+        if (_itemFrames < _itemSettleFrames)
+        {
+            return true;
+        }
+
+        if (_shotDirectory.has_value())
+        {
+            const std::string name = ReplaceRoomCharacters(_room);
+            Mods::ScreenCapture::Save(
+                *_scene,
+                PathCombine(
+                    *_shotDirectory,
+                    name + "-item" + TwoDigits(_itemIndex) + "-"
+                        + _itemNames[static_cast<std::size_t>(_itemIndex)] + ".png"));
+        }
+
+        const Vector3 at = _itemSpots[static_cast<std::size_t>(_itemIndex)];
+        std::cout
+            << "ITEMSHOT " << _room
+            << " | " << _itemIndex << ' '
+            << _itemNames[static_cast<std::size_t>(_itemIndex)]
+            << " at " << Fixed(at.X, 1) << ',' << Fixed(at.Y, 1) << ',' << Fixed(at.Z, 1)
+            << '\n';
+
+        ++_itemIndex;
+        _itemFrames = -1;
+        return true;
+    }
+
+    void MapAudit::CollectItemSpots()
+    {
+        auto enumerator = _scene->Entities().GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            std::shared_ptr<Entities::EntityBase> entity = enumerator.Current();
+            std::string what;
+            Vector3 spot;
+
+            if (entity->Type == EntityType::ItemSpawn)
+            {
+                auto spawn = std::dynamic_pointer_cast<Entities::ItemSpawnEntity>(entity);
+                what = ItemTypeName(spawn->Data().ItemType);
+                spot = AddY(static_cast<Vector3>(entity->Position), 0.65F);
+            }
+            else if (entity->Type == EntityType::ItemInstance)
+            {
+                auto item = std::dynamic_pointer_cast<Entities::ItemInstanceEntity>(entity);
+                what = ItemTypeName(item->ItemType());
+                spot = entity->Position;
+            }
+            else
+            {
+                continue;
+            }
+
+            _itemSpots.push_back(spot);
+            _itemNames.push_back(std::move(what));
+        }
+    }
+
+    void MapAudit::SaveSpawnShot(std::string_view what)
+    {
+        if (!_shotDirectory.has_value())
+        {
+            return;
+        }
+
+        const std::string name = ReplaceRoomCharacters(_room);
+        Mods::ScreenCapture::Save(
+            *_scene,
+            PathCombine(
+                *_shotDirectory,
+                name + "-spawn" + TwoDigits(_spawnIndex) + "-" + std::string(what) + ".png"));
+    }
+
+    void MapAudit::CollectSpawnSpots()
+    {
+        auto enumerator = _scene->Entities().GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            std::shared_ptr<Entities::EntityBase> entity = enumerator.Current();
+            if (entity->Type != EntityType::PlayerSpawn)
+            {
+                continue;
+            }
+
+            _spawnSpots.push_back(AddY(static_cast<Vector3>(entity->Position), 0.5F));
+            const Vector3 facing = entity->FacingVector();
+            _spawnFacings.push_back(
+                LengthSquared(facing) < 0.0001F ? Vector3(0.0F, 0.0F, 1.0F) : facing);
+            _spawnNodeRefs.push_back(entity->NodeRef);
+        }
+    }
+
+    void MapAudit::SampleRender()
+    {
+        if (_frame % _litSampleFrames != 1)
+        {
+            return;
+        }
+
+        const double lit = Mods::ScreenCapture::NonBlackFraction(*_scene);
+        ++_litSamples;
+        _litTotal += lit;
+
+        if (_litFirst < 0.0)
+        {
+            _litFirst = lit;
+        }
+        if (lit < _litMin)
+        {
+            _litMin = lit;
+        }
+        if (lit > _litMax)
+        {
+            _litMax = lit;
+        }
+
+        if (_shotDirectory.has_value())
+        {
+            const std::string name = ReplaceRoomCharacters(_room);
+            const std::string path = PathCombine(
+                *_shotDirectory,
+                name + "-" + TwoDigits(_shotsSaved) + ".png");
+            const bool saved = _showWindow
+                ? Mods::ScreenCapture::SaveWindow(*_scene, path)
+                : Mods::ScreenCapture::Save(*_scene, path);
+            if (saved)
+            {
+                ++_shotsSaved;
+            }
+        }
+    }
+
+    void MapAudit::OnClosing(System::ComponentModel::CancelEventArgs& e)
+    {
+        _scene->DoCleanup();
+        GameWindow::OnClosing(e);
+    }
+
+    std::int32_t MapAudit::Report()
+    {
+        std::int32_t spawnPoints = 0;
+        std::int32_t jumpPads = 0;
+        std::int32_t teleporters = 0;
+        std::int32_t doors = 0;
+        std::int32_t forceFields = 0;
+        std::int32_t itemSpawns = 0;
+        std::int32_t items = 0;
+        std::int32_t platforms = 0;
+        std::int32_t morphCameras = 0;
+        std::int32_t flagBases = 0;
+        std::int32_t nodeDefenses = 0;
+        std::int32_t artifacts = 0;
+        std::int32_t triggers = 0;
+        std::int32_t areaVolumes = 0;
+
+        {
+            auto enumerator = _scene->Entities().GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                const std::shared_ptr<Entities::EntityBase> entity = enumerator.Current();
+                switch (entity->Type)
+                {
+                    case EntityType::PlayerSpawn:
+                        ++spawnPoints;
+                        break;
+                    case EntityType::JumpPad:
+                        ++jumpPads;
+                        break;
+                    case EntityType::Teleporter:
+                        ++teleporters;
+                        break;
+                    case EntityType::Door:
+                        ++doors;
+                        break;
+                    case EntityType::ForceField:
+                        ++forceFields;
+                        break;
+                    case EntityType::ItemSpawn:
+                        ++itemSpawns;
+                        break;
+                    case EntityType::ItemInstance:
+                        ++items;
+                        break;
+                    case EntityType::Platform:
+                        ++platforms;
+                        break;
+                    case EntityType::MorphCamera:
+                        ++morphCameras;
+                        break;
+                    case EntityType::FlagBase:
+                        ++flagBases;
+                        break;
+                    case EntityType::NodeDefense:
+                        ++nodeDefenses;
+                        break;
+                    case EntityType::Artifact:
+                        ++artifacts;
+                        break;
+                    case EntityType::TriggerVolume:
+                        ++triggers;
+                        break;
+                    case EntityType::AreaVolume:
+                        ++areaVolumes;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        std::int32_t spawnedEver = 0;
+        std::int32_t altEver = 0;
+        std::int32_t firedEver = 0;
+        std::int32_t totalDeaths = 0;
+        std::int32_t frozenEver = 0;
+        std::int32_t burnedEver = 0;
+        std::int32_t disruptedEver = 0;
+
+        for (std::int32_t i = 0; i < _players; ++i)
+        {
+            const std::size_t index = static_cast<std::size_t>(i);
+            if (_everSpawned[index])
+            {
+                ++spawnedEver;
+            }
+            if (_everAltForm[index])
+            {
+                ++altEver;
+            }
+            if (_everFired[index])
+            {
+                ++firedEver;
+            }
+            if (_everFrozen[index])
+            {
+                ++frozenEver;
+            }
+            if (_everBurned[index])
+            {
+                ++burnedEver;
+            }
+            if (_everDisrupted[index])
+            {
+                ++disruptedEver;
+            }
+            totalDeaths += _deaths[index];
+        }
+
+        std::ostringstream line;
+        line << "MAPTEST " << _room
+             << " | players " << _players
+             << " | frames " << _frame
+             << " | spawned " << spawnedEver << '/' << _players;
+
+        std::int32_t moved = 0;
+        float furthest = 0.0F;
+        for (std::int32_t i = 0;
+            i < _players && i < static_cast<std::int32_t>(_travelled.size());
+            ++i)
+        {
+            const float travelled = _travelled[static_cast<std::size_t>(i)];
+            if (travelled > 20.0F)
+            {
+                ++moved;
+            }
+            furthest = std::max(furthest, travelled);
+        }
+
+        line << " | moved " << moved << '/' << _players
+             << " (furthest " << Fixed(furthest, 0) << " units)"
+             << " | alt form " << altEver << '/' << _players
+             << " | fired " << firedEver << '/' << _players
+             << " | deaths " << totalDeaths
+             << " | afflicted freeze " << frozenEver
+             << " burn " << burnedEver
+             << " disrupt " << disruptedEver;
+
+        std::ostringstream probe;
+        for (std::int32_t i = 0;
+            i < static_cast<std::int32_t>(_afflictions.size());
+            ++i)
+        {
+            const std::size_t index = static_cast<std::size_t>(i);
+            probe << (i == 0 ? " (probe " : " ");
+            probe << _afflictions[index].second << ' ';
+            probe << (!_afflictTried[index] ? "n/a"
+                : _afflictLanded[index] ? "ok"
+                : !_afflictFired[index] ? "nofire"
+                : _afflictHit[index] ? "FAIL"
+                : "nohit");
+        }
+        probe << ')';
+        line << probe.str();
+
+        line << " | spawnpoints " << spawnPoints
+             << " | jumppads " << jumpPads
+             << " (" << _padsFired << '/' << _padsProbed << " launched)"
+             << " teleporters " << teleporters
+             << " (" << _telesFired << '/' << _telesProbed << " moved)"
+             << " doors " << doors
+             << " forcefields " << forceFields
+             << " platforms " << platforms
+             << " itemspawns " << itemSpawns
+             << " items " << items
+             << " morphcams " << morphCameras
+             << " flagbases " << flagBases
+             << " nodes " << nodeDefenses
+             << " artifacts " << artifacts
+             << " triggers " << triggers
+             << " areas " << areaVolumes
+             << " | lowest Y " << Fixed(_lowestY, 1);
+
+        if (_nodeLookupSamples > 0)
+        {
+            const std::int32_t agreed
+                = _nodeLookupSamples - _nodeLookupWrong - _nodeLookupNone;
+            line << " | node lookup " << agreed << '/' << _nodeLookupSamples
+                 << " agreed (" << _nodeLookupNone << " none, "
+                 << _nodeLookupWrong << " wrong part, "
+                 << _nodeLookupHidden << " would hide the player, "
+                 << _nodeLookupShown << " would reveal one; "
+                 << _nodeLookupWalkedVisible << " samples drawable)";
+        }
+
+        if (_puppetSamples > 0)
+        {
+            const std::int32_t agreed = _puppetSamples - _puppetWrong - _puppetNone;
+            line << " | remote node " << agreed << '/' << _puppetSamples
+                 << " agreed (" << _puppetNone << " none, "
+                 << _puppetWrong << " wrong part, "
+                 << _puppetHidden << " would hide the player)";
+        }
+
+        line << " | effect particles " << _scene->ModEffectParticles;
+
+        if (_litSamples > 0)
+        {
+            line << " | lit first " << Fixed(_litFirst * 100.0, 1) << '%'
+                 << " min " << Fixed(_litMin * 100.0, 1) << '%'
+                 << " max " << Fixed(_litMax * 100.0, 1) << '%'
+                 << " mean " << Fixed(_litTotal / _litSamples * 100.0, 1) << '%'
+                 << " (" << _litSamples << " samples)";
+        }
+
+        std::cout << line.str() << '\n';
+
+        if (_drawRate > 1)
+        {
+            std::cout
+                << "FRAMETIMING " << _room
+                << " | " << _drawRate << " draws per step"
+                << " | " << _frame << " steps, " << _scene->FrameCount << " counted"
+                << " | draws advancing the game: " << _drawAdvancedTheGame
+                << '\n';
+        }
+
+        if (_itemProbe)
+        {
+            std::cout
+                << "ITEMSWEEP " << _room
+                << " | " << _itemSpots.size() << " pickup(s) photographed"
+                << '\n';
+            return 0;
+        }
+
+        if (_renderProbe)
+        {
+            std::cout
+                << "RENDERSWEEP " << _room
+                << " | " << _spawnSpots.size() << " spawn point(s) "
+                << "| " << _spawnFailures << " drew nothing"
+                << '\n';
+
+            if (_spawnFailures > 0)
+            {
+                std::cout
+                    << "MAPFAIL " << _room
+                    << " | " << _spawnFailures << " of " << _spawnSpots.size()
+                    << " spawn point(s) end in a frame with no room in it"
+                    << '\n';
+            }
+            return _spawnFailures;
+        }
+
+        std::vector<std::string> problems;
+
+        if (_padsProbed > 0 && _padsFired == 0)
+        {
+            problems.push_back(
+                "none of the " + std::to_string(_padsProbed)
+                + " jump pad(s) launched a player standing on them");
+        }
+
+        if (_telesProbed > 0 && _telesFired == 0)
+        {
+            problems.push_back(
+                "none of the " + std::to_string(_telesProbed)
+                + " teleporter(s) moved a player standing on them");
+        }
+
+        if (spawnedEver < _players)
+        {
+            std::ostringstream missing;
+            for (std::int32_t i = 0; i < _players; ++i)
+            {
+                const std::size_t index = static_cast<std::size_t>(i);
+                if (!_everSpawned[index])
+                {
+                    if (missing.tellp() > 0)
+                    {
+                        missing << ", ";
+                    }
+                    const std::shared_ptr<Entities::PlayerEntity> player
+                        = Entities::PlayerEntity::Players[index];
+                    missing
+                        << "slot " << i << " (" << HunterName(player->Hunter)
+                        << ", hp " << player->Health
+                        << ", respawn " << player->RespawnTimer << ')';
+                }
+            }
+            problems.push_back(
+                "only " + std::to_string(spawnedEver) + " of "
+                + std::to_string(_players)
+                + " players ever reached the map -- missing " + missing.str());
+        }
+
+        if (spawnPoints == 0)
+        {
+            problems.emplace_back("no spawn points at all");
+        }
+
+        if (_litSamples > 0 && _litMax < _renderFloor)
+        {
+            problems.push_back(
+                "the room never drew: at most " + Fixed(_litMax * 100.0, 1)
+                + "% of the frame was lit across " + std::to_string(_litSamples)
+                + " samples (first " + Fixed(_litFirst * 100.0, 1) + "%)");
+        }
+        else if (_litSamples > 1 && _litMin < _renderFloor)
+        {
+            problems.push_back(
+                "the room stopped drawing: " + Fixed(_litMin * 100.0, 1)
+                + "% of the frame lit at its worst against "
+                + Fixed(_litMax * 100.0, 1) + "% at its best");
+        }
+
+        for (std::int32_t i = 0; i < _players; ++i)
+        {
+            const std::size_t index = static_cast<std::size_t>(i);
+            std::shared_ptr<Entities::PlayerEntity> player
+                = Entities::PlayerEntity::Players[index];
+            if (_everSpawned[index] && !player->ModCanBeHurt())
+            {
+                problems.push_back(
+                    "slot " + std::to_string(i) + " (" + HunterName(player->Hunter)
+                    + ") cannot be hurt by any beam");
+            }
+        }
+
+        if (_scene->ModEffectParticles == 0)
+        {
+            problems.emplace_back(
+                "no effect particle was spawned all run: "
+                "muzzle flashes, impacts and explosions are emitting nothing");
+        }
+
+        if (_scoreboardFrames == 0)
+        {
+            problems.emplace_back(
+                "the scoreboard was never drawn: the check above it did not run");
+        }
+
+        if (_drawAdvancedTheGame > 0)
+        {
+            problems.push_back(
+                "drawing advanced the simulation on "
+                + std::to_string(_drawAdvancedTheGame)
+                + " frame(s): a draw pass is writing back to the world");
+        }
+
+        for (const std::string& problem : problems)
+        {
+            std::cout << "MAPFAIL " << _room << " | " << problem << '\n';
+        }
+
+        return static_cast<std::int32_t>(problems.size());
+    }
+
+    std::int32_t MapAudit::Run(
+        std::string room,
+        std::int32_t players,
+        double seconds,
+        GameMode mode,
+        bool bots,
+        std::optional<std::string> shotDirectory,
+        bool renderProbe,
+        bool allNodes,
+        bool itemProbe)
+    {
+        std::unique_ptr<MapAudit> window;
+        std::int32_t result = 1;
+
+        try
+        {
+            window = std::unique_ptr<MapAudit>(new MapAudit(
+                room,
+                std::clamp<std::int32_t>(players, 1, Entities::PlayerEntity::SlotCapacity),
+                seconds,
+                mode,
+                bots,
+                renderProbe,
+                itemProbe));
+
+            window->_scene->ShowAllNodes = allNodes;
+
+            if (shotDirectory.has_value())
+            {
+                std::filesystem::create_directories(*shotDirectory);
+                window->_shotDirectory = *shotDirectory;
+            }
+
+            window->GameWindow::Run();
+            result = window->Report();
+        }
+        catch (const std::exception& ex)
+        {
+            std::cout
+                << "MAPCRASH " << room
+                << " | " << ExceptionTypeName(ex) << ": " << ex.what()
+                << '\n';
+            std::cout << '\n';
+            result = 1;
+        }
+        catch (...)
+        {
+            std::cout << "MAPCRASH " << room << " | Exception: unknown exception\n";
+            std::cout << '\n';
+            result = 1;
+        }
+
+        if (window)
+        {
+            window->Dispose();
+        }
+        return result;
+    }
+}

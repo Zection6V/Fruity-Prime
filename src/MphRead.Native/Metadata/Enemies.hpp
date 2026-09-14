@@ -2,49 +2,37 @@
 
 #include "Metadata.hpp"
 #include "../Entities/EnemyInstanceEntity.hpp"
+#include "../Entities/Enemies/00_WarWasp.hpp"
+#include "../Entities/Enemies/02_Temroid.hpp"
+#include "../Entities/Enemies/03_Petrasyl1.hpp"
+#include "../Entities/Enemies/04_Petrasyl2.hpp"
+#include "../Entities/Enemies/05_Petrasyl3.hpp"
+#include "../Entities/Enemies/06_Petrasyl4.hpp"
+#include "../Entities/Enemies/10_BarbedWarWasp.hpp"
+#include "../Entities/Enemies/11_Shriekbat.hpp"
+#include "../Entities/Enemies/16_Blastcap.hpp"
+#include "../Entities/Enemies/18_AlimbicTurret.hpp"
+#include "../Entities/Enemies/19_Cretaphid.hpp"
+#include "../Entities/Enemies/23_PsychoBit.hpp"
+#include "../Entities/Enemies/24_Gorea1A.hpp"
+#include "../Entities/Enemies/28_Gorea1B.hpp"
+#include "../Entities/Enemies/31_Gorea2.hpp"
+#include "../Entities/Enemies/33_GoreaMeteor.hpp"
+#include "../Entities/Enemies/35_Voldrum.hpp"
+#include "../Entities/Enemies/36_Voldrum.hpp"
+#include "../Entities/Enemies/38_CrashPillar.hpp"
+#include "../Entities/Enemies/39_FireSpawn.hpp"
+#include "../Entities/Enemies/41_Slench.hpp"
+#include "../Entities/Enemies/44_SlenchSynapse.hpp"
+#include "../Entities/Enemies/45_SlenchTurret.hpp"
+#include "../Entities/Enemies/46_LesserIthrak.hpp"
+#include "../Entities/Enemies/47_GreaterIthrak.hpp"
 
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
 #include <vector>
-
-namespace MphRead::Entities::Enemies
-{
-    class Enemy00Entity;
-    class Enemy02Entity;
-    class Enemy03Entity;
-    class Enemy04Entity;
-    class Enemy05Entity;
-    class Enemy06Entity;
-    class Enemy10Entity;
-    class Enemy11Entity;
-    class Enemy16Entity;
-    class Enemy18Entity;
-    class Enemy19Entity;
-    class Enemy23Entity;
-    class Enemy24Entity;
-    class Enemy28Entity;
-    class Enemy31Entity;
-    class Enemy33Entity;
-    class Enemy35Entity;
-    class Enemy36Entity;
-    class Enemy38Entity;
-    class Enemy39Entity;
-    class Enemy45Entity;
-    class Enemy46Entity;
-    class Enemy47Entity;
-
-    struct Enemy10Values;
-    struct Enemy18Values;
-    struct Enemy19Values;
-    struct Enemy23Values;
-    struct Enemy36Values;
-    struct Enemy39Values;
-    struct Enemy41Values;
-    struct Enemy44Values;
-    struct Enemy45Values;
-}
 
 namespace MphRead::Metadata
 {

@@ -1,8 +1,8 @@
 #include "Enemies.hpp"
+#include "../Scene.hpp"
 
 #include <cassert>
 #include <cstddef>
-#include <stdexcept>
 
 namespace MphRead::Metadata
 {
@@ -10,7 +10,7 @@ namespace MphRead::Metadata
     {
         [[noreturn]] void ThrowIndexOutOfRange()
         {
-            throw std::out_of_range("Index was outside the bounds of the array.");
+            throw SceneDetail::IndexOutOfRangeException();
         }
 
         template <typename T>

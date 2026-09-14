@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace MphRead
+namespace MphRead::Mods::Network
 {
     class MechanicsDump final
     {
@@ -16,8 +16,16 @@ namespace MphRead
         static void Run();
 
     private:
-        static void GetWeaponOutput(std::string& output);
-        static void GetPlayerOutput(std::string& output);
-        static void GetMiscOutput(std::string& output);
+        static void Weapons(std::string& text);
+        static void DamageRules(std::string& text);
+        static void Hunters(std::string& text);
+        static void Movement(std::string& text);
+        static void States(std::string& text);
+        static void SpawnRules(std::string& text);
+        static void Modes(std::string& text);
+        static void World(std::string& text);
+        static void Items(std::string& text);
+        static void Bots(std::string& text);
+        static void Networking(std::string& text);
     };
 }

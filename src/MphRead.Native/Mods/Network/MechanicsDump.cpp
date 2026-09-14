@@ -1,86 +1,120 @@
 #include "MechanicsDump.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
-#include "../../Formats/CollisionDetection.hpp"
 #include "../../Formats/Enums.hpp"
+#include "../../Formats/Types.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Player.hpp"
 #include "../../Metadata/Weapons.hpp"
-#include "../../GameState.hpp"
-#include "../../Read.hpp"
 
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cmath>
-#include <fstream>
-#include <numbers>
+#include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
+#include <string_view>
 #include <system_error>
+#include <type_traits>
 
-namespace MphRead
+namespace MphRead::Mods::Network
 {
     namespace
     {
-        template <typename T>
-        std::string ManagedNumber(T value)
+        void AppendLine(std::string& text, std::string_view value = {})
         {
-            char buffer[64]{};
-            const auto [ptr, ec] = std::to_chars(buffer, buffer + sizeof(buffer), value);
-            if (ec != std::errc{})
+            text.append(value);
+            text.push_back('\n');
+        }
+
+        template <typename T>
+        std::string IntegralString(T value)
+            requires std::is_integral_v<T>
+        {
+            char buffer[32]{};
+            const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), value);
+            if (error != std::errc{})
             {
                 throw std::runtime_error("Numeric formatting failed.");
             }
-            std::string result(buffer, ptr);
-            if constexpr (std::is_floating_point_v<T>)
+            return std::string(buffer, end);
+        }
+
+        std::string FloatString(float value)
+        {
+            if (std::isnan(value))
             {
-                const std::size_t exponent = result.find('e');
-                if (exponent != std::string::npos)
+                return "NaN";
+            }
+            if (std::isinf(value))
+            {
+                return std::signbit(value) ? "-Infinity" : "Infinity";
+            }
+
+            char buffer[64]{};
+            const auto [end, error] = std::to_chars(
+                buffer, buffer + sizeof(buffer), value, std::chars_format::general);
+            if (error != std::errc{})
+            {
+                throw std::runtime_error("Numeric formatting failed.");
+            }
+
+            std::string result(buffer, end);
+            const std::size_t exponent = result.find('e');
+            if (exponent != std::string::npos)
+            {
+                result[exponent] = 'E';
+                std::size_t digit = exponent + 1;
+                if (digit < result.size() && (result[digit] == '+' || result[digit] == '-'))
                 {
-                    result[exponent] = 'E';
-                    std::size_t digits = exponent + 1;
-                    if (digits < result.size() && (result[digits] == '+' || result[digits] == '-'))
-                    {
-                        ++digits;
-                    }
-                    if (result.size() - digits == 1)
-                    {
-                        result.insert(digits, 1, '0');
-                    }
+                    ++digit;
+                }
+                if (result.size() - digit == 1)
+                {
+                    result.insert(digit, 1, '0');
                 }
             }
             return result;
         }
 
-        std::string ManagedValue(bool value)
+        std::string FixedString(float value, int precision)
         {
-            return value ? "True" : "False";
-        }
-
-        template <typename T>
-        std::string ManagedValue(T value)
-            requires (std::is_integral_v<T> && !std::is_same_v<T, bool>)
-        {
-            if constexpr (std::is_signed_v<T>)
+            if (std::isnan(value))
             {
-                return ManagedNumber(static_cast<long long>(value));
+                return "NaN";
             }
-            else
+            if (std::isinf(value))
             {
-                return ManagedNumber(static_cast<unsigned long long>(value));
+                return std::signbit(value) ? "-Infinity" : "Infinity";
             }
+
+            char buffer[64]{};
+            const auto [end, error] = std::to_chars(
+                buffer, buffer + sizeof(buffer), value, std::chars_format::fixed, precision);
+            if (error != std::errc{})
+            {
+                throw std::runtime_error("Numeric formatting failed.");
+            }
+
+            std::string result(buffer, end);
+            const std::size_t decimal = result.find('.');
+            if (decimal != std::string::npos)
+            {
+                while (!result.empty() && result.back() == '0')
+                {
+                    result.pop_back();
+                }
+                if (!result.empty() && result.back() == '.')
+                {
+                    result.pop_back();
+                }
+            }
+            return result;
         }
 
-        template <typename T>
-        std::string ManagedValue(T value)
-            requires std::is_floating_point_v<T>
-        {
-            return ManagedNumber(value);
-        }
-
-        std::string ManagedValue(Hunter value)
+        std::string HunterString(Hunter value)
         {
             switch (value)
             {
@@ -94,444 +128,492 @@ namespace MphRead
             case Hunter::Guardian: return "Guardian";
             case Hunter::Random: return "Random";
             }
-            return ManagedValue(static_cast<std::uint8_t>(value));
+            return IntegralString(static_cast<std::uint8_t>(value));
         }
 
-        std::string ManagedValue(WeaponType value)
+        std::string BeamString(BeamType value)
         {
             switch (value)
             {
-            case WeaponType::PowerBeam: return "PowerBeam";
-            case WeaponType::VoltDriver: return "VoltDriver";
-            case WeaponType::Missile: return "Missile";
-            case WeaponType::Battlehammer: return "Battlehammer";
-            case WeaponType::Imperialist: return "Imperialist";
-            case WeaponType::Judicator: return "Judicator";
-            case WeaponType::Magmaul: return "Magmaul";
-            case WeaponType::ShockCoil: return "ShockCoil";
-            case WeaponType::OmegaCannon: return "OmegaCannon";
-            case WeaponType::Platform: return "Platform";
-            case WeaponType::Enemy: return "Enemy";
+            case BeamType::None: return "None";
+            case BeamType::PowerBeam: return "PowerBeam";
+            case BeamType::VoltDriver: return "VoltDriver";
+            case BeamType::Missile: return "Missile";
+            case BeamType::Battlehammer: return "Battlehammer";
+            case BeamType::Imperialist: return "Imperialist";
+            case BeamType::Judicator: return "Judicator";
+            case BeamType::Magmaul: return "Magmaul";
+            case BeamType::ShockCoil: return "ShockCoil";
+            case BeamType::OmegaCannon: return "OmegaCannon";
+            case BeamType::Platform: return "Platform";
+            case BeamType::Enemy: return "Enemy";
             }
-            return ManagedValue(static_cast<std::int32_t>(value));
+            return IntegralString(static_cast<std::int32_t>(value));
+        }
+
+        std::string AfflictionString(Affliction value)
+        {
+            if (value == Affliction::None)
+            {
+                return "None";
+            }
+            if (value == Affliction::Freeze)
+            {
+                return "Freeze";
+            }
+            if (value == Affliction::Disrupt)
+            {
+                return "Disrupt";
+            }
+            if (value == Affliction::Burn)
+            {
+                return "Burn";
+            }
+
+            const auto raw = static_cast<std::uint8_t>(value);
+            if ((raw & ~std::uint8_t{7}) != 0)
+            {
+                return IntegralString(raw);
+            }
+
+            std::string result;
+            const auto add = [&result](std::string_view name)
+            {
+                if (!result.empty())
+                {
+                    result += ", ";
+                }
+                result.append(name);
+            };
+            if ((raw & static_cast<std::uint8_t>(Affliction::Freeze)) != 0)
+            {
+                add("Freeze");
+            }
+            if ((raw & static_cast<std::uint8_t>(Affliction::Disrupt)) != 0)
+            {
+                add("Disrupt");
+            }
+            if ((raw & static_cast<std::uint8_t>(Affliction::Burn)) != 0)
+            {
+                add("Burn");
+            }
+            return result;
+        }
+
+        bool HasFlag(WeaponFlags value, WeaponFlags flag)
+        {
+            using Underlying = std::underlying_type_t<WeaponFlags>;
+            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
         }
 
         template <typename T>
-        void AppendLine(std::string& output, const char* label, T value)
+        void AppendIntegral(std::string& text, T value)
+            requires std::is_integral_v<T>
         {
-            output += label;
-            output += ManagedValue(value);
-            output += '\n';
-        }
-
-        float Seconds(auto value)
-        {
-            return static_cast<float>(value) / 30.0f;
-        }
-
-        float DegreesFromCosine(auto value)
-        {
-            return std::acos(Fixed::ToFloat(value)) * (180.0f / std::numbers::pi_v<float>);
-        }
-
-        std::string Hex4(auto value)
-        {
-            using T = decltype(value);
-            using U = std::make_unsigned_t<T>;
-            char buffer[32]{};
-            const auto unsignedValue = static_cast<U>(value);
-            const auto [ptr, ec] = std::to_chars(buffer, buffer + sizeof(buffer), unsignedValue, 16);
-            if (ec != std::errc{})
-            {
-                throw std::runtime_error("Numeric formatting failed.");
-            }
-            std::string result(buffer, ptr);
-            for (char& c : result)
-            {
-                if (c >= 'a' && c <= 'f')
-                {
-                    c = static_cast<char>(c - 'a' + 'A');
-                }
-            }
-            if (result.size() < 4)
-            {
-                result.insert(0, 4 - result.size(), '0');
-            }
-            return result;
+            text += IntegralString(value);
         }
     }
 
     void MechanicsDump::Run()
     {
-        std::string output;
-        GetWeaponOutput(output);
-        GetPlayerOutput(output);
-        GetMiscOutput(output);
-
-        const std::string path = Paths::Combine(Paths::FileSystem(), "mechanics.txt");
-        std::ofstream file;
-        file.exceptions(std::ios::failbit | std::ios::badbit);
-        file.open(path, std::ios::binary | std::ios::trunc);
-        file.write(output.data(), static_cast<std::streamsize>(output.size()));
-        file.close();
+        std::string text;
+        AppendLine(text, "# Metroid Prime Hunters — multiplayer mechanics");
+        AppendLine(text);
+        AppendLine(text, "Generated by `MphRead -mechanics` from the game's own tables.");
+        AppendLine(text);
+        Weapons(text);
+        DamageRules(text);
+        Hunters(text);
+        Movement(text);
+        States(text);
+        SpawnRules(text);
+        Modes(text);
+        World(text);
+        Items(text);
+        Bots(text);
+        Networking(text);
+        std::cout.write(text.data(), static_cast<std::streamsize>(text.size()));
+        if (!std::cout)
+        {
+            throw std::ios_base::failure("Console write failed.");
+        }
     }
 
-    void MechanicsDump::GetWeaponOutput(std::string& output)
+    void MechanicsDump::Weapons(std::string& text)
     {
-        for (std::size_t i = 0; i < Weapons::Values.size(); ++i)
+        AppendLine(text, "## Weapons (multiplayer table)");
+        AppendLine(text);
+        AppendLine(text, "Damage is per shot before any multiplier. \"Charged\" is a full charge; \"min\" is the smallest charge that counts as charged.");
+        AppendLine(text);
+        AppendLine(text, "| Beam | dmg | min-chg | charged | headshot | hs charged | splash | ammo | cost | cooldown | afflictions | notes |");
+        AppendLine(text, "|---|---|---|---|---|---|---|---|---|---|---|---|");
+
+        for (std::int32_t i = 0;
+            i < 18 && static_cast<std::size_t>(i) < MphRead::Weapons::WeaponsMP.size();
+            ++i)
         {
-            const WeaponInfo& info = Weapons::Values[i];
-            output += "==== ";
-            output += info.Name;
-            output += " ====\n";
-            for (int j = 0; j < 2; ++j)
+            const WeaponInfo& weapon = MphRead::Weapons::WeaponsMP[static_cast<std::size_t>(i)];
+            if (weapon.Beam < BeamType::PowerBeam || weapon.Beam > BeamType::OmegaCannon)
             {
-                const bool alt = j == 1;
-                output += "\n    ";
-                output += alt ? "Alt" : "Aff";
-                output += " --\n";
-                AppendLine(output, "Damage: ", info.Damage[j]);
-                AppendLine(output, "Headshot damage: ", info.HeadshotDamage[j]);
-                AppendLine(output, "Splash damage: ", info.SplashDamage[j]);
-                AppendLine(output, "Splash radius: ", Fixed::ToFloat(info.SplashRadius[j]));
-                AppendLine(output, "Lifespan: ", Seconds(info.Lifespan[j]));
-                output.insert(output.size() - 1, " sec");
-                AppendLine(output, "Speed decay: ", Fixed::ToFloat(info.SpeedDecay[j]));
-                AppendLine(output, "Speed: ", Fixed::ToFloat(info.Speed[j]));
-                AppendLine(output, "Final speed: ", Fixed::ToFloat(info.FinalSpeed[j]));
-                AppendLine(output, "Gravity: ", Fixed::ToFloat(info.Gravity[j]));
-                AppendLine(output, "Homing: ", info.Homing[j]);
-                if (info.Homing[j] != 0)
-                {
-                    AppendLine(output, "Homing distance: ", Fixed::ToFloat(info.HomingRange[j]));
-                    AppendLine(output, "Homing tolerance: ", Fixed::ToFloat(info.HomingTolerance[j]));
-                    AppendLine(output, "Homing angle: ", Fixed::ToFloat(info.HomingAngle[j]));
-                }
-                AppendLine(output, "Ricochet: ", info.RicochetWeapon[j]);
-                if (info.RicochetWeapon[j] != 0)
-                {
-                    AppendLine(output, "Ricochet loss H: ", Fixed::ToFloat(info.RicochetLossH[j]));
-                    AppendLine(output, "Ricochet loss V: ", Fixed::ToFloat(info.RicochetLossV[j]));
-                }
-                AppendLine(output, "Max ricochet count: ", info.RicochetCount[j]);
-                AppendLine(output, "Knockback: ", Fixed::ToFloat(info.Knockback[j]));
-                AppendLine(output, "Zoom FOV: ", Fixed::ToFloat(info.ZoomFov));
-                AppendLine(output, "Min charge: ", Seconds(info.MinCharge));
-                output.insert(output.size() - 1, " sec");
-                AppendLine(output, "Full charge: ", Seconds(info.FullCharge));
-                output.insert(output.size() - 1, " sec");
-                AppendLine(output, "Ammo cost: ", info.AmmoCost[j]);
-                AppendLine(output, "Collision effect: ", info.CollisionEffect[j]);
-                AppendLine(output, "Damage direction type: ", info.DmgDirType[j]);
-                AppendLine(output, "Damage interpolation: ", info.DmgInterp[j]);
-                AppendLine(output, "Projectile count: ", info.ProjectileCount[j]);
-                AppendLine(output, "Smoke start: ", info.SmokeStart[j]);
-                AppendLine(output, "Smoke minimum: ", info.SmokeMinimum[j]);
-                AppendLine(output, "Smoke drain: ", info.SmokeDrain[j]);
+                continue;
             }
-            output += "\n\n";
+            if (i == 9)
+            {
+                AppendLine(text);
+                AppendLine(text, "Affinity versions -- what a hunter gets when it carries its own weapon. Note the extra damage and the afflictions the plain versions do not have:");
+                AppendLine(text);
+                AppendLine(text, "| Beam | dmg | min-chg | charged | headshot | hs charged | splash | ammo | cost | cooldown | afflictions | notes |");
+                AppendLine(text, "|---|---|---|---|---|---|---|---|---|---|---|---|");
+            }
+
+            std::string notes;
+            const auto note = [&notes](std::string_view value)
+            {
+                if (!notes.empty())
+                {
+                    notes += ", ";
+                }
+                notes.append(value);
+            };
+            if (HasFlag(weapon.Flags, WeaponFlags::CanZoom)) note("can zoom");
+            if (HasFlag(weapon.Flags, WeaponFlags::Continuous)) note("continuous");
+            if (HasFlag(weapon.Flags, WeaponFlags::RepeatFire)) note("repeat fire");
+            if (HasFlag(weapon.Flags, WeaponFlags::CanCharge)) note("chargeable");
+            if (HasFlag(weapon.Flags, WeaponFlags::RicochetUncharged)
+                || HasFlag(weapon.Flags, WeaponFlags::RicochetCharged)) note("ricochets");
+            if (HasFlag(weapon.Flags, WeaponFlags::AoeUncharged)
+                || HasFlag(weapon.Flags, WeaponFlags::AoeCharged)) note("area of effect");
+            if (HasFlag(weapon.Flags, WeaponFlags::SelfDamageUncharged)
+                || HasFlag(weapon.Flags, WeaponFlags::SelfDamageCharged)) note("can hurt the shooter");
+
+            std::string afflictions;
+            for (std::size_t j = 0; j < weapon.Afflictions.size(); ++j)
+            {
+                if (weapon.Afflictions[j] != Affliction::None)
+                {
+                    if (!afflictions.empty())
+                    {
+                        afflictions += ", ";
+                    }
+                    if (j != 0)
+                    {
+                        afflictions += "charged: ";
+                    }
+                    afflictions += AfflictionString(weapon.Afflictions[j]);
+                }
+            }
+
+            std::string line = "| ";
+            line += BeamString(weapon.Beam);
+            line += " | ";
+            AppendIntegral(line, weapon.UnchargedDamage);
+            line += " | ";
+            AppendIntegral(line, weapon.MinChargeDamage);
+            line += " | ";
+            AppendIntegral(line, weapon.ChargedDamage);
+            line += " | ";
+            AppendIntegral(line, weapon.HeadshotDamage);
+            line += " | ";
+            AppendIntegral(line, weapon.ChargedHeadshotDamage);
+            line += " | ";
+            AppendIntegral(line, weapon.SplashDamage);
+            line += "/";
+            AppendIntegral(line, weapon.ChargedSplashDamage);
+            line += " | ";
+            line += weapon.AmmoType == 0 ? "UA" : "missile";
+            line += " | ";
+            AppendIntegral(line, weapon.AmmoCost);
+            line += "/";
+            AppendIntegral(line, weapon.ChargeCost);
+            line += " | ";
+            AppendIntegral(line, weapon.ShotCooldown);
+            line += " | ";
+            line += afflictions.empty() ? "-" : afflictions;
+            line += " | ";
+            line += notes.empty() ? "-" : notes;
+            line += " |";
+            AppendLine(text, line);
         }
-        output += "==== Platform damage (affinity) ====\n";
-        for (std::size_t i = 0; i < Weapons::PlatformDamages.size(); ++i)
+
+        AppendLine(text);
+        AppendLine(text);
+        AppendLine(text, "Affinity weapon per hunter (the one whose enhanced version it uses):");
+        AppendLine(text);
+        for (std::int32_t i = 0; i < 7; ++i)
         {
-            output += ManagedValue(static_cast<WeaponType>(i));
-            output += ": ";
-            output += ManagedValue(Weapons::PlatformDamages[i]);
-            output += '\n';
+            std::string line = "- ";
+            const Hunter hunter = static_cast<Hunter>(i);
+            line += HunterString(hunter);
+            line += ": ";
+            line += BeamString(MphRead::Weapons::GetAffinityBeam(hunter));
+            AppendLine(text, line);
         }
-        output += "==== Platform damage (non-affinity) ====\n";
-        for (std::size_t i = 0; i < Weapons::PlatformDamagesNoFilter.size(); ++i)
-        {
-            output += ManagedValue(static_cast<WeaponType>(i));
-            output += ": ";
-            output += ManagedValue(Weapons::PlatformDamagesNoFilter[i]);
-            output += '\n';
-        }
+        AppendLine(text);
     }
 
-    void MechanicsDump::GetPlayerOutput(std::string& output)
+    void MechanicsDump::DamageRules(std::string& text)
     {
-        output += "\n==== Jump/Fall ====\n";
-#define FIXED_LINE(label, member) AppendLine(output, label, Fixed::ToFloat(Entities::PlayerValues::member))
-        FIXED_LINE("Gravity: ", Gravity);
-        FIXED_LINE("Alt gravity: ", AltGravity);
-        FIXED_LINE("Y velocity after jump: ", JumpPadAccel);
-        FIXED_LINE("Y velocity after jump prime: ", JumpPadAccelPrime);
-        FIXED_LINE("Y velocity after jump no gravity: ", JumpPadAccelNoGravity);
-        FIXED_LINE("Min Y velocity after jump: ", MinJumpPadAccel);
-        FIXED_LINE("Min Y velocity after jump no gravity: ", MinJumpPadAccelNoGravity);
-        FIXED_LINE("Max horizontal velocity after jump: ", MaxJumpPadHSpeed);
-        FIXED_LINE("Max fall speed: ", TerminalVelocity);
-        FIXED_LINE("Space jump height: ", SpaceJumpHeight);
-        FIXED_LINE("Min space jump height: ", MinSpaceJumpHeight);
-        FIXED_LINE("Space jump Y velocity: ", SpaceJumpSpeed);
-        FIXED_LINE("Space jump Y velocity NOG: ", SpaceJumpSpeedNoGravity);
-        AppendLine(output, "Time to regain space jump: ", Seconds(Entities::PlayerValues::SpaceJumpTime));
-        output.insert(output.size() - 1, " sec");
-        FIXED_LINE("Shadow height: ", ShadowHeight);
+        AppendLine(text, "## Damage multipliers, in the order the code applies them");
+        AppendLine(text);
+        AppendLine(text, "| Rule | Effect | Where |");
+        AppendLine(text, "|---|---|---|");
+        AppendLine(text, "| Beam effectiveness vs the target | x0 / x0.5 / x1 / x2 | `PlayerEntity.TakeDamage`, from `BeamEffectiveness[beam]`. Players are set to Normal for every beam in `Spawn()`; **a player that never spawned has x0 for everything and cannot be hurt at all** |");
+        AppendLine(text, "| Double damage pickup | x2, and *not* applied to Shock Coil | `BeamProjectileEntity` |");
+        AppendLine(text, "| Prime Hunter | x1.5 | `BeamProjectileEntity` |");
+        AppendLine(text, "| **Imperialist without zoom** | **/2** | `BeamProjectileEntity`: `if (weapon.Beam == Imperialist && !equip.Zoomed) damage /= 2` |");
+        AppendLine(text, "| Quadruple Damage cheat | x4 | `BeamProjectileEntity`, from settings.json. Disabled automatically while connected to a server |");
 
-        output += "\n==== Movement ====\n";
-        FIXED_LINE("Max speed: ", WalkSpeed);
-        FIXED_LINE("Max strafe speed: ", StrafeSpeed);
-        FIXED_LINE("Max speed while airborne (unused): ", AirSpeed);
-        FIXED_LINE("Max speed alt: ", AltWalkSpeed);
-        FIXED_LINE("Max backpedal speed: ", BackSpeed);
-        FIXED_LINE("Friction while walking: ", WalkFriction);
-        FIXED_LINE("Friction when stopping: ", StopFriction);
-        FIXED_LINE("Friction when stopping fast: ", StopFrictionFast);
-        FIXED_LINE("Friction while alt (unused): ", AltFriction);
-        FIXED_LINE("Acceleration Y limit (unused): ", VerticalTarget);
-        FIXED_LINE("Acceleration Y limit alt (unused): ", VerticalTargetAlt);
-        AppendLine(output, "Time to reach max speed: ", 1.0f / 30.0f * 256.0f / Fixed::ToFloat(Entities::PlayerValues::VelocityIncrement));
-        output.insert(output.size() - 1, " sec");
-        AppendLine(output, "Time for full stop: ", 1.0f / 30.0f * 256.0f / Fixed::ToFloat(Entities::PlayerValues::StopIncrement));
-        output.insert(output.size() - 1, " sec");
-        AppendLine(output, "Time for full stop fast: ", 1.0f / 30.0f * 256.0f / Fixed::ToFloat(Entities::PlayerValues::StopIncrementFast));
-        output.insert(output.size() - 1, " sec");
-        output += "Alt acceleration Y: ";
-        output += ManagedValue(Fixed::ToFloat(Entities::PlayerValues::AltMinVertAccel));
-        output += " to ";
-        output += ManagedValue(Fixed::ToFloat(Entities::PlayerValues::AltMaxVertAccel));
-        output += '\n';
-        FIXED_LINE("Spire min boost: ", SpireStepMin);
-        FIXED_LINE("Spire max boost: ", SpireStepMax);
+        std::string damageLevel = "| Match damage level | x";
+        damageLevel += FloatString(Metadata::DamageLevels[0]);
+        damageLevel += " low / x";
+        damageLevel += FloatString(Metadata::DamageLevels[1]);
+        damageLevel += " medium / x";
+        damageLevel += FloatString(Metadata::DamageLevels[2]);
+        damageLevel += " high | `PlayerEntity.TakeDamage` |";
+        AppendLine(text, damageLevel);
 
-        output += "\n==== Biped Collision ====\n";
-        FIXED_LINE("Collision radius: ", BipedColRadius);
-        FIXED_LINE("Collision height: ", BipedColHeight);
-        FIXED_LINE("Collision height crouched: ", BipedColHeightCrouched);
-        FIXED_LINE("Step height: ", StepHeight);
-        FIXED_LINE("Max distance from platform: ", StepMax);
-        FIXED_LINE("Max distance from platform alt: ", StepMaxAlt);
-        FIXED_LINE("Min stand angle cosine: ", StandMinCosine);
-        AppendLine(output, "Min stand angle: ", DegreesFromCosine(Entities::PlayerValues::StandMinCosine));
-        FIXED_LINE("Min stand angle cosine alt: ", StandMinCosineAlt);
-        AppendLine(output, "Min stand angle alt: ", DegreesFromCosine(Entities::PlayerValues::StandMinCosineAlt));
-        FIXED_LINE("Max stand angle cosine (unused): ", StandMaxCosine);
-        AppendLine(output, "Max stand angle (unused): ", DegreesFromCosine(Entities::PlayerValues::StandMaxCosine));
-        FIXED_LINE("Max stand angle cosine alt (unused): ", StandMaxCosineAlt);
-        AppendLine(output, "Max stand angle alt (unused): ", DegreesFromCosine(Entities::PlayerValues::StandMaxCosineAlt));
-        FIXED_LINE("Wall jump min angle cosine: ", WallJumpMinCosine);
-        AppendLine(output, "Wall jump min angle: ", DegreesFromCosine(Entities::PlayerValues::WallJumpMinCosine));
-        FIXED_LINE("Wall jump max angle cosine: ", WallJumpMaxCosine);
-        AppendLine(output, "Wall jump max angle: ", DegreesFromCosine(Entities::PlayerValues::WallJumpMaxCosine));
-        FIXED_LINE("Wall jump horizontal speed: ", WallJumpHSpeed);
-        FIXED_LINE("Wall jump vertical speed: ", WallJumpVSpeed);
-        AppendLine(output, "Time in wall jump after release: ", Seconds(Entities::PlayerValues::WallJumpTime));
-        output.insert(output.size() - 1, " sec");
-        FIXED_LINE("Crouch height: ", CrouchHeight);
-
-        output += "\n==== Alt Form ====\n";
-        FIXED_LINE("Alt col radius: ", AltColRadius);
-        FIXED_LINE("Alt col y offset: ", AltColYpos);
-        FIXED_LINE("Alt col scale: ", AltColScale);
-        FIXED_LINE("Alt col radius 2: ", AltColRadius2);
-        FIXED_LINE("Alt col y offset 2: ", AltColYpos2);
-        FIXED_LINE("Alt col scale 2: ", AltColScale2);
-        FIXED_LINE("Alt col radius 3: ", AltColRadius3);
-        FIXED_LINE("Alt col y offset 3: ", AltColYpos3);
-        FIXED_LINE("Alt col scale 3: ", AltColScale3);
-        FIXED_LINE("Alt col radius 4: ", AltColRadius4);
-        FIXED_LINE("Alt col y offset 4: ", AltColYpos4);
-        FIXED_LINE("Alt col scale 4: ", AltColScale4);
-        FIXED_LINE("Alt form radius: ", AltRadius);
-        FIXED_LINE("Alt form flag radius: ", AltFlagRadius);
-        FIXED_LINE("Samus morph ball hurt radius: ", BallHurtRadius);
-        FIXED_LINE("Force to unmorph: ", UnmorphForce);
-        FIXED_LINE("Head Y offset, standing: ", HeadPos);
-        FIXED_LINE("Head Y offset, crouched: ", HeadPosCrouched);
-        FIXED_LINE("Head Y offset, rolling: ", HeadPosAlt);
-        FIXED_LINE("Frozen Y offset ", FrozenOffset);
-        output += "========\n        ";
-#undef FIXED_LINE
-
-        for (const auto& [hunter, active] : Metadata::GetHunters())
-        {
-            (void)active;
-            const Entities::PlayerValues& values = Metadata::GetPlayerValues(hunter);
-            output += "=== ";
-            output += ManagedValue(hunter);
-            output += " ====\n";
-#define VF(label, member) AppendLine(output, label, Fixed::ToFloat(values.member))
-#define VV(label, member) AppendLine(output, label, values.member)
-            VF("Camera FOV: ", Field70);
-            VF("Roll min FOV: ", RollMinFov);
-            VF("Roll max FOV: ", RollMaxFov);
-            AppendLine(output, "Lvl 1 charge time: ", Seconds(values.Field74));
-            AppendLine(output, "Lvl 2 charge time: ", Seconds(values.Field76));
-            VF("Bomb force: ", BombForce);
-            VF("Bomb self force: ", BombSelfForce);
-            VF("Bomb radius: ", BombRadius);
-            VV("Bomb damage: ", BombDamage);
-            VV("Bomb self damage: ", BombSelfDamage);
-            AppendLine(output, "Bomb jump control lockout: ", Seconds(values.BombSelfLock));
-            AppendLine(output, "Bomb cooldown: ", Seconds(values.BombCooldown));
-            VV("Alt attack damage: ", AltAttackDamage);
-            VF("Alt attack knockback: ", AltAttackKnockback);
-            VV("Boost damage: ", BoostDamage);
-            AppendLine(output, "Boost min charge time: ", Seconds(values.BoostChargeMin));
-            AppendLine(output, "Boost max charge time: ", Seconds(values.BoostChargeMax));
-            VF("Field 9E: ", Field9E);
-            VF("Field A0: ", FieldA0);
-            VV("Field A2: ", FieldA2);
-            VV("Field A4: ", FieldA4);
-            VV("Field A6: ", FieldA6);
-            VV("Field A8: ", FieldA8);
-            VV("Field AA: ", FieldAA);
-            VV("Field AC: ", FieldAC);
-            VV("Field AE: ", FieldAE);
-#undef VF
-#undef VV
-            output += '\n';
-        }
+        AppendLine(text, "| Headshot | uses the weapon's headshot damage instead | `BeamProjectileEntity` |");
+        AppendLine(text, "| Friendly fire off, same team | x0 | `PlayerEntity.TakeDamage` |");
+        AppendLine(text, "| Weavel halfturret alive | damage is split between body and turret | `PlayerEntity.TakeDamage` |");
+        AppendLine(text, "| Affinity weapon | the hunter uses entry `beam + 9`, which is a different set of numbers entirely -- more damage and, for several weapons, an affliction the plain version does not inflict | `PlayerEntity.TryEquipWeapon` |");
+        AppendLine(text);
+        AppendLine(text, "Invulnerability windows: a hit sets a damage-invulnerability timer (per hunter, `Values.DamageInvuln`), and spawning sets a spawn-invulnerability timer. Both reject further damage until they run out.");
+        AppendLine(text);
     }
 
-    void MechanicsDump::GetMiscOutput(std::string& output)
+    void MechanicsDump::Hunters(std::string& text)
     {
-        output += "\n==== Jump Pad ====\n";
-#define FIXED_LINE(label, member) AppendLine(output, label, Fixed::ToFloat(Entities::PlayerValues::member))
-#define VALUE_LINE(label, member) AppendLine(output, label, Entities::PlayerValues::member)
-        FIXED_LINE("Accel during jump: ", JumpPadAccel);
-        FIXED_LINE("Accel during jump prime: ", JumpPadAccelPrime);
-        FIXED_LINE("Accel during jump no gravity: ", JumpPadAccelNoGravity);
-        FIXED_LINE("Min jump accel: ", MinJumpPadAccel);
-        FIXED_LINE("Min jump accel no gravity: ", MinJumpPadAccelNoGravity);
-        FIXED_LINE("Max horizontal jump speed: ", MaxJumpPadHSpeed);
+        AppendLine(text, "## Hunters");
+        AppendLine(text);
+        AppendLine(text, "| Hunter | energy tank | MP max health | MP ammo cap | alt form | bombs | boost | alt attack |");
+        AppendLine(text, "|---|---|---|---|---|---|---|---|");
+        for (std::int32_t i = 0; i < 7; ++i)
+        {
+            const Hunter hunter = static_cast<Hunter>(i);
+            const Entities::PlayerValues& values = Metadata::PlayerValues[static_cast<std::size_t>(i)];
+            const bool bombs = hunter == Hunter::Samus || hunter == Hunter::Kanden || hunter == Hunter::Sylux;
+            const bool boost = hunter == Hunter::Samus;
 
-        output += "\n==== Damage/Health ====\n";
-        FIXED_LINE("Min damage: ", MinDamage);
-        FIXED_LINE("Normal damage multiplier: ", NormalDmgMult);
-        FIXED_LINE("Alt damage multiplier: ", AltDmgMult);
-        VALUE_LINE("Full health: ", FullHealth);
-        VALUE_LINE("Low health: ", LowHealth);
-        VALUE_LINE("Death health: ", DeathHealth);
-        FIXED_LINE("Unused damage multiplier: ", Field6C);
-        VALUE_LINE("Unused fall damage: ", Field6E);
+            std::string alt;
+            switch (hunter)
+            {
+            case Hunter::Samus: alt = "Morph Ball"; break;
+            case Hunter::Kanden: alt = "Stinglarva"; break;
+            case Hunter::Trace: alt = "Triskelion"; break;
+            case Hunter::Sylux: alt = "Lockjaw"; break;
+            case Hunter::Noxus: alt = "Vhoscythe"; break;
+            case Hunter::Spire: alt = "Dialanche"; break;
+            case Hunter::Weavel: alt = "Halfturret"; break;
+            default: alt = "-"; break;
+            }
 
-        output += "\n==== Camera ====\n";
-        FIXED_LINE("Biped camera accel X: ", BipedLookAccelX);
-        FIXED_LINE("Biped camera accel Y: ", BipedLookAccelY);
-        FIXED_LINE("Alt camera accel X: ", AltLookAccelX);
-        FIXED_LINE("Alt camera accel Y: ", AltLookAccelY);
-        FIXED_LINE("Min pitch: ", MinPitch);
-        FIXED_LINE("Max pitch: ", MaxPitch);
-        FIXED_LINE("Min cam angle: ", MinCamAngle);
-        FIXED_LINE("Max cam angle: ", MaxCamAngle);
-        FIXED_LINE("Min cam speed: ", MinCamSpeed);
-        FIXED_LINE("Max cam speed: ", MaxCamSpeed);
-        FIXED_LINE("Min cam accel: ", MinCamAccel);
-        FIXED_LINE("Max cam accel: ", MaxCamAccel);
-        FIXED_LINE("Unused cam fall rate: ", Field62);
+            std::string altAttack;
+            switch (hunter)
+            {
+            case Hunter::Trace: altAttack = "cloak and lunge"; break;
+            case Hunter::Noxus: altAttack = "spin attack"; break;
+            case Hunter::Spire: altAttack = "slam"; break;
+            case Hunter::Weavel: altAttack = "leaves a turret that shoots on its own"; break;
+            default: altAttack = "bombs"; break;
+            }
 
-        output += "\n==== Morph Camera ====\n";
-        FIXED_LINE("Morph cam offset Y: ", MorphCamOffsetY);
-        FIXED_LINE("Morph cam radius: ", MorphCamRadius);
-        FIXED_LINE("Max morph cam look-up: ", MaxMorphCameraAngle);
-        FIXED_LINE("Min morph cam look-up: ", MinMorphCameraAngle);
+            std::string line = "| ";
+            line += HunterString(hunter);
+            line += " | ";
+            AppendIntegral(line, values.EnergyTank);
+            line += " | ";
+            AppendIntegral(line, 2 * values.EnergyTank - 1);
+            line += " | ";
+            AppendIntegral(line, values.MpAmmoCap);
+            line += " | ";
+            line += alt;
+            line += " | ";
+            line += bombs ? "yes" : "no";
+            line += " | ";
+            line += boost ? "yes" : "no";
+            line += " | ";
+            line += altAttack;
+            line += " |";
+            AppendLine(text, line);
+        }
+        AppendLine(text);
+        AppendLine(text, "Health on spawn is `EnergyTank - 1`; the maximum in multiplayer is `2 * EnergyTank - 1`, so a full pickup run doubles a hunter's effective health.");
+        AppendLine(text);
+    }
 
-        output += "\n==== Targeting ====\n";
-        FIXED_LINE("Aim distance: ", AimDistance);
-        FIXED_LINE("Lock-on distance: ", LockDistance);
-        FIXED_LINE("Unmorph range: ", UnmorphRange);
-        FIXED_LINE("Target Y offset: ", TargetOffset);
-        FIXED_LINE("Target Y interpolation: ", TargetInterpY);
-        FIXED_LINE("Target XZ interpolation: ", TargetInterpXZ);
-        FIXED_LINE("Aim Y offset: ", AimYOffset);
-        FIXED_LINE("Aim vertical field: ", AimFieldV);
-        FIXED_LINE("Aim horizontal field: ", AimFieldH);
-        FIXED_LINE("Lock vertical field: ", LockFieldV);
-        FIXED_LINE("Lock horizontal field: ", LockFieldH);
+    void MechanicsDump::Movement(std::string& text)
+    {
+        AppendLine(text, "## Movement, per hunter");
+        AppendLine(text);
+        AppendLine(text, "Speeds are units per frame as the engine stores them (20.12 fixed point converted to float on load).");
+        AppendLine(text);
+        AppendLine(text, "| Hunter | walk cap | strafe cap | jump | biped gravity | alt gravity (air/ground) | boost cap | boost charge (min-max) | alt radius |");
+        AppendLine(text, "|---|---|---|---|---|---|---|---|---|");
+        for (std::int32_t i = 0; i < 7; ++i)
+        {
+            const Entities::PlayerValues& value = Metadata::PlayerValues[static_cast<std::size_t>(i)];
+            std::string line = "| ";
+            line += HunterString(static_cast<Hunter>(i));
+            line += " | ";
+            line += FixedString(Fixed::ToFloat(value.WalkSpeedCap), 3);
+            line += " | ";
+            line += FixedString(Fixed::ToFloat(value.StrafeSpeedCap), 3);
+            line += " | ";
+            line += FixedString(Fixed::ToFloat(value.JumpSpeed), 3);
+            line += " | ";
+            line += FixedString(Fixed::ToFloat(value.BipedGravity), 4);
+            line += " | ";
+            line += FixedString(Fixed::ToFloat(value.AltAirGravity), 4);
+            line += "/";
+            line += FixedString(Fixed::ToFloat(value.AltGroundGravity), 4);
+            line += " | ";
+            line += FixedString(Fixed::ToFloat(value.BoostSpeedCap), 3);
+            line += " | ";
+            AppendIntegral(line, value.BoostChargeMin);
+            line += "-";
+            AppendIntegral(line, value.BoostChargeMax);
+            line += " | ";
+            line += FixedString(Fixed::ToFloat(value.AltColRadius), 3);
+            line += " |";
+            AppendLine(text, line);
+        }
+        AppendLine(text);
+        AppendLine(text, "- Morphing plays an animation and the form only changes when it ends (`EnterAltForm` sets Morphing; `ProcessPlayer` applies `UpdateForm` on `AnimFlags.Ended`). Unmorphing applies the change immediately.");
+        AppendLine(text, "- Alt form swaps the collision volume (`PlayerVolumes[hunter, 2]`), and the position is shifted by the difference between the two volume centres.");
+        AppendLine(text, "- Boost is a charge-then-release: hold to build from `BoostChargeMin` to `BoostChargeMax`, release to convert it into speed between `BoostSpeedMin` and `BoostSpeedMax`.");
+        AppendLine(text);
+    }
 
-        output += "\n==== Motion ====\n";
-        FIXED_LINE("Normal max input: ", NormalMaxInput);
-        FIXED_LINE("Alt max input: ", AltMaxInput);
-        FIXED_LINE("Min face angle cosine: ", MinFaceCosine);
-        AppendLine(output, "Min face angle: ", DegreesFromCosine(Entities::PlayerValues::MinFaceCosine));
-        FIXED_LINE("Max player sound distance: ", MaxSoundDistance);
+    void MechanicsDump::States(std::string& text)
+    {
+        AppendLine(text, "## States a player can be put into");
+        AppendLine(text);
+        AppendLine(text, "| State | Cause | Duration | Effect |");
+        AppendLine(text, "|---|---|---|---|");
+        AppendLine(text, "| Frozen | Judicator (affinity version only) | 75 frames doubled; 15 doubled if refrozen within 60 doubled | cannot act; the ice layer draws over the hunter; animation frames stop advancing |");
+        AppendLine(text, "| Disrupted | Volt Driver (affinity) | 60 doubled | HUD distortion, aim disrupted |");
+        AppendLine(text, "| Burning | Magmaul (affinity) | 150 doubled | damage over time, attributed to whoever set the fire |");
+        AppendLine(text, "| Double damage | pickup | timer | x2 outgoing damage, Shock Coil excepted; a visible effect is attached to the gun |");
+        AppendLine(text, "| Cloaked | pickup | timer | alpha drops towards invisible |");
+        AppendLine(text, "| Deathalt | pickup | timer | forced alt form, health drains, heavy damage output |");
+        AppendLine(text, "| Halfturret | Weavel morphs | until unmorph or death | the turret is a separate entity that shoots on its own; damage is split between it and the body, and unmorphing gives its remaining health back to Weavel |");
+        AppendLine(text, "| Damage invulnerable | any hit | `Values.DamageInvuln` doubled | further hits are rejected outright |");
+        AppendLine(text, "| Spawn invulnerable | spawning | timer | hits are rejected unless the damage carries `IgnoreInvuln` or `Death` |");
+        AppendLine(text);
+    }
 
-        output += "\n==== Other ====\n";
-        output += "Standing layer mask: " + Hex4(Entities::PlayerValues::StandingLayerMask) + "\n";
-        output += "Alt form layer mask: " + Hex4(Entities::PlayerValues::AltFormLayerMask) + "\n";
-        output += "Weapon layer mask: " + Hex4(Entities::PlayerValues::WeaponLayerMask) + "\n";
-        output += "Ammo layer mask: " + Hex4(Entities::PlayerValues::AmmoLayerMask) + "\n";
-        output += "Effect layer mask: " + Hex4(Entities::PlayerValues::EffectLayerMask) + "\n";
-        FIXED_LINE("Coord fuzz: ", CoordFuzz);
-        FIXED_LINE("Enemy health bar vertical offset: ", HealthYOffset);
-        FIXED_LINE("Lock-on angle check (cosine): ", Cosine30);
-        output += "========\n\n==== Collision ====\n";
-#undef FIXED_LINE
-#undef VALUE_LINE
+    void MechanicsDump::SpawnRules(std::string& text)
+    {
+        AppendLine(text, "## Spawning and respawning");
+        AppendLine(text);
+        AppendLine(text, "`PlayerProcess.GetRespawnPoint` picks a point by these rules, in order:");
+        AppendLine(text);
+        AppendLine(text, "1. Consider at most 25 spawn points. Skip any that is inactive, still on cooldown, or (on the very first frame) flagged by availability.");
+        AppendLine(text, "2. In Capture, skip points belonging to the other team.");
+        AppendLine(text, "3. A point is *valid* only if every living player is at least 10 units away. Among the valid ones, the choice rotates with the frame counter.");
+        AppendLine(text, "4. If none is valid, take the one furthest from any living player.");
+        AppendLine(text, "5. If even that is unavailable -- every point on cooldown, which happens with more players than the map was drawn for -- take any active point. Without this last step the player simply does not spawn and waits at the origin.");
+        AppendLine(text);
+        AppendLine(text, "The chosen point goes on a cooldown of 2 frames doubled, so a crowd cannot all land on the same one.");
+        AppendLine(text);
+        AppendLine(text, "A dead player waits on `_respawnTimer`; it may spawn early by holding fire. Health on spawn is `EnergyTank - 1`. **`Spawn()` is also what fills in `BeamEffectiveness`** -- a player that reaches the map without it takes zero damage from every beam in the game.");
+        AppendLine(text);
+    }
 
-        AppendLine(output, "Collision vectors: ", Formats::CollisionDetection::MaxCollisionVectors);
-        AppendLine(output, "Collision entries: ", Formats::CollisionDetection::MaxCollisionEntries);
-        AppendLine(output, "Max penetration: ", Fixed::ToFloat(Formats::CollisionDetection::MaxPenetration));
-        AppendLine(output, "Bounce minimum: ", Fixed::ToFloat(Formats::CollisionDetection::BounceMin));
-        AppendLine(output, "Bounce maximum: ", Fixed::ToFloat(Formats::CollisionDetection::BounceMax));
-        AppendLine(output, "Friction: ", Fixed::ToFloat(Formats::CollisionDetection::CollisionFriction));
+    void MechanicsDump::Modes(std::string& text)
+    {
+        AppendLine(text, "## Match modes");
+        AppendLine(text);
+        AppendLine(text, "| Mode | Scored on | Second column on the scoreboard |");
+        AppendLine(text, "|---|---|---|");
+        AppendLine(text, "| Battle / Battle Teams | points (a kill is +1, dying is -1) | deaths |");
+        AppendLine(text, "| Survival / Survival Teams | time alive | deaths; running out of lives puts a player out of the game |");
+        AppendLine(text, "| Capture | octoliths taken | kills |");
+        AppendLine(text, "| Bounty / Bounty Teams | octoliths delivered | kills |");
+        AppendLine(text, "| Nodes / Nodes Teams | points from held nodes | kills |");
+        AppendLine(text, "| Defender / Defender Teams | time holding the node | kills |");
+        AppendLine(text, "| Prime Hunter | time spent as the prime hunter | kills; the prime hunter deals x1.5 damage and is shown to everyone |");
+        AppendLine(text);
+        AppendLine(text, "A match ends on the point goal or the time limit, whichever comes first. Team play merges the per-player tallies into two team tallies, and with friendly fire off a shot at a team-mate does nothing at all.");
+        AppendLine(text);
+    }
 
-        output += "\n==== Multiplayer ====\n";
-#define PE_VALUE(label, member) AppendLine(output, label, Entities::PlayerEntity::member)
-#define PE_FIXED(label, member) AppendLine(output, label, Fixed::ToFloat(Entities::PlayerEntity::member))
-#define PE_SEC(label, member) do { AppendLine(output, label, Seconds(Entities::PlayerEntity::member)); output.insert(output.size() - 1, " sec"); } while (false)
-        PE_VALUE("Max players: ", MaxPlayers);
-        PE_SEC("Respawn time: ", RespawnTime);
-        PE_SEC("Deathalt respawn time: ", DeathaltRespawnTime);
-        PE_SEC("Uplink respawn time: ", UplinkRespawnTime);
-        PE_SEC("Spawn invulnerability time: ", SpawnInvulnTime);
-        PE_FIXED("Base muzzle offset: ", BaseMuzzleOffset);
-        PE_FIXED("Pickup height max: ", PickupHeightMax);
-        PE_FIXED("Pickup XY distance max: ", PickupXYDistMax);
-        PE_FIXED("Rare pickup chance: ", RarePickupChance);
-        PE_FIXED("Cloak alpha: ", CloakAlpha);
-        PE_SEC("Double damage timer: ", DoubleDmgTimer);
-        PE_SEC("Cloak timer: ", CloakTimer);
-        PE_SEC("Deathalt timer: ", DeathaltTimer);
-        PE_SEC("Disrupt timer: ", DisruptTimer);
-        PE_SEC("Freeze timer: ", FreezeTimer);
-        PE_SEC("Burn timer: ", BurnTimer);
-        PE_SEC("Spawn weapon timer: ", SpawnWeaponTimer);
-        PE_SEC("Spawn weapon timer affinity: ", SpawnWeaponTimerAffinity);
+    void MechanicsDump::World(std::string& text)
+    {
+        AppendLine(text, "## World interactions");
+        AppendLine(text);
+        AppendLine(text, "| Thing | Behaviour |");
+        AppendLine(text, "|---|---|");
+        AppendLine(text, "| Jump pad | launches whatever touches it along a fixed vector; this is the one place a player legitimately covers a lot of ground in a few frames |");
+        AppendLine(text, "| Teleporter | moves the player to the linked pad, optionally forcing alt form on arrival |");
+        AppendLine(text, "| Door / force field | opens on contact or on a weapon of the right colour; locked doors ignore everything else |");
+        AppendLine(text, "| Kill height | a room-wide floor: below it the player dies. This is what most \"random deaths\" in a fast match actually are |");
+        AppendLine(text, "| Lava and hazard volumes | set the player on fire while standing in them, except for Spire, who is immune |");
+        AppendLine(text, "| Morph camera | a volume that forces the camera behind a morphed player, and blocks unmorphing while inside |");
+        AppendLine(text, "| Item spawner | respawns its item on a timer once taken |");
+        AppendLine(text);
+    }
 
-        output += "\n==== Multiplayer Health ====\n";
-        PE_VALUE("Health normal value: ", HealthNormalValue);
-        PE_SEC("Health normal respawn time: ", HealthNormalRespawn);
-        PE_VALUE("Health big value: ", HealthBigValue);
-        PE_SEC("Health big respawn time: ", HealthBigRespawn);
+    void MechanicsDump::Items(std::string& text)
+    {
+        AppendLine(text, "## Pickups");
+        AppendLine(text);
+        AppendLine(text, "| Item | Effect |");
+        AppendLine(text, "|---|---|");
+        AppendLine(text, "| HealthSmall / HealthMedium / HealthBig | restores health |");
+        AppendLine(text, "| UASmall / UABig | universal ammo |");
+        AppendLine(text, "| MissileSmall / MissileBig | missile ammo |");
+        AppendLine(text, "| VoltDriver, Battlehammer, Imperialist, Judicator, Magmaul, ShockCoil | grants the weapon and its ammo |");
+        AppendLine(text, "| DoubleDamage | x2 damage for a time, Shock Coil excepted |");
+        AppendLine(text, "| Cloak | invisibility for a time |");
+        AppendLine(text, "| Deathalt | forced alt form, drains health, heavy damage |");
+        AppendLine(text, "| OmegaCannon | one-shot kill weapon |");
+        AppendLine(text);
+        AppendLine(text, "A player killed in multiplayer drops ammo of the type its killer's weapon uses.");
+        AppendLine(text);
+    }
 
-        output += "\n==== Multiplayer Ammo ====\n";
-        PE_VALUE("Ammo small value: ", AmmoSmallValue);
-        PE_SEC("Ammo small respawn time: ", AmmoSmallRespawn);
-        PE_VALUE("Ammo big value: ", AmmoBigValue);
-        PE_SEC("Ammo big respawn time: ", AmmoBigRespawn);
+    void MechanicsDump::Bots(std::string& text)
+    {
+        AppendLine(text, "## Bots");
+        AppendLine(text);
+        AppendLine(text, "A bot is an ordinary player whose `Controls` are written by `PlayerAi.ProcessInput` instead of by a keyboard. That is the whole of the difference, and it is why a networked player can reuse the same surface: relayed input is simply a third writer of the same buttons.");
+        AppendLine(text);
+        AppendLine(text, "| Piece | What it does |");
+        AppendLine(text, "|---|---|");
+        AppendLine(text, "| `PlayerEntity.IsBot` | marks the slot as AI-driven. `Scene.AddPlayer` sets it on every player after the first, which is right for a local match and wrong for a networked one -- the AI would overwrite relayed input, so a networked session clears it on every slot |");
+        AppendLine(text, "| `BotLevel` (0-2) | difficulty; clamped and used to index reaction and accuracy tables |");
+        AppendLine(text, "| `AiPersonality` | per-hunter behaviour trees loaded from the ROM's own data, one set per hunter and encounter. `AiPersonalityData1` nodes hold conditions and the function ids to run |");
+        AppendLine(text, "| `AiData.Process()` | run once per frame per bot from `Scene.UpdateScene`, but only while the bot is alive |");
+        AppendLine(text, "| `UpdateExecutionPath` / `Execute` | walks the tree and dispatches `Func24Id` to the behaviour functions -- move, aim, fire, morph, use the alt attack, pick a weapon |");
+        AppendLine(text, "| Weapon choice | prefers the hunter's affinity weapon (`Weapons.AffinityWeapons[hunter]`) and zooms when it holds a weapon that can |");
+        AppendLine(text, "| `AiFlags3` | the spawn/despawn handshake: one bit asks for the spawn effect and sound, another marks the bot as despawned |");
+        AppendLine(text);
+        AppendLine(text, "For testing, `NetTestScript` replaces the AI entirely: it writes the same `Controls`, but to a fixed script rather than a behaviour tree, so two machines can be asked to do the same thing at the same moment and compared.");
+        AppendLine(text);
+    }
 
-        output += "\n==== Multiplayer Weapons ====\n";
-        PE_SEC("Weapon pickup respawn time: ", WeaponRespawn);
-        PE_SEC("Affinity pickup respawn time: ", AffinityRespawn);
-        PE_SEC("Octolith pickup respawn time: ", OctolithRespawn);
-#undef PE_VALUE
-#undef PE_FIXED
-#undef PE_SEC
-        output += "========\n        ";
-
-        output += "\n==== Multiplayer Match ====\n";
-#define GS_VALUE(label, member) AppendLine(output, label, GameState::member)
-#define GS_SEC(label, member) do { AppendLine(output, label, Seconds(GameState::member)); output.insert(output.size() - 1, " sec"); } while (false)
-        GS_SEC("Battle time: ", BattleTimeLimit);
-        GS_VALUE("Battle point goal: ", BattlePointGoal);
-        GS_SEC("Survival time: ", SurvivalTimeLimit);
-        GS_VALUE("Survival life goal: ", SurvivalLifeGoal);
-        GS_SEC("Bounty time: ", BountyTimeLimit);
-        GS_VALUE("Bounty point goal: ", BountyPointGoal);
-        GS_SEC("Capture time: ", CaptureTimeLimit);
-        GS_VALUE("Capture point goal: ", CapturePointGoal);
-        GS_SEC("Nodes time: ", NodesTimeLimit);
-        GS_VALUE("Nodes point goal: ", NodesPointGoal);
-        GS_SEC("Defender time: ", DefenderTimeLimit);
-        GS_VALUE("Defender point goal: ", DefenderPointGoal);
-        GS_SEC("Prime Hunter time: ", PrimeTimeLimit);
-        GS_VALUE("Prime Hunter point goal: ", PrimePointGoal);
-#undef GS_VALUE
-#undef GS_SEC
-        output += "========\n        ";
+    void MechanicsDump::Networking(std::string& text)
+    {
+        AppendLine(text, "## How multiplayer works here");
+        AppendLine(text);
+        AppendLine(text, "This is not the DS Wi-Fi protocol and cannot talk to real hardware or an emulator. It connects MphRead instances to each other.");
+        AppendLine(text);
+        AppendLine(text, "| Piece | Rule |");
+        AppendLine(text, "|---|---|");
+        AppendLine(text, "| Server | a relay with no game files: it assigns slots, keeps the match clock and the map rotation, and forwards packets. It never simulates |");
+        AppendLine(text, "| Authority | the first client to connect. It resolves damage, deaths and scores for everybody |");
+        AppendLine(text, "| Position | owned by the player it belongs to. Each client publishes its own position in every intent and everyone else follows it, including the authority. Two simulations of one player fighting over a position is what produced rubber-banding |");
+        AppendLine(text, "| Input | relayed to every client, not only the authority. Input is what makes a player fire, morph, lay a bomb or swing an alt attack; clients that received only positions drew opponents gliding in silence |");
+        AppendLine(text, "| One-frame presses | carried as an 8-frame history of rising edges, because a press exists in exactly one packet and UDP loses packets. Edges are taken *only* from that history: deriving them from the button level as well applied each press twice, which for a toggle means never |");
+        AppendLine(text, "| Snapshot | the authority's view of every player: health, score, form, weapon, zoom, and a damage record. Sent every frame |");
+        AppendLine(text, "| Damage | resolved only by the authority; every other client throws away locally-resolved hits. The authority stamps each hit with a counter, and victims replay the *difference* in that counter, so several hits between two snapshots are all accounted for |");
+        AppendLine(text, "| Score | carried in the snapshot. Counting locally worked only for whoever had been present since the first kill |");
+        AppendLine(text, "| Remote smoothing | remote players ease toward their reported position (35% of the gap per frame, 60% when it is wide) and only jump past 15 units, so a lost burst glides instead of popping |");
+        AppendLine(text, "| Lag compensation | the authority rewinds every other player to the snapshot frame the shooter had acknowledged, spawns the shot into that world, and then walks it forward to the present one frame at a time. Bounded at 24 frames (400 ms) of rewind and 64 frames of history. The authority's own shots are rewound by zero: it already aims at the puppets it resolves against |");
+        AppendLine(text, "| Slots | `PlayerEntity.SlotCapacity` (8). Every slot-indexed array is sized from it |");
+        AppendLine(text, "| Map rotation | the server owns it; clients poll the match state and load the new room, rebuilding every player slot and resetting the scores |");
+        AppendLine(text, "| Chat | T opens a line, the server stamps it with the sender's real slot and name and relays it to everybody else, and the sender echoes its own. Rate limited at the relay: three back to back, then one every two seconds. Additive on the wire, so an older server simply drops it |");
+        AppendLine(text);
     }
 }

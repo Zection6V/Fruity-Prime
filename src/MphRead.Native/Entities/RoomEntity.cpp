@@ -89,6 +89,11 @@ namespace
         return *value;
     }
 
+    [[nodiscard]] MphRead::Model& RequireModel(MphRead::ModelInstance& instance)
+    {
+        return RequireReference(instance.Model());
+    }
+
     template <typename T>
     [[nodiscard]] T& ListAt(std::vector<T>& values, std::int32_t index)
     {
@@ -396,7 +401,8 @@ namespace MphRead::Entities
 
     const std::vector<std::shared_ptr<Node>>& RoomEntity::Nodes() const
     {
-        return RequireReference(_models[0].Model()->Nodes);
+        ModelInstance& inst = RequireReference(ListAt(_models.Items(), 0));
+        return RequireReference(RequireModel(inst).Nodes);
     }
 
     bool RoomEntity::UseNodeTransform() const
@@ -416,6 +422,7 @@ namespace MphRead::Entities
         _partBoundsBuiltFor = -1;
         _nextRoomPartId = 0;
         _doorPortalCount = 0;
+
         std::shared_ptr<ModelInstance> instValue = Read::GetRoomModelInstance(name);
         if (_models.Size() == 0)
         {
@@ -427,7 +434,8 @@ namespace MphRead::Entities
         }
         else
         {
-            _unloadModel = _models[0].Model();
+            ModelInstance& previous = RequireReference(ListAt(_models.Items(), 0));
+            _unloadModel = previous.Model();
             ModelInstance& inst = RequireReference(instValue);
             if (_unloadModel == inst.Model())
             {
@@ -436,68 +444,88 @@ namespace MphRead::Entities
             auto& items = const_cast<std::vector<std::shared_ptr<ModelInstance>>&>(_models.Items());
             items[0] = instValue;
         }
+
         ModelInstance& inst = RequireReference(instValue);
-        std::shared_ptr<Model> modelValue = inst.Model();
-        Model& model = RequireReference(modelValue);
-        model.FilterNodes(layerMask);
+        RequireModel(inst).FilterNodes(layerMask);
         const RoomMetadata& meta = RequireReference(metaValue);
-        const auto& nodes = RequireReference(model.Nodes);
+
         if (meta.Name == "UNIT2_C6")
         {
-            RequireReference(ListAt(nodes, 46)).Enabled = false;
+            RequireReference(ListAt(Nodes(), 46)).Enabled = false;
         }
         else if (meta.Name == "UNIT1_RM4" || meta.Name == "MP3 PROVING GROUND")
         {
-            const std::shared_ptr<Node> node16 = ListAt(nodes, 16);
-            const std::shared_ptr<Node> node17 = ListAt(nodes, 17);
-            const std::shared_ptr<Node> node25 = ListAt(nodes, 25);
-            const std::shared_ptr<Node> node26 = ListAt(nodes, 26);
-            if (!_nodePairs.emplace(node16.get(), node26).second
-                || !_nodePairs.emplace(node25.get(), node17).second
-                || !_nodePairs.emplace(node17.get(), node25).second
-                || !_nodePairs.emplace(node26.get(), node16).second)
+            const std::shared_ptr<Node> key1 = ListAt(Nodes(), 16);
+            const std::shared_ptr<Node> value1 = ListAt(Nodes(), 26);
+            if (!_nodePairs.emplace(key1.get(), value1).second)
+            {
+                throw SceneDetail::DuplicateKeyException();
+            }
+            const std::shared_ptr<Node> key2 = ListAt(Nodes(), 25);
+            const std::shared_ptr<Node> value2 = ListAt(Nodes(), 17);
+            if (!_nodePairs.emplace(key2.get(), value2).second)
+            {
+                throw SceneDetail::DuplicateKeyException();
+            }
+            const std::shared_ptr<Node> key3 = ListAt(Nodes(), 17);
+            const std::shared_ptr<Node> value3 = ListAt(Nodes(), 25);
+            if (!_nodePairs.emplace(key3.get(), value3).second)
+            {
+                throw SceneDetail::DuplicateKeyException();
+            }
+            const std::shared_ptr<Node> key4 = ListAt(Nodes(), 26);
+            const std::shared_ptr<Node> value4 = ListAt(Nodes(), 16);
+            if (!_nodePairs.emplace(key4.get(), value4).second)
             {
                 throw SceneDetail::DuplicateKeyException();
             }
         }
         else if (meta.Name == "UNIT3_C2")
         {
-            _morphCameraExcludeNodes.push_back(ListAt(nodes, 16));
+            _morphCameraExcludeNodes.push_back(ListAt(Nodes(), 16));
         }
+
         _meta = metaValue;
+        std::shared_ptr<Model> modelValue = inst.Model();
         CollisionInstance& collision = RequireReference(collisionValue);
         const auto& collisionPortals = RequireReference(RequireReference(collision.Info).Portals);
         _portals.insert(_portals.end(), collisionPortals.begin(), collisionPortals.end());
+
         if (!_portals.empty())
         {
-            std::vector<std::string> parts;
-            parts.reserve(_portals.size() * 2);
-            for (const std::shared_ptr<Portal>& portalValue : _portals)
-            {
-                const Portal& portal = RequireReference(portalValue);
-                if (std::find(parts.begin(), parts.end(), portal.NodeName1) == parts.end())
-                {
-                    parts.push_back(portal.NodeName1);
-                }
-            }
-            for (const std::shared_ptr<Portal>& portalValue : _portals)
-            {
-                const Portal& portal = RequireReference(portalValue);
-                if (std::find(parts.begin(), parts.end(), portal.NodeName2) == parts.end())
-                {
-                    parts.push_back(portal.NodeName2);
-                }
-            }
+            Model& model = RequireReference(modelValue);
+            const auto& nodes = RequireReference(model.Nodes);
             for (const std::shared_ptr<Node>& nodeValue : nodes)
             {
                 Node& node = RequireReference(nodeValue);
-                if (std::find(parts.begin(), parts.end(), node.Name) != parts.end())
+                bool contains = false;
+                for (const std::shared_ptr<Portal>& portalValue : _portals)
+                {
+                    if (RequireReference(portalValue).NodeName1 == node.Name)
+                    {
+                        contains = true;
+                        break;
+                    }
+                }
+                if (!contains)
+                {
+                    for (const std::shared_ptr<Portal>& portalValue : _portals)
+                    {
+                        if (RequireReference(portalValue).NodeName2 == node.Name)
+                        {
+                            contains = true;
+                            break;
+                        }
+                    }
+                }
+                if (contains)
                 {
                     node.RoomPartId = _nextRoomPartId;
                     _nextRoomPartId = UncheckedIncrement(_nextRoomPartId);
                     _portalSides.emplace_back();
                 }
             }
+
             for (const std::shared_ptr<Portal>& portalValue : _portals)
             {
                 Portal& portal = RequireReference(portalValue);
@@ -520,6 +548,7 @@ namespace MphRead::Entities
                     }
                 }
             }
+
             std::int32_t pmagCount = 0;
             for (const std::shared_ptr<Portal>& portalValue : _portals)
             {
@@ -545,19 +574,25 @@ namespace MphRead::Entities
         }
         else if (meta.RoomNodeName.has_value())
         {
-            bool found = false;
+            Model& model = RequireReference(modelValue);
+            const auto& nodes = RequireReference(model.Nodes);
+            std::shared_ptr<Node> roomNode{};
             for (const std::shared_ptr<Node>& nodeValue : nodes)
             {
                 Node& node = RequireReference(nodeValue);
                 if (node.Name == *meta.RoomNodeName && node.ChildIndex != -1)
                 {
-                    node.RoomPartId = _nextRoomPartId;
-                    _nextRoomPartId = UncheckedIncrement(_nextRoomPartId);
-                    found = true;
+                    roomNode = nodeValue;
                     break;
                 }
             }
-            if (!found)
+            if (roomNode != nullptr)
+            {
+                Node& node = RequireReference(roomNode);
+                node.RoomPartId = _nextRoomPartId;
+                _nextRoomPartId = UncheckedIncrement(_nextRoomPartId);
+            }
+            else
             {
                 for (const std::shared_ptr<Node>& nodeValue : nodes)
                 {
@@ -573,6 +608,8 @@ namespace MphRead::Entities
         }
         else
         {
+            Model& model = RequireReference(modelValue);
+            const auto& nodes = RequireReference(model.Nodes);
             for (const std::shared_ptr<Node>& nodeValue : nodes)
             {
                 Node& node = RequireReference(nodeValue);
@@ -584,16 +621,20 @@ namespace MphRead::Entities
                 }
             }
         }
-        bool anyRoomPart = false;
-        for (const std::shared_ptr<Node>& nodeValue : nodes)
+
+        assert([&]()
         {
-            if (RequireReference(nodeValue).RoomPartId >= 0)
+            const auto& nodes = RequireReference(RequireReference(modelValue).Nodes);
+            for (const std::shared_ptr<Node>& nodeValue : nodes)
             {
-                anyRoomPart = true;
-                break;
+                if (RequireReference(nodeValue).RoomPartId >= 0)
+                {
+                    return true;
+                }
             }
-        }
-        assert(anyRoomPart);
+            return false;
+        }());
+
         collision.Translation = Vector3::Zero;
         if (_roomCollision.empty())
         {
@@ -631,16 +672,17 @@ namespace MphRead::Entities
 
     NodeRef RoomEntity::AddDoorPortal(DoorEntity* doorValue)
     {
-        DoorEntity& door = RequireReference(doorValue);
         if (!GameState::SinglePlayer())
         {
             return NodeRef::None;
         }
+        DoorEntity& door = RequireReference(doorValue);
         _doorPortalCount = UncheckedIncrement(_doorPortalCount);
         std::string roomNodeName;
         std::int32_t roomPartId = -1;
         std::int32_t roomNodeIndex = -1;
-        const auto& roomNodes = RequireReference(_models[0].Model()->Nodes);
+        ModelInstance& roomInst = RequireReference(ListAt(_models.Items(), 0));
+        const auto& roomNodes = RequireReference(RequireModel(roomInst).Nodes);
         for (const std::shared_ptr<Node>& nodeValue : roomNodes)
         {
             Node& node = RequireReference(nodeValue);
@@ -659,8 +701,9 @@ namespace MphRead::Entities
         const RoomMetadata* meta = Metadata::GetRoomById(static_cast<std::int32_t>(doorData.ConnectorId));
         assert(meta != nullptr);
         std::shared_ptr<ModelInstance> conInstValue = Read::GetRoomModelInstance(RequireReference(meta).Name);
-        const auto& conNodes = RequireReference(RequireReference(conInstValue).Model()->Nodes);
-        const std::string connectorName = MarshalString(doorData.RoomName);
+        ModelInstance& conInst = RequireReference(conInstValue);
+        const auto& conNodes = RequireReference(RequireModel(conInst).Nodes);
+        const std::string connectorName = MarshalString(door.Data().RoomName);
         for (const std::shared_ptr<Node>& nodeValue : conNodes)
         {
             Node& node = RequireReference(nodeValue);
@@ -710,7 +753,7 @@ namespace MphRead::Entities
         std::shared_ptr<CollisionInstance> collisionValue
             = Formats::Collision::Collision::GetCollision(meta, -1);
         CollisionInstance& collision = RequireReference(collisionValue);
-        collision.ConnectorName = MarshalString(doorData.RoomName);
+        collision.ConnectorName = MarshalString(door.Data().RoomName);
         collision.Translation = Add(static_cast<Vector3>(door.Position), Divide(size, 2.0F));
         _roomCollision.push_back(collisionValue);
         conInst.Active = false;
@@ -724,10 +767,11 @@ namespace MphRead::Entities
         const EntityDataHeader header(
             static_cast<std::uint16_t>(EntityType::Door), static_cast<std::int16_t>(-1),
             Add(static_cast<Vector3>(door.Position), size), door.UpVector(), Negate(doorFacing));
+        const DoorEntityData currentDoorData = door.Data();
         const DoorEntityData data(
-            header, std::nullopt, doorData.PaletteId, doorData.DoorType,
-            255, 0, 0, 255, doorData.OutLoaderId, std::nullopt, std::nullopt);
-        const auto& nodes = RequireReference(conInst.Model()->Nodes);
+            header, std::nullopt, currentDoorData.PaletteId, currentDoorData.DoorType,
+            255, 0, 0, 255, currentDoorData.OutLoaderId, std::nullopt, std::nullopt);
+        const auto& nodes = RequireReference(RequireModel(conInst).Nodes);
         std::string nodeName = "rmMain";
         for (const std::shared_ptr<Node>& nodeValue : nodes)
         {
@@ -738,8 +782,9 @@ namespace MphRead::Entities
                 break;
             }
         }
-        const std::int32_t layerId = doorData.TargetLayerId == 255
-            ? -1 : static_cast<std::int32_t>(doorData.TargetLayerId);
+        const DoorEntityData layerDoorData = door.Data();
+        const std::int32_t layerId = layerDoorData.TargetLayerId == 255
+            ? -1 : static_cast<std::int32_t>(layerDoorData.TargetLayerId);
         auto newDoor = std::make_shared<DoorEntity>(data, nodeName, _scene, door.TargetRoomId(), layerId);
         scene.AddEntity(newDoor);
         newDoor->SetConnectorInactive(true);
@@ -758,8 +803,11 @@ namespace MphRead::Entities
         assert(door.ConnectorCollision() != nullptr);
         for (std::size_t i = 0; i < _connectorModels.size(); ++i)
         {
-            RequireReference(_connectorModels[i]).Active = false;
-            RequireReference(ListAt(_roomCollision, static_cast<std::int32_t>(i + 1))).Active = false;
+            const std::shared_ptr<ModelInstance> conInstValue = _connectorModels[i];
+            const std::shared_ptr<CollisionInstance> conColValue
+                = ListAt(_roomCollision, static_cast<std::int32_t>(i + 1));
+            RequireReference(conInstValue).Active = false;
+            RequireReference(conColValue).Active = false;
         }
         RequireReference(door.ConnectorModel()).Active = true;
         RequireReference(door.ConnectorCollision()).Active = true;
@@ -770,7 +818,7 @@ namespace MphRead::Entities
             DoorEntity& other = RequireReference(enumerator.Current());
             if (other.LoaderDoor() != nullptr)
             {
-                other.LoaderDoor()->SetConnectorInactive(true);
+                RequireReference(other.LoaderDoor()).SetConnectorInactive(true);
             }
         }
         RequireReference(door.LoaderDoor()).SetConnectorInactive(false);
@@ -1003,11 +1051,11 @@ namespace MphRead::Entities
         {
             return;
         }
-        Scene& scene = RequireReference(_scene);
         for (const std::shared_ptr<EntityBase>& entityValue : entities)
         {
             EntityBase& entity = RequireReference(entityValue);
             entity.Initialized = false;
+            Scene& scene = RequireReference(_scene);
             scene.InsertEntity(entityValue);
             scene.LoadedEntities.Enqueue(entityValue);
             if (token.stop_requested())
@@ -1017,11 +1065,11 @@ namespace MphRead::Entities
         }
         if (LoaderDoor == nullptr)
         {
-            scene.InitLoadedEntity(-1);
+            RequireReference(_scene).InitLoadedEntity(-1);
         }
         else
         {
-            while (!scene.LoadedEntities.IsEmpty())
+            while (!RequireReference(_scene).LoadedEntities.IsEmpty())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 if (token.stop_requested())
@@ -1030,7 +1078,7 @@ namespace MphRead::Entities
                 }
             }
         }
-        auto doorEnumerator = scene.GetDoorEntities().GetEnumerator();
+        auto doorEnumerator = RequireReference(_scene).GetDoorEntities().GetEnumerator();
         while (doorEnumerator.MoveNext())
         {
             DoorEntity& door = RequireReference(doorEnumerator.Current());
@@ -1038,8 +1086,11 @@ namespace MphRead::Entities
             {
                 continue;
             }
-            assert(door.LoaderDoor() != nullptr);
-            door.LoaderDoor()->NodeRef = AddDoorPortal(&door);
+            std::shared_ptr<DoorEntity> loader = door.LoaderDoor();
+            assert(loader != nullptr);
+            DoorEntity& loaderRef = RequireReference(loader);
+            const NodeRef portalRef = AddDoorPortal(&door);
+            loaderRef.NodeRef = portalRef;
             if (token.stop_requested())
             {
                 return;
@@ -1052,16 +1103,18 @@ namespace MphRead::Entities
     {
         const RoomMetadata* roomMeta = Metadata::GetRoomById(GameState::TransitionRoomId);
         assert(roomMeta != nullptr);
-        ModelInstance& inst = _models[0];
+        const std::shared_ptr<ModelInstance> instValue = ListAt(_models.Items(), 0);
         Scene& scene = RequireReference(_scene);
+        ModelInstance& inst = RequireReference(instValue);
         scene.LoadModel(inst.Model(), true);
         inst.SetAnimation(0);
         scene.SetRoomValues(roomMeta);
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(_connectorModels.size()); ++i)
         {
-            ModelInstance& conInst = RequireReference(ListAt(_connectorModels, i));
-            const std::shared_ptr<CollisionInstance> conCol = ListAt(_roomCollision, i + 1);
-            (void)conCol;
+            const std::shared_ptr<ModelInstance> conInstValue = ListAt(_connectorModels, i);
+            const std::shared_ptr<CollisionInstance> conColValue = ListAt(_roomCollision, i + 1);
+            (void)conColValue;
+            ModelInstance& conInst = RequireReference(conInstValue);
             if (conInst.NodeAnimIgnoreRoot)
             {
                 _connectorModels.erase(_connectorModels.begin() + i);
@@ -1078,10 +1131,10 @@ namespace MphRead::Entities
             RequireReference(_roomCollision[0]).Active = true;
         }
         Vector3 offset = Vector3::Zero;
-        DoorEntity* prevConnector = nullptr;
-        DoorEntity* newLoader = nullptr;
+        std::shared_ptr<DoorEntity> prevConnector{};
+        std::shared_ptr<DoorEntity> newLoader{};
+        std::shared_ptr<DoorEntity> loaderKeepAlive{};
         NodeRef nodeRef = NodeRef::None;
-        std::shared_ptr<DoorEntity> loaderKeepAlive = FindDoorShared(scene, LoaderDoor);
         auto enumerator = scene.Entities().GetEnumerator();
         while (enumerator.MoveNext())
         {
@@ -1096,11 +1149,20 @@ namespace MphRead::Entities
                     throw SceneDetail::InvalidCastException();
                 }
                 DoorEntity& door = *doorValue;
-                if (&door == LoaderDoor || door.LoaderDoor().get() == LoaderDoor)
+                const std::shared_ptr<DoorEntity> doorLoader = door.LoaderDoor();
+                if (&door == LoaderDoor || doorLoader.get() == LoaderDoor)
                 {
-                    if (door.LoaderDoor().get() == LoaderDoor)
+                    if (&door == LoaderDoor)
                     {
-                        prevConnector = &door;
+                        loaderKeepAlive = doorValue;
+                    }
+                    else if (doorLoader.get() == LoaderDoor)
+                    {
+                        loaderKeepAlive = doorLoader;
+                    }
+                    if (doorLoader.get() == LoaderDoor)
+                    {
+                        prevConnector = doorValue;
                     }
                     scene.RemoveEntity(doorValue);
                     door.Destroy();
@@ -1115,18 +1177,20 @@ namespace MphRead::Entities
                     offset = Subtract(static_cast<Vector3>(door.Position),
                         static_cast<Vector3>(RequireReference(LoaderDoor).Position));
                     nodeRef = RequireReference(door.Portal()).NodeRef2;
-                    assert(door.LoaderDoor() != nullptr);
-                    newLoader = door.LoaderDoor().get();
+                    newLoader = door.LoaderDoor();
+                    assert(newLoader != nullptr);
                     if (prevConnector == nullptr)
                     {
-                        prevConnector = RequireReference(LoaderDoor).ConnectorDoor().get();
+                        prevConnector = RequireReference(LoaderDoor).ConnectorDoor();
                     }
                     assert(prevConnector != nullptr);
-                    newLoader->SetAnimationFrame(prevConnector->GetAnimationFrame());
-                    if (TestFlag(prevConnector->Flags(), DoorFlags::ShotOpen)
-                        && !TestFlag(newLoader->Flags(), DoorFlags::Locked))
+                    DoorEntity& newLoaderRef = RequireReference(newLoader);
+                    DoorEntity& prevConnectorRef = RequireReference(prevConnector);
+                    newLoaderRef.SetAnimationFrame(prevConnectorRef.GetAnimationFrame());
+                    if (TestFlag(prevConnectorRef.Flags(), DoorFlags::ShotOpen)
+                        && !TestFlag(newLoaderRef.Flags(), DoorFlags::Locked))
                     {
-                        newLoader->SetFlags(OrFlag(newLoader->Flags(), DoorFlags::ShotOpen));
+                        newLoaderRef.SetFlags(OrFlag(newLoaderRef.Flags(), DoorFlags::ShotOpen));
                     }
                 }
             }
@@ -1225,15 +1289,17 @@ namespace MphRead::Entities
                 {
                     continue;
                 }
-                DoorEntity* door = &entity;
-                if (door->Id != -1 && door->Data().ConnectorId != 255)
+                std::shared_ptr<DoorEntity> door = doorValue;
+                if (RequireReference(door).Id != -1 && RequireReference(door).Data().ConnectorId != 255)
                 {
-                    if (door->LoaderDoor() != nullptr && door->LoaderDoor().get() == newLoader)
+                    const std::shared_ptr<DoorEntity> doorLoader = RequireReference(door).LoaderDoor();
+                    if (doorLoader != nullptr && doorLoader == newLoader)
                     {
-                        door = door->LoaderDoor().get();
+                        door = doorLoader;
                     }
-                    door->Lock(false);
-                    door->SetFlags(OrFlag(door->Flags(), DoorFlags::ShowLock));
+                    DoorEntity& target = RequireReference(door);
+                    target.Lock(false);
+                    target.SetFlags(OrFlag(target.Flags(), DoorFlags::ShowLock));
                 }
             }
         }
@@ -1302,11 +1368,11 @@ namespace MphRead::Entities
         {
             return false;
         }
-        const ModelInstance* partInst = nullptr;
+        std::shared_ptr<ModelInstance> partInstValue{};
         if (nodeRef.ModelIndex == 0)
         {
             if (_models.Size() == 0) return false;
-            partInst = &_models[0];
+            partInstValue = ListAt(_models.Items(), 0);
         }
         else
         {
@@ -1315,9 +1381,12 @@ namespace MphRead::Entities
             {
                 return false;
             }
-            partInst = ListAt(_connectorModels, nodeRef.ModelIndex - 1).get();
+            partInstValue = ListAt(_connectorModels, nodeRef.ModelIndex - 1);
         }
-        if (nodeRef.NodeIndex >= static_cast<std::int32_t>(RequireReference(partInst).Model()->Nodes->size()))
+        ModelInstance& partInst = RequireReference(partInstValue);
+        Model& partModel = RequireModel(partInst);
+        const auto& partNodes = RequireReference(partModel.Nodes);
+        if (nodeRef.NodeIndex >= static_cast<std::int32_t>(partNodes.size()))
         {
             return false;
         }
@@ -1371,8 +1440,10 @@ namespace MphRead::Entities
         if (!PartCouldContain(curNodeRef.PartIndex, scene.CameraPosition, _partBoundsMargin)) return;
         assert(curNodeRef.NodeIndex != -1);
         RoomPartVisInfo& curVisInfo = RequireReference(GetPartVisInfo(curNodeRef));
-        curVisInfo.ViewMinX = 0.0F; curVisInfo.ViewMaxX = 1.0F;
-        curVisInfo.ViewMinY = 0.0F; curVisInfo.ViewMaxY = 1.0F;
+        curVisInfo.ViewMinX = 0.0F;
+        curVisInfo.ViewMaxX = 1.0F;
+        curVisInfo.ViewMinY = 0.0F;
+        curVisInfo.ViewMaxY = 1.0F;
         ArrayAt(_activeRoomParts, curNodeRef.PartIndex) = true;
         std::shared_ptr<RoomFrustumItem> curFrustumValue = GetRoomFrustumItem();
         _roomFrustumIndex = UncheckedIncrement(_roomFrustumIndex);
@@ -1380,9 +1451,12 @@ namespace MphRead::Entities
         FrustumInfo& destInfo = RequireReference(curRoomFrustum.Info);
         destInfo.Count = scene.FrustumInfo.Count;
         destInfo.Index = scene.FrustumInfo.Index;
-        for (std::int32_t i = 0; i < static_cast<std::int32_t>(destInfo.Planes->size()); ++i)
+        const auto& destPlanes = RequireReference(destInfo.Planes);
+        for (std::int32_t i = 0; i < static_cast<std::int32_t>(destPlanes.size()); ++i)
         {
-            ArrayAt(*destInfo.Planes, i) = ArrayAt(*scene.FrustumInfo.Planes, i);
+            FrustumPlane& target = ArrayAt(RequireReference(destInfo.Planes), i);
+            const FrustumPlane value = ArrayAt(RequireReference(scene.FrustumInfo.Planes), i);
+            target = value;
         }
         curRoomFrustum.NodeRef = curNodeRef;
         curRoomFrustum.Next = ArrayAt(_roomFrustumLinks, curNodeRef.PartIndex);
@@ -1407,7 +1481,10 @@ namespace MphRead::Entities
             assert(portal.NodeRef2 != NodeRef::None);
             assert(portal.NodeRef1 != portal.NodeRef2);
             Scene& scene = RequireReference(_scene);
-            float minX = 1.0F, maxX = 0.0F, minY = 1.0F, maxY = 0.0F;
+            float minX = 1.0F;
+            float maxX = 0.0F;
+            float minY = 1.0F;
+            float maxY = 0.0F;
             const float dist = GetDistanceToPortal(scene.CameraPosition, portal.Plane, otherSide);
             if (dist < 0.0F) continue;
             if (portal.IsForceField && GetPortalAlpha(portal.Position, scene.CameraPosition) == 1.0F) continue;
@@ -1425,20 +1502,26 @@ namespace MphRead::Entities
                     }
                 }
             }
+
             std::int32_t v28;
             std::shared_ptr<RoomFrustumItem> nextValue = GetRoomFrustumItem();
-            RoomFrustumItem& nextFrustumItem = RequireReference(nextValue);
-            FrustumInfo& nextInfo = RequireReference(nextFrustumItem.Info);
-            FrustumInfo& sourceInfo = RequireReference(frustumItem.Info);
             if (adjacent)
             {
-                minX = 0.0F; maxX = 1.0F; minY = 0.0F; maxY = 1.0F;
+                minX = 0.0F;
+                maxX = 1.0F;
+                minY = 0.0F;
+                maxY = 1.0F;
                 v28 = 4;
+                RoomFrustumItem& nextFrustumItem = RequireReference(nextValue);
+                FrustumInfo& nextInfo = RequireReference(nextFrustumItem.Info);
+                FrustumInfo& sourceInfo = RequireReference(frustumItem.Info);
                 nextInfo.Index = sourceInfo.Index;
                 nextInfo.Count = sourceInfo.Count;
                 for (std::int32_t j = 0; j < sourceInfo.Count; ++j)
                 {
-                    ArrayAt(*nextInfo.Planes, j) = ArrayAt(*sourceInfo.Planes, j);
+                    FrustumPlane& target = ArrayAt(RequireReference(nextInfo.Planes), j);
+                    const FrustumPlane value = ArrayAt(RequireReference(sourceInfo.Planes), j);
+                    target = value;
                 }
             }
             else
@@ -1448,16 +1531,21 @@ namespace MphRead::Entities
                 {
                     ArrayAt(_startPointList, static_cast<std::int32_t>(j)) = points[j];
                 }
+                FrustumInfo& sourceInfo = RequireReference(frustumItem.Info);
                 v28 = Func21180A8(sourceInfo, _startPointList.data(),
                     static_cast<std::int32_t>(points.size()), _destPointList.data());
                 if (v28 >= 3)
                 {
                     assert(sourceInfo.Index + v28 <= 10);
                     const std::int32_t index = sourceInfo.Index;
+                    RoomFrustumItem& nextFrustumItem = RequireReference(nextValue);
+                    FrustumInfo& nextInfo = RequireReference(nextFrustumItem.Info);
                     nextInfo.Index = index;
                     for (std::int32_t j = 0; j < sourceInfo.Index; ++j)
                     {
-                        ArrayAt(*nextInfo.Planes, j) = ArrayAt(*sourceInfo.Planes, j);
+                        FrustumPlane& target = ArrayAt(RequireReference(nextInfo.Planes), j);
+                        const FrustumPlane value = ArrayAt(RequireReference(sourceInfo.Planes), j);
+                        target = value;
                     }
                     nextInfo.Count = index;
                     for (std::int32_t j = 0; j < v28; ++j)
@@ -1475,7 +1563,10 @@ namespace MphRead::Entities
                                 ? Vector3::Cross(vec1, vec2).Normalized()
                                 : Vector3::Cross(vec2, vec1).Normalized();
                             const Vector4 plane(normal, Vector3::Dot(normal, scene.CameraPosition));
-                            ArrayAt(*nextInfo.Planes, index + j) = Scene::SetBoundsIndices(plane);
+                            FrustumPlane& target
+                                = ArrayAt(RequireReference(nextInfo.Planes), index + j);
+                            const FrustumPlane value = Scene::SetBoundsIndices(plane);
+                            target = value;
                             Vector3 destPoint = ArrayAt(_startPointList, j);
                             if (Func2117F84(point1, destPoint) >= 0.0F)
                             {
@@ -1489,10 +1580,13 @@ namespace MphRead::Entities
                     }
                 }
             }
+
             if (v28 >= 3)
             {
-                minX = MathFMax(minX, 0.0F); maxX = MathFMin(maxX, 1.0F);
-                minY = MathFMax(minY, 0.0F); maxY = MathFMin(maxY, 1.0F);
+                minX = MathFMax(minX, 0.0F);
+                maxX = MathFMin(maxX, 1.0F);
+                minY = MathFMax(minY, 0.0F);
+                maxY = MathFMin(maxY, 1.0F);
                 if (minX < maxX - 1.0F / 800.0F && minY < maxY - 1.0F / 600.0F)
                 {
                     const NodeRef nextNodeRef = otherSide ? portal.NodeRef1 : portal.NodeRef2;
@@ -1506,6 +1600,7 @@ namespace MphRead::Entities
                         nextVisInfo.ViewMaxY = MathFMax(nextVisInfo.ViewMaxY, maxY);
                         ArrayAt(_activeRoomParts, nextNodeRef.PartIndex) = true;
                         _roomFrustumIndex = UncheckedIncrement(_roomFrustumIndex);
+                        RoomFrustumItem& nextFrustumItem = RequireReference(nextValue);
                         nextFrustumItem.NodeRef = nextNodeRef;
                         nextFrustumItem.Next = ArrayAt(_roomFrustumLinks, nextNodeRef.PartIndex);
                         ArrayAt(_roomFrustumLinks, nextNodeRef.PartIndex) = nextValue;
@@ -1543,7 +1638,7 @@ namespace MphRead::Entities
             std::int32_t newPointCount = 0;
             Vector3* newList = i == frustumInfo.Count - 1
                 ? destList : (i % 2 == 0 ? temp1.data() : temp2.data());
-            const Vector4 plane = ArrayAt(*frustumInfo.Planes, i).Plane;
+            const Vector4 plane = ArrayAt(RequireReference(frustumInfo.Planes), i).Plane;
             float dist1 = Vector3::Dot(PointAt14(pointList, 0), plane.Xyz()) - plane.W;
             bool v5 = dist1 >= 0.0F;
             assert(pointCount > 0);
@@ -1594,12 +1689,19 @@ namespace MphRead::Entities
             if (portal.NodeRef1 == nodeRef) otherSide = false;
             else if (portal.NodeRef2 == nodeRef) otherSide = true;
             else continue;
-            const Scene& scene = RequireReference(_scene);
-            if (portal.IsForceField && GetPortalAlpha(portal.Position, scene.CameraPosition) == 1.0F) continue;
+            if (portal.IsForceField)
+            {
+                Scene& scene = RequireReference(_scene);
+                if (GetPortalAlpha(portal.Position, scene.CameraPosition) == 1.0F)
+                {
+                    continue;
+                }
+            }
             assert(portal.NodeRef1 != NodeRef::None);
             assert(portal.NodeRef2 != NodeRef::None);
             assert(portal.NodeRef1 != portal.NodeRef2);
-            const float dist = GetDistanceToPortal(scene.CameraPosition, portal.Plane, otherSide);
+            const float dist = GetDistanceToPortal(
+                RequireReference(_scene).CameraPosition, portal.Plane, otherSide);
             if (dist > Fixed::ToFloat(100000) || dist < Fixed::ToFloat(-100000)) continue;
             const NodeRef nextNodeRef = otherSide ? portal.NodeRef1 : portal.NodeRef2;
             if (nextNodeRef.PartIndex == mainNodeRef.PartIndex || _audNodeRefRecursionDepth < 2)
@@ -1613,7 +1715,10 @@ namespace MphRead::Entities
 
     NodeRef RoomEntity::GetNodeRefByName(const std::string& nodeName) const
     {
-        const auto& nodes = RequireReference(_models[0].Model()->Nodes);
+        ModelInstance& inst = RequireReference(ListAt(_models.Items(), 0));
+        std::shared_ptr<Model> modelValue = inst.Model();
+        Model& model = RequireReference(modelValue);
+        const auto& nodes = RequireReference(model.Nodes);
         for (const std::shared_ptr<Node>& nodeValue : nodes)
         {
             Node& node = RequireReference(nodeValue);
@@ -1638,7 +1743,10 @@ namespace MphRead::Entities
             _partBoundsMin.emplace_back(std::numeric_limits<float>::max());
             _partBoundsMax.emplace_back(std::numeric_limits<float>::lowest());
         }
-        if (_models.Size() > 0) AddPartBounds(_models[0], Vector3::Zero);
+        if (_models.Size() > 0)
+        {
+            AddPartBounds(RequireReference(ListAt(_models.Items(), 0)), Vector3::Zero);
+        }
         for (std::size_t i = 0; i < _connectorModels.size(); ++i)
         {
             const Vector3 offset = i + 1 < _roomCollision.size()
@@ -1649,7 +1757,7 @@ namespace MphRead::Entities
 
     void RoomEntity::AddPartBounds(ModelInstance& inst, Vector3 offset)
     {
-        const auto& nodes = RequireReference(inst.Model()->Nodes);
+        const auto& nodes = RequireReference(RequireModel(inst).Nodes);
         for (const std::shared_ptr<Node>& pnodeValue : nodes)
         {
             Node& pnode = RequireReference(pnodeValue);
@@ -1781,11 +1889,14 @@ namespace MphRead::Entities
                 scene.UpdateMaterials(conInst.Model(), 0);
                 if (GameState::InRoomTransition() || _partVisInfoHead == nullptr || scene.ShowAllNodes)
                 {
-                    Matrix4 transform = CreateScale(conInst.Model()->Scale);
+                    Model& conModel = RequireModel(conInst);
+                    Matrix4 transform = CreateScale(conModel.Scale);
                     const Vector3 translation
                         = RequireReference(ListAt(_roomCollision, static_cast<std::int32_t>(i + 1))).Translation;
-                    transform.M41 = translation.X; transform.M42 = translation.Y; transform.M43 = translation.Z;
-                    const auto& nodes = RequireReference(conInst.Model()->Nodes);
+                    transform.M41 = translation.X;
+                    transform.M42 = translation.Y;
+                    transform.M43 = translation.Z;
+                    const auto& nodes = RequireReference(conModel.Nodes);
                     for (const std::shared_ptr<Node>& nodeValue : nodes)
                     {
                         RequireReference(nodeValue).Animation = transform;
@@ -1795,7 +1906,7 @@ namespace MphRead::Entities
             }
             if (!GameState::InRoomTransition())
             {
-                ModelInstance& inst = _models[0];
+                ModelInstance& inst = RequireReference(ListAt(_models.Items(), 0));
                 UpdateTransforms(inst, 0);
                 Scene& scene = RequireReference(_scene);
                 if (scene.ProcessFrame)
@@ -1812,6 +1923,7 @@ namespace MphRead::Entities
             ClearRoomPartState();
             UpdateRoomParts();
         }
+
         Scene& scene = RequireReference(_scene);
         if (scene.ShowCollision && (scene.ColEntDisplay == EntityType::All || scene.ColEntDisplay == Type))
         {
@@ -1821,7 +1933,7 @@ namespace MphRead::Entities
         {
             _drawnNodeData.clear();
             assert(_models.Size() == 2);
-            ModelInstance& nodeInst = _models[1];
+            const std::shared_ptr<ModelInstance> nodeInstValue = ListAt(_models.Items(), 1);
             const std::int32_t polygonId = scene.GetNextPolygonId();
             for (const auto& str1Value : RequireReference(_nodeData).Data)
             {
@@ -1834,7 +1946,8 @@ namespace MphRead::Entities
                         Formats::NodeData3& str3 = RequireReference(str3Value);
                         if (_drawnNodeData.find(&str3) == _drawnNodeData.end())
                         {
-                            Model& model = RequireReference(nodeInst.Model());
+                            ModelInstance& nodeInst = RequireReference(nodeInstValue);
+                            Model& model = RequireModel(nodeInst);
                             Node& node = RequireReference(ListAt(RequireReference(model.Nodes), 3));
                             if (node.Enabled)
                             {
@@ -1843,7 +1956,8 @@ namespace MphRead::Entities
                                 {
                                     Mesh& mesh = RequireReference(ListAt(RequireReference(model.Meshes), start + k));
                                     if (!mesh.Visible) continue;
-                                    Material& material = RequireReference(ListAt(RequireReference(model.Materials), mesh.MaterialId));
+                                    Material& material
+                                        = RequireReference(ListAt(RequireReference(model.Materials), mesh.MaterialId));
                                     scene.AddRenderItem(material, polygonId, 1.0F, Vector3::Zero,
                                         GetLightInfo(), IdentityMatrix(), str3.Transform,
                                         mesh.ListId, 0, _emptyMatrixStack, str3.Color, std::nullopt,
@@ -1863,15 +1977,17 @@ namespace MphRead::Entities
         }
     }
 
-    bool RoomEntity::IsNodeVisible(const FrustumInfo& frustumInfo, const Node& node,
+    bool RoomEntity::IsNodeVisible(
+        const FrustumInfo& frustumInfo, const Node& node,
         std::int32_t mask, Vector3 offset) const
     {
-        const ManagedArray<float>& bounds = RequireReference(node.Bounds);
+        const std::shared_ptr<ManagedArray<float>> boundsValue = node.Bounds;
         for (std::int32_t i = 0; i < frustumInfo.Count; ++i)
         {
             assert((mask & (1 << i)) != 0);
-            const FrustumPlane& frustumPlane = ArrayAt(*frustumInfo.Planes, i);
+            const FrustumPlane& frustumPlane = ArrayAt(RequireReference(frustumInfo.Planes), i);
             const Vector4 plane = frustumPlane.Plane;
+            ManagedArray<float>& bounds = RequireReference(boundsValue);
             if (plane.X * (bounds[static_cast<std::size_t>(frustumPlane.XIndex2)] + offset.X)
                 + plane.Y * (bounds[static_cast<std::size_t>(frustumPlane.YIndex2)] + offset.Y)
                 + plane.Z * (bounds[static_cast<std::size_t>(frustumPlane.ZIndex2)] + offset.Z) - plane.W < 0.0F)
@@ -1915,25 +2031,29 @@ namespace MphRead::Entities
             assert(nodeIndex != -1);
             assert(modelIndex != -1);
             Vector3 offset = Vector3::Zero;
-            ModelInstance* partInst;
+            std::shared_ptr<ModelInstance> partInstValue{};
             Matrix4 transform = IdentityMatrix();
             if (modelIndex == 0)
             {
-                partInst = &roomInst;
+                partInstValue = ListAt(_models.Items(), 0);
             }
             else
             {
-                partInst = ListAt(_connectorModels, modelIndex - 1).get();
+                partInstValue = ListAt(_connectorModels, modelIndex - 1);
                 offset = RequireReference(ListAt(_roomCollision, modelIndex)).Translation;
-                transform = CreateScale(RequireReference(partInst).Model()->Scale);
-                transform.M41 = offset.X; transform.M42 = offset.Y; transform.M43 = offset.Z;
+                ModelInstance& partInst = RequireReference(partInstValue);
+                transform = CreateScale(RequireModel(partInst).Scale);
+                transform.M41 = offset.X;
+                transform.M42 = offset.Y;
+                transform.M43 = offset.Z;
             }
-            if (!RequireReference(partInst).Active)
+            ModelInstance& partInst = RequireReference(partInstValue);
+            if (!partInst.Active)
             {
                 roomPart = part.Next;
                 continue;
             }
-            const auto& nodes = RequireReference(RequireReference(partInst).Model()->Nodes);
+            const auto& nodes = RequireReference(RequireModel(partInst).Nodes);
             while (nodeIndex != -1)
             {
                 Node& node = RequireReference(ListAt(nodes, nodeIndex));
@@ -1950,7 +2070,7 @@ namespace MphRead::Entities
                     if (IsNodeVisible(RequireReference(link.Info), node, 0x8FFF, offset))
                     {
                         if (!Equal(offset, Vector3::Zero)) node.Animation = transform;
-                        GetItems(RequireReference(partInst), node);
+                        GetItems(partInst, node);
                         const auto pair = _nodePairs.find(&node);
                         if (pair != _nodePairs.end()) _excludedNodes.insert(pair->second.get());
                         break;
@@ -1985,7 +2105,7 @@ namespace MphRead::Entities
     void RoomEntity::DrawAllNodes(ModelInstance& inst, bool connector)
     {
         _excludedNodes.clear();
-        const auto& nodes = RequireReference(inst.Model()->Nodes);
+        const auto& nodes = RequireReference(RequireModel(inst).Nodes);
         for (const std::shared_ptr<Node>& pnodeValue : nodes)
         {
             Node& pnode = RequireReference(pnodeValue);
@@ -2031,13 +2151,15 @@ namespace MphRead::Entities
         }
     }
 
-    void RoomEntity::GetItems(ModelInstance& inst, Node& node, const std::shared_ptr<Portal>& portal)
+    void RoomEntity::GetItems(
+        ModelInstance& inst, Node& node, const std::shared_ptr<Portal>& portal)
     {
         if (!node.Enabled) return;
-        Model& model = RequireReference(inst.Model());
+        const std::shared_ptr<Model> modelValue = inst.Model();
         const std::int32_t start = node.MeshId / 2;
         for (std::int32_t k = 0; k < node.MeshCount; ++k)
         {
+            Model& model = RequireReference(modelValue);
             std::int32_t polygonId = 0;
             Mesh& mesh = RequireReference(ListAt(RequireReference(model.Meshes), start + k));
             if (!mesh.Visible) continue;
@@ -2137,9 +2259,12 @@ namespace MphRead::Entities
             const Vector3 sideX(maxLimit.X - minLimit.X, 0.0F, 0.0F);
             const Vector3 sideY(0.0F, maxLimit.Y - minLimit.Y, 0.0F);
             const Vector3 sideZ(0.0F, 0.0F, maxLimit.Z - minLimit.Z);
-            bverts[0] = point0; bverts[1] = Add(point0, sideZ);
-            bverts[2] = Add(point0, sideX); bverts[3] = Add(Add(point0, sideX), sideZ);
-            bverts[4] = Add(point0, sideY); bverts[5] = Add(Add(point0, sideY), sideZ);
+            bverts[0] = point0;
+            bverts[1] = Add(point0, sideZ);
+            bverts[2] = Add(point0, sideX);
+            bverts[3] = Add(Add(point0, sideX), sideZ);
+            bverts[4] = Add(point0, sideY);
+            bverts[5] = Add(Add(point0, sideY), sideZ);
             bverts[6] = Add(Add(point0, sideX), sideY);
             bverts[7] = Add(Add(Add(point0, sideX), sideY), sideZ);
             const Vector4 color = scene.ShowVolumes == VolumeDisplay::CameraLimit

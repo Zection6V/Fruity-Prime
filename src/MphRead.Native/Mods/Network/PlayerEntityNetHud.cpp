@@ -5,12 +5,10 @@
 
 namespace MphRead::Entities::PlayerEntityNetHudDetail
 {
-    // Declaration-only seams into current NetSession state and the later
-    // PlayerEntity draw owner. They expose existing state/calls only.
-    enum class Align
-    {
-        Center
-    };
+    // Declaration-only seams into current NetSession state and later-owned
+    // drawing contracts. They expose existing state/calls only.
+    enum class Align : std::int32_t;
+    extern const Align Center;
 
     [[nodiscard]] bool NetSessionActive();
     [[nodiscard]] std::int32_t NetSessionSlotPingLength();
@@ -50,7 +48,7 @@ namespace MphRead::Entities
             *this,
             _pingColumnX,
             posY,
-            PlayerEntityNetHudDetail::Align::Center,
+            PlayerEntityNetHudDetail::Center,
             0,
             "ping",
             ColorRgba(0x3FEFU),
@@ -93,7 +91,7 @@ namespace MphRead::Entities
             *this,
             _pingColumnX,
             posY,
-            PlayerEntityNetHudDetail::Align::Center,
+            PlayerEntityNetHudDetail::Center,
             0,
             text,
             PingColor(ping),

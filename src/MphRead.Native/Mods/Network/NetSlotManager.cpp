@@ -37,6 +37,10 @@ namespace MphRead::Mods::Network::Detail
     void NetSlotManagerSetBotLevel(Entities::PlayerEntity& player, std::int32_t value);
     void NetSlotManagerSetHunter(Entities::PlayerEntity& player, MphRead::Hunter hunter);
 
+    // Preserve the managed null-dereference failure without inventing a Native
+    // exception type in this slice.
+    [[noreturn]] void NetSlotManagerThrowNullReference();
+
     // C# interpolation formats numeric and enum values through the managed
     // formatting rules before Console.WriteLine/NetLog receive the string.
     [[nodiscard]] std::string NetSlotManagerFormatInt32(std::int32_t value);
@@ -58,7 +62,7 @@ namespace
     {
         if (!player)
         {
-            throw System::NullReferenceException();
+            MphRead::Mods::Network::Detail::NetSlotManagerThrowNullReference();
         }
         return *player;
     }

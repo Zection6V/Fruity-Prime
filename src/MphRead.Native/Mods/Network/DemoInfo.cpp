@@ -405,7 +405,8 @@ namespace MphRead::Mods::Network
         WriteLine("  --- replayed through DemoPlayback ---");
         if (!DemoPlayback::Join(path))
         {
-            WriteLine("  replay failed: " + DemoPlayback::LastError());
+            const std::optional<std::string> lastError = DemoPlayback::LastError();
+            WriteLine("  replay failed: " + lastError.value_or(std::string{}));
             return 1;
         }
 

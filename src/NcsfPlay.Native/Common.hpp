@@ -32,9 +32,29 @@ namespace NCSFCommon
 		std::u16string NegativeInfinitySymbol;
 	};
 
+	class NullReferenceException final : public std::runtime_error
+	{
+	public:
+		NullReferenceException()
+			: std::runtime_error("Object reference not set to an instance of an object.")
+		{
+		}
+	};
+
+	class ArgumentNullException final : public std::invalid_argument
+	{
+	public:
+		explicit ArgumentNullException(std::string_view parameter)
+			: std::invalid_argument(std::string("Value cannot be null. (Parameter '")
+				+ std::string(parameter) + "')")
+		{
+		}
+	};
+
 	// Thin native execution-context adapter for CultureInfo.CurrentCulture.NumberFormat.
-	// A fresh value is obtained on every call so culture changes are observed immediately.
+	// A fresh platform value is obtained when no managed-equivalent thread override is set.
 	[[nodiscard]] NumberFormatInfo GetCurrentCultureNumberFormat();
+	void SetCurrentCultureNumberFormat(std::optional<NumberFormatInfo> format);
 
 	template <typename T>
 	class Memory;
@@ -383,6 +403,8 @@ namespace NCSFCommon
 		~Regex() = default;
 
 		[[nodiscard]] bool IsMatch(std::u16string_view input) const;
+		[[nodiscard]] bool IsMatch(const std::u16string* input) const;
+		[[nodiscard]] bool IsMatch(std::nullptr_t) const;
 		[[nodiscard]] const std::u16string& ToString() const noexcept;
 	};
 
@@ -399,8 +421,26 @@ namespace NCSFCommon
 		private:
 			ListMemory() = delete;
 
-			using Delegate = std::function<Memory<T>(List<T>&)>;
+		public:
+			class Delegate final
+			{
+			public:
+				[[nodiscard]] Memory<T> operator()(List<T>& list) const
+				{
+					return Memory<T>(list);
+				}
 
+				[[nodiscard]] Memory<T> operator()(List<T>* list) const
+				{
+					if (list == nullptr)
+					{
+						throw NullReferenceException();
+					}
+					return Memory<T>(*list);
+				}
+			};
+
+		private:
 			struct LazyState final
 			{
 				std::once_flag Once;
@@ -416,11 +456,7 @@ namespace NCSFCommon
 				{
 					try
 					{
-						state.Value = std::make_unique<Delegate>(
-							[](List<T>& list)
-							{
-								return Memory<T>(list);
-							});
+						state.Value = std::make_unique<Delegate>();
 					}
 					catch (...)
 					{
@@ -445,11 +481,7 @@ namespace NCSFCommon
 		template <typename T>
 		[[nodiscard]] static Memory<T> AsMemory(List<T>* list)
 		{
-			if (list == nullptr)
-			{
-				throw std::runtime_error("Object reference not set to an instance of an object.");
-			}
-			return AsMemory(*list);
+			return ListMemory<T>::AsMemory()(list);
 		}
 
 		template <typename T>
@@ -486,6 +518,10 @@ namespace NCSFCommon
 			std::span<const std::uint8_t> span);
 		static void WriteNullTerminatedString(
 			std::span<std::uint8_t> span, std::u16string_view str);
+		static void WriteNullTerminatedString(
+			std::span<std::uint8_t> span, const std::u16string* str);
+		static void WriteNullTerminatedString(
+			std::span<std::uint8_t> span, std::nullptr_t);
 
 		enum class SDATRecordType : std::uint8_t
 		{
@@ -503,6 +539,8 @@ namespace NCSFCommon
 			std::span<const std::uint8_t> actual, std::span<const std::uint8_t> expected);
 
 		[[nodiscard]] static Regex WildcardStringToRegex(std::u16string_view wildcard);
+		[[nodiscard]] static Regex WildcardStringToRegex(const std::u16string* wildcard);
+		[[nodiscard]] static Regex WildcardStringToRegex(std::nullptr_t);
 
 		enum class KeepType : std::uint8_t
 		{
@@ -578,8 +616,11 @@ namespace NCSFCommon
 			std::u16string_view filename,
 			std::u16string_view sdatNumber,
 			const std::vector<std::shared_ptr<KeepInfo>>& includesAndExcludes);
+		[[nodiscard]] static KeepType IncludeFilename(
+			const std::u16string* filename,
+			const std::u16string* sdatNumber,
+			const std::vector<std::shared_ptr<KeepInfo>>* includesAndExcludes);
 
-		// Mirrors the C# "0#.####" custom numeric format, including its midpoint rounding rule.
 		[[nodiscard]] static std::u16string SecondsToString(float seconds);
 		[[nodiscard]] static std::int32_t StringToMS(std::u16string_view time);
 		[[nodiscard]] static std::int32_t VLVLength(std::int32_t value) noexcept;

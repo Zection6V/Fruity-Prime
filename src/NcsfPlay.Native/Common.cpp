@@ -24,6 +24,8 @@
 
 namespace
 {
+	thread_local std::optional<NCSFCommon::NumberFormatInfo> CurrentCultureNumberFormatOverride;
+
 	[[nodiscard]] constexpr bool IsParseWhiteSpace(char16_t value) noexcept
 	{
 		return (value >= u'\u0009' && value <= u'\u000D') || value == u'\u0020';
@@ -445,57 +447,136 @@ namespace
 		const bool negative = std::signbit(value);
 		const float magnitude = std::fabs(value);
 
-		// .NET custom numeric formatting rounds midpoint values away from zero. Scaling a
-		// Single in double precision is exact here, so this preserves the source's four
-		// optional fractional digits without inheriting std::to_chars' ties-to-even rule.
-		constexpr double scale = 10000.0;
-		const double scaled = static_cast<double>(magnitude) * scale;
-		const double roundedMagnitude = std::floor(scaled + 0.5) / scale;
-
-		std::array<char, 128> buffer{};
-		const auto [end, error] = std::to_chars(
-			buffer.data(), buffer.data() + buffer.size(), roundedMagnitude, std::chars_format::fixed, 4);
-		if (error != std::errc{})
+		// .NET 9 first renders Single custom formats through a seven-significant-digit
+		// NumberBuffer. Generate that intermediate with correctly-rounded decimal digits,
+		// then apply the custom formatter's digit >= '5' rounding at four fraction digits.
+		std::array<char, 64> scientificBuffer{};
+		const auto [scientificEnd, scientificError] = std::to_chars(
+			scientificBuffer.data(), scientificBuffer.data() + scientificBuffer.size(),
+			magnitude, std::chars_format::scientific, 6);
+		if (scientificError != std::errc{})
+		{
+			throw std::runtime_error("Failed to format a Single value.");
+		}
+		const std::string scientific(scientificBuffer.data(), scientificEnd);
+		const std::size_t exponentMarker = scientific.find('e');
+		if (exponentMarker == std::string::npos)
 		{
 			throw std::runtime_error("Failed to format a Single value.");
 		}
 
-		std::string text(buffer.data(), end);
-		const std::size_t decimal = text.find('.');
-		if (decimal != std::string::npos)
+		std::string digits;
+		digits.reserve(7);
+		for (std::size_t index = 0; index < exponentMarker; ++index)
 		{
-			while (!text.empty() && text.back() == '0')
+			const char chr = scientific[index];
+			if (chr >= '0' && chr <= '9')
 			{
-				text.pop_back();
-			}
-			if (!text.empty() && text.back() == '.')
-			{
-				text.pop_back();
+				digits.push_back(chr);
 			}
 		}
-
-		const std::size_t integerEnd = text.find('.');
-		const std::size_t integerDigits = integerEnd == std::string::npos ? text.size() : integerEnd;
-		if (integerDigits < 2)
+		if (digits.size() != 7)
 		{
-			text.insert(text.begin(), 2 - integerDigits, '0');
+			throw std::runtime_error("Failed to format a Single value.");
 		}
 
-		std::u16string result;
-		if (negative)
+		int exponentSign = 1;
+		std::size_t exponentIndex = exponentMarker + 1;
+		if (scientific[exponentIndex] == '-')
 		{
-			result += format.NegativeSign;
+			exponentSign = -1;
+			++exponentIndex;
 		}
-		for (char chr : text)
+		else if (scientific[exponentIndex] == '+')
 		{
-			if (chr == '.')
+			++exponentIndex;
+		}
+		int exponent = 0;
+		for (; exponentIndex < scientific.size(); ++exponentIndex)
+		{
+			exponent = exponent * 10 + (scientific[exponentIndex] - '0');
+		}
+		exponent *= exponentSign;
+
+		const int decimalPosition = exponent + 1;
+		std::string integer;
+		std::string fraction;
+		if (decimalPosition <= 0)
+		{
+			integer = "0";
+			fraction.assign(static_cast<std::size_t>(-decimalPosition), '0');
+			fraction += digits;
+		}
+		else if (decimalPosition >= static_cast<int>(digits.size()))
+		{
+			integer = digits;
+			integer.append(static_cast<std::size_t>(decimalPosition) - digits.size(), '0');
+		}
+		else
+		{
+			integer = digits.substr(0, static_cast<std::size_t>(decimalPosition));
+			fraction = digits.substr(static_cast<std::size_t>(decimalPosition));
+		}
+
+		if (fraction.size() < 5)
+		{
+			fraction.append(5 - fraction.size(), '0');
+		}
+		std::string keptFraction = fraction.substr(0, 4);
+		std::string scaled = integer + keptFraction;
+		if (fraction[4] >= '5')
+		{
+			std::size_t index = scaled.size();
+			while (index > 0 && scaled[index - 1] == '9')
 			{
-				result += format.NumberDecimalSeparator;
+				scaled[index - 1] = '0';
+				--index;
+			}
+			if (index == 0)
+			{
+				scaled.insert(scaled.begin(), '1');
 			}
 			else
 			{
-				result.push_back(static_cast<char16_t>(static_cast<unsigned char>(chr)));
+				++scaled[index - 1];
 			}
+		}
+
+		while (scaled.size() < 5)
+		{
+			scaled.insert(scaled.begin(), '0');
+		}
+		const bool roundedZero = std::all_of(scaled.begin(), scaled.end(), [](char chr)
+		{
+			return chr == '0';
+		});
+		const std::size_t split = scaled.size() - 4;
+		integer = scaled.substr(0, split);
+		keptFraction = scaled.substr(split);
+
+		while (integer.size() > 1 && integer.front() == '0')
+		{
+			integer.erase(integer.begin());
+		}
+		if (integer.size() < 2)
+		{
+			integer.insert(integer.begin(), 2 - integer.size(), '0');
+		}
+		while (!keptFraction.empty() && keptFraction.back() == '0')
+		{
+			keptFraction.pop_back();
+		}
+
+		std::u16string result;
+		if (negative && !roundedZero)
+		{
+			result += format.NegativeSign;
+		}
+		result += ToU16(integer);
+		if (!keptFraction.empty())
+		{
+			result += format.NumberDecimalSeparator;
+			result += ToU16(keptFraction);
 		}
 		return result;
 	}
@@ -678,6 +759,49 @@ namespace
 		return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
 	}
 
+	[[nodiscard]] std::u16string TranslateDotNetRegexPattern(std::u16string_view pattern)
+	{
+		std::u16string translated;
+		translated.reserve(pattern.size());
+		bool escaped = false;
+		bool inCharacterClass = false;
+		for (char16_t chr : pattern)
+		{
+			if (escaped)
+			{
+				translated.push_back(chr);
+				escaped = false;
+				continue;
+			}
+			if (chr == u'\\')
+			{
+				translated.push_back(chr);
+				escaped = true;
+				continue;
+			}
+			if (chr == u'[')
+			{
+				inCharacterClass = true;
+				translated.push_back(chr);
+				continue;
+			}
+			if (chr == u']' && inCharacterClass)
+			{
+				inCharacterClass = false;
+				translated.push_back(chr);
+				continue;
+			}
+			if (chr == u'.' && !inCharacterClass)
+			{
+				// RegexOptions.None: '.' matches every UTF-16 code unit except '\n'.
+				translated += u"[^\\n]";
+				continue;
+			}
+			translated.push_back(chr);
+		}
+		return translated;
+	}
+
 	[[nodiscard]] std::wstring Utf16CodeUnitsToWide(std::u16string_view value)
 	{
 		std::wstring result;
@@ -694,7 +818,16 @@ namespace NCSFCommon
 {
 	NumberFormatInfo GetCurrentCultureNumberFormat()
 	{
+		if (CurrentCultureNumberFormatOverride)
+		{
+			return *CurrentCultureNumberFormatOverride;
+		}
 		return LoadExecutionThreadNumberFormat();
+	}
+
+	void SetCurrentCultureNumberFormat(std::optional<NumberFormatInfo> format)
+	{
+		CurrentCultureNumberFormatOverride = std::move(format);
 	}
 
 	void Common::ThrowNotSupported()
@@ -711,15 +844,26 @@ namespace NCSFCommon
 	public:
 		explicit Impl(std::u16string pattern)
 			: _pattern(std::move(pattern)),
-			  _regex(Utf16CodeUnitsToWide(_pattern),
+			  _regex(Utf16CodeUnitsToWide(TranslateDotNetRegexPattern(_pattern)),
 				  std::regex_constants::ECMAScript | std::regex_constants::optimize)
 		{
 		}
 
 		[[nodiscard]] bool IsMatch(std::u16string_view input) const
 		{
-			const std::wstring converted = Utf16CodeUnitsToWide(input);
-			return std::regex_search(converted, _regex);
+			std::wstring converted = Utf16CodeUnitsToWide(input);
+			if (std::regex_search(converted, _regex))
+			{
+				return true;
+			}
+			// RegexOptions.None '$' also matches immediately before a final '\n'. The
+			// translated dot already matches CR/U+0085/U+2028/U+2029 like .NET.
+			if (!converted.empty() && converted.back() == L'\n')
+			{
+				converted.pop_back();
+				return std::regex_search(converted, _regex);
+			}
+			return false;
 		}
 
 		[[nodiscard]] const std::u16string& Pattern() const noexcept
@@ -736,6 +880,20 @@ namespace NCSFCommon
 	bool Regex::IsMatch(std::u16string_view input) const
 	{
 		return _impl->IsMatch(input);
+	}
+
+	bool Regex::IsMatch(const std::u16string* input) const
+	{
+		if (input == nullptr)
+		{
+			throw ArgumentNullException("input");
+		}
+		return IsMatch(std::u16string_view(*input));
+	}
+
+	bool Regex::IsMatch(std::nullptr_t) const
+	{
+		return IsMatch(static_cast<const std::u16string*>(nullptr));
 	}
 
 	const std::u16string& Regex::ToString() const noexcept
@@ -806,6 +964,21 @@ namespace NCSFCommon
 		span[pos] = 0;
 	}
 
+	void Common::WriteNullTerminatedString(
+		std::span<std::uint8_t> span, const std::u16string* str)
+	{
+		if (str == nullptr)
+		{
+			throw NullReferenceException();
+		}
+		WriteNullTerminatedString(span, std::u16string_view(*str));
+	}
+
+	void Common::WriteNullTerminatedString(std::span<std::uint8_t> span, std::nullptr_t)
+	{
+		WriteNullTerminatedString(span, static_cast<const std::u16string*>(nullptr));
+	}
+
 	bool Common::VerifyHeader(
 		std::span<const std::uint8_t> actual, std::span<const std::uint8_t> expected)
 	{
@@ -821,6 +994,20 @@ namespace NCSFCommon
 		pattern.insert(pattern.begin(), u'^');
 		pattern.push_back(u'$');
 		return Regex(std::move(pattern));
+	}
+
+	Regex Common::WildcardStringToRegex(const std::u16string* wildcard)
+	{
+		if (wildcard == nullptr)
+		{
+			throw NullReferenceException();
+		}
+		return WildcardStringToRegex(std::u16string_view(*wildcard));
+	}
+
+	Regex Common::WildcardStringToRegex(std::nullptr_t)
+	{
+		return WildcardStringToRegex(static_cast<const std::u16string*>(nullptr));
 	}
 
 	Common::KeepInfo::KeepInfo(std::u16string filename, KeepType keep)
@@ -959,7 +1146,7 @@ namespace NCSFCommon
 		{
 			if (!info || !info->Filename)
 			{
-				throw std::runtime_error("Object reference not set to an instance of an object.");
+				throw NullReferenceException();
 			}
 
 			const std::vector<std::u16string_view> parts = SplitPreserveEmpty(*info->Filename, u'/');
@@ -975,6 +1162,50 @@ namespace NCSFCommon
 			else if (WildcardStringToRegex(*info->Filename).IsMatch(filename))
 			{
 				keep = info->Keep;
+			}
+		}
+		return keep;
+	}
+
+	Common::KeepType Common::IncludeFilename(
+		const std::u16string* filename,
+		const std::u16string* sdatNumber,
+		const std::vector<std::shared_ptr<KeepInfo>>* includesAndExcludes)
+	{
+		if (includesAndExcludes == nullptr)
+		{
+			throw NullReferenceException();
+		}
+
+		KeepType keep = KeepType::Neither;
+		for (const std::shared_ptr<KeepInfo>& info : *includesAndExcludes)
+		{
+			if (!info || !info->Filename)
+			{
+				throw NullReferenceException();
+			}
+
+			const std::vector<std::u16string_view> parts = SplitPreserveEmpty(*info->Filename, u'/');
+			DebugAssert(parts.size() <= 2, "parts.Length <= 2");
+			if (parts.size() == 2)
+			{
+				Regex sdatRegex = WildcardStringToRegex(parts[0]);
+				if (sdatRegex.IsMatch(sdatNumber))
+				{
+					Regex filenameRegex = WildcardStringToRegex(parts[1]);
+					if (filenameRegex.IsMatch(filename))
+					{
+						keep = info->Keep;
+					}
+				}
+			}
+			else
+			{
+				Regex filenameRegex = WildcardStringToRegex(*info->Filename);
+				if (filenameRegex.IsMatch(filename))
+				{
+					keep = info->Keep;
+				}
 			}
 		}
 		return keep;

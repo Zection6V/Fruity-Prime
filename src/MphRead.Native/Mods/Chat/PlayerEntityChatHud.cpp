@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -181,9 +182,16 @@ namespace MphRead::Entities
             }
             const float at = ChatDraw(x, y, aspect, alpha, name,
                 system ? ChatSystemInk : ChatName);
-            const std::u16string lineText = ToChatChars(RequireString(line.Text));
+            std::optional<std::u16string> lineText;
+            if (line.Text)
+            {
+                lineText = ToChatChars(*line.Text);
+            }
+            const std::optional<std::u16string> fitted
+                = ChatFit(lineText, aspect, at - x);
             ChatDraw(at, y, aspect, alpha,
-                ChatFit(lineText, aspect, at - x), system ? ChatSystemInk : ChatInk);
+                fitted ? std::u16string_view(*fitted) : std::u16string_view{},
+                system ? ChatSystemInk : ChatInk);
             y += ChatLineHeight;
         }
         if (ChatBox::Composing())
@@ -236,19 +244,27 @@ namespace MphRead::Entities
         return 256.0F - ChatLeft(aspect) - ChatMargin * aspect - used;
     }
 
-    std::u16string PlayerEntity::ChatFit(std::u16string_view text, float aspect, float used)
+    std::optional<std::u16string> PlayerEntity::ChatFit(
+        const std::optional<std::u16string>& text, float aspect, float used)
     {
         const float room = ChatRoom(aspect, used);
-        if (ChatWidth(text, aspect) <= room)
+        const std::u16string_view span = text
+            ? std::u16string_view(*text)
+            : std::u16string_view{};
+        if (ChatWidth(span, aspect) <= room)
         {
-            return std::u16string(text);
+            return text;
         }
-        std::size_t count = text.size();
-        while (count > 0 && ChatWidth(text.substr(0, count), aspect) > room)
+        if (!text)
+        {
+            throw System::NullReferenceException();
+        }
+        std::size_t count = text->size();
+        while (count > 0 && ChatWidth(std::u16string_view(*text).substr(0, count), aspect) > room)
         {
             --count;
         }
-        return std::u16string(text.substr(0, count));
+        return text->substr(0, count);
     }
 
     std::u16string PlayerEntity::ChatTail(std::u16string_view text, float aspect, float used)

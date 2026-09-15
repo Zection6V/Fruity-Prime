@@ -5,6 +5,7 @@
 #include "ChatBox.hpp"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -33,7 +34,7 @@ private:                                                                        
         std::u16string_view text, ::MphRead::ColorRgba color);                                \
     [[nodiscard]] static float ChatWidth(std::u16string_view text, float aspect);             \
     [[nodiscard]] static float ChatRoom(float aspect, float used);                            \
-    [[nodiscard]] static std::u16string ChatFit(                                              \
-        std::u16string_view text, float aspect, float used);                                  \
+    [[nodiscard]] static std::optional<std::u16string> ChatFit(                               \
+        const std::optional<std::u16string>& text, float aspect, float used);                  \
     [[nodiscard]] static std::u16string ChatTail(                                             \
         std::u16string_view text, float aspect, float used);

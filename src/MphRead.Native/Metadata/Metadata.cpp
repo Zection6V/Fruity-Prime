@@ -2238,7 +2238,7 @@ std::vector<WeaponSpec> BuildBossSpecs()
         .speedDecay={7,7},.padding42=7,.speedInterp={2,2},.unchargedDmgDirMag=1638,.minChargeDmgDirMag=1638,.chargedDmgDirMag=1638,.zoomFov=40960,
         .unchargedCylRadius=1638,.minChargeCylRadius=1638,.chargedCylRadius=1638,.unchargedSpeed=4,.minChargeSpeed=4,.chargedSpeed=4,
         .unchargedFinalSpeed=512,.minChargeFinalSpeed=512,.chargedFinalSpeed=512,.unchargedGravity=0,.minChargeGravity=0,.chargedGravity=0,
-        .unchargedHoming=0,.minChargeHoming=0,.chargedHoming=0,.homingRange=409600,.homingTolerance=71,.unchargedSplashRadius=4096,
+        .unchargedHoming=2048,.minChargeHoming=2048,.chargedHoming=14336,.homingRange=409600,.homingTolerance=71,.unchargedSplashRadius=4096,
         .minChargeSplashRadius=4096,.chargedSplashRadius=4096,.unchargedDistance=0,.minChargeDistance=0,.chargedDistance=0,.unchargedSpread=0,
         .minChargeSpread=0,.chargedSpread=0,.unRicoLossH=3686,.minRicoLossH=3686,.chRicoLossH=3686,.unRicoLossV=3686,.minRicoLossV=3686,
         .chRicoLossV=3686,.unchargedRicoWeaponIdx=-1,.chargedRicoWeaponIdx=-1,.projectileCount=1,.minChargedProjectileCount=1,

@@ -21,7 +21,6 @@ namespace NCSFCommon
     class Player
     {
     public:
-        Player();
         virtual ~Player() = default;
 
         Player(const Player&) = delete;
@@ -51,7 +50,7 @@ namespace NCSFCommon
         [[nodiscard]] virtual std::uint32_t SampleRate() const = 0;
         virtual void SampleRate(std::uint32_t value) = 0;
 
-        [[nodiscard]] const std::shared_ptr<NC::SBNK>& SBNK() const noexcept;
+        [[nodiscard]] std::shared_ptr<NC::SBNK> SBNK() const noexcept;
         void SBNK(std::shared_ptr<NC::SBNK> value) noexcept;
 
         [[nodiscard]] std::span<const std::shared_ptr<NC::SWAR>> SWARs() const noexcept;
@@ -90,6 +89,8 @@ namespace NCSFCommon
         [[nodiscard]] static float MulDiv7(float val, std::uint8_t mul) noexcept;
 
     protected:
+        Player();
+
         static constexpr std::int32_t TrackCount = 16;
         static constexpr std::uint16_t TimerRate = 240;
 

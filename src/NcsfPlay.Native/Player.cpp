@@ -92,7 +92,7 @@ namespace NCSFCommon
         return variables;
     }
 
-    const std::shared_ptr<NC::SBNK>& Player::SBNK() const noexcept
+    std::shared_ptr<NC::SBNK> Player::SBNK() const noexcept
     {
         return _sbnk;
     }

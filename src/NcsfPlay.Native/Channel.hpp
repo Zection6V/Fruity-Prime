@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <utility>
 
 namespace NCSFCommon
 {
@@ -157,7 +158,6 @@ namespace NCSFCommon
         LFO& operator=(LFO&&) = delete;
 
         [[nodiscard]] const std::shared_ptr<LFOParam>& Param() const noexcept;
-        void Param(std::shared_ptr<LFOParam> value) noexcept;
 
         [[nodiscard]] std::uint16_t DelayCounter() const noexcept;
         void DelayCounter(std::uint16_t value) noexcept;
@@ -170,6 +170,10 @@ namespace NCSFCommon
         [[nodiscard]] std::int32_t GetValue() const;
 
     private:
+        friend class Channel;
+
+        void Param(std::shared_ptr<LFOParam> value) noexcept;
+
         static const std::array<std::int8_t, 33> SinTable;
 
         [[nodiscard]] static std::int8_t SinIndex(std::int32_t x);
@@ -383,6 +387,35 @@ namespace NCSFCommon
         static const std::array<std::array<float, 8>, 8> WaveDutyTable;
 
     private:
+        class CallbackStorage
+        {
+        public:
+            CallbackStorage() noexcept = default;
+            CallbackStorage(std::function<void(Channel*, bool)> value) noexcept
+                : _value(std::move(value))
+            {
+            }
+
+            [[nodiscard]] explicit operator bool() const noexcept
+            {
+                return static_cast<bool>(_value);
+            }
+
+            void operator()(Channel* channel, bool free) const
+            {
+                auto callback = _value;
+                callback(channel, free);
+            }
+
+            [[nodiscard]] operator const std::function<void(Channel*, bool)>&() const noexcept
+            {
+                return _value;
+            }
+
+        private:
+            std::function<void(Channel*, bool)> _value;
+        };
+
         static constexpr std::int32_t SoundVolumeDBMin = -723;
 
         static const std::array<std::uint8_t, 724> GetVolumeTable;
@@ -435,7 +468,7 @@ namespace NCSFCommon
         std::int32_t _dutyCycle = 0;
         std::uint16_t _waveTimer = 0;
 
-        std::function<void(Channel*, bool)> _callback;
+        CallbackStorage _callback;
 
         NCSFCommon::Player* _player = nullptr;
         NDSSoundRegister _register;

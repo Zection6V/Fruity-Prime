@@ -1,58 +1,38 @@
 #pragma once
 
-#include "../Formats/Types.hpp"
-
 #include <cstdint>
-#include <memory>
-#include <vector>
+#include <optional>
 
-namespace MphRead
+namespace MphRead::Mods
 {
-    class CollisionPlane;
-
-    namespace Entities
-    {
-        class CameraInfo;
-        class PlayerEntity;
-    }
-
     class SpectatorMode final
     {
     public:
         SpectatorMode() = delete;
 
-        [[nodiscard]] static bool IsSpectator() noexcept;
-        [[nodiscard]] static std::int32_t SpectatorTarget() noexcept;
+        [[nodiscard]] static bool IsSpectating() noexcept;
+        [[nodiscard]] static bool FreeCamera() noexcept;
+        [[nodiscard]] static bool CanSpectate();
 
-        static void EnableSpectator() noexcept;
-        static void CancelSpectator() noexcept;
-        static void EndSpectating();
-        [[nodiscard]] static bool TrySelectSpectatorTarget(std::int32_t slotIndex);
-        static void UpdateSpectatorTarget();
-        static void ClearPlayerPointers();
-        static void ResetPlayerPointers();
-        static void CheckForNextTarget(const std::shared_ptr<Entities::PlayerEntity>& player);
-        [[nodiscard]] static std::shared_ptr<Entities::CameraInfo> GetCameraInfo(
-            const std::shared_ptr<Entities::PlayerEntity>& player,
-            std::shared_ptr<Entities::CameraInfo> cameraInfo);
-        static void MoveReflectedCamera(const std::shared_ptr<Entities::PlayerEntity>& player);
-        static void DrawSpectated(const std::shared_ptr<Entities::PlayerEntity>& player);
-        static void DrawIceOverlay(const std::shared_ptr<Entities::PlayerEntity>& player);
-        static void DrawHud();
+        static void Start(bool watchSomeone = false);
+        static void CycleNext();
+        static void ToggleView();
+
+        [[nodiscard]] static bool ShowScoreboard() noexcept;
+        static void NoteScoreboard(bool down) noexcept;
+        static void NoteFreeCamera(bool on) noexcept;
+        [[nodiscard]] static std::optional<bool> TakeCameraRequest() noexcept;
+
+        static void Rejoin();
+        static void Reset() noexcept;
 
     private:
-        [[nodiscard]] static bool ShouldDrawPlayer(
-            const std::shared_ptr<Entities::PlayerEntity>& player);
-        static void DrawFusionBanned();
+        static void Switch(std::int32_t slot);
+        [[nodiscard]] static std::int32_t FindNextActiveSlot(std::int32_t fromSlot);
 
-        static std::int32_t _spectatorEnabled;
-        static std::int32_t _spectatorTarget;
-        static std::shared_ptr<Entities::CameraInfo> _prevCameraInfo;
-        static std::int32_t _prevPlayerTarget;
-
-        static const OpenTK::Mathematics::Vector3 _fbPosition;
-        static const OpenTK::Mathematics::Vector3 _fbFacing;
-        static const OpenTK::Mathematics::Vector3 _fbUp;
-        static const std::shared_ptr<const std::vector<CollisionPlane>> _fbCollision;
+        static bool _isSpectating;
+        static bool _freeCamera;
+        static std::optional<bool> _cameraRequest;
+        static bool _showScoreboard;
     };
 }

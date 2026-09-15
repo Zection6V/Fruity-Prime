@@ -14,8 +14,8 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
-#include <istream>
 #include <memory>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -67,6 +67,24 @@ namespace System
         }
     };
 
+    class DivideByZeroException final : public std::runtime_error
+    {
+    public:
+        DivideByZeroException()
+            : std::runtime_error("Attempted to divide by zero.")
+        {
+        }
+    };
+
+    class ObjectDisposedException final : public std::runtime_error
+    {
+    public:
+        explicit ObjectDisposedException(std::string_view objectName)
+            : std::runtime_error("Cannot access a closed " + std::string(objectName) + ".")
+        {
+        }
+    };
+
     // Mechanical value-type representation of System.Decimal. The 96-bit integer,
     // sign and scale fields match the CLR decimal value domain without binary-FP loss.
     class Decimal final
@@ -74,16 +92,30 @@ namespace System
     public:
         constexpr Decimal() noexcept = default;
         explicit Decimal(std::int32_t value) noexcept;
+        explicit Decimal(std::uint32_t value) noexcept;
+        explicit Decimal(std::int64_t value) noexcept;
+        explicit Decimal(std::uint64_t value) noexcept;
         Decimal(std::int32_t lo, std::int32_t mid, std::int32_t hi,
             bool isNegative, std::uint8_t scale);
 
         [[nodiscard]] static Decimal DivideInt32By65536(std::int32_t value) noexcept;
-        [[nodiscard]] constexpr std::uint32_t Lo() const noexcept { return _lo; }
-        [[nodiscard]] constexpr std::uint32_t Mid() const noexcept { return _mid; }
-        [[nodiscard]] constexpr std::uint32_t Hi() const noexcept { return _hi; }
-        [[nodiscard]] constexpr bool IsNegative() const noexcept { return _negative; }
-        [[nodiscard]] constexpr std::uint8_t Scale() const noexcept { return _scale; }
+        [[nodiscard]] std::int32_t CompareTo(const Decimal& other) const;
+        [[nodiscard]] bool Equals(const Decimal& other) const;
+        [[nodiscard]] float ToSingle() const noexcept;
         [[nodiscard]] double ToDouble() const noexcept;
+        [[nodiscard]] std::string ToString() const;
+
+        friend bool operator==(const Decimal& left, const Decimal& right);
+        friend bool operator!=(const Decimal& left, const Decimal& right);
+        friend bool operator<(const Decimal& left, const Decimal& right);
+        friend bool operator<=(const Decimal& left, const Decimal& right);
+        friend bool operator>(const Decimal& left, const Decimal& right);
+        friend bool operator>=(const Decimal& left, const Decimal& right);
+        friend Decimal operator-(const Decimal& value);
+        friend Decimal operator+(const Decimal& left, const Decimal& right);
+        friend Decimal operator-(const Decimal& left, const Decimal& right);
+        friend Decimal operator*(const Decimal& left, const Decimal& right);
+        friend Decimal operator/(const Decimal& left, const Decimal& right);
 
     private:
         std::uint32_t _lo = 0;
@@ -91,6 +123,10 @@ namespace System
         std::uint32_t _hi = 0;
         std::uint8_t _scale = 0;
         bool _negative = false;
+
+        [[nodiscard]] static Decimal FromParts(
+            std::uint32_t lo, std::uint32_t mid, std::uint32_t hi,
+            std::uint8_t scale, bool negative) noexcept;
     };
 }
 
@@ -164,55 +200,111 @@ namespace MphRead::Formats
     namespace MovieNativeRuntime
     {
         template <typename T>
+        class ClrArray final
+        {
+        public:
+            ClrArray() noexcept = default;
+            explicit ClrArray(std::int32_t length)
+                : _length(CheckedLength(length)),
+                  _data(_length == 0 ? nullptr : std::make_unique<T[]>(static_cast<std::size_t>(_length)))
+            {
+            }
+            ClrArray(const ClrArray&) = delete;
+            ClrArray& operator=(const ClrArray&) = delete;
+
+            [[nodiscard]] std::int32_t Length() const noexcept { return _length; }
+            [[nodiscard]] T& operator[](std::int32_t index)
+            {
+                return _data[CheckedIndex(index)];
+            }
+            [[nodiscard]] const T& operator[](std::int32_t index) const
+            {
+                return _data[CheckedIndex(index)];
+            }
+
+        private:
+            std::int32_t _length = 0;
+            std::unique_ptr<T[]> _data{};
+
+            [[nodiscard]] static std::int32_t CheckedLength(std::int32_t length)
+            {
+                if (length < 0)
+                {
+                    throw System::OverflowException();
+                }
+                return length;
+            }
+            [[nodiscard]] std::size_t CheckedIndex(std::int32_t index) const
+            {
+                if (index < 0 || index >= _length)
+                {
+                    throw System::IndexOutOfRangeException();
+                }
+                return static_cast<std::size_t>(index);
+            }
+        };
+
+        template <typename T>
         class RectArray2D final
         {
         public:
-            RectArray2D() = default;
+            RectArray2D() noexcept = default;
             RectArray2D(std::int32_t rows, std::int32_t columns)
-                : _rows(rows), _columns(columns),
-                  _data(CheckedLength(rows, columns))
+                : _rows(rows), _columns(columns), _length(CheckedLength(rows, columns)),
+                  _data(_length == 0 ? nullptr : std::make_unique<T[]>(static_cast<std::size_t>(_length)))
             {
             }
+            RectArray2D(const RectArray2D&) = delete;
+            RectArray2D& operator=(const RectArray2D&) = delete;
 
-            [[nodiscard]] std::int32_t Rows() const noexcept { return _rows; }
-            [[nodiscard]] std::int32_t Columns() const noexcept { return _columns; }
-            [[nodiscard]] std::size_t Length() const noexcept { return _data.size(); }
-
+            [[nodiscard]] std::int32_t Length() const noexcept { return _length; }
+            [[nodiscard]] std::int32_t GetLength(std::int32_t dimension) const
+            {
+                if (dimension == 0)
+                {
+                    return _rows;
+                }
+                if (dimension == 1)
+                {
+                    return _columns;
+                }
+                throw System::IndexOutOfRangeException();
+            }
             [[nodiscard]] T& operator()(std::int32_t row, std::int32_t column)
             {
-                return _data.at(Index(row, column));
+                return _data[Index(row, column)];
             }
             [[nodiscard]] const T& operator()(std::int32_t row, std::int32_t column) const
             {
-                return _data.at(Index(row, column));
+                return _data[Index(row, column)];
             }
-
-            void Clear()
-            {
-                std::fill(_data.begin(), _data.end(), T{});
-            }
-
-            [[nodiscard]] std::vector<T>& Data() noexcept { return _data; }
-            [[nodiscard]] const std::vector<T>& Data() const noexcept { return _data; }
 
         private:
             std::int32_t _rows = 0;
             std::int32_t _columns = 0;
-            std::vector<T> _data{};
+            std::int32_t _length = 0;
+            std::unique_ptr<T[]> _data{};
 
-            [[nodiscard]] static std::size_t CheckedLength(std::int32_t rows, std::int32_t columns)
+            [[nodiscard]] static std::int32_t CheckedLength(
+                std::int32_t rows, std::int32_t columns)
             {
                 if (rows < 0 || columns < 0)
                 {
-                    throw std::overflow_error("Array dimensions exceeded supported range.");
+                    throw System::OverflowException();
                 }
-                return static_cast<std::size_t>(rows) * static_cast<std::size_t>(columns);
+                const std::uint64_t length = static_cast<std::uint64_t>(rows)
+                    * static_cast<std::uint64_t>(columns);
+                if (length > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
+                {
+                    throw System::OverflowException();
+                }
+                return static_cast<std::int32_t>(length);
             }
             [[nodiscard]] std::size_t Index(std::int32_t row, std::int32_t column) const
             {
                 if (row < 0 || column < 0 || row >= _rows || column >= _columns)
                 {
-                    throw std::out_of_range("Index was outside the bounds of the array.");
+                    throw System::IndexOutOfRangeException();
                 }
                 return static_cast<std::size_t>(row) * static_cast<std::size_t>(_columns)
                     + static_cast<std::size_t>(column);
@@ -223,41 +315,75 @@ namespace MphRead::Formats
         class RectArray3D final
         {
         public:
-            RectArray3D() = default;
+            RectArray3D() noexcept = default;
             RectArray3D(std::int32_t a, std::int32_t b, std::int32_t c)
-                : _a(a), _b(b), _c(c), _data(CheckedLength(a, b, c))
+                : _a(a), _b(b), _c(c), _length(CheckedLength(a, b, c)),
+                  _data(_length == 0 ? nullptr : std::make_unique<T[]>(static_cast<std::size_t>(_length)))
             {
             }
+            RectArray3D(const RectArray3D&) = delete;
+            RectArray3D& operator=(const RectArray3D&) = delete;
 
+            [[nodiscard]] std::int32_t Length() const noexcept { return _length; }
+            [[nodiscard]] std::int32_t GetLength(std::int32_t dimension) const
+            {
+                if (dimension == 0)
+                {
+                    return _a;
+                }
+                if (dimension == 1)
+                {
+                    return _b;
+                }
+                if (dimension == 2)
+                {
+                    return _c;
+                }
+                throw System::IndexOutOfRangeException();
+            }
             [[nodiscard]] T& operator()(std::int32_t a, std::int32_t b, std::int32_t c)
             {
-                return _data.at(Index(a, b, c));
+                return _data[Index(a, b, c)];
             }
-            [[nodiscard]] const T& operator()(std::int32_t a, std::int32_t b, std::int32_t c) const
+            [[nodiscard]] const T& operator()(
+                std::int32_t a, std::int32_t b, std::int32_t c) const
             {
-                return _data.at(Index(a, b, c));
+                return _data[Index(a, b, c)];
             }
-            [[nodiscard]] std::size_t Length() const noexcept { return _data.size(); }
 
         private:
             std::int32_t _a = 0;
             std::int32_t _b = 0;
             std::int32_t _c = 0;
-            std::vector<T> _data{};
+            std::int32_t _length = 0;
+            std::unique_ptr<T[]> _data{};
 
-            [[nodiscard]] static std::size_t CheckedLength(std::int32_t a, std::int32_t b, std::int32_t c)
+            [[nodiscard]] static std::int32_t CheckedLength(
+                std::int32_t a, std::int32_t b, std::int32_t c)
             {
                 if (a < 0 || b < 0 || c < 0)
                 {
-                    throw std::overflow_error("Array dimensions exceeded supported range.");
+                    throw System::OverflowException();
                 }
-                return static_cast<std::size_t>(a) * static_cast<std::size_t>(b) * static_cast<std::size_t>(c);
+                const std::uint64_t ab = static_cast<std::uint64_t>(a)
+                    * static_cast<std::uint64_t>(b);
+                if (ab > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
+                {
+                    throw System::OverflowException();
+                }
+                const std::uint64_t length = ab * static_cast<std::uint64_t>(c);
+                if (length > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
+                {
+                    throw System::OverflowException();
+                }
+                return static_cast<std::int32_t>(length);
             }
-            [[nodiscard]] std::size_t Index(std::int32_t a, std::int32_t b, std::int32_t c) const
+            [[nodiscard]] std::size_t Index(
+                std::int32_t a, std::int32_t b, std::int32_t c) const
             {
                 if (a < 0 || b < 0 || c < 0 || a >= _a || b >= _b || c >= _c)
                 {
-                    throw std::out_of_range("Index was outside the bounds of the array.");
+                    throw System::IndexOutOfRangeException();
                 }
                 return (static_cast<std::size_t>(a) * static_cast<std::size_t>(_b)
                     + static_cast<std::size_t>(b)) * static_cast<std::size_t>(_c)
@@ -265,11 +391,21 @@ namespace MphRead::Formats
             }
         };
 
+        class Stream
+        {
+        public:
+            virtual ~Stream() = default;
+            [[nodiscard]] virtual std::size_t Read(std::span<std::uint8_t> destination) = 0;
+            [[nodiscard]] virtual std::int64_t Position() const = 0;
+            virtual void Position(std::int64_t value) = 0;
+            virtual void Dispose() = 0;
+        };
+
         class BinaryReader final
         {
         public:
-            explicit BinaryReader(std::shared_ptr<std::istream> stream);
-            ~BinaryReader();
+            explicit BinaryReader(std::shared_ptr<Stream> stream);
+            ~BinaryReader() noexcept(false);
             BinaryReader(const BinaryReader&) = delete;
             BinaryReader& operator=(const BinaryReader&) = delete;
 
@@ -282,10 +418,20 @@ namespace MphRead::Formats
             void Position(std::int64_t value);
 
         private:
-            std::shared_ptr<std::istream> _stream;
+            std::shared_ptr<Stream> _stream;
             std::optional<char16_t> _pendingChar{};
             void ReadExact(void* destination, std::size_t size);
-            void DisposeStream() noexcept;
+            void DisposeStream();
+        };
+
+        class SynchronizationContext
+        {
+        public:
+            virtual ~SynchronizationContext() = default;
+            virtual void Post(std::function<void()> continuation) = 0;
+            [[nodiscard]] static std::shared_ptr<SynchronizationContext> Current() noexcept;
+            static void SetSynchronizationContext(
+                std::shared_ptr<SynchronizationContext> context) noexcept;
         };
 
         struct TaskState;
@@ -300,7 +446,7 @@ namespace MphRead::Formats
             public:
                 explicit Awaiter(std::shared_ptr<TaskState> state) noexcept;
                 [[nodiscard]] bool await_ready() const noexcept;
-                bool await_suspend(std::coroutine_handle<promise_type> continuation) noexcept;
+                bool await_suspend(std::coroutine_handle<> continuation);
                 void await_resume();
                 void GetResult();
             private:
@@ -323,8 +469,8 @@ namespace MphRead::Formats
             };
 
             MovieTask() noexcept = default;
-            MovieTask(const MovieTask&) = delete;
-            MovieTask& operator=(const MovieTask&) = delete;
+            MovieTask(const MovieTask&) noexcept = default;
+            MovieTask& operator=(const MovieTask&) noexcept = default;
             MovieTask(MovieTask&&) noexcept = default;
             MovieTask& operator=(MovieTask&&) noexcept = default;
             ~MovieTask() = default;
@@ -350,7 +496,7 @@ namespace MphRead::Formats
             struct FinalAwaiter final
             {
                 [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
-                std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> handle) const noexcept;
+                void await_suspend(std::coroutine_handle<promise_type> handle) const noexcept;
                 constexpr void await_resume() const noexcept {}
             };
 
@@ -366,6 +512,8 @@ namespace MphRead::Formats
         [[nodiscard]] std::int32_t HashCombine(std::int32_t first, std::int32_t second) noexcept;
     }
 
+    template <typename T>
+    using ClrArray = MovieNativeRuntime::ClrArray<T>;
     using ByteArray2D = MovieNativeRuntime::RectArray2D<std::uint8_t>;
     struct Vector2ir;
     using Vector2irArray2D = MovieNativeRuntime::RectArray2D<Vector2ir>;
@@ -390,10 +538,10 @@ namespace MphRead::Formats
     public:
         const std::shared_ptr<IntArray3D> LpcCodebooks
             = std::make_shared<IntArray3D>(3, 64, 8);
-        const std::shared_ptr<std::array<std::int32_t, 8>> ScaleModifiers
-            = std::make_shared<std::array<std::int32_t, 8>>();
-        const std::shared_ptr<std::array<std::int32_t, 8>> LpcBase
-            = std::make_shared<std::array<std::int32_t, 8>>();
+        const std::shared_ptr<ClrArray<std::int32_t>> ScaleModifiers
+            = std::make_shared<ClrArray<std::int32_t>>(8);
+        const std::shared_ptr<ClrArray<std::int32_t>> LpcBase
+            = std::make_shared<ClrArray<std::int32_t>>(8);
         std::int32_t ScaleInitial = 0;
     };
 
@@ -405,35 +553,35 @@ namespace MphRead::Formats
 
     struct VxBuffers
     {
-        const std::shared_ptr<std::array<std::shared_ptr<VideoFrame>, 3>> PrevVideoFrames;
-        const std::shared_ptr<std::array<std::int32_t, 3>> QuantizerTable;
+        const std::shared_ptr<ClrArray<std::shared_ptr<VideoFrame>>> PrevVideoFrames;
+        const std::shared_ptr<ClrArray<std::int32_t>> QuantizerTable;
         const std::shared_ptr<ByteArray2D> PlaneBufferY;
         const std::shared_ptr<ByteArray2D> PlaneBufferU;
         const std::shared_ptr<ByteArray2D> PlaneBufferV;
         const std::shared_ptr<ByteArray2D> CoeffBufferY;
         const std::shared_ptr<ByteArray2D> CoeffBufferUV;
         const std::shared_ptr<Vector2irArray2D> Vectors;
-        const std::shared_ptr<std::array<std::int16_t, 8>> PrevSampleBuffer;
-        const std::shared_ptr<std::array<std::int32_t, 256>> PrevPulseBuffer;
-        const std::shared_ptr<std::array<std::int32_t, 8>> LpcFilterBuffer;
-        const std::shared_ptr<std::array<std::int32_t, 8>> InfluenceBuffer;
-        const std::shared_ptr<std::vector<std::int16_t>> SampleBuffer;
+        const std::shared_ptr<ClrArray<std::int16_t>> PrevSampleBuffer;
+        const std::shared_ptr<ClrArray<std::int32_t>> PrevPulseBuffer;
+        const std::shared_ptr<ClrArray<std::int32_t>> LpcFilterBuffer;
+        const std::shared_ptr<ClrArray<std::int32_t>> InfluenceBuffer;
+        const std::shared_ptr<ClrArray<std::int16_t>> SampleBuffer;
 
         VxBuffers() noexcept = default;
         VxBuffers(
-            std::shared_ptr<std::array<std::shared_ptr<VideoFrame>, 3>> prevVideoFrames,
-            std::shared_ptr<std::array<std::int32_t, 3>> quantizerTable,
+            std::shared_ptr<ClrArray<std::shared_ptr<VideoFrame>>> prevVideoFrames,
+            std::shared_ptr<ClrArray<std::int32_t>> quantizerTable,
             std::shared_ptr<ByteArray2D> planeBufferY,
             std::shared_ptr<ByteArray2D> planeBufferU,
             std::shared_ptr<ByteArray2D> planeBufferV,
             std::shared_ptr<ByteArray2D> coeffBufferY,
             std::shared_ptr<ByteArray2D> coeffBufferUV,
             std::shared_ptr<Vector2irArray2D> vectors,
-            std::shared_ptr<std::array<std::int16_t, 8>> prevSampleBuffer,
-            std::shared_ptr<std::array<std::int32_t, 256>> prevPulseBuffer,
-            std::shared_ptr<std::array<std::int32_t, 8>> lpcFilterBuffer,
-            std::shared_ptr<std::array<std::int32_t, 8>> influenceBuffer,
-            std::shared_ptr<std::vector<std::int16_t>> sampleBuffer);
+            std::shared_ptr<ClrArray<std::int16_t>> prevSampleBuffer,
+            std::shared_ptr<ClrArray<std::int32_t>> prevPulseBuffer,
+            std::shared_ptr<ClrArray<std::int32_t>> lpcFilterBuffer,
+            std::shared_ptr<ClrArray<std::int32_t>> influenceBuffer,
+            std::shared_ptr<ClrArray<std::int16_t>> sampleBuffer);
         VxBuffers(const VxBuffers&) noexcept = default;
         VxBuffers& operator=(const VxBuffers& other) noexcept;
     };
@@ -476,8 +624,8 @@ namespace MphRead::Formats
         static VxDecoder& Instance1();
         static VxDecoder& Instance2();
 
-        const std::shared_ptr<std::array<char16_t, 4>> Magic
-            = std::make_shared<std::array<char16_t, 4>>();
+        const std::shared_ptr<ClrArray<char16_t>> Magic
+            = std::make_shared<ClrArray<char16_t>>(4);
         std::int32_t FrameCount = 0;
         std::int32_t FrameWidth = 0;
         std::int32_t FrameHeight = 0;
@@ -491,10 +639,10 @@ namespace MphRead::Formats
         std::int32_t SeekTableCount = 0;
         const std::shared_ptr<AudioExtradata> Extradata
             = std::make_shared<AudioExtradata>();
-        const std::shared_ptr<std::array<SeekTableEntry, 1>> SeekTable
-            = std::make_shared<std::array<SeekTableEntry, 1>>();
-        const std::shared_ptr<std::array<std::int32_t, 3>> QuantizerTable
-            = std::make_shared<std::array<std::int32_t, 3>>();
+        const std::shared_ptr<ClrArray<SeekTableEntry>> SeekTable
+            = std::make_shared<ClrArray<SeekTableEntry>>(1);
+        const std::shared_ptr<ClrArray<std::int32_t>> QuantizerTable
+            = std::make_shared<ClrArray<std::int32_t>>(3);
 
         VxDecoder();
         ~VxDecoder();
@@ -507,14 +655,14 @@ namespace MphRead::Formats
         [[nodiscard]] MovieNativeRuntime::MovieTask Decode(
             const std::string& filePath, bool writeFiles = false, std::stop_token token = {});
         [[nodiscard]] MovieNativeRuntime::MovieTask Decode(
-            std::shared_ptr<std::vector<std::uint8_t>> data, const std::string& filename,
+            std::shared_ptr<ClrArray<std::uint8_t>> data, const std::string& filename,
             bool writeFiles = false, std::stop_token token = {});
         [[nodiscard]] MovieNativeRuntime::MovieTask Decode(
-            std::shared_ptr<std::istream> stream, const std::string& filename,
+            std::shared_ptr<MovieNativeRuntime::Stream> stream, const std::string& filename,
             bool writeFiles = false, std::stop_token token = {});
 
         [[nodiscard]] bool GetImage(std::int32_t frameIndex,
-            const std::shared_ptr<std::vector<std::uint8_t>>& texture);
+            const std::shared_ptr<ClrArray<std::uint8_t>>& texture);
         [[nodiscard]] std::int32_t AudioFrameTotal() const noexcept
         {
             return _audioFrameTotal.load(std::memory_order_acquire);
@@ -530,8 +678,8 @@ namespace MphRead::Formats
         static bool UseStaticBuffers;
 
     private:
-        std::shared_ptr<std::array<std::shared_ptr<VideoFrame>, 3>> _prevVideoFrames
-            = std::make_shared<std::array<std::shared_ptr<VideoFrame>, 3>>();
+        std::shared_ptr<ClrArray<std::shared_ptr<VideoFrame>>> _prevVideoFrames
+            = std::make_shared<ClrArray<std::shared_ptr<VideoFrame>>>(3);
         std::atomic<std::int32_t> _framesQueued{0};
         std::atomic<std::int32_t> _audioFrameTotal{0};
         std::shared_ptr<std::vector<std::shared_ptr<VxFrame>>> _vxFrames{};
@@ -540,21 +688,21 @@ namespace MphRead::Formats
 
         static const std::array<std::array<std::int32_t, 3>, 6> _quantizer4x4Table;
 
-        std::shared_ptr<std::array<std::int16_t, 8>> _prevSampleBuffer
-            = std::make_shared<std::array<std::int16_t, 8>>();
-        std::shared_ptr<std::array<std::int32_t, 256>> _prevPulseBuffer
-            = std::make_shared<std::array<std::int32_t, 256>>();
-        std::shared_ptr<std::array<std::int32_t, 8>> _lpcFilterBuffer
-            = std::make_shared<std::array<std::int32_t, 8>>();
-        std::shared_ptr<std::array<std::int32_t, 8>> _influenceBuffer
-            = std::make_shared<std::array<std::int32_t, 8>>();
+        std::shared_ptr<ClrArray<std::int16_t>> _prevSampleBuffer
+            = std::make_shared<ClrArray<std::int16_t>>(8);
+        std::shared_ptr<ClrArray<std::int32_t>> _prevPulseBuffer
+            = std::make_shared<ClrArray<std::int32_t>>(256);
+        std::shared_ptr<ClrArray<std::int32_t>> _lpcFilterBuffer
+            = std::make_shared<ClrArray<std::int32_t>>(8);
+        std::shared_ptr<ClrArray<std::int32_t>> _influenceBuffer
+            = std::make_shared<ClrArray<std::int32_t>>(8);
         std::int32_t _nextSampleBufferIndex = 0;
-        std::shared_ptr<std::vector<std::int16_t>> _sampleBuffer
-            = std::make_shared<std::vector<std::int16_t>>(SampleBufferCount() * 128);
+        std::shared_ptr<ClrArray<std::int16_t>> _sampleBuffer
+            = std::make_shared<ClrArray<std::int16_t>>(SampleBufferCount() * 128);
 
         static constexpr std::int32_t _mphMaxDataSize = 7602;
-        std::shared_ptr<std::vector<std::uint8_t>> _dataBuffer
-            = std::make_shared<std::vector<std::uint8_t>>(_mphMaxDataSize);
+        std::shared_ptr<ClrArray<std::uint8_t>> _dataBuffer
+            = std::make_shared<ClrArray<std::uint8_t>>(_mphMaxDataSize);
 
         static constexpr std::int32_t _mphFrameW = 256;
         static constexpr std::int32_t _mphFrameH = 192;
@@ -568,11 +716,11 @@ namespace MphRead::Formats
         std::shared_ptr<Vector2irArray2D> _vectors
             = std::make_shared<Vector2irArray2D>(_mphFrameH / 16 + 1, _mphFrameW / 16 + 2);
 
-        [[nodiscard]] std::shared_ptr<std::vector<std::uint8_t>> GetDataBuffer();
+        [[nodiscard]] std::shared_ptr<ClrArray<std::uint8_t>> GetDataBuffer();
         [[nodiscard]] std::array<std::shared_ptr<ByteArray2D>, 3> GetPlaneBuffers();
         [[nodiscard]] static ColorRgb YuvToRgb(std::int32_t y, std::int32_t u, std::int32_t v) noexcept;
         [[nodiscard]] MovieNativeRuntime::MovieTask DecodeCore(
-            std::shared_ptr<std::istream> stream, const std::string& filename,
+            std::shared_ptr<MovieNativeRuntime::Stream> stream, const std::string& filename,
             bool writeFiles, std::stop_token token);
         void WriteFile(std::span<std::uint8_t> pixelBuffer, const VxFrame& vxFrame,
             const std::string& folder, std::int32_t frameIndex);
@@ -583,20 +731,20 @@ namespace MphRead::Formats
     public:
         const std::shared_ptr<::MphRead::Formats::VideoFrame> VideoFrame;
         const std::int32_t AudioFrameCount;
-        const std::shared_ptr<std::vector<std::shared_ptr<::MphRead::Formats::AudioFrame>>> AudioFrames;
+        const std::shared_ptr<ClrArray<std::shared_ptr<::MphRead::Formats::AudioFrame>>> AudioFrames;
 
         VxFrame(std::int32_t frameWidth, std::int32_t frameHeight, std::int32_t audioFrameCount,
             std::shared_ptr<AudioExtradata> extradata, std::shared_ptr<AudioFrame> prevAudioFrame,
             const VxBuffers& buffers, std::int32_t sampleBufferIndex);
 
         void Decode(MovieNativeRuntime::BinaryReader& reader,
-            const std::shared_ptr<std::vector<std::uint8_t>>& buffer, std::int32_t length);
+            const std::shared_ptr<ClrArray<std::uint8_t>>& buffer, std::int32_t length);
     };
 
     class BitStreamReader
     {
     public:
-        BitStreamReader(std::shared_ptr<std::vector<std::uint8_t>> buffer, std::int32_t length);
+        BitStreamReader(std::shared_ptr<ClrArray<std::uint8_t>> buffer, std::int32_t length);
 
         [[nodiscard]] std::int32_t ReadBit();
         [[nodiscard]] std::int32_t ConsumeUntilNotZero();
@@ -607,7 +755,7 @@ namespace MphRead::Formats
         void EnsureWordAlignment();
 
     private:
-        const std::shared_ptr<std::vector<std::uint8_t>> _buffer;
+        const std::shared_ptr<ClrArray<std::uint8_t>> _buffer;
         const std::int32_t _length;
         std::int32_t _bitPosition = 0;
     };
@@ -632,8 +780,8 @@ namespace MphRead::Formats
         const std::shared_ptr<ByteArray2D> _coeffBufferY;
         const std::shared_ptr<ByteArray2D> _coeffBufferUV;
         const std::shared_ptr<Vector2irArray2D> _vectors;
-        const std::shared_ptr<std::array<std::shared_ptr<VideoFrame>, 3>> _prevVideoFrames;
-        const std::shared_ptr<std::array<std::int32_t, 3>> _quantizerTable;
+        const std::shared_ptr<ClrArray<std::shared_ptr<VideoFrame>>> _prevVideoFrames;
+        const std::shared_ptr<ClrArray<std::int32_t>> _quantizerTable;
         BitStreamReader* _reader = nullptr;
 
         [[nodiscard]] static std::int32_t GetMiddleValue(
@@ -697,11 +845,11 @@ namespace MphRead::Formats
     private:
         const std::shared_ptr<AudioExtradata> _extradata;
         const std::shared_ptr<AudioFrame> _prevAudioFrame;
-        const std::shared_ptr<std::array<std::int16_t, 8>> _prevSampleBuffer;
-        const std::shared_ptr<std::array<std::int32_t, 256>> _prevPulseBuffer;
-        const std::shared_ptr<std::array<std::int32_t, 8>> _lpcFilterBuffer;
-        const std::shared_ptr<std::array<std::int32_t, 8>> _influenceBuffer;
-        const std::shared_ptr<std::vector<std::int16_t>> _sampleBuffer;
+        const std::shared_ptr<ClrArray<std::int16_t>> _prevSampleBuffer;
+        const std::shared_ptr<ClrArray<std::int32_t>> _prevPulseBuffer;
+        const std::shared_ptr<ClrArray<std::int32_t>> _lpcFilterBuffer;
+        const std::shared_ptr<ClrArray<std::int32_t>> _influenceBuffer;
+        const std::shared_ptr<ClrArray<std::int16_t>> _sampleBuffer;
         const std::int32_t _sampleBufferIndex;
         std::int32_t _scale = 0;
         BitStreamReader* _reader = nullptr;

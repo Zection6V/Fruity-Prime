@@ -23,11 +23,387 @@
 
 namespace System
 {
+    namespace
+    {
+        struct BigUInt final
+        {
+            std::vector<std::uint32_t> Limbs;
+
+            BigUInt() = default;
+            explicit BigUInt(std::uint64_t value)
+            {
+                if (value != 0)
+                {
+                    Limbs.push_back(static_cast<std::uint32_t>(value));
+                    const std::uint32_t high = static_cast<std::uint32_t>(value >> 32);
+                    if (high != 0)
+                    {
+                        Limbs.push_back(high);
+                    }
+                }
+            }
+            BigUInt(std::uint32_t lo, std::uint32_t mid, std::uint32_t hi)
+            {
+                Limbs = {lo, mid, hi};
+                Normalize();
+            }
+
+            void Normalize() noexcept
+            {
+                while (!Limbs.empty() && Limbs.back() == 0)
+                {
+                    Limbs.pop_back();
+                }
+            }
+
+            [[nodiscard]] bool IsZero() const noexcept { return Limbs.empty(); }
+            [[nodiscard]] bool IsOdd() const noexcept
+            {
+                return !Limbs.empty() && (Limbs[0] & 1U) != 0;
+            }
+
+            [[nodiscard]] int Compare(const BigUInt& other) const noexcept
+            {
+                if (Limbs.size() != other.Limbs.size())
+                {
+                    return Limbs.size() < other.Limbs.size() ? -1 : 1;
+                }
+                for (std::size_t i = Limbs.size(); i > 0; --i)
+                {
+                    const std::uint32_t left = Limbs[i - 1];
+                    const std::uint32_t right = other.Limbs[i - 1];
+                    if (left != right)
+                    {
+                        return left < right ? -1 : 1;
+                    }
+                }
+                return 0;
+            }
+
+            void AddSmall(std::uint32_t value)
+            {
+                std::uint64_t carry = value;
+                std::size_t i = 0;
+                while (carry != 0)
+                {
+                    if (i == Limbs.size())
+                    {
+                        Limbs.push_back(0);
+                    }
+                    const std::uint64_t sum = static_cast<std::uint64_t>(Limbs[i]) + carry;
+                    Limbs[i] = static_cast<std::uint32_t>(sum);
+                    carry = sum >> 32;
+                    ++i;
+                }
+            }
+
+            void MultiplySmall(std::uint32_t value)
+            {
+                if (value == 0 || IsZero())
+                {
+                    Limbs.clear();
+                    return;
+                }
+                std::uint64_t carry = 0;
+                for (std::uint32_t& limb : Limbs)
+                {
+                    const std::uint64_t product
+                        = static_cast<std::uint64_t>(limb) * value + carry;
+                    limb = static_cast<std::uint32_t>(product);
+                    carry = product >> 32;
+                }
+                if (carry != 0)
+                {
+                    Limbs.push_back(static_cast<std::uint32_t>(carry));
+                }
+            }
+
+            [[nodiscard]] std::uint32_t DivideSmall(std::uint32_t divisor)
+            {
+                std::uint64_t remainder = 0;
+                for (std::size_t i = Limbs.size(); i > 0; --i)
+                {
+                    const std::uint64_t current = (remainder << 32) | Limbs[i - 1];
+                    Limbs[i - 1] = static_cast<std::uint32_t>(current / divisor);
+                    remainder = current % divisor;
+                }
+                Normalize();
+                return static_cast<std::uint32_t>(remainder);
+            }
+
+            void MultiplyPower10(std::int32_t power)
+            {
+                for (std::int32_t i = 0; i < power; ++i)
+                {
+                    MultiplySmall(10);
+                }
+            }
+
+            void ShiftLeftOne()
+            {
+                std::uint64_t carry = 0;
+                for (std::uint32_t& limb : Limbs)
+                {
+                    const std::uint64_t shifted
+                        = (static_cast<std::uint64_t>(limb) << 1) | carry;
+                    limb = static_cast<std::uint32_t>(shifted);
+                    carry = shifted >> 32;
+                }
+                if (carry != 0)
+                {
+                    Limbs.push_back(static_cast<std::uint32_t>(carry));
+                }
+            }
+
+            [[nodiscard]] std::size_t BitLength() const noexcept
+            {
+                if (Limbs.empty())
+                {
+                    return 0;
+                }
+                return (Limbs.size() - 1) * 32U
+                    + static_cast<std::size_t>(32 - std::countl_zero(Limbs.back()));
+            }
+
+            [[nodiscard]] bool GetBit(std::size_t bit) const noexcept
+            {
+                const std::size_t limb = bit / 32U;
+                if (limb >= Limbs.size())
+                {
+                    return false;
+                }
+                return ((Limbs[limb] >> (bit % 32U)) & 1U) != 0;
+            }
+
+            void SetBit(std::size_t bit)
+            {
+                const std::size_t limb = bit / 32U;
+                if (Limbs.size() <= limb)
+                {
+                    Limbs.resize(limb + 1, 0);
+                }
+                Limbs[limb] |= std::uint32_t{1} << (bit % 32U);
+            }
+        };
+
+        [[nodiscard]] BigUInt AddBig(const BigUInt& left, const BigUInt& right)
+        {
+            BigUInt result;
+            result.Limbs.resize(std::max(left.Limbs.size(), right.Limbs.size()), 0);
+            std::uint64_t carry = 0;
+            for (std::size_t i = 0; i < result.Limbs.size(); ++i)
+            {
+                const std::uint64_t a = i < left.Limbs.size() ? left.Limbs[i] : 0;
+                const std::uint64_t b = i < right.Limbs.size() ? right.Limbs[i] : 0;
+                const std::uint64_t sum = a + b + carry;
+                result.Limbs[i] = static_cast<std::uint32_t>(sum);
+                carry = sum >> 32;
+            }
+            if (carry != 0)
+            {
+                result.Limbs.push_back(static_cast<std::uint32_t>(carry));
+            }
+            return result;
+        }
+
+        [[nodiscard]] BigUInt SubtractBig(const BigUInt& left, const BigUInt& right)
+        {
+            BigUInt result = left;
+            std::uint64_t borrow = 0;
+            for (std::size_t i = 0; i < result.Limbs.size(); ++i)
+            {
+                const std::uint64_t a = result.Limbs[i];
+                const std::uint64_t b = (i < right.Limbs.size() ? right.Limbs[i] : 0) + borrow;
+                result.Limbs[i] = static_cast<std::uint32_t>(a - b);
+                borrow = a < b ? 1 : 0;
+            }
+            result.Normalize();
+            return result;
+        }
+
+        [[nodiscard]] BigUInt MultiplyBig(const BigUInt& left, const BigUInt& right)
+        {
+            if (left.IsZero() || right.IsZero())
+            {
+                return {};
+            }
+            BigUInt result;
+            result.Limbs.assign(left.Limbs.size() + right.Limbs.size(), 0);
+            for (std::size_t i = 0; i < left.Limbs.size(); ++i)
+            {
+                std::uint64_t carry = 0;
+                for (std::size_t j = 0; j < right.Limbs.size(); ++j)
+                {
+                    const std::size_t index = i + j;
+                    const std::uint64_t current
+                        = static_cast<std::uint64_t>(left.Limbs[i]) * right.Limbs[j]
+                        + result.Limbs[index] + carry;
+                    result.Limbs[index] = static_cast<std::uint32_t>(current);
+                    carry = current >> 32;
+                }
+                std::size_t index = i + right.Limbs.size();
+                while (carry != 0)
+                {
+                    const std::uint64_t current
+                        = static_cast<std::uint64_t>(result.Limbs[index]) + carry;
+                    result.Limbs[index] = static_cast<std::uint32_t>(current);
+                    carry = current >> 32;
+                    ++index;
+                    if (carry != 0 && index == result.Limbs.size())
+                    {
+                        result.Limbs.push_back(0);
+                    }
+                }
+            }
+            result.Normalize();
+            return result;
+        }
+
+        [[nodiscard]] std::pair<BigUInt, BigUInt> DivideBig(
+            const BigUInt& numerator, const BigUInt& denominator)
+        {
+            if (denominator.IsZero())
+            {
+                throw DivideByZeroException();
+            }
+            BigUInt quotient;
+            BigUInt remainder;
+            const std::size_t bits = numerator.BitLength();
+            for (std::size_t i = bits; i > 0; --i)
+            {
+                remainder.ShiftLeftOne();
+                if (numerator.GetBit(i - 1))
+                {
+                    remainder.AddSmall(1);
+                }
+                if (remainder.Compare(denominator) >= 0)
+                {
+                    remainder = SubtractBig(remainder, denominator);
+                    quotient.SetBit(i - 1);
+                }
+            }
+            quotient.Normalize();
+            remainder.Normalize();
+            return {std::move(quotient), std::move(remainder)};
+        }
+
+        [[nodiscard]] BigUInt DecimalMaxCoefficient()
+        {
+            return BigUInt(
+                std::numeric_limits<std::uint32_t>::max(),
+                std::numeric_limits<std::uint32_t>::max(),
+                std::numeric_limits<std::uint32_t>::max());
+        }
+
+        [[nodiscard]] BigUInt RoundDividePower10(const BigUInt& value, std::int32_t power)
+        {
+            if (power <= 0)
+            {
+                return value;
+            }
+            BigUInt divisor(1);
+            divisor.MultiplyPower10(power);
+            auto [quotient, remainder] = DivideBig(value, divisor);
+            BigUInt twice = remainder;
+            twice.MultiplySmall(2);
+            const int comparison = twice.Compare(divisor);
+            if (comparison > 0 || (comparison == 0 && quotient.IsOdd()))
+            {
+                quotient.AddSmall(1);
+            }
+            return quotient;
+        }
+
+        [[nodiscard]] Decimal MakeDecimal(BigUInt coefficient, std::int32_t scale, bool negative)
+        {
+            if (scale < 0)
+            {
+                coefficient.MultiplyPower10(-scale);
+                scale = 0;
+            }
+            if (coefficient.IsZero())
+            {
+                negative = false;
+                scale = std::clamp(scale, 0, 28);
+            }
+
+            const BigUInt maximum = DecimalMaxCoefficient();
+            const std::int32_t minimumDrop = std::max(0, scale - 28);
+            for (std::int32_t drop = minimumDrop; drop <= scale; ++drop)
+            {
+                BigUInt rounded = RoundDividePower10(coefficient, drop);
+                if (rounded.Compare(maximum) <= 0)
+                {
+                    const std::int32_t resultScale = scale - drop;
+                    const std::uint32_t lo = rounded.Limbs.size() > 0 ? rounded.Limbs[0] : 0;
+                    const std::uint32_t mid = rounded.Limbs.size() > 1 ? rounded.Limbs[1] : 0;
+                    const std::uint32_t hi = rounded.Limbs.size() > 2 ? rounded.Limbs[2] : 0;
+                    return Decimal(
+                        std::bit_cast<std::int32_t>(lo),
+                        std::bit_cast<std::int32_t>(mid),
+                        std::bit_cast<std::int32_t>(hi),
+                        negative && !rounded.IsZero(),
+                        static_cast<std::uint8_t>(resultScale));
+                }
+            }
+            throw OverflowException();
+        }
+
+        [[nodiscard]] BigUInt ScaledCoefficient(
+            std::uint32_t lo, std::uint32_t mid, std::uint32_t hi,
+            std::uint8_t sourceScale, std::uint8_t targetScale)
+        {
+            BigUInt value(lo, mid, hi);
+            value.MultiplyPower10(static_cast<std::int32_t>(targetScale - sourceScale));
+            return value;
+        }
+
+        [[nodiscard]] std::string BigUIntToString(BigUInt value)
+        {
+            if (value.IsZero())
+            {
+                return "0";
+            }
+            std::vector<std::uint32_t> groups;
+            while (!value.IsZero())
+            {
+                groups.push_back(value.DivideSmall(1'000'000'000U));
+            }
+            std::ostringstream stream;
+            stream << groups.back();
+            for (std::size_t i = groups.size() - 1; i > 0; --i)
+            {
+                stream << std::setw(9) << std::setfill('0') << groups[i - 1];
+            }
+            return stream.str();
+        }
+    }
+
     Decimal::Decimal(std::int32_t value) noexcept
     {
         const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
         _negative = value < 0;
         _lo = _negative ? 0U - bits : bits;
+    }
+
+    Decimal::Decimal(std::uint32_t value) noexcept
+        : _lo(value)
+    {
+    }
+
+    Decimal::Decimal(std::int64_t value) noexcept
+    {
+        const std::uint64_t bits = std::bit_cast<std::uint64_t>(value);
+        const std::uint64_t magnitude = value < 0 ? 0ULL - bits : bits;
+        _negative = value < 0;
+        _lo = static_cast<std::uint32_t>(magnitude);
+        _mid = static_cast<std::uint32_t>(magnitude >> 32);
+    }
+
+    Decimal::Decimal(std::uint64_t value) noexcept
+        : _lo(static_cast<std::uint32_t>(value)),
+          _mid(static_cast<std::uint32_t>(value >> 32))
+    {
     }
 
     Decimal::Decimal(std::int32_t lo, std::int32_t mid, std::int32_t hi,
@@ -42,6 +418,19 @@ namespace System
         {
             throw ArgumentOutOfRangeException("scale");
         }
+    }
+
+    Decimal Decimal::FromParts(
+        std::uint32_t lo, std::uint32_t mid, std::uint32_t hi,
+        std::uint8_t scale, bool negative) noexcept
+    {
+        Decimal result;
+        result._lo = lo;
+        result._mid = mid;
+        result._hi = hi;
+        result._scale = scale;
+        result._negative = negative;
+        return result;
     }
 
     Decimal Decimal::DivideInt32By65536(std::int32_t value) noexcept
@@ -63,7 +452,6 @@ namespace System
             result._hi = static_cast<std::uint32_t>(product);
         }
 
-        // Decimal arithmetic canonicalizes exact trailing decimal zeroes.
         while (result._scale > 0)
         {
             std::array<std::uint32_t, 3> quotient{};
@@ -92,6 +480,40 @@ namespace System
         return result;
     }
 
+    std::int32_t Decimal::CompareTo(const Decimal& other) const
+    {
+        const BigUInt leftRaw(_lo, _mid, _hi);
+        const BigUInt rightRaw(other._lo, other._mid, other._hi);
+        if (leftRaw.IsZero() && rightRaw.IsZero())
+        {
+            return 0;
+        }
+        if (_negative != other._negative)
+        {
+            return _negative ? -1 : 1;
+        }
+        const std::uint8_t scale = std::max(_scale, other._scale);
+        const BigUInt left = ScaledCoefficient(_lo, _mid, _hi, _scale, scale);
+        const BigUInt right = ScaledCoefficient(
+            other._lo, other._mid, other._hi, other._scale, scale);
+        const int comparison = left.Compare(right);
+        if (comparison == 0)
+        {
+            return 0;
+        }
+        return _negative ? -comparison : comparison;
+    }
+
+    bool Decimal::Equals(const Decimal& other) const
+    {
+        return CompareTo(other) == 0;
+    }
+
+    float Decimal::ToSingle() const noexcept
+    {
+        return static_cast<float>(ToDouble());
+    }
+
     double Decimal::ToDouble() const noexcept
     {
         long double value = static_cast<long double>(_hi) * 18446744073709551616.0L
@@ -107,8 +529,165 @@ namespace System
         }
         return static_cast<double>(value);
     }
-}
 
+    std::string Decimal::ToString() const
+    {
+        std::string digits = BigUIntToString(BigUInt(_lo, _mid, _hi));
+        if (_scale != 0)
+        {
+            const std::size_t scale = _scale;
+            if (digits.size() <= scale)
+            {
+                digits.insert(0, scale + 1 - digits.size(), '0');
+            }
+            digits.insert(digits.size() - scale, 1, '.');
+        }
+        if (_negative && (_lo != 0 || _mid != 0 || _hi != 0))
+        {
+            digits.insert(digits.begin(), '-');
+        }
+        return digits;
+    }
+
+    bool operator==(const Decimal& left, const Decimal& right)
+    {
+        return left.CompareTo(right) == 0;
+    }
+
+    bool operator!=(const Decimal& left, const Decimal& right)
+    {
+        return !(left == right);
+    }
+
+    bool operator<(const Decimal& left, const Decimal& right)
+    {
+        return left.CompareTo(right) < 0;
+    }
+
+    bool operator<=(const Decimal& left, const Decimal& right)
+    {
+        return left.CompareTo(right) <= 0;
+    }
+
+    bool operator>(const Decimal& left, const Decimal& right)
+    {
+        return left.CompareTo(right) > 0;
+    }
+
+    bool operator>=(const Decimal& left, const Decimal& right)
+    {
+        return left.CompareTo(right) >= 0;
+    }
+
+    Decimal operator-(const Decimal& value)
+    {
+        return Decimal::FromParts(
+            value._lo, value._mid, value._hi, value._scale,
+            (value._lo != 0 || value._mid != 0 || value._hi != 0) && !value._negative);
+    }
+
+    Decimal operator+(const Decimal& left, const Decimal& right)
+    {
+        const std::uint8_t scale = std::max(left._scale, right._scale);
+        const BigUInt leftValue = ScaledCoefficient(
+            left._lo, left._mid, left._hi, left._scale, scale);
+        const BigUInt rightValue = ScaledCoefficient(
+            right._lo, right._mid, right._hi, right._scale, scale);
+        if (left._negative == right._negative)
+        {
+            return MakeDecimal(AddBig(leftValue, rightValue), scale, left._negative);
+        }
+        const int comparison = leftValue.Compare(rightValue);
+        if (comparison == 0)
+        {
+            return MakeDecimal({}, scale, false);
+        }
+        if (comparison > 0)
+        {
+            return MakeDecimal(SubtractBig(leftValue, rightValue), scale, left._negative);
+        }
+        return MakeDecimal(SubtractBig(rightValue, leftValue), scale, right._negative);
+    }
+
+    Decimal operator-(const Decimal& left, const Decimal& right)
+    {
+        return left + (-right);
+    }
+
+    Decimal operator*(const Decimal& left, const Decimal& right)
+    {
+        const BigUInt leftValue(left._lo, left._mid, left._hi);
+        const BigUInt rightValue(right._lo, right._mid, right._hi);
+        return MakeDecimal(
+            MultiplyBig(leftValue, rightValue),
+            static_cast<std::int32_t>(left._scale) + right._scale,
+            left._negative != right._negative);
+    }
+
+    Decimal operator/(const Decimal& left, const Decimal& right)
+    {
+        const BigUInt numeratorBase(left._lo, left._mid, left._hi);
+        const BigUInt denominatorBase(right._lo, right._mid, right._hi);
+        if (denominatorBase.IsZero())
+        {
+            throw DivideByZeroException();
+        }
+        if (numeratorBase.IsZero())
+        {
+            return Decimal();
+        }
+
+        const BigUInt maximum = DecimalMaxCoefficient();
+        for (std::int32_t targetScale = 28; targetScale >= 0; --targetScale)
+        {
+            BigUInt numerator = numeratorBase;
+            BigUInt denominator = denominatorBase;
+            const std::int32_t exponent = targetScale
+                + static_cast<std::int32_t>(right._scale)
+                - static_cast<std::int32_t>(left._scale);
+            if (exponent >= 0)
+            {
+                numerator.MultiplyPower10(exponent);
+            }
+            else
+            {
+                denominator.MultiplyPower10(-exponent);
+            }
+
+            auto [quotient, remainder] = DivideBig(numerator, denominator);
+            BigUInt twice = remainder;
+            twice.MultiplySmall(2);
+            const int comparison = twice.Compare(denominator);
+            if (comparison > 0 || (comparison == 0 && quotient.IsOdd()))
+            {
+                quotient.AddSmall(1);
+            }
+            if (quotient.Compare(maximum) > 0)
+            {
+                continue;
+            }
+
+            std::int32_t scale = targetScale;
+            while (scale > 0)
+            {
+                BigUInt reduced = quotient;
+                if (reduced.DivideSmall(10) != 0)
+                {
+                    break;
+                }
+                quotient = std::move(reduced);
+                --scale;
+            }
+            const std::uint32_t lo = quotient.Limbs.size() > 0 ? quotient.Limbs[0] : 0;
+            const std::uint32_t mid = quotient.Limbs.size() > 1 ? quotient.Limbs[1] : 0;
+            const std::uint32_t hi = quotient.Limbs.size() > 2 ? quotient.Limbs[2] : 0;
+            return Decimal::FromParts(
+                lo, mid, hi, static_cast<std::uint8_t>(scale),
+                left._negative != right._negative);
+        }
+        throw OverflowException();
+    }
+}
 namespace MphRead::Formats::MovieNativeRuntime
 {
     struct DecoderLifetime
@@ -118,6 +697,12 @@ namespace MphRead::Formats::MovieNativeRuntime
         std::size_t Active = 0;
     };
 
+    struct ContinuationRegistration final
+    {
+        std::coroutine_handle<> Handle{};
+        std::shared_ptr<SynchronizationContext> Context{};
+    };
+
     struct TaskState : std::enable_shared_from_this<TaskState>
     {
         std::mutex Mutex;
@@ -125,7 +710,7 @@ namespace MphRead::Formats::MovieNativeRuntime
         bool Done = false;
         std::exception_ptr Exception{};
         std::coroutine_handle<> Handle{};
-        std::coroutine_handle<> Continuation{};
+        std::vector<ContinuationRegistration> Continuations{};
         std::shared_ptr<TaskState> SelfKeepAlive{};
 
         ~TaskState()
@@ -139,6 +724,45 @@ namespace MphRead::Formats::MovieNativeRuntime
 
     namespace
     {
+        thread_local std::shared_ptr<SynchronizationContext> CurrentSynchronizationContext{};
+
+        void ResumeContinuation(ContinuationRegistration registration)
+        {
+            if (!registration.Handle)
+            {
+                return;
+            }
+            if (registration.Context)
+            {
+                std::shared_ptr<SynchronizationContext> context = std::move(registration.Context);
+                context->Post(
+                    [context = std::move(context), handle = registration.Handle]() mutable
+                    {
+                        if (!handle || handle.done())
+                        {
+                            return;
+                        }
+                        std::shared_ptr<SynchronizationContext> previous
+                            = std::move(CurrentSynchronizationContext);
+                        CurrentSynchronizationContext = context;
+                        try
+                        {
+                            handle.resume();
+                        }
+                        catch (...)
+                        {
+                            CurrentSynchronizationContext = std::move(previous);
+                            throw;
+                        }
+                        CurrentSynchronizationContext = std::move(previous);
+                    });
+            }
+            else if (!registration.Handle.done())
+            {
+                registration.Handle.resume();
+            }
+        }
+
         class DelayScheduler final
         {
         public:
@@ -147,19 +771,23 @@ namespace MphRead::Formats::MovieNativeRuntime
             {
             }
 
-            void Schedule(std::shared_ptr<TaskState> state,
-                std::coroutine_handle<MovieTask::promise_type> handle)
+            void Schedule(
+                std::shared_ptr<TaskState> state,
+                std::coroutine_handle<MovieTask::promise_type> handle,
+                std::shared_ptr<SynchronizationContext> context)
             {
                 std::lock_guard<std::mutex> lock(_mutex);
-                _items.emplace(std::chrono::steady_clock::now() + std::chrono::milliseconds(1),
-                    Item{std::move(state), handle});
+                _items.emplace(
+                    std::chrono::steady_clock::now() + std::chrono::milliseconds(1),
+                    Item{std::move(state), handle, std::move(context)});
                 _condition.notify_all();
             }
 
             void DeferRelease(std::shared_ptr<TaskState> state)
             {
                 std::lock_guard<std::mutex> lock(_mutex);
-                _releases.emplace(std::chrono::steady_clock::now() + std::chrono::milliseconds(1),
+                _releases.emplace(
+                    std::chrono::steady_clock::now() + std::chrono::milliseconds(1),
                     std::move(state));
                 _condition.notify_all();
             }
@@ -169,6 +797,7 @@ namespace MphRead::Formats::MovieNativeRuntime
             {
                 std::shared_ptr<TaskState> State;
                 std::coroutine_handle<MovieTask::promise_type> Handle;
+                std::shared_ptr<SynchronizationContext> Context;
             };
 
             std::mutex _mutex;
@@ -217,6 +846,7 @@ namespace MphRead::Formats::MovieNativeRuntime
                     Item item = std::move(first->second);
                     _items.erase(first);
                     lock.unlock();
+
                     bool done = false;
                     {
                         std::lock_guard<std::mutex> stateLock(item.State->Mutex);
@@ -224,7 +854,9 @@ namespace MphRead::Formats::MovieNativeRuntime
                     }
                     if (!done && item.Handle && !item.Handle.done())
                     {
-                        item.Handle.resume();
+                        ContinuationRegistration registration{
+                            item.Handle, std::move(item.Context)};
+                        ResumeContinuation(std::move(registration));
                     }
                     lock.lock();
                 }
@@ -281,6 +913,17 @@ namespace MphRead::Formats::MovieNativeRuntime
         }
     }
 
+    std::shared_ptr<SynchronizationContext> SynchronizationContext::Current() noexcept
+    {
+        return CurrentSynchronizationContext;
+    }
+
+    void SynchronizationContext::SetSynchronizationContext(
+        std::shared_ptr<SynchronizationContext> context) noexcept
+    {
+        CurrentSynchronizationContext = std::move(context);
+    }
+
     std::int32_t HashCombine(std::int32_t first, std::int32_t second) noexcept
     {
         std::uint32_t hash = GlobalHashSeed() + Prime5;
@@ -290,7 +933,7 @@ namespace MphRead::Formats::MovieNativeRuntime
         return std::bit_cast<std::int32_t>(MixFinal(hash));
     }
 
-    BinaryReader::BinaryReader(std::shared_ptr<std::istream> stream)
+    BinaryReader::BinaryReader(std::shared_ptr<Stream> stream)
         : _stream(std::move(stream))
     {
         if (!_stream)
@@ -299,45 +942,37 @@ namespace MphRead::Formats::MovieNativeRuntime
         }
     }
 
-    BinaryReader::~BinaryReader()
+    BinaryReader::~BinaryReader() noexcept(false)
     {
         DisposeStream();
     }
 
-    void BinaryReader::DisposeStream() noexcept
+    void BinaryReader::DisposeStream()
     {
-        if (!_stream)
+        std::shared_ptr<Stream> stream = std::move(_stream);
+        if (stream)
         {
-            return;
-        }
-        try
-        {
-            if (auto* file = dynamic_cast<std::ifstream*>(_stream.get()))
-            {
-                file->close();
-            }
-            else if (auto* file = dynamic_cast<std::fstream*>(_stream.get()))
-            {
-                file->close();
-            }
-            else
-            {
-                // std::istream has no virtual Close member. Mark non-file adapters unusable
-                // after disposal, matching BinaryReader(Stream, leaveOpen:false) observably.
-                _stream->setstate(std::ios::badbit);
-            }
-        }
-        catch (...)
-        {
+            stream->Dispose();
         }
     }
 
     void BinaryReader::ReadExact(void* destination, std::size_t size)
     {
-        _stream->read(static_cast<char*>(destination), static_cast<std::streamsize>(size));
-        if (_stream->gcount() != static_cast<std::streamsize>(size))
+        auto* bytes = static_cast<std::uint8_t*>(destination);
+        std::size_t total = 0;
+        while (total < size)
         {
-            throw System::EndOfStreamException();
+            const std::size_t read = _stream->Read(
+                std::span<std::uint8_t>(bytes + total, size - total));
+            if (read == 0)
+            {
+                throw System::EndOfStreamException();
+            }
+            if (read > size - total)
+            {
+                throw std::runtime_error("Stream returned more bytes than requested.");
+            }
+            total += read;
         }
     }
 
@@ -447,22 +1082,12 @@ namespace MphRead::Formats::MovieNativeRuntime
 
     std::int64_t BinaryReader::Position()
     {
-        const std::streampos position = _stream->tellg();
-        if (position == std::streampos(-1))
-        {
-            throw std::runtime_error("Stream position is unavailable.");
-        }
-        return static_cast<std::int64_t>(position);
+        return _stream->Position();
     }
 
     void BinaryReader::Position(std::int64_t value)
     {
-        _stream->clear();
-        _stream->seekg(static_cast<std::streamoff>(value), std::ios::beg);
-        if (!_stream->good())
-        {
-            throw System::ArgumentOutOfRangeException("value");
-        }
+        _stream->Position(value);
     }
 
     MovieTask::MovieTask(std::shared_ptr<TaskState> state) noexcept
@@ -475,6 +1100,8 @@ namespace MphRead::Formats::MovieNativeRuntime
         auto state = std::make_shared<TaskState>();
         State = state.get();
         state->Handle = std::coroutine_handle<promise_type>::from_promise(*this);
+        // A Task owns its async state machine independently of the caller's Task reference.
+        state->SelfKeepAlive = state;
         return MovieTask(std::move(state));
     }
 
@@ -483,12 +1110,11 @@ namespace MphRead::Formats::MovieNativeRuntime
         Exception = std::current_exception();
     }
 
-    std::coroutine_handle<> MovieTask::promise_type::FinalAwaiter::await_suspend(
+    void MovieTask::promise_type::FinalAwaiter::await_suspend(
         std::coroutine_handle<promise_type> handle) const noexcept
     {
         promise_type& promise = handle.promise();
         TaskState* state = promise.State;
-        std::coroutine_handle<> continuation = std::noop_coroutine();
         if (promise.Lifetime)
         {
             std::lock_guard<std::mutex> lifetimeLock(promise.Lifetime->Mutex);
@@ -499,27 +1125,33 @@ namespace MphRead::Formats::MovieNativeRuntime
             promise.Lifetime->Condition.notify_all();
             promise.Lifetime.reset();
         }
+
+        std::vector<ContinuationRegistration> continuations;
         std::shared_ptr<TaskState> deferredRelease;
         {
             std::lock_guard<std::mutex> lock(state->Mutex);
             state->Exception = promise.Exception;
             state->Done = true;
-            if (state->Continuation)
-            {
-                continuation = state->Continuation;
-                state->Continuation = {};
-            }
+            continuations = std::move(state->Continuations);
             deferredRelease = std::move(state->SelfKeepAlive);
         }
         state->Condition.notify_all();
+
+        for (ContinuationRegistration& continuation : continuations)
+        {
+            try
+            {
+                ResumeContinuation(std::move(continuation));
+            }
+            catch (...)
+            {
+                std::terminate();
+            }
+        }
         if (deferredRelease)
         {
-            // A C# Task owns its state machine while suspended even when the returned
-            // Task reference is discarded. Release that self-ownership only after the
-            // final-suspend transition has safely returned to the scheduler/continuation.
             Scheduler().DeferRelease(std::move(deferredRelease));
         }
-        return continuation;
     }
 
     MovieTask::Awaiter::Awaiter(std::shared_ptr<TaskState> state) noexcept
@@ -537,30 +1169,20 @@ namespace MphRead::Formats::MovieNativeRuntime
         return _state->Done;
     }
 
-    bool MovieTask::Awaiter::await_suspend(
-        std::coroutine_handle<promise_type> continuation) noexcept
+    bool MovieTask::Awaiter::await_suspend(std::coroutine_handle<> continuation)
     {
         if (!_state)
         {
             return false;
         }
-        TaskState* parentRaw = continuation.promise().State;
-        std::shared_ptr<TaskState> parentState = parentRaw->shared_from_this();
-        {
-            std::lock_guard<std::mutex> parentLock(parentState->Mutex);
-            if (!parentState->SelfKeepAlive)
-            {
-                parentState->SelfKeepAlive = parentState;
-            }
-        }
+        ContinuationRegistration registration{
+            continuation, SynchronizationContext::Current()};
         std::lock_guard<std::mutex> lock(_state->Mutex);
         if (_state->Done)
         {
-            std::lock_guard<std::mutex> parentLock(parentState->Mutex);
-            parentState->SelfKeepAlive.reset();
             return false;
         }
-        _state->Continuation = continuation;
+        _state->Continuations.push_back(std::move(registration));
         return true;
     }
 
@@ -606,15 +1228,8 @@ namespace MphRead::Formats::MovieNativeRuntime
         std::coroutine_handle<promise_type> handle) const
     {
         TaskState* raw = handle.promise().State;
-        std::shared_ptr<TaskState> state = raw->shared_from_this();
-        {
-            std::lock_guard<std::mutex> lock(state->Mutex);
-            if (!state->SelfKeepAlive)
-            {
-                state->SelfKeepAlive = state;
-            }
-        }
-        Scheduler().Schedule(std::move(state), handle);
+        Scheduler().Schedule(
+            raw->shared_from_this(), handle, SynchronizationContext::Current());
     }
 
     bool MovieTask::LifetimeAwaitable::await_suspend(
@@ -637,7 +1252,6 @@ namespace MphRead::Formats::MovieNativeRuntime
         return LifetimeAwaitable{std::move(lifetime)};
     }
 }
-
 namespace MphRead::Formats
 {
     namespace
@@ -720,110 +1334,133 @@ namespace MphRead::Formats
             }
         }
 
-        class SharedVectorStreamBuf final : public std::streambuf
+        class FileStream final : public MovieNativeRuntime::Stream
         {
         public:
-            explicit SharedVectorStreamBuf(std::shared_ptr<std::vector<std::uint8_t>> data)
-                : _data(std::move(data)), _length(_data ? _data->size() : 0)
+            explicit FileStream(const std::filesystem::path& path)
+                : _stream(path, std::ios::binary)
             {
             }
 
-        protected:
-            std::streamsize xsgetn(char* destination, std::streamsize count) override
+            [[nodiscard]] bool IsOpen() const noexcept { return _stream.is_open(); }
+
+            [[nodiscard]] std::size_t Read(std::span<std::uint8_t> destination) override
             {
-                if (count <= 0 || _position >= _length || !_data)
-                {
-                    return 0;
-                }
-                const std::size_t requested = static_cast<std::size_t>(count);
-                const std::size_t available = _length - _position;
-                const std::size_t actual = std::min(requested, available);
-                const std::size_t currentSize = _data->size();
-                if (_position >= currentSize)
-                {
-                    return 0;
-                }
-                const std::size_t readable = std::min(actual, currentSize - _position);
-                std::memcpy(destination, _data->data() + _position, readable);
-                _position += readable;
-                return static_cast<std::streamsize>(readable);
+                ThrowIfDisposed();
+                _stream.read(
+                    reinterpret_cast<char*>(destination.data()),
+                    static_cast<std::streamsize>(destination.size()));
+                return static_cast<std::size_t>(_stream.gcount());
             }
 
-            int_type underflow() override
+            [[nodiscard]] std::int64_t Position() const override
             {
-                if (!_data || _position >= _length || _position >= _data->size())
+                ThrowIfDisposed();
+                const std::streampos position = _stream.tellg();
+                if (position == std::streampos(-1))
                 {
-                    return traits_type::eof();
+                    throw std::runtime_error("Stream position is unavailable.");
                 }
-                return traits_type::to_int_type(
-                    static_cast<char>((*_data)[_position]));
+                return static_cast<std::int64_t>(position);
             }
 
-            int_type uflow() override
+            void Position(std::int64_t value) override
             {
-                const int_type value = underflow();
-                if (!traits_type::eq_int_type(value, traits_type::eof()))
+                ThrowIfDisposed();
+                _stream.clear();
+                _stream.seekg(static_cast<std::streamoff>(value), std::ios::beg);
+                if (!_stream.good())
                 {
-                    ++_position;
+                    throw System::ArgumentOutOfRangeException("value");
                 }
-                return value;
             }
 
-            pos_type seekoff(off_type offset, std::ios_base::seekdir direction,
-                std::ios_base::openmode which) override
+            void Dispose() override
             {
-                if ((which & std::ios_base::in) == 0)
+                if (!_disposed)
                 {
-                    return pos_type(off_type(-1));
+                    _stream.close();
+                    _disposed = true;
                 }
-                std::int64_t base = 0;
-                if (direction == std::ios_base::beg)
-                {
-                    base = 0;
-                }
-                else if (direction == std::ios_base::cur)
-                {
-                    base = static_cast<std::int64_t>(_position);
-                }
-                else if (direction == std::ios_base::end)
-                {
-                    base = static_cast<std::int64_t>(_length);
-                }
-                else
-                {
-                    return pos_type(off_type(-1));
-                }
-                const std::int64_t target = base + static_cast<std::int64_t>(offset);
-                if (target < 0)
-                {
-                    return pos_type(off_type(-1));
-                }
-                _position = static_cast<std::size_t>(target);
-                return pos_type(static_cast<off_type>(_position));
-            }
-
-            pos_type seekpos(pos_type position, std::ios_base::openmode which) override
-            {
-                return seekoff(static_cast<off_type>(position), std::ios_base::beg, which);
             }
 
         private:
-            std::shared_ptr<std::vector<std::uint8_t>> _data;
-            const std::size_t _length;
-            std::size_t _position = 0;
+            mutable std::ifstream _stream;
+            bool _disposed = false;
+
+            void ThrowIfDisposed() const
+            {
+                if (_disposed)
+                {
+                    throw System::ObjectDisposedException("FileStream");
+                }
+            }
         };
 
-        class SharedVectorInputStream final : public std::istream
+        class ArrayStream final : public MovieNativeRuntime::Stream
         {
         public:
-            explicit SharedVectorInputStream(std::shared_ptr<std::vector<std::uint8_t>> data)
-                : std::istream(nullptr), _buffer(std::move(data))
+            explicit ArrayStream(std::shared_ptr<ClrArray<std::uint8_t>> data)
+                : _data(std::move(data)), _length(_data ? _data->Length() : 0)
             {
-                rdbuf(&_buffer);
+                if (!_data)
+                {
+                    throw System::ArgumentNullException("buffer");
+                }
+            }
+
+            [[nodiscard]] std::size_t Read(std::span<std::uint8_t> destination) override
+            {
+                ThrowIfDisposed();
+                if (_position >= _length || destination.empty())
+                {
+                    return 0;
+                }
+                const std::int32_t available = _length - _position;
+                const std::size_t count = std::min(
+                    destination.size(), static_cast<std::size_t>(available));
+                for (std::size_t i = 0; i < count; ++i)
+                {
+                    destination[i] = (*_data)[_position + static_cast<std::int32_t>(i)];
+                }
+                _position += static_cast<std::int32_t>(count);
+                return count;
+            }
+
+            [[nodiscard]] std::int64_t Position() const override
+            {
+                ThrowIfDisposed();
+                return _position;
+            }
+
+            void Position(std::int64_t value) override
+            {
+                ThrowIfDisposed();
+                if (value < 0 || value > std::numeric_limits<std::int32_t>::max())
+                {
+                    throw System::ArgumentOutOfRangeException("value");
+                }
+                _position = static_cast<std::int32_t>(value);
+            }
+
+            void Dispose() override
+            {
+                _disposed = true;
             }
 
         private:
-            SharedVectorStreamBuf _buffer;
+            std::shared_ptr<ClrArray<std::uint8_t>> _data;
+            const std::int32_t _length;
+            std::int32_t _position = 0;
+            bool _disposed = false;
+
+            void ThrowIfDisposed() const
+            {
+                if (_disposed)
+                {
+                    throw System::ObjectDisposedException("MemoryStream");
+                }
+            }
         };
 
         [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
@@ -930,6 +1567,59 @@ namespace MphRead::Formats
         {
             return std::bit_cast<T>(value);
         }
+
+        template <typename T>
+        [[nodiscard]] T& RequireManagedReference(const std::shared_ptr<T>& value)
+        {
+            if (!value)
+            {
+                throw System::NullReferenceException();
+            }
+            return *value;
+        }
+
+        template <typename T>
+        [[nodiscard]] const T& RequireManagedReference(
+            const std::shared_ptr<const T>& value)
+        {
+            if (!value)
+            {
+                throw System::NullReferenceException();
+            }
+            return *value;
+        }
+
+
+        template <typename T>
+        void ClearClrArray(ClrArray<T>& array)
+        {
+            for (std::int32_t i = 0; i < array.Length(); i = WrapInt32Add(i, 1))
+            {
+                array[i] = T{};
+            }
+        }
+
+        template <typename T>
+        void FillClrArray(ClrArray<T>& array, const T& value)
+        {
+            for (std::int32_t i = 0; i < array.Length(); i = WrapInt32Add(i, 1))
+            {
+                array[i] = value;
+            }
+        }
+
+        template <typename T>
+        void ClearRectArray(MovieNativeRuntime::RectArray2D<T>& array)
+        {
+            for (std::int32_t row = 0; row < array.GetLength(0); row = WrapInt32Add(row, 1))
+            {
+                for (std::int32_t column = 0; column < array.GetLength(1);
+                    column = WrapInt32Add(column, 1))
+                {
+                    array(row, column) = T{};
+                }
+            }
+        }
     }
 
     SeekTableEntry& SeekTableEntry::operator=(const SeekTableEntry& other) noexcept
@@ -953,19 +1643,19 @@ namespace MphRead::Formats
     }
 
     VxBuffers::VxBuffers(
-        std::shared_ptr<std::array<std::shared_ptr<VideoFrame>, 3>> prevVideoFrames,
-        std::shared_ptr<std::array<std::int32_t, 3>> quantizerTable,
+        std::shared_ptr<ClrArray<std::shared_ptr<VideoFrame>>> prevVideoFrames,
+        std::shared_ptr<ClrArray<std::int32_t>> quantizerTable,
         std::shared_ptr<ByteArray2D> planeBufferY,
         std::shared_ptr<ByteArray2D> planeBufferU,
         std::shared_ptr<ByteArray2D> planeBufferV,
         std::shared_ptr<ByteArray2D> coeffBufferY,
         std::shared_ptr<ByteArray2D> coeffBufferUV,
         std::shared_ptr<Vector2irArray2D> vectors,
-        std::shared_ptr<std::array<std::int16_t, 8>> prevSampleBuffer,
-        std::shared_ptr<std::array<std::int32_t, 256>> prevPulseBuffer,
-        std::shared_ptr<std::array<std::int32_t, 8>> lpcFilterBuffer,
-        std::shared_ptr<std::array<std::int32_t, 8>> influenceBuffer,
-        std::shared_ptr<std::vector<std::int16_t>> sampleBuffer)
+        std::shared_ptr<ClrArray<std::int16_t>> prevSampleBuffer,
+        std::shared_ptr<ClrArray<std::int32_t>> prevPulseBuffer,
+        std::shared_ptr<ClrArray<std::int32_t>> lpcFilterBuffer,
+        std::shared_ptr<ClrArray<std::int32_t>> influenceBuffer,
+        std::shared_ptr<ClrArray<std::int16_t>> sampleBuffer)
         : PrevVideoFrames(std::move(prevVideoFrames)),
           QuantizerTable(std::move(quantizerTable)),
           PlaneBufferY(std::move(planeBufferY)),
@@ -1090,7 +1780,7 @@ namespace MphRead::Formats
         }
         _framesQueued.store(0, std::memory_order_relaxed);
         UseStaticBuffers = true;
-        std::fill(_sampleBuffer->begin(), _sampleBuffer->end(), 0);
+        ClearClrArray(*_sampleBuffer);
     }
 
     MovieNativeRuntime::MovieTask VxDecoder::ExportAll()
@@ -1147,18 +1837,18 @@ namespace MphRead::Formats
         const std::string& filePath, bool writeFiles, std::stop_token token)
     {
         co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
-        auto stream = std::make_shared<std::ifstream>(PathFromUtf8(filePath), std::ios::binary);
-        if (!*stream)
+        auto stream = std::make_shared<FileStream>(PathFromUtf8(filePath));
+        if (!stream->IsOpen())
         {
             throw std::runtime_error("Could not find file '" + filePath + "'.");
         }
-        co_await Decode(std::static_pointer_cast<std::istream>(stream),
+        co_await Decode(std::static_pointer_cast<MovieNativeRuntime::Stream>(stream),
             FileName(PathFromUtf8(filePath)), writeFiles, token);
         co_return;
     }
 
     MovieNativeRuntime::MovieTask VxDecoder::Decode(
-        std::shared_ptr<std::vector<std::uint8_t>> data, const std::string& filename,
+        std::shared_ptr<ClrArray<std::uint8_t>> data, const std::string& filename,
         bool writeFiles, std::stop_token token)
     {
         co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
@@ -1167,13 +1857,14 @@ namespace MphRead::Formats
             // MemoryStream(byte[]) faults the async method with ArgumentNullException.
             throw System::ArgumentNullException("buffer");
         }
-        auto stream = std::make_shared<SharedVectorInputStream>(data);
-        co_await Decode(std::static_pointer_cast<std::istream>(stream), filename, writeFiles, token);
+        auto stream = std::make_shared<ArrayStream>(data);
+        co_await Decode(std::static_pointer_cast<MovieNativeRuntime::Stream>(stream),
+            filename, writeFiles, token);
         co_return;
     }
 
     MovieNativeRuntime::MovieTask VxDecoder::Decode(
-        std::shared_ptr<std::istream> stream, const std::string& filename,
+        std::shared_ptr<MovieNativeRuntime::Stream> stream, const std::string& filename,
         bool writeFiles, std::stop_token token)
     {
         co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
@@ -1182,7 +1873,7 @@ namespace MphRead::Formats
     }
 
     MovieNativeRuntime::MovieTask VxDecoder::DecodeCore(
-        std::shared_ptr<std::istream> stream, const std::string& filename,
+        std::shared_ptr<MovieNativeRuntime::Stream> stream, const std::string& filename,
         bool writeFiles, std::stop_token token)
     {
         const std::string folder = Paths::Combine(Paths::Export(), Stem(PathFromUtf8(filename)));
@@ -1240,11 +1931,11 @@ namespace MphRead::Formats
 
         for (std::int32_t i = 0; i < 8; ++i)
         {
-            (*Extradata->ScaleModifiers)[static_cast<std::size_t>(i)] = reader.ReadUInt16();
+            (*Extradata->ScaleModifiers)[i] = reader.ReadUInt16();
         }
         for (std::int32_t i = 0; i < 8; ++i)
         {
-            (*Extradata->LpcBase)[static_cast<std::size_t>(i)] = reader.ReadInt32();
+            (*Extradata->LpcBase)[i] = reader.ReadInt32();
         }
         Extradata->ScaleInitial = reader.ReadInt32();
 
@@ -1261,17 +1952,18 @@ namespace MphRead::Formats
         const std::int32_t qy = Quantizer / 6;
         const std::int32_t qx = Quantizer % 6;
         const std::array<std::int32_t, 3>& table = _quantizer4x4Table.at(static_cast<std::size_t>(qx));
-        for (std::size_t i = 0; i < table.size(); ++i)
+        for (std::int32_t i = 0; i < static_cast<std::int32_t>(table.size());
+            i = WrapInt32Add(i, 1))
         {
-            (*QuantizerTable)[i] = table[i] << qy;
+            (*QuantizerTable)[i] = table[static_cast<std::size_t>(i)] << qy;
         }
 
         reader.Position(prevPosition);
 
         (void)VLC::Temp();
 
-        std::shared_ptr<std::vector<std::uint8_t>> buffer = GetDataBuffer();
-        std::fill(buffer->begin(), buffer->end(), 0);
+        std::shared_ptr<ClrArray<std::uint8_t>> buffer = GetDataBuffer();
+        FillClrArray(*buffer, std::uint8_t{0});
 
         std::shared_ptr<ByteArray2D> coeffBufferY;
         std::shared_ptr<ByteArray2D> coeffBufferUV;
@@ -1298,13 +1990,13 @@ namespace MphRead::Formats
             _vxFrames = std::make_shared<std::vector<std::shared_ptr<VxFrame>>>();
             _vxFrames->reserve(static_cast<std::size_t>(FrameCount));
         }
-        (*_prevVideoFrames)[0].reset();
-        (*_prevVideoFrames)[1].reset();
-        (*_prevVideoFrames)[2].reset();
-        _prevSampleBuffer->fill(0);
-        _prevPulseBuffer->fill(0);
-        _lpcFilterBuffer->fill(0);
-        _influenceBuffer->fill(0);
+        RequireManagedReference(_prevVideoFrames)[0].reset();
+        RequireManagedReference(_prevVideoFrames)[1].reset();
+        RequireManagedReference(_prevVideoFrames)[2].reset();
+        ClearClrArray(*_prevSampleBuffer);
+        ClearClrArray(*_prevPulseBuffer);
+        ClearClrArray(*_lpcFilterBuffer);
+        ClearClrArray(*_influenceBuffer);
         std::shared_ptr<AudioFrame> prevAudioFrame{};
         _audioFrameTotal.store(0, std::memory_order_release);
 
@@ -1367,9 +2059,9 @@ namespace MphRead::Formats
                 planeBufferV = std::move(planeBuffers[2]);
             }
 
-            coeffBufferY->Clear();
-            coeffBufferUV->Clear();
-            vectors->Clear();
+            ClearRectArray(*coeffBufferY);
+            ClearRectArray(*coeffBufferUV);
+            ClearRectArray(*vectors);
 
             VxBuffers buffers(
                 _prevVideoFrames, QuantizerTable,
@@ -1385,7 +2077,7 @@ namespace MphRead::Formats
 
             if (audioFrameCount > 0)
             {
-                prevAudioFrame = vxFrame->AudioFrames->back();
+                prevAudioFrame = (*vxFrame->AudioFrames)[WrapInt32Subtract(audioFrameCount, 1)];
                 _nextSampleBufferIndex = WrapInt32Add(_nextSampleBufferIndex, audioFrameCount);
                 _nextSampleBufferIndex %= SampleBufferCount();
             }
@@ -1399,9 +2091,9 @@ namespace MphRead::Formats
             }
             const std::int32_t queued = _framesQueued.load(std::memory_order_relaxed);
             _framesQueued.store(WrapInt32Add(queued, 1), std::memory_order_relaxed);
-            (*_prevVideoFrames)[2] = (*_prevVideoFrames)[1];
-            (*_prevVideoFrames)[1] = (*_prevVideoFrames)[0];
-            (*_prevVideoFrames)[0] = vxFrame->VideoFrame;
+            RequireManagedReference(_prevVideoFrames)[2] = RequireManagedReference(_prevVideoFrames)[1];
+            RequireManagedReference(_prevVideoFrames)[1] = RequireManagedReference(_prevVideoFrames)[0];
+            RequireManagedReference(_prevVideoFrames)[0] = vxFrame->VideoFrame;
 
             if (writeFiles && UseStaticBuffers)
             {
@@ -1413,7 +2105,7 @@ namespace MphRead::Formats
                 for (std::int32_t j = 0; j < audioFrameCount; ++j)
                 {
                     const std::shared_ptr<AudioFrame>& audioFrame
-                        = vxFrame->AudioFrames->at(static_cast<std::size_t>(j));
+                        = (*vxFrame->AudioFrames)[j];
                     const std::span<const std::int16_t> samples = audioFrame->SampleBuffer();
                     for (std::int32_t k = 0; k < 128; ++k)
                     {
@@ -1487,7 +2179,7 @@ namespace MphRead::Formats
     }
 
     bool VxDecoder::GetImage(std::int32_t frameIndex,
-        const std::shared_ptr<std::vector<std::uint8_t>>& texture)
+        const std::shared_ptr<ClrArray<std::uint8_t>>& texture)
     {
         std::shared_ptr<VxFrame> vxFrame;
         {
@@ -1501,10 +2193,6 @@ namespace MphRead::Formats
                 throw System::ArgumentOutOfRangeException("index");
             }
             vxFrame = (*_vxFrames)[static_cast<std::size_t>(frameIndex)];
-        }
-        if (!texture)
-        {
-            throw System::NullReferenceException();
         }
         for (std::int32_t y = 0; y < FrameHeight; y = WrapInt32Add(y, 1))
         {
@@ -1520,11 +2208,7 @@ namespace MphRead::Formats
                 for (std::int32_t channel = 0; channel < 3; channel = WrapInt32Add(channel, 1))
                 {
                     const std::int32_t index = WrapInt32Add(base, channel);
-                    if (index < 0 || static_cast<std::size_t>(index) >= texture->size())
-                    {
-                        throw System::IndexOutOfRangeException();
-                    }
-                    (*texture)[static_cast<std::size_t>(index)]
+                    RequireManagedReference(texture)[index]
                         = values[static_cast<std::size_t>(channel)];
                 }
             }
@@ -1538,22 +2222,22 @@ namespace MphRead::Formats
     {
         index %= SampleBufferCount();
         const std::int32_t start = WrapInt32Multiply(128, index);
-        if (start < 0 || static_cast<std::size_t>(start) > _sampleBuffer->size()
-            || _sampleBuffer->size() - static_cast<std::size_t>(start) < 128U)
+        if (start < 0 || start > RequireManagedReference(_sampleBuffer).Length()
+            || RequireManagedReference(_sampleBuffer).Length() - start < 128)
         {
             throw System::ArgumentOutOfRangeException("start");
         }
         return std::span<const std::int16_t>(
-            _sampleBuffer->data() + static_cast<std::ptrdiff_t>(start), 128);
+            std::addressof(RequireManagedReference(_sampleBuffer)[start]), 128);
     }
 
-    std::shared_ptr<std::vector<std::uint8_t>> VxDecoder::GetDataBuffer()
+    std::shared_ptr<ClrArray<std::uint8_t>> VxDecoder::GetDataBuffer()
     {
         if (UseStaticBuffers || MaxDataSize <= _mphMaxDataSize)
         {
             return _dataBuffer;
         }
-        return std::make_shared<std::vector<std::uint8_t>>(static_cast<std::size_t>(MaxDataSize));
+        return std::make_shared<ClrArray<std::uint8_t>>(MaxDataSize);
     }
 
     std::array<std::shared_ptr<ByteArray2D>, 3> VxDecoder::GetPlaneBuffers()
@@ -1574,9 +2258,9 @@ namespace MphRead::Formats
         _nextPlaneBufferIndex %= static_cast<std::int32_t>(_planeBuffers.size());
 
         // Preserve the source exactly: V is cleared twice; Y is not cleared here.
-        bufferV->Clear();
-        bufferU->Clear();
-        bufferV->Clear();
+        ClearRectArray(*bufferV);
+        ClearRectArray(*bufferU);
+        ClearRectArray(*bufferV);
         return {std::move(bufferY), std::move(bufferU), std::move(bufferV)};
     }
 
@@ -1603,19 +2287,14 @@ namespace MphRead::Formats
           AudioFrames([extradata = std::move(extradata), prevAudioFrame = std::move(prevAudioFrame),
               &buffers, sampleBufferIndex, audioFrameCount]() mutable
           {
-              if (audioFrameCount < 0)
-              {
-                  throw std::overflow_error("Array dimensions exceeded supported range.");
-              }
               auto frames = std::make_shared<
-                  std::vector<std::shared_ptr<::MphRead::Formats::AudioFrame>>>(
-                      static_cast<std::size_t>(audioFrameCount));
-              for (std::int32_t i = 0; i < audioFrameCount; ++i)
+                  ClrArray<std::shared_ptr<::MphRead::Formats::AudioFrame>>>(audioFrameCount);
+              for (std::int32_t i = 0; i < audioFrameCount; i = WrapInt32Add(i, 1))
               {
                   auto audioFrame = std::make_shared<::MphRead::Formats::AudioFrame>(
                       extradata, prevAudioFrame, buffers, sampleBufferIndex);
                   sampleBufferIndex = WrapInt32Add(sampleBufferIndex, 1);
-                  (*frames)[static_cast<std::size_t>(i)] = audioFrame;
+                  (*frames)[i] = audioFrame;
                   prevAudioFrame = std::move(audioFrame);
                   sampleBufferIndex %= VxDecoder::SampleBufferCount();
               }
@@ -1626,43 +2305,34 @@ namespace MphRead::Formats
 
     void VxFrame::Decode(
         MovieNativeRuntime::BinaryReader& reader,
-        const std::shared_ptr<std::vector<std::uint8_t>>& buffer,
+        const std::shared_ptr<ClrArray<std::uint8_t>>& buffer,
         std::int32_t length)
     {
-        for (std::int32_t i = 0; i < length; i += 2)
+        for (std::int32_t i = 0; i < length; i = WrapInt32Add(i, 2))
         {
-            buffer->at(static_cast<std::size_t>(i + 1)) = reader.ReadByte();
-            buffer->at(static_cast<std::size_t>(i)) = reader.ReadByte();
+            RequireManagedReference(buffer)[WrapInt32Add(i, 1)] = reader.ReadByte();
+            RequireManagedReference(buffer)[i] = reader.ReadByte();
         }
         BitStreamReader bitReader(buffer, length);
         VideoFrame->Decode(bitReader);
         for (std::int32_t i = 0; i < AudioFrameCount; ++i)
         {
-            AudioFrames->at(static_cast<std::size_t>(i))->Decode(bitReader);
+            (*AudioFrames)[i]->Decode(bitReader);
         }
     }
 
     BitStreamReader::BitStreamReader(
-        std::shared_ptr<std::vector<std::uint8_t>> buffer, std::int32_t length)
+        std::shared_ptr<ClrArray<std::uint8_t>> buffer, std::int32_t length)
         : _buffer(std::move(buffer)), _length(length)
     {
     }
 
     std::int32_t BitStreamReader::ReadBit()
     {
-        if (!_buffer)
-        {
-            throw System::NullReferenceException();
-        }
         const std::int32_t bytePosition = _bitPosition / 8;
         const std::int32_t bitPosition = _bitPosition % 8;
         _bitPosition = WrapInt32Add(_bitPosition, 1);
-        if (bytePosition < 0
-            || static_cast<std::size_t>(bytePosition) >= _buffer->size())
-        {
-            throw System::IndexOutOfRangeException();
-        }
-        return ((*_buffer)[static_cast<std::size_t>(bytePosition)]
+        return (RequireManagedReference(_buffer)[bytePosition]
             >> WrapInt32Subtract(7, bitPosition)) & 1;
     }
 
@@ -1782,19 +2452,19 @@ namespace MphRead::Formats
             _planeBufferV = std::make_shared<ByteArray2D>(FrameHeight / 2, FrameWidth / 2);
         }
 
-        for (std::int32_t y = 0; y < FrameHeight; y += 16)
+        for (std::int32_t y = 0; y < FrameHeight; y = WrapInt32Add(y, 16))
         {
-            for (std::int32_t x = 0; x < FrameWidth; x += 16)
+            for (std::int32_t x = 0; x < FrameWidth; x = WrapInt32Add(x, 16))
             {
                 const Vector2ir predictionVector(
                     GetMiddleValue(
-                        (*_vectors)((y / 16) + 1, (x / 16) + 0).X,
-                        (*_vectors)((y / 16) + 0, (x / 16) + 1).X,
-                        (*_vectors)((y / 16) + 0, (x / 16) + 2).X),
+                        RequireManagedReference(_vectors)((y / 16) + 1, (x / 16) + 0).X,
+                        RequireManagedReference(_vectors)((y / 16) + 0, (x / 16) + 1).X,
+                        RequireManagedReference(_vectors)((y / 16) + 0, (x / 16) + 2).X),
                     GetMiddleValue(
-                        (*_vectors)((y / 16) + 1, (x / 16) + 0).Y,
-                        (*_vectors)((y / 16) + 0, (x / 16) + 1).Y,
-                        (*_vectors)((y / 16) + 0, (x / 16) + 2).Y));
+                        RequireManagedReference(_vectors)((y / 16) + 1, (x / 16) + 0).Y,
+                        RequireManagedReference(_vectors)((y / 16) + 0, (x / 16) + 1).Y,
+                        RequireManagedReference(_vectors)((y / 16) + 0, (x / 16) + 2).Y));
                 DecodeBlock(Block(x, y, 16, 16), predictionVector);
             }
         }
@@ -1836,7 +2506,7 @@ namespace MphRead::Formats
         }
         else if (mode == 1)
         {
-            PredictInter(block, predictionVector, false, (*_prevVideoFrames)[0]);
+            PredictInter(block, predictionVector, false, RequireManagedReference(_prevVideoFrames)[0]);
             if (block.W >= 8 && block.H >= 8)
             {
                 ClearTotalCoeff(block);
@@ -1865,7 +2535,7 @@ namespace MphRead::Formats
         }
         else if (mode == 4)
         {
-            PredictInter(block, predictionVector, true, (*_prevVideoFrames)[0]);
+            PredictInter(block, predictionVector, true, RequireManagedReference(_prevVideoFrames)[0]);
             if (block.W >= 8 && block.H >= 8)
             {
                 ClearTotalCoeff(block);
@@ -1873,7 +2543,7 @@ namespace MphRead::Formats
         }
         else if (mode == 5)
         {
-            PredictInter(block, predictionVector, true, (*_prevVideoFrames)[1]);
+            PredictInter(block, predictionVector, true, RequireManagedReference(_prevVideoFrames)[1]);
             if (block.W >= 8 && block.H >= 8)
             {
                 ClearTotalCoeff(block);
@@ -1881,7 +2551,7 @@ namespace MphRead::Formats
         }
         else if (mode == 6)
         {
-            PredictInter(block, predictionVector, true, (*_prevVideoFrames)[2]);
+            PredictInter(block, predictionVector, true, RequireManagedReference(_prevVideoFrames)[2]);
             if (block.W >= 8 && block.H >= 8)
             {
                 ClearTotalCoeff(block);
@@ -1907,7 +2577,7 @@ namespace MphRead::Formats
         }
         else if (mode == 9)
         {
-            PredictInter(block, predictionVector, false, (*_prevVideoFrames)[1]);
+            PredictInter(block, predictionVector, false, RequireManagedReference(_prevVideoFrames)[1]);
             if (block.W >= 8 && block.H >= 8)
             {
                 ClearTotalCoeff(block);
@@ -1928,7 +2598,7 @@ namespace MphRead::Formats
         }
         else if (mode == 12)
         {
-            PredictInter(block, predictionVector, false, (*_prevVideoFrames)[0]);
+            PredictInter(block, predictionVector, false, RequireManagedReference(_prevVideoFrames)[0]);
             DecodeResidueBlocks(block);
         }
         else if (mode == 13)
@@ -1943,7 +2613,7 @@ namespace MphRead::Formats
         }
         else if (mode == 14)
         {
-            PredictInter(block, predictionVector, false, (*_prevVideoFrames)[2]);
+            PredictInter(block, predictionVector, false, RequireManagedReference(_prevVideoFrames)[2]);
             if (block.W >= 8 && block.H >= 8)
             {
                 ClearTotalCoeff(block);
@@ -1959,17 +2629,17 @@ namespace MphRead::Formats
         }
         else if (mode == 16)
         {
-            PredictInter(block, predictionVector, true, (*_prevVideoFrames)[0]);
+            PredictInter(block, predictionVector, true, RequireManagedReference(_prevVideoFrames)[0]);
             DecodeResidueBlocks(block);
         }
         else if (mode == 17)
         {
-            PredictInter(block, predictionVector, true, (*_prevVideoFrames)[1]);
+            PredictInter(block, predictionVector, true, RequireManagedReference(_prevVideoFrames)[1]);
             DecodeResidueBlocks(block);
         }
         else if (mode == 18)
         {
-            PredictInter(block, predictionVector, true, (*_prevVideoFrames)[2]);
+            PredictInter(block, predictionVector, true, RequireManagedReference(_prevVideoFrames)[2]);
             DecodeResidueBlocks(block);
         }
         else if (mode == 19)
@@ -1979,12 +2649,12 @@ namespace MphRead::Formats
         }
         else if (mode == 20)
         {
-            PredictInter(block, predictionVector, false, (*_prevVideoFrames)[1]);
+            PredictInter(block, predictionVector, false, RequireManagedReference(_prevVideoFrames)[1]);
             DecodeResidueBlocks(block);
         }
         else if (mode == 21)
         {
-            PredictInter(block, predictionVector, false, (*_prevVideoFrames)[2]);
+            PredictInter(block, predictionVector, false, RequireManagedReference(_prevVideoFrames)[2]);
             DecodeResidueBlocks(block);
         }
         else if (mode == 22)
@@ -2020,34 +2690,34 @@ namespace MphRead::Formats
                 WrapInt32Add(predictionVector.Y, _reader->ReadSignedExpGolomb()));
         }
 
-        (*_vectors)((block.Y / 16) + 1, (block.X / 16) + 1) = predictionVector;
+        RequireManagedReference(_vectors)((block.Y / 16) + 1, (block.X / 16) + 1) = predictionVector;
 
-        for (std::int32_t y = block.Y; y < block.Y + block.H; ++y)
+        for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = block.X; x < block.X + block.W; ++x)
+            for (std::int32_t x = block.X; x < WrapInt32Add(block.X, block.W); x = WrapInt32Add(x, 1))
             {
-                (*_planeBufferY)(y, x) = PlaneBufferGetter(
-                    *prevVideoFrame->_planeBufferY, 1,
+                RequireManagedReference(_planeBufferY)(y, x) = PlaneBufferGetter(
+                    RequireManagedReference(prevVideoFrame->_planeBufferY), 1,
                     WrapInt32Add(x, predictionVector.X),
                     WrapInt32Add(y, predictionVector.Y));
             }
         }
-        for (std::int32_t y = block.Y; y < block.Y + block.H; y += 2)
+        for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, 2))
         {
-            for (std::int32_t x = block.X; x < block.X + block.W; x += 2)
+            for (std::int32_t x = block.X; x < WrapInt32Add(block.X, block.W); x = WrapInt32Add(x, 2))
             {
-                (*_planeBufferU)(y / 2, x / 2) = PlaneBufferGetter(
-                    *prevVideoFrame->_planeBufferU, 2,
+                RequireManagedReference(_planeBufferU)(y / 2, x / 2) = PlaneBufferGetter(
+                    RequireManagedReference(prevVideoFrame->_planeBufferU), 2,
                     WrapInt32Add(x, predictionVector.X),
                     WrapInt32Add(y, predictionVector.Y));
             }
         }
-        for (std::int32_t y = block.Y; y < block.Y + block.H; y += 2)
+        for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, 2))
         {
-            for (std::int32_t x = block.X; x < block.X + block.W; x += 2)
+            for (std::int32_t x = block.X; x < WrapInt32Add(block.X, block.W); x = WrapInt32Add(x, 2))
             {
-                (*_planeBufferV)(y / 2, x / 2) = PlaneBufferGetter(
-                    *prevVideoFrame->_planeBufferV, 2,
+                RequireManagedReference(_planeBufferV)(y / 2, x / 2) = PlaneBufferGetter(
+                    RequireManagedReference(prevVideoFrame->_planeBufferV), 2,
                     WrapInt32Add(x, predictionVector.X),
                     WrapInt32Add(y, predictionVector.Y));
             }
@@ -2089,40 +2759,40 @@ namespace MphRead::Formats
         }
         dcV *= 2;
 
-        const std::shared_ptr<VideoFrame>& prevVideoFrame = (*_prevVideoFrames)[0];
+        const std::shared_ptr<VideoFrame>& prevVideoFrame = RequireManagedReference(_prevVideoFrames)[0];
         assert(prevVideoFrame);
 
-        for (std::int32_t y = block.Y; y < block.Y + block.H; ++y)
+        for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = block.X; x < block.X + block.W; ++x)
+            for (std::int32_t x = block.X; x < WrapInt32Add(block.X, block.W); x = WrapInt32Add(x, 1))
             {
                 const std::int32_t predicted = PlaneBufferGetter(
-                    *prevVideoFrame->_planeBufferY, 1,
+                    RequireManagedReference(prevVideoFrame->_planeBufferY), 1,
                     WrapInt32Add(x, vec.X), WrapInt32Add(y, vec.Y));
                 const std::int32_t pixel = WrapInt32Add(predicted, dcY);
-                (*_planeBufferY)(y, x) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                RequireManagedReference(_planeBufferY)(y, x) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
             }
         }
-        for (std::int32_t y = block.Y; y < block.Y + block.H; y += 2)
+        for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, 2))
         {
-            for (std::int32_t x = block.X; x < block.X + block.W; x += 2)
+            for (std::int32_t x = block.X; x < WrapInt32Add(block.X, block.W); x = WrapInt32Add(x, 2))
             {
                 const std::int32_t predicted = PlaneBufferGetter(
-                    *prevVideoFrame->_planeBufferU, 2,
+                    RequireManagedReference(prevVideoFrame->_planeBufferU), 2,
                     WrapInt32Add(x, vec.X), WrapInt32Add(y, vec.Y));
                 const std::int32_t pixel = WrapInt32Add(predicted, dcU);
-                (*_planeBufferU)(y / 2, x / 2) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                RequireManagedReference(_planeBufferU)(y / 2, x / 2) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
             }
         }
-        for (std::int32_t y = block.Y; y < block.Y + block.H; y += 2)
+        for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, 2))
         {
-            for (std::int32_t x = block.X; x < block.X + block.W; x += 2)
+            for (std::int32_t x = block.X; x < WrapInt32Add(block.X, block.W); x = WrapInt32Add(x, 2))
             {
                 const std::int32_t predicted = PlaneBufferGetter(
-                    *prevVideoFrame->_planeBufferV, 2,
+                    RequireManagedReference(prevVideoFrame->_planeBufferV), 2,
                     WrapInt32Add(x, vec.X), WrapInt32Add(y, vec.Y));
                 const std::int32_t pixel = WrapInt32Add(predicted, dcV);
-                (*_planeBufferV)(y / 2, x / 2) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                RequireManagedReference(_planeBufferV)(y / 2, x / 2) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
             }
         }
     }
@@ -2134,29 +2804,33 @@ namespace MphRead::Formats
         {
             throw ProgramException("VX decoding error 012: " + std::to_string(value));
         }
-        PredictPlane(block, *_planeBufferY, 1, WrapInt32Multiply(value, 2));
+        PredictPlane(block, RequireManagedReference(_planeBufferY), 1, WrapInt32Multiply(value, 2));
 
         value = _reader->ReadSignedExpGolomb();
         if (value < -(1 << 16) || value >= (1 << 16))
         {
             throw ProgramException("VX decoding error 013: " + std::to_string(value));
         }
-        PredictPlane(block, *_planeBufferU, 2, WrapInt32Multiply(value, 2));
+        PredictPlane(block, RequireManagedReference(_planeBufferU), 2, WrapInt32Multiply(value, 2));
 
         value = _reader->ReadSignedExpGolomb();
         if (value < -(1 << 16) || value >= (1 << 16))
         {
             throw ProgramException("VX decoding error 014: " + std::to_string(value));
         }
-        PredictPlane(block, *_planeBufferV, 2, WrapInt32Multiply(value, 2));
+        PredictPlane(block, RequireManagedReference(_planeBufferV), 2, WrapInt32Multiply(value, 2));
     }
 
     void VideoFrame::DecodeResidueBlocks(Block block)
     {
-        for (std::int32_t y = 0; y < block.H; y += 8)
+        for (std::int32_t y = 0; y < block.H; y = WrapInt32Add(y, 8))
         {
-            for (std::int32_t x = 0; x < block.W; x += 8)
+            for (std::int32_t x = 0; x < block.W; x = WrapInt32Add(x, 8))
             {
+                const std::int32_t bx = WrapInt32Add(block.X, x);
+                const std::int32_t by = WrapInt32Add(block.Y, y);
+                const std::int32_t bx4 = WrapInt32Add(bx, 4);
+                const std::int32_t by4 = WrapInt32Add(by, 4);
                 const std::int32_t index = _reader->ReadUnsignedExpGolomb();
                 if (index > 31)
                 {
@@ -2167,89 +2841,89 @@ namespace MphRead::Formats
                 if ((residueMask & 1) != 0)
                 {
                     const std::int32_t coeffLeft = GetCoeffBuffer(
-                        *_coeffBufferY, 1, block.X + x - 1, block.Y + y);
+                        RequireManagedReference(_coeffBufferY), 1, WrapInt32Subtract(bx, 1), by);
                     const std::int32_t coeffTop = GetCoeffBuffer(
-                        *_coeffBufferY, 1, block.X + x, block.Y + y - 1);
+                        RequireManagedReference(_coeffBufferY), 1, bx, WrapInt32Subtract(by, 1));
                     const std::int32_t nc = (coeffLeft + coeffTop + 1) / 2;
                     const std::int32_t outTotalCoeff = DecodeResidueCAVLC(
-                        block.X + x, block.Y + y, nc, *_planeBufferY, 1);
-                    SetCoeffBuffer(*_coeffBufferY, 1, block.X + x, block.Y + y,
+                        bx, by, nc, RequireManagedReference(_planeBufferY), 1);
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx, by,
                         static_cast<std::uint8_t>(outTotalCoeff));
                 }
                 else
                 {
-                    SetCoeffBuffer(*_coeffBufferY, 1, block.X + x, block.Y + y, 0);
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx, by, 0);
                 }
 
                 if ((residueMask & 2) != 0)
                 {
                     const std::int32_t coeffLeft = GetCoeffBuffer(
-                        *_coeffBufferY, 1, block.X + x + 4 - 1, block.Y + y);
+                        RequireManagedReference(_coeffBufferY), 1, WrapInt32Subtract(bx4, 1), by);
                     const std::int32_t coeffTop = GetCoeffBuffer(
-                        *_coeffBufferY, 1, block.X + x + 4, block.Y + y - 1);
+                        RequireManagedReference(_coeffBufferY), 1, bx4, WrapInt32Subtract(by, 1));
                     const std::int32_t nc = (coeffLeft + coeffTop + 1) / 2;
                     const std::int32_t outTotalCoeff = DecodeResidueCAVLC(
-                        block.X + x + 4, block.Y + y, nc, *_planeBufferY, 1);
-                    SetCoeffBuffer(*_coeffBufferY, 1, block.X + x + 4, block.Y + y,
+                        bx4, by, nc, RequireManagedReference(_planeBufferY), 1);
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx4, by,
                         static_cast<std::uint8_t>(outTotalCoeff));
                 }
                 else
                 {
-                    SetCoeffBuffer(*_coeffBufferY, 1, block.X + x + 4, block.Y + y, 0);
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx4, by, 0);
                 }
 
                 if ((residueMask & 4) != 0)
                 {
                     const std::int32_t coeffLeft = GetCoeffBuffer(
-                        *_coeffBufferY, 1, block.X + x - 1, block.Y + y + 4);
+                        RequireManagedReference(_coeffBufferY), 1, WrapInt32Subtract(bx, 1), by4);
                     const std::int32_t coeffTop = GetCoeffBuffer(
-                        *_coeffBufferY, 1, block.X + x, block.Y + y + 4 - 1);
+                        RequireManagedReference(_coeffBufferY), 1, bx, WrapInt32Subtract(by4, 1));
                     const std::int32_t nc = (coeffLeft + coeffTop + 1) / 2;
                     const std::int32_t outTotalCoeff = DecodeResidueCAVLC(
-                        block.X + x, block.Y + y + 4, nc, *_planeBufferY, 1);
-                    SetCoeffBuffer(*_coeffBufferY, 1, block.X + x, block.Y + y + 4,
+                        bx, by4, nc, RequireManagedReference(_planeBufferY), 1);
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx, by4,
                         static_cast<std::uint8_t>(outTotalCoeff));
                 }
                 else
                 {
-                    SetCoeffBuffer(*_coeffBufferY, 1, block.X + x, block.Y + y + 4, 0);
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx, by4, 0);
                 }
 
                 if ((residueMask & 8) != 0)
                 {
                     const std::int32_t coeffLeft = GetCoeffBuffer(
-                        *_coeffBufferY, 1, block.X + x + 4 - 1, block.Y + y + 4);
+                        RequireManagedReference(_coeffBufferY), 1, WrapInt32Subtract(bx4, 1), by4);
                     const std::int32_t coeffTop = GetCoeffBuffer(
-                        *_coeffBufferY, 1, block.X + x + 4, block.Y + y + 4 - 1);
+                        RequireManagedReference(_coeffBufferY), 1, bx4, WrapInt32Subtract(by4, 1));
                     const std::int32_t nc = (coeffLeft + coeffTop + 1) / 2;
                     const std::int32_t outTotalCoeff = DecodeResidueCAVLC(
-                        block.X + x + 4, block.Y + y + 4, nc, *_planeBufferY, 1);
-                    SetCoeffBuffer(*_coeffBufferY, 1, block.X + x + 4, block.Y + y + 4,
+                        bx4, by4, nc, RequireManagedReference(_planeBufferY), 1);
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx4, by4,
                         static_cast<std::uint8_t>(outTotalCoeff));
                 }
                 else
                 {
-                    SetCoeffBuffer(*_coeffBufferY, 1, block.X + x + 4, block.Y + y + 4, 0);
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx4, by4, 0);
                 }
 
                 if ((residueMask & 16) != 0)
                 {
                     const std::int32_t coeffLeft = GetCoeffBuffer(
-                        *_coeffBufferUV, 2, block.X + x - 1, block.Y + y);
+                        RequireManagedReference(_coeffBufferUV), 2, WrapInt32Subtract(bx, 1), by);
                     const std::int32_t coeffTop = GetCoeffBuffer(
-                        *_coeffBufferUV, 2, block.X + x, block.Y + y - 1);
+                        RequireManagedReference(_coeffBufferUV), 2, bx, WrapInt32Subtract(by, 1));
                     const std::int32_t nc = (coeffLeft + coeffTop + 1) / 2;
                     const std::int32_t totalCoeffU = DecodeResidueCAVLC(
-                        block.X + x, block.Y + y, nc, *_planeBufferU, 2);
+                        bx, by, nc, RequireManagedReference(_planeBufferU), 2);
                     const std::int32_t totalCoeffV = DecodeResidueCAVLC(
-                        block.X + x, block.Y + y, nc, *_planeBufferV, 2);
+                        bx, by, nc, RequireManagedReference(_planeBufferV), 2);
                     const std::int32_t outTotalCoeff = (totalCoeffU + totalCoeffV + 1) / 2;
-                    SetCoeffBuffer(*_coeffBufferUV, 2, block.X + x, block.Y + y,
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferUV), 2, bx, by,
                         static_cast<std::uint8_t>(outTotalCoeff));
                 }
                 else
                 {
-                    SetCoeffBuffer(*_coeffBufferUV, 2, block.X + x, block.Y + y, 0);
+                    SetCoeffBuffer(RequireManagedReference(_coeffBufferUV), 2, bx, by, 0);
                 }
             }
         }
@@ -2286,9 +2960,10 @@ namespace MphRead::Formats
         {
             zeroesRemaining = _reader->ReadVLC2(
                 VLC::TotalZeroesVlc().at(static_cast<std::size_t>(totalCoeff)));
-            for (std::int32_t i = 0; i < 16 - (totalCoeff + zeroesRemaining); ++i)
+            for (std::int32_t i = 0; i < WrapInt32Subtract(16, WrapInt32Add(totalCoeff, zeroesRemaining)); i = WrapInt32Add(i, 1))
             {
-                level.at(static_cast<std::size_t>(levelPos++)) = 0;
+                level.at(static_cast<std::size_t>(levelPos)) = 0;
+                levelPos = WrapInt32Add(levelPos, 1);
             }
         }
 
@@ -2297,9 +2972,10 @@ namespace MphRead::Formats
         {
             if (trailingOnes > 0)
             {
-                --trailingOnes;
-                level.at(static_cast<std::size_t>(levelPos++))
+                trailingOnes = WrapInt32Add(trailingOnes, -1);
+                level.at(static_cast<std::size_t>(levelPos))
                     = _reader->ReadBit() == 0 ? 1 : -1;
+                levelPos = WrapInt32Add(levelPos, 1);
             }
             else
             {
@@ -2335,10 +3011,11 @@ namespace MphRead::Formats
                 {
                     levelCode = WrapInt32Negate(levelCode);
                 }
-                level.at(static_cast<std::size_t>(levelPos++)) = levelCode;
+                level.at(static_cast<std::size_t>(levelPos)) = levelCode;
+                levelPos = WrapInt32Add(levelPos, 1);
             }
 
-            --totalCoeff;
+            totalCoeff = WrapInt32Add(totalCoeff, -1);
             if (totalCoeff == 0)
             {
                 break;
@@ -2360,15 +3037,17 @@ namespace MphRead::Formats
             }
 
             zeroesRemaining = WrapInt32Subtract(zeroesRemaining, runBefore);
-            for (std::int32_t i = 0; i < runBefore; ++i)
+            for (std::int32_t i = 0; i < runBefore; i = WrapInt32Add(i, 1))
             {
-                level.at(static_cast<std::size_t>(levelPos++)) = 0;
+                level.at(static_cast<std::size_t>(levelPos)) = 0;
+                levelPos = WrapInt32Add(levelPos, 1);
             }
         }
 
-        for (std::int32_t i = 0; i < zeroesRemaining; ++i)
+        for (std::int32_t i = 0; i < zeroesRemaining; i = WrapInt32Add(i, 1))
         {
-            level.at(static_cast<std::size_t>(levelPos++)) = 0;
+            level.at(static_cast<std::size_t>(levelPos)) = 0;
+                levelPos = WrapInt32Add(levelPos, 1);
         }
 
         assert(levelPos == 16);
@@ -2382,18 +3061,17 @@ namespace MphRead::Formats
     {
         std::array<std::int32_t, 16> dct;
 
-        for (std::size_t i = 0; i < _zigzagScanTable.size(); ++i)
+        for (std::size_t i = 0; i < _zigzagScanTable.size(); i = WrapInt32Add(i, 1))
         {
             const std::int32_t z = _zigzagScanTable[i];
             dct.at(static_cast<std::size_t>(z)) = WrapInt32Multiply(
                 level[15U - i],
-                _quantizerTable->at(static_cast<std::size_t>(
-                    (z & 1) + ((z >> 2) & 1))));
+                (RequireManagedReference(_quantizerTable))[(z & 1) + ((z >> 2) & 1)]);
         }
 
         dct[0] = WrapInt32Add(dct[0], WrapInt32ShiftLeft(1, 5));
 
-        for (std::int32_t i = 0; i < 4; ++i)
+        for (std::int32_t i = 0; i < 4; i = WrapInt32Add(i, 1))
         {
             const std::size_t si = static_cast<std::size_t>(i);
             const std::int32_t z0 = WrapInt32Add(
@@ -2411,7 +3089,7 @@ namespace MphRead::Formats
             dct[si + 4U * 3U] = WrapInt32Subtract(z0, z3);
         }
 
-        for (std::int32_t i = 0; i < 4; ++i)
+        for (std::int32_t i = 0; i < 4; i = WrapInt32Add(i, 1))
         {
             const std::size_t base = 4U * static_cast<std::size_t>(i);
             const std::int32_t z0 = WrapInt32Add(dct[0U + base], dct[2U + base]);
@@ -2455,19 +3133,19 @@ namespace MphRead::Formats
         const std::int32_t mode = _reader->ReadUnsignedExpGolomb();
         if (mode == 0)
         {
-            PredictVertical(block, *_planeBufferY, 1);
+            PredictVertical(block, RequireManagedReference(_planeBufferY), 1);
         }
         else if (mode == 1)
         {
-            PredictHorizontal(block, *_planeBufferY, 1);
+            PredictHorizontal(block, RequireManagedReference(_planeBufferY), 1);
         }
         else if (mode == 2)
         {
-            PredictDC(block, *_planeBufferY, 1);
+            PredictDC(block, RequireManagedReference(_planeBufferY), 1);
         }
         else if (mode == 3)
         {
-            PredictPlane(block, *_planeBufferY, 1, 0);
+            PredictPlane(block, RequireManagedReference(_planeBufferY), 1, 0);
         }
         else
         {
@@ -2478,9 +3156,9 @@ namespace MphRead::Formats
 
     void VideoFrame::PredictVertical(Block block, ByteArray2D& planeBuffer, std::int32_t step)
     {
-        for (std::int32_t y = block.Y; y < block.Y + block.H; y += step)
+        for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, step))
         {
-            for (std::int32_t x = block.X; x < block.X + block.W; x += step)
+            for (std::int32_t x = block.X; x < WrapInt32Add(block.X, block.W); x = WrapInt32Add(x, step))
             {
                 planeBuffer(y / step, x / step)
                     = PlaneBufferGetter(planeBuffer, step, x, block.Y - 1);
@@ -2490,9 +3168,9 @@ namespace MphRead::Formats
 
     void VideoFrame::PredictHorizontal(Block block, ByteArray2D& planeBuffer, std::int32_t step)
     {
-        for (std::int32_t y = block.Y; y < block.Y + block.H; y += step)
+        for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, step))
         {
-            for (std::int32_t x = block.X; x < block.X + block.W; x += step)
+            for (std::int32_t x = block.X; x < WrapInt32Add(block.X, block.W); x = WrapInt32Add(x, step))
             {
                 planeBuffer(y / step, x / step)
                     = PlaneBufferGetter(planeBuffer, step, block.X - 1, y);
@@ -2506,39 +3184,43 @@ namespace MphRead::Formats
         if (block.X != 0 && block.Y != 0)
         {
             std::int32_t sumX = block.W / 2;
-            for (std::int32_t x = 0; x < block.W; ++x)
+            for (std::int32_t x = 0; x < block.W; x = WrapInt32Add(x, 1))
             {
-                sumX += PlaneBufferGetter(planeBuffer, step, block.X + x, block.Y - 1);
+                sumX = WrapInt32Add(sumX, PlaneBufferGetter(planeBuffer, step,
+                    WrapInt32Add(block.X, x), WrapInt32Subtract(block.Y, 1)));
             }
             std::int32_t sumY = block.H / 2;
-            for (std::int32_t y = 0; y < block.H; ++y)
+            for (std::int32_t y = 0; y < block.H; y = WrapInt32Add(y, 1))
             {
-                sumY += PlaneBufferGetter(planeBuffer, step, block.X - 1, block.Y + y);
+                sumY = WrapInt32Add(sumY, PlaneBufferGetter(planeBuffer, step,
+                    WrapInt32Subtract(block.X, 1), WrapInt32Add(block.Y, y)));
             }
             dc = static_cast<std::uint8_t>(((sumX / block.W) + (sumY / block.H) + 1) / 2);
         }
         else if (block.X == 0 && block.Y != 0)
         {
             std::int32_t sumX = block.W / 2;
-            for (std::int32_t x = 0; x < block.W; ++x)
+            for (std::int32_t x = 0; x < block.W; x = WrapInt32Add(x, 1))
             {
-                sumX += PlaneBufferGetter(planeBuffer, step, block.X + x, block.Y - 1);
+                sumX = WrapInt32Add(sumX, PlaneBufferGetter(planeBuffer, step,
+                    WrapInt32Add(block.X, x), WrapInt32Subtract(block.Y, 1)));
             }
             dc = static_cast<std::uint8_t>(sumX / block.W);
         }
         else if (block.X != 0 && block.Y == 0)
         {
             std::int32_t sumY = block.H / 2;
-            for (std::int32_t y = 0; y < block.H; ++y)
+            for (std::int32_t y = 0; y < block.H; y = WrapInt32Add(y, 1))
             {
-                sumY += PlaneBufferGetter(planeBuffer, step, block.X - 1, block.Y + y);
+                sumY = WrapInt32Add(sumY, PlaneBufferGetter(planeBuffer, step,
+                    WrapInt32Subtract(block.X, 1), WrapInt32Add(block.Y, y)));
             }
             dc = static_cast<std::uint8_t>(sumY / block.H);
         }
 
-        for (std::int32_t y = block.Y; y < block.Y + block.H; y += step)
+        for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, step))
         {
-            for (std::int32_t x = block.X; x < block.X + block.W; x += step)
+            for (std::int32_t x = block.X; x < WrapInt32Add(block.X, block.W); x = WrapInt32Add(x, step))
             {
                 planeBuffer(y / step, x / step) = dc;
             }
@@ -2549,12 +3231,12 @@ namespace MphRead::Formats
         Block block, ByteArray2D& planeBuffer, std::int32_t step, std::int32_t value)
     {
         const std::int32_t bottomLeft
-            = PlaneBufferGetter(planeBuffer, step, block.X - 1, block.Y + block.H - 1);
+            = PlaneBufferGetter(planeBuffer, step, WrapInt32Subtract(block.X, 1), WrapInt32Subtract(WrapInt32Add(block.Y, block.H), 1));
         const std::int32_t topRight
-            = PlaneBufferGetter(planeBuffer, step, block.X + block.W - 1, block.Y - 1);
+            = PlaneBufferGetter(planeBuffer, step, WrapInt32Subtract(WrapInt32Add(block.X, block.W), 1), WrapInt32Subtract(block.Y, 1));
         const std::int32_t pixel = (bottomLeft + topRight + 1) / 2 + value;
-        const std::int32_t x = block.X + block.W - 1;
-        const std::int32_t y = block.Y + block.H - 1;
+        const std::int32_t x = WrapInt32Subtract(WrapInt32Add(block.X, block.W), 1);
+        const std::int32_t y = WrapInt32Subtract(WrapInt32Add(block.Y, block.H), 1);
         planeBuffer(y / step, x / step) = static_cast<std::uint8_t>(pixel);
         PredictPlaneRecursive(block, planeBuffer, step);
     }
@@ -2569,12 +3251,12 @@ namespace MphRead::Formats
         if (block.W == step && block.H > step)
         {
             const std::int32_t top
-                = PlaneBufferGetter(planeBuffer, step, block.X, block.Y - 1);
+                = PlaneBufferGetter(planeBuffer, step, block.X, WrapInt32Subtract(block.Y, 1));
             const std::int32_t bottom
-                = PlaneBufferGetter(planeBuffer, step, block.X, block.Y + block.H - 1);
+                = PlaneBufferGetter(planeBuffer, step, block.X, WrapInt32Subtract(WrapInt32Add(block.Y, block.H), 1));
             const std::int32_t pixel = (top + bottom) / 2;
             const std::int32_t x = block.X;
-            const std::int32_t y = block.Y + (block.H / 2) - 1;
+            const std::int32_t y = WrapInt32Subtract(WrapInt32Add(block.Y, block.H / 2), 1);
             planeBuffer(y / step, x / step) = static_cast<std::uint8_t>(pixel);
             PredictPlaneRecursive(block.HalfUp(), planeBuffer, step);
             PredictPlaneRecursive(block.HalfDown(), planeBuffer, step);
@@ -2582,11 +3264,11 @@ namespace MphRead::Formats
         else if (block.W > step && block.H == step)
         {
             const std::int32_t left
-                = PlaneBufferGetter(planeBuffer, step, block.X - 1, block.Y);
+                = PlaneBufferGetter(planeBuffer, step, WrapInt32Subtract(block.X, 1), block.Y);
             const std::int32_t right
-                = PlaneBufferGetter(planeBuffer, step, block.X + block.W - 1, block.Y);
+                = PlaneBufferGetter(planeBuffer, step, WrapInt32Subtract(WrapInt32Add(block.X, block.W), 1), block.Y);
             const std::int32_t pixel = (left + right) / 2;
-            const std::int32_t x = block.X + (block.W / 2) - 1;
+            const std::int32_t x = WrapInt32Subtract(WrapInt32Add(block.X, block.W / 2), 1);
             const std::int32_t y = block.Y;
             planeBuffer(y / step, x / step) = static_cast<std::uint8_t>(pixel);
             PredictPlaneRecursive(block.HalfLeft(), planeBuffer, step);
@@ -2595,39 +3277,39 @@ namespace MphRead::Formats
         else
         {
             const std::int32_t bottomLeft
-                = PlaneBufferGetter(planeBuffer, step, block.X - 1, block.Y + block.H - 1);
+                = PlaneBufferGetter(planeBuffer, step, WrapInt32Subtract(block.X, 1), WrapInt32Subtract(WrapInt32Add(block.Y, block.H), 1));
             const std::int32_t topRight
-                = PlaneBufferGetter(planeBuffer, step, block.X + block.W - 1, block.Y - 1);
+                = PlaneBufferGetter(planeBuffer, step, WrapInt32Subtract(WrapInt32Add(block.X, block.W), 1), WrapInt32Subtract(block.Y, 1));
             const std::int32_t bottomRight
                 = PlaneBufferGetter(planeBuffer, step,
-                    block.X + block.W - 1, block.Y + block.H - 1);
+                    WrapInt32Subtract(WrapInt32Add(block.X, block.W), 1), WrapInt32Subtract(WrapInt32Add(block.Y, block.H), 1));
             const std::int32_t bottomCenter = (bottomLeft + bottomRight) / 2;
             const std::int32_t centerRight = (topRight + bottomRight) / 2;
             std::int32_t pixel;
-            std::int32_t x = block.X + (block.W / 2) - 1;
-            std::int32_t y = block.Y + block.H - 1;
+            std::int32_t x = WrapInt32Subtract(WrapInt32Add(block.X, block.W / 2), 1);
+            std::int32_t y = WrapInt32Subtract(WrapInt32Add(block.Y, block.H), 1);
             planeBuffer(y / step, x / step) = static_cast<std::uint8_t>(bottomCenter);
-            x = block.X + block.W - 1;
-            y = block.Y + (block.H / 2) - 1;
+            x = WrapInt32Subtract(WrapInt32Add(block.X, block.W), 1);
+            y = WrapInt32Subtract(WrapInt32Add(block.Y, block.H / 2), 1);
             planeBuffer(y / step, x / step) = static_cast<std::uint8_t>(centerRight);
 
-            if ((block.W == 4 * step || block.W == 16 * step)
-                != (block.H == 4 * step || block.H == 16 * step))
+            if ((block.W == WrapInt32Multiply(4, step) || block.W == WrapInt32Multiply(16, step))
+                != (block.H == WrapInt32Multiply(4, step) || block.H == WrapInt32Multiply(16, step)))
             {
                 const std::int32_t centerLeft
                     = PlaneBufferGetter(planeBuffer, step,
-                        block.X - 1, block.Y + (block.H / 2) - 1);
+                        WrapInt32Subtract(block.X, 1), WrapInt32Subtract(WrapInt32Add(block.Y, block.H / 2), 1));
                 pixel = (centerLeft + centerRight) / 2;
             }
             else
             {
                 const std::int32_t topCenter
                     = PlaneBufferGetter(planeBuffer, step,
-                        block.X + (block.W / 2) - 1, block.Y - 1);
+                        WrapInt32Subtract(WrapInt32Add(block.X, block.W / 2), 1), WrapInt32Subtract(block.Y, 1));
                 pixel = (topCenter + bottomCenter) / 2;
             }
-            x = block.X + (block.W / 2) - 1;
-            y = block.Y + (block.H / 2) - 1;
+            x = WrapInt32Subtract(WrapInt32Add(block.X, block.W / 2), 1);
+            y = WrapInt32Subtract(WrapInt32Add(block.Y, block.H / 2), 1);
             planeBuffer(y / step, x / step) = static_cast<std::uint8_t>(pixel);
             PredictPlaneRecursive(block.HalfLeft().HalfUp(), planeBuffer, step);
             PredictPlaneRecursive(block.HalfRight().HalfUp(), planeBuffer, step);
@@ -2641,23 +3323,23 @@ namespace MphRead::Formats
         const std::int32_t mode = _reader->ReadUnsignedExpGolomb();
         if (mode == 0)
         {
-            PredictDC(block, *_planeBufferU, 2);
-            PredictDC(block, *_planeBufferV, 2);
+            PredictDC(block, RequireManagedReference(_planeBufferU), 2);
+            PredictDC(block, RequireManagedReference(_planeBufferV), 2);
         }
         else if (mode == 1)
         {
-            PredictHorizontal(block, *_planeBufferU, 2);
-            PredictHorizontal(block, *_planeBufferV, 2);
+            PredictHorizontal(block, RequireManagedReference(_planeBufferU), 2);
+            PredictHorizontal(block, RequireManagedReference(_planeBufferV), 2);
         }
         else if (mode == 2)
         {
-            PredictVertical(block, *_planeBufferU, 2);
-            PredictVertical(block, *_planeBufferV, 2);
+            PredictVertical(block, RequireManagedReference(_planeBufferU), 2);
+            PredictVertical(block, RequireManagedReference(_planeBufferV), 2);
         }
         else if (mode == 3)
         {
-            PredictPlane(block, *_planeBufferU, 2, 0);
-            PredictPlane(block, *_planeBufferV, 2, 0);
+            PredictPlane(block, RequireManagedReference(_planeBufferU), 2, 0);
+            PredictPlane(block, RequireManagedReference(_planeBufferV), 2, 0);
         }
         else
         {
@@ -2670,13 +3352,23 @@ namespace MphRead::Formats
         std::array<std::int32_t, 25> cache{};
         cache.fill(9);
 
-        for (std::int32_t y2 = 0; y2 < block.H / 4; ++y2)
+        for (std::int32_t y2 = 0; y2 < block.H / 4; y2 = WrapInt32Add(y2, 1))
         {
-            for (std::int32_t x2 = 0; x2 < block.W / 4; ++x2)
+            for (std::int32_t x2 = 0; x2 < block.W / 4; x2 = WrapInt32Add(x2, 1))
             {
+                const std::int32_t topIndex = WrapInt32Add(
+                    WrapInt32Multiply(y2, 5), WrapInt32Add(1, x2));
+                const std::int32_t leftIndex = WrapInt32Add(
+                    WrapInt32Multiply(WrapInt32Add(y2, 1), 5), x2);
+                if (topIndex < 0 || leftIndex < 0
+                    || static_cast<std::size_t>(topIndex) >= cache.size()
+                    || static_cast<std::size_t>(leftIndex) >= cache.size())
+                {
+                    throw System::IndexOutOfRangeException();
+                }
                 std::int32_t mode = std::min(
-                    cache[static_cast<std::size_t>((1 + y2 - 1) * 5 + 1 + x2)],
-                    cache[static_cast<std::size_t>((1 + y2) * 5 + 1 + x2 - 1)]);
+                    cache[static_cast<std::size_t>(topIndex)],
+                    cache[static_cast<std::size_t>(leftIndex)]);
                 if (mode == 9)
                 {
                     mode = 2;
@@ -2685,62 +3377,70 @@ namespace MphRead::Formats
                 if (_reader->ReadBit() == 0)
                 {
                     const std::int32_t val = _reader->ReadInt(3);
-                    mode = val + (val >= mode ? 1 : 0);
+                    mode = WrapInt32Add(val, val >= mode ? 1 : 0);
                 }
 
-                cache[static_cast<std::size_t>((1 + y2) * 5 + 1 + x2)] = mode;
+                const std::int32_t cacheIndex = WrapInt32Add(
+                    WrapInt32Multiply(WrapInt32Add(y2, 1), 5), WrapInt32Add(1, x2));
+                if (cacheIndex < 0 || static_cast<std::size_t>(cacheIndex) >= cache.size())
+                {
+                    throw System::IndexOutOfRangeException();
+                }
+                cache[static_cast<std::size_t>(cacheIndex)] = mode;
 
-                const Vector2ir vec(block.X + x2 * 4, block.Y + y2 * 4);
+                const Vector2ir vec(
+                    WrapInt32Add(block.X, WrapInt32Multiply(x2, 4)),
+                    WrapInt32Add(block.Y, WrapInt32Multiply(y2, 4)));
                 if (mode == 0)
                 {
-                    Predict4x4Vertical(*_planeBufferY, vec);
+                    Predict4x4Vertical(RequireManagedReference(_planeBufferY), vec);
                 }
                 else if (mode == 1)
                 {
-                    Predict4x4Horizontal(*_planeBufferY, vec);
+                    Predict4x4Horizontal(RequireManagedReference(_planeBufferY), vec);
                 }
                 else if (mode == 2)
                 {
                     if (vec.X != 0 && vec.Y != 0)
                     {
-                        Predict4x4Dc(*_planeBufferY, vec);
+                        Predict4x4Dc(RequireManagedReference(_planeBufferY), vec);
                     }
                     else if (vec.X != 0)
                     {
-                        Predict4x4LeftDc(*_planeBufferY, vec);
+                        Predict4x4LeftDc(RequireManagedReference(_planeBufferY), vec);
                     }
                     else if (vec.Y != 0)
                     {
-                        Predict4x4TopDc(*_planeBufferY, vec);
+                        Predict4x4TopDc(RequireManagedReference(_planeBufferY), vec);
                     }
                     else
                     {
-                        Predict4x4Dc128(*_planeBufferY, vec);
+                        Predict4x4Dc128(RequireManagedReference(_planeBufferY), vec);
                     }
                 }
                 else if (mode == 3)
                 {
-                    Predict4x4DownLeft(*_planeBufferY, vec);
+                    Predict4x4DownLeft(RequireManagedReference(_planeBufferY), vec);
                 }
                 else if (mode == 4)
                 {
-                    Predict4x4DownRight(*_planeBufferY, vec);
+                    Predict4x4DownRight(RequireManagedReference(_planeBufferY), vec);
                 }
                 else if (mode == 5)
                 {
-                    Predict4x4VerticalRight(*_planeBufferY, vec);
+                    Predict4x4VerticalRight(RequireManagedReference(_planeBufferY), vec);
                 }
                 else if (mode == 6)
                 {
-                    Predict4x4HorizontalDown(*_planeBufferY, vec);
+                    Predict4x4HorizontalDown(RequireManagedReference(_planeBufferY), vec);
                 }
                 else if (mode == 7)
                 {
-                    Predict4x4VerticalLeft(*_planeBufferY, vec);
+                    Predict4x4VerticalLeft(RequireManagedReference(_planeBufferY), vec);
                 }
                 else if (mode == 8)
                 {
-                    Predict4x4HorizontalUp(*_planeBufferY, vec);
+                    Predict4x4HorizontalUp(RequireManagedReference(_planeBufferY), vec);
                 }
                 else
                 {
@@ -2754,23 +3454,23 @@ namespace MphRead::Formats
 
     void VideoFrame::Predict4x4Vertical(ByteArray2D& planeBuffer, Vector2ir vec)
     {
-        for (std::int32_t y = 0; y < 4; ++y)
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x) = planeBuffer(vec.Y - 1, vec.X + x);
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x)) = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, x));
             }
         }
     }
 
     void VideoFrame::Predict4x4Horizontal(ByteArray2D& planeBuffer, Vector2ir vec)
     {
-        for (std::int32_t y = 0; y < 4; ++y)
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            const std::uint8_t value = planeBuffer(vec.Y + y, vec.X - 1);
-            for (std::int32_t x = 0; x < 4; ++x)
+            const std::uint8_t value = planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Subtract(vec.X, 1));
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x) = value;
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x)) = value;
             }
         }
     }
@@ -2778,19 +3478,19 @@ namespace MphRead::Formats
     void VideoFrame::Predict4x4Dc(ByteArray2D& planeBuffer, Vector2ir vec)
     {
         const std::uint8_t value = static_cast<std::uint8_t>(
-            (planeBuffer(vec.Y - 1, vec.X + 0)
-                + planeBuffer(vec.Y - 1, vec.X + 1)
-                + planeBuffer(vec.Y - 1, vec.X + 2)
-                + planeBuffer(vec.Y - 1, vec.X + 3)
-                + planeBuffer(vec.Y + 0, vec.X - 1)
-                + planeBuffer(vec.Y + 1, vec.X - 1)
-                + planeBuffer(vec.Y + 2, vec.X - 1)
-                + planeBuffer(vec.Y + 3, vec.X - 1) + 4) / 8);
-        for (std::int32_t y = 0; y < 4; ++y)
+            (planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 0))
+                + planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 1))
+                + planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 2))
+                + planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 3))
+                + planeBuffer(WrapInt32Add(vec.Y, 0), WrapInt32Subtract(vec.X, 1))
+                + planeBuffer(WrapInt32Add(vec.Y, 1), WrapInt32Subtract(vec.X, 1))
+                + planeBuffer(WrapInt32Add(vec.Y, 2), WrapInt32Subtract(vec.X, 1))
+                + planeBuffer(WrapInt32Add(vec.Y, 3), WrapInt32Subtract(vec.X, 1)) + 4) / 8);
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x) = value;
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x)) = value;
             }
         }
     }
@@ -2798,15 +3498,15 @@ namespace MphRead::Formats
     void VideoFrame::Predict4x4LeftDc(ByteArray2D& planeBuffer, Vector2ir vec)
     {
         const std::uint8_t value = static_cast<std::uint8_t>(
-            (planeBuffer(vec.Y + 0, vec.X - 1)
-                + planeBuffer(vec.Y + 1, vec.X - 1)
-                + planeBuffer(vec.Y + 2, vec.X - 1)
-                + planeBuffer(vec.Y + 3, vec.X - 1) + 2) / 4);
-        for (std::int32_t y = 0; y < 4; ++y)
+            (planeBuffer(WrapInt32Add(vec.Y, 0), WrapInt32Subtract(vec.X, 1))
+                + planeBuffer(WrapInt32Add(vec.Y, 1), WrapInt32Subtract(vec.X, 1))
+                + planeBuffer(WrapInt32Add(vec.Y, 2), WrapInt32Subtract(vec.X, 1))
+                + planeBuffer(WrapInt32Add(vec.Y, 3), WrapInt32Subtract(vec.X, 1)) + 2) / 4);
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x) = value;
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x)) = value;
             }
         }
     }
@@ -2814,40 +3514,40 @@ namespace MphRead::Formats
     void VideoFrame::Predict4x4TopDc(ByteArray2D& planeBuffer, Vector2ir vec)
     {
         const std::uint8_t value = static_cast<std::uint8_t>(
-            (planeBuffer(vec.Y - 1, vec.X + 0)
-                + planeBuffer(vec.Y - 1, vec.X + 1)
-                + planeBuffer(vec.Y - 1, vec.X + 2)
-                + planeBuffer(vec.Y - 1, vec.X + 3) + 2) / 4);
-        for (std::int32_t y = 0; y < 4; ++y)
+            (planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 0))
+                + planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 1))
+                + planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 2))
+                + planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 3)) + 2) / 4);
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x) = value;
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x)) = value;
             }
         }
     }
 
     void VideoFrame::Predict4x4Dc128(ByteArray2D& planeBuffer, Vector2ir vec)
     {
-        for (std::int32_t y = 0; y < 4; ++y)
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x) = 128;
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x)) = 128;
             }
         }
     }
 
     void VideoFrame::Predict4x4DownLeft(ByteArray2D& planeBuffer, Vector2ir vec)
     {
-        const std::int32_t t0 = planeBuffer(vec.Y - 1, vec.X + 0);
-        const std::int32_t t1 = planeBuffer(vec.Y - 1, vec.X + 1);
-        const std::int32_t t2 = planeBuffer(vec.Y - 1, vec.X + 2);
-        const std::int32_t t3 = planeBuffer(vec.Y - 1, vec.X + 3);
-        const std::int32_t t4 = planeBuffer(vec.Y - 1, vec.X + 4);
-        const std::int32_t t5 = planeBuffer(vec.Y - 1, vec.X + 5);
-        const std::int32_t t6 = planeBuffer(vec.Y - 1, vec.X + 6);
-        const std::int32_t t7 = planeBuffer(vec.Y - 1, vec.X + 7);
+        const std::int32_t t0 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 0));
+        const std::int32_t t1 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 1));
+        const std::int32_t t2 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 2));
+        const std::int32_t t3 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 3));
+        const std::int32_t t4 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 4));
+        const std::int32_t t5 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 5));
+        const std::int32_t t6 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 6));
+        const std::int32_t t7 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 7));
 
         const std::array<std::int32_t, 7> pixels{
             (t0 + 2 * t1 + t2 + 2) / 4,
@@ -2859,11 +3559,11 @@ namespace MphRead::Formats
             (t6 + 3 * t7 + 2) / 4
         };
 
-        for (std::int32_t y = 0; y < 4; ++y)
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x)
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x))
                     = static_cast<std::uint8_t>(pixels[static_cast<std::size_t>(x + y)]);
             }
         }
@@ -2871,15 +3571,15 @@ namespace MphRead::Formats
 
     void VideoFrame::Predict4x4DownRight(ByteArray2D& planeBuffer, Vector2ir vec)
     {
-        const std::int32_t lt = planeBuffer(vec.Y - 1, vec.X - 1);
-        const std::int32_t t0 = planeBuffer(vec.Y - 1, vec.X + 0);
-        const std::int32_t t1 = planeBuffer(vec.Y - 1, vec.X + 1);
-        const std::int32_t t2 = planeBuffer(vec.Y - 1, vec.X + 2);
-        const std::int32_t t3 = planeBuffer(vec.Y - 1, vec.X + 3);
-        const std::int32_t l0 = planeBuffer(vec.Y + 0, vec.X - 1);
-        const std::int32_t l1 = planeBuffer(vec.Y + 1, vec.X - 1);
-        const std::int32_t l2 = planeBuffer(vec.Y + 2, vec.X - 1);
-        const std::int32_t l3 = planeBuffer(vec.Y + 3, vec.X - 1);
+        const std::int32_t lt = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t t0 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 0));
+        const std::int32_t t1 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 1));
+        const std::int32_t t2 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 2));
+        const std::int32_t t3 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 3));
+        const std::int32_t l0 = planeBuffer(WrapInt32Add(vec.Y, 0), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l1 = planeBuffer(WrapInt32Add(vec.Y, 1), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l2 = planeBuffer(WrapInt32Add(vec.Y, 2), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l3 = planeBuffer(WrapInt32Add(vec.Y, 3), WrapInt32Subtract(vec.X, 1));
 
         const std::array<std::int32_t, 7> pixels{
             (l3 + 2 * l2 + l1 + 2) / 4,
@@ -2891,11 +3591,11 @@ namespace MphRead::Formats
             (t1 + 2 * t2 + t3 + 2) / 4
         };
 
-        for (std::int32_t y = 0; y < 4; ++y)
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x)
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x))
                     = static_cast<std::uint8_t>(
                         pixels[static_cast<std::size_t>(3 + x - y)]);
             }
@@ -2904,14 +3604,14 @@ namespace MphRead::Formats
 
     void VideoFrame::Predict4x4VerticalRight(ByteArray2D& planeBuffer, Vector2ir vec)
     {
-        const std::int32_t lt = planeBuffer(vec.Y - 1, vec.X - 1);
-        const std::int32_t t0 = planeBuffer(vec.Y - 1, vec.X + 0);
-        const std::int32_t t1 = planeBuffer(vec.Y - 1, vec.X + 1);
-        const std::int32_t t2 = planeBuffer(vec.Y - 1, vec.X + 2);
-        const std::int32_t t3 = planeBuffer(vec.Y - 1, vec.X + 3);
-        const std::int32_t l0 = planeBuffer(vec.Y + 0, vec.X - 1);
-        const std::int32_t l1 = planeBuffer(vec.Y + 1, vec.X - 1);
-        const std::int32_t l2 = planeBuffer(vec.Y + 2, vec.X - 1);
+        const std::int32_t lt = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t t0 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 0));
+        const std::int32_t t1 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 1));
+        const std::int32_t t2 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 2));
+        const std::int32_t t3 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 3));
+        const std::int32_t l0 = planeBuffer(WrapInt32Add(vec.Y, 0), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l1 = planeBuffer(WrapInt32Add(vec.Y, 1), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l2 = planeBuffer(WrapInt32Add(vec.Y, 2), WrapInt32Subtract(vec.X, 1));
 
         const std::array<std::int32_t, 10> pixels{
             (l0 + 2 * l1 + l2 + 2) / 4,
@@ -2926,11 +3626,11 @@ namespace MphRead::Formats
             (t2 + t3 + 1) / 2
         };
 
-        for (std::int32_t y = 0; y < 4; ++y)
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x)
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x))
                     = static_cast<std::uint8_t>(
                         pixels[static_cast<std::size_t>(3 + 2 * x - y)]);
             }
@@ -2939,14 +3639,14 @@ namespace MphRead::Formats
 
     void VideoFrame::Predict4x4HorizontalDown(ByteArray2D& planeBuffer, Vector2ir vec)
     {
-        const std::int32_t lt = planeBuffer(vec.Y - 1, vec.X - 1);
-        const std::int32_t t0 = planeBuffer(vec.Y - 1, vec.X + 0);
-        const std::int32_t t1 = planeBuffer(vec.Y - 1, vec.X + 1);
-        const std::int32_t t2 = planeBuffer(vec.Y - 1, vec.X + 2);
-        const std::int32_t l0 = planeBuffer(vec.Y + 0, vec.X - 1);
-        const std::int32_t l1 = planeBuffer(vec.Y + 1, vec.X - 1);
-        const std::int32_t l2 = planeBuffer(vec.Y + 2, vec.X - 1);
-        const std::int32_t l3 = planeBuffer(vec.Y + 3, vec.X - 1);
+        const std::int32_t lt = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t t0 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 0));
+        const std::int32_t t1 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 1));
+        const std::int32_t t2 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 2));
+        const std::int32_t l0 = planeBuffer(WrapInt32Add(vec.Y, 0), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l1 = planeBuffer(WrapInt32Add(vec.Y, 1), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l2 = planeBuffer(WrapInt32Add(vec.Y, 2), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l3 = planeBuffer(WrapInt32Add(vec.Y, 3), WrapInt32Subtract(vec.X, 1));
 
         const std::array<std::int32_t, 10> pixels{
             (t0 + 2 * t1 + t2 + 2) / 4,
@@ -2961,11 +3661,11 @@ namespace MphRead::Formats
             (l2 + l3 + 1) / 2
         };
 
-        for (std::int32_t y = 0; y < 4; ++y)
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x)
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x))
                     = static_cast<std::uint8_t>(
                         pixels[static_cast<std::size_t>(3 - x + 2 * y)]);
             }
@@ -2974,13 +3674,13 @@ namespace MphRead::Formats
 
     void VideoFrame::Predict4x4VerticalLeft(ByteArray2D& planeBuffer, Vector2ir vec)
     {
-        const std::int32_t t0 = planeBuffer(vec.Y - 1, vec.X + 0);
-        const std::int32_t t1 = planeBuffer(vec.Y - 1, vec.X + 1);
-        const std::int32_t t2 = planeBuffer(vec.Y - 1, vec.X + 2);
-        const std::int32_t t3 = planeBuffer(vec.Y - 1, vec.X + 3);
-        const std::int32_t t4 = planeBuffer(vec.Y - 1, vec.X + 4);
-        const std::int32_t t5 = planeBuffer(vec.Y - 1, vec.X + 5);
-        const std::int32_t t6 = planeBuffer(vec.Y - 1, vec.X + 6);
+        const std::int32_t t0 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 0));
+        const std::int32_t t1 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 1));
+        const std::int32_t t2 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 2));
+        const std::int32_t t3 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 3));
+        const std::int32_t t4 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 4));
+        const std::int32_t t5 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 5));
+        const std::int32_t t6 = planeBuffer(WrapInt32Subtract(vec.Y, 1), WrapInt32Add(vec.X, 6));
 
         const std::array<std::int32_t, 10> pixels{
             (t0 + t1 + 1) / 2,
@@ -2995,11 +3695,11 @@ namespace MphRead::Formats
             (t4 + 2 * t5 + t6 + 2) / 4
         };
 
-        for (std::int32_t y = 0; y < 4; ++y)
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x)
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x))
                     = static_cast<std::uint8_t>(
                         pixels[static_cast<std::size_t>(2 * x + y)]);
             }
@@ -3008,10 +3708,10 @@ namespace MphRead::Formats
 
     void VideoFrame::Predict4x4HorizontalUp(ByteArray2D& planeBuffer, Vector2ir vec)
     {
-        const std::int32_t l0 = planeBuffer(vec.Y + 0, vec.X - 1);
-        const std::int32_t l1 = planeBuffer(vec.Y + 1, vec.X - 1);
-        const std::int32_t l2 = planeBuffer(vec.Y + 2, vec.X - 1);
-        const std::int32_t l3 = planeBuffer(vec.Y + 3, vec.X - 1);
+        const std::int32_t l0 = planeBuffer(WrapInt32Add(vec.Y, 0), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l1 = planeBuffer(WrapInt32Add(vec.Y, 1), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l2 = planeBuffer(WrapInt32Add(vec.Y, 2), WrapInt32Subtract(vec.X, 1));
+        const std::int32_t l3 = planeBuffer(WrapInt32Add(vec.Y, 3), WrapInt32Subtract(vec.X, 1));
 
         const std::array<std::int32_t, 7> pixels{
             (l0 + l1 + 1) / 2,
@@ -3023,11 +3723,11 @@ namespace MphRead::Formats
             l3
         };
 
-        for (std::int32_t y = 0; y < 4; ++y)
+        for (std::int32_t y = 0; y < 4; y = WrapInt32Add(y, 1))
         {
-            for (std::int32_t x = 0; x < 4; ++x)
+            for (std::int32_t x = 0; x < 4; x = WrapInt32Add(x, 1))
             {
-                planeBuffer(vec.Y + y, vec.X + x)
+                planeBuffer(WrapInt32Add(vec.Y, y), WrapInt32Add(vec.X, x))
                     = static_cast<std::uint8_t>(
                         pixels[static_cast<std::size_t>(std::min(x + 2 * y, 6))]);
             }
@@ -3049,15 +3749,19 @@ namespace MphRead::Formats
 
     void VideoFrame::ClearTotalCoeff(Block block)
     {
-        for (std::int32_t y = 0; y < block.H; y += 8)
+        for (std::int32_t y = 0; y < block.H; y = WrapInt32Add(y, 8))
         {
-            for (std::int32_t x = 0; x < block.W; x += 8)
+            for (std::int32_t x = 0; x < block.W; x = WrapInt32Add(x, 8))
             {
-                SetCoeffBuffer(*_coeffBufferY, 1, block.X + x, block.Y + y, 0);
-                SetCoeffBuffer(*_coeffBufferY, 1, block.X + x, block.Y + y + 4, 0);
-                SetCoeffBuffer(*_coeffBufferY, 1, block.X + x + 4, block.Y + y, 0);
-                SetCoeffBuffer(*_coeffBufferY, 1, block.X + x + 4, block.Y + y + 4, 0);
-                SetCoeffBuffer(*_coeffBufferUV, 2, block.X + x, block.Y + y, 0);
+                const std::int32_t bx = WrapInt32Add(block.X, x);
+                const std::int32_t by = WrapInt32Add(block.Y, y);
+                const std::int32_t bx4 = WrapInt32Add(bx, 4);
+                const std::int32_t by4 = WrapInt32Add(by, 4);
+                SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx, by, 0);
+                SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx, by4, 0);
+                SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx4, by, 0);
+                SetCoeffBuffer(RequireManagedReference(_coeffBufferY), 1, bx4, by4, 0);
+                SetCoeffBuffer(RequireManagedReference(_coeffBufferUV), 2, bx, by, 0);
             }
         }
     }
@@ -3088,11 +3792,12 @@ namespace MphRead::Formats
             throw System::NullReferenceException();
         }
         const std::int32_t start = WrapInt32Multiply(128, _sampleBufferIndex);
-        if (start < 0 || static_cast<std::size_t>(start) + 128U > _sampleBuffer->size())
+        if (start < 0 || start > RequireManagedReference(_sampleBuffer).Length()
+            || RequireManagedReference(_sampleBuffer).Length() - start < 128)
         {
             throw System::ArgumentOutOfRangeException("start");
         }
-        return std::span<std::int16_t>(_sampleBuffer->data() + start, 128);
+        return std::span<std::int16_t>(std::addressof(RequireManagedReference(_sampleBuffer)[start]), 128);
     }
 
     std::span<const std::int16_t> AudioFrame::SampleBuffer() const
@@ -3102,11 +3807,12 @@ namespace MphRead::Formats
             throw System::NullReferenceException();
         }
         const std::int32_t start = WrapInt32Multiply(128, _sampleBufferIndex);
-        if (start < 0 || static_cast<std::size_t>(start) + 128U > _sampleBuffer->size())
+        if (start < 0 || start > RequireManagedReference(_sampleBuffer).Length()
+            || RequireManagedReference(_sampleBuffer).Length() - start < 128)
         {
             throw System::ArgumentOutOfRangeException("start");
         }
-        return std::span<const std::int16_t>(_sampleBuffer->data() + start, 128);
+        return std::span<const std::int16_t>(std::addressof(RequireManagedReference(_sampleBuffer)[start]), 128);
     }
 
     void AudioFrame::Decode(BitStreamReader& reader)
@@ -3132,11 +3838,11 @@ namespace MphRead::Formats
             throw ProgramException(
                 "VX decoding error 020: " + std::to_string(pulsePackingMode));
         }
-        if (scaleModifierIndex >= static_cast<std::int32_t>(_extradata->ScaleModifiers->size()))
+        if (scaleModifierIndex >= _extradata->ScaleModifiers->Length())
         {
             throw ProgramException(
                 "VX decoding error 021: " + std::to_string(scaleModifierIndex)
-                + ", " + std::to_string(_extradata->ScaleModifiers->size()));
+                + ", " + std::to_string(_extradata->ScaleModifiers->Length()));
         }
 
         const std::int32_t pulseDataLength
@@ -3194,7 +3900,7 @@ namespace MphRead::Formats
         }
         _scale = WrapInt32Multiply(
             _scale,
-            (*_extradata->ScaleModifiers)[static_cast<std::size_t>(scaleModifierIndex)]) / 8192;
+            RequireManagedReference(_extradata->ScaleModifiers)[static_cast<std::size_t>(scaleModifierIndex)]) / 8192;
 
         const std::int32_t pulseDistance
             = _pulseDistances[static_cast<std::size_t>(pulsePackingMode)];
@@ -3210,7 +3916,7 @@ namespace MphRead::Formats
                 const std::int32_t previousIndex = WrapInt32Subtract(
                     WrapInt32Add(i, 127), prevFrameOffset);
                 pulseBuffer[static_cast<std::size_t>(i)] = WrapInt32Multiply(
-                    (*_prevPulseBuffer)[static_cast<std::size_t>(previousIndex)], volume) / 16;
+                    RequireManagedReference(_prevPulseBuffer)[static_cast<std::size_t>(previousIndex)], volume) / 16;
             }
         }
 
@@ -3229,8 +3935,11 @@ namespace MphRead::Formats
 
         if (prevFrameOffset == 127)
         {
-            std::copy(_extradata->LpcBase->begin(), _extradata->LpcBase->end(),
-                _lpcFilterBuffer->begin());
+            for (std::int32_t i = 0; i < _extradata->LpcBase->Length();
+                i = WrapInt32Add(i, 1))
+            {
+                RequireManagedReference(_lpcFilterBuffer)[i] = RequireManagedReference(_extradata->LpcBase)[i];
+            }
         }
 
         for (std::int32_t i = 0; i < 8; i = WrapInt32Add(i, 1))
@@ -3240,10 +3949,10 @@ namespace MphRead::Formats
             {
                 const std::int32_t index = lpcCodebookIndices[static_cast<std::size_t>(j)];
                 coeffSum = WrapInt32Add(coeffSum,
-                    (*_extradata->LpcCodebooks)(j, index, i));
+                    RequireManagedReference(_extradata->LpcCodebooks)(j, index, i));
             }
-            (*_lpcFilterBuffer)[static_cast<std::size_t>(i)] = WrapInt32Add(
-                (*_lpcFilterBuffer)[static_cast<std::size_t>(i)], coeffSum);
+            RequireManagedReference(_lpcFilterBuffer)[static_cast<std::size_t>(i)] = WrapInt32Add(
+                RequireManagedReference(_lpcFilterBuffer)[static_cast<std::size_t>(i)], coeffSum);
         }
 
         std::array<std::int32_t, 8> influenceValues{};
@@ -3252,7 +3961,7 @@ namespace MphRead::Formats
         {
             std::copy(influenceValues.begin(), influenceValues.end(), influenceTemp.begin());
             const std::int32_t coeff
-                = (*_lpcFilterBuffer)[static_cast<std::size_t>(i)];
+                = RequireManagedReference(_lpcFilterBuffer)[static_cast<std::size_t>(i)];
             for (std::int32_t j = 0; j < i; j = WrapInt32Add(j, 1))
             {
                 const std::int32_t sourceIndex = WrapInt32Subtract(
@@ -3278,13 +3987,13 @@ namespace MphRead::Formats
             for (std::int32_t i = 0; i < 8; ++i)
             {
                 influenceQuarters[static_cast<std::size_t>(8 + i)]
-                    = WrapInt32Add((*_influenceBuffer)[static_cast<std::size_t>(i)],
+                    = WrapInt32Add(RequireManagedReference(_influenceBuffer)[static_cast<std::size_t>(i)],
                         influenceQuarters[static_cast<std::size_t>(WrapInt32Add(24, i))]) / 2;
             }
             for (std::int32_t i = 0; i < 8; ++i)
             {
                 influenceQuarters[static_cast<std::size_t>(i)]
-                    = WrapInt32Add((*_influenceBuffer)[static_cast<std::size_t>(i)],
+                    = WrapInt32Add(RequireManagedReference(_influenceBuffer)[static_cast<std::size_t>(i)],
                         influenceQuarters[static_cast<std::size_t>(WrapInt32Add(8, i))]) / 2;
             }
             for (std::int32_t i = 0; i < 8; ++i)
@@ -3318,7 +4027,7 @@ namespace MphRead::Formats
                     WrapInt32Subtract(i, j), 1);
                 const std::int32_t prevSample = sampleIndex >= 0
                     ? sampleBuffer[static_cast<std::size_t>(sampleIndex)]
-                    : (*_prevSampleBuffer)[static_cast<std::size_t>(WrapInt32Add(sampleIndex, 8))];
+                    : RequireManagedReference(_prevSampleBuffer)[static_cast<std::size_t>(WrapInt32Add(sampleIndex, 8))];
                 sample = WrapInt32Add(sample, WrapInt32Multiply(
                     prevSample,
                     influenceQuarters[static_cast<std::size_t>(
@@ -3331,11 +4040,16 @@ namespace MphRead::Formats
                         std::numeric_limits<std::int16_t>::max()));
         }
 
-        std::copy(_prevPulseBuffer->begin() + 128, _prevPulseBuffer->end(),
-            _prevPulseBuffer->begin());
-        std::copy(pulseBuffer.begin(), pulseBuffer.end(), _prevPulseBuffer->begin() + 128);
-        std::copy(sampleBuffer.begin() + 120, sampleBuffer.end(), _prevSampleBuffer->begin());
-        std::copy(influenceValues.begin(), influenceValues.end(), _influenceBuffer->begin());
+        for (std::int32_t i = 0; i < 128; i = WrapInt32Add(i, 1))
+        {
+            RequireManagedReference(_prevPulseBuffer)[i] = RequireManagedReference(_prevPulseBuffer)[WrapInt32Add(i, 128)];
+            RequireManagedReference(_prevPulseBuffer)[WrapInt32Add(i, 128)] = pulseBuffer[static_cast<std::size_t>(i)];
+        }
+        for (std::int32_t i = 0; i < 8; i = WrapInt32Add(i, 1))
+        {
+            RequireManagedReference(_prevSampleBuffer)[i] = sampleBuffer[static_cast<std::size_t>(WrapInt32Add(i, 120))];
+            RequireManagedReference(_influenceBuffer)[i] = influenceValues[static_cast<std::size_t>(i)];
+        }
         _reader = nullptr;
     }
 

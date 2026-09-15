@@ -1,13 +1,16 @@
 #include "SYMBRecord.hpp"
 
+#include "../Common.hpp"
+
 #include <algorithm>
 #include <bit>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <iostream>
 #include <limits>
 #include <stdexcept>
-#include <string_view>
+#include <string>
 #include <utility>
 
 namespace
@@ -80,6 +83,17 @@ namespace
             | (static_cast<std::uint32_t>(span[3]) << 24U);
     }
 
+    [[nodiscard]] std::uint32_t ReadUInt32NativeEndian(std::span<const std::uint8_t> span)
+    {
+        if (span.size() < sizeof(std::uint32_t))
+        {
+            ThrowOutOfRange();
+        }
+        std::uint32_t value = 0;
+        std::memcpy(&value, span.data(), sizeof(value));
+        return value;
+    }
+
     void WriteUInt32LittleEndian(std::span<std::uint8_t> span, std::uint32_t value)
     {
         if (span.size() < sizeof(std::uint32_t))
@@ -92,48 +106,22 @@ namespace
         span[3] = static_cast<std::uint8_t>(value >> 24U);
     }
 
-    [[nodiscard]] std::u16string ReadNullTerminatedString(std::span<const std::uint8_t> span)
-    {
-        std::u16string result;
-        std::size_t pos = 0;
-        std::uint8_t chr;
-        do
-        {
-            if (pos >= span.size())
-            {
-                throw std::out_of_range("Index was outside the bounds of the array.");
-            }
-            chr = span[pos++];
-            if (chr != 0)
-            {
-                result.push_back(static_cast<char16_t>(chr));
-            }
-        } while (chr != 0);
-        return result;
-    }
-
-    void WriteNullTerminatedString(std::span<std::uint8_t> span, std::u16string_view str)
-    {
-        std::size_t pos = 0;
-        for (char16_t chr : str)
-        {
-            if (pos >= span.size())
-            {
-                throw std::out_of_range("Index was outside the bounds of the array.");
-            }
-            span[pos++] = static_cast<std::uint8_t>(chr);
-        }
-        if (pos >= span.size())
-        {
-            throw std::out_of_range("Index was outside the bounds of the array.");
-        }
-        span[pos] = 0;
-    }
-
     [[nodiscard]] std::int32_t AddInt32Unchecked(std::int32_t value, std::uint32_t increment) noexcept
     {
         const std::uint32_t bits = std::bit_cast<std::uint32_t>(value) + increment;
         return std::bit_cast<std::int32_t>(bits);
+    }
+
+    void DebugAssert(bool condition)
+    {
+#ifndef NDEBUG
+        if (!condition)
+        {
+            std::clog << "Debug.Assert failed.\n";
+        }
+#else
+        static_cast<void>(condition);
+#endif
     }
 }
 
@@ -169,8 +157,7 @@ namespace NCSFCommon::NC
                 throw std::overflow_error("Arithmetic operation resulted in an overflow.");
             }
             const std::uint32_t lengthBits = static_cast<std::uint32_t>(entry.Name->size());
-            const std::int32_t lengthWithTerminator =
-                ToInt32Unchecked(lengthBits + 1U);
+            const std::int32_t lengthWithTerminator = ToInt32Unchecked(lengthBits + 1U);
             const std::int64_t next = static_cast<std::int64_t>(sum)
                 + static_cast<std::int64_t>(lengthWithTerminator);
             if (next > std::numeric_limits<std::int32_t>::max()
@@ -201,13 +188,13 @@ namespace NCSFCommon::NC
 
         for (std::size_t pos = 0; pos < entryOffsetBytes.size(); pos += sizeof(std::uint32_t))
         {
-            const std::uint32_t entryOffset = ReadUInt32LittleEndian(entryOffsetBytes.subspan(pos));
+            const std::uint32_t entryOffset = ReadUInt32NativeEndian(entryOffsetBytes.subspan(pos));
             std::optional<std::u16string> name;
             if (entryOffset != 0)
             {
                 const std::uint32_t relativeBits = entryOffset - offset;
                 const std::int32_t relativeOffset = ToInt32Unchecked(relativeBits);
-                name = ReadNullTerminatedString(Slice(span, relativeOffset));
+                name = Common::ReadNullTerminatedString(Slice(span, relativeOffset));
             }
             _entries.push_back(Entry{entryOffset, std::move(name)});
         }
@@ -244,7 +231,7 @@ namespace NCSFCommon::NC
         {
             if (entry.Name.has_value() && !entry.Name->empty())
             {
-                WriteNullTerminatedString(Slice(span, pos), *entry.Name);
+                Common::WriteNullTerminatedString(Slice(span, pos), *entry.Name);
                 const std::uint32_t increment = static_cast<std::uint32_t>(entry.Name->size()) + 1U;
                 pos = AddInt32Unchecked(pos, increment);
             }
@@ -290,13 +277,23 @@ namespace NCSFCommon::NC
 
     void SYMBRecord::SetEntry(std::uint32_t i, Entry entry)
     {
-#ifndef NDEBUG
-        assert(static_cast<std::uint64_t>(i) <= static_cast<std::uint64_t>(_entries.size()));
-#endif
+        DebugAssert(static_cast<std::uint64_t>(i) <= static_cast<std::uint64_t>(_entries.size()));
         if (static_cast<std::uint64_t>(i) >= static_cast<std::uint64_t>(_entries.size()))
         {
             throw std::out_of_range("Index was out of range. Must be non-negative and less than the size of the collection.");
         }
         _entries[static_cast<std::size_t>(i)] = std::move(entry);
+    }
+
+    std::u16string SYMBRecord::DebuggerDisplay() const
+    {
+        std::u16string result = u"SYMB Record - # of Entries: ";
+        const std::string count = std::to_string(_entries.size());
+        result.reserve(result.size() + count.size());
+        for (char chr : count)
+        {
+            result.push_back(static_cast<char16_t>(static_cast<unsigned char>(chr)));
+        }
+        return result;
     }
 }

@@ -47,6 +47,8 @@ namespace NCSFCommon::NC
         void SetEntry(std::uint32_t i, Entry entry);
 
     private:
+        [[nodiscard]] std::u16string DebuggerDisplay() const;
+
         std::vector<Entry> _entries;
     };
 }

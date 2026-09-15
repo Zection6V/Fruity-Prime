@@ -299,6 +299,19 @@ namespace NCSFCommon::NC
             && _pan == other->_pan;
     }
 
+    bool SBNKInstrument::Equals(const std::any& obj) const noexcept
+    {
+        if (const auto* other = std::any_cast<SBNKInstrument*>(&obj))
+        {
+            return Equals(*other);
+        }
+        if (const auto* other = std::any_cast<const SBNKInstrument*>(&obj))
+        {
+            return Equals(*other);
+        }
+        return false;
+    }
+
     std::int32_t SBNKInstrument::GetHashCode() const
     {
         return CombineHashCodes(

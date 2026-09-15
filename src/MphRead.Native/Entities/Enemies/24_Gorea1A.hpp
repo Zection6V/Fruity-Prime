@@ -68,19 +68,19 @@ namespace MphRead::Entities::Enemies
             static_cast<std::uint8_t>(~static_cast<std::uint8_t>(value)));
     }
 
-    constexpr Gorea1AFlags& operator|=(Gorea1AFlags& left, Gorea1AFlags right) noexcept
+    constexpr Gorea1AFlags &operator|=(Gorea1AFlags &left, Gorea1AFlags right) noexcept
     {
         left = left | right;
         return left;
     }
 
-    constexpr Gorea1AFlags& operator&=(Gorea1AFlags& left, Gorea1AFlags right) noexcept
+    constexpr Gorea1AFlags &operator&=(Gorea1AFlags &left, Gorea1AFlags right) noexcept
     {
         left = left & right;
         return left;
     }
 
-    constexpr Gorea1AFlags& operator^=(Gorea1AFlags& left, Gorea1AFlags right) noexcept
+    constexpr Gorea1AFlags &operator^=(Gorea1AFlags &left, Gorea1AFlags right) noexcept
     {
         left = left ^ right;
         return left;
@@ -90,27 +90,26 @@ namespace MphRead::Entities::Enemies
     {
     public:
         GoreaEnemyEntityBase(EnemyInstanceEntityData data,
-            Formats::Culling::NodeRef nodeRef, Scene* scene);
+                             Formats::Culling::NodeRef nodeRef, Scene *scene);
 
-        GoreaEnemyEntityBase(const GoreaEnemyEntityBase&) = delete;
-        GoreaEnemyEntityBase& operator=(const GoreaEnemyEntityBase&) = delete;
-        GoreaEnemyEntityBase(GoreaEnemyEntityBase&&) = delete;
-        GoreaEnemyEntityBase& operator=(GoreaEnemyEntityBase&&) = delete;
+        GoreaEnemyEntityBase(const GoreaEnemyEntityBase &) = delete;
+        GoreaEnemyEntityBase &operator=(const GoreaEnemyEntityBase &) = delete;
+        GoreaEnemyEntityBase(GoreaEnemyEntityBase &&) = delete;
+        GoreaEnemyEntityBase &operator=(GoreaEnemyEntityBase &&) = delete;
 
-        void InitializeCommon(EnemySpawnEntity* spawner);
+        void InitializeCommon(EnemySpawnEntity *spawner);
 
     protected:
-        static constexpr SetFlags _animSetNoMat
-            = SetFlags::Texture | SetFlags::Texcoord | SetFlags::Unused | SetFlags::Node;
+        static constexpr SetFlags _animSetNoMat = SetFlags::Texture | SetFlags::Texcoord | SetFlags::Unused | SetFlags::Node;
 
-        ModelInstance* _model = nullptr;
+        ModelInstance *_model = nullptr;
         std::optional<std::uint64_t> _lastNodeTransformUpdate{};
         bool _lightOverride = false;
 
         [[nodiscard]] bool AnimationEnded() const;
         void SpawnEffect(std::int32_t effectId, OpenTK::Mathematics::Vector3 position);
         void SpawnEffect(std::int32_t effectId, OpenTK::Mathematics::Vector3 position,
-            OpenTK::Mathematics::Vector3 facing, OpenTK::Mathematics::Vector3 up);
+                         OpenTK::Mathematics::Vector3 facing, OpenTK::Mathematics::Vector3 up);
         [[nodiscard]] std::shared_ptr<Effects::EffectEntry> SpawnEffectGetEntry(
             std::int32_t effectId, OpenTK::Mathematics::Vector3 position, bool extensionFlag);
         [[nodiscard]] std::shared_ptr<Effects::EffectEntry> SpawnEffectGetEntry(
@@ -118,8 +117,8 @@ namespace MphRead::Entities::Enemies
             OpenTK::Mathematics::Vector3 facing, OpenTK::Mathematics::Vector3 up,
             bool extensionFlag);
         [[nodiscard]] OpenTK::Mathematics::Matrix4 GetNodeTransform(
-            GoreaEnemyEntityBase* entity, Node* node);
-        void TransformHurtVolumeToNode(Node* node, OpenTK::Mathematics::Vector3 offset);
+            GoreaEnemyEntityBase *entity, Node *node);
+        void TransformHurtVolumeToNode(Node *node, OpenTK::Mathematics::Vector3 offset);
         [[nodiscard]] bool SeekTargetFacing(OpenTK::Mathematics::Vector3 target, float angle);
         [[nodiscard]] OpenTK::Mathematics::Vector3 SeekTargetSetAnim(
             OpenTK::Mathematics::Vector3 target, std::int32_t index);
@@ -129,10 +128,10 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] bool CheckFacingAngle(float minCos, OpenTK::Mathematics::Vector3 position);
         void EnsureAnimation(std::int32_t index, AnimFlags animFlags = AnimFlags::None);
         void EnsureAnimation(std::int32_t index, std::int32_t slot,
-            SetFlags setFlags, AnimFlags animFlags = AnimFlags::None);
+                             SetFlags setFlags, AnimFlags animFlags = AnimFlags::None);
         [[nodiscard]] bool IsAtEndFrame() const;
-        void IncrementMaterialColors(Material* material, ColorRgb ambient, ColorRgb diffuse,
-            std::int32_t frame, std::int32_t frameCount);
+        void IncrementMaterialColors(Material *material, ColorRgb ambient, ColorRgb diffuse,
+                                     std::int32_t frame, std::int32_t frameCount);
         [[nodiscard]] std::uint8_t InterpolateColor(
             std::int32_t frame, std::int32_t frameCount, std::int32_t color) const;
         [[nodiscard]] LightInfo GetLightInfo() override;
@@ -147,48 +146,48 @@ namespace MphRead::Entities::Enemies
     {
     public:
         Enemy24Entity(EnemyInstanceEntityData data,
-            Formats::Culling::NodeRef nodeRef, Scene* scene);
+                      Formats::Culling::NodeRef nodeRef, Scene *scene);
 
-        Enemy24Entity(const Enemy24Entity&) = delete;
-        Enemy24Entity& operator=(const Enemy24Entity&) = delete;
-        Enemy24Entity(Enemy24Entity&&) = delete;
-        Enemy24Entity& operator=(Enemy24Entity&&) = delete;
+        Enemy24Entity(const Enemy24Entity &) = delete;
+        Enemy24Entity &operator=(const Enemy24Entity &) = delete;
+        Enemy24Entity(Enemy24Entity &&) = delete;
+        Enemy24Entity &operator=(Enemy24Entity &&) = delete;
 
-        [[nodiscard]] EnemySpawnEntity* Spawner() const noexcept;
-        [[nodiscard]] const std::vector<ColorRgb>* Colors() const noexcept;
+        [[nodiscard]] EnemySpawnEntity *Spawner() const noexcept;
+        [[nodiscard]] const std::vector<ColorRgb> *Colors() const noexcept;
         [[nodiscard]] std::int32_t WeaponIndex() const noexcept;
 
         void Activate();
 
-        [[nodiscard]] static bool Behavior00(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior01(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior02(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior03(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior04(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior05(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior06(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior07(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior08(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior09(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior10(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior11(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior12(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior13(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior14(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior15(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior16(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior17(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior18(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior19(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior20(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior21(Enemy24Entity* enemy);
-        [[nodiscard]] static bool Behavior22(Enemy24Entity* enemy);
+        [[nodiscard]] static bool Behavior00(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior01(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior02(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior03(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior04(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior05(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior06(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior07(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior08(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior09(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior10(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior11(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior12(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior13(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior14(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior15(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior16(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior17(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior18(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior19(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior20(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior21(Enemy24Entity *enemy);
+        [[nodiscard]] static bool Behavior22(Enemy24Entity *enemy);
 
     protected:
         void EnemyInitialize() override;
         void EnemyProcess() override;
         [[nodiscard]] bool BaseProcess() override;
-        [[nodiscard]] bool EnemyTakeDamage(EntityBase* source) override;
+        [[nodiscard]] bool EnemyTakeDamage(EntityBase *source) override;
         [[nodiscard]] bool EnemyGetDrawInfo() override;
 
     private:
@@ -199,9 +198,9 @@ namespace MphRead::Entities::Enemies
         static const std::array<std::int32_t, 6> _chargeChances;
         static const std::array<float, 3> _speedFactors;
 
-        EnemySpawnEntity* const _spawner;
+        EnemySpawnEntity *const _spawner;
         Gorea1AFlags _goreaFlags = Gorea1AFlags::None;
-        ModelInstance* _regenModel = nullptr;
+        ModelInstance *_regenModel = nullptr;
         std::shared_ptr<Node> _spineNode{};
         CollisionVolume _volume{};
         std::shared_ptr<Enemy28Entity> _gorea1B{};
@@ -209,7 +208,7 @@ namespace MphRead::Entities::Enemies
         std::int32_t _armBits = 0;
         std::array<std::shared_ptr<Enemy26Entity>, 2> _arms{};
         std::array<std::shared_ptr<Enemy27Entity>, 3> _legs{};
-        const std::vector<ColorRgb>* _colors = nullptr;
+        const std::vector<ColorRgb> *_colors = nullptr;
         std::int32_t _weaponIndex = 5;
         float _speedFactor = 0.0F;
         OpenTK::Mathematics::Vector3 _targetFacing{};
@@ -222,23 +221,19 @@ namespace MphRead::Entities::Enemies
 
         const std::array<std::string_view, 12> _armMatNames{
             "L_Bisep", "L_GunArm", "L_GunTipBottom", "L_GunTipSide", "L_GunTipTop", "L_ShoulderTarget",
-            "R_Bisep", "R_GunArm", "R_GunTipBottom", "R_GunTipSide", "R_GunTipTop", "R_ShoulderTarget"
-        };
+            "R_Bisep", "R_GunArm", "R_GunTipBottom", "R_GunTipSide", "R_GunTipTop", "R_ShoulderTarget"};
         const std::array<std::string_view, 10> _bodyMatNames1{
             "ChestMembrane", "Eye", "Head1", "L_GunArm", "L_Bisep",
-            "R_GunArm", "R_Bisep", "Legs", "Torso", "Shoulder"
-        };
+            "R_GunArm", "R_Bisep", "Legs", "Torso", "Shoulder"};
         const std::array<std::string_view, 2> _bodyMatNames2{
-            "ChestCore", "HeadFullLit"
-        };
+            "ChestCore", "HeadFullLit"};
         const std::array<MusicId, 6> _musicTracks{
             MusicId::SEQ_GOREA_1_M22,
             MusicId::SEQ_GOREA_1_M26,
             MusicId::SEQ_GOREA_1_M27,
             MusicId::SEQ_GOREA_1_M24,
             MusicId::SEQ_GOREA_1_M23,
-            MusicId::SEQ_GOREA_1_M25
-        };
+            MusicId::SEQ_GOREA_1_M25};
 
         void SpawnHead();
         void SpawnArms();
@@ -250,16 +245,16 @@ namespace MphRead::Entities::Enemies
         void UpdateArmMaterialAlpha();
         void SetArmMaterialAlpha(std::int32_t index, std::uint8_t alpha);
         [[nodiscard]] bool UpdateTargetFacing();
-        [[nodiscard]] bool CheckTargeting(Enemy26Entity* arm);
-        void CreateShotEffectLoose(Enemy26Entity* arm, std::int32_t effectId);
-        void GetArmAim(Enemy26Entity* arm,
-            OpenTK::Mathematics::Vector3& position, OpenTK::Mathematics::Vector3& direction);
+        [[nodiscard]] bool CheckTargeting(Enemy26Entity *arm);
+        void CreateShotEffectLoose(Enemy26Entity *arm, std::int32_t effectId);
+        void GetArmAim(Enemy26Entity *arm,
+                       OpenTK::Mathematics::Vector3 &position, OpenTK::Mathematics::Vector3 &direction);
         [[nodiscard]] std::int32_t GetBeamChargeSfx(BeamType beam) const;
         void PlayBeamChargeSfx(BeamType beam);
         void StopBeamChargeSfx(BeamType beam);
         void PlayBeamShotSfx(BeamType beam, bool charged);
         [[nodiscard]] bool GetHorizontalToPlayer(float maxDistance,
-            OpenTK::Mathematics::Vector3& between, float& distance) const;
+                                                 OpenTK::Mathematics::Vector3 &between, float &distance) const;
         void StopShots(std::int32_t index, bool detach);
         [[nodiscard]] bool CheckOffsetOutsideVolume(OpenTK::Mathematics::Vector3 offset) const;
         void StopAndSetUp();

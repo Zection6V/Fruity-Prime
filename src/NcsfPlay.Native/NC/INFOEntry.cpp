@@ -1,6 +1,7 @@
 #include "INFOEntry.hpp"
 
-#include <stdexcept>
+#include "../Common.hpp"
+
 #include <utility>
 
 namespace NCSFCommon::NC
@@ -9,7 +10,7 @@ namespace NCSFCommon::NC
     {
         if (other == nullptr)
         {
-            throw std::runtime_error("Object reference not set to an instance of an object.");
+            throw NullReferenceException();
         }
         _originalFilename = other->_originalFilename;
         _sdatNumber = other->_sdatNumber;

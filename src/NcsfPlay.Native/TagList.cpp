@@ -10,9 +10,7 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <unicode/uchar.h>
 #include <unicode/ucol.h>
-#include <unicode/utf16.h>
 #endif
 
 namespace
@@ -25,6 +23,16 @@ namespace
     [[noreturn]] void ThrowInsertIndexOutOfRange()
     {
         throw std::out_of_range("Index must be within the bounds of the collection.");
+    }
+
+    [[noreturn]] void ThrowArgumentNullKey()
+    {
+        throw std::invalid_argument("Value cannot be null. (Parameter 'key')");
+    }
+
+    [[noreturn]] void ThrowArgumentNullObject()
+    {
+        throw std::invalid_argument("Value cannot be null. (Parameter 'obj')");
     }
 
     [[noreturn]] void ThrowDuplicateKey()
@@ -148,7 +156,7 @@ namespace
                 throw std::runtime_error("Unable to create the ICU invariant collator.");
             }
 
-            ucol_setStrength(_collator, UCOL_TERTIARY);
+            ucol_setStrength(_collator, UCOL_SECONDARY);
             status = U_ZERO_ERROR;
             ucol_setAttribute(_collator, UCOL_NORMALIZATION_MODE, UCOL_ON, &status);
             if (U_FAILURE(status))
@@ -182,33 +190,6 @@ namespace
         return collator;
     }
 
-    [[nodiscard]] std::u16string FoldInvariantCase(std::u16string_view value)
-    {
-        std::u16string result;
-        result.reserve(value.size());
-
-        const auto* data = reinterpret_cast<const UChar*>(value.data());
-        const auto length = static_cast<std::int32_t>(value.size());
-        std::int32_t index = 0;
-        while (index < length)
-        {
-            UChar32 codePoint = 0;
-            U16_NEXT(data, index, length, codePoint);
-            const UChar32 folded = u_foldCase(codePoint, U_FOLD_CASE_DEFAULT);
-            if (folded <= 0xFFFF)
-            {
-                result.push_back(static_cast<char16_t>(folded));
-            }
-            else
-            {
-                const UChar32 scalar = folded - 0x10000;
-                result.push_back(static_cast<char16_t>(0xD800 + (scalar >> 10)));
-                result.push_back(static_cast<char16_t>(0xDC00 + (scalar & 0x3FF)));
-            }
-        }
-        return result;
-    }
-
     [[nodiscard]] bool InvariantCultureIgnoreCaseEquals(
         std::u16string_view left, std::u16string_view right)
     {
@@ -222,14 +203,12 @@ namespace
             throw std::length_error("String length exceeds the native comparison limit.");
         }
 
-        const std::u16string foldedLeft = FoldInvariantCase(left);
-        const std::u16string foldedRight = FoldInvariantCase(right);
         return ucol_strcoll(
             GetInvariantCollator().Get(),
-            reinterpret_cast<const UChar*>(foldedLeft.data()),
-            static_cast<std::int32_t>(foldedLeft.size()),
-            reinterpret_cast<const UChar*>(foldedRight.data()),
-            static_cast<std::int32_t>(foldedRight.size())) == UCOL_EQUAL;
+            reinterpret_cast<const UChar*>(left.data()),
+            static_cast<std::int32_t>(left.size()),
+            reinterpret_cast<const UChar*>(right.data()),
+            static_cast<std::int32_t>(right.size())) == UCOL_EQUAL;
     }
 
     [[nodiscard]] std::int32_t InvariantCultureIgnoreCaseHash(std::u16string_view value)
@@ -239,12 +218,11 @@ namespace
             throw std::length_error("String length exceeds the native comparison limit.");
         }
 
-        const std::u16string folded = FoldInvariantCase(value);
         const UCollator* collator = GetInvariantCollator().Get();
         const std::int32_t required = ucol_getSortKey(
             collator,
-            reinterpret_cast<const UChar*>(folded.data()),
-            static_cast<std::int32_t>(folded.size()),
+            reinterpret_cast<const UChar*>(value.data()),
+            static_cast<std::int32_t>(value.size()),
             nullptr,
             0);
         if (required <= 0)
@@ -255,8 +233,8 @@ namespace
         std::vector<std::uint8_t> sortKey(static_cast<std::size_t>(required));
         const std::int32_t written = ucol_getSortKey(
             collator,
-            reinterpret_cast<const UChar*>(folded.data()),
-            static_cast<std::int32_t>(folded.size()),
+            reinterpret_cast<const UChar*>(value.data()),
+            static_cast<std::int32_t>(value.size()),
             sortKey.data(),
             required);
         if (written != required)
@@ -270,26 +248,144 @@ namespace
 
 namespace NCSFCommon
 {
-    bool TagList::KeyComparer::Equals(std::u16string_view left, std::u16string_view right) const
+    std::shared_ptr<const std::u16string> TagList::String::Create(std::u16string value)
     {
-        return InvariantCultureIgnoreCaseEquals(left, right);
+        return std::make_shared<const std::u16string>(std::move(value));
     }
 
-    std::int32_t TagList::KeyComparer::GetHashCode(std::u16string_view value) const
+    TagList::String::String(std::nullptr_t) noexcept
     {
-        return InvariantCultureIgnoreCaseHash(value);
     }
 
-    TagList::ConstIterator::ConstIterator(const TagList* owner, std::size_t index) noexcept
-        : _owner(owner),
+    TagList::String::String(std::u16string value)
+        : _value(Create(std::move(value)))
+    {
+    }
+
+    TagList::String::String(std::u16string_view value)
+        : _value(Create(std::u16string(value)))
+    {
+    }
+
+    TagList::String& TagList::String::operator=(std::nullptr_t) noexcept
+    {
+        _value.reset();
+        return *this;
+    }
+
+    TagList::String& TagList::String::operator=(std::u16string value)
+    {
+        _value = Create(std::move(value));
+        return *this;
+    }
+
+    TagList::String& TagList::String::operator=(std::u16string_view value)
+    {
+        _value = Create(std::u16string(value));
+        return *this;
+    }
+
+    bool TagList::String::IsNull() const noexcept
+    {
+        return _value == nullptr;
+    }
+
+    std::u16string_view TagList::String::View() const noexcept
+    {
+        if (_value == nullptr)
+        {
+            return {};
+        }
+        return *_value;
+    }
+
+    const char16_t* TagList::String::data() const noexcept
+    {
+        return View().data();
+    }
+
+    std::size_t TagList::String::size() const noexcept
+    {
+        return View().size();
+    }
+
+    bool TagList::String::empty() const noexcept
+    {
+        return View().empty();
+    }
+
+    TagList::String::const_iterator TagList::String::begin() const noexcept
+    {
+        return View().begin();
+    }
+
+    TagList::String::const_iterator TagList::String::end() const noexcept
+    {
+        return View().end();
+    }
+
+    TagList::String::operator std::u16string_view() const noexcept
+    {
+        return View();
+    }
+
+    TagList::String::operator std::u16string() const
+    {
+        return std::u16string(View());
+    }
+
+    bool operator==(const TagList::String& left, const TagList::String& right) noexcept
+    {
+        if (left._value == right._value)
+        {
+            return true;
+        }
+        if (left._value == nullptr || right._value == nullptr)
+        {
+            return false;
+        }
+        return *left._value == *right._value;
+    }
+
+    TagList::KeyComparer::KeyComparer()
+    {
+#if !defined(_WIN32)
+        static_cast<void>(GetInvariantCollator());
+#endif
+    }
+
+    bool TagList::KeyComparer::Equals(const String& left, const String& right) const
+    {
+        if (left._value == right._value)
+        {
+            return true;
+        }
+        if (left._value == nullptr || right._value == nullptr)
+        {
+            return false;
+        }
+        return InvariantCultureIgnoreCaseEquals(left.View(), right.View());
+    }
+
+    std::int32_t TagList::KeyComparer::GetHashCode(const String& value) const
+    {
+        if (value.IsNull())
+        {
+            ThrowArgumentNullObject();
+        }
+        return InvariantCultureIgnoreCaseHash(value.View());
+    }
+
+    TagList::ConstIterator::ConstIterator(std::shared_ptr<const State> state, std::size_t index) noexcept
+        : _state(std::move(state)),
           _index(index),
-          _version(owner == nullptr ? 0 : owner->_version)
+          _version(_state == nullptr ? 0 : _state->Version)
     {
     }
 
     void TagList::ConstIterator::VerifyVersion() const
     {
-        if (_owner != nullptr && _version != _owner->_version)
+        if (_state != nullptr && _version != _state->Version)
         {
             ThrowEnumerationModified();
         }
@@ -298,11 +394,11 @@ namespace NCSFCommon
     TagList::ConstIterator::reference TagList::ConstIterator::operator*() const
     {
         VerifyVersion();
-        if (_owner == nullptr || _index >= _owner->_items.size())
+        if (_state == nullptr || _index >= _state->Items.size())
         {
             throw std::out_of_range("Enumeration has either not started or has already finished.");
         }
-        return _owner->_items[_index];
+        return _state->Items[_index];
     }
 
     TagList::ConstIterator::pointer TagList::ConstIterator::operator->() const
@@ -313,7 +409,7 @@ namespace NCSFCommon
     TagList::ConstIterator& TagList::ConstIterator::operator++()
     {
         VerifyVersion();
-        if (_owner != nullptr && _index < _owner->_items.size())
+        if (_state != nullptr && _index < _state->Items.size())
         {
             ++_index;
         }
@@ -331,18 +427,18 @@ namespace NCSFCommon
     {
         left.VerifyVersion();
         right.VerifyVersion();
-        return left._owner == right._owner && left._index == right._index;
+        return left._state == right._state && left._index == right._index;
     }
 
-    TagList::Enumerator::Enumerator(const TagList* owner) noexcept
-        : _owner(owner),
-          _version(owner == nullptr ? 0 : owner->_version)
+    TagList::Enumerator::Enumerator(std::shared_ptr<const State> state) noexcept
+        : _state(std::move(state)),
+          _version(_state == nullptr ? 0 : _state->Version)
     {
     }
 
     void TagList::Enumerator::VerifyVersion() const
     {
-        if (_owner != nullptr && _version != _owner->_version)
+        if (_state != nullptr && _version != _state->Version)
         {
             ThrowEnumerationModified();
         }
@@ -351,17 +447,17 @@ namespace NCSFCommon
     bool TagList::Enumerator::MoveNext()
     {
         VerifyVersion();
-        if (_owner != nullptr && _nextIndex < _owner->_items.size())
+        if (_state != nullptr && _nextIndex < _state->Items.size())
         {
-            _current = _owner->_items[_nextIndex];
+            _current = _state->Items[_nextIndex];
             ++_nextIndex;
             return true;
         }
 
         _current = Item{};
-        if (_owner != nullptr)
+        if (_state != nullptr)
         {
-            _nextIndex = _owner->_items.size() + 1;
+            _nextIndex = _state->Items.size() + 1;
         }
         return false;
     }
@@ -378,9 +474,31 @@ namespace NCSFCommon
         _current = Item{};
     }
 
+    const TagList::KeyComparer& TagList::StaticComparer()
+    {
+        static const KeyComparer comparer;
+        return comparer;
+    }
+
+    TagList::TagList()
+        : _state((static_cast<void>(StaticComparer()), std::make_shared<State>()))
+    {
+    }
+
+    TagList::TagList(TagList&& other) noexcept
+        : _state(other._state)
+    {
+    }
+
+    TagList& TagList::operator=(TagList&& other) noexcept
+    {
+        _state = other._state;
+        return *this;
+    }
+
     std::int32_t TagList::Count() const noexcept
     {
-        return static_cast<std::int32_t>(_items.size());
+        return static_cast<std::int32_t>(_state->Items.size());
     }
 
     bool TagList::IsReadOnly() const noexcept
@@ -388,15 +506,14 @@ namespace NCSFCommon
         return false;
     }
 
-    const TagList::KeyComparer& TagList::Comparer() const noexcept
+    const TagList::KeyComparer& TagList::Comparer() const
     {
-        static const KeyComparer comparer;
-        return comparer;
+        return StaticComparer();
     }
 
     std::size_t TagList::CheckedIndex(std::int32_t index) const
     {
-        if (index < 0 || static_cast<std::size_t>(index) >= _items.size())
+        if (index < 0 || static_cast<std::size_t>(index) >= _state->Items.size())
         {
             ThrowIndexOutOfRange();
         }
@@ -405,7 +522,7 @@ namespace NCSFCommon
 
     std::size_t TagList::CheckedInsertIndex(std::int32_t index) const
     {
-        if (index < 0 || static_cast<std::size_t>(index) > _items.size())
+        if (index < 0 || static_cast<std::size_t>(index) > _state->Items.size())
         {
             ThrowInsertIndexOutOfRange();
         }
@@ -414,10 +531,10 @@ namespace NCSFCommon
 
     TagList::Item TagList::operator[](std::int32_t index) const
     {
-        return _items[CheckedIndex(index)];
+        return _state->Items[CheckedIndex(index)];
     }
 
-    TagList::Item TagList::operator[](std::u16string_view key) const
+    TagList::Item TagList::operator[](const String& key) const
     {
         Item item;
         if (!TryGetValue(key, item))
@@ -429,26 +546,20 @@ namespace NCSFCommon
 
     void TagList::Set(std::int32_t index, Item item)
     {
-        SetItem(CheckedIndex(index), std::move(item));
+        const std::size_t checkedIndex = CheckedIndex(index);
+        SetItem(static_cast<std::int32_t>(checkedIndex), std::move(item));
     }
 
     void TagList::Add(Item item)
     {
-        if (_items.size() >= static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
-        {
-            throw std::length_error("Collection was too large.");
-        }
-        InsertItem(_items.size(), std::move(item));
+        const std::int32_t index = Count();
+        InsertItem(index, std::move(item));
     }
 
     void TagList::Insert(std::int32_t index, Item item)
     {
         const std::size_t checkedIndex = CheckedInsertIndex(index);
-        if (_items.size() >= static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
-        {
-            throw std::length_error("Collection was too large.");
-        }
-        InsertItem(checkedIndex, std::move(item));
+        InsertItem(static_cast<std::int32_t>(checkedIndex), std::move(item));
     }
 
     bool TagList::Remove(const Item& item)
@@ -458,30 +569,48 @@ namespace NCSFCommon
         {
             return false;
         }
-        RemoveItem(static_cast<std::size_t>(index));
+        RemoveItem(index);
         return true;
     }
 
-    bool TagList::Remove(std::u16string_view key)
+    bool TagList::Remove(const String& key)
     {
-        Item item;
-        return TryGetValue(key, item) && Remove(item);
+        if (key.IsNull())
+        {
+            ThrowArgumentNullKey();
+        }
+
+        if (_state->DictionaryCreated)
+        {
+            const std::size_t dictionaryIndex = FindDictionaryIndex(key);
+            if (dictionaryIndex == MissingIndex)
+            {
+                return false;
+            }
+            const Item item = _state->Dictionary[dictionaryIndex].Value;
+            return Remove(item);
+        }
+
+        for (std::size_t index = 0; index < _state->Items.size(); ++index)
+        {
+            if (Comparer().Equals(GetKeyForItem(_state->Items[index]), key))
+            {
+                RemoveItem(static_cast<std::int32_t>(index));
+                return true;
+            }
+        }
+        return false;
     }
 
     void TagList::RemoveAt(std::int32_t index)
     {
-        RemoveItem(CheckedIndex(index));
+        const std::size_t checkedIndex = CheckedIndex(index);
+        RemoveItem(static_cast<std::int32_t>(checkedIndex));
     }
 
-    void TagList::Clear() noexcept
+    void TagList::Clear()
     {
-        _items.clear();
-        if (_dictionaryCreated)
-        {
-            _dictionary.clear();
-        }
-        _keyCount = 0;
-        IncrementVersion();
+        ClearItems();
     }
 
     bool TagList::Contains(const Item& item) const noexcept
@@ -489,21 +618,36 @@ namespace NCSFCommon
         return IndexOf(item) >= 0;
     }
 
-    bool TagList::Contains(std::u16string_view key) const
+    bool TagList::Contains(const String& key) const
     {
-        return _dictionaryCreated
-            ? FindDictionaryIndex(key) != MissingIndex
-            : FindKeyIndex(key) != MissingIndex;
+        if (key.IsNull())
+        {
+            ThrowArgumentNullKey();
+        }
+
+        if (_state->DictionaryCreated)
+        {
+            return FindDictionaryIndex(key) != MissingIndex;
+        }
+
+        for (const Item& item : _state->Items)
+        {
+            if (Comparer().Equals(GetKeyForItem(item), key))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
-    bool TagList::ContainsKey(std::u16string_view key) const
+    bool TagList::TryGetValue(const String& key, Item& item) const
     {
-        return Contains(key);
-    }
+        if (key.IsNull())
+        {
+            ThrowArgumentNullKey();
+        }
 
-    bool TagList::TryGetValue(std::u16string_view key, Item& item) const
-    {
-        if (_dictionaryCreated)
+        if (_state->DictionaryCreated)
         {
             const std::size_t index = FindDictionaryIndex(key);
             if (index == MissingIndex)
@@ -511,28 +655,32 @@ namespace NCSFCommon
                 item = Item{};
                 return false;
             }
-            item = _dictionary[index].Value;
+            item = _state->Dictionary[index].Value;
             return true;
         }
 
-        const std::size_t index = FindKeyIndex(key);
-        if (index == MissingIndex)
+        for (const Item& itemInItems : _state->Items)
         {
-            item = Item{};
-            return false;
+            const String keyInItems = GetKeyForItem(itemInItems);
+            if (!keyInItems.IsNull() && Comparer().Equals(key, keyInItems))
+            {
+                item = itemInItems;
+                return true;
+            }
         }
-        item = _items[index];
-        return true;
+
+        item = Item{};
+        return false;
     }
 
     std::int32_t TagList::IndexOf(const Item& item) const noexcept
     {
-        const auto iterator = std::find(_items.begin(), _items.end(), item);
-        if (iterator == _items.end())
+        const auto iterator = std::find(_state->Items.begin(), _state->Items.end(), item);
+        if (iterator == _state->Items.end())
         {
             return -1;
         }
-        return static_cast<std::int32_t>(std::distance(_items.begin(), iterator));
+        return static_cast<std::int32_t>(std::distance(_state->Items.begin(), iterator));
     }
 
     void TagList::CopyTo(std::span<Item> array, std::int32_t arrayIndex) const
@@ -543,11 +691,11 @@ namespace NCSFCommon
         }
 
         const std::size_t index = static_cast<std::size_t>(arrayIndex);
-        if (index > array.size() || _items.size() > array.size() - index)
+        if (index > array.size() || _state->Items.size() > array.size() - index)
         {
             throw std::invalid_argument("Destination array was not long enough.");
         }
-        std::copy(_items.begin(), _items.end(), array.begin() + static_cast<std::ptrdiff_t>(index));
+        std::copy(_state->Items.begin(), _state->Items.end(), array.begin() + static_cast<std::ptrdiff_t>(index));
     }
 
     void TagList::CopyTo(std::vector<Item>& array, std::int32_t arrayIndex) const
@@ -557,17 +705,17 @@ namespace NCSFCommon
 
     TagList::ConstIterator TagList::begin() const noexcept
     {
-        return ConstIterator(this, 0);
+        return ConstIterator(_state, 0);
     }
 
     TagList::ConstIterator TagList::end() const noexcept
     {
-        return ConstIterator(this, _items.size());
+        return ConstIterator(_state, _state->Items.size());
     }
 
     TagList::Enumerator TagList::GetEnumerator() const noexcept
     {
-        return Enumerator(this);
+        return Enumerator(_state);
     }
 
     void TagList::AddOrReplace(Item item)
@@ -600,31 +748,116 @@ namespace NCSFCommon
         return clone;
     }
 
-    std::u16string_view TagList::GetKeyForItem(const Item& item) const noexcept
+    TagList::String TagList::GetKeyForItem(const Item& item) const
     {
         return item.Name;
     }
 
-    void TagList::ChangeItemKey(const Item& item, std::u16string_view newKey)
+    void TagList::ChangeItemKey(const Item& item, const String& newKey)
     {
         if (!ContainsItem(item))
         {
             throw std::invalid_argument("The specified item does not exist in this KeyedCollection.");
         }
 
-        const std::u16string_view oldKey = GetKeyForItem(item);
+        const String oldKey = GetKeyForItem(item);
         if (!Comparer().Equals(oldKey, newKey))
         {
-            AddKey(newKey, item);
-            RemoveKey(oldKey);
+            if (!newKey.IsNull())
+            {
+                AddKey(newKey, item);
+            }
+            if (!oldKey.IsNull())
+            {
+                RemoveKey(oldKey);
+            }
         }
     }
 
-    std::size_t TagList::FindKeyIndex(std::u16string_view key) const
+    void TagList::ClearItems()
     {
-        for (std::size_t index = 0; index < _items.size(); ++index)
+        _state->Items.clear();
+        IncrementVersion();
+        if (_state->DictionaryCreated)
         {
-            if (Comparer().Equals(key, GetKeyForItem(_items[index])))
+            _state->Dictionary.clear();
+        }
+        _state->KeyCount = 0;
+    }
+
+    void TagList::InsertItem(std::int32_t index, Item item)
+    {
+        const String key = GetKeyForItem(item);
+        if (!key.IsNull())
+        {
+            AddKey(key, item);
+        }
+
+        const std::size_t itemIndex = CheckedInsertIndex(index);
+        if (_state->Items.size() >= static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
+        {
+            throw std::length_error("Collection was too large.");
+        }
+        _state->Items.insert(
+            _state->Items.begin() + static_cast<std::ptrdiff_t>(itemIndex),
+            std::move(item));
+        IncrementVersion();
+    }
+
+    void TagList::RemoveItem(std::int32_t index)
+    {
+        const std::size_t itemIndex = CheckedIndex(index);
+        const String key = GetKeyForItem(_state->Items[itemIndex]);
+        if (!key.IsNull())
+        {
+            RemoveKey(key);
+        }
+        _state->Items.erase(_state->Items.begin() + static_cast<std::ptrdiff_t>(itemIndex));
+        IncrementVersion();
+    }
+
+    void TagList::SetItem(std::int32_t index, Item item)
+    {
+        const String newKey = GetKeyForItem(item);
+        const std::size_t itemIndex = CheckedIndex(index);
+        const String oldKey = GetKeyForItem(_state->Items[itemIndex]);
+
+        if (Comparer().Equals(oldKey, newKey))
+        {
+            if (!newKey.IsNull() && _state->DictionaryCreated)
+            {
+                const std::size_t dictionaryIndex = FindDictionaryIndex(newKey);
+                if (dictionaryIndex == MissingIndex)
+                {
+                    _state->Dictionary.push_back(DictionaryEntry{ newKey, item });
+                }
+                else
+                {
+                    _state->Dictionary[dictionaryIndex].Value = item;
+                }
+            }
+        }
+        else
+        {
+            if (!newKey.IsNull())
+            {
+                AddKey(newKey, item);
+            }
+            if (!oldKey.IsNull())
+            {
+                RemoveKey(oldKey);
+            }
+        }
+
+        _state->Items[itemIndex] = std::move(item);
+        IncrementVersion();
+    }
+
+    std::size_t TagList::FindKeyIndex(const String& key) const
+    {
+        for (std::size_t index = 0; index < _state->Items.size(); ++index)
+        {
+            if (Comparer().Equals(GetKeyForItem(_state->Items[index]), key))
             {
                 return index;
             }
@@ -632,11 +865,11 @@ namespace NCSFCommon
         return MissingIndex;
     }
 
-    std::size_t TagList::FindDictionaryIndex(std::u16string_view key) const
+    std::size_t TagList::FindDictionaryIndex(const String& key) const
     {
-        for (std::size_t index = 0; index < _dictionary.size(); ++index)
+        for (std::size_t index = 0; index < _state->Dictionary.size(); ++index)
         {
-            if (Comparer().Equals(key, _dictionary[index].Key))
+            if (Comparer().Equals(key, _state->Dictionary[index].Key))
             {
                 return index;
             }
@@ -646,19 +879,24 @@ namespace NCSFCommon
 
     bool TagList::ContainsItem(const Item& item) const
     {
-        if (!_dictionaryCreated)
+        if (!_state->DictionaryCreated)
         {
             return Contains(item);
         }
 
-        const std::u16string_view key = GetKeyForItem(item);
+        const String key = GetKeyForItem(item);
+        if (key.IsNull())
+        {
+            return Contains(item);
+        }
+
         const std::size_t index = FindDictionaryIndex(key);
-        return index != MissingIndex && _dictionary[index].Value == item;
+        return index != MissingIndex && _state->Dictionary[index].Value == item;
     }
 
-    void TagList::EnsureUniqueKey(std::u16string_view key) const
+    void TagList::EnsureUniqueKey(const String& key) const
     {
-        if (_dictionaryCreated)
+        if (_state->DictionaryCreated)
         {
             if (FindDictionaryIndex(key) != MissingIndex)
             {
@@ -673,108 +911,62 @@ namespace NCSFCommon
         }
     }
 
-    void TagList::InsertItem(std::size_t index, Item item)
+    void TagList::AddKey(const String& key, const Item& item)
     {
-        const std::u16string_view key = GetKeyForItem(item);
-        AddKey(key, item);
-        _items.insert(_items.begin() + static_cast<std::ptrdiff_t>(index), std::move(item));
-        IncrementVersion();
-    }
-
-    void TagList::RemoveItem(std::size_t index)
-    {
-        const std::u16string key(GetKeyForItem(_items[index]));
-        RemoveKey(key);
-        _items.erase(_items.begin() + static_cast<std::ptrdiff_t>(index));
-        IncrementVersion();
-    }
-
-    void TagList::SetItem(std::size_t index, Item item)
-    {
-        const std::u16string newKey(GetKeyForItem(item));
-        const std::u16string oldKey(GetKeyForItem(_items[index]));
-
-        if (Comparer().Equals(oldKey, newKey))
-        {
-            if (_dictionaryCreated)
-            {
-                const std::size_t dictionaryIndex = FindDictionaryIndex(newKey);
-                if (dictionaryIndex == MissingIndex)
-                {
-                    throw std::logic_error("The keyed collection dictionary is inconsistent with its items.");
-                }
-                _dictionary[dictionaryIndex].Value = item;
-            }
-        }
-        else
-        {
-            AddKey(newKey, item);
-            RemoveKey(oldKey);
-        }
-
-        _items[index] = std::move(item);
-        IncrementVersion();
-    }
-
-    void TagList::AddKey(std::u16string_view key, const Item& item)
-    {
-        if (_dictionaryCreated)
+        if (_state->DictionaryCreated)
         {
             EnsureUniqueKey(key);
-            _dictionary.push_back(DictionaryEntry{std::u16string(key), item});
+            _state->Dictionary.push_back(DictionaryEntry{ key, item });
             return;
         }
 
-        if (_keyCount == DictionaryCreationThreshold)
+        if (_state->KeyCount == DictionaryCreationThreshold)
         {
             CreateDictionary();
             EnsureUniqueKey(key);
-            _dictionary.push_back(DictionaryEntry{std::u16string(key), item});
+            _state->Dictionary.push_back(DictionaryEntry{ key, item });
             return;
         }
 
         EnsureUniqueKey(key);
-        ++_keyCount;
+        ++_state->KeyCount;
     }
 
-    void TagList::RemoveKey(std::u16string_view key)
+    void TagList::RemoveKey(const String& key)
     {
-        if (_dictionaryCreated)
+        if (_state->DictionaryCreated)
         {
             const std::size_t index = FindDictionaryIndex(key);
             if (index != MissingIndex)
             {
-                _dictionary.erase(_dictionary.begin() + static_cast<std::ptrdiff_t>(index));
+                _state->Dictionary.erase(_state->Dictionary.begin() + static_cast<std::ptrdiff_t>(index));
             }
         }
         else
         {
-            --_keyCount;
+            --_state->KeyCount;
         }
     }
 
     void TagList::CreateDictionary()
     {
-        std::vector<DictionaryEntry> dictionary;
-        dictionary.reserve(_items.size());
-        for (const Item& item : _items)
+        _state->Dictionary.clear();
+        _state->DictionaryCreated = true;
+
+        for (const Item& item : _state->Items)
         {
-            const std::u16string_view key = GetKeyForItem(item);
-            for (const DictionaryEntry& existing : dictionary)
+            const String key = GetKeyForItem(item);
+            if (key.IsNull())
             {
-                if (Comparer().Equals(existing.Key, key))
-                {
-                    ThrowDuplicateKey();
-                }
+                continue;
             }
-            dictionary.push_back(DictionaryEntry{std::u16string(key), item});
+            EnsureUniqueKey(key);
+            _state->Dictionary.push_back(DictionaryEntry{ key, item });
         }
-        _dictionary = std::move(dictionary);
-        _dictionaryCreated = true;
     }
 
     void TagList::IncrementVersion() noexcept
     {
-        ++_version;
+        ++_state->Version;
     }
 }

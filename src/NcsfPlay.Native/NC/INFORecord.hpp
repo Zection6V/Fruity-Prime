@@ -8,10 +8,13 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <span>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -88,7 +91,7 @@ namespace NCSFCommon::NC
 
             for (std::size_t pos = 0; pos < entryOffsetBytes.size(); pos += sizeof(std::uint32_t))
             {
-                const std::uint32_t entryOffset = ReadUInt32LittleEndian(entryOffsetBytes.subspan(pos));
+                const std::uint32_t entryOffset = ReadUInt32NativeEndian(entryOffsetBytes.subspan(pos));
                 std::shared_ptr<T> entry;
                 if (entryOffset != 0U)
                 {
@@ -188,6 +191,56 @@ namespace NCSFCommon::NC
         }
 
     private:
+        [[nodiscard]] static constexpr std::string_view TypeName() noexcept
+        {
+#if defined(__clang__)
+            constexpr std::string_view function = __PRETTY_FUNCTION__;
+            constexpr std::string_view marker = "T = ";
+            const std::size_t start = function.find(marker) + marker.size();
+            const std::size_t end = function.rfind(']');
+            return function.substr(start, end - start);
+#elif defined(__GNUC__)
+            constexpr std::string_view function = __PRETTY_FUNCTION__;
+            constexpr std::string_view marker = "T = ";
+            const std::size_t start = function.find(marker) + marker.size();
+            const std::size_t semicolon = function.find(';', start);
+            const std::size_t end = semicolon == std::string_view::npos ? function.rfind(']') : semicolon;
+            return function.substr(start, end - start);
+#elif defined(_MSC_VER)
+            constexpr std::string_view function = __FUNCSIG__;
+            constexpr std::string_view marker = "INFORecord<";
+            const std::size_t start = function.find(marker) + marker.size();
+            const std::size_t typeEnd = function.find(">::TypeName", start);
+            std::string_view name = function.substr(start, typeEnd - start);
+            if (name.starts_with("class "))
+            {
+                name.remove_prefix(6);
+            }
+            else if (name.starts_with("struct "))
+            {
+                name.remove_prefix(7);
+            }
+            return name;
+#else
+            return {};
+#endif
+        }
+
+        [[nodiscard]] std::string DebuggerDisplay() const
+        {
+            std::string typeName(TypeName());
+            for (std::size_t pos = 0; (pos = typeName.find("::", pos)) != std::string::npos;)
+            {
+                typeName.replace(pos, 2, ".");
+                ++pos;
+            }
+            if (typeName.size() < 23U)
+            {
+                ThrowArgumentOutOfRange();
+            }
+            return "INFO Record (" + typeName.substr(23U) + ") - # of Entries: " + std::to_string(_entries.size());
+        }
+
         [[noreturn]] static void ThrowArgumentOutOfRange()
         {
             throw std::out_of_range("Specified argument was out of the range of valid values.");
@@ -254,6 +307,17 @@ namespace NCSFCommon::NC
                 | (static_cast<std::uint32_t>(span[1]) << 8U)
                 | (static_cast<std::uint32_t>(span[2]) << 16U)
                 | (static_cast<std::uint32_t>(span[3]) << 24U);
+        }
+
+        [[nodiscard]] static std::uint32_t ReadUInt32NativeEndian(std::span<const std::uint8_t> span)
+        {
+            if (span.size() < sizeof(std::uint32_t))
+            {
+                ThrowArgumentOutOfRange();
+            }
+            std::uint32_t value = 0;
+            std::memcpy(&value, span.data(), sizeof(value));
+            return value;
         }
 
         static void WriteUInt32LittleEndian(std::span<std::uint8_t> span, std::uint32_t value)

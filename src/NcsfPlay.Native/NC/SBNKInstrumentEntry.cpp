@@ -367,6 +367,19 @@ namespace NCSFCommon::NC
         return true;
     }
 
+    bool SBNKInstrumentEntry::Equals(const std::any& obj) const noexcept
+    {
+        if (const auto* other = std::any_cast<SBNKInstrumentEntry*>(&obj))
+        {
+            return Equals(*other);
+        }
+        if (const auto* other = std::any_cast<const SBNKInstrumentEntry*>(&obj))
+        {
+            return Equals(*other);
+        }
+        return false;
+    }
+
     std::int32_t SBNKInstrumentEntry::GetHashCode() const
     {
         return CombineHashCodes(

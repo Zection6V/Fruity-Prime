@@ -1,5 +1,6 @@
 #pragma once
 
+#include <any>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -40,6 +41,7 @@ namespace NCSFCommon::NC
         void WriteData(std::span<std::uint8_t> span);
 
         [[nodiscard]] bool Equals(const SBNKInstrumentEntry* other) const noexcept;
+        [[nodiscard]] bool Equals(const std::any& obj) const noexcept;
         [[nodiscard]] std::int32_t GetHashCode() const;
         [[nodiscard]] static bool OpEquality(
             const SBNKInstrumentEntry* left, const SBNKInstrumentEntry* right) noexcept;

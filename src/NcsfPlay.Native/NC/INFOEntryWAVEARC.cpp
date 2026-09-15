@@ -1,8 +1,8 @@
 #include "INFOEntryWAVEARC.hpp"
 
-#include <bit>
+#include "SWAR.hpp"
+
 #include <charconv>
-#include <functional>
 #include <stdexcept>
 #include <utility>
 
@@ -110,12 +110,12 @@ namespace NCSFCommon::NC
         WriteUInt32LittleEndian(span, _fileID | (static_cast<std::uint32_t>(_flags) << 24U));
     }
 
-    bool INFOEntryWAVEARC::Equals(const INFOEntryWAVEARC* other) const noexcept
+    bool INFOEntryWAVEARC::Equals(const INFOEntryWAVEARC* other) const
     {
-        return other != nullptr && _swar != nullptr && _swar.get() == other->_swar.get();
+        return other != nullptr && NCSFCommon::NC::SWAR::EqualityOperator(_swar.get(), other->_swar.get());
     }
 
-    bool INFOEntryWAVEARC::Equals(const std::any& obj) const noexcept
+    bool INFOEntryWAVEARC::Equals(const std::any& obj) const
     {
         if (const auto* other = std::any_cast<INFOEntryWAVEARC*>(&obj))
         {
@@ -138,22 +138,17 @@ namespace NCSFCommon::NC
 
     std::int32_t INFOEntryWAVEARC::GetHashCode() const
     {
-        if (_swar == nullptr)
-        {
-            return 0;
-        }
-        const auto hash = static_cast<std::uint32_t>(std::hash<const NCSFCommon::NC::SWAR*>{}(_swar.get()));
-        return std::bit_cast<std::int32_t>(hash);
+        return _swar != nullptr ? _swar->GetHashCode() : 0;
     }
 
     bool INFOEntryWAVEARC::EqualityOperator(
-        const INFOEntryWAVEARC* left, const INFOEntryWAVEARC* right) noexcept
+        const INFOEntryWAVEARC* left, const INFOEntryWAVEARC* right)
     {
         return left != nullptr && left->Equals(right);
     }
 
     bool INFOEntryWAVEARC::InequalityOperator(
-        const INFOEntryWAVEARC* left, const INFOEntryWAVEARC* right) noexcept
+        const INFOEntryWAVEARC* left, const INFOEntryWAVEARC* right)
     {
         return !EqualityOperator(left, right);
     }
@@ -168,13 +163,13 @@ namespace NCSFCommon::NC
     }
 
     bool operator==(
-        const INFOEntryWAVEARC& left, const INFOEntryWAVEARC& right) noexcept
+        const INFOEntryWAVEARC& left, const INFOEntryWAVEARC& right)
     {
         return INFOEntryWAVEARC::EqualityOperator(&left, &right);
     }
 
     bool operator!=(
-        const INFOEntryWAVEARC& left, const INFOEntryWAVEARC& right) noexcept
+        const INFOEntryWAVEARC& left, const INFOEntryWAVEARC& right)
     {
         return INFOEntryWAVEARC::InequalityOperator(&left, &right);
     }

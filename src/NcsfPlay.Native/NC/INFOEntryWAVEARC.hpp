@@ -37,14 +37,14 @@ namespace NCSFCommon::NC
         INFOEntryWAVEARC* Read(std::span<const std::uint8_t> span) override;
         void Write(std::span<std::uint8_t> span) override;
 
-        [[nodiscard]] bool Equals(const INFOEntryWAVEARC* other) const noexcept;
-        [[nodiscard]] bool Equals(const std::any& obj) const noexcept;
+        [[nodiscard]] bool Equals(const INFOEntryWAVEARC* other) const;
+        [[nodiscard]] bool Equals(const std::any& obj) const;
         [[nodiscard]] std::int32_t GetHashCode() const;
 
         [[nodiscard]] static bool EqualityOperator(
-            const INFOEntryWAVEARC* left, const INFOEntryWAVEARC* right) noexcept;
+            const INFOEntryWAVEARC* left, const INFOEntryWAVEARC* right);
         [[nodiscard]] static bool InequalityOperator(
-            const INFOEntryWAVEARC* left, const INFOEntryWAVEARC* right) noexcept;
+            const INFOEntryWAVEARC* left, const INFOEntryWAVEARC* right);
 
     protected:
         [[nodiscard]] std::u16string DebuggerDisplay() const override;
@@ -56,7 +56,7 @@ namespace NCSFCommon::NC
     };
 
     [[nodiscard]] bool operator==(
-        const INFOEntryWAVEARC& left, const INFOEntryWAVEARC& right) noexcept;
+        const INFOEntryWAVEARC& left, const INFOEntryWAVEARC& right);
     [[nodiscard]] bool operator!=(
-        const INFOEntryWAVEARC& left, const INFOEntryWAVEARC& right) noexcept;
+        const INFOEntryWAVEARC& left, const INFOEntryWAVEARC& right);
 }

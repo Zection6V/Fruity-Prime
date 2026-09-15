@@ -2042,6 +2042,7 @@ std::vector<WeaponSpec> BuildWeaponsMPSpecs()
     costs(5,5,25,25); costs(6,10,20,20); costs(7,10,10,10); costs(8,0,0,0);
     costs(9,0,0,0); costs(10,5,25,25); costs(11,10,15,15); costs(12,5,5,5); costs(13,20,20,20);
     costs(14,5,25,25); costs(15,10,20,20); costs(16,10,10,10); costs(17,0,0,0);
+    v.at(11).unchargedHoming=0; v.at(11).minChargeHoming=81; v.at(11).chargedHoming=81;
     return v;
 }
 

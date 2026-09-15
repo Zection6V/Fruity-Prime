@@ -32,9 +32,75 @@ namespace
     {
         std::u16string result;
         result.reserve(text.size());
-        for (unsigned char ch : text)
+        std::size_t offset = 0;
+        while (offset < text.size())
         {
-            result.push_back(static_cast<char16_t>(ch));
+            const std::uint8_t first = static_cast<std::uint8_t>(text[offset]);
+            if (first < 0x80U)
+            {
+                result.push_back(static_cast<char16_t>(first));
+                offset++;
+                continue;
+            }
+
+            std::size_t count = 0;
+            std::uint32_t codePoint = 0;
+            std::uint32_t minimum = 0;
+            if ((first & 0xE0U) == 0xC0U)
+            {
+                count = 2;
+                codePoint = first & 0x1FU;
+                minimum = 0x80U;
+            }
+            else if ((first & 0xF0U) == 0xE0U)
+            {
+                count = 3;
+                codePoint = first & 0x0FU;
+                minimum = 0x800U;
+            }
+            else if ((first & 0xF8U) == 0xF0U)
+            {
+                count = 4;
+                codePoint = first & 0x07U;
+                minimum = 0x10000U;
+            }
+            if (count == 0 || offset + count > text.size())
+            {
+                result.push_back(static_cast<char16_t>(0xFFFD));
+                offset++;
+                continue;
+            }
+
+            bool valid = true;
+            for (std::size_t i = 1; i < count; i++)
+            {
+                const std::uint8_t next = static_cast<std::uint8_t>(text[offset + i]);
+                if ((next & 0xC0U) != 0x80U)
+                {
+                    valid = false;
+                    break;
+                }
+                codePoint = (codePoint << 6U) | (next & 0x3FU);
+            }
+            if (!valid || codePoint < minimum || codePoint > 0x10FFFFU
+                || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
+            {
+                result.push_back(static_cast<char16_t>(0xFFFD));
+                offset += valid ? count : 1;
+                continue;
+            }
+
+            offset += count;
+            if (codePoint <= 0xFFFFU)
+            {
+                result.push_back(static_cast<char16_t>(codePoint));
+            }
+            else
+            {
+                codePoint -= 0x10000U;
+                result.push_back(static_cast<char16_t>(0xD800U + (codePoint >> 10U)));
+                result.push_back(static_cast<char16_t>(0xDC00U + (codePoint & 0x3FFU)));
+            }
         }
         return result;
     }
@@ -103,13 +169,19 @@ namespace MphRead::Entities
         {
             const auto& [line, alpha] = _chatVisible[i];
             const bool system = line.Kind == ChatPacket::KindSystem;
-            const std::string& lineName = RequireString(line.Name);
-            const std::string& lineText = RequireString(line.Text);
-            const std::string name = system || lineName.empty()
-                ? std::string()
-                : lineName + ": ";
+            std::u16string name;
+            if (!system)
+            {
+                const std::string& lineName = RequireString(line.Name);
+                if (!lineName.empty())
+                {
+                    name = ToChatChars(lineName);
+                    name.append(u": ");
+                }
+            }
             const float at = ChatDraw(x, y, aspect, alpha, name,
                 system ? ChatSystemInk : ChatName);
+            const std::u16string lineText = ToChatChars(RequireString(line.Text));
             ChatDraw(at, y, aspect, alpha,
                 ChatFit(lineText, aspect, at - x), system ? ChatSystemInk : ChatInk);
             y += ChatLineHeight;
@@ -118,28 +190,29 @@ namespace MphRead::Entities
         {
             y = ChatPromptY;
             const float at = ChatDraw(x, y, aspect, 1.0F, ChatPrompt, ChatPromptInk);
+            std::u16string compose = ToChatChars(ChatBox::ComposeText());
+            compose.push_back(u'_');
             ChatDraw(at, y, aspect, 1.0F,
-                ChatTail(ChatBox::ComposeText() + "_", aspect, at - x), ChatInk);
+                ChatTail(compose, aspect, at - x), ChatInk);
         }
     }
 
     float PlayerEntity::ChatDraw(float x, float y, float aspect, float alpha,
-        std::string_view text, ColorRgba color)
+        std::u16string_view text, ColorRgba color)
     {
         using Mods::Chat::ChatFont;
 
         Hud::HudObjectInstance& inst = RequireReference(_chatInst);
         Scene& scene = RequireReference(_scene);
         inst.Alpha = alpha;
-        for (char ch : text)
+        for (char16_t ch : text)
         {
-            const std::int32_t index = ChatFont::Index(
-                static_cast<char16_t>(static_cast<unsigned char>(ch)));
+            const std::int32_t index = ChatFont::Index(ch);
             if (index < 0)
             {
                 continue;
             }
-            if (ch != ' ')
+            if (ch != u' ')
             {
                 inst.PositionX = x / 256.0F;
                 inst.PositionY = y / 192.0F;
@@ -152,10 +225,10 @@ namespace MphRead::Entities
         return x;
     }
 
-    float PlayerEntity::ChatWidth(std::string_view text, float aspect)
+    float PlayerEntity::ChatWidth(std::u16string_view text, float aspect)
     {
-        const std::u16string chars = ToChatChars(text);
-        return static_cast<float>(Mods::Chat::ChatFont::Measure(chars)) * ChatScale * aspect;
+        return static_cast<float>(Mods::Chat::ChatFont::Measure(
+            std::span<const char16_t>(text.data(), text.size()))) * ChatScale * aspect;
     }
 
     float PlayerEntity::ChatRoom(float aspect, float used)
@@ -163,34 +236,34 @@ namespace MphRead::Entities
         return 256.0F - ChatLeft(aspect) - ChatMargin * aspect - used;
     }
 
-    std::string PlayerEntity::ChatFit(const std::string& text, float aspect, float used)
+    std::u16string PlayerEntity::ChatFit(std::u16string_view text, float aspect, float used)
     {
         const float room = ChatRoom(aspect, used);
         if (ChatWidth(text, aspect) <= room)
         {
-            return text;
+            return std::u16string(text);
         }
         std::size_t count = text.size();
-        while (count > 0 && ChatWidth(std::string_view(text).substr(0, count), aspect) > room)
+        while (count > 0 && ChatWidth(text.substr(0, count), aspect) > room)
         {
             --count;
         }
-        return text.substr(0, count);
+        return std::u16string(text.substr(0, count));
     }
 
-    std::string PlayerEntity::ChatTail(const std::string& text, float aspect, float used)
+    std::u16string PlayerEntity::ChatTail(std::u16string_view text, float aspect, float used)
     {
         const float room = ChatRoom(aspect, used);
         if (ChatWidth(text, aspect) <= room)
         {
-            return text;
+            return std::u16string(text);
         }
         std::size_t start = 0;
-        while (start < text.size() && ChatWidth(std::string_view(text).substr(start), aspect) > room)
+        while (start < text.size() && ChatWidth(text.substr(start), aspect) > room)
         {
             ++start;
         }
-        return text.substr(start);
+        return std::u16string(text.substr(start));
     }
 
     void PlayerEntity::ModForgetInputDeltas()

@@ -5,6 +5,7 @@
 #include "PlayerCollision.hpp"
 #include "PlayerDialog.hpp"
 #include "PlayerDraw.hpp"
+#include "../../Mods/Chat/PlayerEntityChatHud.hpp"
 #include "../EnemyInstanceEntity.hpp"
 #include "../../Formats/Culling.hpp"
 #include "../../Formats/Formats.hpp"
@@ -707,6 +708,7 @@ namespace MphRead::Entities
         MPHREAD_PLAYER_COLLISION_MEMBERS
         MPHREAD_PLAYER_DIALOG_MEMBERS
         MPHREAD_PLAYER_DRAW_MEMBERS
+        MPHREAD_PLAYER_ENTITY_CHAT_HUD_MEMBERS
 
     private:
         explicit PlayerEntity(std::int32_t slotIndex, MphRead::Scene* scene);

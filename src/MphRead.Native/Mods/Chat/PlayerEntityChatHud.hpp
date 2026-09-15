@@ -28,12 +28,12 @@ private:                                                                        
     static const ::MphRead::Hud::ReadOnlyList<::MphRead::ColorRgba> _chatPalette;             \
     std::shared_ptr<::MphRead::Hud::HudObjectInstance> _chatInst{};                            \
     std::vector<std::pair<::MphRead::Mods::Chat::ChatLine, float>> _chatVisible{};            \
-    inline static constexpr std::string_view ChatPrompt = "Says: ";                           \
+    inline static constexpr std::u16string_view ChatPrompt = u"Says: ";                      \
     float ChatDraw(float x, float y, float aspect, float alpha,                               \
-        std::string_view text, ::MphRead::ColorRgba color);                                   \
-    [[nodiscard]] static float ChatWidth(std::string_view text, float aspect);                \
+        std::u16string_view text, ::MphRead::ColorRgba color);                                \
+    [[nodiscard]] static float ChatWidth(std::u16string_view text, float aspect);             \
     [[nodiscard]] static float ChatRoom(float aspect, float used);                            \
-    [[nodiscard]] static std::string ChatFit(                                                 \
-        const std::string& text, float aspect, float used);                                   \
-    [[nodiscard]] static std::string ChatTail(                                                \
-        const std::string& text, float aspect, float used);
+    [[nodiscard]] static std::u16string ChatFit(                                              \
+        std::u16string_view text, float aspect, float used);                                  \
+    [[nodiscard]] static std::u16string ChatTail(                                             \
+        std::u16string_view text, float aspect, float used);

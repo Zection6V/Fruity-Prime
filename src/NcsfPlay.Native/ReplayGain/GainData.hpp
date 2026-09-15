@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ReplayGain.hpp"
+
 #include <array>
 #include <cstdint>
 #include <span>
@@ -22,7 +24,7 @@ namespace NCSFCommon::ReplayGain
         void PeakSample(double value) noexcept;
 
     private:
-        std::array<std::int32_t, 100 * 120> accum{};
+        std::array<std::int32_t, ReplayGain::StepsPerDb * ReplayGain::MaxDb> accum{};
         double peakSample = 0.0;
     };
 }

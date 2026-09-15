@@ -47,7 +47,7 @@ namespace NCSFCommon::ReplayGain
         return ReplayGain::AnalyzeResult(albumData.Accum());
     }
 
-    double AlbumGain::GetPeak() const noexcept
+    double AlbumGain::GetPeak()
     {
         return albumData.PeakSample() / ReplayGain::MaxSampleValue;
     }

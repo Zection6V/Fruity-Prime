@@ -18,8 +18,8 @@ namespace NCSFCommon::ReplayGain
 
         void AppendTrackData(TrackGain& trackGain);
 
-        [[nodiscard]] double GetGain();
-        [[nodiscard]] double GetPeak() const noexcept;
+        double GetGain();
+        double GetPeak();
 
     private:
         GainData albumData;

@@ -274,7 +274,6 @@ namespace NCSFCommon
     class Channel
     {
     public:
-        Channel() noexcept = default;
         virtual ~Channel() = default;
 
         Channel(const Channel&) = delete;
@@ -381,6 +380,8 @@ namespace NCSFCommon
         virtual void IncrementSample() = 0;
 
     protected:
+        Channel() = default;
+
         static const std::array<std::array<float, 8>, 8> WaveDutyTable;
 
     private:

@@ -158,6 +158,7 @@ namespace NCSFCommon
         LFO& operator=(LFO&&) = delete;
 
         [[nodiscard]] const std::shared_ptr<LFOParam>& Param() const noexcept;
+        void Param(std::shared_ptr<LFOParam> value) noexcept;
 
         [[nodiscard]] std::uint16_t DelayCounter() const noexcept;
         void DelayCounter(std::uint16_t value) noexcept;
@@ -170,10 +171,6 @@ namespace NCSFCommon
         [[nodiscard]] std::int32_t GetValue() const;
 
     private:
-        friend class Channel;
-
-        void Param(std::shared_ptr<LFOParam> value) noexcept;
-
         static const std::array<std::int8_t, 33> SinTable;
 
         [[nodiscard]] static std::int8_t SinIndex(std::int32_t x);

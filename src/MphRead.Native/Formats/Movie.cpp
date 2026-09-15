@@ -6,6 +6,7 @@
 #include <cassert>
 #include <chrono>
 #include <climits>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -379,6 +380,31 @@ namespace System
         }
     }
 
+    namespace
+    {
+        thread_local std::locale CurrentCultureLocale = std::locale();
+    }
+
+    Globalization::CultureInfo::CultureInfo()
+        : _locale(CurrentCultureLocale)
+    {
+    }
+
+    Globalization::CultureInfo::CultureInfo(std::locale locale)
+        : _locale(std::move(locale))
+    {
+    }
+
+    Globalization::CultureInfo Globalization::CultureInfo::CurrentCulture()
+    {
+        return CultureInfo(CurrentCultureLocale);
+    }
+
+    void Globalization::CultureInfo::SetCurrentCulture(CultureInfo culture)
+    {
+        CurrentCultureLocale = std::move(culture._locale);
+    }
+
     Decimal::Decimal(std::int32_t value) noexcept
     {
         const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
@@ -405,6 +431,14 @@ namespace System
           _mid(static_cast<std::uint32_t>(value >> 32))
     {
     }
+
+    const Decimal Decimal::Zero{};
+    const Decimal Decimal::One{std::int32_t{1}};
+    const Decimal Decimal::MinusOne{std::int32_t{-1}};
+    const Decimal Decimal::MaxValue{
+        std::int32_t{-1}, std::int32_t{-1}, std::int32_t{-1}, false, 0};
+    const Decimal Decimal::MinValue{
+        std::int32_t{-1}, std::int32_t{-1}, std::int32_t{-1}, true, 0};
 
     Decimal::Decimal(std::int32_t lo, std::int32_t mid, std::int32_t hi,
         bool isNegative, std::uint8_t scale)
@@ -480,6 +514,62 @@ namespace System
         return result;
     }
 
+    Decimal Decimal::Add(const Decimal& left, const Decimal& right)
+    {
+        return left + right;
+    }
+
+    Decimal Decimal::Subtract(const Decimal& left, const Decimal& right)
+    {
+        return left - right;
+    }
+
+    Decimal Decimal::Multiply(const Decimal& left, const Decimal& right)
+    {
+        return left * right;
+    }
+
+    Decimal Decimal::Divide(const Decimal& left, const Decimal& right)
+    {
+        return left / right;
+    }
+
+    Decimal Decimal::Remainder(const Decimal& left, const Decimal& right)
+    {
+        return left % right;
+    }
+
+    Decimal Decimal::Negate(const Decimal& value)
+    {
+        return -value;
+    }
+
+    Decimal Decimal::Abs(const Decimal& value)
+    {
+        return value._negative ? -value : value;
+    }
+
+    std::int32_t Decimal::Compare(const Decimal& left, const Decimal& right)
+    {
+        return left.CompareTo(right);
+    }
+
+    bool Decimal::Equals(const Decimal& left, const Decimal& right)
+    {
+        return left.Equals(right);
+    }
+
+    std::array<std::int32_t, 4> Decimal::GetBits(const Decimal& value) noexcept
+    {
+        const std::uint32_t flags = (static_cast<std::uint32_t>(value._scale) << 16)
+            | (value._negative ? 0x80000000U : 0U);
+        return {
+            std::bit_cast<std::int32_t>(value._lo),
+            std::bit_cast<std::int32_t>(value._mid),
+            std::bit_cast<std::int32_t>(value._hi),
+            std::bit_cast<std::int32_t>(flags)};
+    }
+
     std::int32_t Decimal::CompareTo(const Decimal& other) const
     {
         const BigUInt leftRaw(_lo, _mid, _hi);
@@ -532,7 +622,19 @@ namespace System
 
     std::string Decimal::ToString() const
     {
+        return ToString(Globalization::CultureInfo::CurrentCulture());
+    }
+
+    std::string Decimal::ToString(const Globalization::CultureInfo& culture) const
+    {
         std::string digits = BigUIntToString(BigUInt(_lo, _mid, _hi));
+        const std::locale& locale = culture.NativeLocale();
+        const char decimalPoint = std::use_facet<std::numpunct<char>>(locale).decimal_point();
+        std::string negativeSign = std::use_facet<std::moneypunct<char>>(locale).negative_sign();
+        if (negativeSign.empty())
+        {
+            negativeSign = "-";
+        }
         if (_scale != 0)
         {
             const std::size_t scale = _scale;
@@ -540,11 +642,11 @@ namespace System
             {
                 digits.insert(0, scale + 1 - digits.size(), '0');
             }
-            digits.insert(digits.size() - scale, 1, '.');
+            digits.insert(digits.size() - scale, 1, decimalPoint);
         }
         if (_negative && (_lo != 0 || _mid != 0 || _hi != 0))
         {
-            digits.insert(digits.begin(), '-');
+            digits.insert(0, negativeSign);
         }
         return digits;
     }
@@ -687,6 +789,22 @@ namespace System
         }
         throw OverflowException();
     }
+
+    Decimal operator%(const Decimal& left, const Decimal& right)
+    {
+        const std::uint8_t scale = std::max(left._scale, right._scale);
+        const BigUInt leftValue = ScaledCoefficient(
+            left._lo, left._mid, left._hi, left._scale, scale);
+        const BigUInt rightValue = ScaledCoefficient(
+            right._lo, right._mid, right._hi, right._scale, scale);
+        if (rightValue.IsZero())
+        {
+            throw DivideByZeroException();
+        }
+        auto [quotient, remainder] = DivideBig(leftValue, rightValue);
+        (void)quotient;
+        return MakeDecimal(std::move(remainder), scale, left._negative);
+    }
 }
 namespace MphRead::Formats::MovieNativeRuntime
 {
@@ -701,6 +819,8 @@ namespace MphRead::Formats::MovieNativeRuntime
     {
         std::coroutine_handle<> Handle{};
         std::shared_ptr<SynchronizationContext> Context{};
+        std::shared_ptr<TaskScheduler> Scheduler{};
+        System::Globalization::CultureInfo Culture{};
     };
 
     struct TaskState : std::enable_shared_from_this<TaskState>
@@ -720,11 +840,74 @@ namespace MphRead::Formats::MovieNativeRuntime
                 Handle.destroy();
             }
         }
+
+        static void ScheduleOn(
+            const std::shared_ptr<TaskScheduler>& scheduler,
+            std::function<void()> continuation)
+        {
+            scheduler->Schedule(std::move(continuation));
+        }
     };
 
     namespace
     {
         thread_local std::shared_ptr<SynchronizationContext> CurrentSynchronizationContext{};
+        thread_local std::shared_ptr<TaskScheduler> CurrentTaskScheduler{};
+
+        class DefaultTaskScheduler final : public TaskScheduler
+        {
+        protected:
+            void Queue(std::function<void()> continuation) override
+            {
+                continuation();
+            }
+        };
+
+        [[nodiscard]] std::shared_ptr<TaskScheduler> DefaultSchedulerInstance()
+        {
+            static std::shared_ptr<TaskScheduler> scheduler
+                = std::make_shared<DefaultTaskScheduler>();
+            return scheduler;
+        }
+
+        [[nodiscard]] ContinuationRegistration CaptureContinuation(
+            std::coroutine_handle<> handle)
+        {
+            std::shared_ptr<SynchronizationContext> context = SynchronizationContext::Current();
+            std::shared_ptr<TaskScheduler> scheduler;
+            if (!context)
+            {
+                scheduler = TaskScheduler::Current();
+                if (scheduler == TaskScheduler::Default())
+                {
+                    scheduler.reset();
+                }
+            }
+            return ContinuationRegistration{
+                handle, std::move(context), std::move(scheduler),
+                System::Globalization::CultureInfo::CurrentCulture()};
+        }
+
+        void ResumeWithExecutionContext(const ContinuationRegistration& registration)
+        {
+            if (!registration.Handle || registration.Handle.done())
+            {
+                return;
+            }
+            System::Globalization::CultureInfo previous
+                = System::Globalization::CultureInfo::CurrentCulture();
+            System::Globalization::CultureInfo::SetCurrentCulture(registration.Culture);
+            try
+            {
+                registration.Handle.resume();
+            }
+            catch (...)
+            {
+                System::Globalization::CultureInfo::SetCurrentCulture(std::move(previous));
+                throw;
+            }
+            System::Globalization::CultureInfo::SetCurrentCulture(std::move(previous));
+        }
 
         void ResumeContinuation(ContinuationRegistration registration)
         {
@@ -734,11 +917,11 @@ namespace MphRead::Formats::MovieNativeRuntime
             }
             if (registration.Context)
             {
-                std::shared_ptr<SynchronizationContext> context = std::move(registration.Context);
+                std::shared_ptr<SynchronizationContext> context = registration.Context;
                 context->Post(
-                    [context = std::move(context), handle = registration.Handle]() mutable
+                    [context = std::move(context), registration = std::move(registration)]() mutable
                     {
-                        if (!handle || handle.done())
+                        if (!registration.Handle || registration.Handle.done())
                         {
                             return;
                         }
@@ -747,7 +930,7 @@ namespace MphRead::Formats::MovieNativeRuntime
                         CurrentSynchronizationContext = context;
                         try
                         {
-                            handle.resume();
+                            ResumeWithExecutionContext(registration);
                         }
                         catch (...)
                         {
@@ -757,9 +940,18 @@ namespace MphRead::Formats::MovieNativeRuntime
                         CurrentSynchronizationContext = std::move(previous);
                     });
             }
-            else if (!registration.Handle.done())
+            else if (registration.Scheduler)
             {
-                registration.Handle.resume();
+                std::shared_ptr<TaskScheduler> scheduler = registration.Scheduler;
+                TaskState::ScheduleOn(scheduler,
+                    [registration = std::move(registration)]() mutable
+                    {
+                        ResumeWithExecutionContext(registration);
+                    });
+            }
+            else
+            {
+                ResumeWithExecutionContext(registration);
             }
         }
 
@@ -773,13 +965,12 @@ namespace MphRead::Formats::MovieNativeRuntime
 
             void Schedule(
                 std::shared_ptr<TaskState> state,
-                std::coroutine_handle<MovieTask::promise_type> handle,
-                std::shared_ptr<SynchronizationContext> context)
+                std::coroutine_handle<MovieTask::promise_type> handle)
             {
                 std::lock_guard<std::mutex> lock(_mutex);
                 _items.emplace(
                     std::chrono::steady_clock::now() + std::chrono::milliseconds(1),
-                    Item{std::move(state), handle, std::move(context)});
+                    Item{std::move(state), CaptureContinuation(handle)});
                 _condition.notify_all();
             }
 
@@ -796,8 +987,7 @@ namespace MphRead::Formats::MovieNativeRuntime
             struct Item
             {
                 std::shared_ptr<TaskState> State;
-                std::coroutine_handle<MovieTask::promise_type> Handle;
-                std::shared_ptr<SynchronizationContext> Context;
+                ContinuationRegistration Registration;
             };
 
             std::mutex _mutex;
@@ -852,11 +1042,10 @@ namespace MphRead::Formats::MovieNativeRuntime
                         std::lock_guard<std::mutex> stateLock(item.State->Mutex);
                         done = item.State->Done;
                     }
-                    if (!done && item.Handle && !item.Handle.done())
+                    if (!done && item.Registration.Handle
+                        && !item.Registration.Handle.done())
                     {
-                        ContinuationRegistration registration{
-                            item.Handle, std::move(item.Context)};
-                        ResumeContinuation(std::move(registration));
+                        ResumeContinuation(std::move(item.Registration));
                     }
                     lock.lock();
                 }
@@ -924,6 +1113,36 @@ namespace MphRead::Formats::MovieNativeRuntime
         CurrentSynchronizationContext = std::move(context);
     }
 
+    std::shared_ptr<TaskScheduler> TaskScheduler::Current() noexcept
+    {
+        return CurrentTaskScheduler ? CurrentTaskScheduler : DefaultSchedulerInstance();
+    }
+
+    std::shared_ptr<TaskScheduler> TaskScheduler::Default() noexcept
+    {
+        return DefaultSchedulerInstance();
+    }
+
+    void TaskScheduler::Schedule(std::function<void()> continuation)
+    {
+        std::shared_ptr<TaskScheduler> self = shared_from_this();
+        Queue([self = std::move(self), continuation = std::move(continuation)]() mutable
+        {
+            std::shared_ptr<TaskScheduler> previous = std::move(CurrentTaskScheduler);
+            CurrentTaskScheduler = self;
+            try
+            {
+                continuation();
+            }
+            catch (...)
+            {
+                CurrentTaskScheduler = std::move(previous);
+                throw;
+            }
+            CurrentTaskScheduler = std::move(previous);
+        });
+    }
+
     std::int32_t HashCombine(std::int32_t first, std::int32_t second) noexcept
     {
         std::uint32_t hash = GlobalHashSeed() + Prime5;
@@ -940,15 +1159,41 @@ namespace MphRead::Formats::MovieNativeRuntime
         {
             throw System::ArgumentNullException("input");
         }
+        if (!_stream->CanRead())
+        {
+            throw System::ArgumentException("Stream was not readable.");
+        }
     }
 
-    BinaryReader::~BinaryReader() noexcept(false)
+    BinaryReader::~BinaryReader() noexcept
     {
-        DisposeStream();
+        try
+        {
+            Dispose();
+        }
+        catch (...)
+        {
+            // C++ destructors cannot reproduce a C# finally throwing during an
+            // already-active unwind. DecodeCore calls Dispose explicitly so the
+            // observable using/finally path still propagates the disposal exception.
+        }
     }
 
-    void BinaryReader::DisposeStream()
+    void BinaryReader::ThrowIfDisposed() const
     {
+        if (_disposed || !_stream)
+        {
+            throw System::ObjectDisposedException("BinaryReader");
+        }
+    }
+
+    void BinaryReader::Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
         std::shared_ptr<Stream> stream = std::move(_stream);
         if (stream)
         {
@@ -958,6 +1203,7 @@ namespace MphRead::Formats::MovieNativeRuntime
 
     void BinaryReader::ReadExact(void* destination, std::size_t size)
     {
+        ThrowIfDisposed();
         auto* bytes = static_cast<std::uint8_t*>(destination);
         std::size_t total = 0;
         while (total < size)
@@ -985,11 +1231,12 @@ namespace MphRead::Formats::MovieNativeRuntime
 
     char16_t BinaryReader::ReadChar()
     {
-        if (_pendingChar.has_value())
+        ThrowIfDisposed();
+        const bool canSeek = _stream->CanSeek();
+        std::optional<std::int64_t> initialPosition;
+        if (canSeek)
         {
-            const char16_t value = *_pendingChar;
-            _pendingChar.reset();
-            return value;
+            initialPosition = _stream->Position();
         }
 
         const std::uint8_t first = ReadByte();
@@ -1052,10 +1299,11 @@ namespace MphRead::Formats::MovieNativeRuntime
             return static_cast<char16_t>(codePoint);
         }
 
-        codePoint -= 0x10000U;
-        const char16_t high = static_cast<char16_t>(0xD800U + (codePoint >> 10));
-        _pendingChar = static_cast<char16_t>(0xDC00U + (codePoint & 0x3FFU));
-        return high;
+        if (initialPosition.has_value())
+        {
+            _stream->Position(*initialPosition);
+        }
+        throw System::ArgumentException("The output char buffer is too small to contain the decoded characters.");
     }
 
     std::int16_t BinaryReader::ReadInt16()
@@ -1082,11 +1330,13 @@ namespace MphRead::Formats::MovieNativeRuntime
 
     std::int64_t BinaryReader::Position()
     {
+        ThrowIfDisposed();
         return _stream->Position();
     }
 
     void BinaryReader::Position(std::int64_t value)
     {
+        ThrowIfDisposed();
         _stream->Position(value);
     }
 
@@ -1175,8 +1425,7 @@ namespace MphRead::Formats::MovieNativeRuntime
         {
             return false;
         }
-        ContinuationRegistration registration{
-            continuation, SynchronizationContext::Current()};
+        ContinuationRegistration registration = CaptureContinuation(continuation);
         std::lock_guard<std::mutex> lock(_state->Mutex);
         if (_state->Done)
         {
@@ -1228,8 +1477,7 @@ namespace MphRead::Formats::MovieNativeRuntime
         std::coroutine_handle<promise_type> handle) const
     {
         TaskState* raw = handle.promise().State;
-        Scheduler().Schedule(
-            raw->shared_from_this(), handle, SynchronizationContext::Current());
+        Scheduler().Schedule(raw->shared_from_this(), handle);
     }
 
     bool MovieTask::LifetimeAwaitable::await_suspend(
@@ -1338,11 +1586,34 @@ namespace MphRead::Formats
         {
         public:
             explicit FileStream(const std::filesystem::path& path)
-                : _stream(path, std::ios::binary)
             {
+                if (path.empty())
+                {
+                    throw System::ArgumentException("The path is empty.");
+                }
+                std::error_code ec;
+                if (std::filesystem::is_directory(path, ec) && !ec)
+                {
+                    throw System::UnauthorizedAccessException(
+                        "Access to the path is denied.");
+                }
+                errno = 0;
+                _stream.open(path, std::ios::binary);
+                if (!_stream.is_open())
+                {
+                    ThrowOpenFailure(path, errno);
+                }
             }
 
-            [[nodiscard]] bool IsOpen() const noexcept { return _stream.is_open(); }
+            [[nodiscard]] bool CanRead() const noexcept override
+            {
+                return !_disposed && _stream.is_open();
+            }
+
+            [[nodiscard]] bool CanSeek() const noexcept override
+            {
+                return !_disposed && _stream.is_open();
+            }
 
             [[nodiscard]] std::size_t Read(std::span<std::uint8_t> destination) override
             {
@@ -1359,7 +1630,7 @@ namespace MphRead::Formats
                 const std::streampos position = _stream.tellg();
                 if (position == std::streampos(-1))
                 {
-                    throw std::runtime_error("Stream position is unavailable.");
+                    throw System::IO::IOException("Stream position is unavailable.");
                 }
                 return static_cast<std::int64_t>(position);
             }
@@ -1367,11 +1638,15 @@ namespace MphRead::Formats
             void Position(std::int64_t value) override
             {
                 ThrowIfDisposed();
+                if (value < 0)
+                {
+                    throw System::ArgumentOutOfRangeException("value");
+                }
                 _stream.clear();
                 _stream.seekg(static_cast<std::streamoff>(value), std::ios::beg);
                 if (!_stream.good())
                 {
-                    throw System::ArgumentOutOfRangeException("value");
+                    throw System::IO::IOException("An I/O error occurred while seeking.");
                 }
             }
 
@@ -1387,6 +1662,40 @@ namespace MphRead::Formats
         private:
             mutable std::ifstream _stream;
             bool _disposed = false;
+
+            [[noreturn]] static void ThrowOpenFailure(
+                const std::filesystem::path& path, int error)
+            {
+                if (error == ENAMETOOLONG)
+                {
+                    throw System::IO::PathTooLongException("The specified path is too long.");
+                }
+                if (error == EACCES || error == EPERM || error == EISDIR)
+                {
+                    throw System::UnauthorizedAccessException("Access to the path is denied.");
+                }
+                if (error == ENOTDIR)
+                {
+                    throw System::IO::DirectoryNotFoundException(
+                        "Could not find a part of the path.");
+                }
+                if (error == ENOENT || error == 0)
+                {
+                    const std::filesystem::path parent = path.parent_path();
+                    if (!parent.empty())
+                    {
+                        std::error_code ec;
+                        if (!std::filesystem::exists(parent, ec) || ec)
+                        {
+                            throw System::IO::DirectoryNotFoundException(
+                                "Could not find a part of the path.");
+                        }
+                    }
+                    throw System::IO::FileNotFoundException(
+                        "Could not find the specified file.");
+                }
+                throw System::IO::IOException("The file could not be opened.");
+            }
 
             void ThrowIfDisposed() const
             {
@@ -1408,6 +1717,9 @@ namespace MphRead::Formats
                     throw System::ArgumentNullException("buffer");
                 }
             }
+
+            [[nodiscard]] bool CanRead() const noexcept override { return !_disposed; }
+            [[nodiscard]] bool CanSeek() const noexcept override { return !_disposed; }
 
             [[nodiscard]] std::size_t Read(std::span<std::uint8_t> destination) override
             {
@@ -1838,10 +2150,6 @@ namespace MphRead::Formats
     {
         co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
         auto stream = std::make_shared<FileStream>(PathFromUtf8(filePath));
-        if (!stream->IsOpen())
-        {
-            throw std::runtime_error("Could not find file '" + filePath + "'.");
-        }
         co_await Decode(std::static_pointer_cast<MovieNativeRuntime::Stream>(stream),
             FileName(PathFromUtf8(filePath)), writeFiles, token);
         co_return;
@@ -1883,7 +2191,11 @@ namespace MphRead::Formats
         }
 
         MovieNativeRuntime::BinaryReader reader(std::move(stream));
-        _nextPlaneBufferIndex = 0;
+        std::exception_ptr bodyException;
+        bool cancelled = false;
+        try
+        {
+            _nextPlaneBufferIndex = 0;
         _nextSampleBufferIndex = 0;
         _framesQueued.store(0, std::memory_order_relaxed);
 
@@ -2039,7 +2351,8 @@ namespace MphRead::Formats
             }
             if (token.stop_requested())
             {
-                co_return;
+                cancelled = true;
+                break;
             }
 
             std::int32_t dataSize = reader.ReadUInt16();
@@ -2118,7 +2431,7 @@ namespace MphRead::Formats
             }
         }
 
-        if (writeFiles && _audioFrameTotal.load(std::memory_order_acquire) > 0)
+        if (!cancelled && writeFiles && _audioFrameTotal.load(std::memory_order_acquire) > 0)
         {
             output->clear();
             output->seekp(0, std::ios::beg);
@@ -2129,7 +2442,7 @@ namespace MphRead::Formats
                 WaveFormat::PCM16);
         }
 
-        if (writeFiles && !UseStaticBuffers)
+        if (!cancelled && writeFiles && !UseStaticBuffers)
         {
             std::shared_ptr<std::vector<std::shared_ptr<VxFrame>>> frames;
             {
@@ -2142,6 +2455,30 @@ namespace MphRead::Formats
                 WriteFile(fileOutputBuffer, *vxFrame, folder, frame);
                 frame = WrapInt32Add(frame, 1);
             }
+        }
+        }
+        catch (...)
+        {
+            bodyException = std::current_exception();
+        }
+
+        std::exception_ptr disposeException;
+        try
+        {
+            reader.Dispose();
+        }
+        catch (...)
+        {
+            disposeException = std::current_exception();
+        }
+
+        if (disposeException)
+        {
+            std::rethrow_exception(disposeException);
+        }
+        if (bodyException)
+        {
+            std::rethrow_exception(bodyException);
         }
         co_return;
     }
@@ -2430,9 +2767,9 @@ namespace MphRead::Formats
         std::int32_t frameWidth, std::int32_t frameHeight, const VxBuffers& buffers)
         : FrameWidth(frameWidth),
           FrameHeight(frameHeight),
-          _planeBufferY(buffers.PlaneBufferY),
-          _planeBufferU(buffers.PlaneBufferU),
-          _planeBufferV(buffers.PlaneBufferV),
+          _planeBufferY(buffers.PlaneBufferY.Shared()),
+          _planeBufferU(buffers.PlaneBufferU.Shared()),
+          _planeBufferV(buffers.PlaneBufferV.Shared()),
           _coeffBufferY(buffers.CoeffBufferY),
           _coeffBufferUV(buffers.CoeffBufferUV),
           _vectors(buffers.Vectors),

@@ -16,6 +16,7 @@
 #include <functional>
 #include <memory>
 #include <limits>
+#include <locale>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -85,6 +86,73 @@ namespace System
         }
     };
 
+    class UnauthorizedAccessException final : public std::runtime_error
+    {
+    public:
+        explicit UnauthorizedAccessException(std::string message)
+            : std::runtime_error(std::move(message))
+        {
+        }
+    };
+
+    namespace IO
+    {
+        class IOException : public std::runtime_error
+        {
+        public:
+            explicit IOException(std::string message)
+                : std::runtime_error(std::move(message))
+            {
+            }
+        };
+
+        class FileNotFoundException final : public IOException
+        {
+        public:
+            explicit FileNotFoundException(std::string message)
+                : IOException(std::move(message))
+            {
+            }
+        };
+
+        class DirectoryNotFoundException final : public IOException
+        {
+        public:
+            explicit DirectoryNotFoundException(std::string message)
+                : IOException(std::move(message))
+            {
+            }
+        };
+
+        class PathTooLongException final : public IOException
+        {
+        public:
+            explicit PathTooLongException(std::string message)
+                : IOException(std::move(message))
+            {
+            }
+        };
+    }
+
+    class Decimal;
+
+    namespace Globalization
+    {
+        class CultureInfo final
+        {
+        public:
+            CultureInfo();
+            explicit CultureInfo(std::locale locale);
+            [[nodiscard]] static CultureInfo CurrentCulture();
+            static void SetCurrentCulture(CultureInfo culture);
+
+        private:
+            std::locale _locale;
+            [[nodiscard]] const std::locale& NativeLocale() const noexcept { return _locale; }
+            friend class ::System::Decimal;
+        };
+    }
+
     // Mechanical value-type representation of System.Decimal. The 96-bit integer,
     // sign and scale fields match the CLR decimal value domain without binary-FP loss.
     class Decimal final
@@ -98,12 +166,29 @@ namespace System
         Decimal(std::int32_t lo, std::int32_t mid, std::int32_t hi,
             bool isNegative, std::uint8_t scale);
 
+        static const Decimal Zero;
+        static const Decimal One;
+        static const Decimal MinusOne;
+        static const Decimal MaxValue;
+        static const Decimal MinValue;
+
         [[nodiscard]] static Decimal DivideInt32By65536(std::int32_t value) noexcept;
+        [[nodiscard]] static Decimal Add(const Decimal& left, const Decimal& right);
+        [[nodiscard]] static Decimal Subtract(const Decimal& left, const Decimal& right);
+        [[nodiscard]] static Decimal Multiply(const Decimal& left, const Decimal& right);
+        [[nodiscard]] static Decimal Divide(const Decimal& left, const Decimal& right);
+        [[nodiscard]] static Decimal Remainder(const Decimal& left, const Decimal& right);
+        [[nodiscard]] static Decimal Negate(const Decimal& value);
+        [[nodiscard]] static Decimal Abs(const Decimal& value);
+        [[nodiscard]] static std::int32_t Compare(const Decimal& left, const Decimal& right);
+        [[nodiscard]] static bool Equals(const Decimal& left, const Decimal& right);
         [[nodiscard]] std::int32_t CompareTo(const Decimal& other) const;
         [[nodiscard]] bool Equals(const Decimal& other) const;
+        [[nodiscard]] static std::array<std::int32_t, 4> GetBits(const Decimal& value) noexcept;
         [[nodiscard]] float ToSingle() const noexcept;
         [[nodiscard]] double ToDouble() const noexcept;
         [[nodiscard]] std::string ToString() const;
+        [[nodiscard]] std::string ToString(const Globalization::CultureInfo& culture) const;
 
         friend bool operator==(const Decimal& left, const Decimal& right);
         friend bool operator!=(const Decimal& left, const Decimal& right);
@@ -116,6 +201,7 @@ namespace System
         friend Decimal operator-(const Decimal& left, const Decimal& right);
         friend Decimal operator*(const Decimal& left, const Decimal& right);
         friend Decimal operator/(const Decimal& left, const Decimal& right);
+        friend Decimal operator%(const Decimal& left, const Decimal& right);
 
     private:
         std::uint32_t _lo = 0;
@@ -197,6 +283,8 @@ private: \
 
 namespace MphRead::Formats
 {
+    class VideoFrame;
+
     namespace MovieNativeRuntime
     {
         template <typename T>
@@ -395,6 +483,8 @@ namespace MphRead::Formats
         {
         public:
             virtual ~Stream() = default;
+            [[nodiscard]] virtual bool CanRead() const noexcept = 0;
+            [[nodiscard]] virtual bool CanSeek() const noexcept = 0;
             [[nodiscard]] virtual std::size_t Read(std::span<std::uint8_t> destination) = 0;
             [[nodiscard]] virtual std::int64_t Position() const = 0;
             virtual void Position(std::int64_t value) = 0;
@@ -405,7 +495,7 @@ namespace MphRead::Formats
         {
         public:
             explicit BinaryReader(std::shared_ptr<Stream> stream);
-            ~BinaryReader() noexcept(false);
+            ~BinaryReader() noexcept;
             BinaryReader(const BinaryReader&) = delete;
             BinaryReader& operator=(const BinaryReader&) = delete;
 
@@ -416,12 +506,13 @@ namespace MphRead::Formats
             [[nodiscard]] std::int32_t ReadInt32();
             [[nodiscard]] std::int64_t Position();
             void Position(std::int64_t value);
+            void Dispose();
 
         private:
             std::shared_ptr<Stream> _stream;
-            std::optional<char16_t> _pendingChar{};
+            bool _disposed = false;
             void ReadExact(void* destination, std::size_t size);
-            void DisposeStream();
+            void ThrowIfDisposed() const;
         };
 
         class SynchronizationContext
@@ -432,6 +523,21 @@ namespace MphRead::Formats
             [[nodiscard]] static std::shared_ptr<SynchronizationContext> Current() noexcept;
             static void SetSynchronizationContext(
                 std::shared_ptr<SynchronizationContext> context) noexcept;
+        };
+
+        class TaskScheduler : public std::enable_shared_from_this<TaskScheduler>
+        {
+        public:
+            virtual ~TaskScheduler() = default;
+            [[nodiscard]] static std::shared_ptr<TaskScheduler> Current() noexcept;
+            [[nodiscard]] static std::shared_ptr<TaskScheduler> Default() noexcept;
+
+        protected:
+            void Schedule(std::function<void()> continuation);
+            virtual void Queue(std::function<void()> continuation) = 0;
+
+        private:
+            friend struct TaskState;
         };
 
         struct TaskState;
@@ -510,6 +616,40 @@ namespace MphRead::Formats
         };
 
         [[nodiscard]] std::int32_t HashCombine(std::int32_t first, std::int32_t second) noexcept;
+
+        template <typename T>
+        class ManagedNullableReference final
+        {
+        public:
+            ManagedNullableReference() noexcept = default;
+            ManagedNullableReference(std::nullptr_t) noexcept {}
+            ManagedNullableReference(std::shared_ptr<T> value) noexcept
+                : _value(std::move(value))
+            {
+            }
+
+            [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(_value); }
+            [[nodiscard]] T* operator->() const
+            {
+                if (!_value)
+                {
+                    throw System::NullReferenceException();
+                }
+                return _value.get();
+            }
+            [[nodiscard]] T& operator*() const
+            {
+                if (!_value)
+                {
+                    throw System::NullReferenceException();
+                }
+                return *_value;
+            }
+        private:
+            [[nodiscard]] const std::shared_ptr<T>& Shared() const noexcept { return _value; }
+            std::shared_ptr<T> _value{};
+            friend class ::MphRead::Formats::VideoFrame;
+        };
     }
 
     template <typename T>
@@ -555,9 +695,9 @@ namespace MphRead::Formats
     {
         const std::shared_ptr<ClrArray<std::shared_ptr<VideoFrame>>> PrevVideoFrames;
         const std::shared_ptr<ClrArray<std::int32_t>> QuantizerTable;
-        const std::shared_ptr<ByteArray2D> PlaneBufferY;
-        const std::shared_ptr<ByteArray2D> PlaneBufferU;
-        const std::shared_ptr<ByteArray2D> PlaneBufferV;
+        const MovieNativeRuntime::ManagedNullableReference<ByteArray2D> PlaneBufferY;
+        const MovieNativeRuntime::ManagedNullableReference<ByteArray2D> PlaneBufferU;
+        const MovieNativeRuntime::ManagedNullableReference<ByteArray2D> PlaneBufferV;
         const std::shared_ptr<ByteArray2D> CoeffBufferY;
         const std::shared_ptr<ByteArray2D> CoeffBufferUV;
         const std::shared_ptr<Vector2irArray2D> Vectors;

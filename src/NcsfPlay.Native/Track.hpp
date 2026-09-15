@@ -40,6 +40,12 @@ namespace NCSFCommon
             static_cast<std::uint8_t>(left) & static_cast<std::uint8_t>(right));
     }
 
+    [[nodiscard]] constexpr TrackFlag operator^(TrackFlag left, TrackFlag right) noexcept
+    {
+        return static_cast<TrackFlag>(
+            static_cast<std::uint8_t>(left) ^ static_cast<std::uint8_t>(right));
+    }
+
     [[nodiscard]] constexpr TrackFlag operator~(TrackFlag value) noexcept
     {
         return static_cast<TrackFlag>(static_cast<std::uint8_t>(
@@ -58,6 +64,12 @@ namespace NCSFCommon
         return left;
     }
 
+    constexpr TrackFlag& operator^=(TrackFlag& left, TrackFlag right) noexcept
+    {
+        left = left ^ right;
+        return left;
+    }
+
     enum class ValueType : std::uint8_t
     {
         U8,
@@ -69,8 +81,10 @@ namespace NCSFCommon
 
     class Track
     {
-    public:
+    protected:
         Track();
+
+    public:
         virtual ~Track();
 
         Track(const Track&) = delete;

@@ -389,29 +389,38 @@ namespace NCSFCommon
         {
         public:
             CallbackStorage() noexcept = default;
-            CallbackStorage(std::function<void(Channel*, bool)> value) noexcept
-                : _value(std::move(value))
+
+            CallbackStorage(std::function<void(Channel*, bool)> value)
             {
+                if (value)
+                {
+                    _value = std::make_shared<std::function<void(Channel*, bool)>>(
+                        std::move(value));
+                }
             }
 
             [[nodiscard]] explicit operator bool() const noexcept
             {
-                return static_cast<bool>(_value);
+                return _value && static_cast<bool>(*_value);
             }
 
             void operator()(Channel* channel, bool free) const
             {
                 auto callback = _value;
-                callback(channel, free);
+                (*callback)(channel, free);
             }
 
             [[nodiscard]] operator const std::function<void(Channel*, bool)>&() const noexcept
             {
-                return _value;
+                if (_value)
+                    return *_value;
+
+                static const std::function<void(Channel*, bool)> empty;
+                return empty;
             }
 
         private:
-            std::function<void(Channel*, bool)> _value;
+            std::shared_ptr<std::function<void(Channel*, bool)>> _value;
         };
 
         static constexpr std::int32_t SoundVolumeDBMin = -723;

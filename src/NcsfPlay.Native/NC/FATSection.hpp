@@ -2,10 +2,12 @@
 
 #include "FATRecord.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace NCSFCommon::NC
@@ -36,6 +38,15 @@ namespace NCSFCommon::NC
         friend FATSection operator+(std::nullptr_t, const FATSection& fatSection);
 
     private:
+        [[nodiscard]] std::string DebuggerDisplay() const;
+
+        inline static constexpr std::array<std::uint8_t, 4> Header{
+            static_cast<std::uint8_t>('F'),
+            static_cast<std::uint8_t>('A'),
+            static_cast<std::uint8_t>('T'),
+            static_cast<std::uint8_t>(' ')
+        };
+
         std::vector<std::shared_ptr<FATRecord>> _records;
     };
 }

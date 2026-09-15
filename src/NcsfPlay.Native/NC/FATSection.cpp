@@ -3,22 +3,25 @@
 #include "../Common.hpp"
 
 #include <algorithm>
-#include <array>
 #include <bit>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace
 {
-    constexpr std::array<std::uint8_t, 4> Header{
-        static_cast<std::uint8_t>('F'),
-        static_cast<std::uint8_t>('A'),
-        static_cast<std::uint8_t>('T'),
-        static_cast<std::uint8_t>(' ')
-    };
+#ifndef NDEBUG
+    void DebugAssert(bool condition, std::string_view expression)
+    {
+        if (!condition)
+        {
+            std::clog << "Debug.Assert failed: " << expression << '\n';
+        }
+    }
+#endif
 
     [[nodiscard]] std::span<const std::uint8_t> Slice(
         std::span<const std::uint8_t> span, std::size_t offset)
@@ -127,7 +130,7 @@ namespace
     {
         if (!record)
         {
-            throw std::runtime_error("Object reference not set to an instance of an object.");
+            throw NCSFCommon::NullReferenceException();
         }
         return *record;
     }
@@ -135,6 +138,11 @@ namespace
 
 namespace NCSFCommon::NC
 {
+    std::string FATSection::DebuggerDisplay() const
+    {
+        return "FAT Section - # of Records: " + std::to_string(_records.size());
+    }
+
     std::span<const std::shared_ptr<FATRecord>> FATSection::Records() const noexcept
     {
         return std::span<const std::shared_ptr<FATRecord>>(_records.data(), _records.size());
@@ -148,7 +156,9 @@ namespace NCSFCommon::NC
     void FATSection::Read(std::span<const std::uint8_t> span)
     {
 #ifndef NDEBUG
-        assert(Common::VerifyHeader(Slice(span, 0, Header.size()), Header));
+        DebugAssert(
+            Common::VerifyHeader(Slice(span, 0, Header.size()), Header),
+            "Common.VerifyHeader(span[..0x04], FATSection.Header.Span)");
 #endif
 
         const std::uint32_t count = ReadUInt32LittleEndian(Slice(span, 0x08));
@@ -208,7 +218,11 @@ namespace NCSFCommon::NC
 
     FATSection FATSection::Add(const FATSection* fatSection1, const FATSection* fatSection2)
     {
-        assert(fatSection1 != nullptr || fatSection2 != nullptr);
+#ifndef NDEBUG
+        DebugAssert(
+            fatSection1 != nullptr || fatSection2 != nullptr,
+            "fatSection1 != null || fatSection2 != null");
+#endif
 
         FATSection result;
         if (fatSection1 != nullptr)

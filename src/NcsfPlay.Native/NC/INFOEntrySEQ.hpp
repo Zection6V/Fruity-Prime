@@ -43,7 +43,7 @@ namespace NCSFCommon::NC
         [[nodiscard]] std::uint16_t Reserved() const noexcept;
         void Reserved(std::uint16_t value) noexcept;
 
-        [[nodiscard]] const std::shared_ptr<NCSFCommon::NC::SSEQ>& SSEQ() const noexcept;
+        [[nodiscard]] std::shared_ptr<NCSFCommon::NC::SSEQ> SSEQ() const noexcept;
         void SSEQ(std::shared_ptr<NCSFCommon::NC::SSEQ> value) noexcept;
 
         [[nodiscard]] std::uint32_t Size() const noexcept override;

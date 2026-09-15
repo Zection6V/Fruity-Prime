@@ -203,7 +203,7 @@ namespace NCSFCommon::NC
         _reserved = value;
     }
 
-    const std::shared_ptr<NCSFCommon::NC::SSEQ>& INFOEntrySEQ::SSEQ() const noexcept
+    std::shared_ptr<NCSFCommon::NC::SSEQ> INFOEntrySEQ::SSEQ() const noexcept
     {
         return _sseq;
     }

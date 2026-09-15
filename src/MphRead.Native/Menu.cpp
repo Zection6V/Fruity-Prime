@@ -43,6 +43,7 @@
 #include <conio.h>
 #include <windows.h>
 #else
+#include <dlfcn.h>
 #include <langinfo.h>
 #include <locale.h>
 #include <poll.h>
@@ -273,21 +274,46 @@ namespace
     [[nodiscard]] locale_t CurrentPosixLocale() noexcept
     {
         locale_t active = ::uselocale(static_cast<locale_t>(0));
-        if (active != static_cast<locale_t>(0) && active != LC_GLOBAL_LOCALE)
+        if (active != static_cast<locale_t>(0))
         {
+            // duplocale(LC_GLOBAL_LOCALE) snapshots the process-global locale,
+            // while a thread locale is copied directly. Do this per call so a
+            // later culture/locale change is observed instead of cached.
             if (locale_t copy = ::duplocale(active); copy != static_cast<locale_t>(0)) return copy;
         }
+        return ::newlocale(LC_ALL_MASK, "C", static_cast<locale_t>(0));
+    }
 
-        const char* current = ::setlocale(LC_ALL, nullptr);
-        if (current != nullptr && std::string_view(current) != "C" && std::string_view(current) != "POSIX")
+    [[nodiscard]] std::string CurrentPosixNumericLocaleName()
+    {
+        const char* name = nullptr;
+        locale_t active = ::uselocale(static_cast<locale_t>(0));
+#if defined(__GLIBC__)
+        if (active != static_cast<locale_t>(0) && active != LC_GLOBAL_LOCALE)
         {
-            if (locale_t locale = ::newlocale(LC_ALL_MASK, current, static_cast<locale_t>(0));
-                locale != static_cast<locale_t>(0))
+            name = ::nl_langinfo_l(_NL_LOCALE_NAME(LC_NUMERIC), active);
+        }
+#endif
+        if (name == nullptr || *name == '\0') name = ::setlocale(LC_NUMERIC, nullptr);
+        if (name == nullptr || *name == '\0') return "en_US_POSIX";
+
+        std::string localeName(name);
+        if (localeName == "C" || localeName == "POSIX") return "en_US_POSIX";
+
+        const std::size_t at = localeName.find('@');
+        const std::size_t dot = localeName.find('.');
+        if (dot != std::string::npos)
+        {
+            if (at != std::string::npos && at > dot)
             {
-                return locale;
+                localeName.erase(dot, at - dot);
+            }
+            else
+            {
+                localeName.erase(dot);
             }
         }
-        return ::newlocale(LC_ALL_MASK, "", static_cast<locale_t>(0));
+        return localeName;
     }
 #endif
 
@@ -372,6 +398,106 @@ namespace
         std::string PositiveSign = "+";
     };
 
+#if !defined(_WIN32)
+    [[nodiscard]] std::string Utf16ToUtf8(const char16_t* value, std::size_t length)
+    {
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
+        return converter.to_bytes(value, value + length);
+    }
+
+    template <typename T>
+    [[nodiscard]] T ResolveIcuNumberSymbol(void* library, std::string_view name) noexcept
+    {
+        if (void* symbol = ::dlsym(library, std::string(name).c_str()))
+        {
+            return reinterpret_cast<T>(symbol);
+        }
+        for (std::int32_t version = 99; version >= 40; --version)
+        {
+            const std::string versioned = std::string(name) + "_" + std::to_string(version);
+            if (void* symbol = ::dlsym(library, versioned.c_str()))
+            {
+                return reinterpret_cast<T>(symbol);
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] void* OpenIcuNumberLibrary() noexcept
+    {
+        if (void* library = ::dlopen("libicui18n.so", RTLD_LAZY | RTLD_LOCAL)) return library;
+        for (std::int32_t version = 99; version >= 40; --version)
+        {
+            const std::string name = "libicui18n.so." + std::to_string(version);
+            if (void* library = ::dlopen(name.c_str(), RTLD_LAZY | RTLD_LOCAL)) return library;
+        }
+#if defined(__APPLE__)
+        if (void* library = ::dlopen("libicui18n.dylib", RTLD_LAZY | RTLD_LOCAL)) return library;
+#endif
+        return nullptr;
+    }
+
+    void ApplyIcuNumberSigns(NumberFormatInfo& result)
+    {
+        // .NET uses the current culture's NumberFormatInfo for Decimal, which on
+        // Unix is backed by ICU rather than POSIX LC_MONETARY. Resolve ICU at
+        // runtime so this adapter does not add a link-time dependency or cache
+        // a culture that may change between calls.
+        void* library = OpenIcuNumberLibrary();
+        if (library == nullptr) return;
+
+        using OpenNumberFormat = void* (*)(std::int32_t, const char16_t*, std::int32_t,
+            const char*, void*, std::int32_t*);
+        using GetNumberSymbol = std::int32_t (*)(const void*, std::int32_t, char16_t*,
+            std::int32_t, std::int32_t*);
+        using CloseNumberFormat = void (*)(void*);
+
+        const OpenNumberFormat openNumberFormat
+            = ResolveIcuNumberSymbol<OpenNumberFormat>(library, "unum_open");
+        const GetNumberSymbol getNumberSymbol
+            = ResolveIcuNumberSymbol<GetNumberSymbol>(library, "unum_getSymbol");
+        const CloseNumberFormat closeNumberFormat
+            = ResolveIcuNumberSymbol<CloseNumberFormat>(library, "unum_close");
+        if (openNumberFormat == nullptr || getNumberSymbol == nullptr || closeNumberFormat == nullptr)
+        {
+            ::dlclose(library);
+            return;
+        }
+
+        const std::string localeName = CurrentPosixNumericLocaleName();
+        std::int32_t status = 0;
+        // ICU UNUM_DECIMAL = 1. The parse-error pointer is unused without a pattern.
+        void* numberFormat = openNumberFormat(1, nullptr, 0, localeName.c_str(), nullptr, &status);
+        if (numberFormat == nullptr || status > 0)
+        {
+            if (numberFormat != nullptr) closeNumberFormat(numberFormat);
+            ::dlclose(library);
+            return;
+        }
+
+        auto ReadSymbol = [&](std::int32_t symbol) -> std::optional<std::string>
+        {
+            std::array<char16_t, 64> buffer{};
+            std::int32_t symbolStatus = 0;
+            const std::int32_t length = getNumberSymbol(numberFormat, symbol, buffer.data(),
+                static_cast<std::int32_t>(buffer.size()), &symbolStatus);
+            if (symbolStatus > 0 || length <= 0
+                || length > static_cast<std::int32_t>(buffer.size()))
+            {
+                return std::nullopt;
+            }
+            return Utf16ToUtf8(buffer.data(), static_cast<std::size_t>(length));
+        };
+
+        // ICU UNumberFormatSymbol: MINUS_SIGN = 6, PLUS_SIGN = 7.
+        if (auto value = ReadSymbol(6); value && !value->empty()) result.NegativeSign = *value;
+        if (auto value = ReadSymbol(7); value && !value->empty()) result.PositiveSign = *value;
+
+        closeNumberFormat(numberFormat);
+        ::dlclose(library);
+    }
+#endif
+
     [[nodiscard]] NumberFormatInfo CurrentNumberFormat()
     {
         NumberFormatInfo result;
@@ -405,10 +531,9 @@ namespace
                 };
                 if (auto value = LocaleString(RADIXCHAR); value && !value->empty()) result.DecimalSeparator = *value;
                 if (auto value = LocaleString(THOUSEP)) result.GroupSeparator = *value;
-                if (auto value = LocaleString(NEGATIVE_SIGN); value && !value->empty()) result.NegativeSign = *value;
-                if (auto value = LocaleString(POSITIVE_SIGN); value && !value->empty()) result.PositiveSign = *value;
                 ::freelocale(locale);
             }
+            ApplyIcuNumberSigns(result);
 #endif
         }
         catch (...)

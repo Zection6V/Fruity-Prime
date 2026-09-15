@@ -152,16 +152,21 @@ namespace
         }
         const float floorValue = std::floor(value);
         const float fraction = value - floorValue;
+        float rounded;
         if (fraction < 0.5F)
         {
-            return floorValue;
+            rounded = floorValue;
         }
-        if (fraction > 0.5F)
+        else if (fraction > 0.5F)
         {
-            return floorValue + 1.0F;
+            rounded = floorValue + 1.0F;
         }
-        const float half = floorValue * 0.5F;
-        return half == std::floor(half) ? floorValue : floorValue + 1.0F;
+        else
+        {
+            const float half = floorValue * 0.5F;
+            rounded = half == std::floor(half) ? floorValue : floorValue + 1.0F;
+        }
+        return std::copysign(rounded, value);
     }
 
     [[nodiscard]] Matrix4 IdentityMatrix() noexcept

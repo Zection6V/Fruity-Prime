@@ -18,6 +18,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -493,8 +494,9 @@ namespace MphRead::Entities
             _overlayMessage2 = entryRef.Value2;
             _overlayBuffer1.fill(u'\0');
             _overlayBuffer2.fill(u'\0');
-            [[maybe_unused]] const std::int32_t lineCount
-                = WrapText(RequireOptional(_overlayMessage1), 256, _overlayBuffer1);
+            [[maybe_unused]] const std::int32_t lineCount = _overlayMessage1
+                ? WrapText(*_overlayMessage1, 256, _overlayBuffer1)
+                : WrapText(std::span<const char16_t>{}, 256, _overlayBuffer1);
             BufferDialogPages();
             ShowDialog(DialogType::Scan, 0);
         }

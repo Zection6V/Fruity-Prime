@@ -67,24 +67,18 @@ namespace NCSFCommon::ReplayGain
 
     const std::type_info& FrequencyInfo::EqualityContract() const noexcept
     {
-        return typeid(*this);
+        return typeid(FrequencyInfo);
     }
 
     bool FrequencyInfo::Equals(const FrequencyInfo* other) const noexcept
     {
-        return this == other
-            || (other != nullptr
-                && EqualityContract() == other->EqualityContract()
-                && sampleRateValue == other->sampleRateValue
-                && bYuleValue == other->bYuleValue
-                && aYuleValue == other->aYuleValue
-                && bButterValue == other->bButterValue
-                && aButterValue == other->aButterValue);
-    }
-
-    bool FrequencyInfo::Equals(const FrequencyInfo& other) const noexcept
-    {
-        return Equals(&other);
+        return other != nullptr
+            && EqualityContract() == other->EqualityContract()
+            && sampleRateValue == other->sampleRateValue
+            && bYuleValue == other->bYuleValue
+            && aYuleValue == other->aYuleValue
+            && bButterValue == other->bButterValue
+            && aButterValue == other->aButterValue;
     }
 
     std::int32_t FrequencyInfo::GetHashCode() const noexcept
@@ -124,6 +118,11 @@ namespace NCSFCommon::ReplayGain
         return builder;
     }
 
+    std::shared_ptr<FrequencyInfo> FrequencyInfo::Clone() const
+    {
+        return std::shared_ptr<FrequencyInfo>(new FrequencyInfo(*this));
+    }
+
     void FrequencyInfo::Deconstruct(
         std::uint32_t& sampleRate,
         DoubleArray& bYule,
@@ -138,27 +137,58 @@ namespace NCSFCommon::ReplayGain
         aButter = aButterValue;
     }
 
-    FrequencyInfo FrequencyInfo::With(
+    std::shared_ptr<FrequencyInfo> FrequencyInfo::With(
         std::optional<std::uint32_t> sampleRate,
         std::optional<DoubleArray> bYule,
         std::optional<DoubleArray> aYule,
         std::optional<DoubleArray> bButter,
-        std::optional<DoubleArray> aButter) const noexcept
+        std::optional<DoubleArray> aButter) const
     {
-        return FrequencyInfo(
-            sampleRate.value_or(sampleRateValue),
-            bYule.has_value() ? *bYule : bYuleValue,
-            aYule.has_value() ? *aYule : aYuleValue,
-            bButter.has_value() ? *bButter : bButterValue,
-            aButter.has_value() ? *aButter : aButterValue);
+        std::shared_ptr<FrequencyInfo> clone = Clone();
+        if (sampleRate.has_value())
+        {
+            clone->sampleRateValue = *sampleRate;
+        }
+        if (bYule.has_value())
+        {
+            clone->bYuleValue = *bYule;
+        }
+        if (aYule.has_value())
+        {
+            clone->aYuleValue = *aYule;
+        }
+        if (bButter.has_value())
+        {
+            clone->bButterValue = *bButter;
+        }
+        if (aButter.has_value())
+        {
+            clone->aButterValue = *aButter;
+        }
+        return clone;
     }
 
     bool operator==(const FrequencyInfo& left, const FrequencyInfo& right) noexcept
     {
-        return left.Equals(&right);
+        return &left == &right || left.Equals(&right);
     }
 
     bool operator!=(const FrequencyInfo& left, const FrequencyInfo& right) noexcept
+    {
+        return !(left == right);
+    }
+
+    bool operator==(
+        const std::shared_ptr<FrequencyInfo>& left,
+        const std::shared_ptr<FrequencyInfo>& right) noexcept
+    {
+        return left.get() == right.get()
+            || (left != nullptr && left->Equals(right.get()));
+    }
+
+    bool operator!=(
+        const std::shared_ptr<FrequencyInfo>& left,
+        const std::shared_ptr<FrequencyInfo>& right) noexcept
     {
         return !(left == right);
     }

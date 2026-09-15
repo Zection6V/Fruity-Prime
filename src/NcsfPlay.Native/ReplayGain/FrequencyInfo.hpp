@@ -34,9 +34,9 @@ namespace NCSFCommon::ReplayGain
         [[nodiscard]] DoubleArray AButter() const noexcept;
 
         [[nodiscard]] virtual bool Equals(const FrequencyInfo* other) const noexcept;
-        [[nodiscard]] bool Equals(const FrequencyInfo& other) const noexcept;
         [[nodiscard]] virtual std::int32_t GetHashCode() const noexcept;
         [[nodiscard]] virtual std::string ToString() const;
+        [[nodiscard]] virtual std::shared_ptr<FrequencyInfo> Clone() const;
 
         void Deconstruct(
             std::uint32_t& sampleRate,
@@ -45,12 +45,14 @@ namespace NCSFCommon::ReplayGain
             DoubleArray& bButter,
             DoubleArray& aButter) const noexcept;
 
-        [[nodiscard]] FrequencyInfo With(
+        // C++20 adapter for C# with-expressions. std::nullopt means that the
+        // corresponding init-only positional property is not assigned.
+        [[nodiscard]] std::shared_ptr<FrequencyInfo> With(
             std::optional<std::uint32_t> sampleRate = std::nullopt,
             std::optional<DoubleArray> bYule = std::nullopt,
             std::optional<DoubleArray> aYule = std::nullopt,
             std::optional<DoubleArray> bButter = std::nullopt,
-            std::optional<DoubleArray> aButter = std::nullopt) const noexcept;
+            std::optional<DoubleArray> aButter = std::nullopt) const;
 
         friend bool operator==(const FrequencyInfo& left, const FrequencyInfo& right) noexcept;
         friend bool operator!=(const FrequencyInfo& left, const FrequencyInfo& right) noexcept;
@@ -68,4 +70,11 @@ namespace NCSFCommon::ReplayGain
         DoubleArray bButterValue;
         DoubleArray aButterValue;
     };
+
+    [[nodiscard]] bool operator==(
+        const std::shared_ptr<FrequencyInfo>& left,
+        const std::shared_ptr<FrequencyInfo>& right) noexcept;
+    [[nodiscard]] bool operator!=(
+        const std::shared_ptr<FrequencyInfo>& left,
+        const std::shared_ptr<FrequencyInfo>& right) noexcept;
 }

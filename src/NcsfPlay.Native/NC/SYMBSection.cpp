@@ -5,11 +5,13 @@
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <iostream>
 #include <optional>
 #include <stdexcept>
+#include <string>
 
 namespace
 {
@@ -91,18 +93,6 @@ namespace
         return Slice(span, static_cast<std::size_t>(signedOffset));
     }
 
-    [[nodiscard]] std::uint32_t ReadUInt32LittleEndian(std::span<const std::uint8_t> span)
-    {
-        if (span.size() < sizeof(std::uint32_t))
-        {
-            ThrowOutOfRange();
-        }
-        return static_cast<std::uint32_t>(span[0])
-            | (static_cast<std::uint32_t>(span[1]) << 8U)
-            | (static_cast<std::uint32_t>(span[2]) << 16U)
-            | (static_cast<std::uint32_t>(span[3]) << 24U);
-    }
-
     void WriteUInt32LittleEndian(std::span<std::uint8_t> span, std::uint32_t value)
     {
         if (span.size() < sizeof(std::uint32_t))
@@ -133,6 +123,18 @@ namespace
     {
         return static_cast<std::uint32_t>(count);
     }
+
+    void DebugAssert(bool condition)
+    {
+#ifndef NDEBUG
+        if (!condition)
+        {
+            std::clog << "Debug.Assert failed.\n";
+        }
+#else
+        static_cast<void>(condition);
+#endif
+    }
 }
 
 namespace NCSFCommon::NC
@@ -146,7 +148,12 @@ namespace NCSFCommon::NC
 
     std::uint32_t SYMBSection::Size() const
     {
-        return 0x50U + _seqRecord.Size() + _bankRecord.Size() + _wavearcRecord.Size() + _playerRecord.Size();
+        std::uint32_t size = 0x50U;
+        size += _seqRecord.Size();
+        size += _bankRecord.Size();
+        size += _wavearcRecord.Size();
+        size += _playerRecord.Size();
+        return size;
     }
 
     std::span<const std::uint32_t> SYMBSection::RecordOffsets() const noexcept
@@ -197,14 +204,11 @@ namespace NCSFCommon::NC
     SYMBSection& SYMBSection::Read(std::span<const std::uint8_t> span)
     {
 #ifndef NDEBUG
-        assert(Common::VerifyHeader(Slice(span, 0, Header.size()), Header));
+        DebugAssert(Common::VerifyHeader(Slice(span, 0, Header.size()), Header));
 #endif
 
         const std::span<const std::uint8_t> offsetBytes = Slice(span, 0x08, 0x20);
-        for (std::size_t i = 0; i < _recordOffsets.size(); ++i)
-        {
-            _recordOffsets[i] = ReadUInt32LittleEndian(offsetBytes.subspan(i * sizeof(std::uint32_t)));
-        }
+        std::memcpy(_recordOffsets.data(), offsetBytes.data(), offsetBytes.size());
 
         const std::uint32_t sequenceOffset = _recordOffsets[RecordIndex(Common::SDATRecordType::Sequence)];
         const std::uint32_t bankOffset = _recordOffsets[RecordIndex(Common::SDATRecordType::Bank)];
@@ -274,13 +278,9 @@ namespace NCSFCommon::NC
 
         CopyTo(Header, span);
         WriteUInt32LittleEndian(Slice(span, 0x04), sizeMulOf4);
+
         std::array<std::uint8_t, 0x20> offsetBytes{};
-        for (std::size_t i = 0; i < _recordOffsets.size(); ++i)
-        {
-            WriteUInt32LittleEndian(
-                std::span<std::uint8_t>(offsetBytes).subspan(i * sizeof(std::uint32_t)),
-                _recordOffsets[i]);
-        }
+        std::memcpy(offsetBytes.data(), _recordOffsets.data(), offsetBytes.size());
         CopyTo(offsetBytes, Slice(span, 0x08));
 
         _seqRecord.WriteHeader(Slice(span, 0x40));
@@ -305,7 +305,9 @@ namespace NCSFCommon::NC
 
     SYMBSection SYMBSection::Add(const SYMBSection* symbSection1, const SYMBSection* symbSection2)
     {
-        assert(symbSection1 != nullptr || symbSection2 != nullptr);
+#ifndef NDEBUG
+        DebugAssert(symbSection1 != nullptr || symbSection2 != nullptr);
+#endif
 
         std::optional<SYMBSection> empty1;
         std::optional<SYMBSection> empty2;
@@ -341,5 +343,24 @@ namespace NCSFCommon::NC
     SYMBSection operator+(std::nullptr_t, const SYMBSection& symbSection)
     {
         return SYMBSection::Add(nullptr, &symbSection);
+    }
+
+    std::u16string SYMBSection::DebuggerDisplay() const
+    {
+        std::u16string result = u"SYMB Section - Record Offsets: {";
+        for (std::size_t i = 0; i < _recordOffsets.size(); ++i)
+        {
+            if (i != 0)
+            {
+                result += u", ";
+            }
+            const std::string offset = std::to_string(_recordOffsets[i]);
+            for (char chr : offset)
+            {
+                result.push_back(static_cast<char16_t>(static_cast<unsigned char>(chr)));
+            }
+        }
+        result.push_back(u'}');
+        return result;
     }
 }

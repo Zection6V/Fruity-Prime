@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 
 namespace NCSFCommon::NC
 {
@@ -42,6 +43,8 @@ namespace NCSFCommon::NC
         friend SYMBSection operator+(std::nullptr_t, const SYMBSection& symbSection);
 
     private:
+        [[nodiscard]] std::u16string DebuggerDisplay() const;
+
         static const std::array<std::uint8_t, 4> Header;
 
         std::array<std::uint32_t, 8> _recordOffsets{};

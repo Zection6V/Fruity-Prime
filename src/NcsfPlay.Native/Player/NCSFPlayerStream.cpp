@@ -53,6 +53,11 @@ namespace
             static_cast<std::uint64_t>(left) * static_cast<std::uint64_t>(right));
     }
 
+    [[nodiscard]] constexpr std::int32_t WrapShiftLeft32(std::int32_t value, unsigned count) noexcept
+    {
+        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value) << (count & 31U));
+    }
+
     [[nodiscard]] constexpr std::int32_t ToInt32Unchecked(std::int64_t value) noexcept
     {
         return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
@@ -206,7 +211,7 @@ namespace NCSF123
         if (playForever)
             ThrowNotSupported();
         const std::int32_t total = WrapAdd32(lengthSample, fadeSample);
-        const std::int32_t shifted = std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(total) << 3U);
+        const std::int32_t shifted = WrapShiftLeft32(total, 3U);
         return shifted;
     }
 
@@ -251,6 +256,8 @@ namespace NCSF123
 
                     if (!muted)
                     {
+                        sample = NCSFPlayer::Player::MulDiv7(sample, chn->Register().VolumeMultiplier());
+
                         float divisor = 1.0F;
                         switch (chn->Register().VolumeDivisor())
                         {
@@ -266,7 +273,7 @@ namespace NCSF123
                         default:
                             break;
                         }
-                        sample = NCSFPlayer::Player::MulDiv7(sample, chn->Register().VolumeMultiplier()) * divisor;
+                        sample *= divisor;
 
                         const std::uint8_t leftPan = static_cast<std::uint8_t>(
                             127 - static_cast<std::int32_t>(chn->Register().Panning()));
@@ -294,7 +301,9 @@ namespace NCSF123
 
         sdat = std::make_shared<NCSFCommon::NC::SDAT>();
         sdat->Read(ncsf->FilePath(), std::span<const std::uint8_t>(sdatData.data(), sdatData.size()), sseq);
-        player->ChannelMask(sdat->Player() ? sdat->Player()->ChannelMask() : 0xFFFFU);
+
+        const auto& sdatPlayer = sdat->Player();
+        player->ChannelMask(sdatPlayer ? sdatPlayer->ChannelMask() : 0xFFFFU);
         player->SampleRate(sampleRate);
         player->Interpolation(interpolation);
         player->TrackMutes(trackMutes);
@@ -305,31 +314,48 @@ namespace NCSF123
         const auto sseqToPlay = sseqs[0];
         if (!sseqToPlay)
             ThrowNullReference();
-        const auto sseqInfo = sseqToPlay->Info();
-        if (!sseqInfo)
+
+        const auto firstSseqInfo = sseqToPlay->Info();
+        if (!firstSseqInfo)
             ThrowNullReference();
-        const std::uint8_t sequenceVolume = sseqInfo->Volume();
+        const std::uint8_t firstSequenceVolume = firstSseqInfo->Volume();
+
+        std::uint8_t sequenceVolume;
+        if (firstSequenceVolume == 0U)
+        {
+            sequenceVolume = 0x7FU;
+        }
+        else
+        {
+            const auto secondSseqInfo = sseqToPlay->Info();
+            if (!secondSseqInfo)
+                ThrowNullReference();
+            sequenceVolume = secondSseqInfo->Volume();
+        }
+
         player->PrepareSequence(
             sseqToPlay.get(),
             0,
-            NCSFCommon::NCSF::ConvertScale(sequenceVolume == 0U ? 0x7F : sequenceVolume));
+            NCSFCommon::NCSF::ConvertScale(sequenceVolume));
 
         const auto sbnks = sdat->SBNKs();
         if (sbnks.empty())
             ThrowIndexOutOfRange();
         player->SBNK(sbnks[0]);
-        const auto& playerSBNK = player->SBNK();
-        if (!playerSBNK)
-            ThrowNullReference();
-        const auto bankInfo = playerSBNK->Info();
-        if (!bankInfo)
-            ThrowNullReference();
-        const auto waveArchives = bankInfo->WaveArchives();
-        const auto swars = sdat->SWARs();
+
         for (std::int32_t i = 0, j = 0; i < 4; ++i)
         {
+            const auto playerSBNK = player->SBNK();
+            if (!playerSBNK)
+                ThrowNullReference();
+            const auto bankInfo = playerSBNK->Info();
+            if (!bankInfo)
+                ThrowNullReference();
+            const auto waveArchives = bankInfo->WaveArchives();
+
             if (waveArchives[static_cast<std::size_t>(i)] != 0xFFFFU)
             {
+                const auto swars = sdat->SWARs();
                 if (static_cast<std::size_t>(j) >= swars.size())
                     ThrowIndexOutOfRange();
                 player->SetSWAR(i, swars[static_cast<std::size_t>(j++)]);
@@ -345,11 +371,11 @@ namespace NCSF123
         fadeSample = ToInt32Unchecked(
             static_cast<std::int64_t>(fadeInMS) * static_cast<std::int64_t>(sampleRate) / 1000);
 
-        volumeModification = ignoreVolume ? 1.0F : ncsf->GetVolume(volumeType, peakType) * volumeMultiplier;
+        VolumeModification(ignoreVolume ? 1.0F : ncsf->GetVolume(volumeType, peakType) * volumeMultiplier);
 
         skipSilenceOnStartSec = initialSkipSilenceOnStartSec;
         detectedSilenceSample = detectedSilenceSec = 0;
-        position = 0;
+        Position(0);
         prevSampleL = prevSampleR = NCSFPlayerStream::CheckSilenceBias;
     }
 
@@ -481,7 +507,7 @@ namespace NCSF123
                     pos += remain;
             }
 
-            const std::int64_t currentSample = ShiftRightThree(position);
+            const std::int64_t currentSample = ShiftRightThree(Position());
             if (!playForever)
             {
                 const std::int32_t totalSamples = WrapAdd32(lengthSample, fadeSample);
@@ -490,27 +516,32 @@ namespace NCSF123
                     copyBack();
                     return 0;
                 }
-                if (currentSample + bufSize >= totalSamples)
-                    bufSize = ToInt32Unchecked(static_cast<std::int64_t>(totalSamples) - currentSample);
+                if (WrapAdd64(currentSample, static_cast<std::int64_t>(bufSize)) >= totalSamples)
+                {
+                    bufSize = ToInt32Unchecked(
+                        WrapSubtract64(static_cast<std::int64_t>(totalSamples), currentSample));
+                }
             }
 
             for (std::int32_t ofs = 0; ofs < bufSize; ++ofs)
             {
                 float& left = bufFloat[static_cast<std::size_t>(2 * ofs)];
                 float& right = bufFloat[static_cast<std::size_t>(2 * ofs + 1)];
-                left = std::clamp(left * volumeModification, -1.0F, 1.0F);
-                right = std::clamp(right * volumeModification, -1.0F, 1.0F);
+                left = std::clamp(left * VolumeModification(), -1.0F, 1.0F);
+                right = std::clamp(right * VolumeModification(), -1.0F, 1.0F);
             }
 
-            if (!playForever && fadeSample != 0 && currentSample + bufSize >= lengthSample)
+            if (!playForever && fadeSample != 0
+                && WrapAdd64(currentSample, static_cast<std::int64_t>(bufSize)) >= lengthSample)
             {
                 for (std::int32_t ofs = 0; ofs < bufSize; ++ofs)
                 {
-                    const std::int64_t samplePosition = currentSample + ofs;
+                    const std::int64_t samplePosition = WrapAdd64(currentSample, static_cast<std::int64_t>(ofs));
                     const std::int32_t totalSamples = WrapAdd32(lengthSample, fadeSample);
                     if (samplePosition >= lengthSample && samplePosition < totalSamples)
                     {
-                        const std::int64_t difference = static_cast<std::int64_t>(totalSamples) - samplePosition;
+                        const std::int64_t difference = WrapSubtract64(
+                            static_cast<std::int64_t>(totalSamples), samplePosition);
                         const std::int64_t numerator = WrapMultiply64(difference, 0x10000);
                         if (numerator == std::numeric_limits<std::int64_t>::min() && fadeSample == -1)
                             throw std::overflow_error("Arithmetic operation resulted in an overflow.");
@@ -528,10 +559,11 @@ namespace NCSF123
                 }
             }
 
-            position = WrapAdd64(position, static_cast<std::int64_t>(bufSize << 3));
-            const std::int32_t result = bufSize << 3;
+            const std::int32_t bytesRead = WrapShiftLeft32(bufSize, 3U);
+            const std::int64_t currentPosition = Position();
+            Position(WrapAdd64(currentPosition, static_cast<std::int64_t>(bytesRead)));
             copyBack();
-            return result;
+            return bytesRead;
         }
         catch (...)
         {
@@ -573,18 +605,18 @@ namespace NCSF123
         {
             offset = AlignEight(offset);
             if (origin == SeekOrigin::Current)
-                offset = WrapAdd64(offset, position);
+                offset = WrapAdd64(offset, Position());
             else if (origin == SeekOrigin::End)
                 offset = WrapAdd64(offset, Length());
-            if (offset < position)
+            if (offset < Position())
             {
                 Terminate();
                 Load();
             }
             std::array<std::uint8_t, 0x1000> dummyBuffer{};
-            while (WrapSubtract64(offset, position) > 0x1000)
+            while (WrapSubtract64(offset, Position()) > 0x1000)
                 (void)Read(dummyBuffer, 0, static_cast<std::int32_t>(dummyBuffer.size()));
-            const std::int64_t remaining = WrapSubtract64(offset, position);
+            const std::int64_t remaining = WrapSubtract64(offset, Position());
             if (remaining > 0)
                 (void)Read(dummyBuffer, 0, static_cast<std::int32_t>(remaining));
             return offset;

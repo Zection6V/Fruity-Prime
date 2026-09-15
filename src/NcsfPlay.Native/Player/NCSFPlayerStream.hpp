@@ -28,7 +28,7 @@ namespace NCSF123
         End = 2
     };
 
-    class NCSFPlayerStream final
+    class NCSFPlayerStream
     {
     private:
         static constexpr float CheckSilenceBias = 4096.0F;
@@ -92,24 +92,25 @@ namespace NCSF123
             std::uint16_t channelMutes,
             std::uint16_t trackMutes,
             bool ignoreVolume);
+        virtual ~NCSFPlayerStream() = default;
 
         NCSFPlayerStream(const NCSFPlayerStream&) = delete;
         NCSFPlayerStream(NCSFPlayerStream&&) = delete;
         NCSFPlayerStream& operator=(const NCSFPlayerStream&) = delete;
         NCSFPlayerStream& operator=(NCSFPlayerStream&&) = delete;
 
-        [[nodiscard]] bool CanRead() const noexcept;
-        [[nodiscard]] bool CanSeek() const noexcept;
-        [[nodiscard]] bool CanWrite() const noexcept;
-        [[nodiscard]] std::int64_t Length() const;
+        [[nodiscard]] virtual bool CanRead() const noexcept;
+        [[nodiscard]] virtual bool CanSeek() const noexcept;
+        [[nodiscard]] virtual bool CanWrite() const noexcept;
+        [[nodiscard]] virtual std::int64_t Length() const;
 
     private:
         std::int64_t position = 0;
 
     public:
-        [[nodiscard]] std::int64_t Position() const noexcept;
-        void Position(std::int64_t value) noexcept;
-        void Flush();
+        [[nodiscard]] virtual std::int64_t Position() const noexcept;
+        virtual void Position(std::int64_t value) noexcept;
+        virtual void Flush();
 
     private:
         void GenerateSamples(std::span<float> buf);
@@ -119,19 +120,19 @@ namespace NCSF123
         void MapNCSFSection(std::span<const std::uint8_t> section);
 
     public:
-        std::int32_t Read(std::span<std::uint8_t> buffer, std::int32_t offset, std::int32_t count);
+        virtual std::int32_t Read(std::span<std::uint8_t> buffer, std::int32_t offset, std::int32_t count);
 
     private:
         void RecursiveLoadNCSF(const NCSFFile& ncsfToLoad, std::int32_t level);
 
     public:
-        std::int64_t Seek(std::int64_t offset, SeekOrigin origin);
-        void SetLength(std::int64_t value);
+        virtual std::int64_t Seek(std::int64_t offset, SeekOrigin origin);
+        virtual void SetLength(std::int64_t value);
 
     private:
         void Terminate();
 
     public:
-        void Write(std::span<std::uint8_t> buffer, std::int32_t offset, std::int32_t count);
+        virtual void Write(std::span<std::uint8_t> buffer, std::int32_t offset, std::int32_t count);
     };
 }

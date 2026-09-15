@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <stdexcept>
 
@@ -91,18 +92,6 @@ namespace
         return Slice(span, static_cast<std::size_t>(signedOffset));
     }
 
-    [[nodiscard]] std::uint32_t ReadUInt32LittleEndian(std::span<const std::uint8_t> span)
-    {
-        if (span.size() < sizeof(std::uint32_t))
-        {
-            ThrowOutOfRange();
-        }
-        return static_cast<std::uint32_t>(span[0])
-            | (static_cast<std::uint32_t>(span[1]) << 8U)
-            | (static_cast<std::uint32_t>(span[2]) << 16U)
-            | (static_cast<std::uint32_t>(span[3]) << 24U);
-    }
-
     void WriteUInt32LittleEndian(std::span<std::uint8_t> span, std::uint32_t value)
     {
         if (span.size() < sizeof(std::uint32_t))
@@ -146,7 +135,12 @@ namespace NCSFCommon::NC
 
     std::uint32_t INFOSection::Size() const
     {
-        return 0x50U + _seqRecord.Size() + _bankRecord.Size() + _wavearcRecord.Size() + _playerRecord.Size();
+        std::uint32_t size = 0x50U;
+        size += _seqRecord.Size();
+        size += _bankRecord.Size();
+        size += _wavearcRecord.Size();
+        size += _playerRecord.Size();
+        return size;
     }
 
     std::span<const std::uint32_t> INFOSection::RecordOffsets() const noexcept
@@ -201,10 +195,7 @@ namespace NCSFCommon::NC
 #endif
 
         const std::span<const std::uint8_t> offsetBytes = Slice(span, 0x08, 0x20);
-        for (std::size_t i = 0; i < _recordOffsets.size(); ++i)
-        {
-            _recordOffsets[i] = ReadUInt32LittleEndian(offsetBytes.subspan(i * sizeof(std::uint32_t)));
-        }
+        std::memcpy(_recordOffsets.data(), offsetBytes.data(), offsetBytes.size());
 
         const std::uint32_t sequenceOffset = _recordOffsets[RecordIndex(Common::SDATRecordType::Sequence)];
         const std::uint32_t bankOffset = _recordOffsets[RecordIndex(Common::SDATRecordType::Bank)];
@@ -270,15 +261,17 @@ namespace NCSFCommon::NC
         std::fill(clearRange.begin(), clearRange.end(), std::uint8_t{0});
 
         CopyTo(Header, span);
-        WriteUInt32LittleEndian(Slice(span, 0x04), Size());
-        std::array<std::uint8_t, 0x20> offsetBytes{};
-        for (std::size_t i = 0; i < _recordOffsets.size(); ++i)
+        std::span<std::uint8_t> sizeDestination = Slice(span, 0x04);
+        const std::uint32_t size = Size();
+        WriteUInt32LittleEndian(sizeDestination, size);
+
+        std::span<std::uint8_t> offsetDestination = Slice(span, 0x08);
+        const std::size_t offsetByteCount = _recordOffsets.size() * sizeof(std::uint32_t);
+        if (offsetByteCount > offsetDestination.size())
         {
-            WriteUInt32LittleEndian(
-                std::span<std::uint8_t>(offsetBytes).subspan(i * sizeof(std::uint32_t)),
-                _recordOffsets[i]);
+            throw std::invalid_argument("Destination is too short.");
         }
-        CopyTo(offsetBytes, Slice(span, 0x08));
+        std::memcpy(offsetDestination.data(), _recordOffsets.data(), offsetByteCount);
 
         _seqRecord.WriteHeader(Slice(span, 0x40));
         std::uint32_t pos = 0x40U + _seqRecord.HeaderSize();

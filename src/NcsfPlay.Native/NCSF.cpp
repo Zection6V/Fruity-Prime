@@ -560,6 +560,20 @@ namespace
         return "CP" + std::to_string(codePage);
     }
 
+    [[nodiscard]] bool IsDbcsLeadByte(std::uint32_t codePage, std::uint8_t value) noexcept
+    {
+        if (codePage == 932U)
+        {
+            return (value >= 0x81U && value <= 0x9FU)
+                || (value >= 0xE0U && value <= 0xFCU);
+        }
+        if (codePage == 936U || codePage == 949U || codePage == 950U)
+        {
+            return value >= 0x81U && value <= 0xFEU;
+        }
+        return false;
+    }
+
     [[nodiscard]] std::u16string DecodeCodePage(ByteSpan input, std::uint32_t codePage)
     {
         if (input.empty())
@@ -617,8 +631,15 @@ namespace
                 *outputPointer++ = static_cast<char>(0x3F);
                 *outputPointer++ = static_cast<char>(0x00);
                 outputRemaining -= 2;
-                ++inputPointer;
-                --inputRemaining;
+
+                std::size_t invalidLength = 1;
+                if (inputRemaining >= 2
+                    && IsDbcsLeadByte(codePage, static_cast<std::uint8_t>(*inputPointer)))
+                {
+                    invalidLength = 2;
+                }
+                inputPointer += invalidLength;
+                inputRemaining -= invalidLength;
                 iconv(converter, nullptr, nullptr, nullptr, nullptr);
                 continue;
             }

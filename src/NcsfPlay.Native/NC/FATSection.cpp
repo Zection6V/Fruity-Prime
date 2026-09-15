@@ -4,25 +4,14 @@
 
 #include <algorithm>
 #include <bit>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <iostream>
 #include <stdexcept>
-#include <string_view>
 #include <utility>
 
 namespace
 {
-#ifndef NDEBUG
-    void DebugAssert(bool condition, std::string_view expression)
-    {
-        if (!condition)
-        {
-            std::clog << "Debug.Assert failed: " << expression << '\n';
-        }
-    }
-#endif
-
     [[nodiscard]] std::span<const std::uint8_t> Slice(
         std::span<const std::uint8_t> span, std::size_t offset)
     {
@@ -156,9 +145,7 @@ namespace NCSFCommon::NC
     void FATSection::Read(std::span<const std::uint8_t> span)
     {
 #ifndef NDEBUG
-        DebugAssert(
-            Common::VerifyHeader(Slice(span, 0, Header.size()), Header),
-            "Common.VerifyHeader(span[..0x04], FATSection.Header.Span)");
+        assert(Common::VerifyHeader(Slice(span, 0, Header.size()), Header));
 #endif
 
         const std::uint32_t count = ReadUInt32LittleEndian(Slice(span, 0x08));
@@ -186,7 +173,8 @@ namespace NCSFCommon::NC
         std::uint32_t pos = 0x0CU;
         for (const auto& record : _records)
         {
-            Dereference(record).Write(SliceFromInt32(span, pos));
+            std::span<std::uint8_t> recordSpan = SliceFromInt32(span, pos);
+            Dereference(record).Write(recordSpan);
             pos += FATRecord::RecordSize;
         }
     }
@@ -218,11 +206,7 @@ namespace NCSFCommon::NC
 
     FATSection FATSection::Add(const FATSection* fatSection1, const FATSection* fatSection2)
     {
-#ifndef NDEBUG
-        DebugAssert(
-            fatSection1 != nullptr || fatSection2 != nullptr,
-            "fatSection1 != null || fatSection2 != null");
-#endif
+        assert(fatSection1 != nullptr || fatSection2 != nullptr);
 
         FATSection result;
         if (fatSection1 != nullptr)

@@ -17,10 +17,10 @@ namespace NCSFCommon::NC
         INFOEntry(INFOEntry&&) = delete;
         INFOEntry& operator=(INFOEntry&&) = delete;
 
-        [[nodiscard]] const std::optional<std::u16string>& OriginalFilename() const noexcept;
+        [[nodiscard]] std::optional<std::u16string> OriginalFilename() const;
         void OriginalFilename(std::optional<std::u16string> value);
 
-        [[nodiscard]] const std::optional<std::u16string>& SDATNumber() const noexcept;
+        [[nodiscard]] std::optional<std::u16string> SDATNumber() const;
         void SDATNumber(std::optional<std::u16string> value);
 
         [[nodiscard]] virtual std::uint32_t Size() const = 0;

@@ -16,7 +16,7 @@ namespace NCSFCommon::NC
         _sdatNumber = other->_sdatNumber;
     }
 
-    const std::optional<std::u16string>& INFOEntry::OriginalFilename() const noexcept
+    std::optional<std::u16string> INFOEntry::OriginalFilename() const
     {
         return _originalFilename;
     }
@@ -26,7 +26,7 @@ namespace NCSFCommon::NC
         _originalFilename = std::move(value);
     }
 
-    const std::optional<std::u16string>& INFOEntry::SDATNumber() const noexcept
+    std::optional<std::u16string> INFOEntry::SDATNumber() const
     {
         return _sdatNumber;
     }

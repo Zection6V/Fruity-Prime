@@ -5,10 +5,10 @@
 
 #include <algorithm>
 #include <bit>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <random>
 #include <stdexcept>
@@ -119,6 +119,17 @@ namespace
             | (static_cast<std::uint32_t>(span[3]) << 24U);
     }
 
+    [[nodiscard]] std::uint16_t ReadUInt16LittleEndian(std::span<const std::uint8_t> span)
+    {
+        if (span.size() < sizeof(std::uint16_t))
+        {
+            ThrowArgumentOutOfRange();
+        }
+        return static_cast<std::uint16_t>(
+            static_cast<std::uint16_t>(span[0])
+            | (static_cast<std::uint16_t>(span[1]) << 8U));
+    }
+
     void WriteUInt32LittleEndian(std::span<std::uint8_t> span, std::uint32_t value)
     {
         if (span.size() < sizeof(std::uint32_t))
@@ -138,6 +149,18 @@ namespace
             throw std::invalid_argument("Destination is too short.");
         }
         std::copy(source.begin(), source.end(), destination.begin());
+    }
+
+    void DebugAssert(bool condition)
+    {
+#ifndef NDEBUG
+        if (!condition)
+        {
+            std::clog << "Debug.Assert failed.\n";
+        }
+#else
+        static_cast<void>(condition);
+#endif
     }
 
     [[nodiscard]] std::uint32_t GlobalHashSeed()
@@ -388,7 +411,21 @@ namespace NCSFCommon::NC
     {
         try
         {
-            NDSStandardHeader::Read(span);
+#ifndef NDEBUG
+            const std::span<const std::uint8_t> actualHeader = Slice(span, 0U, 0x04U);
+            const std::span<const std::uint8_t> expectedHeader = Header();
+            DebugAssert(Common::VerifyHeader(actualHeader, expectedHeader));
+
+            const std::span<const std::uint8_t> magicSpan = Slice(span, 0x04U);
+            const std::uint32_t actualMagic = ReadUInt32LittleEndian(magicSpan);
+            const std::uint32_t expectedMagic = Magic();
+            DebugAssert(actualMagic == expectedMagic);
+
+            const std::span<const std::uint8_t> headerSizeSpan = Slice(span, 0x0CU);
+            const std::uint16_t actualHeaderSize = ReadUInt16LittleEndian(headerSizeSpan);
+            const std::uint16_t expectedHeaderSize = HeaderSize();
+            DebugAssert(actualHeaderSize == expectedHeaderSize);
+#endif
         }
         catch (const InvalidDataException&)
         {
@@ -400,9 +437,8 @@ namespace NCSFCommon::NC
         }
 
 #ifndef NDEBUG
-        assert(Common::VerifyHeader(
-            Slice(span, std::size_t{0x10U}, std::size_t{0x04U}),
-            Common::DataBytes.Span()));
+        const std::span<const std::uint8_t> dataHeader = Slice(span, 0x10U, 0x04U);
+        DebugAssert(Common::VerifyHeader(dataHeader, Common::DataBytes.Span()));
 #endif
 
         const std::uint32_t count = ReadUInt32LittleEndian(Slice(span, 0x38U));

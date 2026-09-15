@@ -569,14 +569,16 @@ namespace MphRead::Entities
 
     void PlayerEntity::DrawPauseMenuBackground()
     {
-        Scene& scene = RequireReference(_scene);
-        const auto navMapValue = scene.NavMapRoomSymbols();
-        if (!_navMapModelEnabled || _drawPauseState != 1 || !navMapValue
-            || Controls().HudOverlay.IsDown)
+        if (!_navMapModelEnabled || _drawPauseState != 1)
         {
             return;
         }
-        const auto navMapRoomSymbols = *navMapValue;
+        if (!RequireReference(_scene).NavMapRoomSymbols() || Controls().HudOverlay.IsDown)
+        {
+            return;
+        }
+        Scene& scene = RequireReference(_scene);
+        const auto navMapRoomSymbols = *scene.NavMapRoomSymbols();
         const auto matrices = GetPauseMapMatrices();
         const Matrix4 viewMtx = matrices.first;
         const Matrix4 orthoMtx = matrices.second;
@@ -642,7 +644,6 @@ namespace MphRead::Entities
 
     void PlayerEntity::DrawPauseMenuForeground()
     {
-        Scene& scene = RequireReference(_scene);
         if (_navLoading)
         {
             const auto entry = Text::Strings::GetEntry('R', 997, Text::StringTables::LocationNames);
@@ -665,6 +666,7 @@ namespace MphRead::Entities
         }
         else if (_drawPauseState == 1)
         {
+            Scene& scene = RequireReference(_scene);
             if (scene.ProcessFrame)
             {
                 for (std::int32_t i = 0; i < 8; ++i)
@@ -854,19 +856,19 @@ namespace MphRead::Entities
 
     void PlayerEntity::DrawPauseQuitInterface()
     {
-        Scene& scene = RequireReference(_scene);
         if (_drawPauseState == 1)
         {
             const std::int32_t posX = 26;
             Hud::HudObjectInstance& quit = RequireReference(_mapQuitInst);
             quit.PositionX = (static_cast<float>(posX) - quit.Width / 2.0F) / 256.0F;
             quit.PositionY = (173.0F - quit.Height / 2.0F) / 192.0F;
-            scene.DrawHudObject(_mapQuitInst);
+            RequireReference(_scene).DrawHudObject(_mapQuitInst);
             const std::string text = Text::Strings::GetHudMessage(119);
             DrawText2D(static_cast<float>(posX), 181.0F, Align::Center, 0, text);
         }
         else if (_drawPauseState == 2)
         {
+            Scene& scene = RequireReference(_scene);
             if (scene.ProcessFrame)
             {
                 RequireReference(_dialogButtonInst).ProcessAnimation(scene);
@@ -888,12 +890,11 @@ namespace MphRead::Entities
 
     void PlayerEntity::ProcessPauseMenu()
     {
-        Scene& scene = RequireReference(_scene);
         if (_navLoading)
         {
             if (_navTextTimer < 60.0F / 30.0F)
             {
-                _navTextTimer += scene.FrameTime;
+                _navTextTimer += RequireReference(_scene).FrameTime;
             }
             if (_navTextTimer >= 60.0F / 30.0F && !GameState::InRoomTransition())
             {
@@ -905,14 +906,14 @@ namespace MphRead::Entities
         }
         else if (_navTextTimer < 200.0F / 30.0F)
         {
-            _navTextTimer += scene.FrameTime;
+            _navTextTimer += RequireReference(_scene).FrameTime;
         }
         if (_pauseFrameCount > 0 && _pauseFrameCount % 2 == 0)
         {
             RequireReference(_navPlayerPosModel).UpdateAnimFrames();
         }
         _pauseFrameCount = UncheckedIncrement(_pauseFrameCount);
-        if (scene.CameraMode == CameraMode::Player)
+        if (RequireReference(_scene).CameraMode == CameraMode::Player)
         {
             ProcessPauseMenuInput();
         }

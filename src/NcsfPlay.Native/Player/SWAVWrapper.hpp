@@ -11,7 +11,7 @@ namespace NCSFCommon
 
 namespace NCSFPlayer
 {
-    class SWAVWrapper final
+    class SWAVWrapper
     {
     public:
         explicit SWAVWrapper(NCSFCommon::NDSSoundRegister* registerValue);

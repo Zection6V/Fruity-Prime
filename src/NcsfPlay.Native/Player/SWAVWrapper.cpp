@@ -1,6 +1,6 @@
 #include "SWAVWrapper.hpp"
 
-#include "../Channel.hpp"
+#include "Channel.hpp"
 #include "../NC/SWAV.hpp"
 
 #include <algorithm>
@@ -14,8 +14,6 @@
 
 namespace
 {
-    constexpr std::int32_t SincWidth = 8;
-
     [[nodiscard]] constexpr std::int32_t WrapAdd32(
         std::int32_t left,
         std::int32_t right) noexcept
@@ -78,7 +76,7 @@ namespace NCSFPlayer
         const auto sourceForLength = SourceOrThrow(registerValue);
         const std::span<const float> sourceDataForLength = sourceForLength->Data();
         const std::int32_t sourceLength = static_cast<std::int32_t>(sourceDataForLength.size());
-        const std::int32_t dataLength = WrapAdd32(sourceLength, 2 * SincWidth);
+        const std::int32_t dataLength = WrapAdd32(sourceLength, 2 * Channel::SincWidth);
         if (dataLength < 0)
             throw std::out_of_range("Specified argument was out of the range of valid values.");
         data.resize(static_cast<std::size_t>(dataLength));
@@ -89,21 +87,21 @@ namespace NCSFPlayer
         const std::span<const float> sourceDataForFirstSample = sourceForFirstSample->Data();
         if (sourceDataForFirstSample.empty())
             throw std::out_of_range("Index was outside the bounds of the array.");
-        std::fill_n(dataSpan.begin(), static_cast<std::size_t>(SincWidth), sourceDataForFirstSample[0]);
+        std::fill_n(dataSpan.begin(), static_cast<std::size_t>(Channel::SincWidth), sourceDataForFirstSample[0]);
 
         const auto sourceForCopy = SourceOrThrow(registerValue);
-        CopyTo(sourceForCopy->Data(), dataSpan.subspan(static_cast<std::size_t>(SincWidth)));
+        CopyTo(sourceForCopy->Data(), dataSpan.subspan(static_cast<std::size_t>(Channel::SincWidth)));
 
         if (registerValue->RepeatMode() == 1U)
         {
             const auto sourceForLoop = SourceOrThrow(registerValue);
             CopyTo(
-                SpanSlice(sourceForLoop->Data(), ToInt32Unchecked(registerValue->LoopStart()), SincWidth),
-                dataSpan.last(static_cast<std::size_t>(SincWidth)));
+                SpanSlice(sourceForLoop->Data(), ToInt32Unchecked(registerValue->LoopStart()), Channel::SincWidth),
+                dataSpan.last(static_cast<std::size_t>(Channel::SincWidth)));
         }
         else
         {
-            const std::span<float> tail = dataSpan.last(static_cast<std::size_t>(SincWidth));
+            const std::span<float> tail = dataSpan.last(static_cast<std::size_t>(Channel::SincWidth));
             std::fill(tail.begin(), tail.end(), 0.0F);
         }
 
@@ -113,7 +111,7 @@ namespace NCSFPlayer
     std::span<const float> SWAVWrapper::Slice(std::int32_t index, std::int32_t len) const
     {
         const std::int32_t samplePosition = ToInt32Unchecked(soundRegister->SamplePosition());
-        const std::int32_t offset = WrapAdd32(WrapAdd32(samplePosition, index), SincWidth);
+        const std::int32_t offset = WrapAdd32(WrapAdd32(samplePosition, index), Channel::SincWidth);
         return SpanSlice(std::span<const float>(data.data(), data.size()), offset, len);
     }
 }

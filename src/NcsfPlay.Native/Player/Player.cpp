@@ -76,7 +76,7 @@ namespace NCSFPlayer
 
     void Player::SequenceMain()
     {
-        for (const auto& channel : channels())
+        for (auto channel : channels())
         {
             if (!channel)
                 throw std::runtime_error("NullReferenceException");
@@ -86,7 +86,7 @@ namespace NCSFPlayer
         Main();
         UpdateChannel();
 
-        for (const auto& channel : channels())
+        for (auto channel : channels())
         {
             if (!channel)
                 throw std::runtime_error("NullReferenceException");

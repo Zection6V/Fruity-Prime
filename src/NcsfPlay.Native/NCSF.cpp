@@ -299,8 +299,6 @@ namespace
         return ranges;
     }
 
-    // Models MemoryExtensions.Split into a Span<Range>[2] with
-    // RemoveEmptyEntries | TrimEntries, including its final-slot remainder behavior.
     [[nodiscard]] std::vector<TextRange> SplitTwoRemoveEmptyTrim(
         std::u16string_view value,
         char16_t separator)
@@ -334,9 +332,6 @@ namespace
             break;
         }
 
-        // One destination slot remains. RemoveEmptyEntries requires skipping empty
-        // entries that precede the remainder, but the first non-empty remainder is
-        // kept unsplit even when it contains additional separators.
         while (true)
         {
             const std::size_t separatorIndex = value.find(separator, start);
@@ -619,8 +614,8 @@ namespace
                     outputPointer = bytes.data() + used;
                     outputRemaining = bytes.size() - used;
                 }
-                *outputPointer++ = static_cast<char>(0xFD);
-                *outputPointer++ = static_cast<char>(0xFF);
+                *outputPointer++ = static_cast<char>(0x3F);
+                *outputPointer++ = static_cast<char>(0x00);
                 outputRemaining -= 2;
                 ++inputPointer;
                 --inputRemaining;
@@ -1008,9 +1003,6 @@ namespace NCSFCommon
         std::int32_t s = 1;
         if (m == 0)
         {
-            // The C# loop advances by last == 0 for an empty pattern and never returns.
-            // An atomic RMW is the smallest execution-side effect needed to keep the
-            // equivalent C++ loop well-defined under the forward-progress rules.
             static std::atomic<std::uint32_t> emptyPatternProgress{ 0U };
             for (;;)
             {

@@ -54,6 +54,7 @@ namespace MphRead::Mods::Network::Detail
     // .NET formatting and exception metadata are runtime contracts rather than
     // C++ standard-library contracts, so these seams preserve those operations.
     [[nodiscard]] std::string WeaponDpsFormatFixed(double value, std::int32_t digits);
+    [[nodiscard]] std::string WeaponDpsFormatInt32(std::int32_t value);
     [[nodiscard]] std::string WeaponDpsExceptionTypeName(const std::exception& ex);
     [[nodiscard]] std::string WeaponDpsExceptionMessage(const std::exception& ex);
     [[nodiscard]] std::optional<std::string> WeaponDpsExceptionStackTrace(
@@ -517,11 +518,11 @@ namespace MphRead::Mods::Network
             ? static_cast<double>(_killFrames) / 60.0
             : seconds;
         const std::string kill = _killFrames > 0
-            ? "killed " + std::to_string(_startHealth) + " hp in "
+            ? "killed " + Detail::WeaponDpsFormatInt32(_startHealth) + " hp in "
                 + Detail::WeaponDpsFormatFixed(
                     static_cast<double>(_killFrames) / 60.0, 2)
                 + " s"
-            : "did not kill " + std::to_string(_startHealth) + " hp in "
+            : "did not kill " + Detail::WeaponDpsFormatInt32(_startHealth) + " hp in "
                 + Detail::WeaponDpsFormatFixed(seconds, 1)
                 + " s";
         const std::string action = _bombs
@@ -535,8 +536,8 @@ namespace MphRead::Mods::Network
             + Detail::WeaponDpsFormatFixed(
                 static_cast<double>(_bombs ? 0.6F : _distance), 1)
             + " units | " + kill
-            + " | damage " + std::to_string(_damage)
-            + " | hits " + std::to_string(_hits)
+            + " | damage " + Detail::WeaponDpsFormatInt32(_damage)
+            + " | hits " + Detail::WeaponDpsFormatInt32(_hits)
             + " | "
             + Detail::WeaponDpsFormatFixed(
                 static_cast<double>(_damage) / window, 1)
@@ -550,15 +551,15 @@ namespace MphRead::Mods::Network
             + Detail::WeaponDpsFormatFixed(
                 static_cast<double>(_hits) / window, 1)
             + " hits per second | beam alive on "
-            + std::to_string(_beamFrames) + " of "
-            + std::to_string(_firingFrames) + " frame(s)"
-            + " | shockCoilTimer " + std::to_string(_worstShockCoilTimer)
+            + Detail::WeaponDpsFormatInt32(_beamFrames) + " of "
+            + Detail::WeaponDpsFormatInt32(_firingFrames) + " frame(s)"
+            + " | shockCoilTimer " + Detail::WeaponDpsFormatInt32(_worstShockCoilTimer)
             + " (ramp needs 60 for +1, 240 for +4)"
-            + " | victim ended on " + std::to_string(_lastHealth)
-            + " hp | healed shooter " + std::to_string(_healed)
-            + " hp | shooter ammo " + std::to_string(_lastAmmo)
-            + " | last hit on firing frame " + std::to_string(_lastHitFrame)
-            + " of " + std::to_string(_firingFrames));
+            + " | victim ended on " + Detail::WeaponDpsFormatInt32(_lastHealth)
+            + " hp | healed shooter " + Detail::WeaponDpsFormatInt32(_healed)
+            + " hp | shooter ammo " + Detail::WeaponDpsFormatInt32(_lastAmmo)
+            + " | last hit on firing frame " + Detail::WeaponDpsFormatInt32(_lastHitFrame)
+            + " of " + Detail::WeaponDpsFormatInt32(_firingFrames));
         return 0;
     }
 
@@ -574,25 +575,36 @@ namespace MphRead::Mods::Network
         std::int32_t result = 1;
         try
         {
-            window = std::unique_ptr<WeaponDps>(new WeaponDps(
-                room,
-                hunter,
-                beam,
-                seconds,
-                ClampDistance(distance),
-                bombs));
-            window->GameWindow::Run();
-            result = window->Report();
+            try
+            {
+                window = std::unique_ptr<WeaponDps>(new WeaponDps(
+                    room,
+                    hunter,
+                    beam,
+                    seconds,
+                    ClampDistance(distance),
+                    bombs));
+                window->GameWindow::Run();
+                result = window->Report();
+            }
+            catch (const std::exception& ex)
+            {
+                Detail::WeaponDpsConsoleWriteLine(
+                    "DPSCRASH " + room + " | "
+                    + Detail::WeaponDpsExceptionTypeName(ex) + ": "
+                    + Detail::WeaponDpsExceptionMessage(ex));
+                Detail::WeaponDpsConsoleWriteLine(
+                    Detail::WeaponDpsExceptionStackTrace(ex));
+                result = 1;
+            }
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
-            Detail::WeaponDpsConsoleWriteLine(
-                "DPSCRASH " + room + " | "
-                + Detail::WeaponDpsExceptionTypeName(ex) + ": "
-                + Detail::WeaponDpsExceptionMessage(ex));
-            Detail::WeaponDpsConsoleWriteLine(
-                Detail::WeaponDpsExceptionStackTrace(ex));
-            result = 1;
+            if (window)
+            {
+                Detail::WeaponDpsDispose(*window);
+            }
+            throw;
         }
 
         if (window)

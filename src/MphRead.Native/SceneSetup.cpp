@@ -40,6 +40,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -118,6 +119,7 @@ namespace MphRead::SceneSetupInterop
     void LoadAiPersonality(GameMode mode);
 
     [[nodiscard]] std::int32_t PlayerCount();
+    [[nodiscard]] std::int32_t PlayersCount();
     void SetPlayerCount(std::int32_t count);
     void SetPlayersCreated(std::int32_t count);
     [[nodiscard]] std::int32_t MaxPlayers();
@@ -214,6 +216,7 @@ namespace MphRead::SceneSetupInterop
     [[nodiscard]] ItemType ItemSpawnerType(const Entities::ItemSpawnEntity& itemSpawner);
     [[nodiscard]] std::int32_t ItemSpawnerHasBase(const Entities::ItemSpawnEntity& itemSpawner);
 
+    void DebugAssert(bool condition);
     void SetAreaVolumeActive(Entities::AreaVolumeEntity& entity, bool active);
     [[noreturn]] void ThrowProgramException(const std::string& message);
 }
@@ -227,6 +230,62 @@ namespace MphRead
         [[nodiscard]] bool IsMode(GameMode value, GameMode expected)
         {
             return static_cast<std::int32_t>(value) == static_cast<std::int32_t>(expected);
+        }
+
+        [[nodiscard]] std::string EntityTypeToString(EntityType value)
+        {
+            switch (value)
+            {
+            case EntityType::Platform: return "Platform";
+            case EntityType::Object: return "Object";
+            case EntityType::PlayerSpawn: return "PlayerSpawn";
+            case EntityType::Door: return "Door";
+            case EntityType::ItemSpawn: return "ItemSpawn";
+            case EntityType::ItemInstance: return "ItemInstance";
+            case EntityType::EnemySpawn: return "EnemySpawn";
+            case EntityType::TriggerVolume: return "TriggerVolume";
+            case EntityType::AreaVolume: return "AreaVolume";
+            case EntityType::JumpPad: return "JumpPad";
+            case EntityType::PointModule: return "PointModule";
+            case EntityType::MorphCamera: return "MorphCamera";
+            case EntityType::OctolithFlag: return "OctolithFlag";
+            case EntityType::FlagBase: return "FlagBase";
+            case EntityType::Teleporter: return "Teleporter";
+            case EntityType::NodeDefense: return "NodeDefense";
+            case EntityType::LightSource: return "LightSource";
+            case EntityType::Artifact: return "Artifact";
+            case EntityType::CameraSequence: return "CameraSequence";
+            case EntityType::ForceField: return "ForceField";
+            case EntityType::BeamEffect: return "BeamEffect";
+            case EntityType::Bomb: return "Bomb";
+            case EntityType::EnemyInstance: return "EnemyInstance";
+            case EntityType::Halfturret: return "Halfturret";
+            case EntityType::Player: return "Player";
+            case EntityType::BeamProjectile: return "BeamProjectile";
+            case EntityType::ListHead: return "ListHead";
+            case EntityType::FhUnknown0: return "FhUnknown0";
+            case EntityType::FhPlayerSpawn: return "FhPlayerSpawn";
+            case EntityType::FhUnknown2: return "FhUnknown2";
+            case EntityType::FhDoor: return "FhDoor";
+            case EntityType::FhItemSpawn: return "FhItemSpawn";
+            case EntityType::FhItemInstance: return "FhItemInstance";
+            case EntityType::FhEnemySpawn: return "FhEnemySpawn";
+            case EntityType::FhEffectInstance: return "FhEffectInstance";
+            case EntityType::FhBomb: return "FhBomb";
+            case EntityType::FhTriggerVolume: return "FhTriggerVolume";
+            case EntityType::FhAreaVolume: return "FhAreaVolume";
+            case EntityType::FhPlatform: return "FhPlatform";
+            case EntityType::FhJumpPad: return "FhJumpPad";
+            case EntityType::FhPointModule: return "FhPointModule";
+            case EntityType::FhMorphCamera: return "FhMorphCamera";
+            case EntityType::FhEnemyInstance: return "FhEnemyInstance";
+            case EntityType::FhPlayer: return "FhPlayer";
+            case EntityType::FhBeamProjectile: return "FhBeamProjectile";
+            case EntityType::Room: return "Room";
+            case EntityType::Model: return "Model";
+            case EntityType::All: return "All";
+            }
+            return std::to_string(static_cast<std::uint16_t>(value));
         }
 
         [[nodiscard]] OpenTK::Mathematics::Vector3 AddY(
@@ -360,7 +419,7 @@ namespace MphRead
         std::optional<std::string> nodePath = requestedNodePath;
         if (IsMode(mode, SceneSetupInterop::GameModeSinglePlayer()))
         {
-            const std::int32_t count = SceneSetupInterop::PlayerCount();
+            const std::int32_t count = SceneSetupInterop::PlayersCount();
             auto encounterState = SceneSetupInterop::EncounterState();
             for (std::int32_t i = 0; i < count; ++i)
             {
@@ -398,7 +457,9 @@ namespace MphRead
             const std::string root = firstHunt
                 ? SceneSetupInterop::FhFileSystem()
                 : SceneSetupInterop::FileSystem();
-            if (!std::filesystem::exists(SceneSetupInterop::CombinePath(root, *nodePath)))
+            std::error_code statusError;
+            if (!std::filesystem::is_regular_file(
+                SceneSetupInterop::CombinePath(root, *nodePath), statusError))
             {
                 std::cout << "[nodes] " << *nodePath
                     << " is missing; bots in this room will not navigate." << std::endl;
@@ -730,8 +791,10 @@ namespace MphRead
         {
             if (roomLayer > 0)
             {
+                const std::uint32_t shift = static_cast<std::uint32_t>(roomLayer) & 0x1FU;
                 nodeLayerMask = nodeLayerMask & 0xC03F
-                    | (((1 << roomLayer) & 0xFF) << 6);
+                    | static_cast<std::int32_t>(
+                        ((std::uint32_t{1} << shift) & 0xFFU) << 6);
             }
         }
         else
@@ -905,7 +968,7 @@ namespace MphRead
             else
             {
                 SceneSetupInterop::ThrowProgramException(
-                    "Invalid entity type " + std::to_string(static_cast<std::uint16_t>(entity->Type)));
+                    "Invalid entity type " + EntityTypeToString(entity->Type));
             }
         }
         return results;
@@ -1342,15 +1405,20 @@ namespace MphRead
             SceneSetupInterop::SceneLoadEffect(scene, 244, true);
     }
 
-    std::shared_ptr<std::vector<std::shared_ptr<Entities::BeamProjectileEntity>>>
+    std::shared_ptr<std::shared_ptr<Entities::BeamProjectileEntity>[]>
         SceneSetup::CreateBeamList(std::int32_t size, Scene* scene)
     {
-        assert(size > 0);
-        auto beams = std::make_shared<std::vector<std::shared_ptr<Entities::BeamProjectileEntity>>>();
-        beams->reserve(static_cast<std::size_t>(size));
+        SceneSetupInterop::DebugAssert(size > 0);
+        if (size < 0)
+        {
+            throw std::overflow_error("Array dimensions exceeded supported range.");
+        }
+        auto beams = std::make_shared<std::shared_ptr<Entities::BeamProjectileEntity>[]>(
+            static_cast<std::size_t>(size));
         for (std::int32_t i = 0; i < size; ++i)
         {
-            beams->push_back(std::make_shared<Entities::BeamProjectileEntity>(scene));
+            beams[static_cast<std::size_t>(i)]
+                = std::make_shared<Entities::BeamProjectileEntity>(scene);
         }
         return beams;
     }
@@ -1442,13 +1510,13 @@ namespace MphRead
         }
         else if (roomId == 78 && hunter == Hunter::Noxus)
         {
-            list->push_back(createJumpPad("rmChamberE", {18.5F, 33.5F, -38.6F}, 0.3F, 0.4F, 0.0F, 35));
-            list->push_back(createJumpPad("rmChamberE", {16.4F, 35.5F, -38.6F}, 0.3F, 0.4F, 0.0F, 35));
-            list->push_back(createJumpPad("rmChamberE", {19.1F, 40.5F, -38.6F}, 0.3F, 0.4F, 0.0F, 35));
+            list->push_back(createJumpPad("rmChamberE", {18.5F, 33.5F, -38.6F}, 0.3F, 0.4F, 1.0F, 0.0F, 35));
+            list->push_back(createJumpPad("rmChamberE", {16.4F, 35.5F, -38.6F}, 0.3F, 0.4F, 1.0F, 0.0F, 35));
+            list->push_back(createJumpPad("rmChamberE", {19.1F, 40.5F, -38.6F}, 0.3F, 0.4F, 1.0F, 0.0F, 35));
         }
         else if (roomId == 78 && hunter == Hunter::Weavel)
         {
-            list->push_back(createJumpPad("rmChamberE", {18.5F, 33.5F, -38.6F}, 0.3F, 0.4F, 0.0F, 35));
+            list->push_back(createJumpPad("rmChamberE", {18.5F, 33.5F, -38.6F}, 0.3F, 0.4F, 1.0F, 0.0F, 35));
         }
         else if (roomId == 78 && (hunter == Hunter::Trace || hunter == Hunter::Sylux))
         {
@@ -1465,7 +1533,7 @@ namespace MphRead
         else if (roomId == 80)
         {
             if (hunter == Hunter::Noxus || hunter == Hunter::Spire)
-                list->push_back(createJumpPad("rmC0b", {8.0F, 0.0F, 12.1F}, 0.5F, 0.3F, 0.0F, 60));
+                list->push_back(createJumpPad("rmC0b", {8.0F, 0.0F, 12.1F}, 0.5F, 0.3F, 1.0F, 0.0F, 60));
             else if (hunter == Hunter::Kanden)
             {
                 auto entity = getEntity(EntityType::ItemSpawn, 31);

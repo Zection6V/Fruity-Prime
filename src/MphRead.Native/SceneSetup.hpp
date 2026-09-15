@@ -88,7 +88,7 @@ namespace MphRead
         static void LoadItemResources(Scene* scene);
         static void LoadItemResources(const std::shared_ptr<Entities::ItemSpawnEntity>& itemSpawner, Scene* scene);
 
-        [[nodiscard]] static std::shared_ptr<std::vector<std::shared_ptr<Entities::BeamProjectileEntity>>>
+        [[nodiscard]] static std::shared_ptr<std::shared_ptr<Entities::BeamProjectileEntity>[]>
             CreateBeamList(std::int32_t size, Scene* scene);
 
     private:

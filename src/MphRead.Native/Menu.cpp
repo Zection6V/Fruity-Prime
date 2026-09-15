@@ -18,12 +18,16 @@
 #include <array>
 #include <cassert>
 #include <cctype>
+#include <climits>
+#include <codecvt>
 #include <cstdint>
 #include <cstdlib>
+#include <cwchar>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <locale>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -43,6 +47,18 @@
 #include <termios.h>
 #include <unistd.h>
 #endif
+
+namespace System
+{
+    class InvalidOperationException final : public std::logic_error
+    {
+    public:
+        InvalidOperationException()
+            : std::logic_error("Cannot read keys when either application does not have a console or when console input has been redirected. Try Console.Read.")
+        {
+        }
+    };
+}
 
 namespace MphRead
 {
@@ -143,6 +159,255 @@ namespace
     constexpr std::string_view AMFE0 = "AMFE0";
     constexpr std::string_view AMFP0 = "AMFP0";
 
+    struct Utf8Character
+    {
+        char32_t Value = 0;
+        std::size_t Length = 1;
+        bool Valid = false;
+    };
+
+    [[nodiscard]] Utf8Character DecodeUtf8(std::string_view text, std::size_t offset) noexcept
+    {
+        const auto first = static_cast<unsigned char>(text[offset]);
+        if (first <= 0x7FU) return {first, 1, true};
+
+        std::size_t length = 0;
+        char32_t value = 0;
+        char32_t minimum = 0;
+        if ((first & 0xE0U) == 0xC0U) { length = 2; value = first & 0x1FU; minimum = 0x80; }
+        else if ((first & 0xF0U) == 0xE0U) { length = 3; value = first & 0x0FU; minimum = 0x800; }
+        else if ((first & 0xF8U) == 0xF0U) { length = 4; value = first & 0x07U; minimum = 0x10000; }
+        else return {first, 1, false};
+
+        if (offset + length > text.size()) return {first, 1, false};
+        for (std::size_t i = 1; i < length; ++i)
+        {
+            const auto continuation = static_cast<unsigned char>(text[offset + i]);
+            if ((continuation & 0xC0U) != 0x80U) return {first, 1, false};
+            value = (value << 6) | (continuation & 0x3FU);
+        }
+        if (value < minimum || value > 0x10FFFF
+            || (value >= 0xD800 && value <= 0xDFFF))
+        {
+            return {first, 1, false};
+        }
+        return {value, length, true};
+    }
+
+    [[nodiscard]] constexpr bool IsDotNetWhiteSpace(char32_t value) noexcept
+    {
+        return (value >= U'\u0009' && value <= U'\u000D')
+            || value == U'\u0020'
+            || value == U'\u0085'
+            || value == U'\u00A0'
+            || value == U'\u1680'
+            || (value >= U'\u2000' && value <= U'\u200A')
+            || value == U'\u2028'
+            || value == U'\u2029'
+            || value == U'\u202F'
+            || value == U'\u205F'
+            || value == U'\u3000';
+    }
+
+    [[nodiscard]] std::string DotNetTrim(std::string_view text)
+    {
+        std::size_t first = 0;
+        while (first < text.size())
+        {
+            const Utf8Character character = DecodeUtf8(text, first);
+            if (!character.Valid || !IsDotNetWhiteSpace(character.Value)) break;
+            first += character.Length;
+        }
+
+        std::size_t cursor = first;
+        std::size_t lastNonWhite = first;
+        while (cursor < text.size())
+        {
+            const Utf8Character character = DecodeUtf8(text, cursor);
+            if (!character.Valid || !IsDotNetWhiteSpace(character.Value))
+            {
+                lastNonWhite = cursor + character.Length;
+            }
+            cursor += character.Length;
+        }
+        return std::string(text.substr(first, lastNonWhite - first));
+    }
+
+    [[nodiscard]] std::string DotNetTrimStart(std::string_view text)
+    {
+        std::size_t first = 0;
+        while (first < text.size())
+        {
+            const Utf8Character character = DecodeUtf8(text, first);
+            if (!character.Valid || !IsDotNetWhiteSpace(character.Value)) break;
+            first += character.Length;
+        }
+        return std::string(text.substr(first));
+    }
+
+    [[nodiscard]] constexpr bool IsNumberWhiteSpace(unsigned char value) noexcept
+    {
+        return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
+    }
+
+    [[nodiscard]] std::string TrimNumberWhiteSpace(std::string_view text)
+    {
+        std::size_t first = 0;
+        while (first < text.size() && IsNumberWhiteSpace(static_cast<unsigned char>(text[first]))) ++first;
+        std::size_t last = text.size();
+        while (last > first && IsNumberWhiteSpace(static_cast<unsigned char>(text[last - 1]))) --last;
+        return std::string(text.substr(first, last - first));
+    }
+
+    [[nodiscard]] std::string TrimNumberTrailingWhiteSpace(std::string_view text)
+    {
+        std::size_t last = text.size();
+        while (last > 0 && IsNumberWhiteSpace(static_cast<unsigned char>(text[last - 1]))) --last;
+        return std::string(text.substr(0, last));
+    }
+
+    [[nodiscard]] const std::locale& CurrentLocale()
+    {
+        static const std::locale locale = []
+        {
+            try { return std::locale(""); }
+            catch (...) { return std::locale::classic(); }
+        }();
+        return locale;
+    }
+
+    [[nodiscard]] std::wstring Utf8ToWide(std::string_view text)
+    {
+#if WCHAR_MAX <= 0xFFFF
+        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t> converter;
+#else
+        std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
+#endif
+        return converter.from_bytes(text.data(), text.data() + text.size());
+    }
+
+    [[nodiscard]] std::string WideToUtf8(std::wstring_view text)
+    {
+#if WCHAR_MAX <= 0xFFFF
+        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t> converter;
+#else
+        std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
+#endif
+        return converter.to_bytes(text.data(), text.data() + text.size());
+    }
+
+    [[nodiscard]] std::string DotNetCaseMap(std::string_view text, bool upper)
+    {
+        try
+        {
+            std::wstring wide = Utf8ToWide(text);
+#if defined(_WIN32)
+            if (wide.empty()) return {};
+            const DWORD flags = upper ? LCMAP_UPPERCASE : LCMAP_LOWERCASE;
+            const int required = LCMapStringEx(LOCALE_NAME_USER_DEFAULT, flags,
+                wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr, 0);
+            if (required > 0)
+            {
+                std::wstring mapped(static_cast<std::size_t>(required), L'\0');
+                const int written = LCMapStringEx(LOCALE_NAME_USER_DEFAULT, flags,
+                    wide.data(), static_cast<int>(wide.size()), mapped.data(), required,
+                    nullptr, nullptr, 0);
+                if (written > 0)
+                {
+                    mapped.resize(static_cast<std::size_t>(written));
+                    return WideToUtf8(mapped);
+                }
+            }
+#else
+            const auto& facet = std::use_facet<std::ctype<wchar_t>>(CurrentLocale());
+            if (upper) facet.toupper(wide.data(), wide.data() + wide.size());
+            else facet.tolower(wide.data(), wide.data() + wide.size());
+            return WideToUtf8(wide);
+#endif
+        }
+        catch (...)
+        {
+        }
+        // Managed strings are valid Unicode. If the platform locale adapter
+        // cannot represent a supplied console byte sequence, leave it unchanged.
+        return std::string(text);
+    }
+
+    [[nodiscard]] std::string DotNetToLower(std::string_view text)
+    {
+        return DotNetCaseMap(text, false);
+    }
+
+    [[nodiscard]] std::string DotNetToUpper(std::string_view text)
+    {
+        return DotNetCaseMap(text, true);
+    }
+
+    struct NumberFormatInfo
+    {
+        std::string DecimalSeparator = ".";
+        std::string GroupSeparator = ",";
+        std::string NegativeSign = "-";
+        std::string PositiveSign = "+";
+    };
+
+    [[nodiscard]] const NumberFormatInfo& CurrentNumberFormat()
+    {
+        static const NumberFormatInfo info = []
+        {
+            NumberFormatInfo result;
+            try
+            {
+#if defined(_WIN32)
+                auto LocaleString = [](LCTYPE type) -> std::optional<std::string>
+                {
+                    const int required = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type, nullptr, 0);
+                    if (required <= 1) return std::nullopt;
+                    std::wstring value(static_cast<std::size_t>(required), L'\0');
+                    const int written = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type,
+                        value.data(), required);
+                    if (written <= 1) return std::nullopt;
+                    value.resize(static_cast<std::size_t>(written - 1));
+                    return WideToUtf8(value);
+                };
+                if (auto value = LocaleString(LOCALE_SDECIMAL)) result.DecimalSeparator = *value;
+                if (auto value = LocaleString(LOCALE_STHOUSAND)) result.GroupSeparator = *value;
+                if (auto value = LocaleString(LOCALE_SNEGATIVESIGN)) result.NegativeSign = *value;
+                if (auto value = LocaleString(LOCALE_SPOSITIVESIGN)) result.PositiveSign = *value;
+#else
+                const auto& facet = std::use_facet<std::numpunct<wchar_t>>(CurrentLocale());
+                const wchar_t decimal = facet.decimal_point();
+                const wchar_t group = facet.thousands_sep();
+                result.DecimalSeparator = WideToUtf8(std::wstring_view(&decimal, 1));
+                if (group != L'\0') result.GroupSeparator = WideToUtf8(std::wstring_view(&group, 1));
+                else result.GroupSeparator.clear();
+#endif
+            }
+            catch (...)
+            {
+            }
+            return result;
+        }();
+        return info;
+    }
+
+    [[nodiscard]] const NumberFormatInfo& InvariantNumberFormat()
+    {
+        static const NumberFormatInfo info{};
+        return info;
+    }
+
+    [[nodiscard]] bool StartsWithText(std::string_view value, std::string_view prefix) noexcept
+    {
+        return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
+    }
+
+    [[nodiscard]] bool EndsWithText(std::string_view value, std::string_view suffix) noexcept
+    {
+        return value.size() >= suffix.size()
+            && value.substr(value.size() - suffix.size()) == suffix;
+    }
+
     class Decimal final
     {
     public:
@@ -167,88 +432,29 @@ namespace
         [[nodiscard]] static Decimal Literal(std::string_view value)
         {
             Decimal result;
-            const bool parsed = TryParse(value, result);
+            const bool parsed = TryParseCore(value, InvariantNumberFormat(), result);
             assert(parsed);
             return result;
         }
 
         [[nodiscard]] static bool TryParse(std::string_view input, Decimal& result)
         {
-            result = Decimal{};
-            std::size_t first = 0;
-            while (first < input.size() && IsWhitespace(input[first])) ++first;
-            std::size_t last = input.size();
-            while (last > first && IsWhitespace(input[last - 1])) --last;
-            if (first == last) return false;
-
-            bool negative = false;
-            if (input[first] == '+' || input[first] == '-')
-            {
-                negative = input[first] == '-';
-                ++first;
-                if (first == last) return false;
-            }
-
-            std::string digits;
-            digits.reserve(last - first);
-            std::int32_t scale = 0;
-            bool decimalPoint = false;
-            bool sawDigit = false;
-            for (std::size_t i = first; i < last; ++i)
-            {
-                const char ch = input[i];
-                if (ch >= '0' && ch <= '9')
-                {
-                    sawDigit = true;
-                    digits.push_back(ch);
-                    if (decimalPoint) ++scale;
-                }
-                else if (ch == '.' && !decimalPoint)
-                {
-                    decimalPoint = true;
-                }
-                else
-                {
-                    return false;
-                }
-            }
-            if (!sawDigit || scale > 28) return false;
-            StripLeadingZeros(digits);
-            if (digits.empty()) digits = "0";
-            if (!CoefficientInRange(digits)) return false;
-
-            result._negative = negative;
-            result._digits = std::move(digits);
-            result._scale = scale;
-            result.NormalizeZero();
-            return true;
+            return TryParseCore(input, CurrentNumberFormat(), result);
         }
 
         [[nodiscard]] std::string ToString() const
         {
-            std::string value;
-            if (_scale == 0)
-            {
-                value = _digits;
-            }
-            else if (static_cast<std::int32_t>(_digits.size()) <= _scale)
-            {
-                value = "0.";
-                value.append(static_cast<std::size_t>(_scale - static_cast<std::int32_t>(_digits.size())), '0');
-                value += _digits;
-            }
-            else
-            {
-                const std::size_t point = _digits.size() - static_cast<std::size_t>(_scale);
-                value = _digits.substr(0, point) + "." + _digits.substr(point);
-            }
-            if (_negative && _digits != "0") value.insert(value.begin(), '-');
-            return value;
+            return Format(CurrentNumberFormat(), std::nullopt);
+        }
+
+        [[nodiscard]] std::string ToFixed2() const
+        {
+            return Format(CurrentNumberFormat(), 2);
         }
 
         [[nodiscard]] float ToFloat() const
         {
-            return std::strtof(ToString().c_str(), nullptr);
+            return std::strtof(Format(InvariantNumberFormat(), std::nullopt).c_str(), nullptr);
         }
 
         [[nodiscard]] std::int32_t ToInt32() const
@@ -297,9 +503,254 @@ namespace
         std::string _digits = "0";
         std::int32_t _scale = 0;
 
-        [[nodiscard]] static bool IsWhitespace(char ch) noexcept
+        static void IncrementDigits(std::string& digits)
         {
-            return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\v' || ch == '\f';
+            if (digits.empty())
+            {
+                digits = "1";
+                return;
+            }
+            for (std::size_t i = digits.size(); i-- > 0; )
+            {
+                if (digits[i] != '9')
+                {
+                    ++digits[i];
+                    return;
+                }
+                digits[i] = '0';
+            }
+            digits.insert(digits.begin(), '1');
+        }
+
+        [[nodiscard]] static std::string RoundedCoefficient(
+            const std::string& digits, std::int32_t drop)
+        {
+            if (drop <= 0) return digits;
+
+            std::string kept;
+            if (static_cast<std::size_t>(drop) < digits.size())
+            {
+                kept = digits.substr(0, digits.size() - static_cast<std::size_t>(drop));
+            }
+            else
+            {
+                kept = "0";
+            }
+
+            char firstDropped = '0';
+            bool remainingNonZero = false;
+            if (static_cast<std::size_t>(drop) <= digits.size())
+            {
+                const std::size_t first = digits.size() - static_cast<std::size_t>(drop);
+                firstDropped = digits[first];
+                for (std::size_t i = first + 1; i < digits.size(); ++i)
+                {
+                    if (digits[i] != '0')
+                    {
+                        remainingNonZero = true;
+                        break;
+                    }
+                }
+            }
+
+            StripLeadingZeros(kept);
+            if (kept.empty()) kept = "0";
+            const bool odd = kept.back() == '1' || kept.back() == '3' || kept.back() == '5'
+                || kept.back() == '7' || kept.back() == '9';
+            if (firstDropped > '5'
+                || (firstDropped == '5' && (remainingNonZero || odd)))
+            {
+                IncrementDigits(kept);
+            }
+            return kept;
+        }
+
+        [[nodiscard]] static bool ValueWithinDecimalRange(const std::string& digits, std::int32_t scale)
+        {
+            const std::int32_t integerDigits = static_cast<std::int32_t>(digits.size()) - scale;
+            if (integerDigits <= 0) return true;
+            if (integerDigits > static_cast<std::int32_t>(MaxCoefficient.size())) return false;
+            if (integerDigits < static_cast<std::int32_t>(MaxCoefficient.size())) return true;
+
+            const std::string_view integerPart(digits.data(), static_cast<std::size_t>(integerDigits));
+            if (integerPart > MaxCoefficient) return false;
+            if (integerPart < MaxCoefficient) return true;
+            for (std::size_t i = static_cast<std::size_t>(integerDigits); i < digits.size(); ++i)
+            {
+                if (digits[i] != '0') return false;
+            }
+            return true;
+        }
+
+        [[nodiscard]] static bool FitParsedValue(std::string& digits, std::int32_t& scale)
+        {
+            StripLeadingZeros(digits);
+            if (digits.empty()) digits = "0";
+
+            const std::int32_t minimumDrop = std::max(scale - 28, 0);
+            for (std::int32_t drop = minimumDrop; drop <= scale; ++drop)
+            {
+                std::string candidate = RoundedCoefficient(digits, drop);
+                StripLeadingZeros(candidate);
+                if (candidate.empty()) candidate = "0";
+                if (CoefficientInRange(candidate))
+                {
+                    digits = std::move(candidate);
+                    scale -= drop;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] static bool MatchAt(
+            std::string_view text, std::size_t offset, std::string_view token) noexcept
+        {
+            return !token.empty() && offset + token.size() <= text.size()
+                && text.substr(offset, token.size()) == token;
+        }
+
+        [[nodiscard]] static bool TryParseCore(
+            std::string_view input, const NumberFormatInfo& format, Decimal& result)
+        {
+            result = Decimal{};
+            std::string_view numeric = input;
+            while (!numeric.empty() && numeric.back() == '\0') numeric.remove_suffix(1);
+            std::string text = TrimNumberWhiteSpace(numeric);
+            if (text.empty()) return false;
+
+            bool negative = false;
+            bool signSeen = false;
+            bool trailingSign = false;
+            if (StartsWithText(text, format.NegativeSign))
+            {
+                negative = true;
+                signSeen = true;
+                text.erase(0, format.NegativeSign.size());
+            }
+            else if (format.NegativeSign != "-" && StartsWithText(text, "-"))
+            {
+                negative = true;
+                signSeen = true;
+                text.erase(0, 1);
+            }
+            else if (StartsWithText(text, format.PositiveSign))
+            {
+                signSeen = true;
+                text.erase(0, format.PositiveSign.size());
+            }
+
+            if (!text.empty())
+            {
+                if (!signSeen && EndsWithText(text, format.NegativeSign))
+                {
+                    negative = true;
+                    signSeen = true;
+                    trailingSign = true;
+                    text.erase(text.size() - format.NegativeSign.size());
+                }
+                else if (!signSeen && format.NegativeSign != "-" && EndsWithText(text, "-"))
+                {
+                    negative = true;
+                    signSeen = true;
+                    trailingSign = true;
+                    text.erase(text.size() - 1);
+                }
+                else if (!signSeen && EndsWithText(text, format.PositiveSign))
+                {
+                    signSeen = true;
+                    trailingSign = true;
+                    text.erase(text.size() - format.PositiveSign.size());
+                }
+            }
+            if (trailingSign) text = TrimNumberTrailingWhiteSpace(text);
+            if (text.empty()) return false;
+
+            std::string digits;
+            digits.reserve(text.size());
+            std::int32_t scale = 0;
+            bool decimalSeen = false;
+            bool digitSeen = false;
+            for (std::size_t i = 0; i < text.size(); )
+            {
+                const char ch = text[i];
+                if (ch >= '0' && ch <= '9')
+                {
+                    digitSeen = true;
+                    digits.push_back(ch);
+                    if (decimalSeen) ++scale;
+                    ++i;
+                    continue;
+                }
+                if (!decimalSeen && MatchAt(text, i, format.DecimalSeparator))
+                {
+                    decimalSeen = true;
+                    i += format.DecimalSeparator.size();
+                    continue;
+                }
+                if (!decimalSeen && !format.GroupSeparator.empty()
+                    && MatchAt(text, i, format.GroupSeparator))
+                {
+                    if (!digitSeen) return false;
+                    i += format.GroupSeparator.size();
+                    continue;
+                }
+                return false;
+            }
+            if (!digitSeen) return false;
+            {
+                std::string rangeDigits = digits;
+                StripLeadingZeros(rangeDigits);
+                if (rangeDigits.empty()) rangeDigits = "0";
+                if (!ValueWithinDecimalRange(rangeDigits, scale)) return false;
+            }
+            if (!FitParsedValue(digits, scale)) return false;
+
+            result._negative = negative;
+            result._digits = std::move(digits);
+            result._scale = scale;
+            result.NormalizeZero();
+            return true;
+        }
+
+        [[nodiscard]] std::string Format(
+            const NumberFormatInfo& format, std::optional<std::int32_t> fixedScale) const
+        {
+            std::string digits = _digits;
+            std::int32_t scale = _scale;
+            if (fixedScale.has_value())
+            {
+                const std::int32_t requested = *fixedScale;
+                if (scale > requested)
+                {
+                    digits = RoundedCoefficient(digits, scale - requested);
+                    scale = requested;
+                }
+                else if (scale < requested)
+                {
+                    digits.append(static_cast<std::size_t>(requested - scale), '0');
+                    scale = requested;
+                }
+            }
+
+            std::string value;
+            if (scale == 0)
+            {
+                value = digits;
+            }
+            else if (static_cast<std::int32_t>(digits.size()) <= scale)
+            {
+                value = "0" + format.DecimalSeparator;
+                value.append(static_cast<std::size_t>(scale - static_cast<std::int32_t>(digits.size())), '0');
+                value += digits;
+            }
+            else
+            {
+                const std::size_t point = digits.size() - static_cast<std::size_t>(scale);
+                value = digits.substr(0, point) + format.DecimalSeparator + digits.substr(point);
+            }
+            if (_negative && digits != "0") value.insert(0, format.NegativeSign);
+            return value;
         }
 
         static void StripLeadingZeros(std::string& digits)
@@ -496,30 +947,19 @@ namespace
         bool Control = false;
     };
 
-    [[nodiscard]] bool IsSpace(unsigned char ch) noexcept
-    {
-        return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\v' || ch == '\f';
-    }
-
     [[nodiscard]] std::string Trim(std::string value)
     {
-        std::size_t first = 0;
-        while (first < value.size() && IsSpace(static_cast<unsigned char>(value[first]))) ++first;
-        std::size_t last = value.size();
-        while (last > first && IsSpace(static_cast<unsigned char>(value[last - 1]))) --last;
-        return value.substr(first, last - first);
+        return DotNetTrim(value);
     }
 
     [[nodiscard]] std::string ToLower(std::string value)
     {
-        for (char& ch : value) if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
-        return value;
+        return DotNetToLower(value);
     }
 
     [[nodiscard]] std::string ToUpper(std::string value)
     {
-        for (char& ch : value) if (ch >= 'a' && ch <= 'z') ch = static_cast<char>(ch - 'a' + 'A');
-        return value;
+        return DotNetToUpper(value);
     }
 
     [[nodiscard]] bool IsNullOrWhiteSpace(const std::optional<std::string>& input)
@@ -566,18 +1006,50 @@ namespace
     [[nodiscard]] bool TryParseInt32(std::string_view input, std::int32_t& result)
     {
         result = 0;
-        std::string text = Trim(std::string(input));
+        std::string_view numeric = input;
+        while (!numeric.empty() && numeric.back() == '\0') numeric.remove_suffix(1);
+        std::string text = TrimNumberWhiteSpace(numeric);
         if (text.empty()) return false;
-        try
+
+        const NumberFormatInfo& format = CurrentNumberFormat();
+        bool negative = false;
+        if (StartsWithText(text, format.NegativeSign))
         {
-            std::size_t used = 0;
-            const long long value = std::stoll(text, &used, 10);
-            if (used != text.size() || value < std::numeric_limits<std::int32_t>::min()
-                || value > std::numeric_limits<std::int32_t>::max()) return false;
-            result = static_cast<std::int32_t>(value);
-            return true;
+            negative = true;
+            text.erase(0, format.NegativeSign.size());
         }
-        catch (...) { return false; }
+        else if (format.NegativeSign != "-" && StartsWithText(text, "-"))
+        {
+            negative = true;
+            text.erase(0, 1);
+        }
+        else if (StartsWithText(text, format.PositiveSign))
+        {
+            text.erase(0, format.PositiveSign.size());
+        }
+        if (text.empty()) return false;
+
+        const std::uint64_t limit = negative ? 2147483648ULL : 2147483647ULL;
+        std::uint64_t value = 0;
+        for (char ch : text)
+        {
+            if (ch < '0' || ch > '9') return false;
+            const std::uint64_t digit = static_cast<std::uint64_t>(ch - '0');
+            if (value > limit / 10ULL || (value == limit / 10ULL && digit > limit % 10ULL))
+            {
+                return false;
+            }
+            value = value * 10ULL + digit;
+        }
+
+        if (negative)
+        {
+            result = value == 2147483648ULL
+                ? std::numeric_limits<std::int32_t>::min()
+                : -static_cast<std::int32_t>(value);
+        }
+        else result = static_cast<std::int32_t>(value);
+        return true;
     }
 
     [[nodiscard]] bool TryParseByte(std::string_view input, std::uint8_t& result)
@@ -588,11 +1060,73 @@ namespace
         return true;
     }
 
+    template <typename E>
+    [[nodiscard]] bool TryParseEnumNumeric(std::string_view input, E& result)
+    {
+        using U = std::underlying_type_t<E>;
+        using UU = std::make_unsigned_t<U>;
+        static_assert(std::is_integral_v<U>);
+
+        const std::string text = DotNetTrimStart(input);
+        if (text.empty()) return false;
+
+        bool negative = false;
+        std::size_t index = 0;
+        if (text[index] == '+' || text[index] == '-')
+        {
+            negative = text[index] == '-';
+            if (++index == text.size()) return false;
+        }
+
+        std::uint64_t limit;
+        if constexpr (std::is_signed_v<U>)
+        {
+            limit = negative
+                ? static_cast<std::uint64_t>(std::numeric_limits<U>::max()) + 1ULL
+                : static_cast<std::uint64_t>(std::numeric_limits<U>::max());
+        }
+        else
+        {
+            if (negative) return false;
+            limit = static_cast<std::uint64_t>(std::numeric_limits<U>::max());
+        }
+
+        std::uint64_t magnitude = 0;
+        bool digitSeen = false;
+        while (index < text.size() && text[index] >= '0' && text[index] <= '9')
+        {
+            digitSeen = true;
+            const std::uint64_t digit = static_cast<std::uint64_t>(text[index] - '0');
+            if (magnitude > limit / 10ULL
+                || (magnitude == limit / 10ULL && digit > limit % 10ULL)) return false;
+            magnitude = magnitude * 10ULL + digit;
+            ++index;
+        }
+        if (!digitSeen) return false;
+        while (index < text.size() && IsNumberWhiteSpace(static_cast<unsigned char>(text[index]))) ++index;
+        while (index < text.size() && text[index] == '\0') ++index;
+        if (index != text.size()) return false;
+
+        U raw{};
+        if constexpr (std::is_signed_v<U>)
+        {
+            if (negative)
+            {
+                if (magnitude == static_cast<std::uint64_t>(std::numeric_limits<U>::max()) + 1ULL)
+                    raw = std::numeric_limits<U>::min();
+                else raw = static_cast<U>(-static_cast<std::int64_t>(magnitude));
+            }
+            else raw = static_cast<U>(magnitude);
+        }
+        else raw = static_cast<U>(static_cast<UU>(magnitude));
+
+        result = static_cast<E>(raw);
+        return true;
+    }
+
     [[nodiscard]] std::string Fixed2(const Decimal& value)
     {
-        std::ostringstream stream;
-        stream << std::fixed << std::setprecision(2) << static_cast<double>(value.ToFloat());
-        return stream.str();
+        return value.ToFixed2();
     }
 
     [[nodiscard]] std::string SaveWhenString(SaveWhen value)
@@ -622,13 +1156,26 @@ namespace
 
     [[nodiscard]] bool TryParseLanguage(std::string_view value, Language& result)
     {
-        if (value == "English") result = Language::English;
-        else if (value == "Japanese") result = Language::Japanese;
-        else if (value == "French") result = Language::French;
-        else if (value == "Spanish") result = Language::Spanish;
-        else if (value == "German") result = Language::German;
-        else if (value == "Italian") result = Language::Italian;
-        else return false;
+        if (TryParseEnumNumeric(value, result)) return true;
+        const std::string text = DotNetTrim(value);
+
+        std::int32_t combined = 0;
+        const std::vector<std::string> parts = Split(text, ',', false, false);
+        if (parts.empty()) return false;
+        for (const std::string& partValue : parts)
+        {
+            const std::string part = DotNetTrim(partValue);
+            Language parsed{};
+            if (part == "English") parsed = Language::English;
+            else if (part == "Japanese") parsed = Language::Japanese;
+            else if (part == "French") parsed = Language::French;
+            else if (part == "Spanish") parsed = Language::Spanish;
+            else if (part == "German") parsed = Language::German;
+            else if (part == "Italian") parsed = Language::Italian;
+            else return false;
+            combined |= static_cast<std::int32_t>(parsed);
+        }
+        result = static_cast<Language>(combined);
         return true;
     }
 
@@ -636,11 +1183,25 @@ namespace
     {
         if (value.size() >= 2)
         {
-            value = ToLower(value);
-            value[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(value[0])));
-            if (value == "Never") return static_cast<SaveWhen>(0);
-            if (value == "Always") return static_cast<SaveWhen>(1);
-            if (value == "Prompt") return static_cast<SaveWhen>(2);
+            const Utf8Character first = DecodeUtf8(value, 0);
+            const std::size_t firstLength = first.Valid ? first.Length : 1;
+            value = ToUpper(value.substr(0, firstLength)) + ToLower(value.substr(firstLength));
+            SaveWhen numeric{};
+            if (TryParseEnumNumeric(value, numeric)) return numeric;
+            const std::string text = DotNetTrim(value);
+
+            std::int32_t combined = 0;
+            const std::vector<std::string> parts = Split(text, ',', false, false);
+            if (parts.empty()) return fallback;
+            for (const std::string& partValue : parts)
+            {
+                const std::string part = DotNetTrim(partValue);
+                if (part == "Never") combined |= 0;
+                else if (part == "Always") combined |= 1;
+                else if (part == "Prompt") combined |= 2;
+                else return fallback;
+            }
+            return static_cast<SaveWhen>(combined);
         }
         return fallback;
     }
@@ -662,14 +1223,38 @@ namespace
         return std::to_string(static_cast<std::int32_t>(value));
     }
 
+    [[nodiscard]] bool IsDefinedHunter(Hunter value) noexcept
+    {
+        const std::int32_t raw = static_cast<std::int32_t>(value);
+        return raw >= 0 && raw <= 8;
+    }
+
     [[nodiscard]] bool TryParseHunter(std::string_view value, Hunter& result)
     {
-        for (std::int32_t i = 0; i <= 8; ++i)
+        if (TryParseEnumNumeric(value, result)) return true;
+        const std::string text = DotNetTrim(value);
+
+        std::int32_t combined = 0;
+        const std::vector<std::string> parts = Split(text, ',', false, false);
+        if (parts.empty()) return false;
+        for (const std::string& partValue : parts)
         {
-            const Hunter candidate = static_cast<Hunter>(i);
-            if (HunterString(candidate) == value) { result = candidate; return true; }
+            const std::string part = DotNetTrim(partValue);
+            bool matched = false;
+            for (std::int32_t i = 0; i <= 8; ++i)
+            {
+                const Hunter candidate = static_cast<Hunter>(i);
+                if (HunterString(candidate) == part)
+                {
+                    combined |= i;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) return false;
         }
-        return false;
+        result = static_cast<Hunter>(combined);
+        return true;
     }
 
     [[nodiscard]] std::optional<MetaDir> TryParseMetaDir(std::string_view value)
@@ -680,8 +1265,28 @@ namespace
             "Popup", "Results", "ScStartGame", "StartGame", "ToStart", "TouchToStart", "TouchToStart2",
             "WifiCreate", "WifiGames"
         };
-        for (std::size_t i = 0; i < names.size(); ++i) if (names[i] == value) return static_cast<MetaDir>(i);
-        return std::nullopt;
+        MetaDir numeric{};
+        if (TryParseEnumNumeric(value, numeric)) return numeric;
+        const std::string text = DotNetTrim(value);
+        std::int32_t combined = 0;
+        const std::vector<std::string> parts = Split(text, ',', false, false);
+        if (parts.empty()) return std::nullopt;
+        for (const std::string& partValue : parts)
+        {
+            const std::string part = DotNetTrim(partValue);
+            bool matched = false;
+            for (std::size_t i = 0; i < names.size(); ++i)
+            {
+                if (names[i] == part)
+                {
+                    combined |= static_cast<std::int32_t>(i);
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) return std::nullopt;
+        }
+        return static_cast<MetaDir>(combined);
     }
 
     template <typename E, E Value>
@@ -740,12 +1345,37 @@ namespace
     [[nodiscard]] bool TryParseEnumRange(std::string_view text, E& result)
     {
         static constexpr auto names = MakeEnumNames<E, Min>(std::make_index_sequence<static_cast<std::size_t>(Max - Min + 1)>{});
-        for (const auto& [raw, name] : names)
+        if (TryParseEnumNumeric(text, result)) return true;
+        const std::string value = DotNetTrim(text);
+
+        std::int32_t combined = 0;
+        const std::vector<std::string> parts = Split(value, ',', false, false);
+        if (parts.empty())
         {
-            if (!name.empty() && name == text) { result = static_cast<E>(raw); return true; }
+            result = static_cast<E>(0);
+            return false;
         }
-        result = static_cast<E>(0);
-        return false;
+        for (const std::string& partValue : parts)
+        {
+            const std::string part = DotNetTrim(partValue);
+            bool matched = false;
+            for (const auto& [enumRaw, name] : names)
+            {
+                if (!name.empty() && name == part)
+                {
+                    combined |= enumRaw;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched)
+            {
+                result = static_cast<E>(0);
+                return false;
+            }
+        }
+        result = static_cast<E>(combined);
+        return true;
     }
 
     [[nodiscard]] std::string SeqString(SeqId value) { return EnumStringRange<SeqId, -1, 59>(value); }
@@ -771,7 +1401,7 @@ namespace
 
     [[nodiscard]] std::string OnOff(bool value) { return value ? "On" : "Off"; }
     [[nodiscard]] std::string Mark(bool selected) { return selected ? "[x]" : "[ ]"; }
-    [[nodiscard]] std::string BrandVersion() { return Mods::Branding::NameAndVersion(); }
+    [[nodiscard]] std::string ProgramVersionBanner() { return std::string(Mods::Branding::Name) + " 0.35.1.0"; }
 
     void WriteLine() { std::cout << '\n'; }
     void WriteLine(std::string_view text) { std::cout << text << '\n'; }
@@ -833,12 +1463,13 @@ namespace
     {
         std::cout.flush();
 #if defined(_WIN32)
-        if (_isatty(_fileno(stdin)) == 0) throw std::runtime_error("Console.ReadKey cannot be used when input is redirected.");
-        const int first = _getwch();
+        if (_isatty(_fileno(stdin)) == 0) throw System::InvalidOperationException();
+        const wint_t first = _getwch();
+        if (first == WEOF) throw std::runtime_error("Could not read a key from the console.");
         ConsoleKeyInfo result{};
         if (first == 0 || first == 0xE0)
         {
-            const int second = _getwch();
+            const wint_t second = _getwch();
             switch (second)
             {
             case 72: result.Key = ConsoleKey::UpArrow; break; case 80: result.Key = ConsoleKey::DownArrow; break;
@@ -848,7 +1479,11 @@ namespace
             }
             return result;
         }
-        const char ch = static_cast<char>(first);
+
+        // Console.ReadKey() is Console.ReadKey(intercept: false): the KeyChar is
+        // written to the console after it is read. _getwch() itself is non-echoing.
+        (void)_putwch(static_cast<wchar_t>(first));
+        const char ch = first <= 0x7F ? static_cast<char>(first) : '\0';
         if (ch == 27) result.Key = ConsoleKey::Escape;
         else if (ch == '\r' || ch == '\n') result.Key = ConsoleKey::Enter;
         else if (ch == ' ') result.Key = ConsoleKey::Spacebar;
@@ -856,10 +1491,10 @@ namespace
         else if (ch == '+') result.Key = ConsoleKey::OemPlus;
         else if (ch == '-') result.Key = ConsoleKey::OemMinus;
         else if (first >= 1 && first <= 26) { result.Control = true; result.Key = AlphaKey(static_cast<char>('A' + first - 1)); }
-        else { result.Key = AlphaKey(ch); if (result.Key == ConsoleKey::None) result.Key = DigitKey(ch); }
+        else if (first <= 0x7F) { result.Key = AlphaKey(ch); if (result.Key == ConsoleKey::None) result.Key = DigitKey(ch); }
         return result;
 #else
-        if (::isatty(STDIN_FILENO) == 0) throw std::runtime_error("Console.ReadKey cannot be used when input is redirected.");
+        if (::isatty(STDIN_FILENO) == 0) throw System::InvalidOperationException();
         termios original{};
         if (::tcgetattr(STDIN_FILENO, &original) != 0) throw std::runtime_error("Could not read console mode for Console.ReadKey.");
         termios current = original;
@@ -893,8 +1528,30 @@ namespace
                     return result;
                 }
             }
-            result.Key = ConsoleKey::Escape; return result;
+            (void)::write(STDOUT_FILENO, &first, 1);
+            result.Key = ConsoleKey::Escape;
+            return result;
         }
+
+        if (first >= 0x80)
+        {
+            const std::size_t length = (first & 0xE0U) == 0xC0U ? 2
+                : (first & 0xF0U) == 0xE0U ? 3
+                : (first & 0xF8U) == 0xF0U ? 4 : 1;
+            std::array<unsigned char, 4> bytes{};
+            bytes[0] = first;
+            std::size_t read = 1;
+            while (read < length)
+            {
+                if (::read(STDIN_FILENO, &bytes[read], 1) != 1) break;
+                ++read;
+            }
+            (void)::write(STDOUT_FILENO, bytes.data(), read);
+            return result;
+        }
+
+        unsigned char echo = first == 0x7F ? static_cast<unsigned char>('\b') : first;
+        (void)::write(STDOUT_FILENO, &echo, 1);
         if (first == '\r' || first == '\n') result.Key = ConsoleKey::Enter;
         else if (first == ' ') result.Key = ConsoleKey::Spacebar;
         else if (first == 0x7F || first == '\b') result.Key = ConsoleKey::Backspace;
@@ -1282,9 +1939,11 @@ namespace MphRead
             std::string name = split.at(0);
             if (!name.empty())
             {
-                name[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(name[0])));
+                const Utf8Character first = DecodeUtf8(name, 0);
+                const std::size_t firstLength = first.Valid ? first.Length : 1;
+                name = ToUpper(name.substr(0, firstLength)) + name.substr(firstLength);
                 Hunter hunter{};
-                if (TryParseHunter(name, hunter) && hunter != Hunter::Random)
+                if (TryParseHunter(name, hunter) && IsDefinedHunter(hunter) && hunter != Hunter::Random)
                 {
                     player = HunterString(hunter);
                 }
@@ -1547,7 +2206,7 @@ namespace MphRead
                     ConsoleKey input = ConsoleKey::None;
                     while (input != ConsoleKey::Y && input != ConsoleKey::N && input != ConsoleKey::Escape)
                     {
-                        ClearConsole(); WriteLine(BrandVersion()); WriteLine();
+                        ClearConsole(); WriteLine(ProgramVersionBanner()); WriteLine();
                         WriteLine("Save game to slot " + std::to_string(SaveSlot) + "? (y/n)");
                         input = ReadKey().Key;
                         if (input == ConsoleKey::Y) GameState::CommitSave();
@@ -1572,7 +2231,7 @@ namespace MphRead
                 const std::string modeString = _mode == "auto-select" ? "auto-select (Adventure or Battle)" : _mode;
                 const std::string languageString = mphKey == AMHK0 ? "Korean" : LanguageString(_language);
                 const std::string movieString = _movieId == -1 ? "none" : MenuDependency::MovieDisplayInfo(_movieId);
-                ClearConsole(); WriteLine(BrandVersion()); WriteLine();
+                ClearConsole(); WriteLine(ProgramVersionBanner()); WriteLine();
                 WriteLine("Choose an option using up/down or with the key indicated.");
                 WriteLine("Press Space to specify, Backspace to clear, or left/right to advance the option.");
                 WriteLine("When finished, press Enter or use the last option to launch. Press Escape to exit.");
@@ -1606,7 +2265,7 @@ namespace MphRead
                     if (keyInfo.Key == ConsoleKey::Enter || keyInfo.Key == ConsoleKey::L
                         || keyInfo.Key == ConsoleKey::Spacebar && selection == s)
                     {
-                        ClearConsole(); WriteLine(BrandVersion()); WriteLine(); WriteLine("Loading...");
+                        ClearConsole(); WriteLine(ProgramVersionBanner()); WriteLine(); WriteLine("Loading...");
                         CommitSettings();
                         break;
                     }
@@ -1989,7 +2648,7 @@ namespace MphRead
             const std::string weaponsString = _affinityWeapons ? "Affinity Weapons" : "Default Weapons";
 
             ClearConsole();
-            WriteLine(BrandVersion()); WriteLine();
+            WriteLine(ProgramVersionBanner()); WriteLine();
             WriteLine("Choose a setting using up/down or with the key indicated.");
             WriteLine("Press Space to specify, Backspace to clear, or left/right to advance the setting.");
             WriteLine("When finished, press Enter or use the last option to return. Press Escape to exit.");
@@ -2169,7 +2828,7 @@ namespace MphRead
         while (true)
         {
             std::int32_t s = 0;
-            ClearConsole(); WriteLine(BrandVersion()); WriteLine();
+            ClearConsole(); WriteLine(ProgramVersionBanner()); WriteLine();
             WriteLine("Choose a setting using up/down or with the key indicated.");
             WriteLine("Press Space to specify, Backspace to clear, or left/right to advance the setting.");
             WriteLine("When finished, press Enter or use the last option to return. Press Escape to exit.");
@@ -2611,16 +3270,19 @@ namespace MphRead
             if (auto instance = Sound::Sfx::Instance()) instance->StopAllSound(true);
             const std::int32_t id = static_cast<std::int32_t>(sfx);
             if ((id & 0x4000) != 0) return;
-            if (auto instance = Sound::Sfx::Instance())
+            if ((id & 0x8000) != 0)
             {
-                if ((id & 0x8000) != 0)
+                const std::int32_t amountA = MenuDependency::RandomSharedNext(0xFFFF);
+                const std::int32_t amountB = MenuDependency::RandomSharedNext(0xFFFF);
+                if (auto instance = Sound::Sfx::Instance())
                 {
-                    const std::int32_t amountA = MenuDependency::RandomSharedNext(0xFFFF);
-                    const std::int32_t amountB = MenuDependency::RandomSharedNext(0xFFFF);
                     instance->PlayDgn(id, nullptr, false, false, -1.0F, false,
                         static_cast<float>(amountA), static_cast<float>(amountB));
                 }
-                else instance->PlaySample(id, nullptr, std::nullopt, false, -1.0F, false, false);
+            }
+            else if (auto instance = Sound::Sfx::Instance())
+            {
+                instance->PlaySample(id, nullptr, std::nullopt, false, -1.0F, false, false);
             }
         };
         auto PlayStream = [&]()
@@ -2634,7 +3296,7 @@ namespace MphRead
         while (true)
         {
             std::int32_t s = 0;
-            ClearConsole(); WriteLine(BrandVersion()); WriteLine();
+            ClearConsole(); WriteLine(ProgramVersionBanner()); WriteLine();
             WriteLine("Choose a setting using up/down or with the key indicated.");
             WriteLine("Press Space to specify, Backspace to clear, or left/right to advance the setting.");
             WriteLine("When finished, press Enter or use the last option to return. Press Escape to exit.");
@@ -2880,7 +3542,7 @@ namespace MphRead
                 return Mark(check);
             };
             auto Y = [&](std::int32_t index) { return Mark(index == listPos); };
-            ClearConsole(); WriteLine(BrandVersion()); WriteLine();
+            ClearConsole(); WriteLine(ProgramVersionBanner()); WriteLine();
             if (category == -1) WriteLine("Select a category");
             else if (category == 0) WriteLine("Lore: " + std::to_string(lorePct) + "%");
             else if (category == 1) WriteLine("Bioform: " + std::to_string(bioformPct) + "%");
@@ -3003,7 +3665,7 @@ namespace MphRead
             const std::string octoliths = "CA:" + Octolith(0) + Octolith(1) + ", Alinos:" + Octolith(2) + Octolith(3)
                 + ", VDO:" + Octolith(4) + Octolith(5) + ", Arcterra:" + Octolith(6) + Octolith(7);
             std::int32_t s = 0;
-            ClearConsole(); WriteLine(BrandVersion()); WriteLine();
+            ClearConsole(); WriteLine(ProgramVersionBanner()); WriteLine();
             WriteLine("Choose a setting using up/down or with the key indicated.");
             WriteLine("Press Space to specify, Backspace to clear, or left/right to advance the setting.");
             WriteLine("When finished, press Enter or use the last option to return. Press Escape to exit.");

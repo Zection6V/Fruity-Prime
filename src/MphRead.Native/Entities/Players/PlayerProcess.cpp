@@ -2191,9 +2191,10 @@ namespace MphRead::Entities
         const Vector3 facing = _facingVector;
         const Vector3 up = _upVector;
         _gunDrawPos = Add(
-            Add(Scale(facing, Fixed::ToFloat(_values.FieldB8)), RequireReference(_cameraInfo).Position),
-            Add(Scale(_gunVec2, Fixed::ToFloat(_values.FieldB0)),
-                Scale(up, Fixed::ToFloat(_values.FieldB4))));
+            Add(
+                Add(Scale(facing, Fixed::ToFloat(_values.FieldB8)), RequireReference(_cameraInfo).Position),
+                Scale(_gunVec2, Fixed::ToFloat(_values.FieldB0))),
+            Scale(up, Fixed::ToFloat(_values.FieldB4)));
         const float cosValue = std::cos(DegreesToRadians(_gunViewBob));
         _gunDrawPos.Y += Fixed::ToFloat(20) * cosValue;
         if (Features::FixedWeapon())

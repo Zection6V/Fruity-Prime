@@ -31,7 +31,7 @@ namespace NCSFCommon::NC
         SWAVDictionary& operator=(const SWAVDictionary&) = delete;
         SWAVDictionary& operator=(SWAVDictionary&&) = delete;
 
-        [[nodiscard]] std::size_t Count() const noexcept;
+        [[nodiscard]] std::int32_t Count() const noexcept;
         [[nodiscard]] std::span<const Entry> Entries() const noexcept;
         [[nodiscard]] bool ContainsKey(std::uint32_t key) const noexcept;
         [[nodiscard]] bool TryGetValue(std::uint32_t key, std::shared_ptr<SWAV>& value) const noexcept;
@@ -52,7 +52,7 @@ namespace NCSFCommon::NC
         ReadOnlySWAVDictionary& operator=(const ReadOnlySWAVDictionary&) = delete;
         ReadOnlySWAVDictionary& operator=(ReadOnlySWAVDictionary&&) = delete;
 
-        [[nodiscard]] std::size_t Count() const noexcept;
+        [[nodiscard]] std::int32_t Count() const noexcept;
         [[nodiscard]] std::span<const SWAVDictionary::Entry> Entries() const noexcept;
         [[nodiscard]] bool ContainsKey(std::uint32_t key) const noexcept;
         [[nodiscard]] bool TryGetValue(std::uint32_t key, std::shared_ptr<SWAV>& value) const noexcept;

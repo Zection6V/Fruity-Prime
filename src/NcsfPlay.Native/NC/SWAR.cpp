@@ -7,6 +7,7 @@
 #include <bit>
 #include <cassert>
 #include <cstddef>
+#include <cstring>
 #include <functional>
 #include <random>
 #include <stdexcept>
@@ -129,6 +130,17 @@ namespace
             | (static_cast<std::uint32_t>(span[3]) << 24U);
     }
 
+    [[nodiscard]] std::uint32_t ReadUInt32NativeEndian(std::span<const std::uint8_t> span)
+    {
+        if (span.size() < sizeof(std::uint32_t))
+        {
+            ThrowArgumentOutOfRange();
+        }
+        std::uint32_t value;
+        std::memcpy(&value, span.data(), sizeof(value));
+        return value;
+    }
+
     void WriteUInt32LittleEndian(std::span<std::uint8_t> span, std::uint32_t value)
     {
         if (span.size() < sizeof(std::uint32_t))
@@ -210,9 +222,9 @@ namespace
 
 namespace NCSFCommon::NC
 {
-    std::size_t SWAVDictionary::Count() const noexcept
+    std::int32_t SWAVDictionary::Count() const noexcept
     {
-        return _entries.size();
+        return static_cast<std::int32_t>(_entries.size());
     }
 
     std::span<const SWAVDictionary::Entry> SWAVDictionary::Entries() const noexcept
@@ -280,7 +292,7 @@ namespace NCSFCommon::NC
     {
     }
 
-    std::size_t ReadOnlySWAVDictionary::Count() const noexcept
+    std::int32_t ReadOnlySWAVDictionary::Count() const noexcept
     {
         return _dictionary->Count();
     }
@@ -358,21 +370,26 @@ namespace NCSFCommon::NC
 
     std::uint32_t SWAR::Size() const
     {
-        return static_cast<std::uint32_t>(HeaderSize()) + DataSize();
+        const std::uint16_t headerSize = HeaderSize();
+        const std::uint32_t dataSize = DataSize();
+        return static_cast<std::uint32_t>(headerSize) + dataSize;
     }
 
     std::uint32_t SWAR::DataSize() const
     {
-        std::uint32_t waveSize = 0;
+        const std::int32_t count = _swavs.Count();
+        std::int64_t waveSize = 0;
         for (const SWAVDictionary::Entry& entry : _swavs.Entries())
         {
             if (entry.Value == nullptr)
             {
                 ThrowNullReference();
             }
-            waveSize += entry.Value->Size();
+            waveSize += static_cast<std::int64_t>(entry.Value->Size());
         }
-        return 0x2CU + 4U * static_cast<std::uint32_t>(_swavs.Count()) + waveSize;
+        return 0x2CU
+            + 4U * static_cast<std::uint32_t>(count)
+            + static_cast<std::uint32_t>(waveSize);
     }
 
     std::vector<std::uint8_t> SWAR::ExpectedHeader() const
@@ -409,15 +426,17 @@ namespace NCSFCommon::NC
         const std::int32_t offsetByteCount = ToInt32Unchecked(offsetByteCountBits);
         const std::span<const std::uint8_t> offsetBytes = Slice(span, 0x3CU, offsetByteCount);
 
-        for (std::uint32_t i = 0; i < count; ++i)
+        for (std::int32_t i = 0;
+             static_cast<std::int64_t>(i) < static_cast<std::int64_t>(count);
+             ++i)
         {
             const std::size_t offsetPosition = static_cast<std::size_t>(i) * sizeof(std::uint32_t);
-            const std::uint32_t offset = ReadUInt32LittleEndian(Slice(offsetBytes, offsetPosition));
+            const std::uint32_t offset = ReadUInt32NativeEndian(Slice(offsetBytes, offsetPosition));
             if (offset != 0U)
             {
                 auto swav = std::make_shared<SWAV>();
                 swav->Read(SliceFromInt32(span, offset));
-                _swavs.Set(i, std::move(swav));
+                _swavs.Set(static_cast<std::uint32_t>(i), std::move(swav));
             }
         }
     }
@@ -450,11 +469,12 @@ namespace NCSFCommon::NC
 
         for (const SWAVDictionary::Entry& entry : _swavs.Entries())
         {
+            std::span<std::uint8_t> swavSpan = SliceFromInt32(span, pos);
             if (entry.Value == nullptr)
             {
                 ThrowNullReference();
             }
-            entry.Value->Write(SliceFromInt32(span, pos));
+            entry.Value->Write(swavSpan);
             pos += entry.Value->Size();
         }
     }
@@ -474,19 +494,34 @@ namespace NCSFCommon::NC
 
     bool SWAR::Equals(const SWAR* other) const
     {
-        if (other != nullptr && DataSize() == other->DataSize() && _swavs.Count() == other->_swavs.Count())
+        if (other == nullptr)
         {
-            for (const SWAVDictionary::Entry& entry : _swavs.Entries())
-            {
-                std::shared_ptr<SWAV> otherSWAV;
-                if (!other->_swavs.TryGetValue(entry.Key, otherSWAV) || !SWAVEquality(entry.Value, otherSWAV))
-                {
-                    return false;
-                }
-            }
-            return true;
+            return false;
         }
-        return false;
+
+        const std::uint32_t dataSize = DataSize();
+        const std::uint32_t otherDataSize = other->DataSize();
+        if (dataSize != otherDataSize)
+        {
+            return false;
+        }
+
+        const std::int32_t count = _swavs.Count();
+        const std::int32_t otherCount = other->_swavs.Count();
+        if (count != otherCount)
+        {
+            return false;
+        }
+
+        for (const SWAVDictionary::Entry& entry : _swavs.Entries())
+        {
+            std::shared_ptr<SWAV> otherSWAV;
+            if (!other->_swavs.TryGetValue(entry.Key, otherSWAV) || !SWAVEquality(entry.Value, otherSWAV))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     bool SWAR::Equals(const std::any& obj) const

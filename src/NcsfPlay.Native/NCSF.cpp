@@ -31,6 +31,7 @@
 #else
 #include <fcntl.h>
 #include <iconv.h>
+#include <sys/file.h>
 #include <unistd.h>
 #endif
 
@@ -731,11 +732,43 @@ namespace
             _descriptor = descriptor;
 #else
             const std::filesystem::path path{ std::u16string(filename) };
-            _descriptor = ::open(path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-            if (_descriptor < 0)
+            const int descriptor = ::open(path.c_str(), O_CREAT | O_WRONLY | O_CLOEXEC, 0666);
+            if (descriptor < 0)
             {
                 throw std::system_error(errno, std::generic_category(), "Unable to create output file");
             }
+
+            bool locked = false;
+            if (::flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+            {
+                locked = true;
+            }
+            else
+            {
+                const int lockError = errno;
+                if (lockError == EWOULDBLOCK || lockError == EAGAIN)
+                {
+                    ::close(descriptor);
+                    throw std::system_error(lockError, std::generic_category(), "Unable to create output file");
+                }
+            }
+
+            if (::ftruncate(descriptor, 0) < 0)
+            {
+                const int truncateError = errno;
+                if (truncateError != EBADF && truncateError != EINVAL)
+                {
+                    if (locked)
+                    {
+                        static_cast<void>(::flock(descriptor, LOCK_UN));
+                    }
+                    ::close(descriptor);
+                    throw std::system_error(truncateError, std::generic_category(), "Unable to create output file");
+                }
+            }
+
+            _descriptor = descriptor;
+            _isLocked = locked;
 #endif
         }
 
@@ -749,6 +782,11 @@ namespace
 #if defined(_WIN32)
                 _close(_descriptor);
 #else
+                if (_isLocked)
+                {
+                    static_cast<void>(::flock(_descriptor, LOCK_UN));
+                    _isLocked = false;
+                }
                 ::close(_descriptor);
 #endif
             }
@@ -793,6 +831,7 @@ namespace
 
     private:
         int _descriptor = -1;
+        bool _isLocked = false;
     };
 }
 

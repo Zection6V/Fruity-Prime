@@ -74,9 +74,9 @@ namespace
         return channel;
     }
 
-    [[nodiscard]] std::int16_t VariableAt(std::span<const std::int16_t> variables, std::uint8_t index)
+    [[nodiscard]] std::int16_t VariableAt(std::span<const std::int16_t> variables, std::int32_t index)
     {
-        if (static_cast<std::size_t>(index) >= variables.size())
+        if (index < 0 || static_cast<std::size_t>(index) >= variables.size())
             ThrowIndexOutOfRange();
         return variables[static_cast<std::size_t>(index)];
     }
@@ -378,7 +378,7 @@ namespace NCSFPlayer
             }
             case 0xB0U:
             {
-                const std::uint8_t varNum = ReadU8();
+                const std::int32_t varNum = ReadU8();
 
                 std::int16_t par = WrapInt16(ParseValue(
                     hasValueType ? valueType : NCSFCommon::ValueType::U16));

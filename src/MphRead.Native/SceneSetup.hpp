@@ -37,6 +37,29 @@ namespace MphRead
         class RoomEntity;
     }
 
+    class BeamProjectileArray final
+    {
+    public:
+        [[nodiscard]] std::int32_t Length() const noexcept
+        {
+            return _length;
+        }
+
+        [[nodiscard]] std::shared_ptr<Entities::BeamProjectileEntity>&
+            operator[](std::int32_t index);
+        [[nodiscard]] const std::shared_ptr<Entities::BeamProjectileEntity>&
+            operator[](std::int32_t index) const;
+
+    private:
+        friend class SceneSetup;
+
+        explicit BeamProjectileArray(std::int32_t length);
+        void CheckIndex(std::int32_t index) const;
+
+        const std::int32_t _length;
+        std::unique_ptr<std::shared_ptr<Entities::BeamProjectileEntity>[]> _items;
+    };
+
     class SceneSetup final
     {
     public:
@@ -88,7 +111,7 @@ namespace MphRead
         static void LoadItemResources(Scene* scene);
         static void LoadItemResources(const std::shared_ptr<Entities::ItemSpawnEntity>& itemSpawner, Scene* scene);
 
-        [[nodiscard]] static std::shared_ptr<std::shared_ptr<Entities::BeamProjectileEntity>[]>
+        [[nodiscard]] static std::shared_ptr<BeamProjectileArray>
             CreateBeamList(std::int32_t size, Scene* scene);
 
     private:

@@ -1405,7 +1405,36 @@ namespace MphRead
             SceneSetupInterop::SceneLoadEffect(scene, 244, true);
     }
 
-    std::shared_ptr<std::shared_ptr<Entities::BeamProjectileEntity>[]>
+    BeamProjectileArray::BeamProjectileArray(std::int32_t length)
+        : _length(length),
+          _items(std::make_unique<std::shared_ptr<Entities::BeamProjectileEntity>[]>(
+              static_cast<std::size_t>(length)))
+    {
+    }
+
+    void BeamProjectileArray::CheckIndex(std::int32_t index) const
+    {
+        if (index < 0 || index >= _length)
+        {
+            throw std::out_of_range("Index was outside the bounds of the array.");
+        }
+    }
+
+    std::shared_ptr<Entities::BeamProjectileEntity>&
+        BeamProjectileArray::operator[](std::int32_t index)
+    {
+        CheckIndex(index);
+        return _items[static_cast<std::size_t>(index)];
+    }
+
+    const std::shared_ptr<Entities::BeamProjectileEntity>&
+        BeamProjectileArray::operator[](std::int32_t index) const
+    {
+        CheckIndex(index);
+        return _items[static_cast<std::size_t>(index)];
+    }
+
+    std::shared_ptr<BeamProjectileArray>
         SceneSetup::CreateBeamList(std::int32_t size, Scene* scene)
     {
         SceneSetupInterop::DebugAssert(size > 0);
@@ -1413,12 +1442,10 @@ namespace MphRead
         {
             throw std::overflow_error("Array dimensions exceeded supported range.");
         }
-        auto beams = std::make_shared<std::shared_ptr<Entities::BeamProjectileEntity>[]>(
-            static_cast<std::size_t>(size));
+        auto beams = std::shared_ptr<BeamProjectileArray>(new BeamProjectileArray(size));
         for (std::int32_t i = 0; i < size; ++i)
         {
-            beams[static_cast<std::size_t>(i)]
-                = std::make_shared<Entities::BeamProjectileEntity>(scene);
+            (*beams)[i] = std::make_shared<Entities::BeamProjectileEntity>(scene);
         }
         return beams;
     }

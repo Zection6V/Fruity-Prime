@@ -43,9 +43,12 @@
 #include <conio.h>
 #include <windows.h>
 #else
+#include <langinfo.h>
+#include <locale.h>
 #include <poll.h>
 #include <termios.h>
 #include <unistd.h>
+#include <wctype.h>
 #endif
 
 namespace System
@@ -266,15 +269,27 @@ namespace
         return std::string(text.substr(0, last));
     }
 
-    [[nodiscard]] const std::locale& CurrentLocale()
+#if !defined(_WIN32)
+    [[nodiscard]] locale_t CurrentPosixLocale() noexcept
     {
-        static const std::locale locale = []
+        locale_t active = ::uselocale(static_cast<locale_t>(0));
+        if (active != static_cast<locale_t>(0) && active != LC_GLOBAL_LOCALE)
         {
-            try { return std::locale(""); }
-            catch (...) { return std::locale::classic(); }
-        }();
-        return locale;
+            if (locale_t copy = ::duplocale(active); copy != static_cast<locale_t>(0)) return copy;
+        }
+
+        const char* current = ::setlocale(LC_ALL, nullptr);
+        if (current != nullptr && std::string_view(current) != "C" && std::string_view(current) != "POSIX")
+        {
+            if (locale_t locale = ::newlocale(LC_ALL_MASK, current, static_cast<locale_t>(0));
+                locale != static_cast<locale_t>(0))
+            {
+                return locale;
+            }
+        }
+        return ::newlocale(LC_ALL_MASK, "", static_cast<locale_t>(0));
     }
+#endif
 
     [[nodiscard]] std::wstring Utf8ToWide(std::string_view text)
     {
@@ -303,7 +318,7 @@ namespace
             std::wstring wide = Utf8ToWide(text);
 #if defined(_WIN32)
             if (wide.empty()) return {};
-            const DWORD flags = upper ? LCMAP_UPPERCASE : LCMAP_LOWERCASE;
+            const DWORD flags = (upper ? LCMAP_UPPERCASE : LCMAP_LOWERCASE) | LCMAP_LINGUISTIC_CASING;
             const int required = LCMapStringEx(LOCALE_NAME_USER_DEFAULT, flags,
                 wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr, 0);
             if (required > 0)
@@ -319,10 +334,16 @@ namespace
                 }
             }
 #else
-            const auto& facet = std::use_facet<std::ctype<wchar_t>>(CurrentLocale());
-            if (upper) facet.toupper(wide.data(), wide.data() + wide.size());
-            else facet.tolower(wide.data(), wide.data() + wide.size());
-            return WideToUtf8(wide);
+            locale_t locale = CurrentPosixLocale();
+            if (locale != static_cast<locale_t>(0))
+            {
+                for (wchar_t& value : wide)
+                {
+                    value = upper ? ::towupper_l(value, locale) : ::towlower_l(value, locale);
+                }
+                ::freelocale(locale);
+                return WideToUtf8(wide);
+            }
 #endif
         }
         catch (...)
@@ -351,44 +372,49 @@ namespace
         std::string PositiveSign = "+";
     };
 
-    [[nodiscard]] const NumberFormatInfo& CurrentNumberFormat()
+    [[nodiscard]] NumberFormatInfo CurrentNumberFormat()
     {
-        static const NumberFormatInfo info = []
+        NumberFormatInfo result;
+        try
         {
-            NumberFormatInfo result;
-            try
-            {
 #if defined(_WIN32)
-                auto LocaleString = [](LCTYPE type) -> std::optional<std::string>
-                {
-                    const int required = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type, nullptr, 0);
-                    if (required <= 1) return std::nullopt;
-                    std::wstring value(static_cast<std::size_t>(required), L'\0');
-                    const int written = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type,
-                        value.data(), required);
-                    if (written <= 1) return std::nullopt;
-                    value.resize(static_cast<std::size_t>(written - 1));
-                    return WideToUtf8(value);
-                };
-                if (auto value = LocaleString(LOCALE_SDECIMAL)) result.DecimalSeparator = *value;
-                if (auto value = LocaleString(LOCALE_STHOUSAND)) result.GroupSeparator = *value;
-                if (auto value = LocaleString(LOCALE_SNEGATIVESIGN)) result.NegativeSign = *value;
-                if (auto value = LocaleString(LOCALE_SPOSITIVESIGN)) result.PositiveSign = *value;
-#else
-                const auto& facet = std::use_facet<std::numpunct<wchar_t>>(CurrentLocale());
-                const wchar_t decimal = facet.decimal_point();
-                const wchar_t group = facet.thousands_sep();
-                result.DecimalSeparator = WideToUtf8(std::wstring_view(&decimal, 1));
-                if (group != L'\0') result.GroupSeparator = WideToUtf8(std::wstring_view(&group, 1));
-                else result.GroupSeparator.clear();
-#endif
-            }
-            catch (...)
+            auto LocaleString = [](LCTYPE type) -> std::optional<std::string>
             {
+                const int required = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type, nullptr, 0);
+                if (required <= 1) return std::nullopt;
+                std::wstring value(static_cast<std::size_t>(required), L'\0');
+                const int written = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type,
+                    value.data(), required);
+                if (written <= 1) return std::nullopt;
+                value.resize(static_cast<std::size_t>(written - 1));
+                return WideToUtf8(value);
+            };
+            if (auto value = LocaleString(LOCALE_SDECIMAL)) result.DecimalSeparator = *value;
+            if (auto value = LocaleString(LOCALE_STHOUSAND)) result.GroupSeparator = *value;
+            if (auto value = LocaleString(LOCALE_SNEGATIVESIGN); value && !value->empty()) result.NegativeSign = *value;
+            if (auto value = LocaleString(LOCALE_SPOSITIVESIGN); value && !value->empty()) result.PositiveSign = *value;
+#else
+            locale_t locale = CurrentPosixLocale();
+            if (locale != static_cast<locale_t>(0))
+            {
+                auto LocaleString = [locale](nl_item item) -> std::optional<std::string>
+                {
+                    const char* value = ::nl_langinfo_l(item, locale);
+                    if (value == nullptr) return std::nullopt;
+                    return std::string(value);
+                };
+                if (auto value = LocaleString(RADIXCHAR); value && !value->empty()) result.DecimalSeparator = *value;
+                if (auto value = LocaleString(THOUSEP)) result.GroupSeparator = *value;
+                if (auto value = LocaleString(NEGATIVE_SIGN); value && !value->empty()) result.NegativeSign = *value;
+                if (auto value = LocaleString(POSITIVE_SIGN); value && !value->empty()) result.PositiveSign = *value;
+                ::freelocale(locale);
             }
-            return result;
-        }();
-        return info;
+#endif
+        }
+        catch (...)
+        {
+        }
+        return result;
     }
 
     [[nodiscard]] const NumberFormatInfo& InvariantNumberFormat()
@@ -1463,36 +1489,72 @@ namespace
     {
         std::cout.flush();
 #if defined(_WIN32)
-        if (_isatty(_fileno(stdin)) == 0) throw System::InvalidOperationException();
-        const wint_t first = _getwch();
-        if (first == WEOF) throw std::runtime_error("Could not read a key from the console.");
-        ConsoleKeyInfo result{};
-        if (first == 0 || first == 0xE0)
+        HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+        DWORD mode = 0;
+        if (input == INVALID_HANDLE_VALUE || input == nullptr || !GetConsoleMode(input, &mode))
         {
-            const wint_t second = _getwch();
-            switch (second)
+            throw System::InvalidOperationException();
+        }
+        while (true)
+        {
+            INPUT_RECORD record{};
+            DWORD read = 0;
+            if (!ReadConsoleInputW(input, &record, 1, &read) || read != 1)
             {
-            case 72: result.Key = ConsoleKey::UpArrow; break; case 80: result.Key = ConsoleKey::DownArrow; break;
-            case 75: result.Key = ConsoleKey::LeftArrow; break; case 77: result.Key = ConsoleKey::RightArrow; break;
-            case 73: result.Key = ConsoleKey::PageUp; break; case 81: result.Key = ConsoleKey::PageDown; break;
-            case 83: result.Key = ConsoleKey::Delete; break; default: result.Key = ConsoleKey::None; break;
+                throw std::runtime_error("Could not read a key from the console.");
+            }
+            if (record.EventType != KEY_EVENT || !record.Event.KeyEvent.bKeyDown) continue;
+            const KEY_EVENT_RECORD& key = record.Event.KeyEvent;
+            if (key.wVirtualKeyCode == VK_SHIFT || key.wVirtualKeyCode == VK_CONTROL
+                || key.wVirtualKeyCode == VK_MENU || key.wVirtualKeyCode == VK_CAPITAL
+                || key.wVirtualKeyCode == VK_NUMLOCK || key.wVirtualKeyCode == VK_SCROLL)
+            {
+                continue;
+            }
+
+            ConsoleKeyInfo result{};
+            result.Control = (key.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
+            switch (key.wVirtualKeyCode)
+            {
+            case VK_ESCAPE: result.Key = ConsoleKey::Escape; break;
+            case VK_RETURN: result.Key = ConsoleKey::Enter; break;
+            case VK_SPACE: result.Key = ConsoleKey::Spacebar; break;
+            case VK_BACK: result.Key = ConsoleKey::Backspace; break;
+            case VK_DELETE: result.Key = ConsoleKey::Delete; break;
+            case VK_UP: result.Key = ConsoleKey::UpArrow; break;
+            case VK_DOWN: result.Key = ConsoleKey::DownArrow; break;
+            case VK_LEFT: result.Key = ConsoleKey::LeftArrow; break;
+            case VK_RIGHT: result.Key = ConsoleKey::RightArrow; break;
+            case VK_PRIOR: result.Key = ConsoleKey::PageUp; break;
+            case VK_NEXT: result.Key = ConsoleKey::PageDown; break;
+            case VK_ADD: result.Key = ConsoleKey::Add; break;
+            case VK_SUBTRACT: result.Key = ConsoleKey::Subtract; break;
+            case VK_OEM_PLUS: result.Key = ConsoleKey::OemPlus; break;
+            case VK_OEM_MINUS: result.Key = ConsoleKey::OemMinus; break;
+            case VK_NUMPAD1: result.Key = ConsoleKey::NumPad1; break;
+            case VK_NUMPAD2: result.Key = ConsoleKey::NumPad2; break;
+            case VK_NUMPAD3: result.Key = ConsoleKey::NumPad3; break;
+            case VK_NUMPAD4: result.Key = ConsoleKey::NumPad4; break;
+            case VK_NUMPAD5: result.Key = ConsoleKey::NumPad5; break;
+            case VK_NUMPAD6: result.Key = ConsoleKey::NumPad6; break;
+            case VK_NUMPAD7: result.Key = ConsoleKey::NumPad7; break;
+            case VK_NUMPAD8: result.Key = ConsoleKey::NumPad8; break;
+            default:
+                if (key.wVirtualKeyCode >= 'A' && key.wVirtualKeyCode <= 'Z')
+                    result.Key = AlphaKey(static_cast<char>(key.wVirtualKeyCode));
+                else if (key.wVirtualKeyCode >= '1' && key.wVirtualKeyCode <= '8')
+                    result.Key = DigitKey(static_cast<char>(key.wVirtualKeyCode));
+                break;
+            }
+
+            // Console.ReadKey() defaults to intercept:false, so echo KeyChar but not
+            // virtual-key-only events such as arrows and page navigation keys.
+            if (key.uChar.UnicodeChar != L'\0')
+            {
+                (void)_putwch(key.uChar.UnicodeChar);
             }
             return result;
         }
-
-        // Console.ReadKey() is Console.ReadKey(intercept: false): the KeyChar is
-        // written to the console after it is read. _getwch() itself is non-echoing.
-        (void)_putwch(static_cast<wchar_t>(first));
-        const char ch = first <= 0x7F ? static_cast<char>(first) : '\0';
-        if (ch == 27) result.Key = ConsoleKey::Escape;
-        else if (ch == '\r' || ch == '\n') result.Key = ConsoleKey::Enter;
-        else if (ch == ' ') result.Key = ConsoleKey::Spacebar;
-        else if (ch == '\b') result.Key = ConsoleKey::Backspace;
-        else if (ch == '+') result.Key = ConsoleKey::OemPlus;
-        else if (ch == '-') result.Key = ConsoleKey::OemMinus;
-        else if (first >= 1 && first <= 26) { result.Control = true; result.Key = AlphaKey(static_cast<char>('A' + first - 1)); }
-        else if (first <= 0x7F) { result.Key = AlphaKey(ch); if (result.Key == ConsoleKey::None) result.Key = DigitKey(ch); }
-        return result;
 #else
         if (::isatty(STDIN_FILENO) == 0) throw System::InvalidOperationException();
         termios original{};
@@ -1510,22 +1572,65 @@ namespace
             pollfd descriptor{STDIN_FILENO, POLLIN, 0};
             if (::poll(&descriptor, 1, 30) > 0)
             {
-                unsigned char second = 0; (void)::read(STDIN_FILENO, &second, 1);
-                if (second == '[' || second == 'O')
+                unsigned char second = 0;
+                if (::read(STDIN_FILENO, &second, 1) == 1 && (second == '[' || second == 'O'))
                 {
-                    unsigned char third = 0; (void)::read(STDIN_FILENO, &third, 1);
-                    if (third == 'A') result.Key = ConsoleKey::UpArrow;
-                    else if (third == 'B') result.Key = ConsoleKey::DownArrow;
-                    else if (third == 'C') result.Key = ConsoleKey::RightArrow;
-                    else if (third == 'D') result.Key = ConsoleKey::LeftArrow;
-                    else if (third == '5' || third == '6' || third == '3')
+                    std::array<unsigned char, 16> sequence{};
+                    std::size_t count = 0;
+                    while (count < sequence.size())
                     {
-                        unsigned char tilde = 0; (void)::read(STDIN_FILENO, &tilde, 1);
-                        if (third == '5') result.Key = ConsoleKey::PageUp;
-                        else if (third == '6') result.Key = ConsoleKey::PageDown;
-                        else result.Key = ConsoleKey::Delete;
+                        unsigned char value = 0;
+                        if (::read(STDIN_FILENO, &value, 1) != 1) break;
+                        sequence[count++] = value;
+                        if (value >= 0x40 && value <= 0x7E) break;
+                        descriptor.revents = 0;
+                        if (::poll(&descriptor, 1, 10) <= 0) break;
                     }
-                    return result;
+                    if (count != 0)
+                    {
+                        const unsigned char final = sequence[count - 1];
+                        const std::string parameters(reinterpret_cast<const char*>(sequence.data()), count - 1);
+                        auto Parameter = [&](std::size_t index) -> std::optional<std::int32_t>
+                        {
+                            std::size_t start = 0;
+                            for (std::size_t i = 0; i < index; ++i)
+                            {
+                                const std::size_t separator = parameters.find(';', start);
+                                if (separator == std::string::npos) return std::nullopt;
+                                start = separator + 1;
+                            }
+                            const std::size_t end = parameters.find(';', start);
+                            const std::string_view part(parameters.data() + start,
+                                (end == std::string::npos ? parameters.size() : end) - start);
+                            std::int32_t parsed = 0;
+                            if (part.empty() || !TryParseInt32(part, parsed)) return std::nullopt;
+                            return parsed;
+                        };
+                        auto Modifier = [&]() -> std::int32_t
+                        {
+                            const std::size_t separator = parameters.rfind(';');
+                            if (separator == std::string::npos) return 1;
+                            std::int32_t parsed = 1;
+                            if (!TryParseInt32(std::string_view(parameters).substr(separator + 1), parsed)) return 1;
+                            return parsed;
+                        };
+                        const std::int32_t modifier = Modifier();
+                        result.Control = modifier > 1 && ((modifier - 1) & 4) != 0;
+                        if (final == '^') result.Control = true; // rxvt Ctrl+navigation form
+
+                        if (final == 'A') result.Key = ConsoleKey::UpArrow;
+                        else if (final == 'B') result.Key = ConsoleKey::DownArrow;
+                        else if (final == 'C') result.Key = ConsoleKey::RightArrow;
+                        else if (final == 'D') result.Key = ConsoleKey::LeftArrow;
+                        else if (final == '~' || final == '^')
+                        {
+                            const std::int32_t keyCode = Parameter(0).value_or(0);
+                            if (keyCode == 5) result.Key = ConsoleKey::PageUp;
+                            else if (keyCode == 6) result.Key = ConsoleKey::PageDown;
+                            else if (keyCode == 3) result.Key = ConsoleKey::Delete;
+                        }
+                        return result;
+                    }
                 }
             }
             (void)::write(STDOUT_FILENO, &first, 1);

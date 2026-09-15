@@ -1,8 +1,11 @@
 #include "INFOEntryBANK.hpp"
 
+#include "SBNK.hpp"
+
 #include <cassert>
 #include <charconv>
 #include <cstddef>
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 
@@ -47,18 +50,6 @@ namespace
         span[3] = static_cast<std::uint8_t>(value >> 24U);
     }
 
-    [[nodiscard]] std::uint16_t ReadUInt16LittleEndian(const std::uint8_t* data) noexcept
-    {
-        return static_cast<std::uint16_t>(data[0])
-            | static_cast<std::uint16_t>(static_cast<std::uint16_t>(data[1]) << 8U);
-    }
-
-    void WriteUInt16LittleEndian(std::uint8_t* data, std::uint16_t value) noexcept
-    {
-        data[0] = static_cast<std::uint8_t>(value);
-        data[1] = static_cast<std::uint8_t>(value >> 8U);
-    }
-
     template <typename T>
     void AppendUnsigned(std::u16string& destination, T value)
     {
@@ -100,7 +91,7 @@ namespace NCSFCommon::NC
         return _waveArchives;
     }
 
-    const std::shared_ptr<NCSFCommon::NC::SBNK>& INFOEntryBANK::SBNK() const noexcept
+    std::shared_ptr<NCSFCommon::NC::SBNK> INFOEntryBANK::SBNK() const noexcept
     {
         return _sbnk;
     }
@@ -122,10 +113,10 @@ namespace NCSFCommon::NC
         {
             ThrowArgumentOutOfRange();
         }
-        for (std::size_t i = 0; i < _waveArchives.size(); ++i)
-        {
-            _waveArchives[i] = ReadUInt16LittleEndian(span.data() + 0x04U + i * 2U);
-        }
+        std::memcpy(
+            _waveArchives.data(),
+            span.data() + 0x04U,
+            _waveArchives.size() * sizeof(std::uint16_t));
         return this;
     }
 
@@ -136,10 +127,10 @@ namespace NCSFCommon::NC
         {
             ThrowArgumentDestinationTooShort();
         }
-        for (std::size_t i = 0; i < _waveArchives.size(); ++i)
-        {
-            WriteUInt16LittleEndian(span.data() + 0x04U + i * 2U, _waveArchives[i]);
-        }
+        std::memcpy(
+            span.data() + 0x04U,
+            _waveArchives.data(),
+            _waveArchives.size() * sizeof(std::uint16_t));
     }
 
     void INFOEntryBANK::ReplaceWaveArchive(int i, std::uint16_t newWaveArchive)
@@ -154,16 +145,14 @@ namespace NCSFCommon::NC
 
     bool INFOEntryBANK::FileEquals(const INFOEntryBANK* other) const
     {
-        if (other == nullptr || _sbnk == nullptr || other->_sbnk == nullptr)
-        {
-            return false;
-        }
-        return *_sbnk == *other->_sbnk;
+        return other != nullptr
+            && NCSFCommon::NC::SBNK::EqualityOperator(_sbnk.get(), other->_sbnk.get());
     }
 
     std::u16string INFOEntryBANK::DebuggerDisplay() const
     {
-        std::u16string result = INFOEntry::DebuggerDisplay();
+        std::u16string result = u"INFO Entry (BANK) - ";
+        result += INFOEntry::DebuggerDisplay();
         result += u"File ID: ";
         AppendUnsigned(result, _fileID);
         result += u", WaveArchives: {";

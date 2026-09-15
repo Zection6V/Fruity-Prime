@@ -12,8 +12,6 @@ namespace NCSFCommon::NC
 {
     class SBNK;
 
-    [[nodiscard]] bool operator==(const SBNK& left, const SBNK& right);
-
     class INFOEntryBANK : public INFOEntry
     {
     public:
@@ -30,7 +28,7 @@ namespace NCSFCommon::NC
 
         [[nodiscard]] std::span<const std::uint16_t> WaveArchives() const noexcept;
 
-        [[nodiscard]] const std::shared_ptr<NCSFCommon::NC::SBNK>& SBNK() const noexcept;
+        [[nodiscard]] std::shared_ptr<NCSFCommon::NC::SBNK> SBNK() const noexcept;
         void SBNK(std::shared_ptr<NCSFCommon::NC::SBNK> value) noexcept;
 
         [[nodiscard]] std::uint32_t Size() const noexcept override;

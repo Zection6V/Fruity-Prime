@@ -252,7 +252,7 @@ namespace NCSFCommon::NC
             && _heapSize == other->_heapSize;
     }
 
-    bool INFOEntryPLAYER::Equals(const std::any& obj) const noexcept
+    bool INFOEntryPLAYER::Equals(const std::any& obj) const
     {
         if (const auto* other = std::any_cast<INFOEntryPLAYER*>(&obj))
         {

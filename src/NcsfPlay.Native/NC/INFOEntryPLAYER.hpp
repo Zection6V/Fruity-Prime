@@ -38,8 +38,8 @@ namespace NCSFCommon::NC
         void Write(std::span<std::uint8_t> span) override;
 
         [[nodiscard]] bool Equals(const INFOEntryPLAYER* other) const noexcept;
-        [[nodiscard]] bool Equals(const std::any& obj) const noexcept;
-        [[nodiscard]] std::int32_t GetHashCode() const;
+        [[nodiscard]] virtual bool Equals(const std::any& obj) const;
+        [[nodiscard]] virtual std::int32_t GetHashCode() const;
 
         [[nodiscard]] static bool EqualityOperator(
             const INFOEntryPLAYER* left, const INFOEntryPLAYER* right) noexcept;

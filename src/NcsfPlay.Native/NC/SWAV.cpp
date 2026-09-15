@@ -483,15 +483,16 @@ namespace NCSFCommon::NC
 
         for (std::uint32_t i = 0; i < len; ++i)
         {
-            const std::int32_t dataIndex = ToInt32Unchecked(i + 4U);
-            const std::uint8_t encoded = At(originalSpan, dataIndex);
-
             DecodeADPCMNibble(
-                static_cast<std::int32_t>(encoded & 0x0FU), stepIndex, predictedValue);
+                static_cast<std::int32_t>(At(originalSpan, ToInt32Unchecked(i + 4U)) & 0x0FU),
+                stepIndex,
+                predictedValue);
             AddData(static_cast<float>(predictedValue) / static_cast<float>(std::numeric_limits<std::int16_t>::max()));
 
             DecodeADPCMNibble(
-                static_cast<std::int32_t>((encoded >> 4U) & 0x0FU), stepIndex, predictedValue);
+                static_cast<std::int32_t>((At(originalSpan, ToInt32Unchecked(i + 4U)) >> 4U) & 0x0FU),
+                stepIndex,
+                predictedValue);
             AddData(static_cast<float>(predictedValue) / static_cast<float>(std::numeric_limits<std::int16_t>::max()));
         }
     }

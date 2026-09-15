@@ -75,7 +75,8 @@ namespace
     {
         if (index < 0 || static_cast<std::size_t>(index) >= values.size())
         {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
+            throw std::out_of_range(
+                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -85,7 +86,8 @@ namespace
     {
         if (index < 0 || static_cast<std::size_t>(index) >= values.size())
         {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
+            throw std::out_of_range(
+                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -548,7 +550,12 @@ namespace MphRead::Entities
             {
                 const std::int32_t iconIndex = ManagedAdd(
                     ManagedMultiply(2, target.Category), target.Dim ? 1 : 0);
-                std::shared_ptr<Hud::HudObjectInstance> iconInst = ManagedAt(_scanIconInsts, iconIndex);
+                if (iconIndex < 0 || static_cast<std::size_t>(iconIndex) >= _scanIconInsts.size())
+                {
+                    throw MphRead::SceneDetail::IndexOutOfRangeException();
+                }
+                std::shared_ptr<Hud::HudObjectInstance> iconInst
+                    = _scanIconInsts[static_cast<std::size_t>(iconIndex)];
                 Hud::HudObjectInstance& icon = RequireReference(iconInst);
                 icon.PositionX = target.ScreenX;
                 icon.PositionY = target.ScreenY;

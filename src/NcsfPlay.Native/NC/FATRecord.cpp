@@ -63,6 +63,12 @@ namespace
 
 namespace NCSFCommon::NC
 {
+    std::string FATRecord::DebuggerDisplay() const
+    {
+        return "FAT Record - Offset: " + std::to_string(Offset())
+            + ", Size: " + std::to_string(Size());
+    }
+
     std::uint32_t FATRecord::Offset() const noexcept
     {
         return _offset;

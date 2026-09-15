@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 
 namespace NCSFCommon::NC
 {
@@ -27,6 +28,8 @@ namespace NCSFCommon::NC
         void Write(std::span<std::uint8_t> span);
 
     private:
+        [[nodiscard]] std::string DebuggerDisplay() const;
+
         std::uint32_t _offset = 0;
         std::uint32_t _size = 0;
     };

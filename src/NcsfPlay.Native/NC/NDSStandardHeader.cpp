@@ -2,9 +2,9 @@
 
 #include "../Common.hpp"
 
-#include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 
@@ -71,7 +71,10 @@ namespace
         {
             throw std::invalid_argument("Destination is too short.");
         }
-        std::copy(source.begin(), source.end(), destination.begin());
+        if (!source.empty())
+        {
+            std::memmove(destination.data(), source.data(), source.size());
+        }
     }
 
     void WriteUInt32LittleEndian(std::span<std::uint8_t> span, std::uint32_t value)

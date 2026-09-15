@@ -120,6 +120,7 @@ namespace NCSF123
         void MapNCSFSection(std::span<const std::uint8_t> section);
 
     public:
+        virtual std::int32_t Read(std::span<std::uint8_t> buffer);
         virtual std::int32_t Read(std::span<std::uint8_t> buffer, std::int32_t offset, std::int32_t count);
 
     private:

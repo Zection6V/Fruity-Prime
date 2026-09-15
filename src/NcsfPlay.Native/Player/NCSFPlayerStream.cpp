@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <ios>
 #include <limits>
 #include <memory>
 #include <span>
@@ -142,6 +143,11 @@ namespace
     [[noreturn]] void ThrowNotImplemented()
     {
         throw std::logic_error("NotImplementedException");
+    }
+
+    [[noreturn]] void ThrowStreamTooLong()
+    {
+        throw std::ios_base::failure("Stream was too long.");
     }
 }
 
@@ -423,6 +429,30 @@ namespace NCSF123
         std::copy(section.begin(), section.end(), sdatData.begin());
     }
 
+    std::int32_t NCSFPlayerStream::Read(std::span<std::uint8_t> buffer)
+    {
+        if (buffer.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
+            throw std::length_error("Span length exceeds Int32.MaxValue.");
+
+        std::vector<std::uint8_t> sharedBuffer(buffer.size());
+        const std::int32_t numRead = Read(
+            std::span<std::uint8_t>(sharedBuffer.data(), sharedBuffer.size()),
+            0,
+            static_cast<std::int32_t>(buffer.size()));
+
+        if (static_cast<std::uint32_t>(numRead) > static_cast<std::uint32_t>(buffer.size()))
+            ThrowStreamTooLong();
+
+        if (numRead != 0)
+        {
+            std::copy_n(
+                sharedBuffer.begin(),
+                static_cast<std::size_t>(numRead),
+                buffer.begin());
+        }
+        return numRead;
+    }
+
     std::int32_t NCSFPlayerStream::Read(
         std::span<std::uint8_t> buffer,
         std::int32_t offset,
@@ -622,12 +652,18 @@ namespace NCSF123
                 Terminate();
                 Load();
             }
+
             std::array<std::uint8_t, 0x1000> dummyBuffer{};
             while (WrapSubtract64(offset, Position()) > 0x1000)
-                (void)Read(dummyBuffer, 0, static_cast<std::int32_t>(dummyBuffer.size()));
-            const std::int64_t remaining = WrapSubtract64(offset, Position());
-            if (remaining > 0)
-                (void)Read(dummyBuffer, 0, static_cast<std::int32_t>(remaining));
+                (void)Read(std::span<std::uint8_t>(dummyBuffer));
+
+            if (WrapSubtract64(offset, Position()) > 0)
+            {
+                const std::int32_t remaining = ToInt32Unchecked(WrapSubtract64(offset, Position()));
+                if (remaining < 0 || static_cast<std::size_t>(remaining) > dummyBuffer.size())
+                    throw std::out_of_range("Specified argument was out of the range of valid values.");
+                (void)Read(std::span<std::uint8_t>(dummyBuffer).first(static_cast<std::size_t>(remaining)));
+            }
             return offset;
         }
     }

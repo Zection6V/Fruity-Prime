@@ -9,6 +9,7 @@
 #include <array>
 #include <atomic>
 #include <condition_variable>
+#include <coroutine>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -19,15 +20,84 @@
 #include <optional>
 #include <span>
 #include <stop_token>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+namespace System
+{
+    class ArgumentException final : public std::invalid_argument
+    {
+    public:
+        explicit ArgumentException(std::string message)
+            : std::invalid_argument(std::move(message))
+        {
+        }
+    };
+
+    class ArgumentOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        explicit ArgumentOutOfRangeException(std::string_view paramName)
+            : std::out_of_range("Specified argument was out of the range of valid values. (Parameter '"
+                + std::string(paramName) + "')")
+        {
+        }
+    };
+
+    class IndexOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        IndexOutOfRangeException()
+            : std::out_of_range("Index was outside the bounds of the array.")
+        {
+        }
+    };
+
+    class EndOfStreamException final : public std::runtime_error
+    {
+    public:
+        EndOfStreamException()
+            : std::runtime_error("Unable to read beyond the end of the stream.")
+        {
+        }
+    };
+
+    // Mechanical value-type representation of System.Decimal. The 96-bit integer,
+    // sign and scale fields match the CLR decimal value domain without binary-FP loss.
+    class Decimal final
+    {
+    public:
+        constexpr Decimal() noexcept = default;
+        explicit Decimal(std::int32_t value) noexcept;
+        Decimal(std::int32_t lo, std::int32_t mid, std::int32_t hi,
+            bool isNegative, std::uint8_t scale);
+
+        [[nodiscard]] static Decimal DivideInt32By65536(std::int32_t value) noexcept;
+        [[nodiscard]] constexpr std::uint32_t Lo() const noexcept { return _lo; }
+        [[nodiscard]] constexpr std::uint32_t Mid() const noexcept { return _mid; }
+        [[nodiscard]] constexpr std::uint32_t Hi() const noexcept { return _hi; }
+        [[nodiscard]] constexpr bool IsNegative() const noexcept { return _negative; }
+        [[nodiscard]] constexpr std::uint8_t Scale() const noexcept { return _scale; }
+        [[nodiscard]] double ToDouble() const noexcept;
+
+    private:
+        std::uint32_t _lo = 0;
+        std::uint32_t _mid = 0;
+        std::uint32_t _hi = 0;
+        std::uint8_t _scale = 0;
+        bool _negative = false;
+    };
+}
+
 namespace MphRead::Formats::MovieNativeRuntime
 {
     class MovieTask;
+    struct DecoderLifetime;
 }
 
 namespace MphRead
@@ -198,7 +268,11 @@ namespace MphRead::Formats
         class BinaryReader final
         {
         public:
-            explicit BinaryReader(std::istream& stream) noexcept : _stream(&stream) {}
+            explicit BinaryReader(std::shared_ptr<std::istream> stream);
+            ~BinaryReader();
+            BinaryReader(const BinaryReader&) = delete;
+            BinaryReader& operator=(const BinaryReader&) = delete;
+
             [[nodiscard]] std::uint8_t ReadByte();
             [[nodiscard]] char16_t ReadChar();
             [[nodiscard]] std::int16_t ReadInt16();
@@ -208,8 +282,10 @@ namespace MphRead::Formats
             void Position(std::int64_t value);
 
         private:
-            std::istream* _stream;
+            std::shared_ptr<std::istream> _stream;
+            std::optional<char16_t> _pendingChar{};
             void ReadExact(void* destination, std::size_t size);
+            void DisposeStream() noexcept;
         };
 
         struct TaskState;
@@ -217,19 +293,36 @@ namespace MphRead::Formats
         class MovieTask final
         {
         public:
+            struct promise_type;
+
             class Awaiter final
             {
             public:
                 explicit Awaiter(std::shared_ptr<TaskState> state) noexcept;
+                [[nodiscard]] bool await_ready() const noexcept;
+                bool await_suspend(std::coroutine_handle<promise_type> continuation) noexcept;
+                void await_resume();
                 void GetResult();
             private:
                 std::shared_ptr<TaskState> _state;
             };
 
-            MovieTask();
-            explicit MovieTask(std::function<void()> action, bool asynchronous);
-            MovieTask(std::function<void()> action, bool asynchronous,
-                std::function<bool()> synchronousPrefixDone);
+            struct DelayAwaitable final
+            {
+                [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
+                void await_suspend(std::coroutine_handle<promise_type> handle) const;
+                constexpr void await_resume() const noexcept {}
+            };
+
+            struct LifetimeAwaitable final
+            {
+                std::shared_ptr<DecoderLifetime> Lifetime;
+                [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
+                bool await_suspend(std::coroutine_handle<promise_type> handle) const noexcept;
+                constexpr void await_resume() const noexcept {}
+            };
+
+            MovieTask() noexcept = default;
             MovieTask(const MovieTask&) = delete;
             MovieTask& operator=(const MovieTask&) = delete;
             MovieTask(MovieTask&&) noexcept = default;
@@ -237,9 +330,37 @@ namespace MphRead::Formats
             ~MovieTask() = default;
 
             [[nodiscard]] Awaiter GetAwaiter() const noexcept;
+            [[nodiscard]] Awaiter operator co_await() const noexcept { return Awaiter(_state); }
+            [[nodiscard]] static constexpr DelayAwaitable DelayOneMillisecond() noexcept { return {}; }
+            [[nodiscard]] static LifetimeAwaitable TrackLifetime(
+                std::shared_ptr<DecoderLifetime> lifetime) noexcept;
 
         private:
+            explicit MovieTask(std::shared_ptr<TaskState> state) noexcept;
             std::shared_ptr<TaskState> _state;
+            friend struct promise_type;
+        };
+
+        struct MovieTask::promise_type
+        {
+            promise_type() noexcept = default;
+            [[nodiscard]] MovieTask get_return_object();
+            [[nodiscard]] constexpr std::suspend_never initial_suspend() const noexcept { return {}; }
+
+            struct FinalAwaiter final
+            {
+                [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
+                std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> handle) const noexcept;
+                constexpr void await_resume() const noexcept {}
+            };
+
+            [[nodiscard]] constexpr FinalAwaiter final_suspend() const noexcept { return {}; }
+            constexpr void return_void() const noexcept {}
+            void unhandled_exception() noexcept;
+
+            TaskState* State = nullptr;
+            std::exception_ptr Exception{};
+            std::shared_ptr<DecoderLifetime> Lifetime{};
         };
 
         [[nodiscard]] std::int32_t HashCombine(std::int32_t first, std::int32_t second) noexcept;
@@ -360,7 +481,7 @@ namespace MphRead::Formats
         std::int32_t FrameCount = 0;
         std::int32_t FrameWidth = 0;
         std::int32_t FrameHeight = 0;
-        double FrameRate = 0.0;
+        System::Decimal FrameRate{};
         std::int32_t Quantizer = 0;
         std::int32_t AudioSampleRate = 0;
         std::int32_t AudioStreamCount = 0;
@@ -376,6 +497,9 @@ namespace MphRead::Formats
             = std::make_shared<std::array<std::int32_t, 3>>();
 
         VxDecoder();
+        ~VxDecoder();
+        VxDecoder(const VxDecoder&) = delete;
+        VxDecoder& operator=(const VxDecoder&) = delete;
 
         void Reset();
         [[nodiscard]] MovieNativeRuntime::MovieTask ExportAll();
@@ -389,7 +513,8 @@ namespace MphRead::Formats
             std::shared_ptr<std::istream> stream, const std::string& filename,
             bool writeFiles = false, std::stop_token token = {});
 
-        [[nodiscard]] bool GetImage(std::int32_t frameIndex, std::span<std::uint8_t> texture);
+        [[nodiscard]] bool GetImage(std::int32_t frameIndex,
+            const std::shared_ptr<std::vector<std::uint8_t>>& texture);
         [[nodiscard]] std::int32_t AudioFrameTotal() const noexcept
         {
             return _audioFrameTotal.load(std::memory_order_acquire);
@@ -409,9 +534,9 @@ namespace MphRead::Formats
             = std::make_shared<std::array<std::shared_ptr<VideoFrame>, 3>>();
         std::atomic<std::int32_t> _framesQueued{0};
         std::atomic<std::int32_t> _audioFrameTotal{0};
-        std::atomic<std::uint64_t> _decodeGeneration{0};
         std::shared_ptr<std::vector<std::shared_ptr<VxFrame>>> _vxFrames{};
         mutable std::mutex _vxFramesMutex{};
+        std::shared_ptr<MovieNativeRuntime::DecoderLifetime> _lifetime;
 
         static const std::array<std::array<std::int32_t, 3>, 6> _quantizer4x4Table;
 
@@ -446,7 +571,9 @@ namespace MphRead::Formats
         [[nodiscard]] std::shared_ptr<std::vector<std::uint8_t>> GetDataBuffer();
         [[nodiscard]] std::array<std::shared_ptr<ByteArray2D>, 3> GetPlaneBuffers();
         [[nodiscard]] static ColorRgb YuvToRgb(std::int32_t y, std::int32_t u, std::int32_t v) noexcept;
-        void DecodeCore(std::istream& stream, const std::string& filename, bool writeFiles, std::stop_token token);
+        [[nodiscard]] MovieNativeRuntime::MovieTask DecodeCore(
+            std::shared_ptr<std::istream> stream, const std::string& filename,
+            bool writeFiles, std::stop_token token);
         void WriteFile(std::span<std::uint8_t> pixelBuffer, const VxFrame& vxFrame,
             const std::string& folder, std::int32_t frameIndex);
     };
@@ -459,7 +586,7 @@ namespace MphRead::Formats
         const std::shared_ptr<std::vector<std::shared_ptr<::MphRead::Formats::AudioFrame>>> AudioFrames;
 
         VxFrame(std::int32_t frameWidth, std::int32_t frameHeight, std::int32_t audioFrameCount,
-            AudioExtradata& extradata, std::shared_ptr<AudioFrame> prevAudioFrame,
+            std::shared_ptr<AudioExtradata> extradata, std::shared_ptr<AudioFrame> prevAudioFrame,
             const VxBuffers& buffers, std::int32_t sampleBufferIndex);
 
         void Decode(MovieNativeRuntime::BinaryReader& reader,
@@ -559,7 +686,7 @@ namespace MphRead::Formats
     class AudioFrame
     {
     public:
-        AudioFrame(AudioExtradata& extradata, std::shared_ptr<AudioFrame> prevAudioFrame,
+        AudioFrame(std::shared_ptr<AudioExtradata> extradata, std::shared_ptr<AudioFrame> prevAudioFrame,
             const VxBuffers& buffers, std::int32_t sampleBufferIndex);
 
         [[nodiscard]] std::span<std::int16_t> SampleBuffer();
@@ -568,7 +695,7 @@ namespace MphRead::Formats
         void Decode(BitStreamReader& reader);
 
     private:
-        AudioExtradata* const _extradata;
+        const std::shared_ptr<AudioExtradata> _extradata;
         const std::shared_ptr<AudioFrame> _prevAudioFrame;
         const std::shared_ptr<std::array<std::int16_t, 8>> _prevSampleBuffer;
         const std::shared_ptr<std::array<std::int32_t, 256>> _prevPulseBuffer;

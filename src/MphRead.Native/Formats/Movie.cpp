@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <new>
 #include <random>
 #include <sstream>
@@ -20,18 +21,222 @@
 #include <string_view>
 #include <utility>
 
+namespace System
+{
+    Decimal::Decimal(std::int32_t value) noexcept
+    {
+        const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+        _negative = value < 0;
+        _lo = _negative ? 0U - bits : bits;
+    }
+
+    Decimal::Decimal(std::int32_t lo, std::int32_t mid, std::int32_t hi,
+        bool isNegative, std::uint8_t scale)
+        : _lo(std::bit_cast<std::uint32_t>(lo)),
+          _mid(std::bit_cast<std::uint32_t>(mid)),
+          _hi(std::bit_cast<std::uint32_t>(hi)),
+          _scale(scale),
+          _negative(isNegative)
+    {
+        if (scale > 28)
+        {
+            throw ArgumentOutOfRangeException("scale");
+        }
+    }
+
+    Decimal Decimal::DivideInt32By65536(std::int32_t value) noexcept
+    {
+        Decimal result(value);
+        result._scale = 16;
+
+        // 1 / 2^16 == 5^16 / 10^16. Multiply the 96-bit coefficient by 5^16.
+        for (int factor = 0; factor < 16; ++factor)
+        {
+            std::uint64_t carry = 0;
+            std::uint64_t product = static_cast<std::uint64_t>(result._lo) * 5U + carry;
+            result._lo = static_cast<std::uint32_t>(product);
+            carry = product >> 32;
+            product = static_cast<std::uint64_t>(result._mid) * 5U + carry;
+            result._mid = static_cast<std::uint32_t>(product);
+            carry = product >> 32;
+            product = static_cast<std::uint64_t>(result._hi) * 5U + carry;
+            result._hi = static_cast<std::uint32_t>(product);
+        }
+
+        // Decimal arithmetic canonicalizes exact trailing decimal zeroes.
+        while (result._scale > 0)
+        {
+            std::array<std::uint32_t, 3> quotient{};
+            std::uint64_t remainder = 0;
+            const std::array<std::uint32_t, 3> limbs{result._lo, result._mid, result._hi};
+            for (int i = 2; i >= 0; --i)
+            {
+                const std::uint64_t current = (remainder << 32)
+                    | limbs[static_cast<std::size_t>(i)];
+                quotient[static_cast<std::size_t>(i)] = static_cast<std::uint32_t>(current / 10U);
+                remainder = current % 10U;
+            }
+            if (remainder != 0)
+            {
+                break;
+            }
+            result._lo = quotient[0];
+            result._mid = quotient[1];
+            result._hi = quotient[2];
+            --result._scale;
+        }
+        if (result._lo == 0 && result._mid == 0 && result._hi == 0)
+        {
+            result._negative = false;
+        }
+        return result;
+    }
+
+    double Decimal::ToDouble() const noexcept
+    {
+        long double value = static_cast<long double>(_hi) * 18446744073709551616.0L
+            + static_cast<long double>(_mid) * 4294967296.0L
+            + static_cast<long double>(_lo);
+        for (std::uint8_t i = 0; i < _scale; ++i)
+        {
+            value /= 10.0L;
+        }
+        if (_negative)
+        {
+            value = -value;
+        }
+        return static_cast<double>(value);
+    }
+}
+
 namespace MphRead::Formats::MovieNativeRuntime
 {
-    struct TaskState
+    struct DecoderLifetime
+    {
+        std::mutex Mutex;
+        std::condition_variable Condition;
+        std::size_t Active = 0;
+    };
+
+    struct TaskState : std::enable_shared_from_this<TaskState>
     {
         std::mutex Mutex;
         std::condition_variable Condition;
         bool Done = false;
         std::exception_ptr Exception{};
+        std::coroutine_handle<> Handle{};
+        std::coroutine_handle<> Continuation{};
+        std::shared_ptr<TaskState> SelfKeepAlive{};
+
+        ~TaskState()
+        {
+            if (Handle)
+            {
+                Handle.destroy();
+            }
+        }
     };
 
     namespace
     {
+        class DelayScheduler final
+        {
+        public:
+            DelayScheduler()
+                : _worker([this](std::stop_token token) { Run(token); })
+            {
+            }
+
+            void Schedule(std::shared_ptr<TaskState> state,
+                std::coroutine_handle<MovieTask::promise_type> handle)
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                _items.emplace(std::chrono::steady_clock::now() + std::chrono::milliseconds(1),
+                    Item{std::move(state), handle});
+                _condition.notify_all();
+            }
+
+            void DeferRelease(std::shared_ptr<TaskState> state)
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                _releases.emplace(std::chrono::steady_clock::now() + std::chrono::milliseconds(1),
+                    std::move(state));
+                _condition.notify_all();
+            }
+
+        private:
+            struct Item
+            {
+                std::shared_ptr<TaskState> State;
+                std::coroutine_handle<MovieTask::promise_type> Handle;
+            };
+
+            std::mutex _mutex;
+            std::condition_variable_any _condition;
+            std::multimap<std::chrono::steady_clock::time_point, Item> _items;
+            std::multimap<std::chrono::steady_clock::time_point, std::shared_ptr<TaskState>> _releases;
+            std::jthread _worker;
+
+            void Run(std::stop_token token)
+            {
+                std::unique_lock<std::mutex> lock(_mutex);
+                while (!token.stop_requested())
+                {
+                    const auto now = std::chrono::steady_clock::now();
+                    while (!_releases.empty() && _releases.begin()->first <= now)
+                    {
+                        _releases.erase(_releases.begin());
+                    }
+
+                    std::optional<std::chrono::steady_clock::time_point> due;
+                    if (!_items.empty())
+                    {
+                        due = _items.begin()->first;
+                    }
+                    if (!_releases.empty() && (!due.has_value() || _releases.begin()->first < *due))
+                    {
+                        due = _releases.begin()->first;
+                    }
+                    if (!due.has_value())
+                    {
+                        _condition.wait(lock, token, [this]()
+                            { return !_items.empty() || !_releases.empty(); });
+                        continue;
+                    }
+                    if (*due > now)
+                    {
+                        _condition.wait_until(lock, token, *due, []() noexcept { return false; });
+                        continue;
+                    }
+                    if (_items.empty() || _items.begin()->first > now)
+                    {
+                        continue;
+                    }
+
+                    auto first = _items.begin();
+                    Item item = std::move(first->second);
+                    _items.erase(first);
+                    lock.unlock();
+                    bool done = false;
+                    {
+                        std::lock_guard<std::mutex> stateLock(item.State->Mutex);
+                        done = item.State->Done;
+                    }
+                    if (!done && item.Handle && !item.Handle.done())
+                    {
+                        item.Handle.resume();
+                    }
+                    lock.lock();
+                }
+            }
+        };
+
+        DelayScheduler& Scheduler()
+        {
+            static DelayScheduler scheduler;
+            return scheduler;
+        }
+
         constexpr std::uint32_t Prime2 = 2246822519U;
         constexpr std::uint32_t Prime3 = 3266489917U;
         constexpr std::uint32_t Prime4 = 668265263U;
@@ -85,12 +290,54 @@ namespace MphRead::Formats::MovieNativeRuntime
         return std::bit_cast<std::int32_t>(MixFinal(hash));
     }
 
+    BinaryReader::BinaryReader(std::shared_ptr<std::istream> stream)
+        : _stream(std::move(stream))
+    {
+        if (!_stream)
+        {
+            throw System::ArgumentNullException("input");
+        }
+    }
+
+    BinaryReader::~BinaryReader()
+    {
+        DisposeStream();
+    }
+
+    void BinaryReader::DisposeStream() noexcept
+    {
+        if (!_stream)
+        {
+            return;
+        }
+        try
+        {
+            if (auto* file = dynamic_cast<std::ifstream*>(_stream.get()))
+            {
+                file->close();
+            }
+            else if (auto* file = dynamic_cast<std::fstream*>(_stream.get()))
+            {
+                file->close();
+            }
+            else
+            {
+                // std::istream has no virtual Close member. Mark non-file adapters unusable
+                // after disposal, matching BinaryReader(Stream, leaveOpen:false) observably.
+                _stream->setstate(std::ios::badbit);
+            }
+        }
+        catch (...)
+        {
+        }
+    }
+
     void BinaryReader::ReadExact(void* destination, std::size_t size)
     {
         _stream->read(static_cast<char*>(destination), static_cast<std::streamsize>(size));
         if (_stream->gcount() != static_cast<std::streamsize>(size))
         {
-            throw std::runtime_error("Unable to read beyond the end of the stream.");
+            throw System::EndOfStreamException();
         }
     }
 
@@ -103,7 +350,77 @@ namespace MphRead::Formats::MovieNativeRuntime
 
     char16_t BinaryReader::ReadChar()
     {
-        return static_cast<char16_t>(ReadByte());
+        if (_pendingChar.has_value())
+        {
+            const char16_t value = *_pendingChar;
+            _pendingChar.reset();
+            return value;
+        }
+
+        const std::uint8_t first = ReadByte();
+        if (first < 0x80U)
+        {
+            return static_cast<char16_t>(first);
+        }
+
+        std::int32_t count = 0;
+        std::uint32_t codePoint = 0;
+        std::uint32_t minimum = 0;
+        if ((first & 0xE0U) == 0xC0U)
+        {
+            count = 2;
+            codePoint = first & 0x1FU;
+            minimum = 0x80U;
+        }
+        else if ((first & 0xF0U) == 0xE0U)
+        {
+            count = 3;
+            codePoint = first & 0x0FU;
+            minimum = 0x800U;
+        }
+        else if ((first & 0xF8U) == 0xF0U)
+        {
+            count = 4;
+            codePoint = first & 0x07U;
+            minimum = 0x10000U;
+        }
+        else
+        {
+            return static_cast<char16_t>(0xFFFDU);
+        }
+
+        for (std::int32_t i = 1; i < count; ++i)
+        {
+            std::uint8_t next = 0;
+            try
+            {
+                next = ReadByte();
+            }
+            catch (const System::EndOfStreamException&)
+            {
+                return static_cast<char16_t>(0xFFFDU);
+            }
+            if ((next & 0xC0U) != 0x80U)
+            {
+                return static_cast<char16_t>(0xFFFDU);
+            }
+            codePoint = (codePoint << 6) | (next & 0x3FU);
+        }
+
+        if (codePoint < minimum || codePoint > 0x10FFFFU
+            || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
+        {
+            return static_cast<char16_t>(0xFFFDU);
+        }
+        if (codePoint <= 0xFFFFU)
+        {
+            return static_cast<char16_t>(codePoint);
+        }
+
+        codePoint -= 0x10000U;
+        const char16_t high = static_cast<char16_t>(0xD800U + (codePoint >> 10));
+        _pendingChar = static_cast<char16_t>(0xDC00U + (codePoint & 0x3FFU));
+        return high;
     }
 
     std::int16_t BinaryReader::ReadInt16()
@@ -144,8 +461,65 @@ namespace MphRead::Formats::MovieNativeRuntime
         _stream->seekg(static_cast<std::streamoff>(value), std::ios::beg);
         if (!_stream->good())
         {
-            throw std::runtime_error("An attempt was made to move the position before the beginning of the stream.");
+            throw System::ArgumentOutOfRangeException("value");
         }
+    }
+
+    MovieTask::MovieTask(std::shared_ptr<TaskState> state) noexcept
+        : _state(std::move(state))
+    {
+    }
+
+    MovieTask MovieTask::promise_type::get_return_object()
+    {
+        auto state = std::make_shared<TaskState>();
+        State = state.get();
+        state->Handle = std::coroutine_handle<promise_type>::from_promise(*this);
+        return MovieTask(std::move(state));
+    }
+
+    void MovieTask::promise_type::unhandled_exception() noexcept
+    {
+        Exception = std::current_exception();
+    }
+
+    std::coroutine_handle<> MovieTask::promise_type::FinalAwaiter::await_suspend(
+        std::coroutine_handle<promise_type> handle) const noexcept
+    {
+        promise_type& promise = handle.promise();
+        TaskState* state = promise.State;
+        std::coroutine_handle<> continuation = std::noop_coroutine();
+        if (promise.Lifetime)
+        {
+            std::lock_guard<std::mutex> lifetimeLock(promise.Lifetime->Mutex);
+            if (promise.Lifetime->Active > 0)
+            {
+                --promise.Lifetime->Active;
+            }
+            promise.Lifetime->Condition.notify_all();
+            promise.Lifetime.reset();
+        }
+        std::shared_ptr<TaskState> deferredRelease;
+        {
+            std::lock_guard<std::mutex> lock(state->Mutex);
+            state->Exception = promise.Exception;
+            state->Done = true;
+            if (state->Continuation)
+            {
+                continuation = state->Continuation;
+                state->Continuation = {};
+            }
+            deferredRelease = std::move(state->SelfKeepAlive);
+        }
+        state->Condition.notify_all();
+        if (deferredRelease)
+        {
+            // A C# Task owns its state machine while suspended even when the returned
+            // Task reference is discarded. Release that self-ownership only after the
+            // final-suspend transition has safely returned to the scheduler/continuation.
+            Scheduler().DeferRelease(std::move(deferredRelease));
+        }
+        return continuation;
     }
 
     MovieTask::Awaiter::Awaiter(std::shared_ptr<TaskState> state) noexcept
@@ -153,8 +527,66 @@ namespace MphRead::Formats::MovieNativeRuntime
     {
     }
 
+    bool MovieTask::Awaiter::await_ready() const noexcept
+    {
+        if (!_state)
+        {
+            return true;
+        }
+        std::lock_guard<std::mutex> lock(_state->Mutex);
+        return _state->Done;
+    }
+
+    bool MovieTask::Awaiter::await_suspend(
+        std::coroutine_handle<promise_type> continuation) noexcept
+    {
+        if (!_state)
+        {
+            return false;
+        }
+        TaskState* parentRaw = continuation.promise().State;
+        std::shared_ptr<TaskState> parentState = parentRaw->shared_from_this();
+        {
+            std::lock_guard<std::mutex> parentLock(parentState->Mutex);
+            if (!parentState->SelfKeepAlive)
+            {
+                parentState->SelfKeepAlive = parentState;
+            }
+        }
+        std::lock_guard<std::mutex> lock(_state->Mutex);
+        if (_state->Done)
+        {
+            std::lock_guard<std::mutex> parentLock(parentState->Mutex);
+            parentState->SelfKeepAlive.reset();
+            return false;
+        }
+        _state->Continuation = continuation;
+        return true;
+    }
+
+    void MovieTask::Awaiter::await_resume()
+    {
+        if (!_state)
+        {
+            return;
+        }
+        std::exception_ptr exception;
+        {
+            std::lock_guard<std::mutex> lock(_state->Mutex);
+            exception = _state->Exception;
+        }
+        if (exception)
+        {
+            std::rethrow_exception(exception);
+        }
+    }
+
     void MovieTask::Awaiter::GetResult()
     {
+        if (!_state)
+        {
+            return;
+        }
         std::unique_lock<std::mutex> lock(_state->Mutex);
         _state->Condition.wait(lock, [this]() { return _state->Done; });
         std::exception_ptr exception = _state->Exception;
@@ -165,67 +597,44 @@ namespace MphRead::Formats::MovieNativeRuntime
         }
     }
 
-    MovieTask::MovieTask()
-        : _state(std::make_shared<TaskState>())
-    {
-        _state->Done = true;
-    }
-
-    MovieTask::MovieTask(std::function<void()> action, bool asynchronous)
-        : MovieTask(std::move(action), asynchronous, {})
-    {
-    }
-
-    MovieTask::MovieTask(std::function<void()> action, bool asynchronous,
-        std::function<bool()> synchronousPrefixDone)
-        : _state(std::make_shared<TaskState>())
-    {
-        auto run = [state = _state, action = std::move(action)]() mutable
-        {
-            std::exception_ptr exception{};
-            try
-            {
-                action();
-            }
-            catch (...)
-            {
-                exception = std::current_exception();
-            }
-            {
-                std::lock_guard<std::mutex> lock(state->Mutex);
-                state->Exception = exception;
-                state->Done = true;
-            }
-            state->Condition.notify_all();
-        };
-
-        if (asynchronous)
-        {
-            std::thread(std::move(run)).detach();
-            if (synchronousPrefixDone)
-            {
-                while (!synchronousPrefixDone())
-                {
-                    {
-                        std::lock_guard<std::mutex> lock(_state->Mutex);
-                        if (_state->Done)
-                        {
-                            break;
-                        }
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
-            }
-        }
-        else
-        {
-            run();
-        }
-    }
-
     MovieTask::Awaiter MovieTask::GetAwaiter() const noexcept
     {
         return Awaiter(_state);
+    }
+
+    void MovieTask::DelayAwaitable::await_suspend(
+        std::coroutine_handle<promise_type> handle) const
+    {
+        TaskState* raw = handle.promise().State;
+        std::shared_ptr<TaskState> state = raw->shared_from_this();
+        {
+            std::lock_guard<std::mutex> lock(state->Mutex);
+            if (!state->SelfKeepAlive)
+            {
+                state->SelfKeepAlive = state;
+            }
+        }
+        Scheduler().Schedule(std::move(state), handle);
+    }
+
+    bool MovieTask::LifetimeAwaitable::await_suspend(
+        std::coroutine_handle<promise_type> handle) const noexcept
+    {
+        if (Lifetime)
+        {
+            {
+                std::lock_guard<std::mutex> lock(Lifetime->Mutex);
+                ++Lifetime->Active;
+            }
+            handle.promise().Lifetime = Lifetime;
+        }
+        return false;
+    }
+
+    MovieTask::LifetimeAwaitable MovieTask::TrackLifetime(
+        std::shared_ptr<DecoderLifetime> lifetime) noexcept
+    {
+        return LifetimeAwaitable{std::move(lifetime)};
     }
 }
 
@@ -251,6 +660,171 @@ namespace MphRead::Formats
                 * std::bit_cast<std::uint32_t>(right);
             return std::bit_cast<std::int32_t>(result);
         }
+
+        [[nodiscard]] std::int32_t WrapInt32Subtract(std::int32_t left, std::int32_t right) noexcept
+        {
+            const std::uint32_t result = std::bit_cast<std::uint32_t>(left)
+                - std::bit_cast<std::uint32_t>(right);
+            return std::bit_cast<std::int32_t>(result);
+        }
+
+        [[nodiscard]] std::int32_t WrapInt32Negate(std::int32_t value) noexcept
+        {
+            return std::bit_cast<std::int32_t>(0U - std::bit_cast<std::uint32_t>(value));
+        }
+
+        [[nodiscard]] std::int32_t WrapInt32ShiftLeft(std::int32_t value, std::int32_t count) noexcept
+        {
+            const std::uint32_t shift = static_cast<std::uint32_t>(count) & 31U;
+            return std::bit_cast<std::int32_t>(
+                std::bit_cast<std::uint32_t>(value) << shift);
+        }
+
+        [[nodiscard]] std::int32_t ArithmeticInt32ShiftRight(
+            std::int32_t value, std::int32_t count) noexcept
+        {
+            const std::uint32_t shift = static_cast<std::uint32_t>(count) & 31U;
+            if (shift == 0)
+            {
+                return value;
+            }
+            std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+            bits >>= shift;
+            if (value < 0)
+            {
+                bits |= (~std::uint32_t{0}) << (32U - shift);
+            }
+            return std::bit_cast<std::int32_t>(bits);
+        }
+
+        [[nodiscard]] std::int32_t WrapInt32Add3(
+            std::int32_t a, std::int32_t b, std::int32_t c) noexcept
+        {
+            return WrapInt32Add(WrapInt32Add(a, b), c);
+        }
+
+        void FillManagedStackallocUnspecified(std::span<std::int32_t> values) noexcept
+        {
+            // C# stackalloc without an initializer deliberately exposes unspecified
+            // existing stack contents. C++ may not read indeterminate int objects, so
+            // materialize arbitrary defined bit patterns instead of inventing zero-init.
+            static std::atomic<std::uint32_t> nonce{0xA341316CU};
+            std::uint32_t state = nonce.fetch_add(0x9E3779B9U, std::memory_order_relaxed)
+                ^ static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(values.data()));
+            for (std::int32_t& value : values)
+            {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                value = std::bit_cast<std::int32_t>(state);
+            }
+        }
+
+        class SharedVectorStreamBuf final : public std::streambuf
+        {
+        public:
+            explicit SharedVectorStreamBuf(std::shared_ptr<std::vector<std::uint8_t>> data)
+                : _data(std::move(data)), _length(_data ? _data->size() : 0)
+            {
+            }
+
+        protected:
+            std::streamsize xsgetn(char* destination, std::streamsize count) override
+            {
+                if (count <= 0 || _position >= _length || !_data)
+                {
+                    return 0;
+                }
+                const std::size_t requested = static_cast<std::size_t>(count);
+                const std::size_t available = _length - _position;
+                const std::size_t actual = std::min(requested, available);
+                const std::size_t currentSize = _data->size();
+                if (_position >= currentSize)
+                {
+                    return 0;
+                }
+                const std::size_t readable = std::min(actual, currentSize - _position);
+                std::memcpy(destination, _data->data() + _position, readable);
+                _position += readable;
+                return static_cast<std::streamsize>(readable);
+            }
+
+            int_type underflow() override
+            {
+                if (!_data || _position >= _length || _position >= _data->size())
+                {
+                    return traits_type::eof();
+                }
+                return traits_type::to_int_type(
+                    static_cast<char>((*_data)[_position]));
+            }
+
+            int_type uflow() override
+            {
+                const int_type value = underflow();
+                if (!traits_type::eq_int_type(value, traits_type::eof()))
+                {
+                    ++_position;
+                }
+                return value;
+            }
+
+            pos_type seekoff(off_type offset, std::ios_base::seekdir direction,
+                std::ios_base::openmode which) override
+            {
+                if ((which & std::ios_base::in) == 0)
+                {
+                    return pos_type(off_type(-1));
+                }
+                std::int64_t base = 0;
+                if (direction == std::ios_base::beg)
+                {
+                    base = 0;
+                }
+                else if (direction == std::ios_base::cur)
+                {
+                    base = static_cast<std::int64_t>(_position);
+                }
+                else if (direction == std::ios_base::end)
+                {
+                    base = static_cast<std::int64_t>(_length);
+                }
+                else
+                {
+                    return pos_type(off_type(-1));
+                }
+                const std::int64_t target = base + static_cast<std::int64_t>(offset);
+                if (target < 0)
+                {
+                    return pos_type(off_type(-1));
+                }
+                _position = static_cast<std::size_t>(target);
+                return pos_type(static_cast<off_type>(_position));
+            }
+
+            pos_type seekpos(pos_type position, std::ios_base::openmode which) override
+            {
+                return seekoff(static_cast<off_type>(position), std::ios_base::beg, which);
+            }
+
+        private:
+            std::shared_ptr<std::vector<std::uint8_t>> _data;
+            const std::size_t _length;
+            std::size_t _position = 0;
+        };
+
+        class SharedVectorInputStream final : public std::istream
+        {
+        public:
+            explicit SharedVectorInputStream(std::shared_ptr<std::vector<std::uint8_t>> data)
+                : std::istream(nullptr), _buffer(std::move(data))
+            {
+                rdbuf(&_buffer);
+            }
+
+        private:
+            SharedVectorStreamBuf _buffer;
+        };
 
         [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
         {
@@ -343,7 +917,8 @@ namespace MphRead::Formats
             }
             stbi_flip_vertically_on_write(0);
             const int result = stbi_write_png_to_func(
-                &StbiStreamWrite, &stream, width, height, 3, pixels.data(), width * 3);
+                &StbiStreamWrite, &stream, width, height, 3, pixels.data(),
+                WrapInt32Multiply(width, 3));
             if (result == 0 || !stream)
             {
                 throw std::runtime_error("Failed to write PNG output file.");
@@ -434,7 +1009,7 @@ namespace MphRead::Formats
 
     Block Block::HalfRight() const noexcept
     {
-        return Block(X + W / 2, Y, W / 2, H);
+        return Block(WrapInt32Add(X, W / 2), Y, W / 2, H);
     }
 
     Block Block::HalfUp() const noexcept
@@ -444,7 +1019,7 @@ namespace MphRead::Formats
 
     Block Block::HalfDown() const noexcept
     {
-        return Block(X, Y + H / 2, W, H / 2);
+        return Block(X, WrapInt32Add(Y, H / 2), W, H / 2);
     }
 
     const std::array<std::array<std::int32_t, 3>, 6> VxDecoder::_quantizer4x4Table{{
@@ -459,13 +1034,23 @@ namespace MphRead::Formats
     bool VxDecoder::UseStaticBuffers = true;
 
     VxDecoder::VxDecoder()
+        : _lifetime(std::make_shared<MovieNativeRuntime::DecoderLifetime>())
     {
-        for (std::int32_t frame = 0; frame < 4; ++frame)
+        for (std::int32_t frame = 0; frame < 4; frame = WrapInt32Add(frame, 1))
         {
             const std::size_t base = static_cast<std::size_t>(frame) * 3U;
             _planeBuffers[base] = std::make_shared<ByteArray2D>(_mphFrameH, _mphFrameW);
             _planeBuffers[base + 1U] = std::make_shared<ByteArray2D>(_mphFrameH / 2, _mphFrameW / 2);
             _planeBuffers[base + 2U] = std::make_shared<ByteArray2D>(_mphFrameH / 2, _mphFrameW / 2);
+        }
+    }
+
+    VxDecoder::~VxDecoder()
+    {
+        if (_lifetime)
+        {
+            std::unique_lock<std::mutex> lock(_lifetime->Mutex);
+            _lifetime->Condition.wait(lock, [this]() { return _lifetime->Active == 0; });
         }
     }
 
@@ -510,118 +1095,95 @@ namespace MphRead::Formats
 
     MovieNativeRuntime::MovieTask VxDecoder::ExportAll()
     {
-        return MovieNativeRuntime::MovieTask([this]()
+        co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
+        Reset();
+        UseStaticBuffers = false;
+        std::int32_t i = 0;
+        const std::string movieFolder = Paths::Combine(Paths::FileSystem(), "movies");
+        std::vector<std::filesystem::path> files;
+        for (const std::filesystem::directory_entry& entry
+            : std::filesystem::directory_iterator(PathFromUtf8(movieFolder)))
         {
-            Reset();
-            UseStaticBuffers = false;
-            std::int32_t i = 0;
-            const std::string movieFolder = Paths::Combine(Paths::FileSystem(), "movies");
-            std::vector<std::filesystem::path> files;
-            for (const std::filesystem::directory_entry& entry
-                : std::filesystem::directory_iterator(PathFromUtf8(movieFolder)))
+            if (entry.is_regular_file())
             {
-                if (entry.is_regular_file())
-                {
-                    files.push_back(entry.path());
-                }
+                files.push_back(entry.path());
             }
-            for (const std::filesystem::path& path : files)
+        }
+        for (const std::filesystem::path& path : files)
+        {
+            if (Extension(path) == ".vx")
             {
-                if (Extension(path) == ".vx")
-                {
-                    std::cout << "Exporting " << ++i << " of " << files.size()
-                        << ": " << FileName(path) << '\n';
-                    Decode(PathUtf8(path), true).GetAwaiter().GetResult();
-                }
+                i = WrapInt32Add(i, 1);
+                std::cout << "Exporting " << i << " of " << files.size()
+                    << ": " << FileName(path) << '\n';
+                co_await Decode(PathUtf8(path), true);
             }
-            std::cout << "Done." << '\n';
-        }, false);
+        }
+        std::cout << "Done." << '\n';
+        co_return;
     }
 
     MovieNativeRuntime::MovieTask VxDecoder::Export(const std::string& filePath)
     {
-        return MovieNativeRuntime::MovieTask([this, filePath]()
+        co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
+        Reset();
+        std::string path = Paths::Combine(Paths::FileSystem(), "movies", filePath);
+        if (!FileExists(path))
         {
-            Reset();
-            std::string path = Paths::Combine(Paths::FileSystem(), "movies", filePath);
+            path = Paths::Combine(Paths::FileSystem(), filePath);
             if (!FileExists(path))
             {
-                path = Paths::Combine(Paths::FileSystem(), filePath);
-                if (!FileExists(path))
-                {
-                    path = filePath;
-                }
+                path = filePath;
             }
-            std::cout << "Exporting..." << '\n';
-            UseStaticBuffers = false;
-            Decode(path, true).GetAwaiter().GetResult();
-            std::cout << "Done." << '\n';
-        }, false);
+        }
+        std::cout << "Exporting..." << '\n';
+        UseStaticBuffers = false;
+        co_await Decode(path, true);
+        std::cout << "Done." << '\n';
+        co_return;
     }
 
     MovieNativeRuntime::MovieTask VxDecoder::Decode(
         const std::string& filePath, bool writeFiles, std::stop_token token)
     {
-        const std::uint64_t generation = _decodeGeneration.load(std::memory_order_acquire);
-        return MovieNativeRuntime::MovieTask([this, filePath, writeFiles, token]()
+        co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
+        auto stream = std::make_shared<std::ifstream>(PathFromUtf8(filePath), std::ios::binary);
+        if (!*stream)
         {
-            std::ifstream stream(PathFromUtf8(filePath), std::ios::binary);
-            if (!stream)
-            {
-                throw std::runtime_error("Could not find file '" + filePath + "'.");
-            }
-            DecodeCore(stream, FileName(PathFromUtf8(filePath)), writeFiles, token);
-        }, !writeFiles, [this, generation]()
-        {
-            return _decodeGeneration.load(std::memory_order_acquire) != generation
-                && _framesQueued.load(std::memory_order_relaxed) >= 4;
-        });
+            throw std::runtime_error("Could not find file '" + filePath + "'.");
+        }
+        co_await Decode(std::static_pointer_cast<std::istream>(stream),
+            FileName(PathFromUtf8(filePath)), writeFiles, token);
+        co_return;
     }
 
     MovieNativeRuntime::MovieTask VxDecoder::Decode(
         std::shared_ptr<std::vector<std::uint8_t>> data, const std::string& filename,
         bool writeFiles, std::stop_token token)
     {
+        co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
         if (!data)
         {
-            throw System::NullReferenceException();
+            // MemoryStream(byte[]) faults the async method with ArgumentNullException.
+            throw System::ArgumentNullException("buffer");
         }
-        const std::uint64_t generation = _decodeGeneration.load(std::memory_order_acquire);
-        return MovieNativeRuntime::MovieTask(
-            [this, data = std::move(data), filename, writeFiles, token]()
-            {
-                std::string bytes(reinterpret_cast<const char*>(data->data()), data->size());
-                std::istringstream stream(bytes, std::ios::binary);
-                DecodeCore(stream, filename, writeFiles, token);
-            }, !writeFiles, [this, generation]()
-            {
-                return _decodeGeneration.load(std::memory_order_acquire) != generation
-                    && _framesQueued.load(std::memory_order_relaxed) >= 4;
-            });
+        auto stream = std::make_shared<SharedVectorInputStream>(data);
+        co_await Decode(std::static_pointer_cast<std::istream>(stream), filename, writeFiles, token);
+        co_return;
     }
 
     MovieNativeRuntime::MovieTask VxDecoder::Decode(
         std::shared_ptr<std::istream> stream, const std::string& filename,
         bool writeFiles, std::stop_token token)
     {
-        if (!stream)
-        {
-            throw System::NullReferenceException();
-        }
-        const std::uint64_t generation = _decodeGeneration.load(std::memory_order_acquire);
-        return MovieNativeRuntime::MovieTask(
-            [this, stream = std::move(stream), filename, writeFiles, token]()
-            {
-                DecodeCore(*stream, filename, writeFiles, token);
-            }, !writeFiles, [this, generation]()
-            {
-                return _decodeGeneration.load(std::memory_order_acquire) != generation
-                    && _framesQueued.load(std::memory_order_relaxed) >= 4;
-            });
+        co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
+        co_await DecodeCore(std::move(stream), filename, writeFiles, token);
+        co_return;
     }
 
-    void VxDecoder::DecodeCore(
-        std::istream& stream, const std::string& filename, bool writeFiles, std::stop_token token)
+    MovieNativeRuntime::MovieTask VxDecoder::DecodeCore(
+        std::shared_ptr<std::istream> stream, const std::string& filename,
+        bool writeFiles, std::stop_token token)
     {
         const std::string folder = Paths::Combine(Paths::Export(), Stem(PathFromUtf8(filename)));
         if (writeFiles)
@@ -629,11 +1191,10 @@ namespace MphRead::Formats
             std::filesystem::create_directories(PathFromUtf8(folder));
         }
 
-        MovieNativeRuntime::BinaryReader reader(stream);
+        MovieNativeRuntime::BinaryReader reader(std::move(stream));
         _nextPlaneBufferIndex = 0;
         _nextSampleBufferIndex = 0;
         _framesQueued.store(0, std::memory_order_relaxed);
-        _decodeGeneration.fetch_add(1, std::memory_order_release);
 
         (*Magic)[0] = reader.ReadChar();
         (*Magic)[1] = reader.ReadChar();
@@ -642,7 +1203,7 @@ namespace MphRead::Formats
         FrameCount = reader.ReadInt32();
         FrameWidth = reader.ReadInt32();
         FrameHeight = reader.ReadInt32();
-        FrameRate = static_cast<double>(reader.ReadInt32()) / 65536.0;
+        FrameRate = System::Decimal::DivideInt32By65536(reader.ReadInt32());
         Quantizer = reader.ReadInt32();
         AudioSampleRate = reader.ReadInt32();
         AudioStreamCount = reader.ReadInt32();
@@ -764,9 +1325,13 @@ namespace MphRead::Formats
         std::vector<std::uint8_t> fileOutputBuffer;
         if (writeFiles)
         {
-            const std::size_t size = static_cast<std::size_t>(FrameWidth)
-                * static_cast<std::size_t>(FrameHeight) * 3U;
-            fileOutputBuffer.resize(size);
+            const std::int32_t size = WrapInt32Multiply(
+                WrapInt32Multiply(FrameWidth, FrameHeight), 3);
+            if (size < 0)
+            {
+                throw System::OverflowException();
+            }
+            fileOutputBuffer.resize(static_cast<std::size_t>(size));
         }
 
         for (std::int32_t i = 0; i < 11; ++i)
@@ -778,15 +1343,15 @@ namespace MphRead::Formats
         {
             while (!writeFiles && _framesQueued.load(std::memory_order_relaxed) >= 4 && !token.stop_requested())
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                co_await MovieNativeRuntime::MovieTask::DelayOneMillisecond();
             }
             if (token.stop_requested())
             {
-                return;
+                co_return;
             }
 
             std::int32_t dataSize = reader.ReadUInt16();
-            dataSize -= 2;
+            dataSize = WrapInt32Add(dataSize, -2);
             assert(dataSize % 2 == 0);
             assert(dataSize <= MaxDataSize);
             const std::int32_t audioFrameCount = reader.ReadUInt16();
@@ -815,7 +1380,7 @@ namespace MphRead::Formats
 
             auto vxFrame = std::make_shared<VxFrame>(
                 FrameWidth, FrameHeight, audioFrameCount,
-                *Extradata, prevAudioFrame, buffers, _nextSampleBufferIndex);
+                Extradata, prevAudioFrame, buffers, _nextSampleBufferIndex);
             vxFrame->Decode(reader, buffer, dataSize);
 
             if (audioFrameCount > 0)
@@ -882,9 +1447,11 @@ namespace MphRead::Formats
             std::int32_t frame = 0;
             for (const std::shared_ptr<VxFrame>& vxFrame : *frames)
             {
-                WriteFile(fileOutputBuffer, *vxFrame, folder, frame++);
+                WriteFile(fileOutputBuffer, *vxFrame, folder, frame);
+                frame = WrapInt32Add(frame, 1);
             }
         }
+        co_return;
     }
 
     void VxDecoder::WriteFile(
@@ -900,12 +1467,17 @@ namespace MphRead::Formats
                 const std::int32_t cu = (*videoFrame.PlaneBufferU())(y / 2, x / 2);
                 const std::int32_t cv = (*videoFrame.PlaneBufferV())(y / 2, x / 2);
                 const ColorRgb rgb = YuvToRgb(cy, cu, cv);
-                std::size_t index = (static_cast<std::size_t>(y)
-                    * static_cast<std::size_t>(FrameWidth)
-                    + static_cast<std::size_t>(x)) * 3U;
-                pixelBuffer[index++] = rgb.Red;
-                pixelBuffer[index++] = rgb.Green;
-                pixelBuffer[index] = rgb.Blue;
+                std::int32_t index = WrapInt32Multiply(
+                    WrapInt32Add(WrapInt32Multiply(y, FrameWidth), x), 3);
+                if (index < 0 || static_cast<std::size_t>(index) + 2U >= pixelBuffer.size())
+                {
+                    throw System::IndexOutOfRangeException();
+                }
+                pixelBuffer[static_cast<std::size_t>(index)] = rgb.Red;
+                index = WrapInt32Add(index, 1);
+                pixelBuffer[static_cast<std::size_t>(index)] = rgb.Green;
+                index = WrapInt32Add(index, 1);
+                pixelBuffer[static_cast<std::size_t>(index)] = rgb.Blue;
             }
         }
 
@@ -914,7 +1486,8 @@ namespace MphRead::Formats
         WriteRgbPng(Paths::Combine(folder, name.str()), pixelBuffer, FrameWidth, FrameHeight);
     }
 
-    bool VxDecoder::GetImage(std::int32_t frameIndex, std::span<std::uint8_t> texture)
+    bool VxDecoder::GetImage(std::int32_t frameIndex,
+        const std::shared_ptr<std::vector<std::uint8_t>>& texture)
     {
         std::shared_ptr<VxFrame> vxFrame;
         {
@@ -923,25 +1496,37 @@ namespace MphRead::Formats
             {
                 return false;
             }
-            vxFrame = _vxFrames->at(static_cast<std::size_t>(frameIndex));
+            if (frameIndex < 0)
+            {
+                throw System::ArgumentOutOfRangeException("index");
+            }
+            vxFrame = (*_vxFrames)[static_cast<std::size_t>(frameIndex)];
         }
-        for (std::int32_t y = 0; y < FrameHeight; ++y)
+        if (!texture)
         {
-            for (std::int32_t x = 0; x < FrameWidth; ++x)
+            throw System::NullReferenceException();
+        }
+        for (std::int32_t y = 0; y < FrameHeight; y = WrapInt32Add(y, 1))
+        {
+            for (std::int32_t x = 0; x < FrameWidth; x = WrapInt32Add(x, 1))
             {
                 const std::int32_t cy = (*vxFrame->VideoFrame->PlaneBufferY())(y, x);
                 const std::int32_t cu = (*vxFrame->VideoFrame->PlaneBufferU())(y / 2, x / 2);
                 const std::int32_t cv = (*vxFrame->VideoFrame->PlaneBufferV())(y / 2, x / 2);
                 const ColorRgb rgb = YuvToRgb(cy, cu, cv);
-                const std::size_t index = static_cast<std::size_t>(y) * 256U * 3U
-                    + static_cast<std::size_t>(x) * 3U;
-                if (index + 2U >= texture.size())
+                const std::int32_t base = WrapInt32Add(
+                    WrapInt32Multiply(y, 256 * 3), WrapInt32Multiply(x, 3));
+                const std::array<std::uint8_t, 3> values{rgb.Red, rgb.Green, rgb.Blue};
+                for (std::int32_t channel = 0; channel < 3; channel = WrapInt32Add(channel, 1))
                 {
-                    throw std::out_of_range("Index was outside the bounds of the array.");
+                    const std::int32_t index = WrapInt32Add(base, channel);
+                    if (index < 0 || static_cast<std::size_t>(index) >= texture->size())
+                    {
+                        throw System::IndexOutOfRangeException();
+                    }
+                    (*texture)[static_cast<std::size_t>(index)]
+                        = values[static_cast<std::size_t>(channel)];
                 }
-                texture[index] = rgb.Red;
-                texture[index + 1U] = rgb.Green;
-                texture[index + 2U] = rgb.Blue;
             }
         }
         const std::int32_t queued = _framesQueued.load(std::memory_order_relaxed);
@@ -952,10 +1537,11 @@ namespace MphRead::Formats
     std::span<const std::int16_t> VxDecoder::GetAudioBuffer(std::int32_t index) const
     {
         index %= SampleBufferCount();
-        const std::int64_t start = static_cast<std::int64_t>(128) * index;
-        if (start < 0 || start + 128 > static_cast<std::int64_t>(_sampleBuffer->size()))
+        const std::int32_t start = WrapInt32Multiply(128, index);
+        if (start < 0 || static_cast<std::size_t>(start) > _sampleBuffer->size()
+            || _sampleBuffer->size() - static_cast<std::size_t>(start) < 128U)
         {
-            throw std::out_of_range("Specified argument was out of the range of valid values.");
+            throw System::ArgumentOutOfRangeException("start");
         }
         return std::span<const std::int16_t>(
             _sampleBuffer->data() + static_cast<std::ptrdiff_t>(start), 128);
@@ -972,12 +1558,19 @@ namespace MphRead::Formats
 
     std::array<std::shared_ptr<ByteArray2D>, 3> VxDecoder::GetPlaneBuffers()
     {
-        std::shared_ptr<ByteArray2D> bufferY
-            = _planeBuffers.at(static_cast<std::size_t>(_nextPlaneBufferIndex++));
-        std::shared_ptr<ByteArray2D> bufferU
-            = _planeBuffers.at(static_cast<std::size_t>(_nextPlaneBufferIndex++));
-        std::shared_ptr<ByteArray2D> bufferV
-            = _planeBuffers.at(static_cast<std::size_t>(_nextPlaneBufferIndex++));
+        auto takeBuffer = [this]() -> std::shared_ptr<ByteArray2D>
+        {
+            const std::int32_t index = _nextPlaneBufferIndex;
+            _nextPlaneBufferIndex = WrapInt32Add(_nextPlaneBufferIndex, 1);
+            if (index < 0 || static_cast<std::size_t>(index) >= _planeBuffers.size())
+            {
+                throw System::IndexOutOfRangeException();
+            }
+            return _planeBuffers[static_cast<std::size_t>(index)];
+        };
+        std::shared_ptr<ByteArray2D> bufferY = takeBuffer();
+        std::shared_ptr<ByteArray2D> bufferU = takeBuffer();
+        std::shared_ptr<ByteArray2D> bufferV = takeBuffer();
         _nextPlaneBufferIndex %= static_cast<std::int32_t>(_planeBuffers.size());
 
         // Preserve the source exactly: V is cleared twice; Y is not cleared here.
@@ -1002,12 +1595,12 @@ namespace MphRead::Formats
 
     VxFrame::VxFrame(
         std::int32_t frameWidth, std::int32_t frameHeight, std::int32_t audioFrameCount,
-        AudioExtradata& extradata, std::shared_ptr<AudioFrame> prevAudioFrame,
+        std::shared_ptr<AudioExtradata> extradata, std::shared_ptr<AudioFrame> prevAudioFrame,
         const VxBuffers& buffers, std::int32_t sampleBufferIndex)
         : VideoFrame(std::make_shared<::MphRead::Formats::VideoFrame>(
             frameWidth, frameHeight, buffers)),
           AudioFrameCount(audioFrameCount),
-          AudioFrames([&extradata, prevAudioFrame = std::move(prevAudioFrame),
+          AudioFrames([extradata = std::move(extradata), prevAudioFrame = std::move(prevAudioFrame),
               &buffers, sampleBufferIndex, audioFrameCount]() mutable
           {
               if (audioFrameCount < 0)
@@ -1064,8 +1657,13 @@ namespace MphRead::Formats
         const std::int32_t bytePosition = _bitPosition / 8;
         const std::int32_t bitPosition = _bitPosition % 8;
         _bitPosition = WrapInt32Add(_bitPosition, 1);
-        return (_buffer->at(static_cast<std::size_t>(bytePosition))
-            >> (7 - bitPosition)) & 1;
+        if (bytePosition < 0
+            || static_cast<std::size_t>(bytePosition) >= _buffer->size())
+        {
+            throw System::IndexOutOfRangeException();
+        }
+        return ((*_buffer)[static_cast<std::size_t>(bytePosition)]
+            >> WrapInt32Subtract(7, bitPosition)) & 1;
     }
 
     std::int32_t BitStreamReader::ConsumeUntilNotZero()
@@ -1082,29 +1680,35 @@ namespace MphRead::Formats
     {
         const std::int32_t zeroCount = ConsumeUntilNotZero();
         assert(zeroCount <= 30);
-        std::int32_t value = 1 << zeroCount;
-        for (std::int32_t i = 0; i < zeroCount; ++i)
+        std::int32_t value = WrapInt32ShiftLeft(1, zeroCount);
+        for (std::int32_t i = 0; i < zeroCount; i = WrapInt32Add(i, 1))
         {
-            value |= ReadBit() << (zeroCount - i - 1);
+            const std::int32_t shift = WrapInt32Subtract(
+                WrapInt32Subtract(zeroCount, i), 1);
+            value |= WrapInt32ShiftLeft(ReadBit(), shift);
         }
-        return value - 1;
+        return WrapInt32Add(value, -1);
     }
 
     std::int32_t BitStreamReader::ReadSignedExpGolomb()
     {
-        const std::int32_t value = ReadUnsignedExpGolomb() + 1;
-        return (value >> 1) * ((value & 1) * -2 + 1);
+        const std::int32_t value = WrapInt32Add(ReadUnsignedExpGolomb(), 1);
+        const std::int32_t sign = WrapInt32Add(
+            WrapInt32Multiply(value & 1, -2), 1);
+        return WrapInt32Multiply(ArithmeticInt32ShiftRight(value, 1), sign);
     }
 
     std::int32_t BitStreamReader::ReadInt(std::int32_t bitCount)
     {
         assert(bitCount >= 0 && bitCount <= 32);
-        std::uint32_t value = 0;
-        for (std::int32_t i = 0; i < bitCount; ++i)
+        std::int32_t value = 0;
+        for (std::int32_t i = 0; i < bitCount; i = WrapInt32Add(i, 1))
         {
-            value |= static_cast<std::uint32_t>(ReadBit()) << (bitCount - i - 1);
+            const std::int32_t shift = WrapInt32Subtract(
+                WrapInt32Subtract(bitCount, i), 1);
+            value |= WrapInt32ShiftLeft(ReadBit(), shift);
         }
-        return std::bit_cast<std::int32_t>(value);
+        return value;
     }
 
     std::int32_t BitStreamReader::ReadVLC2(const VLCData& vlc)
@@ -1115,7 +1719,7 @@ namespace MphRead::Formats
         while (index == -1)
         {
             assert(bitCount < vlc.MaxBitCount());
-            ++bitCount;
+            bitCount = WrapInt32Add(bitCount, 1);
             hashCode = MovieNativeRuntime::HashCombine(hashCode, ReadBit());
             index = vlc.FindBitPattern(hashCode);
         }
@@ -1412,8 +2016,8 @@ namespace MphRead::Formats
         if (hasDelta)
         {
             predictionVector = Vector2ir(
-                predictionVector.X + _reader->ReadSignedExpGolomb(),
-                predictionVector.Y + _reader->ReadSignedExpGolomb());
+                WrapInt32Add(predictionVector.X, _reader->ReadSignedExpGolomb()),
+                WrapInt32Add(predictionVector.Y, _reader->ReadSignedExpGolomb()));
         }
 
         (*_vectors)((block.Y / 16) + 1, (block.X / 16) + 1) = predictionVector;
@@ -1424,7 +2028,8 @@ namespace MphRead::Formats
             {
                 (*_planeBufferY)(y, x) = PlaneBufferGetter(
                     *prevVideoFrame->_planeBufferY, 1,
-                    x + predictionVector.X, y + predictionVector.Y);
+                    WrapInt32Add(x, predictionVector.X),
+                    WrapInt32Add(y, predictionVector.Y));
             }
         }
         for (std::int32_t y = block.Y; y < block.Y + block.H; y += 2)
@@ -1433,7 +2038,8 @@ namespace MphRead::Formats
             {
                 (*_planeBufferU)(y / 2, x / 2) = PlaneBufferGetter(
                     *prevVideoFrame->_planeBufferU, 2,
-                    x + predictionVector.X, y + predictionVector.Y);
+                    WrapInt32Add(x, predictionVector.X),
+                    WrapInt32Add(y, predictionVector.Y));
             }
         }
         for (std::int32_t y = block.Y; y < block.Y + block.H; y += 2)
@@ -1442,7 +2048,8 @@ namespace MphRead::Formats
             {
                 (*_planeBufferV)(y / 2, x / 2) = PlaneBufferGetter(
                     *prevVideoFrame->_planeBufferV, 2,
-                    x + predictionVector.X, y + predictionVector.Y);
+                    WrapInt32Add(x, predictionVector.X),
+                    WrapInt32Add(y, predictionVector.Y));
             }
         }
     }
@@ -1451,8 +2058,12 @@ namespace MphRead::Formats
     {
         const Vector2ir vec(_reader->ReadSignedExpGolomb(), _reader->ReadSignedExpGolomb());
 
-        if (block.X + vec.X < 0 || block.X + vec.X + block.W > FrameWidth
-            || block.Y + vec.Y < 0 || block.Y + vec.Y + block.H > FrameHeight)
+        const std::int32_t sourceX = WrapInt32Add(block.X, vec.X);
+        const std::int32_t sourceY = WrapInt32Add(block.Y, vec.Y);
+        const std::int32_t sourceRight = WrapInt32Add(sourceX, block.W);
+        const std::int32_t sourceBottom = WrapInt32Add(sourceY, block.H);
+        if (sourceX < 0 || sourceRight > FrameWidth
+            || sourceY < 0 || sourceBottom > FrameHeight)
         {
             throw ProgramException("VX decoding error 008");
         }
@@ -1485,8 +2096,10 @@ namespace MphRead::Formats
         {
             for (std::int32_t x = block.X; x < block.X + block.W; ++x)
             {
-                const std::int32_t pixel = PlaneBufferGetter(
-                    *prevVideoFrame->_planeBufferY, 1, x + vec.X, y + vec.Y) + dcY;
+                const std::int32_t predicted = PlaneBufferGetter(
+                    *prevVideoFrame->_planeBufferY, 1,
+                    WrapInt32Add(x, vec.X), WrapInt32Add(y, vec.Y));
+                const std::int32_t pixel = WrapInt32Add(predicted, dcY);
                 (*_planeBufferY)(y, x) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
             }
         }
@@ -1494,8 +2107,10 @@ namespace MphRead::Formats
         {
             for (std::int32_t x = block.X; x < block.X + block.W; x += 2)
             {
-                const std::int32_t pixel = PlaneBufferGetter(
-                    *prevVideoFrame->_planeBufferU, 2, x + vec.X, y + vec.Y) + dcU;
+                const std::int32_t predicted = PlaneBufferGetter(
+                    *prevVideoFrame->_planeBufferU, 2,
+                    WrapInt32Add(x, vec.X), WrapInt32Add(y, vec.Y));
+                const std::int32_t pixel = WrapInt32Add(predicted, dcU);
                 (*_planeBufferU)(y / 2, x / 2) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
             }
         }
@@ -1503,8 +2118,10 @@ namespace MphRead::Formats
         {
             for (std::int32_t x = block.X; x < block.X + block.W; x += 2)
             {
-                const std::int32_t pixel = PlaneBufferGetter(
-                    *prevVideoFrame->_planeBufferV, 2, x + vec.X, y + vec.Y) + dcV;
+                const std::int32_t predicted = PlaneBufferGetter(
+                    *prevVideoFrame->_planeBufferV, 2,
+                    WrapInt32Add(x, vec.X), WrapInt32Add(y, vec.Y));
+                const std::int32_t pixel = WrapInt32Add(predicted, dcV);
                 (*_planeBufferV)(y / 2, x / 2) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
             }
         }
@@ -1517,21 +2134,21 @@ namespace MphRead::Formats
         {
             throw ProgramException("VX decoding error 012: " + std::to_string(value));
         }
-        PredictPlane(block, *_planeBufferY, 1, value * 2);
+        PredictPlane(block, *_planeBufferY, 1, WrapInt32Multiply(value, 2));
 
         value = _reader->ReadSignedExpGolomb();
         if (value < -(1 << 16) || value >= (1 << 16))
         {
             throw ProgramException("VX decoding error 013: " + std::to_string(value));
         }
-        PredictPlane(block, *_planeBufferU, 2, value * 2);
+        PredictPlane(block, *_planeBufferU, 2, WrapInt32Multiply(value, 2));
 
         value = _reader->ReadSignedExpGolomb();
         if (value < -(1 << 16) || value >= (1 << 16))
         {
             throw ProgramException("VX decoding error 014: " + std::to_string(value));
         }
-        PredictPlane(block, *_planeBufferV, 2, value * 2);
+        PredictPlane(block, *_planeBufferV, 2, WrapInt32Multiply(value, 2));
     }
 
     void VideoFrame::DecodeResidueBlocks(Block block)
@@ -1689,7 +2306,7 @@ namespace MphRead::Formats
                 std::int32_t levelPrefix = 0;
                 while (_reader->ReadBit() == 0)
                 {
-                    ++levelPrefix;
+                    levelPrefix = WrapInt32Add(levelPrefix, 1);
                 }
 
                 std::int32_t levelSuffix;
@@ -1702,14 +2319,21 @@ namespace MphRead::Formats
                     levelSuffix = _reader->ReadInt(suffixLength);
                 }
 
-                std::int32_t levelCode = (levelPrefix << suffixLength) + levelSuffix + 1;
-                if (levelCode > _suffixLimits.at(static_cast<std::size_t>(suffixLength + 1)))
+                std::int32_t levelCode = WrapInt32Add3(
+                    WrapInt32ShiftLeft(levelPrefix, suffixLength), levelSuffix, 1);
+                const std::int32_t suffixIndex = WrapInt32Add(suffixLength, 1);
+                if (suffixIndex < 0
+                    || static_cast<std::size_t>(suffixIndex) >= _suffixLimits.size())
                 {
-                    ++suffixLength;
+                    throw System::IndexOutOfRangeException();
+                }
+                if (levelCode > _suffixLimits[static_cast<std::size_t>(suffixIndex)])
+                {
+                    suffixLength = WrapInt32Add(suffixLength, 1);
                 }
                 if (_reader->ReadBit() == 1)
                 {
-                    levelCode = -levelCode;
+                    levelCode = WrapInt32Negate(levelCode);
                 }
                 level.at(static_cast<std::size_t>(levelPos++)) = levelCode;
             }
@@ -1735,7 +2359,7 @@ namespace MphRead::Formats
                 runBefore = _reader->ReadVLC2(VLC::Run7Vlc());
             }
 
-            zeroesRemaining -= runBefore;
+            zeroesRemaining = WrapInt32Subtract(zeroesRemaining, runBefore);
             for (std::int32_t i = 0; i < runBefore; ++i)
             {
                 level.at(static_cast<std::size_t>(levelPos++)) = 0;
@@ -1761,57 +2385,66 @@ namespace MphRead::Formats
         for (std::size_t i = 0; i < _zigzagScanTable.size(); ++i)
         {
             const std::int32_t z = _zigzagScanTable[i];
-            dct.at(static_cast<std::size_t>(z))
-                = level[15U - i]
-                * _quantizerTable->at(static_cast<std::size_t>((z & 1) + ((z >> 2) & 1)));
+            dct.at(static_cast<std::size_t>(z)) = WrapInt32Multiply(
+                level[15U - i],
+                _quantizerTable->at(static_cast<std::size_t>(
+                    (z & 1) + ((z >> 2) & 1))));
         }
 
-        dct[0] += 1 << 5;
+        dct[0] = WrapInt32Add(dct[0], WrapInt32ShiftLeft(1, 5));
 
         for (std::int32_t i = 0; i < 4; ++i)
         {
             const std::size_t si = static_cast<std::size_t>(i);
-            const std::int32_t z0 = dct[si + 4U * 0U] + dct[si + 4U * 2U];
-            const std::int32_t z1 = dct[si + 4U * 0U] - dct[si + 4U * 2U];
-            const std::int32_t z2 = (dct[si + 4U * 1U] / 2) - dct[si + 4U * 3U];
-            const std::int32_t z3 = dct[si + 4U * 1U] + (dct[si + 4U * 3U] / 2);
+            const std::int32_t z0 = WrapInt32Add(
+                dct[si + 4U * 0U], dct[si + 4U * 2U]);
+            const std::int32_t z1 = WrapInt32Subtract(
+                dct[si + 4U * 0U], dct[si + 4U * 2U]);
+            const std::int32_t z2 = WrapInt32Subtract(
+                dct[si + 4U * 1U] / 2, dct[si + 4U * 3U]);
+            const std::int32_t z3 = WrapInt32Add(
+                dct[si + 4U * 1U], dct[si + 4U * 3U] / 2);
 
-            dct[si + 4U * 0U] = z0 + z3;
-            dct[si + 4U * 1U] = z1 + z2;
-            dct[si + 4U * 2U] = z1 - z2;
-            dct[si + 4U * 3U] = z0 - z3;
+            dct[si + 4U * 0U] = WrapInt32Add(z0, z3);
+            dct[si + 4U * 1U] = WrapInt32Add(z1, z2);
+            dct[si + 4U * 2U] = WrapInt32Subtract(z1, z2);
+            dct[si + 4U * 3U] = WrapInt32Subtract(z0, z3);
         }
 
         for (std::int32_t i = 0; i < 4; ++i)
         {
             const std::size_t base = 4U * static_cast<std::size_t>(i);
-            const std::int32_t z0 = dct[0U + base] + dct[2U + base];
-            const std::int32_t z1 = dct[0U + base] - dct[2U + base];
-            const std::int32_t z2 = (dct[1U + base] / 2) - dct[3U + base];
-            const std::int32_t z3 = dct[1U + base] + (dct[3U + base] / 2);
+            const std::int32_t z0 = WrapInt32Add(dct[0U + base], dct[2U + base]);
+            const std::int32_t z1 = WrapInt32Subtract(dct[0U + base], dct[2U + base]);
+            const std::int32_t z2 = WrapInt32Subtract(dct[1U + base] / 2, dct[3U + base]);
+            const std::int32_t z3 = WrapInt32Add(dct[1U + base], dct[3U + base] / 2);
 
-            const std::int32_t bx = x + step * i;
-            std::int32_t by = y + step * 0;
-            std::int32_t pixel = PlaneBufferGetter(planeBuffer, step, bx, by)
-                + ((z0 + z3) >> 6);
+            const std::int32_t bx = WrapInt32Add(x, WrapInt32Multiply(step, i));
+            std::int32_t by = y;
+            std::int32_t pixel = WrapInt32Add(
+                PlaneBufferGetter(planeBuffer, step, bx, by),
+                ArithmeticInt32ShiftRight(WrapInt32Add(z0, z3), 6));
             planeBuffer(by / step, bx / step)
                 = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
 
-            by = y + step * 1;
-            pixel = PlaneBufferGetter(planeBuffer, step, bx, by)
-                + ((z1 + z2) >> 6);
+            by = WrapInt32Add(y, step);
+            pixel = WrapInt32Add(
+                PlaneBufferGetter(planeBuffer, step, bx, by),
+                ArithmeticInt32ShiftRight(WrapInt32Add(z1, z2), 6));
             planeBuffer(by / step, bx / step)
                 = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
 
-            by = y + step * 2;
-            pixel = PlaneBufferGetter(planeBuffer, step, bx, by)
-                + ((z1 - z2) >> 6);
+            by = WrapInt32Add(y, WrapInt32Multiply(step, 2));
+            pixel = WrapInt32Add(
+                PlaneBufferGetter(planeBuffer, step, bx, by),
+                ArithmeticInt32ShiftRight(WrapInt32Subtract(z1, z2), 6));
             planeBuffer(by / step, bx / step)
                 = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
 
-            by = y + step * 3;
-            pixel = PlaneBufferGetter(planeBuffer, step, bx, by)
-                + ((z0 - z3) >> 6);
+            by = WrapInt32Add(y, WrapInt32Multiply(step, 3));
+            pixel = WrapInt32Add(
+                PlaneBufferGetter(planeBuffer, step, bx, by),
+                ArithmeticInt32ShiftRight(WrapInt32Subtract(z0, z3), 6));
             planeBuffer(by / step, bx / step)
                 = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
         }
@@ -2433,11 +3066,11 @@ namespace MphRead::Formats
     const std::array<std::int32_t, 4> AudioFrame::_pulseDistances{3, 3, 4, 5};
 
     AudioFrame::AudioFrame(
-        AudioExtradata& extradata,
+        std::shared_ptr<AudioExtradata> extradata,
         std::shared_ptr<AudioFrame> prevAudioFrame,
         const VxBuffers& buffers,
         std::int32_t sampleBufferIndex)
-        : _extradata(&extradata),
+        : _extradata(std::move(extradata)),
           _prevAudioFrame(std::move(prevAudioFrame)),
           _prevSampleBuffer(buffers.PrevSampleBuffer),
           _prevPulseBuffer(buffers.PrevPulseBuffer),
@@ -2457,7 +3090,7 @@ namespace MphRead::Formats
         const std::int32_t start = WrapInt32Multiply(128, _sampleBufferIndex);
         if (start < 0 || static_cast<std::size_t>(start) + 128U > _sampleBuffer->size())
         {
-            throw std::out_of_range("Specified argument was out of the range of valid values.");
+            throw System::ArgumentOutOfRangeException("start");
         }
         return std::span<std::int16_t>(_sampleBuffer->data() + start, 128);
     }
@@ -2471,7 +3104,7 @@ namespace MphRead::Formats
         const std::int32_t start = WrapInt32Multiply(128, _sampleBufferIndex);
         if (start < 0 || static_cast<std::size_t>(start) + 128U > _sampleBuffer->size())
         {
-            throw std::out_of_range("Specified argument was out of the range of valid values.");
+            throw System::ArgumentOutOfRangeException("start");
         }
         return std::span<const std::int16_t>(_sampleBuffer->data() + start, 128);
     }
@@ -2479,6 +3112,10 @@ namespace MphRead::Formats
     void AudioFrame::Decode(BitStreamReader& reader)
     {
         _reader = &reader;
+        if (!_extradata)
+        {
+            throw System::NullReferenceException();
+        }
         std::array<std::int32_t, 3> lpcCodebookIndices{};
         const std::int32_t header1 = reader.ReadInt(16);
         const std::int32_t header2 = reader.ReadInt(16);
@@ -2513,7 +3150,7 @@ namespace MphRead::Formats
 
         std::array<std::int32_t, 42> pulseValues{};
         std::int32_t pulseValueLength
-            = pulsePackingMode == 0 ? 42 : pulseDataLength * 8;
+            = pulsePackingMode == 0 ? 42 : WrapInt32Multiply(pulseDataLength, 8);
         if (pulsePackingMode == 0)
         {
             std::int32_t v = 0;
@@ -2555,33 +3192,38 @@ namespace MphRead::Formats
             }
             _scale = _prevAudioFrame->Scale();
         }
-        _scale = _scale
-            * (*_extradata->ScaleModifiers)[static_cast<std::size_t>(scaleModifierIndex)] / 8192;
+        _scale = WrapInt32Multiply(
+            _scale,
+            (*_extradata->ScaleModifiers)[static_cast<std::size_t>(scaleModifierIndex)]) / 8192;
 
         const std::int32_t pulseDistance
             = _pulseDistances[static_cast<std::size_t>(pulsePackingMode)];
 
-        std::array<std::int32_t, 128> pulseBuffer{};
+        std::array<std::int32_t, 128> pulseBuffer;
+        FillManagedStackallocUnspecified(pulseBuffer);
         if (prevFrameOffset < 126)
         {
-            for (std::int32_t i = 0; i < 128; ++i)
+            for (std::int32_t i = 0; i < 128; i = WrapInt32Add(i, 1))
             {
-                const std::int32_t volume = std::min(8, std::min(i + 1, 128 - i));
-                pulseBuffer[static_cast<std::size_t>(i)]
-                    = (*_prevPulseBuffer)[static_cast<std::size_t>(i + 127 - prevFrameOffset)]
-                    * volume / 16;
+                const std::int32_t volume = std::min(8,
+                    std::min(WrapInt32Add(i, 1), WrapInt32Subtract(128, i)));
+                const std::int32_t previousIndex = WrapInt32Subtract(
+                    WrapInt32Add(i, 127), prevFrameOffset);
+                pulseBuffer[static_cast<std::size_t>(i)] = WrapInt32Multiply(
+                    (*_prevPulseBuffer)[static_cast<std::size_t>(previousIndex)], volume) / 16;
             }
         }
 
-        for (std::int32_t i = 0; i < 128; ++i)
+        for (std::int32_t i = 0; i < 128; i = WrapInt32Add(i, 1))
         {
-            const std::int32_t dividend = i - pulseStartPosition;
+            const std::int32_t dividend = WrapInt32Subtract(i, pulseStartPosition);
             const std::int32_t index = dividend / pulseDistance;
             const std::int32_t remainder = dividend % pulseDistance;
             if (remainder == 0 && index >= 0 && index < pulseValueLength)
             {
-                pulseBuffer[static_cast<std::size_t>(i)]
-                    += pulseValues[static_cast<std::size_t>(index)] * _scale;
+                pulseBuffer[static_cast<std::size_t>(i)] = WrapInt32Add(
+                    pulseBuffer[static_cast<std::size_t>(i)],
+                    WrapInt32Multiply(pulseValues[static_cast<std::size_t>(index)], _scale));
             }
         }
 
@@ -2591,34 +3233,38 @@ namespace MphRead::Formats
                 _lpcFilterBuffer->begin());
         }
 
-        for (std::int32_t i = 0; i < 8; ++i)
+        for (std::int32_t i = 0; i < 8; i = WrapInt32Add(i, 1))
         {
             std::int32_t coeffSum = 0;
-            for (std::int32_t j = 0; j < 3; ++j)
+            for (std::int32_t j = 0; j < 3; j = WrapInt32Add(j, 1))
             {
                 const std::int32_t index = lpcCodebookIndices[static_cast<std::size_t>(j)];
-                coeffSum += (*_extradata->LpcCodebooks)(
-                    j, index, i);
+                coeffSum = WrapInt32Add(coeffSum,
+                    (*_extradata->LpcCodebooks)(j, index, i));
             }
-            (*_lpcFilterBuffer)[static_cast<std::size_t>(i)] += coeffSum;
+            (*_lpcFilterBuffer)[static_cast<std::size_t>(i)] = WrapInt32Add(
+                (*_lpcFilterBuffer)[static_cast<std::size_t>(i)], coeffSum);
         }
 
         std::array<std::int32_t, 8> influenceValues{};
         std::array<std::int32_t, 8> influenceTemp{};
-        for (std::int32_t i = 0; i < 8; ++i)
+        for (std::int32_t i = 0; i < 8; i = WrapInt32Add(i, 1))
         {
             std::copy(influenceValues.begin(), influenceValues.end(), influenceTemp.begin());
             const std::int32_t coeff
                 = (*_lpcFilterBuffer)[static_cast<std::size_t>(i)];
-            for (std::int32_t j = 0; j < i; ++j)
+            for (std::int32_t j = 0; j < i; j = WrapInt32Add(j, 1))
             {
-                influenceValues[static_cast<std::size_t>(j)]
-                    += influenceTemp[static_cast<std::size_t>(i - j - 1)]
-                    * coeff / 32768;
+                const std::int32_t sourceIndex = WrapInt32Subtract(
+                    WrapInt32Subtract(i, j), 1);
+                const std::int32_t contribution = WrapInt32Multiply(
+                    influenceTemp[static_cast<std::size_t>(sourceIndex)], coeff) / 32768;
+                influenceValues[static_cast<std::size_t>(j)] = WrapInt32Add(
+                    influenceValues[static_cast<std::size_t>(j)], contribution);
             }
             influenceValues[static_cast<std::size_t>(i)] = coeff;
         }
-        for (std::int32_t i = 0; i < 8; ++i)
+        for (std::int32_t i = 0; i < 8; i = WrapInt32Add(i, 1))
         {
             influenceValues[static_cast<std::size_t>(i)] /= -2;
         }
@@ -2632,20 +3278,21 @@ namespace MphRead::Formats
             for (std::int32_t i = 0; i < 8; ++i)
             {
                 influenceQuarters[static_cast<std::size_t>(8 + i)]
-                    = ((*_influenceBuffer)[static_cast<std::size_t>(i)]
-                        + influenceQuarters[static_cast<std::size_t>(24 + i)]) / 2;
+                    = WrapInt32Add((*_influenceBuffer)[static_cast<std::size_t>(i)],
+                        influenceQuarters[static_cast<std::size_t>(WrapInt32Add(24, i))]) / 2;
             }
             for (std::int32_t i = 0; i < 8; ++i)
             {
                 influenceQuarters[static_cast<std::size_t>(i)]
-                    = ((*_influenceBuffer)[static_cast<std::size_t>(i)]
-                        + influenceQuarters[static_cast<std::size_t>(8 + i)]) / 2;
+                    = WrapInt32Add((*_influenceBuffer)[static_cast<std::size_t>(i)],
+                        influenceQuarters[static_cast<std::size_t>(WrapInt32Add(8, i))]) / 2;
             }
             for (std::int32_t i = 0; i < 8; ++i)
             {
                 influenceQuarters[static_cast<std::size_t>(16 + i)]
-                    = (influenceQuarters[static_cast<std::size_t>(8 + i)]
-                        + influenceQuarters[static_cast<std::size_t>(24 + i)]) / 2;
+                    = WrapInt32Add(
+                        influenceQuarters[static_cast<std::size_t>(WrapInt32Add(8, i))],
+                        influenceQuarters[static_cast<std::size_t>(WrapInt32Add(24, i))]) / 2;
             }
         }
         else
@@ -2659,18 +3306,23 @@ namespace MphRead::Formats
 
         std::span<std::int16_t> sampleBuffer = SampleBuffer();
         std::fill(sampleBuffer.begin(), sampleBuffer.end(), 0);
-        for (std::int32_t i = 0; i < 128; ++i)
+        for (std::int32_t i = 0; i < 128; i = WrapInt32Add(i, 1))
         {
-            const std::int32_t quarterStart = i * 4 / 128 * 8;
-            std::int32_t sample = pulseBuffer[static_cast<std::size_t>(i)] * 16384;
-            for (std::int32_t j = 0; j < 8; ++j)
+            const std::int32_t quarterStart = WrapInt32Multiply(
+                WrapInt32Multiply(i, 4) / 128, 8);
+            std::int32_t sample = WrapInt32Multiply(
+                pulseBuffer[static_cast<std::size_t>(i)], 16384);
+            for (std::int32_t j = 0; j < 8; j = WrapInt32Add(j, 1))
             {
-                const std::int32_t sampleIndex = i - j - 1;
+                const std::int32_t sampleIndex = WrapInt32Subtract(
+                    WrapInt32Subtract(i, j), 1);
                 const std::int32_t prevSample = sampleIndex >= 0
                     ? sampleBuffer[static_cast<std::size_t>(sampleIndex)]
-                    : (*_prevSampleBuffer)[static_cast<std::size_t>(sampleIndex + 8)];
-                sample += prevSample
-                    * influenceQuarters[static_cast<std::size_t>(quarterStart + j)];
+                    : (*_prevSampleBuffer)[static_cast<std::size_t>(WrapInt32Add(sampleIndex, 8))];
+                sample = WrapInt32Add(sample, WrapInt32Multiply(
+                    prevSample,
+                    influenceQuarters[static_cast<std::size_t>(
+                        WrapInt32Add(quarterStart, j))]));
             }
             sample /= 16384;
             sampleBuffer[static_cast<std::size_t>(i)]
@@ -2692,10 +3344,18 @@ namespace MphRead::Formats
     {
         for (std::size_t i = 0; i < lengthList.size(); ++i)
         {
+            if (i >= bitList.size())
+            {
+                throw System::IndexOutOfRangeException();
+            }
             const std::int32_t length = lengthList[i];
             const std::int32_t value = bitList[i];
             if (length != 0)
             {
+                if (length < 0)
+                {
+                    throw System::ArgumentOutOfRangeException("totalWidth");
+                }
                 std::string bitString;
                 if (value == 0)
                 {
@@ -2703,7 +3363,7 @@ namespace MphRead::Formats
                 }
                 else
                 {
-                    const auto unsignedValue = static_cast<std::uint32_t>(value);
+                    const std::uint32_t unsignedValue = std::bit_cast<std::uint32_t>(value);
                     const int width = 32 - std::countl_zero(unsignedValue);
                     bitString.reserve(static_cast<std::size_t>(width));
                     for (int bit = width - 1; bit >= 0; --bit)
@@ -2725,9 +3385,10 @@ namespace MphRead::Formats
                 }
                 const auto [it, inserted] = _bitDict.emplace(
                     hashCode, static_cast<std::int32_t>(i));
+                (void)it;
                 if (!inserted)
                 {
-                    throw std::invalid_argument(
+                    throw System::ArgumentException(
                         "An item with the same key has already been added.");
                 }
                 _maxBitCount = std::max(

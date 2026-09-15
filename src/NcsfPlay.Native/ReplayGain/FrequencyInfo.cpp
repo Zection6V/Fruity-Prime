@@ -72,13 +72,14 @@ namespace NCSFCommon::ReplayGain
 
     bool FrequencyInfo::Equals(const FrequencyInfo* other) const noexcept
     {
-        return other != nullptr
-            && EqualityContract() == other->EqualityContract()
-            && sampleRateValue == other->sampleRateValue
-            && bYuleValue == other->bYuleValue
-            && aYuleValue == other->aYuleValue
-            && bButterValue == other->bButterValue
-            && aButterValue == other->aButterValue;
+        return this == other
+            || (other != nullptr
+                && EqualityContract() == other->EqualityContract()
+                && sampleRateValue == other->sampleRateValue
+                && bYuleValue == other->bYuleValue
+                && aYuleValue == other->aYuleValue
+                && bButterValue == other->bButterValue
+                && aButterValue == other->aButterValue);
     }
 
     std::int32_t FrequencyInfo::GetHashCode() const noexcept
@@ -166,16 +167,6 @@ namespace NCSFCommon::ReplayGain
             clone->aButterValue = *aButter;
         }
         return clone;
-    }
-
-    bool operator==(const FrequencyInfo& left, const FrequencyInfo& right) noexcept
-    {
-        return &left == &right || left.Equals(&right);
-    }
-
-    bool operator!=(const FrequencyInfo& left, const FrequencyInfo& right) noexcept
-    {
-        return !(left == right);
     }
 
     bool operator==(

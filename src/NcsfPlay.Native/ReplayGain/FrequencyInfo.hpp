@@ -54,9 +54,6 @@ namespace NCSFCommon::ReplayGain
             std::optional<DoubleArray> bButter = std::nullopt,
             std::optional<DoubleArray> aButter = std::nullopt) const;
 
-        friend bool operator==(const FrequencyInfo& left, const FrequencyInfo& right) noexcept;
-        friend bool operator!=(const FrequencyInfo& left, const FrequencyInfo& right) noexcept;
-
     protected:
         FrequencyInfo(const FrequencyInfo&) noexcept = default;
 

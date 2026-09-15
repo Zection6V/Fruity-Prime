@@ -47,6 +47,25 @@ namespace
         return value.substr(start, end - start);
     }
 
+    [[nodiscard]] std::u16string_view GetTrimmedTagValue(
+        const NCSFCommon::TagList& tags,
+        std::u16string_view name,
+        std::u16string& storage)
+    {
+        if (!tags.Contains(name))
+        {
+            return {};
+        }
+
+        const NCSFCommon::TagList::Item item = tags[name];
+        if (item.Value.IsNull())
+        {
+            throw NCSFCommon::NullReferenceException();
+        }
+        storage = item.Value;
+        return Trim(storage);
+    }
+
     [[nodiscard]] bool EqualIgnoreCase(std::u16string_view left, std::u16string_view right) noexcept
     {
         if (left.size() != right.size())
@@ -393,36 +412,16 @@ namespace NCSF123
         std::u16string trackGainStorage;
         std::u16string trackPeakStorage;
         std::u16string volumeStorage;
-        std::u16string_view albumGain;
-        std::u16string_view albumPeak;
-        std::u16string_view trackGain;
-        std::u16string_view trackPeak;
-        std::u16string_view volume;
-        if (_tags.Contains(u"replaygain_album_gain"))
-        {
-            albumGainStorage = _tags[u"replaygain_album_gain"].Value;
-            albumGain = Trim(albumGainStorage);
-        }
-        if (_tags.Contains(u"replaygain_album_peak"))
-        {
-            albumPeakStorage = _tags[u"replaygain_album_peak"].Value;
-            albumPeak = Trim(albumPeakStorage);
-        }
-        if (_tags.Contains(u"replaygain_track_gain"))
-        {
-            trackGainStorage = _tags[u"replaygain_track_gain"].Value;
-            trackGain = Trim(trackGainStorage);
-        }
-        if (_tags.Contains(u"replaygain_track_peak"))
-        {
-            trackPeakStorage = _tags[u"replaygain_track_peak"].Value;
-            trackPeak = Trim(trackPeakStorage);
-        }
-        if (_tags.Contains(u"volume"))
-        {
-            volumeStorage = _tags[u"volume"].Value;
-            volume = Trim(volumeStorage);
-        }
+        std::u16string_view albumGain = GetTrimmedTagValue(
+            _tags, u"replaygain_album_gain", albumGainStorage);
+        std::u16string_view albumPeak = GetTrimmedTagValue(
+            _tags, u"replaygain_album_peak", albumPeakStorage);
+        std::u16string_view trackGain = GetTrimmedTagValue(
+            _tags, u"replaygain_track_gain", trackGainStorage);
+        std::u16string_view trackPeak = GetTrimmedTagValue(
+            _tags, u"replaygain_track_peak", trackPeakStorage);
+        std::u16string_view volume = GetTrimmedTagValue(
+            _tags, u"volume", volumeStorage);
 
         float gain = 0.0F;
         bool hadReplayGain = false;

@@ -133,10 +133,10 @@ namespace NCSFCommon::NC
             _waveArchives.size() * sizeof(std::uint16_t));
     }
 
-    void INFOEntryBANK::ReplaceWaveArchive(int i, std::uint16_t newWaveArchive)
+    void INFOEntryBANK::ReplaceWaveArchive(std::int32_t i, std::uint16_t newWaveArchive)
     {
         assert(i >= 0 && i <= 3);
-        if (i < 0 || i >= static_cast<int>(_waveArchives.size()))
+        if (i < 0 || i > 3)
         {
             ThrowIndexOutOfRange();
         }

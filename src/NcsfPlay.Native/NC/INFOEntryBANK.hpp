@@ -36,7 +36,7 @@ namespace NCSFCommon::NC
         INFOEntryBANK* Read(std::span<const std::uint8_t> span) override;
         void Write(std::span<std::uint8_t> span) override;
 
-        void ReplaceWaveArchive(int i, std::uint16_t newWaveArchive);
+        void ReplaceWaveArchive(std::int32_t i, std::uint16_t newWaveArchive);
 
         [[nodiscard]] bool FileEquals(const INFOEntryBANK* other) const;
 

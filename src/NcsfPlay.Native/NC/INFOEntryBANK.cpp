@@ -113,7 +113,7 @@ namespace NCSFCommon::NC
         {
             ThrowArgumentOutOfRange();
         }
-        std::memcpy(
+        std::memmove(
             _waveArchives.data(),
             span.data() + 0x04U,
             _waveArchives.size() * sizeof(std::uint16_t));
@@ -127,7 +127,7 @@ namespace NCSFCommon::NC
         {
             ThrowArgumentDestinationTooShort();
         }
-        std::memcpy(
+        std::memmove(
             span.data() + 0x04U,
             _waveArchives.data(),
             _waveArchives.size() * sizeof(std::uint16_t));

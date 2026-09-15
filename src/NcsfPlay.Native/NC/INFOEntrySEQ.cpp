@@ -243,7 +243,8 @@ namespace NCSFCommon::NC
 
     bool INFOEntrySEQ::FileEquals(const INFOEntrySEQ* other) const
     {
-        return other != nullptr && SSEQ::EqualityOperator(_sseq.get(), other->_sseq.get());
+        return other != nullptr
+            && NCSFCommon::NC::SSEQ::EqualityOperator(_sseq.get(), other->_sseq.get());
     }
 
     std::u16string INFOEntrySEQ::DebuggerDisplay() const

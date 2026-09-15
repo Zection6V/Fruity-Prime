@@ -579,6 +579,7 @@ namespace NCSFCommon
 			std::u16string_view sdatNumber,
 			const std::vector<std::shared_ptr<KeepInfo>>& includesAndExcludes);
 
+		// Mirrors the C# "0#.####" custom numeric format, including its midpoint rounding rule.
 		[[nodiscard]] static std::u16string SecondsToString(float seconds);
 		[[nodiscard]] static std::int32_t StringToMS(std::u16string_view time);
 		[[nodiscard]] static std::int32_t VLVLength(std::int32_t value) noexcept;

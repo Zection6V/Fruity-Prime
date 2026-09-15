@@ -444,9 +444,17 @@ namespace
 
 		const bool negative = std::signbit(value);
 		const float magnitude = std::fabs(value);
+
+		// .NET custom numeric formatting rounds midpoint values away from zero. Scaling a
+		// Single in double precision is exact here, so this preserves the source's four
+		// optional fractional digits without inheriting std::to_chars' ties-to-even rule.
+		constexpr double scale = 10000.0;
+		const double scaled = static_cast<double>(magnitude) * scale;
+		const double roundedMagnitude = std::floor(scaled + 0.5) / scale;
+
 		std::array<char, 128> buffer{};
 		const auto [end, error] = std::to_chars(
-			buffer.data(), buffer.data() + buffer.size(), magnitude, std::chars_format::fixed, 4);
+			buffer.data(), buffer.data() + buffer.size(), roundedMagnitude, std::chars_format::fixed, 4);
 		if (error != std::errc{})
 		{
 			throw std::runtime_error("Failed to format a Single value.");

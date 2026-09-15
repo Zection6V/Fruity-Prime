@@ -23,6 +23,11 @@
 
 namespace
 {
+    std::array<std::uint8_t, 8> SDATSignatureBytes{
+        0x53U, 0x44U, 0x41U, 0x54U,
+        0xFFU, 0xFEU, 0x00U, 0x01U
+    };
+
     [[noreturn]] void ThrowOutOfRange()
     {
         throw std::out_of_range("Specified argument was out of the range of valid values.");
@@ -30,7 +35,7 @@ namespace
 
     [[noreturn]] void ThrowNullReference()
     {
-        throw std::runtime_error("Object reference not set to an instance of an object.");
+        throw NCSFCommon::NullReferenceException();
     }
 
     [[nodiscard]] std::int32_t ToInt32Unchecked(std::uint32_t value) noexcept
@@ -380,88 +385,12 @@ namespace
         value = 0;
         return false;
     }
-
-    [[noreturn]] void ThrowArgumentNull()
-    {
-        throw std::invalid_argument("Value cannot be null.");
-    }
-
-    [[nodiscard]] NCSFCommon::Common::KeepType IncludeFilenameAdapter(
-        const std::optional<std::u16string>& filename,
-        const std::optional<std::u16string>& sdatNumber,
-        const std::vector<std::shared_ptr<NCSFCommon::Common::KeepInfo>>& includesAndExcludes)
-    {
-        if (filename.has_value() && sdatNumber.has_value())
-        {
-            return NCSFCommon::Common::IncludeFilename(*filename, *sdatNumber, includesAndExcludes);
-        }
-
-        NCSFCommon::Common::KeepType keep = NCSFCommon::Common::KeepType::Neither;
-        for (const auto& info : includesAndExcludes)
-        {
-            if (info == nullptr)
-            {
-                ThrowNullReference();
-            }
-            if (!info->Filename.has_value())
-            {
-                ThrowNullReference();
-            }
-
-            const std::u16string& pattern = *info->Filename;
-            std::vector<std::u16string_view> parts;
-            std::size_t partStart = 0;
-            for (std::size_t i = 0; i <= pattern.size(); ++i)
-            {
-                if (i == pattern.size() || pattern[i] == u'/')
-                {
-                    parts.emplace_back(pattern.data() + partStart, i - partStart);
-                    partStart = i + 1U;
-                }
-            }
-#ifndef NDEBUG
-            assert(parts.size() <= 2U);
-#endif
-            if (parts.size() == 2U)
-            {
-                if (!sdatNumber.has_value())
-                {
-                    ThrowArgumentNull();
-                }
-                if (NCSFCommon::Common::WildcardStringToRegex(parts[0]).IsMatch(*sdatNumber))
-                {
-                    if (!filename.has_value())
-                    {
-                        ThrowArgumentNull();
-                    }
-                    if (NCSFCommon::Common::WildcardStringToRegex(parts[1]).IsMatch(*filename))
-                    {
-                        keep = info->Keep;
-                    }
-                }
-            }
-            else
-            {
-                if (!filename.has_value())
-                {
-                    ThrowArgumentNull();
-                }
-                if (NCSFCommon::Common::WildcardStringToRegex(pattern).IsMatch(*filename))
-                {
-                    keep = info->Keep;
-                }
-            }
-        }
-        return keep;
-    }
 }
 
 namespace NCSFCommon::NC
 {
-    const std::array<std::uint8_t, 8> SDAT::Signature{
-        0x53U, 0x44U, 0x41U, 0x54U,
-        0xFFU, 0xFEU, 0x00U, 0x01U
-    };
+    const NCSFCommon::ReadOnlyMemory<std::uint8_t> SDAT::Signature(
+        SDATSignatureBytes.data(), SDATSignatureBytes.size());
 
     const std::array<std::uint8_t, 4> SDAT::FILEHeader{
         static_cast<std::uint8_t>('F'),
@@ -914,7 +843,7 @@ namespace NCSFCommon::NC
         }
     }
 
-    std::shared_ptr<SDAT> SDAT::Add(const SDAT& sdat1, const SDAT& sdat2)
+    std::shared_ptr<SDAT> operator+(const SDAT& sdat1, const SDAT& sdat2)
     {
         auto newSDAT = std::make_shared<SDAT>();
 
@@ -1018,11 +947,6 @@ namespace NCSFCommon::NC
         return newSDAT;
     }
 
-    std::shared_ptr<SDAT> operator+(const SDAT& sdat1, const SDAT& sdat2)
-    {
-        return SDAT::Add(sdat1, sdat2);
-    }
-
     std::uint32_t SDAT::GetNonDuplicateNumber(
         std::uint32_t orig,
         const DuplicateDictionary& duplicates)
@@ -1094,7 +1018,7 @@ namespace NCSFCommon::NC
     }
 
     void SDAT::Strip(
-        const std::vector<std::shared_ptr<Common::KeepInfo>>& includesAndExcludes,
+        const std::vector<std::shared_ptr<Common::KeepInfo>>* includesAndExcludes,
         bool verbose,
         bool removeExcluded)
     {
@@ -1223,9 +1147,11 @@ namespace NCSFCommon::NC
                 && std::find(excludedSSEQs.begin(), excludedSSEQs.end(), i) == excludedSSEQs.end())
             {
                 std::vector<std::uint32_t>* alreadyFound = FindContainingValue(duplicateSSEQs, i);
-                if (IncludeFilenameAdapter(
-                        iRecord.Entry->OriginalFilename(),
-                        iRecord.Entry->SDATNumber(),
+                const std::optional<std::u16string> originalFilename = iRecord.Entry->OriginalFilename();
+                const std::optional<std::u16string> sdatNumber = iRecord.Entry->SDATNumber();
+                if (Common::IncludeFilename(
+                        originalFilename.has_value() ? &*originalFilename : nullptr,
+                        sdatNumber.has_value() ? &*sdatNumber : nullptr,
                         includesAndExcludes) == Common::KeepType::Exclude)
                 {
                     excludedSSEQs.push_back(i);
@@ -1416,7 +1342,7 @@ namespace NCSFCommon::NC
             }
 
             const auto& record = At(seqINFOEntries, SSEQsToKeep[static_cast<std::size_t>(i)]);
-            auto newSEQEntry = std::make_shared<INFOEntrySEQ>(record.Entry.get());
+            auto newSEQEntry = std::make_shared<INFOEntrySEQ>(&Require(record.Entry));
             newSEQEntry->FileID(fileID);
             fileID = static_cast<std::uint16_t>(static_cast<std::uint32_t>(fileID) + 1U);
             newSEQEntry->Bank(static_cast<std::uint16_t>(
@@ -1446,7 +1372,7 @@ namespace NCSFCommon::NC
             }
 
             const auto& record = At(bankINFOEntries, SBNKsToKeep[static_cast<std::size_t>(i)]);
-            auto newBANKEntry = std::make_shared<INFOEntryBANK>(record.Entry.get());
+            auto newBANKEntry = std::make_shared<INFOEntryBANK>(&Require(record.Entry));
             newBANKEntry->FileID(fileID);
             fileID = static_cast<std::uint16_t>(static_cast<std::uint32_t>(fileID) + 1U);
             const auto waveArchives = newBANKEntry->WaveArchives();
@@ -1478,7 +1404,7 @@ namespace NCSFCommon::NC
             }
 
             const auto& record = At(wavearcINFOEntries, SWARsToKeep[static_cast<std::size_t>(i)]);
-            auto newWAVEARCEntry = std::make_shared<INFOEntryWAVEARC>(record.Entry.get());
+            auto newWAVEARCEntry = std::make_shared<INFOEntryWAVEARC>(&Require(record.Entry));
             newWAVEARCEntry->FileID(fileID);
             fileID = static_cast<std::uint16_t>(static_cast<std::uint32_t>(fileID) + 1U);
             Require(newWAVEARCEntry->SWAR()).EntryNumber(ToInt32Unchecked(i));
@@ -1498,9 +1424,10 @@ namespace NCSFCommon::NC
             }
 
             const auto& record = At(playerINFOEntries, PLAYERsToKeep[static_cast<std::size_t>(i)]);
+            auto newPLAYEREntry = std::make_shared<INFOEntryPLAYER>(&Require(record.Entry));
             newINFOSection.PLAYERRecord().SetEntry(
                 i,
-                INFORecordEntry<INFOEntryPLAYER>{record.Offset, std::make_shared<INFOEntryPLAYER>(record.Entry.get())});
+                INFORecordEntry<INFOEntryPLAYER>{record.Offset, std::move(newPLAYEREntry)});
         }
 
         if (hasSYMBSection)

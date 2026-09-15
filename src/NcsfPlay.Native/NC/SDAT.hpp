@@ -38,7 +38,7 @@ namespace NCSFCommon::NC
         [[nodiscard]] std::uint16_t HeaderSize() const noexcept override;
         [[nodiscard]] std::uint16_t Blocks() const noexcept override;
 
-        static const std::array<std::uint8_t, 8> Signature;
+        static const NCSFCommon::ReadOnlyMemory<std::uint8_t> Signature;
 
         [[nodiscard]] const std::optional<std::u16string>& Filename() const noexcept;
         void Filename(std::optional<std::u16string> value);
@@ -90,11 +90,10 @@ namespace NCSFCommon::NC
 
         void Write(std::span<std::uint8_t> span) override;
 
-        [[nodiscard]] static std::shared_ptr<SDAT> Add(const SDAT& sdat1, const SDAT& sdat2);
         friend std::shared_ptr<SDAT> operator+(const SDAT& sdat1, const SDAT& sdat2);
 
         void Strip(
-            const std::vector<std::shared_ptr<Common::KeepInfo>>& includesAndExcludes,
+            const std::vector<std::shared_ptr<Common::KeepInfo>>* includesAndExcludes,
             bool verbose,
             bool removeExcluded = true);
 

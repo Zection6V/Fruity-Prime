@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -31,14 +32,14 @@ namespace MphRead::Mods::Chat
 {
     struct ChatLine
     {
-        const std::string Name;
-        const std::string Text;
+        const std::optional<std::string> Name;
+        const std::optional<std::string> Text;
         const std::uint8_t Kind;
         const std::int64_t ArrivedAt;
 
         ChatLine();
-        ChatLine(std::string name, std::string text, std::uint8_t kind,
-            std::int64_t arrivedAt);
+        ChatLine(std::optional<std::string> name, std::optional<std::string> text,
+            std::uint8_t kind, std::int64_t arrivedAt);
         ChatLine& operator=(const ChatLine& other);
     };
 
@@ -65,13 +66,14 @@ namespace MphRead::Mods::Chat
 
         static void Clear();
         static void Receive(const Network::ChatPacket& packet);
-        static void System(const std::string& text);
-        static void Add(const std::string& name, const std::string& text, std::uint8_t kind);
+        static void System(const std::optional<std::string>& text);
+        static void Add(const std::optional<std::string>& name,
+            const std::optional<std::string>& text, std::uint8_t kind);
 
         static void Open(bool swallowOpeningChar = true);
         static void Cancel();
         static void Submit();
-        static void Send(const std::string& text);
+        static void Send(const std::optional<std::string>& text);
         static void HandleText(std::int32_t codePoint);
 
         static bool HandleKeyDown(

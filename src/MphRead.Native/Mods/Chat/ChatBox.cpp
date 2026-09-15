@@ -173,8 +173,8 @@ namespace MphRead::Mods::Chat
     {
     }
 
-    ChatLine::ChatLine(std::string name, std::string text, std::uint8_t kind,
-        std::int64_t arrivedAt)
+    ChatLine::ChatLine(std::optional<std::string> name, std::optional<std::string> text,
+        std::uint8_t kind, std::int64_t arrivedAt)
         : Name(std::move(name)), Text(std::move(text)), Kind(kind), ArrivedAt(arrivedAt)
     {
     }
@@ -297,29 +297,27 @@ namespace MphRead::Mods::Chat
         const std::string name = packet.Name->empty()
             ? "Player" + std::to_string(static_cast<std::uint32_t>(packet.Slot))
             : *packet.Name;
-        if (packet.Text.has_value())
+        if (packet.Kind == Network::ChatPacket::KindSystem)
         {
-            if (packet.Kind == Network::ChatPacket::KindSystem)
-            {
-                Add("", *packet.Text, Network::ChatPacket::KindSystem);
-            }
-            else
-            {
-                Add(name, *packet.Text, packet.Kind);
-            }
+            Add(std::string{}, packet.Text, Network::ChatPacket::KindSystem);
+        }
+        else
+        {
+            Add(name, packet.Text, packet.Kind);
         }
         State& state = GetState();
         state.Received = IncrementInt32(state.Received);
     }
 
-    void ChatBox::System(const std::string& text)
+    void ChatBox::System(const std::optional<std::string>& text)
     {
-        Add("", text, Network::ChatPacket::KindSystem);
+        Add(std::string{}, text, Network::ChatPacket::KindSystem);
     }
 
-    void ChatBox::Add(const std::string& name, const std::string& text, std::uint8_t kind)
+    void ChatBox::Add(const std::optional<std::string>& name,
+        const std::optional<std::string>& text, std::uint8_t kind)
     {
-        if (IsNullOrWhiteSpace(text))
+        if (!text.has_value() || IsNullOrWhiteSpace(*text))
         {
             return;
         }
@@ -383,13 +381,16 @@ namespace MphRead::Mods::Chat
         Send(text);
     }
 
-    void ChatBox::Send(const std::string& text)
+    void ChatBox::Send(const std::optional<std::string>& text)
     {
         Add(Network::NetSession::Active() ? Network::NetSession::PlayerName() : "You",
             text, Network::ChatPacket::KindSay);
         if (Network::NetSession::Active())
         {
-            Network::NetSession::SendChat(text);
+            if (text.has_value())
+            {
+                Network::NetSession::SendChat(*text);
+            }
             State& state = GetState();
             state.Sent = IncrementInt32(state.Sent);
         }

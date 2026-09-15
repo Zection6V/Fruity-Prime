@@ -1,7 +1,7 @@
 #include "ChatBox.hpp"
 
 #include "../../GameState.hpp"
-#include "../InputSettings.hpp"
+#include "../Input/InputSettings.hpp"
 #include "../Network/NetProtocol.hpp"
 #include "../Network/NetSession.hpp"
 
@@ -385,7 +385,7 @@ namespace MphRead::Mods::Chat
 
     void ChatBox::Send(const std::string& text)
     {
-        Add(Network::NetSession::Active() ? Network::NetSession::PlayerName : "You",
+        Add(Network::NetSession::Active() ? Network::NetSession::PlayerName() : "You",
             text, Network::ChatPacket::KindSay);
         if (Network::NetSession::Active())
         {
@@ -432,7 +432,7 @@ namespace MphRead::Mods::Chat
         if (!state.Composing)
         {
             if (canOpen && Available() && key != KeyUnknown
-                && key == MphRead::Mods::InputSettings::ChatKey && !alt && !control)
+                && key == MphRead::Mods::InputSettings::ChatKey() && !alt && !control)
             {
                 Open(swallowOpeningChar);
                 return true;

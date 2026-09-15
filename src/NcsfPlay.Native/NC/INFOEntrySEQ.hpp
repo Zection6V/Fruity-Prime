@@ -11,8 +11,6 @@ namespace NCSFCommon::NC
 {
     class SSEQ;
 
-    [[nodiscard]] bool operator==(const SSEQ& left, const SSEQ& right);
-
     class INFOEntrySEQ : public INFOEntry
     {
     public:

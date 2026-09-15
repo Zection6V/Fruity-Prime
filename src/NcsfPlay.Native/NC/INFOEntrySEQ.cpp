@@ -1,5 +1,7 @@
 #include "INFOEntrySEQ.hpp"
 
+#include "SSEQ.hpp"
+
 #include <charconv>
 #include <cstddef>
 #include <stdexcept>
@@ -241,11 +243,7 @@ namespace NCSFCommon::NC
 
     bool INFOEntrySEQ::FileEquals(const INFOEntrySEQ* other) const
     {
-        if (other == nullptr || _sseq == nullptr || other->_sseq == nullptr)
-        {
-            return false;
-        }
-        return *_sseq == *other->_sseq;
+        return other != nullptr && SSEQ::EqualityOperator(_sseq.get(), other->_sseq.get());
     }
 
     std::u16string INFOEntrySEQ::DebuggerDisplay() const

@@ -99,17 +99,17 @@ namespace NCSF123
         NCSFPlayerStream& operator=(const NCSFPlayerStream&) = delete;
         NCSFPlayerStream& operator=(NCSFPlayerStream&&) = delete;
 
-        [[nodiscard]] virtual bool CanRead() const noexcept;
-        [[nodiscard]] virtual bool CanSeek() const noexcept;
-        [[nodiscard]] virtual bool CanWrite() const noexcept;
+        [[nodiscard]] virtual bool CanRead() const;
+        [[nodiscard]] virtual bool CanSeek() const;
+        [[nodiscard]] virtual bool CanWrite() const;
         [[nodiscard]] virtual std::int64_t Length() const;
 
     private:
         std::int64_t position = 0;
 
     public:
-        [[nodiscard]] virtual std::int64_t Position() const noexcept;
-        virtual void Position(std::int64_t value) noexcept;
+        [[nodiscard]] virtual std::int64_t Position() const;
+        virtual void Position(std::int64_t value);
         virtual void Flush();
 
     private:

@@ -1,6 +1,7 @@
 #include "NCSFPlayerStream.hpp"
 
 #include "../Channel.hpp"
+#include "../Common.hpp"
 #include "../NCSF.hpp"
 #include "../NC/INFOEntryBANK.hpp"
 #include "../NC/INFOEntryPLAYER.hpp"
@@ -106,18 +107,26 @@ namespace
 
     [[nodiscard]] std::u16string CombineLibraryPath(
         const std::u16string& filePath,
-        const std::u16string& library)
+        const NCSFCommon::TagList::String& library)
     {
         const std::filesystem::path path(filePath);
         if (!path.empty() && path.has_root_path() && path == path.root_path())
-            throw std::invalid_argument("ArgumentNullException");
+            throw NCSFCommon::ArgumentNullException("path1");
+        if (library.IsNull())
+            throw NCSFCommon::ArgumentNullException("path2");
+
         const std::filesystem::path directory = path.parent_path();
-        return (directory / std::filesystem::path(library)).u16string();
+        const std::u16string libraryValue = library;
+        if (libraryValue.empty())
+            return directory.u16string();
+        if (directory.empty())
+            return libraryValue;
+        return (directory / std::filesystem::path(libraryValue)).u16string();
     }
 
     [[noreturn]] void ThrowNullReference()
     {
-        throw std::runtime_error("NullReferenceException");
+        throw NCSFCommon::NullReferenceException();
     }
 
     [[noreturn]] void ThrowIndexOutOfRange()
@@ -191,17 +200,17 @@ namespace NCSF123
         Load();
     }
 
-    bool NCSFPlayerStream::CanRead() const noexcept
+    bool NCSFPlayerStream::CanRead() const
     {
         return true;
     }
 
-    bool NCSFPlayerStream::CanSeek() const noexcept
+    bool NCSFPlayerStream::CanSeek() const
     {
         return !playForever;
     }
 
-    bool NCSFPlayerStream::CanWrite() const noexcept
+    bool NCSFPlayerStream::CanWrite() const
     {
         return false;
     }
@@ -215,12 +224,12 @@ namespace NCSF123
         return shifted;
     }
 
-    std::int64_t NCSFPlayerStream::Position() const noexcept
+    std::int64_t NCSFPlayerStream::Position() const
     {
         return position;
     }
 
-    void NCSFPlayerStream::Position(std::int64_t value) noexcept
+    void NCSFPlayerStream::Position(std::int64_t value)
     {
         position = value;
     }

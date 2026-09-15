@@ -16,6 +16,8 @@ namespace NCSFPlayer
     class Channel : public NCSFCommon::Channel
     {
     public:
+        static constexpr std::int32_t SincWidth = 8;
+
         Channel();
         ~Channel() override = default;
 
@@ -24,11 +26,8 @@ namespace NCSFPlayer
         void IncrementSample() override;
 
     private:
-        friend class SWAVWrapper;
-
         static constexpr std::int32_t α = 3;
         static constexpr std::int32_t SincResolution = 8192;
-        static constexpr std::int32_t SincWidth = 8;
         static constexpr std::int32_t SincSamples = SincResolution * SincWidth;
         static constexpr std::int32_t LanczosSamples = SincResolution * α;
 

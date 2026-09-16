@@ -4,9 +4,11 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <concepts>
 #include <memory>
 #include <functional>
 #include <vector>
+#include <utility>
 
 namespace MphRead::Memory
 {
@@ -114,10 +116,12 @@ protected:
     [[nodiscard]] OpenTK::Mathematics::Vector4 ReadVec4(std::int32_t offset) const;
     [[nodiscard]] OpenTK::Mathematics::Matrix4x3 ReadMtx43(std::int32_t offset) const;
     template <typename T>
+    requires std::derived_from<T, MemoryClass>
     [[nodiscard]] std::shared_ptr<T> ReadClass(std::int32_t offset, const std::function<std::shared_ptr<T>(Memory&, std::int32_t)>& create)
     {
+        const std::int32_t address = ReadInt32(offset);
         if (!create) throw System::NullReferenceException();
-        return create(_memory, ReadInt32(offset));
+        return create(_memory, address);
     }
     void WriteSByte(std::int32_t offset, std::int8_t value);
     void WriteByte(std::int32_t offset, std::uint8_t value);
@@ -138,6 +142,21 @@ private:
 
 [[nodiscard]] bool operator==(const std::shared_ptr<MemoryClass>& left, const std::shared_ptr<MemoryClass>& right) noexcept;
 [[nodiscard]] bool operator!=(const std::shared_ptr<MemoryClass>& left, const std::shared_ptr<MemoryClass>& right) noexcept;
+
+template <typename TLeft, typename TRight>
+requires (std::derived_from<TLeft, MemoryClass> && std::derived_from<TRight, MemoryClass>)
+[[nodiscard]] bool operator==(const std::shared_ptr<TLeft>& left, const std::shared_ptr<TRight>& right) noexcept
+{
+    if (!left) return !right;
+    return left->Equals(right.get());
+}
+
+template <typename TLeft, typename TRight>
+requires (std::derived_from<TLeft, MemoryClass> && std::derived_from<TRight, MemoryClass>)
+[[nodiscard]] bool operator!=(const std::shared_ptr<TLeft>& left, const std::shared_ptr<TRight>& right) noexcept
+{
+    return !(left == right);
+}
 
 #define MPH_MEM_S8(name, off) \
     [[nodiscard]] std::int8_t name() const { return ReadSByte(off); } \
@@ -186,9 +205,15 @@ private:
     void name(::MphRead::type value) { WriteUInt32(off, static_cast<std::uint32_t>(value)); }
 #define MPH_MEM_CHILD(type, name) \
 private: \
-    std::shared_ptr<type> _##name; \
+    std::shared_ptr<::MphRead::Memory::type> _##name; \
 public: \
-    [[nodiscard]] std::shared_ptr<type> name() const noexcept { return _##name; }
+    [[nodiscard]] std::shared_ptr<::MphRead::Memory::type> name() const noexcept { return _##name; }
+#define MPH_MEM_INIT_CHILD(type, name) \
+private: \
+    std::shared_ptr<::MphRead::Memory::type> _##name; \
+public: \
+    [[nodiscard]] std::shared_ptr<::MphRead::Memory::type> name() const noexcept { return _##name; } \
+    void name(std::shared_ptr<::MphRead::Memory::type> value) noexcept { _##name = std::move(value); }
 
 class CEntity : public MemoryClass
 {
@@ -365,10 +390,10 @@ public:
     MPH_MEM_I32(Unused54, 0x54);
     MPH_MEM_I32(Unused58, 0x58);
     MPH_MEM_I32(Unused5C, 0x5C);
-    MPH_MEM_CHILD(StructArray<VecFx32>, Vecs);
-    MPH_MEM_CHILD(StructArray<MtxFx43>, Mtxs);
-    MPH_MEM_CHILD(Int32Array, Ints);
-    MPH_MEM_CHILD(Int16Array, Shorts);
+    MPH_MEM_INIT_CHILD(StructArray<VecFx32>, Vecs);
+    MPH_MEM_INIT_CHILD(StructArray<MtxFx43>, Mtxs);
+    MPH_MEM_INIT_CHILD(Int32Array, Ints);
+    MPH_MEM_INIT_CHILD(Int16Array, Shorts);
 };
 
 class CEnemy29 : public CEnemyBase
@@ -401,7 +426,7 @@ public:
     MPH_MEM_PTR(GrappleEffect, 0x23C);
     MPH_MEM_CHILD(CModel, MindTrick);
     MPH_MEM_CHILD(CModel, Grapple);
-    MPH_MEM_CHILD(Enemy29Fields, Fields);
+    MPH_MEM_INIT_CHILD(Enemy29Fields, Fields);
 };
 
 class CEnemy30 : public CEnemyBase
@@ -427,7 +452,7 @@ public:
     MPH_MEM_I32(MovementType, 0x24);
     MPH_MEM_I32(ForCutscene, 0x28);
     MPH_MEM_I32(ReverseType, 0x2C);
-    MPH_MEM_ENUMI32(PlatformFlags, PlatformFlags, 0x30);
+    MPH_MEM_ENUMI32(PlatformFlags, Flags, 0x30);
     MPH_MEM_U16(CollisionDamage, 0x34);
     MPH_MEM_U16(Padding36, 0x36);
     MPH_MEM_VEC3(BeamSpawnDir, 0x38);
@@ -441,10 +466,10 @@ public:
     MPH_MEM_I32(DeadEffId, 0x5C);
     MPH_MEM_I32(Unused60, 0x60);
     MPH_MEM_I32(Unused64, 0x64);
-    MPH_MEM_ENUM32(PlatStateFlags, PlatStateFlags, 0x68);
+    MPH_MEM_ENUM32(PlatStateFlags, StateFlags, 0x68);
     MPH_MEM_I32(CollisionBits, 0x6C);
     MPH_MEM_U16(TimeSincePlayerCol, 0x70);
-    MPH_MEM_ENUM16(PlatAnimFlags, PlatAnimFlags, 0x72);
+    MPH_MEM_ENUM16(PlatAnimFlags, AnimFlags, 0x72);
     MPH_MEM_I32(CurrentAnimId, 0x74);
     MPH_MEM_I32(CurrentAnim, 0x78);
     MPH_MEM_U8(FromIndex, 0x7C);
@@ -1713,8 +1738,8 @@ public:
     MPH_MEM_CHILD(CBeamProjectile, BeamHead);
     MPH_MEM_CHILD(SfxParameters, SfxParameters);
     MPH_MEM_CHILD(AiData, AiData);
-    MPH_MEM_CHILD(StructArray<AIContext>, AIContext);
-    MPH_MEM_CHILD(StructArray<AIAggro>, AIAggro);
+    MPH_MEM_CHILD(StructArray<::MphRead::Memory::AIContext>, AIContext);
+    MPH_MEM_CHILD(StructArray<::MphRead::Memory::AIAggro>, AIAggro);
     [[nodiscard]] std::uint32_t AggroCount() const;
     void AggroCount(std::uint32_t value);
 };
@@ -1903,7 +1928,7 @@ public:
     void Slot1(std::int32_t value) noexcept { _slot1 = value; }
     [[nodiscard]] std::int32_t Slot2() const noexcept { return _slot2; }
     void Slot2(std::int32_t value) noexcept { _slot2 = value; }
-    void UpdateSlots(const std::vector<std::shared_ptr<CPlayer>>& players);
+    void UpdateSlots(std::shared_ptr<MphRead::ManagedArray<std::shared_ptr<CPlayer>>> players);
     [[nodiscard]] std::uint8_t VarA2() const;
     [[nodiscard]] std::uint8_t VarA9() const;
     [[nodiscard]] std::uint8_t VarA3() const;
@@ -2609,7 +2634,7 @@ public:
     MPH_MEM_CHILD(UInt16Array, AmmoCaps);
     MPH_MEM_CHILD(ByteArray, VisitedRooms);
     MPH_MEM_CHILD(Int32Array, VisitedConnectors);
-    MPH_MEM_CHILD(StructArray<RoomState>, RoomState);
+    MPH_MEM_CHILD(StructArray<::MphRead::Memory::RoomState>, RoomState);
     MPH_MEM_CHILD(ByteArray, FieldFCC);
     MPH_MEM_CHILD(ByteArray, TriggerStateBits);
     MPH_MEM_CHILD(ByteArray, Logbook);
@@ -2796,11 +2821,11 @@ class MtxFx43 : public MemoryClass
 public:
     MtxFx43(Memory& memory, std::int32_t address);
     MtxFx43(Memory& memory, std::intptr_t address);
-    MPH_MEM_CHILD(Int32Array, M);
-    MPH_MEM_CHILD(VecFx32, Row0);
-    MPH_MEM_CHILD(VecFx32, Row1);
-    MPH_MEM_CHILD(VecFx32, Row2);
-    MPH_MEM_CHILD(VecFx32, Row3);
+    MPH_MEM_INIT_CHILD(Int32Array, M);
+    MPH_MEM_INIT_CHILD(VecFx32, Row0);
+    MPH_MEM_INIT_CHILD(VecFx32, Row1);
+    MPH_MEM_INIT_CHILD(VecFx32, Row2);
+    MPH_MEM_INIT_CHILD(VecFx32, Row3);
 };
 
 #undef MPH_MEM_S8
@@ -2819,4 +2844,5 @@ public:
 #undef MPH_MEM_ENUMI32
 #undef MPH_MEM_ENUM32
 #undef MPH_MEM_CHILD
+#undef MPH_MEM_INIT_CHILD
 }

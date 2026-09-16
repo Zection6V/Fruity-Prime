@@ -31,6 +31,11 @@
 #include <utility>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <poll.h>
+#include <pthread.h>
+#endif
+
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -1005,14 +1010,50 @@ namespace
             std::move(stdoutRead), std::move(stderrRead)};
     }
 
-    void ReadWindowsPipe(HANDLE handle, const Report& report)
+    void ReadWindowsPipe(HANDLE handle, HANDLE cancel, const Report& report)
     {
         std::string pending;
         std::array<char, 4096> buffer{};
         for (;;)
         {
+            const DWORD cancelState = WaitForSingleObject(cancel, 0);
+            if (cancelState == WAIT_OBJECT_0)
+            {
+                return;
+            }
+            if (cancelState == WAIT_FAILED)
+            {
+                throw std::runtime_error(Win32Message(GetLastError()));
+            }
+
+            DWORD available = 0;
+            if (!PeekNamedPipe(handle, nullptr, 0, nullptr, &available, nullptr))
+            {
+                const DWORD error = GetLastError();
+                if (error == ERROR_BROKEN_PIPE)
+                {
+                    break;
+                }
+                throw std::runtime_error(Win32Message(error));
+            }
+            if (available == 0)
+            {
+                const DWORD wait = WaitForSingleObject(cancel, 1);
+                if (wait == WAIT_OBJECT_0)
+                {
+                    return;
+                }
+                if (wait == WAIT_FAILED)
+                {
+                    throw std::runtime_error(Win32Message(GetLastError()));
+                }
+                continue;
+            }
+
             DWORD read = 0;
-            if (!ReadFile(handle, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr))
+            const DWORD requested = std::min<DWORD>(
+                available, static_cast<DWORD>(buffer.size()));
+            if (!ReadFile(handle, buffer.data(), requested, &read, nullptr))
             {
                 const DWORD error = GetLastError();
                 if (error == ERROR_BROKEN_PIPE)
@@ -1280,12 +1321,37 @@ namespace
             pid, UniqueFd(inputPipe[1]), UniqueFd(outputPipe[0]), UniqueFd(errorPipe[0])};
     }
 
-    void ReadPosixPipe(int fd, const Report& report)
+    void ReadPosixPipe(int fd, int cancelFd, const Report& report)
     {
         std::string pending;
         std::array<char, 4096> buffer{};
+        std::array<pollfd, 2> descriptors{{
+            pollfd{fd, POLLIN | POLLHUP | POLLERR, 0},
+            pollfd{cancelFd, POLLIN | POLLHUP | POLLERR, 0}}};
         for (;;)
         {
+            const int ready = ::poll(descriptors.data(), descriptors.size(), -1);
+            if (ready < 0)
+            {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                throw std::runtime_error(ErrnoMessage(errno));
+            }
+            if (descriptors[1].revents != 0)
+            {
+                return;
+            }
+            if ((descriptors[0].revents & POLLNVAL) != 0)
+            {
+                throw std::runtime_error(ErrnoMessage(EBADF));
+            }
+            if (descriptors[0].revents == 0)
+            {
+                continue;
+            }
+
             const ssize_t count = ::read(fd, buffer.data(), buffer.size());
             if (count > 0)
             {
@@ -1346,22 +1412,144 @@ namespace
     }
 #endif
 
-    template <typename Reader>
-    [[nodiscard]] std::thread StartReaderThread(Reader&& reader)
+    class ReaderThread final
     {
-        return std::thread([reader = std::forward<Reader>(reader)]() mutable
+    public:
+        template <typename Reader>
+        explicit ReaderThread(Reader&& reader)
         {
-            try
+#if defined(_WIN32)
+            _cancel.Reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+            if (!_cancel)
             {
-                reader();
+                throw std::runtime_error(Win32Message(GetLastError()));
             }
-            catch (...)
+            const HANDLE cancel = _cancel.Get();
+            _thread = std::thread(
+                [cancel, reader = std::forward<Reader>(reader)]() mutable
+                {
+                    try
+                    {
+                        reader(cancel);
+                    }
+                    catch (...)
+                    {
+                        // Process.BeginOutputReadLine/BeginErrorReadLine do not
+                        // surface asynchronous reader failures through RunSetup.
+                    }
+                });
+#else
+            int cancelPipe[2] = {-1, -1};
+            if (::pipe(cancelPipe) != 0)
             {
-                // Process.BeginOutputReadLine/BeginErrorReadLine do not surface
-                // asynchronous reader failures back through RunSetup.
+                throw std::runtime_error(ErrnoMessage(errno));
             }
-        });
-    }
+            _cancelRead.Reset(cancelPipe[0]);
+            _cancelWrite.Reset(cancelPipe[1]);
+            const int cancelFd = _cancelRead.Get();
+            _thread = std::thread(
+                [cancelFd, reader = std::forward<Reader>(reader)]() mutable
+                {
+                    try
+                    {
+                        reader(cancelFd);
+                    }
+                    catch (...)
+                    {
+                        // Process.BeginOutputReadLine/BeginErrorReadLine do not
+                        // surface asynchronous reader failures through RunSetup.
+                    }
+                });
+#endif
+        }
+
+        ReaderThread(const ReaderThread&) = delete;
+        ReaderThread& operator=(const ReaderThread&) = delete;
+        ReaderThread(ReaderThread&&) = delete;
+        ReaderThread& operator=(ReaderThread&&) = delete;
+
+        ~ReaderThread()
+        {
+            CancelAndJoin();
+        }
+
+        void Join()
+        {
+            if (_thread.joinable())
+            {
+                _thread.join();
+            }
+        }
+
+    private:
+        void CancelAndJoin() noexcept
+        {
+            if (!_thread.joinable())
+            {
+                return;
+            }
+#if defined(_WIN32)
+            (void)SetEvent(_cancel.Get());
+#else
+            const char byte = 0;
+            while (::write(_cancelWrite.Get(), &byte, 1) < 0 && errno == EINTR)
+            {
+            }
+#endif
+            _thread.join();
+        }
+
+#if defined(_WIN32)
+        UniqueHandle _cancel;
+#else
+        UniqueFd _cancelRead;
+        UniqueFd _cancelWrite;
+#endif
+        std::thread _thread;
+    };
+
+#if !defined(_WIN32)
+    class PosixWaitThread final
+    {
+    public:
+        template <typename Action>
+        explicit PosixWaitThread(Action&& action)
+            : _thread(std::forward<Action>(action))
+        {
+        }
+
+        PosixWaitThread(const PosixWaitThread&) = delete;
+        PosixWaitThread& operator=(const PosixWaitThread&) = delete;
+        PosixWaitThread(PosixWaitThread&&) = delete;
+        PosixWaitThread& operator=(PosixWaitThread&&) = delete;
+
+        ~PosixWaitThread()
+        {
+            CancelAndJoin();
+        }
+
+        void Join()
+        {
+            if (_thread.joinable())
+            {
+                _thread.join();
+            }
+        }
+
+    private:
+        void CancelAndJoin() noexcept
+        {
+            if (!_thread.joinable())
+            {
+                return;
+            }
+            (void)::pthread_cancel(_thread.native_handle());
+            _thread.join();
+        }
+
+        std::thread _thread;
+    };
+#endif
 
 }
 
@@ -1521,10 +1709,16 @@ namespace MphRead::Mods::Launcher
             WindowsChild child = StartChildWindows(*executable, romPath, _root);
             const HANDLE outputHandle = child.Output.Get();
             const HANDLE errorHandle = child.Error.Get();
-            std::thread outputThread = StartReaderThread(
-                [outputHandle, &report]() { ReadWindowsPipe(outputHandle, report); });
-            std::thread errorThread = StartReaderThread(
-                [errorHandle, &report]() { ReadWindowsPipe(errorHandle, report); });
+            ReaderThread outputThread(
+                [outputHandle, &report](HANDLE cancel)
+                {
+                    ReadWindowsPipe(outputHandle, cancel, report);
+                });
+            ReaderThread errorThread(
+                [errorHandle, &report](HANDLE cancel)
+                {
+                    ReadWindowsPipe(errorHandle, cancel, report);
+                });
 
             try
             {
@@ -1540,8 +1734,8 @@ namespace MphRead::Mods::Launcher
                 KillWindowsTree(child.ProcessId);
                 report("The extraction took too long and was stopped.");
                 (void)WaitForSingleObject(child.Process.Get(), INFINITE);
-                outputThread.join();
-                errorThread.join();
+                outputThread.Join();
+                errorThread.Join();
                 return false;
             }
             if (wait == WAIT_FAILED)
@@ -1549,20 +1743,26 @@ namespace MphRead::Mods::Launcher
                 const std::string message = Win32Message(GetLastError());
                 child.Output.Reset();
                 child.Error.Reset();
-                outputThread.join();
-                errorThread.join();
+                outputThread.Join();
+                errorThread.Join();
                 throw std::runtime_error(message);
             }
-            outputThread.join();
-            errorThread.join();
+            outputThread.Join();
+            errorThread.Join();
 #else
             PosixChild child = StartChildPosix(*executable, romPath, _root);
             const int outputFd = child.Output.Get();
             const int errorFd = child.Error.Get();
-            std::thread outputThread = StartReaderThread(
-                [outputFd, &report]() { ReadPosixPipe(outputFd, report); });
-            std::thread errorThread = StartReaderThread(
-                [errorFd, &report]() { ReadPosixPipe(errorFd, report); });
+            ReaderThread outputThread(
+                [outputFd, &report](int cancelFd)
+                {
+                    ReadPosixPipe(outputFd, cancelFd, report);
+                });
+            ReaderThread errorThread(
+                [errorFd, &report](int cancelFd)
+                {
+                    ReadPosixPipe(errorFd, cancelFd, report);
+                });
 
             try
             {
@@ -1575,32 +1775,26 @@ namespace MphRead::Mods::Launcher
             std::mutex waitMutex;
             std::condition_variable waitCondition;
             bool exited = false;
-            std::exception_ptr waitFailure;
-            std::thread waitThread([&]()
+            std::optional<int> waitError;
+            PosixWaitThread waitThread([&]()
             {
-                try
+                int status = 0;
+                for (;;)
                 {
-                    int status = 0;
-                    for (;;)
+                    const pid_t waited = ::waitpid(child.Pid, &status, 0);
+                    if (waited == child.Pid)
                     {
-                        const pid_t waited = ::waitpid(child.Pid, &status, 0);
-                        if (waited == child.Pid)
-                        {
-                            break;
-                        }
-                        if (waited < 0 && errno == EINTR)
-                        {
-                            continue;
-                        }
-                        if (waited < 0)
-                        {
-                            throw std::runtime_error(ErrnoMessage(errno));
-                        }
+                        break;
                     }
-                }
-                catch (...)
-                {
-                    waitFailure = std::current_exception();
+                    if (waited < 0 && errno == EINTR)
+                    {
+                        continue;
+                    }
+                    if (waited < 0)
+                    {
+                        waitError = errno;
+                        break;
+                    }
                 }
                 {
                     std::lock_guard lock(waitMutex);
@@ -1628,20 +1822,17 @@ namespace MphRead::Mods::Launcher
                 }
                 if (killError != 0)
                 {
-                    waitThread.join();
-                    outputThread.join();
-                    errorThread.join();
                     throw std::runtime_error(ErrnoMessage(killError));
                 }
                 report("The extraction took too long and was stopped.");
             }
 
-            waitThread.join();
-            outputThread.join();
-            errorThread.join();
-            if (waitFailure)
+            waitThread.Join();
+            outputThread.Join();
+            errorThread.Join();
+            if (waitError.has_value())
             {
-                std::rethrow_exception(waitFailure);
+                throw std::runtime_error(ErrnoMessage(*waitError));
             }
             if (timedOut)
             {

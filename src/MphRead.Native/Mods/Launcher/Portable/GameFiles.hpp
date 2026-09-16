@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <optional>
 #include <string>
@@ -22,6 +23,8 @@ namespace MphRead::Mods::Launcher
         [[nodiscard]] static bool Ready();
         [[nodiscard]] static std::optional<std::string> Problem();
         [[nodiscard]] static std::string Describe();
+        // Desktop setup keeps its redirected-output readers scope-bound so
+        // exceptional unwinding reaches RunSetup's managed-equivalent catch.
         [[nodiscard]] static bool RunSetup(
             const std::string& romPath,
             const std::function<void(const std::string&)>& report);

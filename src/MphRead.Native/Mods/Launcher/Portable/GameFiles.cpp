@@ -1473,12 +1473,9 @@ namespace
             CancelAndJoin();
         }
 
-        void Join()
+        void Join() noexcept
         {
-            if (_thread.joinable())
-            {
-                _thread.join();
-            }
+            CancelAndJoin();
         }
 
     private:
@@ -1533,6 +1530,14 @@ namespace
             if (_thread.joinable())
             {
                 _thread.join();
+            }
+        }
+
+        void Detach() noexcept
+        {
+            if (_thread.joinable())
+            {
+                _thread.detach();
             }
         }
 
@@ -1733,7 +1738,6 @@ namespace MphRead::Mods::Launcher
             {
                 KillWindowsTree(child.ProcessId);
                 report("The extraction took too long and was stopped.");
-                (void)WaitForSingleObject(child.Process.Get(), INFINITE);
                 outputThread.Join();
                 errorThread.Join();
                 return false;
@@ -1772,17 +1776,21 @@ namespace MphRead::Mods::Launcher
             {
             }
 
-            std::mutex waitMutex;
-            std::condition_variable waitCondition;
-            bool exited = false;
-            std::optional<int> waitError;
-            PosixWaitThread waitThread([&]()
+            struct WaitState final
+            {
+                std::mutex Mutex;
+                std::condition_variable Condition;
+                bool Exited = false;
+                std::optional<int> Error;
+            };
+            const std::shared_ptr<WaitState> waitState = std::make_shared<WaitState>();
+            PosixWaitThread waitThread([pid = child.Pid, waitState]()
             {
                 int status = 0;
                 for (;;)
                 {
-                    const pid_t waited = ::waitpid(child.Pid, &status, 0);
-                    if (waited == child.Pid)
+                    const pid_t waited = ::waitpid(pid, &status, 0);
+                    if (waited == pid)
                     {
                         break;
                     }
@@ -1792,22 +1800,23 @@ namespace MphRead::Mods::Launcher
                     }
                     if (waited < 0)
                     {
-                        waitError = errno;
+                        waitState->Error = errno;
                         break;
                     }
                 }
                 {
-                    std::lock_guard lock(waitMutex);
-                    exited = true;
+                    std::lock_guard lock(waitState->Mutex);
+                    waitState->Exited = true;
                 }
-                waitCondition.notify_one();
+                waitState->Condition.notify_one();
             });
 
             bool timedOut = false;
             {
-                std::unique_lock lock(waitMutex);
-                timedOut = !waitCondition.wait_for(
-                    lock, std::chrono::minutes(10), [&]() { return exited; });
+                std::unique_lock lock(waitState->Mutex);
+                timedOut = !waitState->Condition.wait_for(
+                    lock, std::chrono::minutes(10),
+                    [&]() { return waitState->Exited; });
             }
             if (timedOut)
             {
@@ -1825,18 +1834,18 @@ namespace MphRead::Mods::Launcher
                     throw std::runtime_error(ErrnoMessage(killError));
                 }
                 report("The extraction took too long and was stopped.");
+                outputThread.Join();
+                errorThread.Join();
+                waitThread.Detach();
+                return false;
             }
 
             waitThread.Join();
             outputThread.Join();
             errorThread.Join();
-            if (waitError.has_value())
+            if (waitState->Error.has_value())
             {
-                throw std::runtime_error(ErrnoMessage(*waitError));
-            }
-            if (timedOut)
-            {
-                return false;
+                throw std::runtime_error(ErrnoMessage(*waitState->Error));
             }
 #endif
         }

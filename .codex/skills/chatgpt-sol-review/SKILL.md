@@ -172,6 +172,14 @@ perform the requested local work yourself.
 
 ## Run two migration items in parallel
 
+- Never leave a completed ChatGPT tab idle while another independent migration
+  item is available. As soon as the terminal response/SHA or NO-OP is recorded,
+  use that tab slot for the next genuinely missing pair (or close it if no
+  replacement is ready); do not wait for the other tab to finish. An apparently
+  quiet tab is not a reason to assume completion: recheck the stop/retry/composer
+  state first, and if it is terminal, advance the task ledger and dispatch the
+  replacement in the same control cycle.
+
 - For the long-running C#-to-C++ migration, keep two genuinely independent work
   items active whenever the browser and account permit it. Each item may be an
   implementation, a review, or a correction/re-review cycle, but never run two

@@ -1,0 +1,42 @@
+#pragma once
+
+#include <functional>
+#include <optional>
+#include <string>
+
+namespace System
+{
+    class Version;
+}
+
+namespace MphRead::Mods::Launcher
+{
+    class GameFiles final
+    {
+    public:
+        GameFiles() = delete;
+
+        [[nodiscard]] static const std::string& Root() noexcept;
+        static void Root(std::string value);
+
+        [[nodiscard]] static bool Ready();
+        [[nodiscard]] static std::optional<std::string> Problem();
+        [[nodiscard]] static std::string Describe();
+        [[nodiscard]] static bool RunSetup(
+            const std::string& romPath,
+            const std::function<void(const std::string&)>& report);
+        static void ApplyPaths();
+        [[nodiscard]] static bool InProcessSetup() noexcept;
+
+    private:
+        class ReportWriter;
+
+        [[nodiscard]] static std::string PathsFile();
+        [[nodiscard]] static bool RunSetupHere(
+            const std::string& romPath,
+            const std::function<void(const std::string&)>& report);
+
+        static std::string _root;
+        static const System::Version _minExtractVersion;
+    };
+}

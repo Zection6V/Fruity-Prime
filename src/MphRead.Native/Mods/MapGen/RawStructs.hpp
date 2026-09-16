@@ -5,7 +5,8 @@
 
 #include <cstdint>
 #include <memory>
-#include <string>
+#include <optional>
+#include <string_view>
 
 namespace MphRead
 {
@@ -20,7 +21,7 @@ namespace MphRead::Mods::MapGen
     {
     public:
         [[nodiscard]] static std::shared_ptr<Node> MakeNode(
-            const std::string& name,
+            std::optional<std::u16string_view> name,
             std::int32_t meshCount,
             std::int32_t firstMeshId,
             std::int32_t parent = -1,
@@ -28,7 +29,7 @@ namespace MphRead::Mods::MapGen
             std::int32_t next = -1);
 
         [[nodiscard]] static std::shared_ptr<Material> MakeMaterial(
-            const std::string& name,
+            std::optional<std::u16string_view> name,
             std::int32_t textureId,
             std::int32_t paletteId,
             RepeatMode xRepeat,

@@ -10,13 +10,19 @@
 #include <numbers>
 #include <stdexcept>
 
+#if defined(_WIN32)
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <time.h>
+#endif
+
 namespace MphRead
 {
     namespace SelectionExternal
     {
-        // Renderer.cs owns these Scene members in C#. Their native provider is not
-        // present yet. These declarations are the exact unresolved boundary used by
-        // Selection.cs and intentionally have no substitute implementation here.
+        // Renderer.cs owns these Scene members in C#. Its native pair is not present
+        // yet, so Selection keeps only the exact unresolved surface it consumes.
         [[nodiscard]] bool AllowCameraMovement(const Scene& scene);
         [[nodiscard]] bool CameraModeIsPlayer(const Scene& scene);
         [[nodiscard]] bool ShowAllEntities(const Scene& scene);
@@ -28,8 +34,8 @@ namespace MphRead
     {
         using Keys = ::OpenTK::Windowing::GraphicsLibraryFramework::Keys;
 
-        // PlayerInput.hpp currently exposes only the subset of OpenTK Keys used by
-        // player input. Selection.cs also observes these GLFW/OpenTK key values.
+        // PlayerInput.hpp owns the native OpenTK Keys provider but does not yet list
+        // these additional OpenTK/GLFW values observed by Selection.cs.
         constexpr Keys KeyMinus = static_cast<Keys>(45);
         constexpr Keys KeyEqual = static_cast<Keys>(61);
         constexpr Keys KeyPad0 = static_cast<Keys>(320);
@@ -58,6 +64,33 @@ namespace MphRead
                 color.Y * factor,
                 color.Z * factor,
                 1.0F);
+        }
+
+        [[nodiscard]] std::int64_t TickCount64() noexcept
+        {
+#if defined(_WIN32)
+            return static_cast<std::int64_t>(::GetTickCount64());
+#elif defined(CLOCK_MONOTONIC)
+            timespec value{};
+            if (::clock_gettime(CLOCK_MONOTONIC, &value) == 0)
+            {
+                return static_cast<std::int64_t>(value.tv_sec) * 1000
+                    + static_cast<std::int64_t>(value.tv_nsec / 1000000);
+            }
+#endif
+            return std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
+
+        [[nodiscard]] float GetFactor() noexcept
+        {
+            const std::int64_t ms = TickCount64();
+            float percentage = static_cast<float>(ms % 1000) / 1000.0F;
+            if (ms / 1000 % 10 % 2 == 0)
+            {
+                percentage = 1.0F - percentage;
+            }
+            return percentage;
         }
 
         template <typename T>
@@ -138,8 +171,7 @@ namespace MphRead
 
     bool Selection::CheckVolume(const std::shared_ptr<Entities::EntityBase>& entity)
     {
-        const std::shared_ptr<Entities::EntityBase> selected = Entity();
-        return !_hideUnselectedVolumes || selected == nullptr || entity == selected;
+        return !_hideUnselectedVolumes || Entity() == nullptr || entity == Entity();
     }
 
     void Selection::Clear() noexcept
@@ -156,42 +188,41 @@ namespace MphRead
         const std::shared_ptr<::MphRead::Node>& node,
         const std::shared_ptr<::MphRead::Mesh>& mesh)
     {
-        const std::shared_ptr<Entities::EntityBase> selected = Entity();
         if (_mesh != nullptr)
         {
-            if (mesh == _mesh && node == _node && inst == _instance && entity == selected)
+            if (mesh == _mesh && node == _node && inst == _instance && entity == Entity())
             {
                 return SelectionType::Selected;
             }
         }
         else if (_node != nullptr)
         {
-            if (node == _node && inst == _instance && entity == selected)
+            if (node == _node && inst == _instance && entity == Entity())
             {
                 return SelectionType::Selected;
             }
         }
         else if (_instance != nullptr)
         {
-            if (inst == _instance && entity == selected)
+            if (inst == _instance && entity == Entity())
             {
                 return SelectionType::Selected;
             }
         }
-        else if (selected != nullptr)
+        else if (Entity() != nullptr)
         {
-            if (entity == selected)
+            if (entity == Entity())
             {
                 return SelectionType::Selected;
             }
         }
-        if (selected != nullptr)
+        if (Entity() != nullptr)
         {
-            if (selected->GetParent() == entity.get())
+            if (Entity()->GetParent() == entity.get())
             {
                 return SelectionType::Parent;
             }
-            if (selected->GetChild() == entity.get())
+            if (Entity()->GetChild() == entity.get())
             {
                 return SelectionType::Child;
             }
@@ -207,19 +238,6 @@ namespace MphRead
     void Selection::ToggleUnselectedVolumes() noexcept
     {
         _hideUnselectedVolumes = !_hideUnselectedVolumes;
-    }
-
-    float Selection::GetFactor()
-    {
-        using namespace std::chrono;
-        const std::int64_t ms = duration_cast<milliseconds>(
-            steady_clock::now().time_since_epoch()).count();
-        float percentage = static_cast<float>(ms % 1000) / 1000.0F;
-        if (ms / 1000 % 10 % 2 == 0)
-        {
-            percentage = 1.0F - percentage;
-        }
-        return percentage;
     }
 
     std::optional<::OpenTK::Mathematics::Vector4>
@@ -316,19 +334,15 @@ namespace MphRead
             {
                 _instance->Active = !_instance->Active;
             }
-            else
+            else if (Entity() != nullptr)
             {
-                const std::shared_ptr<Entities::EntityBase> entity = Entity();
-                if (entity != nullptr)
+                if (e.Control)
                 {
-                    if (e.Control)
-                    {
-                        entity->SetActive(!e.Shift);
-                    }
-                    else
-                    {
-                        entity->Hidden = !entity->Hidden;
-                    }
+                    Entity()->SetActive(!e.Shift);
+                }
+                else
+                {
+                    Entity()->Hidden = !Entity()->Hidden;
                 }
             }
             return true;
@@ -349,11 +363,10 @@ namespace MphRead
     void Selection::OnKeyHeld(
         ::OpenTK::Windowing::GraphicsLibraryFramework::KeyboardState keyboardState)
     {
-        const std::shared_ptr<Entities::EntityBase> entity = Entity();
-        if (entity != nullptr && entity->Type != EntityType::Room)
+        if (Entity() != nullptr && Entity()->Type != EntityType::Room)
         {
             float step = 0.1F;
-            ::OpenTK::Mathematics::Vector3 position = entity->Position;
+            ::OpenTK::Mathematics::Vector3 position = Entity()->Position;
             if (keyboardState.IsKeyDown(Keys::W))
             {
                 position.Z -= step;
@@ -380,7 +393,7 @@ namespace MphRead
             }
 
             step = 0.0436332F;
-            ::OpenTK::Mathematics::Vector3 rotation = entity->Rotation;
+            ::OpenTK::Mathematics::Vector3 rotation = Entity()->Rotation;
             if (keyboardState.IsKeyDown(Keys::Up))
             {
                 rotation.X += step;
@@ -421,10 +434,10 @@ namespace MphRead
             {
                 rotation.Z -= TwoPi;
             }
-            entity->Position = position;
-            if (entity->Type != EntityType::Player)
+            Entity()->Position = position;
+            if (Entity()->Type != EntityType::Player)
             {
-                entity->Rotation = rotation;
+                Entity()->Rotation = rotation;
             }
         }
     }
@@ -486,37 +499,33 @@ namespace MphRead
                 _node = nodes->empty() ? nullptr : (*nodes)[0];
             }
         }
-        else
+        else if (Entity() != nullptr)
         {
-            const std::shared_ptr<Entities::EntityBase> entity = Entity();
-            if (entity != nullptr)
+            if (shift)
             {
-                if (shift)
+                _entityNode.reset();
+            }
+            else
+            {
+                bool anyNonPlaceholder = false;
+                for (const std::shared_ptr<ModelInstance>& model : Entity()->GetModels())
                 {
-                    _entityNode.reset();
-                }
-                else
-                {
-                    bool anyNonPlaceholder = false;
-                    for (const std::shared_ptr<ModelInstance>& model : entity->GetModels())
+                    if (!Require(model).IsPlaceholder)
                     {
-                        if (!Require(model).IsPlaceholder)
-                        {
-                            anyNonPlaceholder = true;
-                            break;
-                        }
-                    }
-                    if (anyNonPlaceholder)
-                    {
-                        const auto& models = entity->GetModels();
-                        _instance = models.empty() ? nullptr : models[0];
+                        anyNonPlaceholder = true;
+                        break;
                     }
                 }
+                if (anyNonPlaceholder)
+                {
+                    const auto& models = Entity()->GetModels();
+                    _instance = models.empty() ? nullptr : models[0];
+                }
             }
-            else if (!shift)
-            {
-                _entityNode = scene.Entities().FirstNode();
-            }
+        }
+        else if (!shift)
+        {
+            _entityNode = scene.Entities().FirstNode();
         }
     }
 
@@ -527,14 +536,10 @@ namespace MphRead
         {
             inst = _instance;
         }
-        else
+        else if (Entity() != nullptr)
         {
-            const std::shared_ptr<Entities::EntityBase> entity = Entity();
-            if (entity != nullptr)
-            {
-                const auto& models = entity->GetModels();
-                inst = models.empty() ? nullptr : models[0];
-            }
+            const auto& models = Entity()->GetModels();
+            inst = models.empty() ? nullptr : models[0];
         }
         if (inst != nullptr)
         {
@@ -573,24 +578,20 @@ namespace MphRead
         {
             inst = _instance;
         }
-        else
+        else if (Entity() != nullptr)
         {
-            const std::shared_ptr<Entities::EntityBase> entity = Entity();
-            if (entity != nullptr)
-            {
-                const auto& models = entity->GetModels();
-                inst = models.empty() ? nullptr : models[0];
-            }
+            const auto& models = Entity()->GetModels();
+            inst = models.empty() ? nullptr : models[0];
         }
         if (inst != nullptr)
         {
             AnimationInfo& animInfo = Require(inst->AnimInfo);
-            const std::shared_ptr<Model> model = inst->Model();
             if (control)
             {
                 std::int32_t index = animInfo.MaterialIndex() - 1;
                 if (index < -1)
                 {
+                    const std::shared_ptr<Model> model = inst->Model();
                     const auto& groups = Require(model).AnimationGroups;
                     if (!groups || !groups->Material)
                     {
@@ -612,6 +613,7 @@ namespace MphRead
                 std::int32_t index = animInfo.NodeIndex() - 1;
                 if (index < -1)
                 {
+                    const std::shared_ptr<Model> model = inst->Model();
                     const auto& groups = Require(model).AnimationGroups;
                     if (!groups || !groups->Node)
                     {
@@ -633,10 +635,9 @@ namespace MphRead
 
     void Selection::NextRecolor()
     {
-        const std::shared_ptr<Entities::EntityBase> entity = Entity();
-        if (entity != nullptr)
+        if (Entity() != nullptr)
         {
-            const auto& models = entity->GetModels();
+            const auto& models = Entity()->GetModels();
             const std::shared_ptr<ModelInstance> instance = models.empty() ? nullptr : models[0];
             if (instance != nullptr)
             {
@@ -646,22 +647,21 @@ namespace MphRead
                 {
                     throw System::NullReferenceException();
                 }
-                std::int32_t recolor = entity->Recolor() + 1;
+                std::int32_t recolor = Entity()->Recolor() + 1;
                 if (recolor >= static_cast<std::int32_t>(recolors->size()))
                 {
                     recolor = 0;
                 }
-                entity->SetRecolor(recolor);
+                Entity()->SetRecolor(recolor);
             }
         }
     }
 
     void Selection::PrevRecolor()
     {
-        const std::shared_ptr<Entities::EntityBase> entity = Entity();
-        if (entity != nullptr)
+        if (Entity() != nullptr)
         {
-            const auto& models = entity->GetModels();
+            const auto& models = Entity()->GetModels();
             const std::shared_ptr<ModelInstance> instance = models.empty() ? nullptr : models[0];
             if (instance != nullptr)
             {
@@ -671,12 +671,12 @@ namespace MphRead
                 {
                     throw System::NullReferenceException();
                 }
-                std::int32_t recolor = entity->Recolor() - 1;
+                std::int32_t recolor = Entity()->Recolor() - 1;
                 if (recolor < 0)
                 {
                     recolor = static_cast<std::int32_t>(recolors->size()) - 1;
                 }
-                entity->SetRecolor(recolor);
+                Entity()->SetRecolor(recolor);
             }
         }
     }
@@ -806,11 +806,10 @@ namespace MphRead
 
     void Selection::SelectInstance(std::int32_t direction)
     {
-        const std::shared_ptr<Entities::EntityBase> entity = Entity();
-        if (entity != nullptr)
+        if (Entity() != nullptr)
         {
             std::shared_ptr<ModelInstance> inst{};
-            const auto& insts = entity->GetModels();
+            const auto& insts = Entity()->GetModels();
             std::int32_t index = IndexOfIdentity(insts, _instance);
             while (inst != _instance)
             {
@@ -871,13 +870,12 @@ namespace MphRead
         {
             return true;
         }
-        const bool showAllEntities = SelectionExternal::ShowAllEntities(scene);
-        const bool showInvisibleEntities = SelectionExternal::ShowInvisibleEntities(scene);
         for (const std::shared_ptr<ModelInstance>& model : value.GetModels())
         {
-            ModelInstance& instance = Require(model);
-            if ((showAllEntities || instance.Active)
-                && (showAllEntities || showInvisibleEntities || !instance.IsPlaceholder))
+            if ((SelectionExternal::ShowAllEntities(scene) || Require(model).Active)
+                && (SelectionExternal::ShowAllEntities(scene)
+                    || SelectionExternal::ShowInvisibleEntities(scene)
+                    || !Require(model).IsPlaceholder))
             {
                 return true;
             }
@@ -889,12 +887,9 @@ namespace MphRead
     {
         if (control)
         {
-            const std::shared_ptr<Entities::EntityBase> entity = Entity();
-            Entities::EntityBase* target = nullptr;
-            if (entity != nullptr)
-            {
-                target = shift ? entity->GetChild() : entity->GetParent();
-            }
+            Entities::EntityBase* target
+                = shift ? (Entity() ? Entity()->GetChild() : nullptr)
+                        : (Entity() ? Entity()->GetParent() : nullptr);
             if (target != nullptr)
             {
                 SelectionExternal::LookAt(scene, target->Position);
@@ -904,13 +899,9 @@ namespace MphRead
         {
             SelectionExternal::LookAt(scene, _node->Animation.Row3().Xyz());
         }
-        else
+        else if (Entity() != nullptr)
         {
-            const std::shared_ptr<Entities::EntityBase> entity = Entity();
-            if (entity != nullptr)
-            {
-                SelectionExternal::LookAt(scene, entity->Position);
-            }
+            SelectionExternal::LookAt(scene, Entity()->Position);
         }
     }
 }

@@ -10,9 +10,8 @@
 
 namespace OpenTK::Windowing::Common
 {
-    // Thin native boundary for the OpenTK event-argument type used by Selection.cs.
-    // PlayerInput.hpp already owns the native Keys/KeyboardState provider; this type
-    // exposes only the members Selection.cs observes.
+    // OpenTK.Windowing.Common is not otherwise present in MphRead.Native yet.
+    // This is the exact event-argument surface observed by Selection.cs.
     class KeyboardKeyEventArgs final
     {
     public:
@@ -40,13 +39,6 @@ namespace MphRead
     class Selection final
     {
     public:
-        Selection() = delete;
-        ~Selection() = delete;
-        Selection(const Selection&) = delete;
-        Selection& operator=(const Selection&) = delete;
-        Selection(Selection&&) = delete;
-        Selection& operator=(Selection&&) = delete;
-
         [[nodiscard]] static const std::shared_ptr<LinkedListNode<Entities::EntityBase>>& EntityNode() noexcept;
         [[nodiscard]] static std::shared_ptr<Entities::EntityBase> Entity() noexcept;
         [[nodiscard]] static const std::shared_ptr<ModelInstance>& Instance() noexcept;
@@ -73,9 +65,9 @@ namespace MphRead
             ::OpenTK::Windowing::GraphicsLibraryFramework::KeyboardState keyboardState);
 
     private:
-        [[nodiscard]] static bool Any() noexcept;
-        [[nodiscard]] static float GetFactor();
+        Selection() = delete;
 
+        [[nodiscard]] static bool Any() noexcept;
         static void UpdateSelection(bool control, bool shift, Scene& scene);
         static void NextAnimation(bool control);
         static void PrevAnimation(bool control);

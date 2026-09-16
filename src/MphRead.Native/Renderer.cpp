@@ -49,6 +49,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <clocale>
 #include <cassert>
 #include <charconv>
 #include <cmath>
@@ -64,6 +65,18 @@
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 using OpenTK::Mathematics::Matrix4;
 using OpenTK::Mathematics::Vector2;
@@ -315,6 +328,550 @@ namespace
         }
     }
 
+#if defined(_WIN32)
+    [[nodiscard]] std::u16string Utf8ToUtf16(std::string_view value)
+    {
+        std::u16string result;
+        result.reserve(value.size());
+        for (std::size_t offset = 0; offset < value.size();)
+        {
+            const auto [codePoint, next] = DecodeUtf8At(value, offset);
+            offset = next;
+            if (codePoint <= 0xFFFFU)
+            {
+                result.push_back(static_cast<char16_t>(codePoint));
+            }
+            else if (codePoint <= 0x10FFFFU)
+            {
+                const char32_t scalar = codePoint - 0x10000U;
+                result.push_back(static_cast<char16_t>(0xD800U + (scalar >> 10U)));
+                result.push_back(static_cast<char16_t>(0xDC00U + (scalar & 0x3FFU)));
+            }
+        }
+        return result;
+    }
+
+#endif
+
+    [[nodiscard]] std::string Utf16ToUtf8(std::u16string_view value)
+    {
+        std::string result;
+        result.reserve(value.size());
+        for (std::size_t i = 0; i < value.size(); ++i)
+        {
+            char32_t codePoint = static_cast<char32_t>(value[i]);
+            if (codePoint >= 0xD800U && codePoint <= 0xDBFFU && i + 1 < value.size())
+            {
+                const char32_t low = static_cast<char32_t>(value[i + 1]);
+                if (low >= 0xDC00U && low <= 0xDFFFU)
+                {
+                    codePoint = 0x10000U + ((codePoint - 0xD800U) << 10U) + (low - 0xDC00U);
+                    ++i;
+                }
+            }
+            AppendUtf8(result, codePoint);
+        }
+        return result;
+    }
+
+    [[nodiscard]] bool EnvironmentFlagEnabled(const char* name) noexcept
+    {
+        const char* raw = std::getenv(name);
+        if (raw == nullptr)
+        {
+            return false;
+        }
+        const std::string_view value(raw);
+        return value == "1" || EqualsAsciiIgnoreCase(value, "true")
+            || EqualsAsciiIgnoreCase(value, "yes");
+    }
+
+#if defined(_WIN32)
+    struct WindowsIcuNumberApi final
+    {
+        using OpenNumberFn = void* (*)(std::int32_t, const char16_t*, std::int32_t,
+            const char*, void*, std::int32_t*);
+        using CloseNumberFn = void (*)(void*);
+        using GetSymbolFn = std::int32_t (*)(const void*, std::int32_t, char16_t*,
+            std::int32_t, std::int32_t*);
+
+        HMODULE I18n = nullptr;
+        HMODULE Uc = nullptr;
+        OpenNumberFn OpenNumber = nullptr;
+        CloseNumberFn CloseNumber = nullptr;
+        GetSymbolFn GetSymbol = nullptr;
+
+        [[nodiscard]] bool Available() const noexcept
+        {
+            return OpenNumber != nullptr && CloseNumber != nullptr && GetSymbol != nullptr;
+        }
+    };
+
+    [[nodiscard]] FARPROC ResolveWindowsIcuSymbol(HMODULE module, std::string_view base)
+    {
+        if (module == nullptr)
+        {
+            return nullptr;
+        }
+        const std::string plain(base);
+        if (FARPROC proc = GetProcAddress(module, plain.c_str()))
+        {
+            return proc;
+        }
+        for (int major = 100; major >= 40; --major)
+        {
+            const std::string renamed = plain + "_" + std::to_string(major);
+            if (FARPROC proc = GetProcAddress(module, renamed.c_str()))
+            {
+                return proc;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] HMODULE OpenWindowsIcuLibrary(bool i18n)
+    {
+        std::vector<std::string> candidates;
+        if (const char* appLocal = std::getenv("DOTNET_SYSTEM_GLOBALIZATION_APPLOCALICU");
+            appLocal != nullptr && *appLocal != '\0')
+        {
+            std::string suffix(appLocal);
+            if (const std::size_t colon = suffix.find(':'); colon != std::string::npos)
+            {
+                suffix.erase(0, colon + 1);
+            }
+            suffix.erase(std::remove(suffix.begin(), suffix.end(), '.'), suffix.end());
+            candidates.push_back(std::string(i18n ? "icuin" : "icuuc") + suffix + ".dll");
+        }
+        candidates.push_back("icu.dll");
+        candidates.push_back(i18n ? "icuin.dll" : "icuuc.dll");
+        for (const std::string& candidate : candidates)
+        {
+            if (HMODULE module = LoadLibraryA(candidate.c_str()))
+            {
+                return module;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] WindowsIcuNumberApi& CurrentWindowsIcuNumberApi()
+    {
+        static WindowsIcuNumberApi api = []
+        {
+            WindowsIcuNumberApi value{};
+            value.I18n = OpenWindowsIcuLibrary(true);
+            value.Uc = OpenWindowsIcuLibrary(false);
+            if (value.I18n == nullptr && value.Uc != nullptr)
+            {
+                value.I18n = value.Uc;
+            }
+            if (value.Uc == nullptr && value.I18n != nullptr)
+            {
+                value.Uc = value.I18n;
+            }
+            value.OpenNumber = reinterpret_cast<WindowsIcuNumberApi::OpenNumberFn>(
+                ResolveWindowsIcuSymbol(value.I18n, "unum_open"));
+            value.CloseNumber = reinterpret_cast<WindowsIcuNumberApi::CloseNumberFn>(
+                ResolveWindowsIcuSymbol(value.I18n, "unum_close"));
+            value.GetSymbol = reinterpret_cast<WindowsIcuNumberApi::GetSymbolFn>(
+                ResolveWindowsIcuSymbol(value.I18n, "unum_getSymbol"));
+            return value;
+        }();
+        return api;
+    }
+
+    [[nodiscard]] std::string WindowsIcuNumberSymbol(WindowsIcuNumberApi& api,
+        const void* number, std::int32_t symbol)
+    {
+        std::array<char16_t, 32> stack{};
+        std::int32_t status = 0;
+        std::int32_t length = api.GetSymbol(number, symbol, stack.data(),
+            static_cast<std::int32_t>(stack.size()), &status);
+        if (length < 0)
+        {
+            return {};
+        }
+        if (length < static_cast<std::int32_t>(stack.size()) && status <= 0)
+        {
+            return Utf16ToUtf8(std::u16string_view(stack.data(),
+                static_cast<std::size_t>(length)));
+        }
+        std::vector<char16_t> buffer(static_cast<std::size_t>(length) + 1);
+        status = 0;
+        length = api.GetSymbol(number, symbol, buffer.data(),
+            static_cast<std::int32_t>(buffer.size()), &status);
+        if (length < 0 || status > 0)
+        {
+            return {};
+        }
+        return Utf16ToUtf8(std::u16string_view(buffer.data(),
+            static_cast<std::size_t>(length)));
+    }
+
+    [[nodiscard]] std::string WindowsLocaleString(const wchar_t* localeName, LCTYPE type)
+    {
+        const int length = GetLocaleInfoEx(localeName, type, nullptr, 0);
+        if (length <= 1)
+        {
+            return {};
+        }
+        std::wstring value(static_cast<std::size_t>(length), L'\0');
+        if (GetLocaleInfoEx(localeName, type, value.data(), length) == 0)
+        {
+            return {};
+        }
+        value.resize(static_cast<std::size_t>(length - 1));
+        return WideToUtf8(value);
+    }
+
+    [[nodiscard]] bool TryLoadWindowsIcuManagedNumberFormat(const wchar_t* localeName,
+        ManagedNumberFormat& result)
+    {
+        WindowsIcuNumberApi& api = CurrentWindowsIcuNumberApi();
+        if (!api.Available())
+        {
+            return false;
+        }
+        const std::string locale = WideToUtf8(localeName);
+        std::int32_t status = 0;
+        void* number = api.OpenNumber(1, nullptr, 0, locale.c_str(), nullptr, &status);
+        if (number == nullptr || status > 0)
+        {
+            if (number != nullptr)
+            {
+                api.CloseNumber(number);
+            }
+            return false;
+        }
+
+        const std::string decimal = WindowsIcuNumberSymbol(api, number, 0);
+        const std::string group = WindowsIcuNumberSymbol(api, number, 1);
+        const std::string negative = WindowsIcuNumberSymbol(api, number, 6);
+        const std::string positive = WindowsIcuNumberSymbol(api, number, 7);
+        const std::string infinity = WindowsIcuNumberSymbol(api, number, 14);
+        const std::string nan = WindowsIcuNumberSymbol(api, number, 15);
+        api.CloseNumber(number);
+
+        if (!decimal.empty())
+        {
+            result.DecimalSeparator = decimal;
+        }
+        result.GroupSeparator = group;
+        result.PositiveSign = positive.empty() ? "+" : positive;
+        result.NegativeSign = negative;
+        if (!infinity.empty() && !EqualsAsciiIgnoreCase(infinity, "inf"))
+        {
+            result.PositiveInfinitySymbol = infinity;
+        }
+        if (!nan.empty())
+        {
+            result.NaNSymbol = nan;
+        }
+
+        // CultureData.Icu builds NegativeInfinitySymbol from the culture's ICU
+        // negative sign and infinity symbol before GetNFIValues applies any
+        // Windows user overrides to the ordinary number signs/separators.
+        result.NegativeInfinitySymbol = negative + result.PositiveInfinitySymbol;
+
+        // CurrentCulture uses user overrides. On Windows, .NET obtains the
+        // NumberFormatInfo parsing signs and number separators from NLS even
+        // when ICU supplies the culture data used for the special symbols.
+        const std::string overrideDecimal = WindowsLocaleString(localeName, LOCALE_SDECIMAL);
+        const std::string overrideGroup = WindowsLocaleString(localeName, LOCALE_STHOUSAND);
+        const std::string overridePositive = WindowsLocaleString(localeName, LOCALE_SPOSITIVESIGN);
+        const std::string overrideNegative = WindowsLocaleString(localeName, LOCALE_SNEGATIVESIGN);
+        if (!overrideDecimal.empty())
+        {
+            result.DecimalSeparator = overrideDecimal;
+        }
+        result.GroupSeparator = overrideGroup;
+        result.PositiveSign = overridePositive.empty() ? "+" : overridePositive;
+        result.NegativeSign = overrideNegative;
+        result.AllowHyphenDuringParsing = ManagedAllowsHyphenFallback(result.NegativeSign);
+        return true;
+    }
+
+    [[nodiscard]] bool TryLoadWindowsNlsManagedNumberFormat(const wchar_t* localeName,
+        ManagedNumberFormat& result)
+    {
+        const std::string decimal = WindowsLocaleString(localeName, LOCALE_SDECIMAL);
+        const std::string group = WindowsLocaleString(localeName, LOCALE_STHOUSAND);
+        const std::string positive = WindowsLocaleString(localeName, LOCALE_SPOSITIVESIGN);
+        const std::string negative = WindowsLocaleString(localeName, LOCALE_SNEGATIVESIGN);
+        const std::string nan = WindowsLocaleString(localeName, LOCALE_SNAN);
+        const std::string positiveInfinity = WindowsLocaleString(localeName, LOCALE_SPOSINFINITY);
+        const std::string negativeInfinity = WindowsLocaleString(localeName, LOCALE_SNEGINFINITY);
+
+        if (!decimal.empty())
+        {
+            result.DecimalSeparator = decimal;
+        }
+        result.GroupSeparator = group;
+        result.PositiveSign = positive.empty() ? "+" : positive;
+        result.NegativeSign = negative;
+        if (!nan.empty())
+        {
+            result.NaNSymbol = nan;
+        }
+        if (!positiveInfinity.empty())
+        {
+            result.PositiveInfinitySymbol = positiveInfinity;
+        }
+        if (!negativeInfinity.empty())
+        {
+            result.NegativeInfinitySymbol = negativeInfinity;
+        }
+        else
+        {
+            result.NegativeInfinitySymbol = result.NegativeSign + result.PositiveInfinitySymbol;
+        }
+        result.AllowHyphenDuringParsing = ManagedAllowsHyphenFallback(result.NegativeSign);
+        return true;
+    }
+
+    [[nodiscard]] bool TryLoadPlatformManagedNumberFormat(ManagedNumberFormat& result)
+    {
+        if (EnvironmentFlagEnabled("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"))
+        {
+            return true;
+        }
+
+        wchar_t localeName[LOCALE_NAME_MAX_LENGTH]{};
+        if (GetUserDefaultLocaleName(localeName, LOCALE_NAME_MAX_LENGTH) == 0)
+        {
+            return false;
+        }
+
+        // .NET 9 uses ICU on supported Windows systems unless UseNls is
+        // explicitly enabled, then falls back to NLS when ICU is unavailable.
+        if (!EnvironmentFlagEnabled("DOTNET_SYSTEM_GLOBALIZATION_USENLS")
+            && TryLoadWindowsIcuManagedNumberFormat(localeName, result))
+        {
+            return true;
+        }
+        return TryLoadWindowsNlsManagedNumberFormat(localeName, result);
+    }
+
+#else
+    struct IcuNumberApi final
+    {
+        using OpenNumberFn = void* (*)(std::int32_t, const char16_t*, std::int32_t,
+            const char*, void*, std::int32_t*);
+        using CloseNumberFn = void (*)(void*);
+        using GetSymbolFn = std::int32_t (*)(const void*, std::int32_t, char16_t*,
+            std::int32_t, std::int32_t*);
+        using GetDefaultLocaleFn = const char* (*)();
+        using FoldCaseFn = std::int32_t (*)(std::int32_t, std::uint32_t);
+
+        void* I18n = nullptr;
+        void* Uc = nullptr;
+        OpenNumberFn OpenNumber = nullptr;
+        CloseNumberFn CloseNumber = nullptr;
+        GetSymbolFn GetSymbol = nullptr;
+        GetDefaultLocaleFn GetDefaultLocale = nullptr;
+        FoldCaseFn FoldCase = nullptr;
+
+        [[nodiscard]] bool Available() const noexcept
+        {
+            return OpenNumber != nullptr && CloseNumber != nullptr && GetSymbol != nullptr;
+        }
+    };
+
+    [[nodiscard]] void* OpenIcuLibrary(std::string_view stem)
+    {
+        std::vector<std::string> candidates;
+        candidates.emplace_back(std::string(stem) + ".so");
+        for (int major = 100; major >= 40; --major)
+        {
+            candidates.emplace_back(std::string(stem) + ".so." + std::to_string(major));
+        }
+#if defined(__APPLE__)
+        candidates.emplace_back("/usr/lib/libicucore.A.dylib");
+        candidates.emplace_back("/usr/lib/libicucore.dylib");
+        candidates.emplace_back(std::string(stem) + ".dylib");
+#endif
+        for (const std::string& candidate : candidates)
+        {
+            if (void* handle = dlopen(candidate.c_str(), RTLD_LAZY | RTLD_LOCAL))
+            {
+                return handle;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] void* ResolveIcuSymbol(void* handle, std::string_view base)
+    {
+        if (handle == nullptr)
+        {
+            return nullptr;
+        }
+        const std::string plain(base);
+        if (void* symbol = dlsym(handle, plain.c_str()))
+        {
+            return symbol;
+        }
+        for (int major = 100; major >= 40; --major)
+        {
+            const std::string renamed = plain + "_" + std::to_string(major);
+            if (void* symbol = dlsym(handle, renamed.c_str()))
+            {
+                return symbol;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] IcuNumberApi& CurrentIcuNumberApi()
+    {
+        static IcuNumberApi api = []
+        {
+            IcuNumberApi value{};
+            value.I18n = OpenIcuLibrary("libicui18n");
+            value.Uc = OpenIcuLibrary("libicuuc");
+#if defined(__APPLE__)
+            if (value.I18n == nullptr)
+            {
+                value.I18n = OpenIcuLibrary("libicucore");
+            }
+            if (value.Uc == nullptr)
+            {
+                value.Uc = value.I18n;
+            }
+#endif
+            value.OpenNumber = reinterpret_cast<IcuNumberApi::OpenNumberFn>(
+                ResolveIcuSymbol(value.I18n, "unum_open"));
+            value.CloseNumber = reinterpret_cast<IcuNumberApi::CloseNumberFn>(
+                ResolveIcuSymbol(value.I18n, "unum_close"));
+            value.GetSymbol = reinterpret_cast<IcuNumberApi::GetSymbolFn>(
+                ResolveIcuSymbol(value.I18n, "unum_getSymbol"));
+            value.GetDefaultLocale = reinterpret_cast<IcuNumberApi::GetDefaultLocaleFn>(
+                ResolveIcuSymbol(value.Uc, "uloc_getDefault"));
+            value.FoldCase = reinterpret_cast<IcuNumberApi::FoldCaseFn>(
+                ResolveIcuSymbol(value.Uc, "u_foldCase"));
+            return value;
+        }();
+        return api;
+    }
+
+    [[nodiscard]] std::string IcuNumberSymbol(IcuNumberApi& api, const void* number,
+        std::int32_t symbol)
+    {
+        std::array<char16_t, 32> stack{};
+        std::int32_t status = 0;
+        std::int32_t length = api.GetSymbol(number, symbol, stack.data(),
+            static_cast<std::int32_t>(stack.size()), &status);
+        if (length < 0)
+        {
+            return {};
+        }
+        if (length < static_cast<std::int32_t>(stack.size()) && status <= 0)
+        {
+            return Utf16ToUtf8(std::u16string_view(stack.data(),
+                static_cast<std::size_t>(length)));
+        }
+
+        std::vector<char16_t> buffer(static_cast<std::size_t>(length) + 1);
+        status = 0;
+        length = api.GetSymbol(number, symbol, buffer.data(),
+            static_cast<std::int32_t>(buffer.size()), &status);
+        if (length < 0 || status > 0)
+        {
+            return {};
+        }
+        return Utf16ToUtf8(std::u16string_view(buffer.data(),
+            static_cast<std::size_t>(length)));
+    }
+
+    [[nodiscard]] bool TryLoadPlatformManagedNumberFormat(ManagedNumberFormat& result)
+    {
+        if (EnvironmentFlagEnabled("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"))
+        {
+            return true;
+        }
+
+        IcuNumberApi& api = CurrentIcuNumberApi();
+        if (!api.Available())
+        {
+            return false;
+        }
+
+        const char* locale = api.GetDefaultLocale != nullptr ? api.GetDefaultLocale() : nullptr;
+        std::int32_t status = 0;
+        void* number = api.OpenNumber(1, nullptr, 0, locale, nullptr, &status); // UNUM_DECIMAL
+        if (number == nullptr || status > 0)
+        {
+            if (number != nullptr)
+            {
+                api.CloseNumber(number);
+            }
+            return false;
+        }
+
+        const std::string decimal = IcuNumberSymbol(api, number, 0); // decimal separator
+        const std::string group = IcuNumberSymbol(api, number, 1); // grouping separator
+        const std::string negative = IcuNumberSymbol(api, number, 6); // minus sign
+        const std::string positive = IcuNumberSymbol(api, number, 7); // plus sign
+        const std::string infinity = IcuNumberSymbol(api, number, 14); // infinity
+        const std::string nan = IcuNumberSymbol(api, number, 15); // NaN
+        api.CloseNumber(number);
+
+        if (!decimal.empty())
+        {
+            result.DecimalSeparator = decimal;
+        }
+        result.GroupSeparator = group;
+        if (!positive.empty())
+        {
+            result.PositiveSign = positive;
+        }
+        if (!negative.empty())
+        {
+            result.NegativeSign = negative;
+        }
+        // ICU's POSIX locale may expose the C spelling "INF". .NET maps the
+        // POSIX/C environment to its managed invariant number format instead;
+        // do not re-introduce the C-only token that Single.TryParse rejects.
+        if (!infinity.empty() && !EqualsAsciiIgnoreCase(infinity, "inf"))
+        {
+            result.PositiveInfinitySymbol = infinity;
+        }
+        if (!nan.empty())
+        {
+            result.NaNSymbol = nan;
+        }
+        // .NET's ICU globalization path defines negative infinity by prefixing
+        // the positive infinity symbol with NumberFormatInfo.NegativeSign.
+        result.NegativeInfinitySymbol = result.NegativeSign + result.PositiveInfinitySymbol;
+        result.AllowHyphenDuringParsing = ManagedAllowsHyphenFallback(result.NegativeSign);
+        return true;
+    }
+
+    [[nodiscard]] char32_t FoldManagedOrdinalCodePoint(char32_t value) noexcept
+    {
+        if (value <= 0x7FU)
+        {
+            const unsigned char ch = static_cast<unsigned char>(value);
+            return ch >= 'A' && ch <= 'Z' ? static_cast<char32_t>(ch + ('a' - 'A')) : value;
+        }
+        IcuNumberApi& api = CurrentIcuNumberApi();
+        if (api.FoldCase == nullptr)
+        {
+            return value;
+        }
+        return static_cast<char32_t>(api.FoldCase(static_cast<std::int32_t>(value), 0));
+    }
+#endif
+
+    [[nodiscard]] std::string FormatLocaleSpecial(const std::locale& locale, float value)
+    {
+        std::wostringstream output;
+        output.imbue(locale);
+        output << value;
+        return WideToUtf8(output.str());
+    }
+
     [[nodiscard]] bool IsCNaNSymbol(std::string_view value) noexcept
     {
         return EqualsAsciiIgnoreCase(value, "nan") || EqualsAsciiIgnoreCase(value, "+nan")
@@ -328,17 +885,8 @@ namespace
             || EqualsAsciiIgnoreCase(value, "+infinity") || EqualsAsciiIgnoreCase(value, "-infinity");
     }
 
-    [[nodiscard]] std::string FormatLocaleSpecial(const std::locale& locale, float value)
+    void ApplyStandardLocaleFallback(ManagedNumberFormat& result)
     {
-        std::wostringstream output;
-        output.imbue(locale);
-        output << value;
-        return WideToUtf8(output.str());
-    }
-
-    [[nodiscard]] ManagedNumberFormat CurrentManagedNumberFormat()
-    {
-        ManagedNumberFormat result{};
         const std::locale locale = CurrentUserLocale();
         try
         {
@@ -365,14 +913,10 @@ namespace
             if (!negativeSign.empty())
             {
                 result.NegativeSign = negativeSign;
-                result.AllowHyphenDuringParsing = ManagedAllowsHyphenFallback(negativeSign);
             }
         }
         catch (const std::bad_cast&)
         {
-            // The standard locale always supplies numpunct, while moneypunct is
-            // optional for custom locale objects. NumberFormatInfo defaults are
-            // the managed fallback when that culture facet is unavailable.
         }
 
         try
@@ -404,22 +948,125 @@ namespace
         {
             result.NegativeInfinitySymbol = result.NegativeSign + result.PositiveInfinitySymbol;
         }
+        result.AllowHyphenDuringParsing = ManagedAllowsHyphenFallback(result.NegativeSign);
+    }
+
+    [[nodiscard]] ManagedNumberFormat CurrentManagedNumberFormat()
+    {
+        ManagedNumberFormat result{};
+        if (!TryLoadPlatformManagedNumberFormat(result))
+        {
+            ApplyStandardLocaleFallback(result);
+        }
         return result;
     }
 
-    [[nodiscard]] bool StartsWithAt(std::string_view text, std::size_t index,
-        std::string_view token) noexcept
+    [[nodiscard]] bool IsManagedSpaceReplacingChar(char32_t value) noexcept
     {
-        return !token.empty() && index <= text.size() && token.size() <= text.size() - index
-            && text.compare(index, token.size(), token) == 0;
+        return value == U'\u00A0' || value == U'\u202F';
+    }
+
+    [[nodiscard]] std::size_t MatchManagedNumberToken(std::string_view text,
+        std::size_t index, std::string_view token) noexcept
+    {
+        if (token.empty() || index > text.size())
+        {
+            return 0;
+        }
+
+        std::size_t textIndex = index;
+        std::size_t tokenIndex = 0;
+        while (tokenIndex < token.size())
+        {
+            if (textIndex >= text.size())
+            {
+                return 0;
+            }
+            const auto [expected, nextToken] = DecodeUtf8At(token, tokenIndex);
+            const auto [actual, nextText] = DecodeUtf8At(text, textIndex);
+            if (actual != expected
+                && !(actual == U'\u0020' && IsManagedSpaceReplacingChar(expected)))
+            {
+                return 0;
+            }
+            tokenIndex = nextToken;
+            textIndex = nextText;
+        }
+        return textIndex - index;
+    }
+
+    [[nodiscard]] std::size_t MatchManagedOrdinalIgnoreCaseToken(std::string_view text,
+        std::size_t index, std::string_view token) noexcept
+    {
+        if (token.empty() || index > text.size())
+        {
+            return 0;
+        }
+
+#if defined(_WIN32)
+        const std::u16string expected = Utf8ToUtf16(token);
+        std::u16string actual;
+        actual.reserve(expected.size());
+        std::size_t textIndex = index;
+        while (textIndex < text.size() && actual.size() < expected.size())
+        {
+            const auto [codePoint, nextText] = DecodeUtf8At(text, textIndex);
+            if (codePoint <= 0xFFFFU)
+            {
+                actual.push_back(static_cast<char16_t>(codePoint));
+            }
+            else if (codePoint <= 0x10FFFFU)
+            {
+                const char32_t scalar = codePoint - 0x10000U;
+                actual.push_back(static_cast<char16_t>(0xD800U + (scalar >> 10U)));
+                actual.push_back(static_cast<char16_t>(0xDC00U + (scalar & 0x3FFU)));
+            }
+            textIndex = nextText;
+        }
+        if (actual.size() != expected.size())
+        {
+            return 0;
+        }
+        const int comparison = CompareStringOrdinal(
+            reinterpret_cast<LPCWCH>(actual.data()), static_cast<int>(actual.size()),
+            reinterpret_cast<LPCWCH>(expected.data()), static_cast<int>(expected.size()), TRUE);
+        return comparison == CSTR_EQUAL ? textIndex - index : 0;
+#else
+        std::size_t textIndex = index;
+        std::size_t tokenIndex = 0;
+        while (tokenIndex < token.size())
+        {
+            if (textIndex >= text.size())
+            {
+                return 0;
+            }
+            const auto [expected, nextToken] = DecodeUtf8At(token, tokenIndex);
+            const auto [actual, nextText] = DecodeUtf8At(text, textIndex);
+            if (FoldManagedOrdinalCodePoint(actual) != FoldManagedOrdinalCodePoint(expected))
+            {
+                return 0;
+            }
+            tokenIndex = nextToken;
+            textIndex = nextText;
+        }
+        return textIndex - index;
+#endif
+    }
+
+    [[nodiscard]] bool EqualsManagedOrdinalIgnoreCase(std::string_view left,
+        std::string_view right) noexcept
+    {
+        const std::size_t matched = MatchManagedOrdinalIgnoreCaseToken(left, 0, right);
+        return matched != 0 && matched == left.size();
     }
 
     [[nodiscard]] std::size_t MatchNegativeSign(std::string_view text, std::size_t index,
         const ManagedNumberFormat& format) noexcept
     {
-        if (StartsWithAt(text, index, format.NegativeSign))
+        if (const std::size_t matched = MatchManagedNumberToken(text, index, format.NegativeSign);
+            matched != 0)
         {
-            return format.NegativeSign.size();
+            return matched;
         }
         if (format.AllowHyphenDuringParsing && index < text.size() && text[index] == '-')
         {
@@ -431,36 +1078,50 @@ namespace
     [[nodiscard]] bool TryParseManagedSingleSpecial(std::string_view text,
         const ManagedNumberFormat& format, float& value) noexcept
     {
-        if (EqualsAsciiIgnoreCase(text, format.PositiveInfinitySymbol))
+        if (EqualsManagedOrdinalIgnoreCase(text, format.PositiveInfinitySymbol))
         {
             value = std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsAsciiIgnoreCase(text, format.NegativeInfinitySymbol))
+        if (EqualsManagedOrdinalIgnoreCase(text, format.NegativeInfinitySymbol))
         {
             value = -std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsAsciiIgnoreCase(text, format.NaNSymbol))
+        if (EqualsManagedOrdinalIgnoreCase(text, format.NaNSymbol))
         {
             value = std::numeric_limits<float>::quiet_NaN();
             return true;
         }
-        if (!format.PositiveSign.empty()
-            && EqualsAsciiIgnoreCase(text, format.PositiveSign + format.PositiveInfinitySymbol))
+
+        if (const std::size_t positiveLength = MatchManagedOrdinalIgnoreCaseToken(
+            text, 0, format.PositiveSign); positiveLength != 0)
         {
-            value = std::numeric_limits<float>::infinity();
-            return true;
+            const std::string_view remainder = text.substr(positiveLength);
+            if (EqualsManagedOrdinalIgnoreCase(remainder, format.PositiveInfinitySymbol))
+            {
+                value = std::numeric_limits<float>::infinity();
+                return true;
+            }
+            if (EqualsManagedOrdinalIgnoreCase(remainder, format.NaNSymbol))
+            {
+                value = std::numeric_limits<float>::quiet_NaN();
+                return true;
+            }
         }
-        if (!format.PositiveSign.empty()
-            && EqualsAsciiIgnoreCase(text, format.PositiveSign + format.NaNSymbol))
+
+        // Number.TryParseFloat uses an OrdinalIgnoreCase prefix comparison for
+        // the special-value negative sign; unlike ordinary numeric parsing,
+        // this path does not apply MatchChars' NBSP/NNBSP-to-ASCII-space rule.
+        if (const std::size_t negativeLength = MatchManagedOrdinalIgnoreCaseToken(
+            text, 0, format.NegativeSign); negativeLength != 0
+            && EqualsManagedOrdinalIgnoreCase(text.substr(negativeLength), format.NaNSymbol))
         {
             value = std::numeric_limits<float>::quiet_NaN();
             return true;
         }
-        const std::size_t negativeSignLength = MatchNegativeSign(text, 0, format);
-        if (negativeSignLength != 0
-            && EqualsAsciiIgnoreCase(text.substr(negativeSignLength), format.NaNSymbol))
+        if (format.AllowHyphenDuringParsing && !text.empty() && text.front() == '-'
+            && EqualsManagedOrdinalIgnoreCase(text.substr(1), format.NaNSymbol))
         {
             value = std::numeric_limits<float>::quiet_NaN();
             return true;
@@ -475,10 +1136,11 @@ namespace
         normalized.reserve(text.size());
 
         std::size_t index = 0;
-        if (StartsWithAt(text, index, format.PositiveSign))
+        if (const std::size_t positiveSignLength = MatchManagedNumberToken(
+            text, index, format.PositiveSign); positiveSignLength != 0)
         {
             normalized.push_back('+');
-            index += format.PositiveSign.size();
+            index += positiveSignLength;
         }
         else if (const std::size_t negativeSignLength = MatchNegativeSign(text, index, format);
             negativeSignLength != 0)
@@ -499,21 +1161,30 @@ namespace
                 ++index;
                 continue;
             }
-            if (!sawDecimal && StartsWithAt(text, index, format.DecimalSeparator))
+            if (!sawDecimal)
             {
-                sawDecimal = true;
-                normalized.push_back('.');
-                index += format.DecimalSeparator.size();
-                continue;
+                const std::size_t decimalLength = MatchManagedNumberToken(
+                    text, index, format.DecimalSeparator);
+                if (decimalLength != 0)
+                {
+                    sawDecimal = true;
+                    normalized.push_back('.');
+                    index += decimalLength;
+                    continue;
+                }
             }
-            if (!sawDecimal && sawDigit && format.GroupSeparator != format.DecimalSeparator
-                && StartsWithAt(text, index, format.GroupSeparator))
+            if (!sawDecimal && sawDigit && format.GroupSeparator != format.DecimalSeparator)
             {
-                // NumberStyles.AllowThousands does not validate group sizes;
-                // once an integral digit has been seen, repeated/trailing group
-                // separators are accepted by the managed parser as well.
-                index += format.GroupSeparator.size();
-                continue;
+                const std::size_t groupLength = MatchManagedNumberToken(
+                    text, index, format.GroupSeparator);
+                if (groupLength != 0)
+                {
+                    // NumberStyles.AllowThousands does not validate group sizes;
+                    // once an integral digit has been seen, repeated/trailing group
+                    // separators are accepted by the managed parser as well.
+                    index += groupLength;
+                    continue;
+                }
             }
             break;
         }
@@ -527,10 +1198,11 @@ namespace
         {
             normalized.push_back(text[index]);
             ++index;
-            if (StartsWithAt(text, index, format.PositiveSign))
+            if (const std::size_t positiveSignLength = MatchManagedNumberToken(
+                text, index, format.PositiveSign); positiveSignLength != 0)
             {
                 normalized.push_back('+');
-                index += format.PositiveSign.size();
+                index += positiveSignLength;
             }
             else if (const std::size_t negativeSignLength = MatchNegativeSign(text, index, format);
                 negativeSignLength != 0)
@@ -6884,6 +7556,134 @@ namespace MphRead
         }
         ++_version;
         RebuildStorage(newSize);
+    }
+
+    TextureMap::Enumerator TextureMap::GetEnumerator() noexcept
+    {
+        return Enumerator(this);
+    }
+
+    void TextureMap::Enumerator::ValidateVersion() const
+    {
+        if (_owner != nullptr && _version != _owner->_version)
+        {
+            throw SceneDetail::InvalidOperationException();
+        }
+    }
+
+    bool TextureMap::Enumerator::MoveNext()
+    {
+        ValidateVersion();
+        if (_owner == nullptr)
+        {
+            _current = Entry{};
+            return false;
+        }
+        while (_index < _owner->_items.size())
+        {
+            const std::size_t currentIndex = _index++;
+            if (_owner->_items[currentIndex].has_value())
+            {
+                _current = *_owner->_items[currentIndex];
+                return true;
+            }
+        }
+        _index = _owner->_items.size() + 1;
+        _current = Entry{};
+        return false;
+    }
+
+    TextureMap::Entry TextureMap::Enumerator::Current() const
+    {
+        // Dictionary<TKey,TValue>.Enumerator.Current returns the cached value
+        // without a version check; MoveNext/Reset are the version gates.
+        return _current;
+    }
+
+    void TextureMap::GetObjectData(
+        std::shared_ptr<System::Runtime::Serialization::SerializationInfo> info,
+        System::Runtime::Serialization::StreamingContext context)
+    {
+        (void)context;
+        if (!info)
+        {
+            throw std::invalid_argument("info");
+        }
+
+        info->AddValue("Version", std::bit_cast<std::int32_t>(_version));
+        info->AddValue("Comparer", Comparer());
+        info->AddValue("HashSize", _capacity);
+        if (_capacity != 0)
+        {
+            std::vector<Entry> pairs;
+            pairs.reserve(static_cast<std::size_t>(_count));
+            for (const auto& item : _items)
+            {
+                if (item.has_value())
+                {
+                    pairs.push_back(*item);
+                }
+            }
+            info->AddValue("KeyValuePairs", std::move(pairs));
+        }
+    }
+
+    void TextureMap::OnDeserialization(std::shared_ptr<void> sender)
+    {
+        (void)sender;
+        // TextureMap exposes only its implicit parameterless constructor. The
+        // protected Dictionary(SerializationInfo, StreamingContext) base
+        // constructor is not inherited by C# subclasses, so no TextureMap
+        // instance can have a pending serialization payload to consume here.
+        // Dictionary.OnDeserialization is therefore a no-op for every
+        // constructible TextureMap instance.
+    }
+
+    [[noreturn]] void TextureMap::ThrowIncompatibleAlternateLookup()
+    {
+        // EqualityComparer<int>.Default does not implement any
+        // IAlternateEqualityComparer<TAlternateKey, int>. The inherited .NET 9
+        // GetAlternateLookup<TAlternateKey>() therefore always throws for this
+        // exact Dictionary<int, ...> specialization.
+        throw SceneDetail::InvalidOperationException();
+    }
+
+    void TextureMap::KeyCollection::CopyTo(std::vector<KeyType>& array,
+        std::int32_t index) const
+    {
+        if (index < 0 || static_cast<std::size_t>(index) > array.size())
+        {
+            throw std::out_of_range("index");
+        }
+        if (array.size() - static_cast<std::size_t>(index)
+            < static_cast<std::size_t>(_owner.Count()))
+        {
+            throw std::invalid_argument("array");
+        }
+        std::size_t destination = static_cast<std::size_t>(index);
+        for (const Entry& entry : _owner)
+        {
+            array[destination++] = entry.first;
+        }
+    }
+
+    void TextureMap::ValueCollection::CopyTo(std::vector<MappedType>& array,
+        std::int32_t index) const
+    {
+        if (index < 0 || static_cast<std::size_t>(index) > array.size())
+        {
+            throw std::out_of_range("index");
+        }
+        if (array.size() - static_cast<std::size_t>(index)
+            < static_cast<std::size_t>(_owner.Count()))
+        {
+            throw std::invalid_argument("array");
+        }
+        std::size_t destination = static_cast<std::size_t>(index);
+        for (const Entry& entry : _owner)
+        {
+            array[destination++] = entry.second;
+        }
     }
 
     TextureMapValue TextureMap::Get(std::int32_t textureId, std::int32_t paletteId,

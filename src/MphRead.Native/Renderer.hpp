@@ -4,6 +4,7 @@
 #include "Formats/Types.hpp"
 #include "Selection.hpp"
 
+#include <any>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -23,6 +24,46 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+namespace System::Runtime::Serialization
+{
+    // Renderer.cs inherits Dictionary's legacy public serialization surface.
+    // The native project has no CLR serialization provider, so this is the
+    // narrow type-erased carrier needed to preserve the observable payload and
+    // null/error behavior of Dictionary.GetObjectData.
+    class SerializationInfo final
+    {
+    public:
+        template <typename T>
+        void AddValue(std::string name, T value)
+        {
+            _values.insert_or_assign(std::move(name), std::any(std::move(value)));
+        }
+
+        template <typename T>
+        [[nodiscard]] const T& GetValue(std::string_view name) const
+        {
+            auto it = _values.find(std::string(name));
+            if (it == _values.end())
+            {
+                throw std::out_of_range("name");
+            }
+            return std::any_cast<const T&>(it->second);
+        }
+
+        [[nodiscard]] bool Contains(std::string_view name) const
+        {
+            return _values.find(std::string(name)) != _values.end();
+        }
+
+    private:
+        std::unordered_map<std::string, std::any> _values{};
+    };
+
+    struct StreamingContext final
+    {
+    };
+}
 
 namespace OpenTK::Mathematics
 {
@@ -346,8 +387,11 @@ namespace MphRead
 
         class iterator;
         class const_iterator;
+        class Enumerator;
         class KeyCollection;
         class ValueCollection;
+        template <typename TAlternateKey>
+        class AlternateLookup;
 
         class KeyComparer final
         {
@@ -380,7 +424,7 @@ namespace MphRead
         TextureMap& operator=(const TextureMap& other);
         TextureMap(TextureMap&& other) noexcept;
         TextureMap& operator=(TextureMap&& other) noexcept;
-        ~TextureMap() = default;
+        virtual ~TextureMap() = default;
 
         [[nodiscard]] TextureMapValue Get(std::int32_t textureId, std::int32_t paletteId,
             std::int32_t recolorId) const;
@@ -405,6 +449,24 @@ namespace MphRead
         [[nodiscard]] std::int32_t EnsureCapacity(std::int32_t capacity);
         void TrimExcess();
         void TrimExcess(std::int32_t capacity);
+        [[nodiscard]] Enumerator GetEnumerator() noexcept;
+        virtual void GetObjectData(
+            std::shared_ptr<System::Runtime::Serialization::SerializationInfo> info,
+            System::Runtime::Serialization::StreamingContext context);
+        virtual void OnDeserialization(std::shared_ptr<void> sender);
+
+        template <typename TAlternateKey>
+        [[nodiscard]] AlternateLookup<TAlternateKey> GetAlternateLookup()
+        {
+            ThrowIncompatibleAlternateLookup();
+        }
+
+        template <typename TAlternateKey>
+        [[nodiscard]] bool TryGetAlternateLookup(AlternateLookup<TAlternateKey>& lookup) noexcept
+        {
+            lookup = AlternateLookup<TAlternateKey>{};
+            return false;
+        }
 
         class iterator final
         {
@@ -476,6 +538,39 @@ namespace MphRead
             Entry _current{};
         };
 
+        class Enumerator final
+        {
+        public:
+            Enumerator() = default;
+            [[nodiscard]] bool MoveNext();
+            [[nodiscard]] Entry Current() const;
+            void Dispose() noexcept {}
+
+        private:
+            friend class TextureMap;
+            explicit Enumerator(TextureMap* owner) noexcept
+                : _owner(owner), _version(owner != nullptr ? owner->_version : 0) {}
+            void ValidateVersion() const;
+
+            TextureMap* _owner = nullptr;
+            std::size_t _index = 0;
+            std::uint32_t _version = 0;
+            Entry _current{};
+        };
+
+        template <typename TAlternateKey>
+        class AlternateLookup final
+        {
+        public:
+            AlternateLookup() = default;
+            [[nodiscard]] TextureMap* Dictionary() const noexcept { return _dictionary; }
+
+        private:
+            friend class TextureMap;
+            explicit AlternateLookup(TextureMap* dictionary) noexcept : _dictionary(dictionary) {}
+            TextureMap* _dictionary = nullptr;
+        };
+
         class KeyCollection final
         {
         public:
@@ -485,6 +580,31 @@ namespace MphRead
             {
                 return _owner.ContainsKey(value);
             }
+
+            class Enumerator final
+            {
+            public:
+                Enumerator() = default;
+                [[nodiscard]] bool MoveNext()
+                {
+                    if (!_inner.MoveNext())
+                    {
+                        _current = KeyType{};
+                        return false;
+                    }
+                    _current = _inner.Current().first;
+                    return true;
+                }
+                [[nodiscard]] KeyType Current() const noexcept { return _current; }
+                void Dispose() noexcept { _inner.Dispose(); }
+
+            private:
+                friend class KeyCollection;
+                explicit Enumerator(TextureMap::Enumerator inner) noexcept
+                    : _inner(std::move(inner)) {}
+                TextureMap::Enumerator _inner{};
+                KeyType _current = 0;
+            };
 
             class iterator final
             {
@@ -514,6 +634,9 @@ namespace MphRead
                 const_iterator _current{};
             };
 
+            [[nodiscard]] Enumerator GetEnumerator() const noexcept { return Enumerator(const_cast<TextureMap&>(_owner).GetEnumerator()); }
+            void CopyTo(std::vector<KeyType>& array, std::int32_t index) const;
+
             [[nodiscard]] iterator begin() const noexcept { return iterator(_owner.cbegin()); }
             [[nodiscard]] iterator end() const noexcept { return iterator(_owner.cend()); }
 
@@ -530,6 +653,31 @@ namespace MphRead
             {
                 return _owner.ContainsValue(value);
             }
+
+            class Enumerator final
+            {
+            public:
+                Enumerator() = default;
+                [[nodiscard]] bool MoveNext()
+                {
+                    if (!_inner.MoveNext())
+                    {
+                        _current = MappedType{};
+                        return false;
+                    }
+                    _current = _inner.Current().second;
+                    return true;
+                }
+                [[nodiscard]] MappedType Current() const noexcept { return _current; }
+                void Dispose() noexcept { _inner.Dispose(); }
+
+            private:
+                friend class ValueCollection;
+                explicit Enumerator(TextureMap::Enumerator inner) noexcept
+                    : _inner(std::move(inner)) {}
+                TextureMap::Enumerator _inner{};
+                MappedType _current{};
+            };
 
             class iterator final
             {
@@ -559,6 +707,9 @@ namespace MphRead
                 const_iterator _current{};
             };
 
+            [[nodiscard]] Enumerator GetEnumerator() const noexcept { return Enumerator(const_cast<TextureMap&>(_owner).GetEnumerator()); }
+            void CopyTo(std::vector<MappedType>& array, std::int32_t index) const;
+
             [[nodiscard]] iterator begin() const noexcept { return iterator(_owner.cbegin()); }
             [[nodiscard]] iterator end() const noexcept { return iterator(_owner.cend()); }
 
@@ -583,6 +734,7 @@ namespace MphRead
         void SetItem(KeyType key, MappedType value);
         void InsertNew(KeyType key, MappedType value);
         void RebuildStorage(std::int32_t capacity);
+        [[noreturn]] static void ThrowIncompatibleAlternateLookup();
 
         std::vector<std::optional<Entry>> _items{};
         std::vector<std::size_t> _freeSlots{};

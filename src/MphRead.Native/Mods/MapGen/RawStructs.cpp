@@ -4,6 +4,7 @@
 #include "../../Program.hpp"
 #include "../../Read.hpp"
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -49,7 +50,11 @@ namespace
         std::int32_t length)
     {
         std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length), 0);
-        const std::u16string_view text = value.value();
+        if (!value.has_value())
+        {
+            throw System::NullReferenceException();
+        }
+        const std::u16string_view text = *value;
         const std::size_t limit = static_cast<std::size_t>(length - 1);
         for (std::size_t i = 0; i < text.size() && i < limit; ++i)
         {
@@ -82,6 +87,7 @@ namespace
         std::string_view typeName)
     {
         const std::size_t size = sizeof(T);
+        assert(bytes.size() == size);
         if (bytes.size() != size)
         {
             throw MphRead::ProgramException(

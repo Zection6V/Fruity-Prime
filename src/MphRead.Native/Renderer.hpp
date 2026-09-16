@@ -346,6 +346,21 @@ namespace MphRead
 
         class iterator;
         class const_iterator;
+        class KeyCollection;
+        class ValueCollection;
+
+        class KeyComparer final
+        {
+        public:
+            [[nodiscard]] bool Equals(KeyType left, KeyType right) const noexcept
+            {
+                return left == right;
+            }
+            [[nodiscard]] std::int32_t GetHashCode(KeyType value) const noexcept
+            {
+                return value;
+            }
+        };
 
         class ItemProxy final
         {
@@ -360,12 +375,18 @@ namespace MphRead
             KeyType _key;
         };
 
+        TextureMap() = default;
+        TextureMap(const TextureMap& other);
+        TextureMap& operator=(const TextureMap& other);
+        TextureMap(TextureMap&& other) noexcept;
+        TextureMap& operator=(TextureMap&& other) noexcept;
+        ~TextureMap() = default;
+
         [[nodiscard]] TextureMapValue Get(std::int32_t textureId, std::int32_t paletteId,
             std::int32_t recolorId) const;
         void Add(std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId,
             std::int32_t bindingId, bool onlyOpaque);
 
-        // Dictionary<int, (int BindingId, bool OnlyOpaque)> public behavior.
         void Add(KeyType key, MappedType value);
         [[nodiscard]] bool ContainsKey(KeyType key) const noexcept;
         [[nodiscard]] bool ContainsValue(const MappedType& value) const noexcept;
@@ -374,9 +395,16 @@ namespace MphRead
         [[nodiscard]] bool Remove(KeyType key, MappedType& value) noexcept;
         void Clear() noexcept;
         [[nodiscard]] std::int32_t Count() const noexcept;
+        [[nodiscard]] std::int32_t Capacity() const noexcept;
+        [[nodiscard]] const KeyComparer& Comparer() const noexcept;
+        [[nodiscard]] const KeyCollection& Keys() const;
+        [[nodiscard]] const ValueCollection& Values() const;
         [[nodiscard]] bool TryAdd(KeyType key, MappedType value);
         [[nodiscard]] ItemProxy operator[](KeyType key) noexcept;
         [[nodiscard]] MappedType operator[](KeyType key) const;
+        [[nodiscard]] std::int32_t EnsureCapacity(std::int32_t capacity);
+        void TrimExcess();
+        void TrimExcess(std::int32_t capacity);
 
         class iterator final
         {
@@ -384,17 +412,17 @@ namespace MphRead
             using iterator_category = std::forward_iterator_tag;
             using value_type = Entry;
             using difference_type = std::ptrdiff_t;
-            using pointer = Entry*;
-            using reference = Entry&;
+            using pointer = const Entry*;
+            using reference = const Entry&;
 
             iterator() = default;
-            [[nodiscard]] reference operator*() const { return **_current; }
-            [[nodiscard]] pointer operator->() const { return &**_current; }
+            [[nodiscard]] reference operator*() const;
+            [[nodiscard]] pointer operator->() const;
             iterator& operator++();
             iterator operator++(int);
             friend bool operator==(const iterator& left, const iterator& right)
             {
-                return left._current == right._current;
+                return left._owner == right._owner && left._index == right._index;
             }
             friend bool operator!=(const iterator& left, const iterator& right)
             {
@@ -403,11 +431,14 @@ namespace MphRead
 
         private:
             friend class TextureMap;
-            using Base = std::vector<std::optional<Entry>>::iterator;
-            iterator(Base current, Base end) : _current(current), _end(end) { SkipEmpty(); }
+            iterator(TextureMap* owner, std::size_t index, std::uint32_t version)
+                : _owner(owner), _index(index), _version(version) { SkipEmpty(); }
+            void ValidateVersion() const;
             void SkipEmpty();
-            Base _current{};
-            Base _end{};
+            TextureMap* _owner = nullptr;
+            std::size_t _index = 0;
+            std::uint32_t _version = 0;
+            Entry _current{};
         };
 
         class const_iterator final
@@ -420,13 +451,13 @@ namespace MphRead
             using reference = const Entry&;
 
             const_iterator() = default;
-            [[nodiscard]] reference operator*() const { return **_current; }
-            [[nodiscard]] pointer operator->() const { return &**_current; }
+            [[nodiscard]] reference operator*() const;
+            [[nodiscard]] pointer operator->() const;
             const_iterator& operator++();
             const_iterator operator++(int);
             friend bool operator==(const const_iterator& left, const const_iterator& right)
             {
-                return left._current == right._current;
+                return left._owner == right._owner && left._index == right._index;
             }
             friend bool operator!=(const const_iterator& left, const const_iterator& right)
             {
@@ -435,11 +466,104 @@ namespace MphRead
 
         private:
             friend class TextureMap;
-            using Base = std::vector<std::optional<Entry>>::const_iterator;
-            const_iterator(Base current, Base end) : _current(current), _end(end) { SkipEmpty(); }
+            const_iterator(const TextureMap* owner, std::size_t index, std::uint32_t version)
+                : _owner(owner), _index(index), _version(version) { SkipEmpty(); }
+            void ValidateVersion() const;
             void SkipEmpty();
-            Base _current{};
-            Base _end{};
+            const TextureMap* _owner = nullptr;
+            std::size_t _index = 0;
+            std::uint32_t _version = 0;
+            Entry _current{};
+        };
+
+        class KeyCollection final
+        {
+        public:
+            explicit KeyCollection(const TextureMap& owner) noexcept : _owner(owner) {}
+            [[nodiscard]] std::int32_t Count() const noexcept { return _owner.Count(); }
+            [[nodiscard]] bool Contains(KeyType value) const noexcept
+            {
+                return _owner.ContainsKey(value);
+            }
+
+            class iterator final
+            {
+            public:
+                using iterator_category = std::forward_iterator_tag;
+                using value_type = KeyType;
+                using difference_type = std::ptrdiff_t;
+                using pointer = void;
+                using reference = KeyType;
+
+                iterator() = default;
+                [[nodiscard]] KeyType operator*() const { return _current->first; }
+                iterator& operator++() { ++_current; return *this; }
+                iterator operator++(int) { iterator prior = *this; ++(*this); return prior; }
+                friend bool operator==(const iterator& left, const iterator& right)
+                {
+                    return left._current == right._current;
+                }
+                friend bool operator!=(const iterator& left, const iterator& right)
+                {
+                    return !(left == right);
+                }
+
+            private:
+                friend class KeyCollection;
+                explicit iterator(const_iterator current) : _current(std::move(current)) {}
+                const_iterator _current{};
+            };
+
+            [[nodiscard]] iterator begin() const noexcept { return iterator(_owner.cbegin()); }
+            [[nodiscard]] iterator end() const noexcept { return iterator(_owner.cend()); }
+
+        private:
+            const TextureMap& _owner;
+        };
+
+        class ValueCollection final
+        {
+        public:
+            explicit ValueCollection(const TextureMap& owner) noexcept : _owner(owner) {}
+            [[nodiscard]] std::int32_t Count() const noexcept { return _owner.Count(); }
+            [[nodiscard]] bool Contains(const MappedType& value) const noexcept
+            {
+                return _owner.ContainsValue(value);
+            }
+
+            class iterator final
+            {
+            public:
+                using iterator_category = std::forward_iterator_tag;
+                using value_type = MappedType;
+                using difference_type = std::ptrdiff_t;
+                using pointer = void;
+                using reference = MappedType;
+
+                iterator() = default;
+                [[nodiscard]] MappedType operator*() const { return _current->second; }
+                iterator& operator++() { ++_current; return *this; }
+                iterator operator++(int) { iterator prior = *this; ++(*this); return prior; }
+                friend bool operator==(const iterator& left, const iterator& right)
+                {
+                    return left._current == right._current;
+                }
+                friend bool operator!=(const iterator& left, const iterator& right)
+                {
+                    return !(left == right);
+                }
+
+            private:
+                friend class ValueCollection;
+                explicit iterator(const_iterator current) : _current(std::move(current)) {}
+                const_iterator _current{};
+            };
+
+            [[nodiscard]] iterator begin() const noexcept { return iterator(_owner.cbegin()); }
+            [[nodiscard]] iterator end() const noexcept { return iterator(_owner.cend()); }
+
+        private:
+            const TextureMap& _owner;
         };
 
         [[nodiscard]] iterator begin() noexcept;
@@ -452,14 +576,21 @@ namespace MphRead
     private:
         [[nodiscard]] static std::int32_t GetKey(std::int32_t textureId,
             std::int32_t paletteId, std::int32_t recolorId);
+        [[nodiscard]] static std::int32_t GetPrime(std::int32_t minimum);
+        [[nodiscard]] static std::int32_t ExpandPrime(std::int32_t oldSize);
         [[nodiscard]] std::optional<std::size_t> FindIndex(KeyType key) const noexcept;
         [[nodiscard]] MappedType GetItem(KeyType key) const;
         void SetItem(KeyType key, MappedType value);
         void InsertNew(KeyType key, MappedType value);
+        void RebuildStorage(std::int32_t capacity);
 
         std::vector<std::optional<Entry>> _items{};
         std::vector<std::size_t> _freeSlots{};
         std::int32_t _count = 0;
+        std::int32_t _capacity = 0;
+        std::uint32_t _version = 0;
+        mutable std::unique_ptr<KeyCollection> _keys{};
+        mutable std::unique_ptr<ValueCollection> _values{};
     };
 
     class RenderWindow final

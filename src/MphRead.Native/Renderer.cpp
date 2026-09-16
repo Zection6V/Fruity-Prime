@@ -204,6 +204,56 @@ namespace
         }
     }
 
+    void AppendUtf8(std::string& result, char32_t codePoint)
+    {
+        if (codePoint <= 0x7FU)
+        {
+            result.push_back(static_cast<char>(codePoint));
+        }
+        else if (codePoint <= 0x7FFU)
+        {
+            result.push_back(static_cast<char>(0xC0U | (codePoint >> 6U)));
+            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+        }
+        else if (codePoint <= 0xFFFFU)
+        {
+            result.push_back(static_cast<char>(0xE0U | (codePoint >> 12U)));
+            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
+            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+        }
+        else if (codePoint <= 0x10FFFFU)
+        {
+            result.push_back(static_cast<char>(0xF0U | (codePoint >> 18U)));
+            result.push_back(static_cast<char>(0x80U | ((codePoint >> 12U) & 0x3FU)));
+            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
+            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+        }
+    }
+
+    [[nodiscard]] std::string WideToUtf8(std::wstring_view value)
+    {
+        std::string result;
+        result.reserve(value.size());
+        for (std::size_t i = 0; i < value.size(); ++i)
+        {
+            char32_t codePoint = static_cast<char32_t>(value[i]);
+            if constexpr (sizeof(wchar_t) == 2)
+            {
+                if (codePoint >= 0xD800U && codePoint <= 0xDBFFU && i + 1 < value.size())
+                {
+                    const char32_t low = static_cast<char32_t>(value[i + 1]);
+                    if (low >= 0xDC00U && low <= 0xDFFFU)
+                    {
+                        codePoint = 0x10000U + ((codePoint - 0xD800U) << 10U) + (low - 0xDC00U);
+                        ++i;
+                    }
+                }
+            }
+            AppendUtf8(result, codePoint);
+        }
+        return result;
+    }
+
     [[nodiscard]] bool EqualsAsciiIgnoreCase(std::string_view left, std::string_view right) noexcept
     {
         if (left.size() != right.size())
@@ -226,45 +276,215 @@ namespace
         return true;
     }
 
-    [[nodiscard]] bool TryParseManagedSingleSpecial(std::string_view text, float& value) noexcept
+    struct ManagedNumberFormat final
     {
-        // Number.TryParseFloat compares the NumberFormatInfo special symbols
-        // case-insensitively. The existing native culture boundary exposes the
-        // decimal/group punctuation but not custom special-symbol strings, so
-        // preserve the managed defaults rather than inheriting strtof's extra
-        // C spellings (INF, NAN(payload), and friends).
-        if (EqualsAsciiIgnoreCase(text, "NaN")
-            || EqualsAsciiIgnoreCase(text, "+NaN")
-            || EqualsAsciiIgnoreCase(text, "-NaN"))
+        std::string DecimalSeparator = ".";
+        std::string GroupSeparator = ",";
+        std::string PositiveSign = "+";
+        std::string NegativeSign = "-";
+        std::string PositiveInfinitySymbol = "Infinity";
+        std::string NegativeInfinitySymbol = "-Infinity";
+        std::string NaNSymbol = "NaN";
+        bool AllowHyphenDuringParsing = false;
+    };
+
+
+    [[nodiscard]] bool ManagedAllowsHyphenFallback(std::string_view negativeSign) noexcept
+    {
+        if (negativeSign.empty())
         {
-            value = std::numeric_limits<float>::quiet_NaN();
-            return true;
+            return false;
         }
-        if (EqualsAsciiIgnoreCase(text, "Infinity")
-            || EqualsAsciiIgnoreCase(text, "+Infinity"))
+        const auto [codePoint, next] = DecodeUtf8At(negativeSign, 0);
+        if (next != negativeSign.size())
+        {
+            return false;
+        }
+        switch (codePoint)
+        {
+        case U'\u2012': // Figure Dash
+        case U'\u207B': // Superscript Minus
+        case U'\u208B': // Subscript Minus
+        case U'\u2212': // Minus Sign
+        case U'\u2796': // Heavy Minus Sign
+        case U'\uFE63': // Small Hyphen-Minus
+        case U'\uFF0D': // Fullwidth Hyphen-Minus
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    [[nodiscard]] bool IsCNaNSymbol(std::string_view value) noexcept
+    {
+        return EqualsAsciiIgnoreCase(value, "nan") || EqualsAsciiIgnoreCase(value, "+nan")
+            || EqualsAsciiIgnoreCase(value, "-nan");
+    }
+
+    [[nodiscard]] bool IsCInfinitySymbol(std::string_view value) noexcept
+    {
+        return EqualsAsciiIgnoreCase(value, "inf") || EqualsAsciiIgnoreCase(value, "+inf")
+            || EqualsAsciiIgnoreCase(value, "-inf") || EqualsAsciiIgnoreCase(value, "infinity")
+            || EqualsAsciiIgnoreCase(value, "+infinity") || EqualsAsciiIgnoreCase(value, "-infinity");
+    }
+
+    [[nodiscard]] std::string FormatLocaleSpecial(const std::locale& locale, float value)
+    {
+        std::wostringstream output;
+        output.imbue(locale);
+        output << value;
+        return WideToUtf8(output.str());
+    }
+
+    [[nodiscard]] ManagedNumberFormat CurrentManagedNumberFormat()
+    {
+        ManagedNumberFormat result{};
+        const std::locale locale = CurrentUserLocale();
+        try
+        {
+            const auto& punctuation = std::use_facet<std::numpunct<wchar_t>>(locale);
+            result.DecimalSeparator = WideToUtf8(std::wstring(1, punctuation.decimal_point()));
+            result.GroupSeparator = WideToUtf8(std::wstring(1, punctuation.thousands_sep()));
+        }
+        catch (const std::bad_cast&)
+        {
+            const auto& punctuation = std::use_facet<std::numpunct<char>>(locale);
+            result.DecimalSeparator.assign(1, punctuation.decimal_point());
+            result.GroupSeparator.assign(1, punctuation.thousands_sep());
+        }
+
+        try
+        {
+            const auto& money = std::use_facet<std::moneypunct<wchar_t, false>>(locale);
+            const std::string positiveSign = WideToUtf8(money.positive_sign());
+            const std::string negativeSign = WideToUtf8(money.negative_sign());
+            if (!positiveSign.empty())
+            {
+                result.PositiveSign = positiveSign;
+            }
+            if (!negativeSign.empty())
+            {
+                result.NegativeSign = negativeSign;
+                result.AllowHyphenDuringParsing = ManagedAllowsHyphenFallback(negativeSign);
+            }
+        }
+        catch (const std::bad_cast&)
+        {
+            // The standard locale always supplies numpunct, while moneypunct is
+            // optional for custom locale objects. NumberFormatInfo defaults are
+            // the managed fallback when that culture facet is unavailable.
+        }
+
+        try
+        {
+            const std::string nan = FormatLocaleSpecial(locale,
+                std::numeric_limits<float>::quiet_NaN());
+            const std::string positiveInfinity = FormatLocaleSpecial(locale,
+                std::numeric_limits<float>::infinity());
+            const std::string negativeInfinity = FormatLocaleSpecial(locale,
+                -std::numeric_limits<float>::infinity());
+            if (!nan.empty() && !IsCNaNSymbol(nan))
+            {
+                result.NaNSymbol = nan;
+            }
+            if (!positiveInfinity.empty() && !IsCInfinitySymbol(positiveInfinity))
+            {
+                result.PositiveInfinitySymbol = positiveInfinity;
+            }
+            if (!negativeInfinity.empty() && !IsCInfinitySymbol(negativeInfinity))
+            {
+                result.NegativeInfinitySymbol = negativeInfinity;
+            }
+            else
+            {
+                result.NegativeInfinitySymbol = result.NegativeSign + result.PositiveInfinitySymbol;
+            }
+        }
+        catch (const std::runtime_error&)
+        {
+            result.NegativeInfinitySymbol = result.NegativeSign + result.PositiveInfinitySymbol;
+        }
+        return result;
+    }
+
+    [[nodiscard]] bool StartsWithAt(std::string_view text, std::size_t index,
+        std::string_view token) noexcept
+    {
+        return !token.empty() && index <= text.size() && token.size() <= text.size() - index
+            && text.compare(index, token.size(), token) == 0;
+    }
+
+    [[nodiscard]] std::size_t MatchNegativeSign(std::string_view text, std::size_t index,
+        const ManagedNumberFormat& format) noexcept
+    {
+        if (StartsWithAt(text, index, format.NegativeSign))
+        {
+            return format.NegativeSign.size();
+        }
+        if (format.AllowHyphenDuringParsing && index < text.size() && text[index] == '-')
+        {
+            return 1;
+        }
+        return 0;
+    }
+
+    [[nodiscard]] bool TryParseManagedSingleSpecial(std::string_view text,
+        const ManagedNumberFormat& format, float& value) noexcept
+    {
+        if (EqualsAsciiIgnoreCase(text, format.PositiveInfinitySymbol))
         {
             value = std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsAsciiIgnoreCase(text, "-Infinity"))
+        if (EqualsAsciiIgnoreCase(text, format.NegativeInfinitySymbol))
         {
             value = -std::numeric_limits<float>::infinity();
+            return true;
+        }
+        if (EqualsAsciiIgnoreCase(text, format.NaNSymbol))
+        {
+            value = std::numeric_limits<float>::quiet_NaN();
+            return true;
+        }
+        if (!format.PositiveSign.empty()
+            && EqualsAsciiIgnoreCase(text, format.PositiveSign + format.PositiveInfinitySymbol))
+        {
+            value = std::numeric_limits<float>::infinity();
+            return true;
+        }
+        if (!format.PositiveSign.empty()
+            && EqualsAsciiIgnoreCase(text, format.PositiveSign + format.NaNSymbol))
+        {
+            value = std::numeric_limits<float>::quiet_NaN();
+            return true;
+        }
+        const std::size_t negativeSignLength = MatchNegativeSign(text, 0, format);
+        if (negativeSignLength != 0
+            && EqualsAsciiIgnoreCase(text.substr(negativeSignLength), format.NaNSymbol))
+        {
+            value = std::numeric_limits<float>::quiet_NaN();
             return true;
         }
         return false;
     }
 
-    [[nodiscard]] bool NormalizeManagedSingleNumber(std::string_view text, char decimal,
-        char thousands, std::string& normalized)
+    [[nodiscard]] bool NormalizeManagedSingleNumber(std::string_view text,
+        const ManagedNumberFormat& format, std::string& normalized)
     {
         normalized.clear();
         normalized.reserve(text.size());
 
         std::size_t index = 0;
-        if (index < text.size() && (text[index] == '+' || text[index] == '-'))
+        if (StartsWithAt(text, index, format.PositiveSign))
         {
-            normalized.push_back(text[index]);
-            ++index;
+            normalized.push_back('+');
+            index += format.PositiveSign.size();
+        }
+        else if (const std::size_t negativeSignLength = MatchNegativeSign(text, index, format);
+            negativeSignLength != 0)
+        {
+            normalized.push_back('-');
+            index += negativeSignLength;
         }
 
         bool sawDigit = false;
@@ -279,20 +499,20 @@ namespace
                 ++index;
                 continue;
             }
-            if (!sawDecimal && decimal != '\0' && ch == decimal)
+            if (!sawDecimal && StartsWithAt(text, index, format.DecimalSeparator))
             {
                 sawDecimal = true;
                 normalized.push_back('.');
-                ++index;
+                index += format.DecimalSeparator.size();
                 continue;
             }
-            if (!sawDecimal && sawDigit && thousands != '\0' && thousands != decimal
-                && ch == thousands)
+            if (!sawDecimal && sawDigit && format.GroupSeparator != format.DecimalSeparator
+                && StartsWithAt(text, index, format.GroupSeparator))
             {
                 // NumberStyles.AllowThousands does not validate group sizes;
                 // once an integral digit has been seen, repeated/trailing group
                 // separators are accepted by the managed parser as well.
-                ++index;
+                index += format.GroupSeparator.size();
                 continue;
             }
             break;
@@ -307,10 +527,16 @@ namespace
         {
             normalized.push_back(text[index]);
             ++index;
-            if (index < text.size() && (text[index] == '+' || text[index] == '-'))
+            if (StartsWithAt(text, index, format.PositiveSign))
             {
-                normalized.push_back(text[index]);
-                ++index;
+                normalized.push_back('+');
+                index += format.PositiveSign.size();
+            }
+            else if (const std::size_t negativeSignLength = MatchNegativeSign(text, index, format);
+                negativeSignLength != 0)
+            {
+                normalized.push_back('-');
+                index += negativeSignLength;
             }
             const std::size_t exponentStart = index;
             while (index < text.size() && text[index] >= '0' && text[index] <= '9')
@@ -357,10 +583,11 @@ namespace
         }
     }
 
-    [[nodiscard]] bool TryParseSingleCurrentCulture(std::string text, float& value)
+    [[nodiscard]] bool TryParseSingle(std::string text, const ManagedNumberFormat& format,
+        float& value)
     {
         std::string special = TrimManagedWhiteSpace(text);
-        if (!special.empty() && TryParseManagedSingleSpecial(special, value))
+        if (!special.empty() && TryParseManagedSingleSpecial(special, format, value))
         {
             return true;
         }
@@ -373,11 +600,8 @@ namespace
             return false;
         }
 
-        const std::locale locale = CurrentUserLocale();
-        const auto& punctuation = std::use_facet<std::numpunct<char>>(locale);
         std::string normalized;
-        if (!NormalizeManagedSingleNumber(text, punctuation.decimal_point(),
-            punctuation.thousands_sep(), normalized))
+        if (!NormalizeManagedSingleNumber(text, format, normalized))
         {
             value = 0.0F;
             return false;
@@ -511,6 +735,47 @@ namespace
             ? (negative ? -std::numeric_limits<float>::infinity()
                 : std::numeric_limits<float>::infinity())
             : (negative ? -0.0F : 0.0F);
+        return true;
+    }
+
+    [[nodiscard]] bool TryParseSingleCurrentCulture(std::string text, float& value)
+    {
+        return TryParseSingle(std::move(text), CurrentManagedNumberFormat(), value);
+    }
+
+    [[nodiscard]] bool TryParseManagedHexInt32(std::string text, std::int32_t& value)
+    {
+        RemoveManagedTrailingNulls(text);
+        text = TrimManagedNumberWhiteSpace(std::move(text));
+        if (text.empty())
+        {
+            value = 0;
+            return false;
+        }
+
+        const std::size_t firstNonZero = text.find_first_not_of('0');
+        if (firstNonZero == std::string::npos)
+        {
+            value = 0;
+            return true;
+        }
+        const std::size_t significantDigits = text.size() - firstNonZero;
+        if (significantDigits > 8)
+        {
+            value = 0;
+            return false;
+        }
+
+        const char* first = text.data() + firstNonZero;
+        const char* last = text.data() + text.size();
+        std::uint32_t bits = 0;
+        const auto result = std::from_chars(first, last, bits, 16);
+        if (result.ec != std::errc{} || result.ptr != last)
+        {
+            value = 0;
+            return false;
+        }
+        value = std::bit_cast<std::int32_t>(bits);
         return true;
     }
 
@@ -5345,14 +5610,9 @@ namespace MphRead
                 {
                     hex.erase(pos, 2);
                 }
-                RemoveManagedTrailingNulls(hex);
-                hex = TrimManagedNumberWhiteSpace(std::move(hex));
-                std::uint32_t bits = 0;
-                const auto result = std::from_chars(hex.data(), hex.data() + hex.size(), bits, 16);
-                if (!hex.empty() && hex.size() <= 8 && result.ec == std::errc{}
-                    && result.ptr == hex.data() + hex.size())
+                std::int32_t parsed = 0;
+                if (TryParseManagedHexInt32(std::move(hex), parsed))
                 {
-                    const std::int32_t parsed = std::bit_cast<std::int32_t>(bits);
                     coord = static_cast<float>(parsed) / 4096.0F;
                 }
             }
@@ -6251,6 +6511,58 @@ namespace MphRead
         _window->BaseOnKeyDown(e);
     }
 
+    TextureMap::TextureMap(const TextureMap& other)
+        : _items(other._items), _freeSlots(other._freeSlots), _count(other._count),
+          _capacity(other._capacity), _version(other._version)
+    {
+        if (_capacity > 0)
+        {
+            _items.reserve(static_cast<std::size_t>(_capacity));
+        }
+    }
+
+    TextureMap& TextureMap::operator=(const TextureMap& other)
+    {
+        if (this != &other)
+        {
+            _items = other._items;
+            _freeSlots = other._freeSlots;
+            _count = other._count;
+            _capacity = other._capacity;
+            _version = other._version;
+            if (_capacity > 0)
+            {
+                _items.reserve(static_cast<std::size_t>(_capacity));
+            }
+        }
+        return *this;
+    }
+
+    TextureMap::TextureMap(TextureMap&& other) noexcept
+        : _items(std::move(other._items)), _freeSlots(std::move(other._freeSlots)),
+          _count(other._count), _capacity(other._capacity), _version(other._version)
+    {
+        other._count = 0;
+        other._capacity = 0;
+        other._version = 0;
+    }
+
+    TextureMap& TextureMap::operator=(TextureMap&& other) noexcept
+    {
+        if (this != &other)
+        {
+            _items = std::move(other._items);
+            _freeSlots = std::move(other._freeSlots);
+            _count = other._count;
+            _capacity = other._capacity;
+            _version = other._version;
+            other._count = 0;
+            other._capacity = 0;
+            other._version = 0;
+        }
+        return *this;
+    }
+
     std::int32_t TextureMap::GetKey(std::int32_t textureId, std::int32_t paletteId,
         std::int32_t recolorId)
     {
@@ -6265,6 +6577,67 @@ namespace MphRead
             | (static_cast<std::uint32_t>(paletteId) << 12U)
             | (static_cast<std::uint32_t>(recolorId) << 24U);
         return std::bit_cast<std::int32_t>(key);
+    }
+
+    std::int32_t TextureMap::GetPrime(std::int32_t minimum)
+    {
+        if (minimum < 0)
+        {
+            throw std::out_of_range("capacity");
+        }
+        static constexpr std::array<std::int32_t, 72> primes{
+            3, 7, 11, 17, 23, 29, 37, 47, 59, 71, 89, 107, 131, 163, 197, 239,
+            293, 353, 431, 521, 631, 761, 919, 1103, 1327, 1597, 1931, 2333, 2801,
+            3371, 4049, 4861, 5839, 7013, 8419, 10103, 12143, 14591, 17519, 21023,
+            25229, 30293, 36353, 43627, 52361, 62851, 75431, 90523, 108631, 130363,
+            156437, 187751, 225307, 270371, 324449, 389357, 467237, 560689, 672827,
+            807403, 968897, 1162687, 1395263, 1674319, 2009191, 2411033, 2893249,
+            3471899, 4166287, 4999559, 5999471, 7199369
+        };
+        for (std::int32_t prime : primes)
+        {
+            if (prime >= minimum)
+            {
+                return prime;
+            }
+        }
+
+        for (std::int32_t candidate = minimum | 1;
+            candidate < std::numeric_limits<std::int32_t>::max();)
+        {
+            bool prime = true;
+            const std::int32_t limit = static_cast<std::int32_t>(
+                std::sqrt(static_cast<double>(candidate)));
+            for (std::int32_t divisor = 3; divisor <= limit; divisor += 2)
+            {
+                if (candidate % divisor == 0)
+                {
+                    prime = false;
+                    break;
+                }
+            }
+            if (prime && (candidate - 1) % 101 != 0)
+            {
+                return candidate;
+            }
+            if (candidate > std::numeric_limits<std::int32_t>::max() - 2)
+            {
+                break;
+            }
+            candidate += 2;
+        }
+        return minimum;
+    }
+
+    std::int32_t TextureMap::ExpandPrime(std::int32_t oldSize)
+    {
+        constexpr std::int32_t maxPrimeArrayLength = 0x7FFFFFC3;
+        const std::int64_t doubled = static_cast<std::int64_t>(oldSize) * 2;
+        if (doubled > maxPrimeArrayLength && maxPrimeArrayLength > oldSize)
+        {
+            return maxPrimeArrayLength;
+        }
+        return GetPrime(static_cast<std::int32_t>(doubled));
     }
 
     std::optional<std::size_t> TextureMap::FindIndex(KeyType key) const noexcept
@@ -6289,9 +6662,20 @@ namespace MphRead
         }
         else
         {
+            if (_capacity == 0)
+            {
+                _capacity = GetPrime(0);
+                _items.reserve(static_cast<std::size_t>(_capacity));
+            }
+            else if (_items.size() == static_cast<std::size_t>(_capacity))
+            {
+                _capacity = ExpandPrime(_capacity);
+                _items.reserve(static_cast<std::size_t>(_capacity));
+            }
             _items.emplace_back(Entry{key, std::move(value)});
         }
         ++_count;
+        ++_version;
     }
 
     TextureMap::MappedType TextureMap::GetItem(KeyType key) const
@@ -6411,6 +6795,35 @@ namespace MphRead
         return _count;
     }
 
+    std::int32_t TextureMap::Capacity() const noexcept
+    {
+        return _capacity;
+    }
+
+    const TextureMap::KeyComparer& TextureMap::Comparer() const noexcept
+    {
+        static const KeyComparer comparer{};
+        return comparer;
+    }
+
+    const TextureMap::KeyCollection& TextureMap::Keys() const
+    {
+        if (!_keys)
+        {
+            _keys = std::make_unique<KeyCollection>(*this);
+        }
+        return *_keys;
+    }
+
+    const TextureMap::ValueCollection& TextureMap::Values() const
+    {
+        if (!_values)
+        {
+            _values = std::make_unique<ValueCollection>(*this);
+        }
+        return *_values;
+    }
+
     bool TextureMap::TryAdd(KeyType key, MappedType value)
     {
         if (ContainsKey(key))
@@ -6419,6 +6832,58 @@ namespace MphRead
         }
         InsertNew(key, std::move(value));
         return true;
+    }
+
+    std::int32_t TextureMap::EnsureCapacity(std::int32_t capacity)
+    {
+        if (capacity < 0)
+        {
+            throw std::out_of_range("capacity");
+        }
+        if (_capacity >= capacity)
+        {
+            return _capacity;
+        }
+        ++_version;
+        _capacity = GetPrime(capacity);
+        _items.reserve(static_cast<std::size_t>(_capacity));
+        return _capacity;
+    }
+
+    void TextureMap::RebuildStorage(std::int32_t capacity)
+    {
+        std::vector<std::optional<Entry>> rebuilt;
+        rebuilt.reserve(static_cast<std::size_t>(capacity));
+        for (auto& item : _items)
+        {
+            if (item.has_value())
+            {
+                rebuilt.emplace_back(std::move(item));
+            }
+        }
+        _items = std::move(rebuilt);
+        _freeSlots.clear();
+        _capacity = capacity;
+    }
+
+    void TextureMap::TrimExcess()
+    {
+        TrimExcess(_count);
+    }
+
+    void TextureMap::TrimExcess(std::int32_t capacity)
+    {
+        if (capacity < _count)
+        {
+            throw std::out_of_range("capacity");
+        }
+        const std::int32_t newSize = GetPrime(capacity);
+        if (newSize >= _capacity)
+        {
+            return;
+        }
+        ++_version;
+        RebuildStorage(newSize);
     }
 
     TextureMapValue TextureMap::Get(std::int32_t textureId, std::int32_t paletteId,
@@ -6433,18 +6898,55 @@ namespace MphRead
         SetItem(GetKey(textureId, paletteId, recolorId), TextureMapValue{bindingId, onlyOpaque});
     }
 
+    void TextureMap::iterator::ValidateVersion() const
+    {
+        if (_owner != nullptr && _version != _owner->_version)
+        {
+            throw SceneDetail::InvalidOperationException();
+        }
+    }
+
+    TextureMap::iterator::reference TextureMap::iterator::operator*() const
+    {
+        ValidateVersion();
+        return _current;
+    }
+
+    TextureMap::iterator::pointer TextureMap::iterator::operator->() const
+    {
+        return &operator*();
+    }
+
     void TextureMap::iterator::SkipEmpty()
     {
-        while (_current != _end && !_current->has_value())
+        ValidateVersion();
+        if (_owner == nullptr)
         {
-            ++_current;
+            return;
         }
+        while (_index < _owner->_items.size() && !_owner->_items[_index].has_value())
+        {
+            ++_index;
+        }
+        _current = _index < _owner->_items.size()
+            ? *_owner->_items[_index] : Entry{};
     }
 
     TextureMap::iterator& TextureMap::iterator::operator++()
     {
-        ++_current;
-        SkipEmpty();
+        ValidateVersion();
+        if (_owner != nullptr)
+        {
+            if (_index < _owner->_items.size())
+            {
+                ++_index;
+            }
+            else
+            {
+                _index = _owner->_items.size();
+            }
+            SkipEmpty();
+        }
         return *this;
     }
 
@@ -6455,18 +6957,55 @@ namespace MphRead
         return previous;
     }
 
+    void TextureMap::const_iterator::ValidateVersion() const
+    {
+        if (_owner != nullptr && _version != _owner->_version)
+        {
+            throw SceneDetail::InvalidOperationException();
+        }
+    }
+
+    TextureMap::const_iterator::reference TextureMap::const_iterator::operator*() const
+    {
+        ValidateVersion();
+        return _current;
+    }
+
+    TextureMap::const_iterator::pointer TextureMap::const_iterator::operator->() const
+    {
+        return &operator*();
+    }
+
     void TextureMap::const_iterator::SkipEmpty()
     {
-        while (_current != _end && !_current->has_value())
+        ValidateVersion();
+        if (_owner == nullptr)
         {
-            ++_current;
+            return;
         }
+        while (_index < _owner->_items.size() && !_owner->_items[_index].has_value())
+        {
+            ++_index;
+        }
+        _current = _index < _owner->_items.size()
+            ? *_owner->_items[_index] : Entry{};
     }
 
     TextureMap::const_iterator& TextureMap::const_iterator::operator++()
     {
-        ++_current;
-        SkipEmpty();
+        ValidateVersion();
+        if (_owner != nullptr)
+        {
+            if (_index < _owner->_items.size())
+            {
+                ++_index;
+            }
+            else
+            {
+                _index = _owner->_items.size();
+            }
+            SkipEmpty();
+        }
         return *this;
     }
 
@@ -6479,22 +7018,22 @@ namespace MphRead
 
     TextureMap::iterator TextureMap::begin() noexcept
     {
-        return iterator(_items.begin(), _items.end());
+        return iterator(this, 0, _version);
     }
 
     TextureMap::iterator TextureMap::end() noexcept
     {
-        return iterator(_items.end(), _items.end());
+        return iterator(this, _items.size(), _version);
     }
 
     TextureMap::const_iterator TextureMap::begin() const noexcept
     {
-        return const_iterator(_items.begin(), _items.end());
+        return const_iterator(this, 0, _version);
     }
 
     TextureMap::const_iterator TextureMap::end() const noexcept
     {
-        return const_iterator(_items.end(), _items.end());
+        return const_iterator(this, _items.size(), _version);
     }
 
     TextureMap::const_iterator TextureMap::cbegin() const noexcept

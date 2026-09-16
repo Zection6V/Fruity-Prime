@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -16,20 +17,11 @@ namespace MphRead::Utility
         Multiplayer = 2
     };
 
-    // Native lifetime/stream representation of System.IO.BinaryWriter used by the
-    // source partial Repack class. The wire operations remain little-endian.
     class BinaryWriter final
     {
     public:
-        BinaryWriter() = default;
-        BinaryWriter(const BinaryWriter&) = delete;
-        BinaryWriter& operator=(const BinaryWriter&) = delete;
-        BinaryWriter(BinaryWriter&&) noexcept = default;
-        BinaryWriter& operator=(BinaryWriter&&) noexcept = default;
-
         [[nodiscard]] std::size_t Position() const noexcept;
         void Position(std::size_t value);
-        [[nodiscard]] const std::vector<std::uint8_t>& Bytes() const noexcept;
         [[nodiscard]] std::vector<std::uint8_t> ToArray() const;
 
         void Write(std::uint8_t value);
@@ -48,10 +40,12 @@ namespace MphRead::Utility
         void WriteInt(bool value);
 
     private:
-        void WriteRaw(std::uint32_t value, std::size_t count);
+        [[nodiscard]] const std::vector<std::uint8_t>& Bytes() const noexcept;
 
         std::vector<std::uint8_t> _bytes{};
         std::size_t _position = 0;
+
+        void WriteRaw(std::uint32_t value, std::size_t count);
     };
 
     class Repack final
@@ -64,10 +58,14 @@ namespace MphRead::Utility
             const std::string& path, bool firstHunt);
         [[nodiscard]] static std::vector<std::uint8_t> TestEntityEdit();
         static void TestEntities();
+
         static void CompareRooms(
-            const std::string& room1, const std::string& room2,
-            const std::string& game1 = "amhe1", const std::string& game2 = "amhe1");
+            const std::string& room1,
+            const std::string& room2,
+            const std::string& game1 = "amhe1",
+            const std::string& game2 = "amhe1");
         static void PrintLayers(std::uint16_t mask);
+
         static void WriteVolume(BinaryWriter& writer, const CollisionVolume& volume);
         static void WriteFhVolume(BinaryWriter& writer, const CollisionVolume& volume);
 

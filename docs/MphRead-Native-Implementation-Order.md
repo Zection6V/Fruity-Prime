@@ -179,7 +179,7 @@ Freeze the complete `Scene` declaration surface before W4 bodies need it. Contri
 
 ### 5.2 `PlayerEntity`
 
-Canonical declaration owner: `src/MphRead.Native/Entities/Players/PlayerEntity.hpp`.
+Canonical C++ declaration owner: `src/MphRead.Native/Entities/Players/PlayerEntity.hpp`.
 
 The aggregate has 21 contributors:
 
@@ -822,9 +822,9 @@ Every physical C# source file in the three reviewed source trees appears exactly
 
 ## 判定上の注記
 
-`src/MphRead/Mods/InputSettings.cs` は相対ディレクトリが完全一致しませんが、
-`src/MphRead.Native/Mods/Input/InputSettings.cpp` と
-`src/MphRead.Native/Mods/Input/InputSettings.hpp` が対応実装として存在するため、未存在一覧から除外しています。
+`src/MphRead/Mods/InputSettings.cs` は
+`src/MphRead.Native/Mods/InputSettings.cpp` と
+`src/MphRead.Native/Mods/InputSettings.hpp` が正しい相対パスの対応実装として存在するため、未存在一覧から除外しています。
 
 
 ### 8.2 `src/NcsfPlay` -> `src/NcsfPlay.Native` (36)

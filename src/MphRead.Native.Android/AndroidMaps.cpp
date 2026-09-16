@@ -431,11 +431,13 @@ namespace
         return method;
     }
 
-    std::vector<std::uint8_t> ReadAsset(
+    template <typename Body>
+    void UseAssetBytes(
         JNIEnv* env,
         jobject assets,
         jmethodID openMethod,
-        std::u16string_view assetPath
+        std::u16string_view assetPath,
+        Body&& body
     )
     {
         LocalRef<jstring> javaPath = NewJavaString(env, assetPath);
@@ -459,9 +461,9 @@ namespace
         const jmethodID closeMethod = GetMethodId(env, sourceClass.Get(), "close", "()V");
 
         std::exception_ptr bodyException;
-        std::vector<std::uint8_t> bytes;
         try
         {
+            std::vector<std::uint8_t> bytes;
             constexpr jsize BufferSize = 81920;
             LocalRef<jbyteArray> buffer(env, env->NewByteArray(BufferSize));
             CheckJavaException(env);
@@ -501,6 +503,8 @@ namespace
                 );
                 CheckJavaException(env);
             }
+
+            std::forward<Body>(body)(bytes);
         }
         catch (...)
         {
@@ -513,7 +517,6 @@ namespace
         {
             std::rethrow_exception(bodyException);
         }
-        return bytes;
     }
 
     void LogLine(std::string_view text)
@@ -603,23 +606,34 @@ namespace MphRead::Droid
                     assetPath.push_back(u'/');
                     assetPath.append(name);
 
-                    const std::vector<std::uint8_t> bytes = ReadAsset(
-                        env, assets, openMethod, assetPath
-                    );
-
-                    if (FileExists(target))
-                    {
-                        const std::vector<std::uint8_t> current = ReadAllBytes(target);
-                        const std::vector<std::uint8_t> comparison(bytes);
-                        if (current == comparison)
+                    bool unchanged = false;
+                    UseAssetBytes(
+                        env,
+                        assets,
+                        openMethod,
+                        assetPath,
+                        [&](const std::vector<std::uint8_t>& bytes)
                         {
-                            continue;
-                        }
-                    }
+                            if (FileExists(target))
+                            {
+                                const std::vector<std::uint8_t> current = ReadAllBytes(target);
+                                const std::vector<std::uint8_t> comparison(bytes);
+                                if (current == comparison)
+                                {
+                                    unchanged = true;
+                                    return;
+                                }
+                            }
 
-                    const std::vector<std::uint8_t> writeBytes(bytes);
-                    WriteAllBytes(target, writeBytes);
-                    LogLine("[android] unpacked " + ToUtf8(name));
+                            const std::vector<std::uint8_t> writeBytes(bytes);
+                            WriteAllBytes(target, writeBytes);
+                            LogLine("[android] unpacked " + ToUtf8(name));
+                        }
+                    );
+                    if (unchanged)
+                    {
+                        continue;
+                    }
                 }
                 catch (const std::exception& ex)
                 {

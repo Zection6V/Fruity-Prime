@@ -298,6 +298,7 @@ namespace
         std::string PositiveInfinitySymbol = "Infinity";
         std::string NegativeInfinitySymbol = "-Infinity";
         std::string NaNSymbol = "NaN";
+        int NumberNegativePattern = 1;
         bool AllowHyphenDuringParsing = false;
     };
 
@@ -374,16 +375,22 @@ namespace
         return result;
     }
 
-    [[nodiscard]] bool EnvironmentFlagEnabled(const char* name) noexcept
+    [[nodiscard]] bool EnvironmentFlagEnabled(const char* name, bool defaultValue = false) noexcept
     {
         const char* raw = std::getenv(name);
-        if (raw == nullptr)
+        if (raw != nullptr)
         {
-            return false;
+            const std::string_view value(raw);
+            if (value == "1" || EqualsAsciiIgnoreCase(value, "true"))
+            {
+                return true;
+            }
+            if (value == "0" || EqualsAsciiIgnoreCase(value, "false"))
+            {
+                return false;
+            }
         }
-        const std::string_view value(raw);
-        return value == "1" || EqualsAsciiIgnoreCase(value, "true")
-            || EqualsAsciiIgnoreCase(value, "yes");
+        return defaultValue;
     }
 
 #if defined(_WIN32)
@@ -525,6 +532,20 @@ namespace
         return WideToUtf8(value);
     }
 
+    [[nodiscard]] int WindowsLocaleNumberNegativePattern(const wchar_t* localeName)
+    {
+        const std::string value = WindowsLocaleString(localeName, LOCALE_INEGNUMBER);
+        int pattern = 1;
+        const char* first = value.data();
+        const char* last = first + value.size();
+        const auto parsed = std::from_chars(first, last, pattern);
+        if (parsed.ec == std::errc{} && parsed.ptr == last && pattern >= 0 && pattern <= 4)
+        {
+            return pattern;
+        }
+        return 1;
+    }
+
     [[nodiscard]] bool TryLoadWindowsIcuManagedNumberFormat(const wchar_t* localeName,
         ManagedNumberFormat& result)
     {
@@ -588,6 +609,7 @@ namespace
         result.GroupSeparator = overrideGroup;
         result.PositiveSign = overridePositive.empty() ? "+" : overridePositive;
         result.NegativeSign = overrideNegative;
+        result.NumberNegativePattern = WindowsLocaleNumberNegativePattern(localeName);
         result.AllowHyphenDuringParsing = ManagedAllowsHyphenFallback(result.NegativeSign);
         return true;
     }
@@ -626,6 +648,7 @@ namespace
         {
             result.NegativeInfinitySymbol = result.NegativeSign + result.PositiveInfinitySymbol;
         }
+        result.NumberNegativePattern = WindowsLocaleNumberNegativePattern(localeName);
         result.AllowHyphenDuringParsing = ManagedAllowsHyphenFallback(result.NegativeSign);
         return true;
     }
@@ -661,6 +684,8 @@ namespace
         using CloseNumberFn = void (*)(void*);
         using GetSymbolFn = std::int32_t (*)(const void*, std::int32_t, char16_t*,
             std::int32_t, std::int32_t*);
+        using ToPatternFn = std::int32_t (*)(const void*, std::int8_t, char16_t*,
+            std::int32_t, std::int32_t*);
         using GetDefaultLocaleFn = const char* (*)();
         using FoldCaseFn = std::int32_t (*)(std::int32_t, std::uint32_t);
 
@@ -669,6 +694,7 @@ namespace
         OpenNumberFn OpenNumber = nullptr;
         CloseNumberFn CloseNumber = nullptr;
         GetSymbolFn GetSymbol = nullptr;
+        ToPatternFn ToPattern = nullptr;
         GetDefaultLocaleFn GetDefaultLocale = nullptr;
         FoldCaseFn FoldCase = nullptr;
 
@@ -746,6 +772,8 @@ namespace
                 ResolveIcuSymbol(value.I18n, "unum_close"));
             value.GetSymbol = reinterpret_cast<IcuNumberApi::GetSymbolFn>(
                 ResolveIcuSymbol(value.I18n, "unum_getSymbol"));
+            value.ToPattern = reinterpret_cast<IcuNumberApi::ToPatternFn>(
+                ResolveIcuSymbol(value.I18n, "unum_toPattern"));
             value.GetDefaultLocale = reinterpret_cast<IcuNumberApi::GetDefaultLocaleFn>(
                 ResolveIcuSymbol(value.Uc, "uloc_getDefault"));
             value.FoldCase = reinterpret_cast<IcuNumberApi::FoldCaseFn>(
@@ -784,6 +812,99 @@ namespace
             static_cast<std::size_t>(length)));
     }
 
+    [[nodiscard]] int IcuNumberNegativePattern(IcuNumberApi& api, const void* number)
+    {
+        if (api.ToPattern == nullptr)
+        {
+            return 1;
+        }
+
+        std::int32_t status = 0;
+        const std::int32_t required = api.ToPattern(number, 0, nullptr, 0, &status);
+        if (required < 0)
+        {
+            return 1;
+        }
+
+        std::vector<char16_t> pattern(static_cast<std::size_t>(required) + 1, u'\0');
+        status = 0;
+        const std::int32_t length = api.ToPattern(number, 0, pattern.data(),
+            static_cast<std::int32_t>(pattern.size()), &status);
+        if (length < 0 || status > 0)
+        {
+            return 1;
+        }
+
+        std::size_t start = 0;
+        std::size_t end = static_cast<std::size_t>(length);
+        for (std::size_t i = 0; i < end; ++i)
+        {
+            if (pattern[i] == u';')
+            {
+                start = i + 1;
+            }
+        }
+
+        bool minusAdded = false;
+        for (std::size_t i = start; i < end; ++i)
+        {
+            if (pattern[i] == u'-' || pattern[i] == u'(' || pattern[i] == u')')
+            {
+                minusAdded = true;
+                break;
+            }
+        }
+
+        std::string normalized;
+        if (!minusAdded)
+        {
+            normalized.push_back('-');
+        }
+        bool digitAdded = false;
+        bool spaceAdded = false;
+        for (std::size_t i = start; i < end; ++i)
+        {
+            switch (pattern[i])
+            {
+            case u'#':
+            case u'0':
+                if (!digitAdded)
+                {
+                    digitAdded = true;
+                    normalized.push_back('n');
+                }
+                break;
+            case u' ':
+            case u'\u00A0':
+                if (!spaceAdded)
+                {
+                    spaceAdded = true;
+                    normalized.push_back(' ');
+                }
+                break;
+            case u'-':
+            case u'(':
+            case u')':
+                normalized.push_back(static_cast<char>(pattern[i]));
+                break;
+            default:
+                break;
+            }
+        }
+
+        static constexpr std::array<std::string_view, 5> patterns{
+            "(n)", "-n", "- n", "n-", "n -"
+        };
+        for (std::size_t i = 0; i < patterns.size(); ++i)
+        {
+            if (normalized == patterns[i])
+            {
+                return static_cast<int>(i);
+            }
+        }
+        return 1;
+    }
+
     [[nodiscard]] bool TryLoadPlatformManagedNumberFormat(ManagedNumberFormat& result)
     {
         if (EnvironmentFlagEnabled("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"))
@@ -815,6 +936,7 @@ namespace
         const std::string positive = IcuNumberSymbol(api, number, 7); // plus sign
         const std::string infinity = IcuNumberSymbol(api, number, 14); // infinity
         const std::string nan = IcuNumberSymbol(api, number, 15); // NaN
+        const int numberNegativePattern = IcuNumberNegativePattern(api, number);
         api.CloseNumber(number);
 
         if (!decimal.empty())
@@ -844,6 +966,7 @@ namespace
         // .NET's ICU globalization path defines negative infinity by prefixing
         // the positive infinity symbol with NumberFormatInfo.NegativeSign.
         result.NegativeInfinitySymbol = result.NegativeSign + result.PositiveInfinitySymbol;
+        result.NumberNegativePattern = numberNegativePattern;
         result.AllowHyphenDuringParsing = ManagedAllowsHyphenFallback(result.NegativeSign);
         return true;
     }
@@ -1129,6 +1252,8 @@ namespace
         return false;
     }
 
+    [[nodiscard]] bool IsManagedNumberWhiteSpace(unsigned char value) noexcept;
+
     [[nodiscard]] bool NormalizeManagedSingleNumber(std::string_view text,
         const ManagedNumberFormat& format, std::string& normalized)
     {
@@ -1136,17 +1261,28 @@ namespace
         normalized.reserve(text.size());
 
         std::size_t index = 0;
+        bool sawSign = false;
         if (const std::size_t positiveSignLength = MatchManagedNumberToken(
             text, index, format.PositiveSign); positiveSignLength != 0)
         {
+            sawSign = true;
             normalized.push_back('+');
             index += positiveSignLength;
         }
         else if (const std::size_t negativeSignLength = MatchNegativeSign(text, index, format);
             negativeSignLength != 0)
         {
+            sawSign = true;
             normalized.push_back('-');
             index += negativeSignLength;
+        }
+        if (sawSign && format.NumberNegativePattern == 2)
+        {
+            while (index < text.size()
+                && IsManagedNumberWhiteSpace(static_cast<unsigned char>(text[index])))
+            {
+                ++index;
+            }
         }
 
         bool sawDigit = false;

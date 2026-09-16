@@ -10,8 +10,6 @@ namespace MphRead::Mods
     class ThumbnailGenerator
     {
     public:
-        using Report = std::function<void(const std::string&)>;
-
         ThumbnailGenerator() = delete;
         ThumbnailGenerator(const ThumbnailGenerator&) = delete;
         ThumbnailGenerator& operator=(const ThumbnailGenerator&) = delete;
@@ -25,7 +23,7 @@ namespace MphRead::Mods
         static std::vector<std::string> MultiplayerRooms();
         static bool FirstHuntAvailable();
         static std::vector<std::string> MissingThumbnails();
-        static void EnsureCustomPreviews(Report report = {});
+        static void EnsureCustomPreviews(std::function<void(const std::string&)> report = {});
         static void EnsureCacheDirectory();
     };
 }

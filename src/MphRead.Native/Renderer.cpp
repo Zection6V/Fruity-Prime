@@ -1237,17 +1237,19 @@ namespace
         // the special-value negative sign; unlike ordinary numeric parsing,
         // this path does not apply MatchChars' NBSP/NNBSP-to-ASCII-space rule.
         if (const std::size_t negativeLength = MatchManagedOrdinalIgnoreCaseToken(
-            text, 0, format.NegativeSign); negativeLength != 0
-            && EqualsManagedOrdinalIgnoreCase(text.substr(negativeLength), format.NaNSymbol))
+            text, 0, format.NegativeSign); negativeLength != 0)
         {
-            value = std::numeric_limits<float>::quiet_NaN();
-            return true;
-        }
-        if (format.AllowHyphenDuringParsing && !text.empty() && text.front() == '-'
-            && EqualsManagedOrdinalIgnoreCase(text.substr(1), format.NaNSymbol))
-        {
-            value = std::numeric_limits<float>::quiet_NaN();
-            return true;
+            if (EqualsManagedOrdinalIgnoreCase(text.substr(negativeLength), format.NaNSymbol))
+            {
+                value = std::numeric_limits<float>::quiet_NaN();
+                return true;
+            }
+            if (format.AllowHyphenDuringParsing && !text.empty() && text.front() == '-'
+                && EqualsManagedOrdinalIgnoreCase(text.substr(1), format.NaNSymbol))
+            {
+                value = std::numeric_limits<float>::quiet_NaN();
+                return true;
+            }
         }
         return false;
     }

@@ -26,7 +26,7 @@ namespace NCSFCommon::ReplayGain
             std::span<const std::int32_t> leftSamples,
             std::span<const std::int32_t> rightSamples);
 
-        double GetGain();
+        [[nodiscard]] double GetGain();
         double GetPeak();
 
     private:

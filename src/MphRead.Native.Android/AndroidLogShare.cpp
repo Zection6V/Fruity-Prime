@@ -663,6 +663,10 @@ namespace
         std::u16string_view right
     )
     {
+        if (right.empty())
+        {
+            return std::u16string(left);
+        }
         std::filesystem::path result{std::u16string(left)};
         result /= std::filesystem::path{std::u16string(right)};
         return result.u16string();
@@ -772,6 +776,18 @@ namespace MphRead::Droid
         std::u16string& error
     )
     {
+        std::u16string pathStorage;
+        std::u16string subjectStorage;
+        if (path.data() == error.data())
+        {
+            pathStorage.assign(path);
+            path = pathStorage;
+        }
+        if (subject.data() == error.data())
+        {
+            subjectStorage.assign(subject);
+            subject = subjectStorage;
+        }
         error.clear();
         try
         {

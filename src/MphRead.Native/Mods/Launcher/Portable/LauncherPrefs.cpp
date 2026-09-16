@@ -54,6 +54,12 @@
 #include <sys/stat.h>
 #endif
 
+namespace MphRead::Mods::Launcher::Detail
+{
+    [[nodiscard]] MphRead::Mods::WindowStartMode LauncherPrefsWindowModeParse(
+        std::string_view value, MphRead::Mods::WindowStartMode fallback);
+}
+
 namespace
 {
     struct Utf8CodePoint final
@@ -280,6 +286,27 @@ namespace
         return false;
     }
 
+    [[nodiscard]] bool IsIntegerWhitespace(char value) noexcept
+    {
+        const unsigned char character = static_cast<unsigned char>(value);
+        return character == 0x20U
+            || (character >= 0x09U && character <= 0x0DU);
+    }
+
+    [[nodiscard]] bool HasValidIntegerTrailingCharacters(
+        std::string_view value, std::size_t index) noexcept
+    {
+        while (index < value.size() && IsIntegerWhitespace(value[index]))
+        {
+            ++index;
+        }
+        while (index < value.size() && value[index] == '\0')
+        {
+            ++index;
+        }
+        return index == value.size();
+    }
+
     [[nodiscard]] bool TryParseInt32(
         std::string_view value, std::int32_t& result) noexcept
     {
@@ -309,14 +336,20 @@ namespace
         const std::uint64_t limit = negative ? NegativeLimit : PositiveLimit;
 
         std::uint64_t parsed = 0;
+        bool hasDigit = false;
         for (; index < value.size(); ++index)
         {
             const char character = value[index];
             if (character < '0' || character > '9')
             {
-                result = 0;
-                return false;
+                if (!hasDigit || !HasValidIntegerTrailingCharacters(value, index))
+                {
+                    result = 0;
+                    return false;
+                }
+                break;
             }
+            hasDigit = true;
             const std::uint64_t digit
                 = static_cast<std::uint64_t>(character - '0');
             if (parsed > (limit - digit) / 10U)
@@ -325,6 +358,11 @@ namespace
                 return false;
             }
             parsed = parsed * 10U + digit;
+        }
+        if (!hasDigit)
+        {
+            result = 0;
+            return false;
         }
 
         if (!negative)
@@ -366,14 +404,20 @@ namespace
         }
 
         std::uint32_t parsed = 0;
+        bool hasDigit = false;
         for (; index < value.size(); ++index)
         {
             const char character = value[index];
             if (character < '0' || character > '9')
             {
-                result = 0;
-                return false;
+                if (!hasDigit || !HasValidIntegerTrailingCharacters(value, index))
+                {
+                    result = 0;
+                    return false;
+                }
+                break;
             }
+            hasDigit = true;
             const std::uint32_t digit
                 = static_cast<std::uint32_t>(character - '0');
             if (parsed > (255U - digit) / 10U)
@@ -382,6 +426,11 @@ namespace
                 return false;
             }
             parsed = parsed * 10U + digit;
+        }
+        if (!hasDigit)
+        {
+            result = 0;
+            return false;
         }
 
         if (negative && parsed != 0)
@@ -503,29 +552,6 @@ namespace
             throw std::runtime_error("Could not format Int32.");
         }
         return std::string(buffer.data(), end);
-    }
-
-    [[nodiscard]] MphRead::Mods::WindowStartMode ParseWindowMode(
-        std::string_view value,
-        MphRead::Mods::WindowStartMode fallback) noexcept
-    {
-        value = TrimDotNetWhitespace(value);
-        if (EqualsIgnoreCase(value, "borderless")
-            || EqualsIgnoreCase(value, "fullscreen")
-            || EqualsIgnoreCase(value, "borderless fullscreen")
-            || value == "1"
-            || EqualsIgnoreCase(value, "true"))
-        {
-            return static_cast<MphRead::Mods::WindowStartMode>(1);
-        }
-        if (EqualsIgnoreCase(value, "windowed")
-            || EqualsIgnoreCase(value, "window")
-            || value == "0"
-            || EqualsIgnoreCase(value, "false"))
-        {
-            return static_cast<MphRead::Mods::WindowStartMode>(0);
-        }
-        return fallback;
     }
 
     void AppendUtf8(std::string& output, std::uint32_t value)
@@ -1411,15 +1437,14 @@ namespace MphRead::Mods::Launcher
 
     void LauncherPrefs::Load()
     {
-        const std::string path = Path();
-        if (!FileExists(path))
+        if (!FileExists(Path()))
         {
             return;
         }
 
         try
         {
-            for (const std::string& raw : ReadAllLines(path))
+            for (const std::string& raw : ReadAllLines(Path()))
             {
                 const std::string_view line = TrimDotNetWhitespace(raw);
                 const std::size_t split = line.find('=');
@@ -1535,7 +1560,8 @@ namespace MphRead::Mods::Launcher
                 }
                 else if (key == "window_mode")
                 {
-                    _windowMode = ParseWindowMode(value, _windowMode);
+                    _windowMode = Detail::LauncherPrefsWindowModeParse(
+                        value, _windowMode);
                 }
                 else if (key == "auto_update")
                 {

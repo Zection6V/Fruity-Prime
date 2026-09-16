@@ -35,9 +35,14 @@
 #include <Windows.h>
 #include <TlHelp32.h>
 #else
-#include <dirent.h>
 #include <signal.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <sys/proc_info.h>
+#else
+#include <dirent.h>
+#endif
 #endif
 
 namespace
@@ -184,38 +189,122 @@ namespace
         return static_cast<std::intptr_t>(value);
     }
 
-    [[nodiscard]] bool IsAsciiWhiteSpace(char value) noexcept
+    [[nodiscard]] bool IsManagedWhiteSpace(char32_t value) noexcept
     {
-        switch (value)
-        {
-        case ' ':
-        case '\t':
-        case '\n':
-        case '\v':
-        case '\f':
-        case '\r':
-            return true;
-        default:
-            return false;
-        }
+        return (value >= U'\u0009' && value <= U'\u000D') || value == U'\u0020'
+            || value == U'\u0085' || value == U'\u00A0' || value == U'\u1680'
+            || (value >= U'\u2000' && value <= U'\u200A') || value == U'\u2028'
+            || value == U'\u2029' || value == U'\u202F' || value == U'\u205F'
+            || value == U'\u3000';
     }
 
-    [[nodiscard]] std::string_view TrimAsciiWhiteSpace(std::string_view value) noexcept
+    [[nodiscard]] std::pair<char32_t, std::size_t> DecodeUtf8At(
+        std::string_view value, std::size_t offset) noexcept
     {
-        while (!value.empty() && IsAsciiWhiteSpace(value.front()))
+        const auto byte = static_cast<unsigned char>(value[offset]);
+        if (byte < 0x80U)
         {
-            value.remove_prefix(1);
+            return {byte, offset + 1};
         }
-        while (!value.empty() && IsAsciiWhiteSpace(value.back()))
+        auto continuation = [&](std::size_t index) -> std::optional<unsigned char>
         {
-            value.remove_suffix(1);
+            if (index >= value.size())
+            {
+                return std::nullopt;
+            }
+            const auto next = static_cast<unsigned char>(value[index]);
+            if ((next & 0xC0U) != 0x80U)
+            {
+                return std::nullopt;
+            }
+            return next;
+        };
+        if (byte >= 0xC2U && byte <= 0xDFU)
+        {
+            if (auto b1 = continuation(offset + 1))
+            {
+                return {static_cast<char32_t>(((byte & 0x1FU) << 6U) | (*b1 & 0x3FU)),
+                    offset + 2};
+            }
         }
-        return value;
+        else if (byte >= 0xE0U && byte <= 0xEFU)
+        {
+            const auto b1 = continuation(offset + 1);
+            const auto b2 = continuation(offset + 2);
+            if (b1 && b2 && !(byte == 0xE0U && *b1 < 0xA0U)
+                && !(byte == 0xEDU && *b1 >= 0xA0U))
+            {
+                return {static_cast<char32_t>(((byte & 0x0FU) << 12U)
+                    | ((*b1 & 0x3FU) << 6U) | (*b2 & 0x3FU)), offset + 3};
+            }
+        }
+        else if (byte >= 0xF0U && byte <= 0xF4U)
+        {
+            const auto b1 = continuation(offset + 1);
+            const auto b2 = continuation(offset + 2);
+            const auto b3 = continuation(offset + 3);
+            if (b1 && b2 && b3 && !(byte == 0xF0U && *b1 < 0x90U)
+                && !(byte == 0xF4U && *b1 >= 0x90U))
+            {
+                return {static_cast<char32_t>(((byte & 0x07U) << 18U)
+                    | ((*b1 & 0x3FU) << 12U) | ((*b2 & 0x3FU) << 6U)
+                    | (*b3 & 0x3FU)), offset + 4};
+            }
+        }
+        return {0xFFFDU, offset + 1};
+    }
+
+    [[nodiscard]] std::string_view TrimManagedWhiteSpace(std::string_view value) noexcept
+    {
+        std::size_t first = std::string::npos;
+        std::size_t lastEnd = 0;
+        for (std::size_t offset = 0; offset < value.size();)
+        {
+            const std::size_t start = offset;
+            const auto [codePoint, next] = DecodeUtf8At(value, offset);
+            offset = next;
+            if (!IsManagedWhiteSpace(codePoint))
+            {
+                if (first == std::string::npos)
+                {
+                    first = start;
+                }
+                lastEnd = next;
+            }
+        }
+        if (first == std::string::npos)
+        {
+            return {};
+        }
+        return value.substr(first, lastEnd - first);
+    }
+
+    [[nodiscard]] bool EqualsAsciiIgnoreCase(
+        std::string_view left, std::string_view right) noexcept
+    {
+        if (left.size() != right.size())
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < left.size(); ++i)
+        {
+            const unsigned char a = static_cast<unsigned char>(left[i]);
+            const unsigned char b = static_cast<unsigned char>(right[i]);
+            const unsigned char foldedA = a >= 'A' && a <= 'Z'
+                ? static_cast<unsigned char>(a + ('a' - 'A')) : a;
+            const unsigned char foldedB = b >= 'A' && b <= 'Z'
+                ? static_cast<unsigned char>(b + ('a' - 'A')) : b;
+            if (foldedA != foldedB)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     [[nodiscard]] bool TryParseInt64Decimal(std::string_view text, std::int64_t& value)
     {
-        text = TrimAsciiWhiteSpace(text);
+        text = TrimManagedWhiteSpace(text);
         if (text.empty())
         {
             value = 0;
@@ -290,7 +379,7 @@ namespace
     [[nodiscard]] bool TryParseInt64Hex(std::string text, std::int64_t& value)
     {
         ReplaceAll(text, "0x", "");
-        std::string_view trimmed = TrimAsciiWhiteSpace(text);
+        std::string_view trimmed = TrimManagedWhiteSpace(text);
         if (trimmed.empty() || trimmed.size() > 16)
         {
             value = 0;
@@ -309,34 +398,212 @@ namespace
         return true;
     }
 
+    void AppendUtf8(std::string& result, char32_t codePoint)
+    {
+        if (codePoint <= 0x7FU)
+        {
+            result.push_back(static_cast<char>(codePoint));
+        }
+        else if (codePoint <= 0x7FFU)
+        {
+            result.push_back(static_cast<char>(0xC0U | (codePoint >> 6U)));
+            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+        }
+        else if (codePoint <= 0xFFFFU)
+        {
+            result.push_back(static_cast<char>(0xE0U | (codePoint >> 12U)));
+            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
+            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+        }
+        else
+        {
+            result.push_back(static_cast<char>(0xF0U | (codePoint >> 18U)));
+            result.push_back(static_cast<char>(0x80U | ((codePoint >> 12U) & 0x3FU)));
+            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
+            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+        }
+    }
+
+    [[nodiscard]] std::string DecodeTextFile(std::string_view bytes)
+    {
+        enum class Encoding
+        {
+            Utf8,
+            Utf16Le,
+            Utf16Be,
+            Utf32Le,
+            Utf32Be
+        };
+
+        Encoding encoding = Encoding::Utf8;
+        std::size_t offset = 0;
+        if (bytes.size() >= 4
+            && static_cast<unsigned char>(bytes[0]) == 0x00
+            && static_cast<unsigned char>(bytes[1]) == 0x00
+            && static_cast<unsigned char>(bytes[2]) == 0xFE
+            && static_cast<unsigned char>(bytes[3]) == 0xFF)
+        {
+            encoding = Encoding::Utf32Be;
+            offset = 4;
+        }
+        else if (bytes.size() >= 4
+            && static_cast<unsigned char>(bytes[0]) == 0xFF
+            && static_cast<unsigned char>(bytes[1]) == 0xFE
+            && static_cast<unsigned char>(bytes[2]) == 0x00
+            && static_cast<unsigned char>(bytes[3]) == 0x00)
+        {
+            encoding = Encoding::Utf32Le;
+            offset = 4;
+        }
+        else if (bytes.size() >= 3
+            && static_cast<unsigned char>(bytes[0]) == 0xEF
+            && static_cast<unsigned char>(bytes[1]) == 0xBB
+            && static_cast<unsigned char>(bytes[2]) == 0xBF)
+        {
+            offset = 3;
+        }
+        else if (bytes.size() >= 2
+            && static_cast<unsigned char>(bytes[0]) == 0xFF
+            && static_cast<unsigned char>(bytes[1]) == 0xFE)
+        {
+            encoding = Encoding::Utf16Le;
+            offset = 2;
+        }
+        else if (bytes.size() >= 2
+            && static_cast<unsigned char>(bytes[0]) == 0xFE
+            && static_cast<unsigned char>(bytes[1]) == 0xFF)
+        {
+            encoding = Encoding::Utf16Be;
+            offset = 2;
+        }
+
+        if (encoding == Encoding::Utf8)
+        {
+            return std::string(bytes.substr(offset));
+        }
+
+        std::string result;
+        auto read16 = [&](std::size_t index) -> std::uint16_t
+        {
+            const auto a = static_cast<unsigned char>(bytes[index]);
+            const auto b = static_cast<unsigned char>(bytes[index + 1]);
+            if (encoding == Encoding::Utf16Le)
+            {
+                return static_cast<std::uint16_t>(a | (static_cast<std::uint16_t>(b) << 8U));
+            }
+            return static_cast<std::uint16_t>(
+                (static_cast<std::uint16_t>(a) << 8U) | b);
+        };
+        auto read32 = [&](std::size_t index) -> std::uint32_t
+        {
+            const auto a = static_cast<unsigned char>(bytes[index]);
+            const auto b = static_cast<unsigned char>(bytes[index + 1]);
+            const auto c = static_cast<unsigned char>(bytes[index + 2]);
+            const auto d = static_cast<unsigned char>(bytes[index + 3]);
+            if (encoding == Encoding::Utf32Le)
+            {
+                return static_cast<std::uint32_t>(a)
+                    | (static_cast<std::uint32_t>(b) << 8U)
+                    | (static_cast<std::uint32_t>(c) << 16U)
+                    | (static_cast<std::uint32_t>(d) << 24U);
+            }
+            return (static_cast<std::uint32_t>(a) << 24U)
+                | (static_cast<std::uint32_t>(b) << 16U)
+                | (static_cast<std::uint32_t>(c) << 8U)
+                | static_cast<std::uint32_t>(d);
+        };
+
+        if (encoding == Encoding::Utf16Le || encoding == Encoding::Utf16Be)
+        {
+            while (offset + 1 < bytes.size())
+            {
+                const std::uint16_t first = read16(offset);
+                offset += 2;
+                char32_t codePoint = first;
+                if (first >= 0xD800U && first <= 0xDBFFU)
+                {
+                    if (offset + 1 < bytes.size())
+                    {
+                        const std::uint16_t second = read16(offset);
+                        if (second >= 0xDC00U && second <= 0xDFFFU)
+                        {
+                            offset += 2;
+                            codePoint = 0x10000U
+                                + ((static_cast<char32_t>(first) - 0xD800U) << 10U)
+                                + (static_cast<char32_t>(second) - 0xDC00U);
+                        }
+                        else
+                        {
+                            codePoint = 0xFFFDU;
+                        }
+                    }
+                    else
+                    {
+                        codePoint = 0xFFFDU;
+                    }
+                }
+                else if (first >= 0xDC00U && first <= 0xDFFFU)
+                {
+                    codePoint = 0xFFFDU;
+                }
+                AppendUtf8(result, codePoint);
+            }
+            if (offset < bytes.size())
+            {
+                AppendUtf8(result, 0xFFFDU);
+            }
+            return result;
+        }
+
+        while (offset + 3 < bytes.size())
+        {
+            std::uint32_t scalar = read32(offset);
+            offset += 4;
+            if (scalar > 0x10FFFFU || (scalar >= 0xD800U && scalar <= 0xDFFFU))
+            {
+                scalar = 0xFFFDU;
+            }
+            AppendUtf8(result, static_cast<char32_t>(scalar));
+        }
+        if (offset < bytes.size())
+        {
+            AppendUtf8(result, 0xFFFDU);
+        }
+        return result;
+    }
+
     [[nodiscard]] std::vector<std::string> ReadAllLines(const std::filesystem::path& path)
     {
-        std::ifstream stream(path);
+        std::ifstream stream(path, std::ios::binary);
         if (!stream)
         {
             throw std::ios_base::failure("Could not open file for reading.");
         }
-
-        std::vector<std::string> result;
-        std::string line;
-        while (std::getline(stream, line))
-        {
-            if (!line.empty() && line.back() == '\r')
-            {
-                line.pop_back();
-            }
-            result.push_back(std::move(line));
-        }
+        std::string bytes{
+            std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
         if (stream.bad())
         {
             throw std::ios_base::failure("Failed while reading file.");
         }
-        if (!result.empty() && result[0].size() >= 3
-            && static_cast<unsigned char>(result[0][0]) == 0xEF
-            && static_cast<unsigned char>(result[0][1]) == 0xBB
-            && static_cast<unsigned char>(result[0][2]) == 0xBF)
+
+        const std::string text = DecodeTextFile(bytes);
+        std::vector<std::string> result;
+        std::size_t lineStart = 0;
+        for (std::size_t i = 0; i < text.size(); ++i)
         {
-            result[0].erase(0, 3);
+            if (text[i] == '\r' || text[i] == '\n')
+            {
+                result.emplace_back(text.substr(lineStart, i - lineStart));
+                if (text[i] == '\r' && i + 1 < text.size() && text[i + 1] == '\n')
+                {
+                    ++i;
+                }
+                lineStart = i + 1;
+            }
+        }
+        if (lineStart < text.size())
+        {
+            result.emplace_back(text.substr(lineStart));
         }
         return result;
     }
@@ -365,7 +632,11 @@ namespace
         }
         for (const std::string& line : lines)
         {
+#ifdef _WIN32
+            stream << line << "\r\n";
+#else
             stream << line << '\n';
+#endif
         }
         if (!stream)
         {
@@ -699,7 +970,7 @@ namespace
             }
             std::string name;
             std::getline(comm, name);
-            if (name != "NO$GBA")
+            if (!EqualsAsciiIgnoreCase(name, "NO$GBA"))
             {
                 continue;
             }
@@ -717,6 +988,118 @@ namespace
             });
         }
         ::closedir(directory);
+        return result;
+    }
+#elif defined(__APPLE__)
+    [[nodiscard]] std::optional<std::string> AppleProcessName(std::int32_t processId)
+    {
+        std::array<char, PROC_PIDPATHINFO_MAXSIZE> path{};
+        const int pathLength = ::proc_pidpath(
+            processId, path.data(), static_cast<std::uint32_t>(path.size()));
+        if (pathLength > 0)
+        {
+            std::filesystem::path executable(std::string(path.data(),
+                static_cast<std::size_t>(pathLength)));
+            const std::string name = executable.filename().string();
+            if (!name.empty())
+            {
+                return name;
+            }
+        }
+
+        proc_taskallinfo info{};
+        const int bytes = ::proc_pidinfo(processId, PROC_PIDTASKALLINFO, 0,
+            &info, static_cast<int>(sizeof(info)));
+        if (bytes == static_cast<int>(sizeof(info)))
+        {
+            return std::string(info.pbsd.pbi_comm);
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::pair<std::int64_t, std::int64_t>
+        AppleProcessStartTime(std::int32_t processId)
+    {
+        proc_taskallinfo info{};
+        const int bytes = ::proc_pidinfo(processId, PROC_PIDTASKALLINFO, 0,
+            &info, static_cast<int>(sizeof(info)));
+        if (bytes != static_cast<int>(sizeof(info)))
+        {
+            throw std::system_error(errno == 0 ? EIO : errno, std::generic_category());
+        }
+
+        const std::int64_t seconds
+            = static_cast<std::int64_t>(info.pbsd.pbi_start_tvsec);
+        const std::int64_t microseconds
+            = static_cast<std::int64_t>(info.pbsd.pbi_start_tvusec);
+        const std::int64_t ticks = UncheckedAdd64(
+            seconds * INT64_C(10000000), microseconds * INT64_C(10));
+        const std::int64_t milliseconds = UncheckedAdd64(
+            seconds * INT64_C(1000), microseconds / INT64_C(1000));
+        return {ticks, milliseconds};
+    }
+
+    [[nodiscard]] std::vector<ProcessCandidate> FindProcessesByName()
+    {
+        int processCount = ::proc_listallpids(nullptr, 0);
+        const bool sandboxFallback = processCount == 0 && errno == EPERM;
+        if (processCount <= 0)
+        {
+            if (sandboxFallback)
+            {
+                processCount = 1;
+            }
+            else
+            {
+                throw std::system_error(errno == 0 ? EIO : errno,
+                    std::generic_category());
+            }
+        }
+
+        std::vector<pid_t> processIds;
+        if (sandboxFallback)
+        {
+            processIds.push_back(::getpid());
+        }
+        else
+        {
+            for (;;)
+            {
+                const auto capacity = static_cast<std::size_t>(
+                    static_cast<double>(processCount) * 1.10);
+                processIds.assign(std::max<std::size_t>(capacity, 1), 0);
+                processCount = ::proc_listallpids(
+                    processIds.data(),
+                    static_cast<int>(processIds.size() * sizeof(pid_t)));
+                if (processCount <= 0)
+                {
+                    throw std::system_error(errno == 0 ? EIO : errno,
+                        std::generic_category());
+                }
+                if (processCount != static_cast<int>(processIds.size()))
+                {
+                    processIds.resize(static_cast<std::size_t>(processCount));
+                    break;
+                }
+            }
+        }
+
+        std::vector<ProcessCandidate> result;
+        for (pid_t pid : processIds)
+        {
+            if (pid < 0 || pid > std::numeric_limits<std::int32_t>::max())
+            {
+                continue;
+            }
+            const std::int32_t processId = static_cast<std::int32_t>(pid);
+            const std::optional<std::string> name = AppleProcessName(processId);
+            if (!name || !EqualsAsciiIgnoreCase(*name, "NO$GBA"))
+            {
+                continue;
+            }
+            const auto [ticks, milliseconds] = AppleProcessStartTime(processId);
+            result.push_back({processId, ticks, milliseconds});
+        }
         return result;
     }
 #else

@@ -103,6 +103,141 @@ namespace
 
     [[nodiscard]] std::string BoolOnOff(bool v) { return v ? "on" : "off"; }
 
+    [[nodiscard]] bool IsManagedWhiteSpace(char32_t value) noexcept
+    {
+        return (value >= U'\u0009' && value <= U'\u000D') || value == U'\u0020'
+            || value == U'\u0085' || value == U'\u00A0' || value == U'\u1680'
+            || (value >= U'\u2000' && value <= U'\u200A') || value == U'\u2028'
+            || value == U'\u2029' || value == U'\u202F' || value == U'\u205F'
+            || value == U'\u3000';
+    }
+
+    [[nodiscard]] std::pair<char32_t, std::size_t> DecodeUtf8At(
+        std::string_view value, std::size_t offset) noexcept
+    {
+        const auto byte = static_cast<unsigned char>(value[offset]);
+        if (byte < 0x80)
+        {
+            return {byte, offset + 1};
+        }
+        auto continuation = [&](std::size_t index) -> std::optional<unsigned char>
+        {
+            if (index >= value.size())
+            {
+                return std::nullopt;
+            }
+            const auto next = static_cast<unsigned char>(value[index]);
+            if ((next & 0xC0U) != 0x80U)
+            {
+                return std::nullopt;
+            }
+            return next;
+        };
+        if (byte >= 0xC2U && byte <= 0xDFU)
+        {
+            if (auto b1 = continuation(offset + 1))
+            {
+                return {static_cast<char32_t>(((byte & 0x1FU) << 6U) | (*b1 & 0x3FU)), offset + 2};
+            }
+        }
+        else if (byte >= 0xE0U && byte <= 0xEFU)
+        {
+            auto b1 = continuation(offset + 1);
+            auto b2 = continuation(offset + 2);
+            if (b1 && b2 && !(byte == 0xE0U && *b1 < 0xA0U)
+                && !(byte == 0xEDU && *b1 >= 0xA0U))
+            {
+                return {static_cast<char32_t>(((byte & 0x0FU) << 12U)
+                    | ((*b1 & 0x3FU) << 6U) | (*b2 & 0x3FU)), offset + 3};
+            }
+        }
+        else if (byte >= 0xF0U && byte <= 0xF4U)
+        {
+            auto b1 = continuation(offset + 1);
+            auto b2 = continuation(offset + 2);
+            auto b3 = continuation(offset + 3);
+            if (b1 && b2 && b3 && !(byte == 0xF0U && *b1 < 0x90U)
+                && !(byte == 0xF4U && *b1 >= 0x90U))
+            {
+                return {static_cast<char32_t>(((byte & 0x07U) << 18U)
+                    | ((*b1 & 0x3FU) << 12U) | ((*b2 & 0x3FU) << 6U)
+                    | (*b3 & 0x3FU)), offset + 4};
+            }
+        }
+        return {byte, offset + 1};
+    }
+
+    [[nodiscard]] std::string TrimManagedWhiteSpace(std::string value)
+    {
+        std::size_t first = std::string::npos;
+        std::size_t lastEnd = 0;
+        for (std::size_t offset = 0; offset < value.size();)
+        {
+            const std::size_t start = offset;
+            auto [codePoint, next] = DecodeUtf8At(value, offset);
+            offset = next;
+            if (!IsManagedWhiteSpace(codePoint))
+            {
+                if (first == std::string::npos)
+                {
+                    first = start;
+                }
+                lastEnd = next;
+            }
+        }
+        if (first == std::string::npos)
+        {
+            return {};
+        }
+        return value.substr(first, lastEnd - first);
+    }
+
+    [[nodiscard]] std::locale CurrentUserLocale()
+    {
+        try
+        {
+            return std::locale("");
+        }
+        catch (const std::runtime_error&)
+        {
+            return std::locale::classic();
+        }
+    }
+
+    [[nodiscard]] bool TryParseSingleCurrentCulture(std::string text, float& value)
+    {
+        text = TrimManagedWhiteSpace(std::move(text));
+        if (text.empty())
+        {
+            value = 0.0F;
+            return false;
+        }
+        const std::locale locale = CurrentUserLocale();
+        const auto& punctuation = std::use_facet<std::numpunct<char>>(locale);
+        const char decimal = punctuation.decimal_point();
+        const char thousands = punctuation.thousands_sep();
+        std::string normalized;
+        normalized.reserve(text.size());
+        for (char ch : text)
+        {
+            if (thousands != '\0' && thousands != decimal && ch == thousands)
+            {
+                continue;
+            }
+            normalized.push_back(ch == decimal ? '.' : ch);
+        }
+
+        char* end = nullptr;
+        const float parsed = std::strtof(normalized.c_str(), &end);
+        if (end == normalized.c_str() || *end != '\0')
+        {
+            value = 0.0F;
+            return false;
+        }
+        value = parsed;
+        return true;
+    }
+
     namespace GLMath
     {
         [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
@@ -2277,7 +2412,7 @@ namespace MphRead
             auto mapIt = _texPalMap.find(model->Id);
             if (mapIt != _texPalMap.end())
             {
-                for (const auto& [key, value] : mapIt->second._items)
+                for (const auto& [key, value] : mapIt->second)
                 {
                     (void)key;
                     GL::DeleteTexture(value.BindingId);
@@ -4906,17 +5041,8 @@ namespace MphRead
     {
         RendererPlatform::ConsoleClear();
         RendererPlatform::ConsoleWrite("Enter camera position: ");
-        std::string line = RendererPlatform::ConsoleReadLine().value_or(std::string{});
-        const auto first = line.find_first_not_of(" \t\r\n");
-        if (first == std::string::npos)
-        {
-            line.clear();
-        }
-        else
-        {
-            const auto last = line.find_last_not_of(" \t\r\n");
-            line = line.substr(first, last - first + 1);
-        }
+        std::string line = TrimManagedWhiteSpace(
+            RendererPlatform::ConsoleReadLine().value_or(std::string{}));
         line.erase(std::remove(line.begin(), line.end(), ','), line.end());
         std::vector<std::string> input;
         std::size_t start = 0;
@@ -4943,23 +5069,19 @@ namespace MphRead
                 {
                     hex.erase(pos, 2);
                 }
+                hex = TrimManagedWhiteSpace(std::move(hex));
                 std::uint32_t bits = 0;
                 const auto result = std::from_chars(hex.data(), hex.data() + hex.size(), bits, 16);
                 if (!hex.empty() && hex.size() <= 8 && result.ec == std::errc{}
                     && result.ptr == hex.data() + hex.size())
                 {
-                    const std::int32_t value = std::bit_cast<std::int32_t>(bits);
-                    coord = static_cast<float>(value) / 4096.0F;
+                    const std::int32_t parsed = std::bit_cast<std::int32_t>(bits);
+                    coord = static_cast<float>(parsed) / 4096.0F;
                 }
             }
             else
             {
-                char* end = nullptr;
-                const float value = std::strtof(item.c_str(), &end);
-                if (end != item.c_str() && *end == '\0')
-                {
-                    coord = value;
-                }
+                TryParseSingleCurrentCulture(item, coord);
             }
             coords[i] = coord;
         }
@@ -5538,10 +5660,6 @@ namespace MphRead
             const Vector2i room(std::max(320, area.X - 16), std::max(240, area.Y - 64));
             floor = Vector2i(std::min(floor.X, room.X), std::min(floor.Y, room.Y));
         }
-        catch (const RendererPlatform::GLFWException&)
-        {
-            throw;
-        }
         catch (const std::exception& ex)
         {
             Mods::DebugLog::Line("window", std::string("could not size against the display: ") + ex.what());
@@ -5872,34 +5990,246 @@ namespace MphRead
         return std::bit_cast<std::int32_t>(key);
     }
 
+    std::optional<std::size_t> TextureMap::FindIndex(KeyType key) const noexcept
+    {
+        for (std::size_t i = 0; i < _items.size(); ++i)
+        {
+            if (_items[i].has_value() && _items[i]->first == key)
+            {
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
+    void TextureMap::InsertNew(KeyType key, MappedType value)
+    {
+        if (!_freeSlots.empty())
+        {
+            const std::size_t index = _freeSlots.back();
+            _freeSlots.pop_back();
+            _items[index].emplace(key, std::move(value));
+        }
+        else
+        {
+            _items.emplace_back(Entry{key, std::move(value)});
+        }
+        ++_count;
+    }
+
+    TextureMap::MappedType TextureMap::GetItem(KeyType key) const
+    {
+        if (auto index = FindIndex(key))
+        {
+            return _items[*index]->second;
+        }
+        throw SceneDetail::KeyNotFoundException();
+    }
+
+    void TextureMap::SetItem(KeyType key, MappedType value)
+    {
+        if (auto index = FindIndex(key))
+        {
+            _items[*index]->second = std::move(value);
+            return;
+        }
+        InsertNew(key, std::move(value));
+    }
+
+    TextureMap::ItemProxy& TextureMap::ItemProxy::operator=(MappedType value)
+    {
+        _owner.SetItem(_key, std::move(value));
+        return *this;
+    }
+
+    TextureMap::ItemProxy& TextureMap::ItemProxy::operator=(const ItemProxy& other)
+    {
+        _owner.SetItem(_key, other._owner.GetItem(other._key));
+        return *this;
+    }
+
+    TextureMap::ItemProxy::operator MappedType() const
+    {
+        return _owner.GetItem(_key);
+    }
+
+    TextureMap::ItemProxy TextureMap::operator[](KeyType key) noexcept
+    {
+        return ItemProxy(*this, key);
+    }
+
+    TextureMap::MappedType TextureMap::operator[](KeyType key) const
+    {
+        return GetItem(key);
+    }
+
+    void TextureMap::Add(KeyType key, MappedType value)
+    {
+        if (ContainsKey(key))
+        {
+            throw SceneDetail::DuplicateKeyException();
+        }
+        InsertNew(key, std::move(value));
+    }
+
+    bool TextureMap::ContainsKey(KeyType key) const noexcept
+    {
+        return FindIndex(key).has_value();
+    }
+
+    bool TextureMap::ContainsValue(const MappedType& value) const noexcept
+    {
+        for (const auto& item : _items)
+        {
+            if (item.has_value() && item->second.BindingId == value.BindingId
+                && item->second.OnlyOpaque == value.OnlyOpaque)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool TextureMap::TryGetValue(KeyType key, MappedType& value) const noexcept
+    {
+        if (auto index = FindIndex(key))
+        {
+            value = _items[*index]->second;
+            return true;
+        }
+        value = MappedType{};
+        return false;
+    }
+
+    bool TextureMap::Remove(KeyType key) noexcept
+    {
+        MappedType ignored{};
+        return Remove(key, ignored);
+    }
+
+    bool TextureMap::Remove(KeyType key, MappedType& value) noexcept
+    {
+        auto index = FindIndex(key);
+        if (!index.has_value())
+        {
+            value = MappedType{};
+            return false;
+        }
+        value = _items[*index]->second;
+        _items[*index].reset();
+        _freeSlots.push_back(*index);
+        --_count;
+        return true;
+    }
+
+    void TextureMap::Clear() noexcept
+    {
+        _items.clear();
+        _freeSlots.clear();
+        _count = 0;
+    }
+
+    std::int32_t TextureMap::Count() const noexcept
+    {
+        return _count;
+    }
+
+    bool TextureMap::TryAdd(KeyType key, MappedType value)
+    {
+        if (ContainsKey(key))
+        {
+            return false;
+        }
+        InsertNew(key, std::move(value));
+        return true;
+    }
+
     TextureMapValue TextureMap::Get(std::int32_t textureId, std::int32_t paletteId,
         std::int32_t recolorId) const
     {
-        const std::int32_t key = GetKey(textureId, paletteId, recolorId);
-        for (const auto& [itemKey, value] : _items)
-        {
-            if (itemKey == key)
-            {
-                return value;
-            }
-        }
-        throw SceneDetail::KeyNotFoundException();
+        return GetItem(GetKey(textureId, paletteId, recolorId));
     }
 
     void TextureMap::Add(std::int32_t textureId, std::int32_t paletteId,
         std::int32_t recolorId, std::int32_t bindingId, bool onlyOpaque)
     {
-        const std::int32_t key = GetKey(textureId, paletteId, recolorId);
-        for (auto& [itemKey, value] : _items)
-        {
-            if (itemKey == key)
-            {
-                value = TextureMapValue{bindingId, onlyOpaque};
-                return;
-            }
-        }
-        _items.emplace_back(key, TextureMapValue{bindingId, onlyOpaque});
+        SetItem(GetKey(textureId, paletteId, recolorId), TextureMapValue{bindingId, onlyOpaque});
     }
+
+    void TextureMap::iterator::SkipEmpty()
+    {
+        while (_current != _end && !_current->has_value())
+        {
+            ++_current;
+        }
+    }
+
+    TextureMap::iterator& TextureMap::iterator::operator++()
+    {
+        ++_current;
+        SkipEmpty();
+        return *this;
+    }
+
+    TextureMap::iterator TextureMap::iterator::operator++(int)
+    {
+        iterator previous = *this;
+        ++(*this);
+        return previous;
+    }
+
+    void TextureMap::const_iterator::SkipEmpty()
+    {
+        while (_current != _end && !_current->has_value())
+        {
+            ++_current;
+        }
+    }
+
+    TextureMap::const_iterator& TextureMap::const_iterator::operator++()
+    {
+        ++_current;
+        SkipEmpty();
+        return *this;
+    }
+
+    TextureMap::const_iterator TextureMap::const_iterator::operator++(int)
+    {
+        const_iterator previous = *this;
+        ++(*this);
+        return previous;
+    }
+
+    TextureMap::iterator TextureMap::begin() noexcept
+    {
+        return iterator(_items.begin(), _items.end());
+    }
+
+    TextureMap::iterator TextureMap::end() noexcept
+    {
+        return iterator(_items.end(), _items.end());
+    }
+
+    TextureMap::const_iterator TextureMap::begin() const noexcept
+    {
+        return const_iterator(_items.begin(), _items.end());
+    }
+
+    TextureMap::const_iterator TextureMap::end() const noexcept
+    {
+        return const_iterator(_items.end(), _items.end());
+    }
+
+    TextureMap::const_iterator TextureMap::cbegin() const noexcept
+    {
+        return begin();
+    }
+
+    TextureMap::const_iterator TextureMap::cend() const noexcept
+    {
+        return end();
+    }
+
 
 
 }

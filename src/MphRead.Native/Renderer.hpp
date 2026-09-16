@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -336,20 +337,129 @@ namespace MphRead
         bool OnlyOpaque = false;
     };
 
-    class TextureMap final
+    class TextureMap
     {
     public:
+        using KeyType = std::int32_t;
+        using MappedType = TextureMapValue;
+        using Entry = std::pair<KeyType, MappedType>;
+
+        class iterator;
+        class const_iterator;
+
+        class ItemProxy final
+        {
+        public:
+            ItemProxy(TextureMap& owner, KeyType key) noexcept : _owner(owner), _key(key) {}
+            ItemProxy& operator=(MappedType value);
+            ItemProxy& operator=(const ItemProxy& other);
+            [[nodiscard]] operator MappedType() const;
+
+        private:
+            TextureMap& _owner;
+            KeyType _key;
+        };
+
         [[nodiscard]] TextureMapValue Get(std::int32_t textureId, std::int32_t paletteId,
             std::int32_t recolorId) const;
         void Add(std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId,
             std::int32_t bindingId, bool onlyOpaque);
 
-    private:
-        friend class Scene;
+        // Dictionary<int, (int BindingId, bool OnlyOpaque)> public behavior.
+        void Add(KeyType key, MappedType value);
+        [[nodiscard]] bool ContainsKey(KeyType key) const noexcept;
+        [[nodiscard]] bool ContainsValue(const MappedType& value) const noexcept;
+        [[nodiscard]] bool TryGetValue(KeyType key, MappedType& value) const noexcept;
+        [[nodiscard]] bool Remove(KeyType key) noexcept;
+        [[nodiscard]] bool Remove(KeyType key, MappedType& value) noexcept;
+        void Clear() noexcept;
+        [[nodiscard]] std::int32_t Count() const noexcept;
+        [[nodiscard]] bool TryAdd(KeyType key, MappedType value);
+        [[nodiscard]] ItemProxy operator[](KeyType key) noexcept;
+        [[nodiscard]] MappedType operator[](KeyType key) const;
 
+        class iterator final
+        {
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = Entry;
+            using difference_type = std::ptrdiff_t;
+            using pointer = Entry*;
+            using reference = Entry&;
+
+            iterator() = default;
+            [[nodiscard]] reference operator*() const { return **_current; }
+            [[nodiscard]] pointer operator->() const { return &**_current; }
+            iterator& operator++();
+            iterator operator++(int);
+            friend bool operator==(const iterator& left, const iterator& right)
+            {
+                return left._current == right._current;
+            }
+            friend bool operator!=(const iterator& left, const iterator& right)
+            {
+                return !(left == right);
+            }
+
+        private:
+            friend class TextureMap;
+            using Base = std::vector<std::optional<Entry>>::iterator;
+            iterator(Base current, Base end) : _current(current), _end(end) { SkipEmpty(); }
+            void SkipEmpty();
+            Base _current{};
+            Base _end{};
+        };
+
+        class const_iterator final
+        {
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = Entry;
+            using difference_type = std::ptrdiff_t;
+            using pointer = const Entry*;
+            using reference = const Entry&;
+
+            const_iterator() = default;
+            [[nodiscard]] reference operator*() const { return **_current; }
+            [[nodiscard]] pointer operator->() const { return &**_current; }
+            const_iterator& operator++();
+            const_iterator operator++(int);
+            friend bool operator==(const const_iterator& left, const const_iterator& right)
+            {
+                return left._current == right._current;
+            }
+            friend bool operator!=(const const_iterator& left, const const_iterator& right)
+            {
+                return !(left == right);
+            }
+
+        private:
+            friend class TextureMap;
+            using Base = std::vector<std::optional<Entry>>::const_iterator;
+            const_iterator(Base current, Base end) : _current(current), _end(end) { SkipEmpty(); }
+            void SkipEmpty();
+            Base _current{};
+            Base _end{};
+        };
+
+        [[nodiscard]] iterator begin() noexcept;
+        [[nodiscard]] iterator end() noexcept;
+        [[nodiscard]] const_iterator begin() const noexcept;
+        [[nodiscard]] const_iterator end() const noexcept;
+        [[nodiscard]] const_iterator cbegin() const noexcept;
+        [[nodiscard]] const_iterator cend() const noexcept;
+
+    private:
         [[nodiscard]] static std::int32_t GetKey(std::int32_t textureId,
             std::int32_t paletteId, std::int32_t recolorId);
-        std::vector<std::pair<std::int32_t, TextureMapValue>> _items{};
+        [[nodiscard]] std::optional<std::size_t> FindIndex(KeyType key) const noexcept;
+        [[nodiscard]] MappedType GetItem(KeyType key) const;
+        void SetItem(KeyType key, MappedType value);
+        void InsertNew(KeyType key, MappedType value);
+
+        std::vector<std::optional<Entry>> _items{};
+        std::vector<std::size_t> _freeSlots{};
+        std::int32_t _count = 0;
     };
 
     class RenderWindow final

@@ -747,17 +747,116 @@ namespace
         }
     }
 
+    [[noreturn]] void ThrowReadFailure(std::string_view path, int error)
+    {
+#if defined(_WIN32)
+        if (error == static_cast<int>(ERROR_ACCESS_DENIED)
+            || error == static_cast<int>(ERROR_OPERATION_ABORTED))
+        {
+            throw std::runtime_error(
+                "Could not read file: " + std::string(path) + " (error "
+                + std::to_string(error) + ")");
+        }
+#else
+        if (error == EACCES || error == EBADF || error == EPERM || error == ECANCELED)
+        {
+            throw std::runtime_error(std::system_error(
+                error, std::generic_category()).what());
+        }
+        if (error == EFBIG)
+        {
+            throw std::out_of_range(std::system_error(
+                error, std::generic_category()).what());
+        }
+#endif
+        throw std::ios_base::failure(
+            "Could not read file: " + std::string(path));
+    }
+
+    [[nodiscard]] std::string ReadAllBytesForText(std::string_view path)
+    {
+        const std::filesystem::path nativePath = PathFromManagedString(path);
+        std::string bytes;
+        std::array<char, 4096> buffer{};
+#if defined(_WIN32)
+        HANDLE handle = CreateFileW(
+            nativePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
+        {
+            ThrowReadFailure(path, static_cast<int>(GetLastError()));
+        }
+        try
+        {
+            for (;;)
+            {
+                DWORD count = 0;
+                if (!ReadFile(handle, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr))
+                {
+                    ThrowReadFailure(path, static_cast<int>(GetLastError()));
+                }
+                if (count == 0)
+                {
+                    break;
+                }
+                bytes.append(buffer.data(), static_cast<std::size_t>(count));
+            }
+        }
+        catch (...)
+        {
+            CloseHandle(handle);
+            throw;
+        }
+        CloseHandle(handle);
+#else
+        const int fd = ::open(nativePath.c_str(), O_RDONLY);
+        if (fd < 0)
+        {
+            ThrowReadFailure(path, errno);
+        }
+        try
+        {
+            struct stat info{};
+            if (::fstat(fd, &info) != 0)
+            {
+                ThrowReadFailure(path, errno);
+            }
+            if (S_ISDIR(info.st_mode))
+            {
+                ThrowReadFailure(path, EACCES);
+            }
+            for (;;)
+            {
+                const ssize_t count = ::read(fd, buffer.data(), buffer.size());
+                if (count > 0)
+                {
+                    bytes.append(buffer.data(), static_cast<std::size_t>(count));
+                    continue;
+                }
+                if (count == 0)
+                {
+                    break;
+                }
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                ThrowReadFailure(path, errno);
+            }
+        }
+        catch (...)
+        {
+            (void)::close(fd);
+            throw;
+        }
+        (void)::close(fd);
+#endif
+        return bytes;
+    }
+
     [[nodiscard]] std::string ReadAllText(std::string_view path)
     {
-        std::ifstream stream(PathFromManagedString(path), std::ios::in | std::ios::binary);
-        if (!stream.is_open())
-        {
-            throw std::ios_base::failure("Could not open file for reading: " + std::string(path));
-        }
-        stream.exceptions(std::ios::badbit);
-        const std::string bytes{
-            std::istreambuf_iterator<char>(stream),
-            std::istreambuf_iterator<char>()};
+        const std::string bytes = ReadAllBytesForText(path);
 
         const auto byteAt = [&](std::size_t index) -> unsigned char
         {

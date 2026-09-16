@@ -1,5 +1,6 @@
 #include "AndroidLogShare.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <limits>
@@ -9,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -744,14 +746,21 @@ namespace MphRead::Droid
 
         try
         {
+            std::vector<std::filesystem::path> oldFiles;
             for (const std::filesystem::directory_entry& entry
                 : std::filesystem::directory_iterator(std::filesystem::path(directory)))
             {
-                if (entry.is_regular_file()
-                    && entry.path().extension().u16string() == u".zip")
+                const std::u16string name = entry.path().filename().u16string();
+                if (!entry.is_directory()
+                    && name.size() >= 4
+                    && name.compare(name.size() - 4, 4, u".zip") == 0)
                 {
-                    std::filesystem::remove(entry.path());
+                    oldFiles.push_back(entry.path());
                 }
+            }
+            for (const std::filesystem::path& old : oldFiles)
+            {
+                std::filesystem::remove(old);
             }
         }
         catch (const std::exception&)

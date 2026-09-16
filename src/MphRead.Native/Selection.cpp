@@ -4,6 +4,7 @@
 #include "Formats/Model.hpp"
 #include "Scene.hpp"
 
+#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -91,6 +92,14 @@ namespace MphRead
                 percentage = 1.0F - percentage;
             }
             return percentage;
+        }
+
+        [[nodiscard]] constexpr std::int32_t UncheckedAdd(
+            std::int32_t value, std::int32_t delta) noexcept
+        {
+            const std::uint32_t sum = static_cast<std::uint32_t>(value)
+                + static_cast<std::uint32_t>(delta);
+            return std::bit_cast<std::int32_t>(sum);
         }
 
         template <typename T>
@@ -342,7 +351,9 @@ namespace MphRead
                 }
                 else
                 {
-                    Entity()->Hidden = !Entity()->Hidden;
+                    const std::shared_ptr<Entities::EntityBase> target = Entity();
+                    const bool hidden = Entity()->Hidden;
+                    target->Hidden = !hidden;
                 }
             }
             return true;
@@ -546,27 +557,39 @@ namespace MphRead
             AnimationInfo& animInfo = Require(inst->AnimInfo);
             if (control)
             {
-                std::int32_t index = animInfo.MaterialIndex() + 1;
-                do
+                std::int32_t index = UncheckedAdd(animInfo.MaterialIndex(), 1);
+                while (true)
                 {
                     inst->SetMaterialAnim(index);
-                    ++index;
+                    index = UncheckedAdd(index, 1);
+                    if (animInfo.MaterialIndex() == -1)
+                    {
+                        break;
+                    }
+                    MaterialAnimationInfo& material = Require(animInfo.Material);
+                    if (material.Group == nullptr || material.Group->Count != 0)
+                    {
+                        break;
+                    }
                 }
-                while (animInfo.MaterialIndex() != -1
-                    && Require(animInfo.Material).Group != nullptr
-                    && Require(animInfo.Material).Group->Count == 0);
             }
             else
             {
-                std::int32_t index = animInfo.NodeIndex() + 1;
-                do
+                std::int32_t index = UncheckedAdd(animInfo.NodeIndex(), 1);
+                while (true)
                 {
                     inst->SetNodeAnim(index);
-                    ++index;
+                    index = UncheckedAdd(index, 1);
+                    if (animInfo.NodeIndex() == -1)
+                    {
+                        break;
+                    }
+                    NodeAnimationInfo& node = Require(animInfo.Node);
+                    if (node.Group == nullptr || node.Group->Count != 0)
+                    {
+                        break;
+                    }
                 }
-                while (animInfo.NodeIndex() != -1
-                    && Require(animInfo.Node).Group != nullptr
-                    && Require(animInfo.Node).Group->Count == 0);
             }
         }
     }
@@ -588,7 +611,7 @@ namespace MphRead
             AnimationInfo& animInfo = Require(inst->AnimInfo);
             if (control)
             {
-                std::int32_t index = animInfo.MaterialIndex() - 1;
+                std::int32_t index = UncheckedAdd(animInfo.MaterialIndex(), -1);
                 if (index < -1)
                 {
                     const std::shared_ptr<Model> model = inst->Model();
@@ -599,18 +622,24 @@ namespace MphRead
                     }
                     index = static_cast<std::int32_t>(groups->Material->size()) - 1;
                 }
-                do
+                while (true)
                 {
                     inst->SetMaterialAnim(index);
-                    --index;
+                    index = UncheckedAdd(index, -1);
+                    if (animInfo.MaterialIndex() == -1)
+                    {
+                        break;
+                    }
+                    MaterialAnimationInfo& material = Require(animInfo.Material);
+                    if (material.Group == nullptr || material.Group->Count != 0)
+                    {
+                        break;
+                    }
                 }
-                while (animInfo.MaterialIndex() != -1
-                    && Require(animInfo.Material).Group != nullptr
-                    && Require(animInfo.Material).Group->Count == 0);
             }
             else
             {
-                std::int32_t index = animInfo.NodeIndex() - 1;
+                std::int32_t index = UncheckedAdd(animInfo.NodeIndex(), -1);
                 if (index < -1)
                 {
                     const std::shared_ptr<Model> model = inst->Model();
@@ -621,14 +650,20 @@ namespace MphRead
                     }
                     index = static_cast<std::int32_t>(groups->Node->size()) - 1;
                 }
-                do
+                while (true)
                 {
                     inst->SetNodeAnim(index);
-                    --index;
+                    index = UncheckedAdd(index, -1);
+                    if (animInfo.NodeIndex() == -1)
+                    {
+                        break;
+                    }
+                    NodeAnimationInfo& node = Require(animInfo.Node);
+                    if (node.Group == nullptr || node.Group->Count != 0)
+                    {
+                        break;
+                    }
                 }
-                while (animInfo.NodeIndex() != -1
-                    && Require(animInfo.Node).Group != nullptr
-                    && Require(animInfo.Node).Group->Count == 0);
             }
         }
     }
@@ -647,7 +682,7 @@ namespace MphRead
                 {
                     throw System::NullReferenceException();
                 }
-                std::int32_t recolor = Entity()->Recolor() + 1;
+                std::int32_t recolor = UncheckedAdd(Entity()->Recolor(), 1);
                 if (recolor >= static_cast<std::int32_t>(recolors->size()))
                 {
                     recolor = 0;
@@ -671,7 +706,7 @@ namespace MphRead
                 {
                     throw System::NullReferenceException();
                 }
-                std::int32_t recolor = Entity()->Recolor() - 1;
+                std::int32_t recolor = UncheckedAdd(Entity()->Recolor(), -1);
                 if (recolor < 0)
                 {
                     recolor = static_cast<std::int32_t>(recolors->size()) - 1;
@@ -736,12 +771,12 @@ namespace MphRead
             const std::int32_t start = _node->MeshId / 2;
             for (std::int32_t i = 0; i < _node->MeshCount; ++i)
             {
-                _meshBuffer.push_back(AtManaged(*meshes, start + i));
+                _meshBuffer.push_back(AtManaged(*meshes, UncheckedAdd(start, i)));
             }
             std::int32_t index = IndexOfIdentity(_meshBuffer, _mesh);
             while (mesh != _mesh)
             {
-                index += direction;
+                index = UncheckedAdd(index, direction);
                 if (index < 0)
                 {
                     index = static_cast<std::int32_t>(_meshBuffer.size()) - 1;
@@ -780,7 +815,7 @@ namespace MphRead
             std::int32_t index = IndexOfIdentity(nodes, _node);
             while (node != _node)
             {
-                index += direction;
+                index = UncheckedAdd(index, direction);
                 if (index < 0)
                 {
                     index = static_cast<std::int32_t>(nodes.size()) - 1;
@@ -813,7 +848,7 @@ namespace MphRead
             std::int32_t index = IndexOfIdentity(insts, _instance);
             while (inst != _instance)
             {
-                index += direction;
+                index = UncheckedAdd(index, direction);
                 if (index < 0)
                 {
                     index = static_cast<std::int32_t>(insts.size()) - 1;
@@ -887,9 +922,10 @@ namespace MphRead
     {
         if (control)
         {
-            Entities::EntityBase* target
-                = shift ? (Entity() ? Entity()->GetChild() : nullptr)
-                        : (Entity() ? Entity()->GetParent() : nullptr);
+            const std::shared_ptr<Entities::EntityBase> entity = Entity();
+            Entities::EntityBase* target = entity == nullptr
+                ? nullptr
+                : (shift ? entity->GetChild() : entity->GetParent());
             if (target != nullptr)
             {
                 SelectionExternal::LookAt(scene, target->Position);

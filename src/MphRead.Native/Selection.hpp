@@ -10,8 +10,8 @@
 
 namespace OpenTK::Windowing::Common
 {
-    // OpenTK.Windowing.Common is not otherwise present in MphRead.Native yet.
-    // This is the exact event-argument surface observed by Selection.cs.
+    // Thin external boundary: OpenTK.Windowing.Common is not otherwise present in
+    // MphRead.Native yet; expose only the event members observed by Selection.cs.
     class KeyboardKeyEventArgs final
     {
     public:

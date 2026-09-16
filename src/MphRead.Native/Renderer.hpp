@@ -800,6 +800,7 @@ private: \
     void OutputStop(); \
     void OutputUpdate(std::stop_token token); \
     void OutputLoadPrompt(); \
+    /* OutputCameraPrompt preserves managed Single.TryParse grammar in Renderer.cpp. */ \
     void OutputCameraPrompt(); \
     std::string OutputGetAll(); \
     void OutputGetBotAi(); \

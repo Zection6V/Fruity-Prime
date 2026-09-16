@@ -204,37 +204,313 @@ namespace
         }
     }
 
+    [[nodiscard]] bool EqualsAsciiIgnoreCase(std::string_view left, std::string_view right) noexcept
+    {
+        if (left.size() != right.size())
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < left.size(); ++i)
+        {
+            const unsigned char a = static_cast<unsigned char>(left[i]);
+            const unsigned char b = static_cast<unsigned char>(right[i]);
+            const unsigned char foldedA = a >= 'A' && a <= 'Z'
+                ? static_cast<unsigned char>(a + ('a' - 'A')) : a;
+            const unsigned char foldedB = b >= 'A' && b <= 'Z'
+                ? static_cast<unsigned char>(b + ('a' - 'A')) : b;
+            if (foldedA != foldedB)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool TryParseManagedSingleSpecial(std::string_view text, float& value) noexcept
+    {
+        // Number.TryParseFloat compares the NumberFormatInfo special symbols
+        // case-insensitively. The existing native culture boundary exposes the
+        // decimal/group punctuation but not custom special-symbol strings, so
+        // preserve the managed defaults rather than inheriting strtof's extra
+        // C spellings (INF, NAN(payload), and friends).
+        if (EqualsAsciiIgnoreCase(text, "NaN")
+            || EqualsAsciiIgnoreCase(text, "+NaN")
+            || EqualsAsciiIgnoreCase(text, "-NaN"))
+        {
+            value = std::numeric_limits<float>::quiet_NaN();
+            return true;
+        }
+        if (EqualsAsciiIgnoreCase(text, "Infinity")
+            || EqualsAsciiIgnoreCase(text, "+Infinity"))
+        {
+            value = std::numeric_limits<float>::infinity();
+            return true;
+        }
+        if (EqualsAsciiIgnoreCase(text, "-Infinity"))
+        {
+            value = -std::numeric_limits<float>::infinity();
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool NormalizeManagedSingleNumber(std::string_view text, char decimal,
+        char thousands, std::string& normalized)
+    {
+        normalized.clear();
+        normalized.reserve(text.size());
+
+        std::size_t index = 0;
+        if (index < text.size() && (text[index] == '+' || text[index] == '-'))
+        {
+            normalized.push_back(text[index]);
+            ++index;
+        }
+
+        bool sawDigit = false;
+        bool sawDecimal = false;
+        while (index < text.size())
+        {
+            const char ch = text[index];
+            if (ch >= '0' && ch <= '9')
+            {
+                sawDigit = true;
+                normalized.push_back(ch);
+                ++index;
+                continue;
+            }
+            if (!sawDecimal && decimal != '\0' && ch == decimal)
+            {
+                sawDecimal = true;
+                normalized.push_back('.');
+                ++index;
+                continue;
+            }
+            if (!sawDecimal && sawDigit && thousands != '\0' && thousands != decimal
+                && ch == thousands)
+            {
+                // NumberStyles.AllowThousands does not validate group sizes;
+                // once an integral digit has been seen, repeated/trailing group
+                // separators are accepted by the managed parser as well.
+                ++index;
+                continue;
+            }
+            break;
+        }
+
+        if (!sawDigit)
+        {
+            return false;
+        }
+
+        if (index < text.size() && (text[index] == 'e' || text[index] == 'E'))
+        {
+            normalized.push_back(text[index]);
+            ++index;
+            if (index < text.size() && (text[index] == '+' || text[index] == '-'))
+            {
+                normalized.push_back(text[index]);
+                ++index;
+            }
+            const std::size_t exponentStart = index;
+            while (index < text.size() && text[index] >= '0' && text[index] <= '9')
+            {
+                normalized.push_back(text[index]);
+                ++index;
+            }
+            if (index == exponentStart)
+            {
+                return false;
+            }
+        }
+
+        return index == text.size();
+    }
+
+    [[nodiscard]] bool IsManagedNumberWhiteSpace(unsigned char value) noexcept
+    {
+        return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
+    }
+
+    [[nodiscard]] std::string TrimManagedNumberWhiteSpace(std::string value)
+    {
+        std::size_t first = 0;
+        while (first < value.size()
+            && IsManagedNumberWhiteSpace(static_cast<unsigned char>(value[first])))
+        {
+            ++first;
+        }
+        std::size_t last = value.size();
+        while (last > first
+            && IsManagedNumberWhiteSpace(static_cast<unsigned char>(value[last - 1])))
+        {
+            --last;
+        }
+        return value.substr(first, last - first);
+    }
+
+    void RemoveManagedTrailingNulls(std::string& value)
+    {
+        while (!value.empty() && value.back() == '\0')
+        {
+            value.pop_back();
+        }
+    }
+
     [[nodiscard]] bool TryParseSingleCurrentCulture(std::string text, float& value)
     {
-        text = TrimManagedWhiteSpace(std::move(text));
+        std::string special = TrimManagedWhiteSpace(text);
+        if (!special.empty() && TryParseManagedSingleSpecial(special, value))
+        {
+            return true;
+        }
+
+        RemoveManagedTrailingNulls(text);
+        text = TrimManagedNumberWhiteSpace(std::move(text));
         if (text.empty())
         {
             value = 0.0F;
             return false;
         }
+
         const std::locale locale = CurrentUserLocale();
         const auto& punctuation = std::use_facet<std::numpunct<char>>(locale);
-        const char decimal = punctuation.decimal_point();
-        const char thousands = punctuation.thousands_sep();
         std::string normalized;
-        normalized.reserve(text.size());
-        for (char ch : text)
-        {
-            if (thousands != '\0' && thousands != decimal && ch == thousands)
-            {
-                continue;
-            }
-            normalized.push_back(ch == decimal ? '.' : ch);
-        }
-
-        char* end = nullptr;
-        const float parsed = std::strtof(normalized.c_str(), &end);
-        if (end == normalized.c_str() || *end != '\0')
+        if (!NormalizeManagedSingleNumber(text, punctuation.decimal_point(),
+            punctuation.thousands_sep(), normalized))
         {
             value = 0.0F;
             return false;
         }
-        value = parsed;
+
+        // The lexical gate above is the managed Float|AllowThousands grammar.
+        // from_chars supplies locale-independent correctly-rounded binary32
+        // conversion without re-introducing strtof's C-only token grammar.
+        // It reports values that round beyond binary32 (including underflow to
+        // zero) as out_of_range, so use binary64 only to distinguish the two
+        // managed outcomes: infinity on overflow and signed zero on underflow.
+        const char* first = normalized.data();
+        const char* last = first + normalized.size();
+        if (first != last && *first == '+')
+        {
+            ++first; // floating from_chars intentionally has no leading '+'
+        }
+        float parsed = 0.0F;
+        const auto result = std::from_chars(first, last, parsed, std::chars_format::general);
+        if (result.ec == std::errc{} && result.ptr == last)
+        {
+            value = parsed;
+            return true;
+        }
+        if (result.ec != std::errc::result_out_of_range || result.ptr != last)
+        {
+            value = 0.0F;
+            return false;
+        }
+
+        double wide = 0.0;
+        const auto wideResult = std::from_chars(first, last, wide, std::chars_format::general);
+        const bool negative = !normalized.empty() && normalized.front() == '-';
+        if (wideResult.ec == std::errc{} && wideResult.ptr == last)
+        {
+            if (std::fabs(wide) > static_cast<double>(std::numeric_limits<float>::max()))
+            {
+                value = negative ? -std::numeric_limits<float>::infinity()
+                    : std::numeric_limits<float>::infinity();
+            }
+            else
+            {
+                value = negative ? -0.0F : 0.0F;
+            }
+            return true;
+        }
+        if (wideResult.ec != std::errc::result_out_of_range || wideResult.ptr != last)
+        {
+            value = 0.0F;
+            return false;
+        }
+
+        // A syntactically valid decimal outside binary64 is unambiguously on
+        // one side of zero. Recover that direction from its decimal scale.
+        const std::size_t exponentPos = normalized.find_first_of("eE");
+        const std::string_view mantissa(normalized.data(),
+            exponentPos == std::string::npos ? normalized.size() : exponentPos);
+        std::int64_t explicitExponent = 0;
+        if (exponentPos != std::string::npos)
+        {
+            std::size_t exponentIndex = exponentPos + 1;
+            bool exponentNegative = false;
+            if (exponentIndex < normalized.size()
+                && (normalized[exponentIndex] == '+' || normalized[exponentIndex] == '-'))
+            {
+                exponentNegative = normalized[exponentIndex] == '-';
+                ++exponentIndex;
+            }
+            constexpr std::int64_t exponentLimit = std::numeric_limits<std::int64_t>::max() / 4;
+            while (exponentIndex < normalized.size())
+            {
+                const std::int32_t digit = normalized[exponentIndex] - '0';
+                if (explicitExponent <= (exponentLimit - digit) / 10)
+                {
+                    explicitExponent = explicitExponent * 10 + digit;
+                }
+                else
+                {
+                    explicitExponent = exponentLimit;
+                }
+                ++exponentIndex;
+            }
+            if (exponentNegative)
+            {
+                explicitExponent = -explicitExponent;
+            }
+        }
+
+        const std::size_t mantissaStart = !mantissa.empty()
+            && (mantissa.front() == '+' || mantissa.front() == '-') ? 1 : 0;
+        const std::size_t decimalPos = mantissa.find('.');
+        const std::size_t digitsBeforeDecimal = decimalPos == std::string::npos
+            ? mantissa.size() - mantissaStart : decimalPos - mantissaStart;
+        std::size_t digitIndex = 0;
+        std::size_t firstNonZero = std::string::npos;
+        for (std::size_t i = mantissaStart; i < mantissa.size(); ++i)
+        {
+            if (mantissa[i] == '.')
+            {
+                continue;
+            }
+            if (firstNonZero == std::string::npos && mantissa[i] != '0')
+            {
+                firstNonZero = digitIndex;
+            }
+            ++digitIndex;
+        }
+        if (firstNonZero == std::string::npos)
+        {
+            value = negative ? -0.0F : 0.0F;
+            return true;
+        }
+        const std::int64_t baseScale = static_cast<std::int64_t>(digitsBeforeDecimal)
+            - static_cast<std::int64_t>(firstNonZero) - 1;
+        std::int64_t scale = 0;
+        if (explicitExponent > 0
+            && baseScale > std::numeric_limits<std::int64_t>::max() - explicitExponent)
+        {
+            scale = std::numeric_limits<std::int64_t>::max();
+        }
+        else if (explicitExponent < 0
+            && baseScale < std::numeric_limits<std::int64_t>::min() - explicitExponent)
+        {
+            scale = std::numeric_limits<std::int64_t>::min();
+        }
+        else
+        {
+            scale = baseScale + explicitExponent;
+        }
+        value = scale >= 0
+            ? (negative ? -std::numeric_limits<float>::infinity()
+                : std::numeric_limits<float>::infinity())
+            : (negative ? -0.0F : 0.0F);
         return true;
     }
 
@@ -5069,7 +5345,8 @@ namespace MphRead
                 {
                     hex.erase(pos, 2);
                 }
-                hex = TrimManagedWhiteSpace(std::move(hex));
+                RemoveManagedTrailingNulls(hex);
+                hex = TrimManagedNumberWhiteSpace(std::move(hex));
                 std::uint32_t bits = 0;
                 const auto result = std::from_chars(hex.data(), hex.data() + hex.size(), bits, 16);
                 if (!hex.empty() && hex.size() <= 8 && result.ec == std::errc{}

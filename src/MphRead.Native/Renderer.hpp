@@ -13,6 +13,7 @@
 #include <mutex>
 #include <optional>
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -43,6 +44,37 @@ namespace OpenTK::Mathematics
     };
 
 
+}
+
+
+namespace OpenTK::Graphics::OpenGL
+{
+    enum class FramebufferErrorCode : std::int32_t
+    {
+        FramebufferUndefined = 0x8219,
+        FramebufferComplete = 0x8CD5,
+        FramebufferIncompleteAttachment = 0x8CD6,
+        FramebufferIncompleteMissingAttachment = 0x8CD7,
+        FramebufferIncompleteDrawBuffer = 0x8CDB,
+        FramebufferIncompleteReadBuffer = 0x8CDC,
+        FramebufferUnsupported = 0x8CDD,
+        FramebufferIncompleteMultisample = 0x8D56,
+        FramebufferIncompleteLayerTargets = 0x8DA8
+    };
+
+    enum class ErrorCode : std::int32_t
+    {
+        NoError = 0,
+        InvalidEnum = 0x0500,
+        InvalidValue = 0x0501,
+        InvalidOperation = 0x0502,
+        StackOverflow = 0x0503,
+        StackUnderflow = 0x0504,
+        OutOfMemory = 0x0505,
+        InvalidFramebufferOperation = 0x0506,
+        ContextLost = 0x0507,
+        TableTooLarge = 0x8031
+    };
 }
 
 namespace MphRead::NativeRuntime
@@ -187,6 +219,20 @@ namespace MphRead
         enum class CursorState : std::int32_t { Normal, Grabbed };
         enum class VSyncMode : std::int32_t { Off, On };
 
+        class GLFWException final : public std::runtime_error
+        {
+        public:
+            GLFWException(std::string description, std::int32_t errorCode)
+                : std::runtime_error(std::move(description)), _errorCode(errorCode)
+            {
+            }
+
+            [[nodiscard]] std::int32_t ErrorCode() const noexcept { return _errorCode; }
+
+        private:
+            std::int32_t _errorCode;
+        };
+
         struct FrameEventArgs final { double Time = 0.0; };
         struct ResizeEventArgs final { OpenTK::Mathematics::Vector2i Size{}; };
         struct MouseButtonEventArgs final { MouseButton Button{}; };
@@ -303,7 +349,7 @@ namespace MphRead
 
         [[nodiscard]] static std::int32_t GetKey(std::int32_t textureId,
             std::int32_t paletteId, std::int32_t recolorId);
-        std::unordered_map<std::int32_t, TextureMapValue> _items{};
+        std::vector<std::pair<std::int32_t, TextureMapValue>> _items{};
     };
 
     class RenderWindow final
@@ -373,7 +419,7 @@ public: \
     [[nodiscard]] OpenTK::Mathematics::Matrix4 PerspectiveMatrix() const noexcept; \
     [[nodiscard]] MphRead::CameraMode CameraMode() const noexcept; \
     [[nodiscard]] bool ShowCursor() const; \
-    [[nodiscard]] const MphRead::Formats::Culling::FrustumInfo& FrustumInfo() const; \
+    [[nodiscard]] MphRead::Formats::Culling::FrustumInfo& FrustumInfo() const; \
     [[nodiscard]] bool FrameAdvance() const noexcept; \
     [[nodiscard]] bool FrameAdvanceLastFrame() const noexcept; \
     [[nodiscard]] bool ProcessFrame() const noexcept; \
@@ -446,8 +492,8 @@ public: \
     void OnDrawFrame(); \
     [[nodiscard]] OpenTK::Mathematics::Matrix4 GetPerspectiveMatrix(float fov) const; \
     [[nodiscard]] static MphRead::Formats::Culling::FrustumPlane SetBoundsIndices(OpenTK::Mathematics::Vector4 plane); \
-    [[nodiscard]] std::int32_t FramebufferStatus() const noexcept; \
-    [[nodiscard]] std::int32_t DrainGlError(); \
+    [[nodiscard]] OpenTK::Graphics::OpenGL::FramebufferErrorCode FramebufferStatus() const noexcept; \
+    [[nodiscard]] OpenTK::Graphics::OpenGL::ErrorCode DrainGlError(); \
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> ReadWindowBuffer(std::int32_t& width, std::int32_t& height); \
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> ReadSceneTarget(std::int32_t& width, std::int32_t& height); \
     void AfterRenderFrame(); \
@@ -653,8 +699,8 @@ private: \
     void OutputGetModel(); \
     void OutputGetNode(); \
     void OutputGetMesh(); \
-    static std::string OnOff(bool setting); \
-    static std::string YesNo(bool setting); \
+    std::string OnOff(bool setting); \
+    std::string YesNo(bool setting); \
     [[nodiscard]] bool FilteringOn() const; \
     void FilteringOn(bool value); \
     [[nodiscard]] bool LightingOn() const; \
@@ -746,7 +792,8 @@ private: \
     OpenTK::Mathematics::Vector2i _targetSize{}; \
     std::unordered_map<std::int32_t, OpenTK::Mathematics::Vector3> _flatColors{}; \
     inline static bool _breakNextFrame = false; \
-    std::int32_t _framebufferStatus = 0; \
+    OpenTK::Graphics::OpenGL::FramebufferErrorCode _framebufferStatus = \
+        OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferComplete; \
     inline static bool _saidDepthSize = false; \
     float _claimedQuantum = 5.960464832810452E-8F; \
     float _depthQuantum = 5.960464832810452E-8F; \

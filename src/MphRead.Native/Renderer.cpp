@@ -52,11 +52,13 @@
 #include <cassert>
 #include <charconv>
 #include <cmath>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <locale>
 #include <numeric>
 #include <sstream>
 #include <stdexcept>
@@ -180,12 +182,12 @@ namespace
         {
             const float yScale = 1.0F / std::tan(fov * 0.5F);
             const float xScale = yScale / aspect;
-            const float range = farClip / (nearClip - farClip);
+            const float range = nearClip - farClip;
             return Matrix4(
                 Vector4(xScale, 0, 0, 0),
                 Vector4(0, yScale, 0, 0),
-                Vector4(0, 0, range, -1.0F),
-                Vector4(0, 0, nearClip * range, 0));
+                Vector4(0, 0, (farClip + nearClip) / range, -1.0F),
+                Vector4(0, 0, (2.0F * farClip * nearClip) / range, 0));
         }
 
         [[nodiscard]] Matrix4 CreateOrthographic(float width, float height, float nearClip, float farClip)
@@ -208,6 +210,48 @@ namespace
             return std::to_string(static_cast<long long>(static_cast<U>(value)));
         }
         return std::to_string(static_cast<unsigned long long>(static_cast<U>(value)));
+    }
+
+    [[nodiscard]] std::string GameModeText(MphRead::GameMode value)
+    {
+        using E = MphRead::GameMode;
+        switch (value)
+        {
+        case E::None: return "None";
+        case E::SinglePlayer: return "SinglePlayer";
+        case E::Battle: return "Battle";
+        case E::BattleTeams: return "BattleTeams";
+        case E::Survival: return "Survival";
+        case E::SurvivalTeams: return "SurvivalTeams";
+        case E::Capture: return "Capture";
+        case E::Bounty: return "Bounty";
+        case E::BountyTeams: return "BountyTeams";
+        case E::Nodes: return "Nodes";
+        case E::NodesTeams: return "NodesTeams";
+        case E::Defender: return "Defender";
+        case E::DefenderTeams: return "DefenderTeams";
+        case E::PrimeHunter: return "PrimeHunter";
+        case E::Unknown15: return "Unknown15";
+        }
+        return EnumNumber(value);
+    }
+
+    [[nodiscard]] std::string FramebufferErrorText(OpenTK::Graphics::OpenGL::FramebufferErrorCode value)
+    {
+        using E = OpenTK::Graphics::OpenGL::FramebufferErrorCode;
+        switch (value)
+        {
+        case E::FramebufferUndefined: return "FramebufferUndefined";
+        case E::FramebufferComplete: return "FramebufferComplete";
+        case E::FramebufferIncompleteAttachment: return "FramebufferIncompleteAttachment";
+        case E::FramebufferIncompleteMissingAttachment: return "FramebufferIncompleteMissingAttachment";
+        case E::FramebufferIncompleteDrawBuffer: return "FramebufferIncompleteDrawBuffer";
+        case E::FramebufferIncompleteReadBuffer: return "FramebufferIncompleteReadBuffer";
+        case E::FramebufferUnsupported: return "FramebufferUnsupported";
+        case E::FramebufferIncompleteMultisample: return "FramebufferIncompleteMultisample";
+        case E::FramebufferIncompleteLayerTargets: return "FramebufferIncompleteLayerTargets";
+        }
+        return EnumNumber(value);
     }
 
 #define MPH_ENUM_CASE(type, name) case type::name: return #name
@@ -548,7 +592,7 @@ namespace MphRead
         const auto main = Entities::PlayerEntity::Main();
         return main && main->Flags1().TestFlag(PlayerFlags1::WeaponMenuOpen);
     }
-    const MphRead::Formats::Culling::FrustumInfo& Scene::FrustumInfo() const { return *_frustumInfo; }
+    MphRead::Formats::Culling::FrustumInfo& Scene::FrustumInfo() const { return *_frustumInfo; }
     bool Scene::FrameAdvance() const noexcept { return _frameAdvanceOn; }
     bool Scene::FrameAdvanceLastFrame() const noexcept { return _frameAdvanceLastFrame; }
     bool Scene::ProcessFrame() const noexcept
@@ -614,11 +658,16 @@ namespace MphRead
         }
         _roomLoaded = true;
         GameState::Mode(mode);
-        Mods::DebugLog::Line("room", "loading \"" + name + "\"");
+        Mods::DebugLog::Line("room", "loading \"" + name + "\" mode=" + GameModeText(mode)
+            + " players=" + std::to_string(playerCount) + " layers=" + std::to_string(nodeLayerMask)
+            + "/" + std::to_string(entityLayerId));
+        [[maybe_unused]] auto loadStep = Mods::DebugLog::Step("room", "load \"" + name + "\"");
         auto loaded = SceneSetup::LoadGame(name, *this, playerCount, bossFlags, nodeLayerMask, entityLayerId);
         auto room = loaded.Room;
         const auto& meta = loaded.Meta;
         const auto& entities = loaded.Entities;
+        Mods::DebugLog::Line("room", "\"" + name + "\" read: " + std::to_string(entities.size())
+            + " entit(ies), id=" + std::to_string(RoomId()) + ", area=" + std::to_string(AreaId()));
         GameState::StorySave().SetVisitedRoom(_roomId);
         GameState::StorySave().Areas = static_cast<std::uint16_t>(
             GameState::StorySave().Areas | static_cast<std::uint16_t>(1U << _areaId));
@@ -809,9 +858,12 @@ namespace MphRead
             GL::Enable(GL::EnableCap::DepthTest);
             GL::Enable(GL::EnableCap::Texture2D);
             GL::DepthFunc(GL::DepthFunction::Lequal);
+            std::ostringstream celEdge;
+            celEdge.imbue(std::locale::classic());
+            celEdge << std::fixed << std::setprecision(2) << Mods::RenderOptions::CelEdge();
             std::cout << "[render] cel shading " << (Mods::RenderOptions::CelShading() ? "on" : "off")
                 << ", " << Mods::RenderOptions::CelBands() << " bands, outline "
-                << Mods::RenderOptions::CelEdge() << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
+                << celEdge.str() << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
             InitShaders();
         }
         AllocateEffects();
@@ -1043,10 +1095,12 @@ namespace MphRead
             GL::FramebufferAttachment::DepthStencilAttachment, GL::RenderbufferTarget::Renderbuffer, _renderBuffer);
 
         auto status = GL::CheckFramebufferStatus(GL::FramebufferTarget::Framebuffer);
-        _framebufferStatus = static_cast<std::int32_t>(status);
+        _framebufferStatus = static_cast<OpenTK::Graphics::OpenGL::FramebufferErrorCode>(
+            static_cast<std::int32_t>(status));
         if (status != GL::FramebufferErrorCode::FramebufferComplete)
         {
-            std::cout << "[render] the offscreen target is not usable: " << static_cast<std::int32_t>(status)
+            std::cout << "[render] the offscreen target is not usable: "
+                << FramebufferErrorText(_framebufferStatus)
                 << ". Nothing drawn into it will appear. Size " << _rendererSize.X << 'x' << _rendererSize.Y << ".\n";
             NativeRuntime::DebuggerBreak();
         }
@@ -1760,16 +1814,26 @@ namespace MphRead
         return result;
     }
 
-    std::int32_t Scene::FramebufferStatus() const noexcept { return _framebufferStatus; }
-
-    std::int32_t Scene::DrainGlError()
+    OpenTK::Graphics::OpenGL::FramebufferErrorCode Scene::FramebufferStatus() const noexcept
     {
-        std::int32_t first = static_cast<std::int32_t>(GL::ErrorCode::NoError);
+        return _framebufferStatus;
+    }
+
+    OpenTK::Graphics::OpenGL::ErrorCode Scene::DrainGlError()
+    {
+        auto first = OpenTK::Graphics::OpenGL::ErrorCode::NoError;
         for (std::int32_t i = 0; i < 64; ++i)
         {
             const auto code = GL::GetError();
-            if (code == GL::ErrorCode::NoError) break;
-            if (first == static_cast<std::int32_t>(GL::ErrorCode::NoError)) first = static_cast<std::int32_t>(code);
+            if (code == GL::ErrorCode::NoError)
+            {
+                break;
+            }
+            if (first == OpenTK::Graphics::OpenGL::ErrorCode::NoError)
+            {
+                first = static_cast<OpenTK::Graphics::OpenGL::ErrorCode>(
+                    static_cast<std::int32_t>(code));
+            }
         }
         return first;
     }
@@ -1849,8 +1913,10 @@ namespace MphRead
         const auto status = GL::CheckFramebufferStatus(GL::FramebufferTarget::Framebuffer);
         if (status != GL::FramebufferErrorCode::FramebufferComplete)
         {
+            const auto statusText = static_cast<OpenTK::Graphics::OpenGL::FramebufferErrorCode>(
+                static_cast<std::int32_t>(status));
             std::cout << "[render] this driver will not read the scene's depth back ("
-                << static_cast<std::int32_t>(status)
+                << FramebufferErrorText(statusText)
                 << "); cel shading keeps its banding and goes without the outline.\n";
             _depthTextureRefused = true;
             GL::FramebufferRenderbuffer(GL::FramebufferTarget::Framebuffer,
@@ -4755,6 +4821,8 @@ namespace MphRead
 
     void Scene::OutputUpdate(std::stop_token token)
     {
+        std::mutex delayMutex;
+        std::condition_variable_any delayCondition;
         while (!token.stop_requested())
         {
             if (_promptState == PromptState::Load)
@@ -4776,7 +4844,8 @@ namespace MphRead
                 RendererPlatform::ConsoleWriteLine(output);
                 _currentOutput = output;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::unique_lock lock(delayMutex);
+            delayCondition.wait_for(lock, token, std::chrono::milliseconds(100), [] { return false; });
         }
     }
 
@@ -4838,12 +4907,34 @@ namespace MphRead
         RendererPlatform::ConsoleClear();
         RendererPlatform::ConsoleWrite("Enter camera position: ");
         std::string line = RendererPlatform::ConsoleReadLine().value_or(std::string{});
-        line.erase(std::remove(line.begin(), line.end(), ','), line.end());
-        std::istringstream stream(line);
-        float coords[3]{0.0F, 0.0F, 0.0F};
-        std::string item;
-        for (std::int32_t i = 0; i < 3 && stream >> item; ++i)
+        const auto first = line.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos)
         {
+            line.clear();
+        }
+        else
+        {
+            const auto last = line.find_last_not_of(" \t\r\n");
+            line = line.substr(first, last - first + 1);
+        }
+        line.erase(std::remove(line.begin(), line.end(), ','), line.end());
+        std::vector<std::string> input;
+        std::size_t start = 0;
+        while (start <= line.size())
+        {
+            const std::size_t end = line.find(' ', start);
+            input.emplace_back(line.substr(start,
+                end == std::string::npos ? std::string::npos : end - start));
+            if (end == std::string::npos)
+            {
+                break;
+            }
+            start = end + 1;
+        }
+        float coords[3]{0.0F, 0.0F, 0.0F};
+        for (std::int32_t i = 0; i < 3 && static_cast<std::size_t>(i) < input.size(); ++i)
+        {
+            const std::string& item = input[static_cast<std::size_t>(i)];
             float coord = 0.0F;
             if (item.rfind("0x", 0) == 0)
             {
@@ -5427,7 +5518,7 @@ namespace MphRead
                 Mods::DebugLog::Line("window", "glfw feature unavailable, ignored: " + description);
                 return;
             }
-            throw RendererException(description);
+            throw RendererPlatform::GLFWException(std::move(description), code);
         };
         RendererPlatform::InstallGlfwErrorCallback(_glfwErrorCallback);
     }
@@ -5446,6 +5537,10 @@ namespace MphRead
             const Vector2i area = RendererPlatform::WorkAreaForWindow(*_window);
             const Vector2i room(std::max(320, area.X - 16), std::max(240, area.Y - 64));
             floor = Vector2i(std::min(floor.X, room.X), std::min(floor.Y, room.Y));
+        }
+        catch (const RendererPlatform::GLFWException&)
+        {
+            throw;
         }
         catch (const std::exception& ex)
         {
@@ -5780,18 +5875,30 @@ namespace MphRead
     TextureMapValue TextureMap::Get(std::int32_t textureId, std::int32_t paletteId,
         std::int32_t recolorId) const
     {
-        const auto found = _items.find(GetKey(textureId, paletteId, recolorId));
-        if (found == _items.end())
+        const std::int32_t key = GetKey(textureId, paletteId, recolorId);
+        for (const auto& [itemKey, value] : _items)
         {
-            throw SceneDetail::KeyNotFoundException();
+            if (itemKey == key)
+            {
+                return value;
+            }
         }
-        return found->second;
+        throw SceneDetail::KeyNotFoundException();
     }
 
     void TextureMap::Add(std::int32_t textureId, std::int32_t paletteId,
         std::int32_t recolorId, std::int32_t bindingId, bool onlyOpaque)
     {
-        _items[GetKey(textureId, paletteId, recolorId)] = TextureMapValue{bindingId, onlyOpaque};
+        const std::int32_t key = GetKey(textureId, paletteId, recolorId);
+        for (auto& [itemKey, value] : _items)
+        {
+            if (itemKey == key)
+            {
+                value = TextureMapValue{bindingId, onlyOpaque};
+                return;
+            }
+        }
+        _items.emplace_back(key, TextureMapValue{bindingId, onlyOpaque});
     }
 
 

@@ -41,31 +41,31 @@ namespace MphRead::Export::ImagesInterop
 namespace MphRead::Mods::ScreenCaptureInterop
 {
     using DebugCallback = void(*)(
-        std::uint32_t source,
-        std::uint32_t type,
-        std::uint32_t id,
-        std::uint32_t severity,
+        std::int32_t source,
+        std::int32_t type,
+        std::int32_t id,
+        std::int32_t severity,
         std::int32_t length,
         const char* message,
         const void* userParam);
 
-    void Enable(std::uint32_t capability);
+    void Enable(std::int32_t capability);
     void DebugMessageCallback(DebugCallback callback, const void* userParam);
-    [[nodiscard]] std::optional<std::string> GetString(std::uint32_t name);
-    [[nodiscard]] std::int32_t GetInteger(std::uint32_t pname);
+    [[nodiscard]] std::optional<std::string> GetString(std::int32_t name);
+    [[nodiscard]] std::int32_t GetInteger(std::int32_t pname);
     [[nodiscard]] std::string PtrToStringAnsi(const char* message, std::int32_t length);
 }
 
 namespace
 {
-    constexpr std::uint32_t GlDebugOutput = 0x92E0;
-    constexpr std::uint32_t GlDebugOutputSynchronous = 0x8242;
-    constexpr std::uint32_t GlDebugSeverityNotification = 0x826B;
-    constexpr std::uint32_t GlVendor = 0x1F00;
-    constexpr std::uint32_t GlRenderer = 0x1F01;
-    constexpr std::uint32_t GlVersion = 0x1F02;
-    constexpr std::uint32_t GlContextFlags = 0x821E;
-    constexpr std::uint32_t GlContextProfileMask = 0x9126;
+    constexpr std::int32_t GlDebugOutput = 0x92E0;
+    constexpr std::int32_t GlDebugOutputSynchronous = 0x8242;
+    constexpr std::int32_t GlDebugSeverityNotification = 0x826B;
+    constexpr std::int32_t GlVendor = 0x1F00;
+    constexpr std::int32_t GlRenderer = 0x1F01;
+    constexpr std::int32_t GlVersion = 0x1F02;
+    constexpr std::int32_t GlContextFlags = 0x821E;
+    constexpr std::int32_t GlContextProfileMask = 0x9126;
     constexpr std::int32_t GlContextFlagForwardCompatibleBit = 0x00000001;
     constexpr std::int32_t GlContextCoreProfileBit = 0x00000001;
     constexpr std::int32_t GlContextCompatibilityProfileBit = 0x00000002;
@@ -122,7 +122,7 @@ namespace
         return stream.str();
     }
 
-    [[nodiscard]] std::string DebugSourceName(std::uint32_t value)
+    [[nodiscard]] std::string DebugSourceName(std::int32_t value)
     {
         switch (value)
         {
@@ -132,11 +132,11 @@ namespace
         case 0x8249: return "DebugSourceThirdParty";
         case 0x824A: return "DebugSourceApplication";
         case 0x824B: return "DebugSourceOther";
-        default: return std::to_string(std::bit_cast<std::int32_t>(value));
+        default: return std::to_string(value);
         }
     }
 
-    [[nodiscard]] std::string DebugTypeName(std::uint32_t value)
+    [[nodiscard]] std::string DebugTypeName(std::int32_t value)
     {
         switch (value)
         {
@@ -149,11 +149,11 @@ namespace
         case 0x8268: return "DebugTypeMarker";
         case 0x8269: return "DebugTypePushGroup";
         case 0x826A: return "DebugTypePopGroup";
-        default: return std::to_string(std::bit_cast<std::int32_t>(value));
+        default: return std::to_string(value);
         }
     }
 
-    [[nodiscard]] std::string DebugSeverityName(std::uint32_t value)
+    [[nodiscard]] std::string DebugSeverityName(std::int32_t value)
     {
         switch (value)
         {
@@ -161,7 +161,7 @@ namespace
         case 0x9147: return "DebugSeverityMedium";
         case 0x9148: return "DebugSeverityLow";
         case 0x826B: return "DebugSeverityNotification";
-        default: return std::to_string(std::bit_cast<std::int32_t>(value));
+        default: return std::to_string(value);
         }
     }
 
@@ -272,12 +272,21 @@ namespace MphRead::Mods
 
             if (LitFraction(*pixels) < MinLitFraction)
             {
-                const std::string fileName = PathToUtf8(PathFromUtf8(path).filename());
-                const std::string litPercent = FixedTwo(LitFraction(*pixels) * 100.0);
-                const std::string context = DescribeContext();
-                const std::string why = fileName + " came out black (" + litPercent
-                    + "% lit, " + std::to_string(width) + "x" + std::to_string(height)
-                    + "); not saving it. The scene rendered nothing -- " + context;
+                std::string first = PathToUtf8(PathFromUtf8(path).filename());
+                first += " came out black ";
+
+                std::string second = "(";
+                second += FixedTwo(LitFraction(*pixels) * 100.0);
+                second += "% lit, ";
+                second += std::to_string(width);
+                second += "x";
+                second += std::to_string(height);
+                second += "); not saving it. ";
+
+                std::string third = "The scene rendered nothing -- ";
+                third += DescribeContext();
+
+                const std::string why = first + second + third;
                 std::cout << "[capture] " << why << std::endl;
                 ThumbnailLog::Write(why);
                 return false;
@@ -319,21 +328,23 @@ namespace MphRead::Mods
         }
 
         const std::int32_t length = static_cast<std::int32_t>(pixels.size());
+        const auto channel = [&](std::int32_t index) -> std::uint8_t
+        {
+            if (index < 0 || index >= length)
+            {
+                throw SceneDetail::IndexOutOfRangeException();
+            }
+            return pixels[static_cast<std::size_t>(index)];
+        };
+
         std::int32_t lit = 0;
         std::int32_t total = 0;
         for (std::int32_t i = 0; WrappedAdd(i, 2) < length; i = WrappedAdd(i, 3))
         {
-            const std::int32_t i1 = WrappedAdd(i, 1);
-            const std::int32_t i2 = WrappedAdd(i, 2);
-            if (i < 0 || i1 < 0 || i2 < 0
-                || i >= length || i1 >= length || i2 >= length)
-            {
-                throw std::out_of_range("Index was outside the bounds of the array.");
-            }
             total = WrappedAdd(total, 1);
-            if (pixels[static_cast<std::size_t>(i)] > 8
-                || pixels[static_cast<std::size_t>(i1)] > 8
-                || pixels[static_cast<std::size_t>(i2)] > 8)
+            if (channel(i) > 8
+                || channel(WrappedAdd(i, 1)) > 8
+                || channel(WrappedAdd(i, 2)) > 8)
             {
                 lit = WrappedAdd(lit, 1);
             }
@@ -342,10 +353,10 @@ namespace MphRead::Mods
     }
 
     void ScreenCapture::DebugThunk(
-        std::uint32_t source,
-        std::uint32_t type,
-        std::uint32_t id,
-        std::uint32_t severity,
+        std::int32_t source,
+        std::int32_t type,
+        std::int32_t id,
+        std::int32_t severity,
         std::int32_t length,
         const char* message,
         const void* param)
@@ -361,10 +372,10 @@ namespace MphRead::Mods
         try
         {
             _debugCallback = [report](
-                std::uint32_t source,
-                std::uint32_t type,
-                std::uint32_t id,
-                std::uint32_t severity,
+                std::int32_t source,
+                std::int32_t type,
+                std::int32_t id,
+                std::int32_t severity,
                 std::int32_t length,
                 const char* message,
                 const void* param)

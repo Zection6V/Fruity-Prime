@@ -2,7 +2,7 @@
 
 #include <cstdint>
 #include <functional>
-#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -46,13 +46,13 @@ namespace MphRead
                 std::int32_t,
                 const std::string&)>;
             using ReportAction = std::function<void(const std::string&)>;
-            using PixelBuffer = std::shared_ptr<std::vector<std::uint8_t>>;
+            using PixelBuffer = std::optional<std::vector<std::uint8_t>>;
             using ReadPixels = std::function<PixelBuffer(std::int32_t&, std::int32_t&)>;
             using DebugProc = std::function<void(
-                std::uint32_t,
-                std::uint32_t,
-                std::uint32_t,
-                std::uint32_t,
+                std::int32_t,
+                std::int32_t,
+                std::int32_t,
+                std::int32_t,
                 std::int32_t,
                 const char*,
                 const void*)>;
@@ -65,10 +65,10 @@ namespace MphRead
                 const ReadPixels& read);
             [[nodiscard]] static double LitFraction(const std::vector<std::uint8_t>& pixels);
             static void DebugThunk(
-                std::uint32_t source,
-                std::uint32_t type,
-                std::uint32_t id,
-                std::uint32_t severity,
+                std::int32_t source,
+                std::int32_t type,
+                std::int32_t id,
+                std::int32_t severity,
                 std::int32_t length,
                 const char* message,
                 const void* param);

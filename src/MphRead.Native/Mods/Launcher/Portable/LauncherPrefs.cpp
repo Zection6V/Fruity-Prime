@@ -1059,7 +1059,11 @@ namespace
         }
 
         std::string path(directory);
-        if (!IsDirectorySeparator(path.back()))
+        if (!IsDirectorySeparator(path.back())
+#if defined(_WIN32)
+            && path.back() != ':'
+#endif
+        )
         {
 #if defined(_WIN32)
             path.push_back('\\');

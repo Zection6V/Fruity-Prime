@@ -20,7 +20,6 @@ namespace MphRead::Mods::Launcher
     {
     public:
         LauncherPrefs() = delete;
-
         inline static constexpr std::string_view DefaultServer = "89.160.162.50";
 
         [[nodiscard]] static const std::string& Directory() noexcept;

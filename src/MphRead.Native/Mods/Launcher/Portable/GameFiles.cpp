@@ -1320,7 +1320,6 @@ namespace
         if (pid == 0)
         {
             (void)::close(startupPipe[0]);
-            (void)::setpgid(0, 0);
             const auto failStartup = [&](int error) noexcept
             {
                 const char* data = reinterpret_cast<const char*>(&error);
@@ -1368,7 +1367,6 @@ namespace
         }
 
         (void)::close(startupPipe[1]);
-        (void)::setpgid(pid, pid);
         (void)::close(inputPipe[0]);
         (void)::close(outputPipe[1]);
         (void)::close(errorPipe[1]);
@@ -1919,18 +1917,18 @@ namespace MphRead::Mods::Launcher
             }
             if (timedOut)
             {
-                int killError = 0;
-                if (::kill(-child.Pid, SIGKILL) != 0 && errno != ESRCH)
+                const int stopResult = ::kill(child.Pid, SIGSTOP);
+                if (stopResult != 0)
                 {
-                    killError = errno;
-                    if (::kill(child.Pid, SIGKILL) == 0 || errno == ESRCH)
+                    const int stopError = errno;
+                    if (stopError != ESRCH)
                     {
-                        killError = 0;
+                        throw std::runtime_error(ErrnoMessage(stopError));
                     }
                 }
-                if (killError != 0)
+                else if (::kill(child.Pid, SIGKILL) != 0 && errno != ESRCH)
                 {
-                    throw std::runtime_error(ErrnoMessage(killError));
+                    throw std::runtime_error(ErrnoMessage(errno));
                 }
                 report("The extraction took too long and was stopped.");
                 outputThread.Join();

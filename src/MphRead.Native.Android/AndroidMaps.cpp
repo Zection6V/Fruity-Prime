@@ -87,6 +87,8 @@ namespace
         T _value = nullptr;
     };
 
+    std::string ToUtf8(std::u16string_view value);
+
     std::string JavaExceptionMessage(JNIEnv* env, jthrowable throwable)
     {
         if (throwable == nullptr)
@@ -124,22 +126,34 @@ namespace
             return "Android Java exception";
         }
 
-        const jsize length = env->GetStringUTFLength(message.Get());
+        const jsize length = env->GetStringLength(message.Get());
         if (env->ExceptionCheck())
         {
             env->ExceptionClear();
             return "Android Java exception";
         }
-        const char* chars = env->GetStringUTFChars(message.Get(), nullptr);
+        const jchar* chars = env->GetStringChars(message.Get(), nullptr);
         if (env->ExceptionCheck() || chars == nullptr)
         {
             env->ExceptionClear();
             return "Android Java exception";
         }
 
-        std::string result(chars, static_cast<std::size_t>(length));
-        env->ReleaseStringUTFChars(message.Get(), chars);
-        return result;
+        std::u16string text;
+        try
+        {
+            text.assign(
+                reinterpret_cast<const char16_t*>(chars),
+                static_cast<std::size_t>(length)
+            );
+        }
+        catch (...)
+        {
+            env->ReleaseStringChars(message.Get(), chars);
+            throw;
+        }
+        env->ReleaseStringChars(message.Get(), chars);
+        return ToUtf8(text);
     }
 
     [[noreturn]] void ThrowPendingJavaException(JNIEnv* env)
@@ -190,10 +204,20 @@ namespace
         {
             throw std::bad_alloc();
         }
-        std::u16string result(
-            reinterpret_cast<const char16_t*>(chars),
-            static_cast<std::size_t>(length)
-        );
+
+        std::u16string result;
+        try
+        {
+            result.assign(
+                reinterpret_cast<const char16_t*>(chars),
+                static_cast<std::size_t>(length)
+            );
+        }
+        catch (...)
+        {
+            env->ReleaseStringChars(value, chars);
+            throw;
+        }
         env->ReleaseStringChars(value, chars);
         return result;
     }
@@ -345,9 +369,9 @@ namespace
             throw std::runtime_error("could not determine file length");
         }
         const auto length = static_cast<std::uintmax_t>(end);
-        if (length > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max()))
+        if (length > static_cast<std::uintmax_t>(std::numeric_limits<std::int32_t>::max()))
         {
-            throw std::length_error("file is too large");
+            throw std::runtime_error("The file is too long. This operation is currently limited to supporting files less than 2 gigabytes in size.");
         }
 
         std::vector<std::uint8_t> result(static_cast<std::size_t>(length));
@@ -460,7 +484,15 @@ namespace
                 }
 
                 const std::size_t oldSize = bytes.size();
-                bytes.resize(oldSize + static_cast<std::size_t>(count));
+                const std::size_t added = static_cast<std::size_t>(count);
+                const std::size_t maxLength = static_cast<std::size_t>(
+                    std::numeric_limits<std::int32_t>::max()
+                );
+                if (oldSize > maxLength - added)
+                {
+                    throw std::runtime_error("Stream was too long.");
+                }
+                bytes.resize(oldSize + added);
                 env->GetByteArrayRegion(
                     buffer.Get(),
                     0,

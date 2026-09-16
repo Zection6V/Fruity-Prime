@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../Entities/Players/PlayerInput.hpp"
+#include "../Entities/Players/PlayerInput.hpp"
 
 #include <array>
 #include <cstddef>

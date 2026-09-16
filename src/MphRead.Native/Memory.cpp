@@ -15,6 +15,7 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -166,6 +167,14 @@ namespace
         return std::bit_cast<std::int64_t>(result);
     }
 
+    [[nodiscard]] constexpr std::int64_t UncheckedSubtract64(
+        std::int64_t left, std::int64_t right) noexcept
+    {
+        const std::uint64_t result = std::bit_cast<std::uint64_t>(left)
+            - std::bit_cast<std::uint64_t>(right);
+        return std::bit_cast<std::int64_t>(result);
+    }
+
     [[nodiscard]] std::int32_t IntPtrToInt32(std::intptr_t value)
     {
         if (value < static_cast<std::intptr_t>(std::numeric_limits<std::int32_t>::min())
@@ -189,94 +198,41 @@ namespace
         return static_cast<std::intptr_t>(value);
     }
 
-    [[nodiscard]] bool IsManagedWhiteSpace(char32_t value) noexcept
+    [[nodiscard]] constexpr bool IsNumberWhiteSpace(char value) noexcept
     {
-        return (value >= U'\u0009' && value <= U'\u000D') || value == U'\u0020'
-            || value == U'\u0085' || value == U'\u00A0' || value == U'\u1680'
-            || (value >= U'\u2000' && value <= U'\u200A') || value == U'\u2028'
-            || value == U'\u2029' || value == U'\u202F' || value == U'\u205F'
-            || value == U'\u3000';
+        const unsigned char ch = static_cast<unsigned char>(value);
+        return ch == 0x20U || (ch >= 0x09U && ch <= 0x0DU);
     }
 
-    [[nodiscard]] std::pair<char32_t, std::size_t> DecodeUtf8At(
-        std::string_view value, std::size_t offset) noexcept
+    [[nodiscard]] constexpr std::int32_t HexDigitValue(char value) noexcept
     {
-        const auto byte = static_cast<unsigned char>(value[offset]);
-        if (byte < 0x80U)
+        if (value >= '0' && value <= '9')
         {
-            return {byte, offset + 1};
+            return value - '0';
         }
-        auto continuation = [&](std::size_t index) -> std::optional<unsigned char>
+        if (value >= 'A' && value <= 'F')
         {
-            if (index >= value.size())
-            {
-                return std::nullopt;
-            }
-            const auto next = static_cast<unsigned char>(value[index]);
-            if ((next & 0xC0U) != 0x80U)
-            {
-                return std::nullopt;
-            }
-            return next;
-        };
-        if (byte >= 0xC2U && byte <= 0xDFU)
-        {
-            if (auto b1 = continuation(offset + 1))
-            {
-                return {static_cast<char32_t>(((byte & 0x1FU) << 6U) | (*b1 & 0x3FU)),
-                    offset + 2};
-            }
+            return value - 'A' + 10;
         }
-        else if (byte >= 0xE0U && byte <= 0xEFU)
+        if (value >= 'a' && value <= 'f')
         {
-            const auto b1 = continuation(offset + 1);
-            const auto b2 = continuation(offset + 2);
-            if (b1 && b2 && !(byte == 0xE0U && *b1 < 0xA0U)
-                && !(byte == 0xEDU && *b1 >= 0xA0U))
-            {
-                return {static_cast<char32_t>(((byte & 0x0FU) << 12U)
-                    | ((*b1 & 0x3FU) << 6U) | (*b2 & 0x3FU)), offset + 3};
-            }
+            return value - 'a' + 10;
         }
-        else if (byte >= 0xF0U && byte <= 0xF4U)
-        {
-            const auto b1 = continuation(offset + 1);
-            const auto b2 = continuation(offset + 2);
-            const auto b3 = continuation(offset + 3);
-            if (b1 && b2 && b3 && !(byte == 0xF0U && *b1 < 0x90U)
-                && !(byte == 0xF4U && *b1 >= 0x90U))
-            {
-                return {static_cast<char32_t>(((byte & 0x07U) << 18U)
-                    | ((*b1 & 0x3FU) << 12U) | ((*b2 & 0x3FU) << 6U)
-                    | (*b3 & 0x3FU)), offset + 4};
-            }
-        }
-        return {0xFFFDU, offset + 1};
+        return -1;
     }
 
-    [[nodiscard]] std::string_view TrimManagedWhiteSpace(std::string_view value) noexcept
+    [[nodiscard]] bool HasOnlyAllowedNumberSuffix(
+        std::string_view text, std::size_t index) noexcept
     {
-        std::size_t first = std::string::npos;
-        std::size_t lastEnd = 0;
-        for (std::size_t offset = 0; offset < value.size();)
+        while (index < text.size() && IsNumberWhiteSpace(text[index]))
         {
-            const std::size_t start = offset;
-            const auto [codePoint, next] = DecodeUtf8At(value, offset);
-            offset = next;
-            if (!IsManagedWhiteSpace(codePoint))
-            {
-                if (first == std::string::npos)
-                {
-                    first = start;
-                }
-                lastEnd = next;
-            }
+            ++index;
         }
-        if (first == std::string::npos)
+        while (index < text.size() && text[index] == '\0')
         {
-            return {};
+            ++index;
         }
-        return value.substr(first, lastEnd - first);
+        return index == text.size();
     }
 
     [[nodiscard]] bool EqualsAsciiIgnoreCase(
@@ -304,31 +260,63 @@ namespace
 
     [[nodiscard]] bool TryParseInt64Decimal(std::string_view text, std::int64_t& value)
     {
-        text = TrimManagedWhiteSpace(text);
+        value = 0;
         if (text.empty())
         {
-            value = 0;
+            return false;
+        }
+
+        std::size_t index = 0;
+        while (index < text.size() && IsNumberWhiteSpace(text[index]))
+        {
+            ++index;
+        }
+        if (index == text.size())
+        {
             return false;
         }
 
         bool negative = false;
-        if (text.front() == '+' || text.front() == '-')
+        if (text[index] == '+' || text[index] == '-')
         {
-            negative = text.front() == '-';
-            text.remove_prefix(1);
+            negative = text[index] == '-';
+            ++index;
         }
-        if (text.empty())
+        if (index == text.size() || text[index] < '0' || text[index] > '9')
         {
-            value = 0;
             return false;
         }
 
-        std::uint64_t magnitude = 0;
-        const auto result = std::from_chars(
-            text.data(), text.data() + text.size(), magnitude, 10);
-        if (result.ec != std::errc{} || result.ptr != text.data() + text.size())
+        const std::size_t digitStart = index;
+        while (index < text.size() && text[index] >= '0' && text[index] <= '9')
+        {
+            ++index;
+        }
+        const std::size_t digitEnd = index;
+        if (!HasOnlyAllowedNumberSuffix(text, index))
+        {
+            return false;
+        }
+
+        std::size_t significantStart = digitStart;
+        while (significantStart < digitEnd && text[significantStart] == '0')
+        {
+            ++significantStart;
+        }
+        if (significantStart == digitEnd)
         {
             value = 0;
+            return true;
+        }
+
+        std::uint64_t magnitude = 0;
+        const auto parsed = std::from_chars(
+            text.data() + significantStart,
+            text.data() + digitEnd,
+            magnitude,
+            10);
+        if (parsed.ec != std::errc{} || parsed.ptr != text.data() + digitEnd)
+        {
             return false;
         }
 
@@ -337,28 +325,20 @@ namespace
         {
             if (magnitude > minMagnitude)
             {
-                value = 0;
                 return false;
             }
-            if (magnitude == minMagnitude)
-            {
-                value = std::numeric_limits<std::int64_t>::min();
-            }
-            else
-            {
-                value = -static_cast<std::int64_t>(magnitude);
-            }
+            value = magnitude == minMagnitude
+                ? std::numeric_limits<std::int64_t>::min()
+                : -static_cast<std::int64_t>(magnitude);
+            return true;
         }
-        else
+
+        if (magnitude > static_cast<std::uint64_t>(
+                std::numeric_limits<std::int64_t>::max()))
         {
-            if (magnitude > static_cast<std::uint64_t>(
-                    std::numeric_limits<std::int64_t>::max()))
-            {
-                value = 0;
-                return false;
-            }
-            value = static_cast<std::int64_t>(magnitude);
+            return false;
         }
+        value = static_cast<std::int64_t>(magnitude);
         return true;
     }
 
@@ -379,19 +359,55 @@ namespace
     [[nodiscard]] bool TryParseInt64Hex(std::string text, std::int64_t& value)
     {
         ReplaceAll(text, "0x", "");
-        std::string_view trimmed = TrimManagedWhiteSpace(text);
-        if (trimmed.empty() || trimmed.size() > 16)
+        value = 0;
+        if (text.empty())
         {
-            value = 0;
             return false;
         }
 
-        std::uint64_t bits = 0;
-        const auto result = std::from_chars(
-            trimmed.data(), trimmed.data() + trimmed.size(), bits, 16);
-        if (result.ec != std::errc{} || result.ptr != trimmed.data() + trimmed.size())
+        std::size_t index = 0;
+        while (index < text.size() && IsNumberWhiteSpace(text[index]))
+        {
+            ++index;
+        }
+        if (index == text.size() || HexDigitValue(text[index]) < 0)
+        {
+            return false;
+        }
+
+        while (index < text.size() && text[index] == '0')
+        {
+            ++index;
+        }
+        if (index == text.size())
         {
             value = 0;
+            return true;
+        }
+        if (HexDigitValue(text[index]) < 0)
+        {
+            return HasOnlyAllowedNumberSuffix(text, index);
+        }
+
+        std::uint64_t bits = 0;
+        std::size_t digitCount = 0;
+        while (index < text.size())
+        {
+            const std::int32_t digit = HexDigitValue(text[index]);
+            if (digit < 0)
+            {
+                break;
+            }
+            if (digitCount == 16)
+            {
+                return false;
+            }
+            bits = (bits << 4U) | static_cast<std::uint64_t>(digit);
+            ++digitCount;
+            ++index;
+        }
+        if (!HasOnlyAllowedNumberSuffix(text, index))
+        {
             return false;
         }
         value = std::bit_cast<std::int64_t>(bits);
@@ -625,7 +641,7 @@ namespace
     void WriteAllLines(
         const std::filesystem::path& path, const std::array<std::string, 2>& lines)
     {
-        std::ofstream stream(path, std::ios::trunc);
+        std::ofstream stream(path, std::ios::binary | std::ios::trunc);
         if (!stream)
         {
             throw std::ios_base::failure("Could not open file for writing.");
@@ -725,6 +741,69 @@ namespace
         std::int64_t StartTimeMilliseconds = 0;
     };
 
+    constexpr std::int64_t TicksPerSecond = INT64_C(10000000);
+    constexpr std::int64_t TicksPerMillisecond = INT64_C(10000);
+    constexpr std::int64_t UnixEpochDateTimeTicks = INT64_C(621355968000000000);
+
+    [[nodiscard]] std::int64_t UnixTicksToMilliseconds(std::int64_t ticks)
+    {
+        if (ticks >= 0)
+        {
+            return ticks / TicksPerMillisecond;
+        }
+        // DateTimeOffset.ToUnixTimeMilliseconds floors toward negative infinity.
+        return -static_cast<std::int64_t>(
+            (static_cast<std::uint64_t>(-(ticks + 1)) + 1U
+                + static_cast<std::uint64_t>(TicksPerMillisecond - 1))
+            / static_cast<std::uint64_t>(TicksPerMillisecond));
+    }
+
+#if !defined(_WIN32)
+    [[nodiscard]] constexpr std::int64_t DaysFromCivil(
+        std::int32_t year, std::uint32_t month, std::uint32_t day) noexcept
+    {
+        year -= month <= 2U ? 1 : 0;
+        const std::int64_t era = (year >= 0 ? year : year - 399) / 400;
+        const std::uint32_t yearOfEra = static_cast<std::uint32_t>(
+            year - static_cast<std::int32_t>(era * 400));
+        const std::uint32_t dayOfYear = (153U * (month > 2U ? month - 3U : month + 9U) + 2U) / 5U
+            + day - 1U;
+        const std::uint32_t dayOfEra = yearOfEra * 365U + yearOfEra / 4U
+            - yearOfEra / 100U + dayOfYear;
+        return era * 146097 + static_cast<std::int64_t>(dayOfEra) - 719468;
+    }
+
+    [[nodiscard]] std::int64_t UnixTicksToLocalDateTimeTicks(std::int64_t unixTicks)
+    {
+        std::int64_t seconds = unixTicks / TicksPerSecond;
+        std::int64_t fractionTicks = unixTicks % TicksPerSecond;
+        if (fractionTicks < 0)
+        {
+            fractionTicks += TicksPerSecond;
+            --seconds;
+        }
+
+        const std::time_t time = static_cast<std::time_t>(seconds);
+        std::tm local{};
+        if (::localtime_r(&time, &local) == nullptr)
+        {
+            throw std::system_error(errno == 0 ? EOVERFLOW : errno,
+                std::generic_category());
+        }
+
+        const std::int64_t daysSinceUnixEpoch = DaysFromCivil(
+            local.tm_year + 1900,
+            static_cast<std::uint32_t>(local.tm_mon + 1),
+            static_cast<std::uint32_t>(local.tm_mday));
+        const std::int64_t wholeSeconds =
+            ((daysSinceUnixEpoch + INT64_C(719162)) * INT64_C(86400))
+            + static_cast<std::int64_t>(local.tm_hour) * INT64_C(3600)
+            + static_cast<std::int64_t>(local.tm_min) * INT64_C(60)
+            + static_cast<std::int64_t>(local.tm_sec);
+        return wholeSeconds * TicksPerSecond + fractionTicks;
+    }
+#endif
+
 #ifdef _WIN32
     [[nodiscard]] std::int64_t FileTimeToUnixTicks(const FILETIME& time)
     {
@@ -756,17 +835,6 @@ namespace
             return std::numeric_limits<std::int64_t>::max();
         }
         return static_cast<std::int64_t>(value.QuadPart);
-    }
-
-    [[nodiscard]] std::int64_t UnixTicksToMilliseconds(std::int64_t ticks)
-    {
-        if (ticks >= 0)
-        {
-            return ticks / 10000;
-        }
-        // DateTimeOffset.ToUnixTimeMilliseconds floors toward negative infinity.
-        return -static_cast<std::int64_t>(
-            (static_cast<std::uint64_t>(-(ticks + 1)) + 1U + 9999U) / 10000U);
     }
 
     [[nodiscard]] bool EqualsProcessName(std::wstring_view executable)
@@ -820,7 +888,7 @@ namespace
                 static_cast<int>(::GetLastError()), std::system_category());
         }
 
-        std::vector<ProcessCandidate> result;
+        std::vector<std::int32_t> matched;
         PROCESSENTRY32W entry{};
         entry.dwSize = sizeof(entry);
         if (::Process32FirstW(snapshot, &entry))
@@ -829,14 +897,8 @@ namespace
             {
                 if (EqualsProcessName(entry.szExeFile))
                 {
-                    const auto processId = static_cast<std::int32_t>(entry.th32ProcessID);
-                    const auto [ticks, milliseconds]
-                        = QueryProcessStartTime(processId);
-                    result.push_back({
-                        processId,
-                        ticks,
-                        milliseconds
-                    });
+                    matched.push_back(
+                        static_cast<std::int32_t>(entry.th32ProcessID));
                 }
             }
             while (::Process32NextW(snapshot, &entry));
@@ -851,19 +913,38 @@ namespace
             }
         }
         ::CloseHandle(snapshot);
+
+        // Process.GetProcessesByName completes before Memory.Start evaluates
+        // Process.StartTime for any element of the returned array.
+        std::vector<ProcessCandidate> result;
+        result.reserve(matched.size());
+        for (const std::int32_t processId : matched)
+        {
+            const auto [ticks, milliseconds] = QueryProcessStartTime(processId);
+            result.push_back({processId, ticks, milliseconds});
+        }
         return result;
     }
 #elif defined(__linux__)
+    struct LinuxProcessStat final
+    {
+        std::string Name;
+        std::uint64_t StartTicks = 0;
+    };
+
     [[nodiscard]] bool TryParsePid(std::string_view text, std::int32_t& processId)
     {
         if (text.empty())
         {
             return false;
         }
-        std::int64_t parsed = 0;
-        if (!TryParseInt64Decimal(text, parsed)
-            || parsed <= 0
-            || parsed > std::numeric_limits<std::int32_t>::max())
+        std::uint32_t parsed = 0;
+        const auto result = std::from_chars(
+            text.data(), text.data() + text.size(), parsed, 10);
+        if (result.ec != std::errc{}
+            || result.ptr != text.data() + text.size()
+            || parsed > static_cast<std::uint32_t>(
+                std::numeric_limits<std::int32_t>::max()))
         {
             return false;
         }
@@ -871,123 +952,265 @@ namespace
         return true;
     }
 
-    [[nodiscard]] std::int64_t LinuxBootTimeMilliseconds()
+    [[nodiscard]] std::filesystem::path LinuxProcFilePath(
+        std::int32_t processId, std::string_view fileName)
     {
-        std::ifstream stream("/proc/stat");
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not read /proc/stat.");
-        }
-        std::string key;
-        while (stream >> key)
-        {
-            if (key == "btime")
-            {
-                std::int64_t seconds = 0;
-                stream >> seconds;
-                return seconds * 1000;
-            }
-            std::string rest;
-            std::getline(stream, rest);
-        }
-        throw std::runtime_error("Could not determine system boot time.");
+        const std::filesystem::path processPath
+            = processId == static_cast<std::int32_t>(::getpid())
+            ? std::filesystem::path("/proc/self")
+            : std::filesystem::path("/proc") / std::to_string(processId);
+        return processPath / std::string(fileName);
     }
 
-    [[nodiscard]] std::int64_t LinuxProcessStartTimeMilliseconds(
-        std::int32_t processId, std::int64_t bootTimeMilliseconds)
+    [[nodiscard]] std::optional<LinuxProcessStat> TryReadLinuxProcessStat(
+        std::int32_t processId)
     {
         const std::filesystem::path path
-            = std::filesystem::path("/proc") / std::to_string(processId) / "stat";
+            = LinuxProcFilePath(processId, "stat");
         std::ifstream stream(path);
         if (!stream)
         {
-            throw std::ios_base::failure("Could not read process start time.");
+            return std::nullopt;
         }
         std::string line;
-        std::getline(stream, line);
-        const std::size_t closeParen = line.rfind(')');
-        if (closeParen == std::string::npos || closeParen + 2 >= line.size())
+        if (!std::getline(stream, line))
         {
-            throw std::runtime_error("Invalid /proc process stat data.");
+            return std::nullopt;
         }
 
+        const std::size_t openParen = line.find('(');
+        const std::size_t closeParen = line.rfind(')');
+        if (openParen == std::string::npos
+            || closeParen == std::string::npos
+            || closeParen <= openParen
+            || closeParen + 2 >= line.size())
+        {
+            return std::nullopt;
+        }
+
+        LinuxProcessStat result{};
+        result.Name = line.substr(openParen + 1, closeParen - openParen - 1);
         std::istringstream fields(line.substr(closeParen + 2));
         std::string field;
-        std::uint64_t startTicks = 0;
-        // The first token after ')' is field 3 (state); starttime is field 22.
         for (std::int32_t fieldNumber = 3; fieldNumber <= 22; ++fieldNumber)
         {
             if (!(fields >> field))
             {
-                throw std::runtime_error("Invalid /proc process stat data.");
+                return std::nullopt;
             }
             if (fieldNumber == 22)
             {
                 const auto parsed = std::from_chars(
-                    field.data(), field.data() + field.size(), startTicks, 10);
+                    field.data(), field.data() + field.size(), result.StartTicks, 10);
                 if (parsed.ec != std::errc{}
                     || parsed.ptr != field.data() + field.size())
                 {
-                    throw std::runtime_error("Invalid /proc process start time.");
+                    return std::nullopt;
                 }
             }
         }
-
-        const long ticksPerSecond = ::sysconf(_SC_CLK_TCK);
-        if (ticksPerSecond <= 0)
-        {
-            throw std::runtime_error("Could not determine clock tick frequency.");
-        }
-        return bootTimeMilliseconds
-            + static_cast<std::int64_t>(
-                startTicks * 1000U / static_cast<std::uint64_t>(ticksPerSecond));
+        return result;
     }
 
-    [[nodiscard]] std::vector<ProcessCandidate> FindProcessesByName()
+    [[nodiscard]] LinuxProcessStat ReadLinuxProcessStat(
+        std::int32_t processId)
     {
+        const std::optional<LinuxProcessStat> result
+            = TryReadLinuxProcessStat(processId);
+        if (!result)
+        {
+            throw std::ios_base::failure("Process information is unavailable.");
+        }
+        return *result;
+    }
+
+    [[nodiscard]] bool StartsWithAsciiIgnoreCase(
+        std::string_view value, std::string_view prefix) noexcept
+    {
+        return value.size() >= prefix.size()
+            && EqualsAsciiIgnoreCase(value.substr(0, prefix.size()), prefix);
+    }
+
+    [[nodiscard]] std::string LinuxProcessName(
+        std::int32_t processId, const LinuxProcessStat& stat)
+    {
+        const std::filesystem::path path
+            = LinuxProcFilePath(processId, "cmdline");
+        std::ifstream stream(path, std::ios::binary);
+        if (!stream)
+        {
+            return stat.Name;
+        }
+
+        std::string commandLine{
+            std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+        if (!stream.eof() && stream.fail())
+        {
+            return stat.Name;
+        }
+
+        std::size_t begin = 0;
+        for (std::int32_t argument = 0; argument < 2 && begin <= commandLine.size(); ++argument)
+        {
+            const std::size_t end = commandLine.find('\0', begin);
+            if (end == std::string::npos)
+            {
+                break;
+            }
+            const std::string_view arg(commandLine.data() + begin, end - begin);
+            const std::size_t slash = arg.find_last_of('/');
+            const std::string_view name = slash == std::string_view::npos
+                ? arg : arg.substr(slash + 1);
+            if (StartsWithAsciiIgnoreCase(name, stat.Name))
+            {
+                return std::string(name);
+            }
+            begin = end + 1;
+        }
+        return stat.Name;
+    }
+
+    [[nodiscard]] bool LinuxProcMatchesPidNamespace()
+    {
+        std::array<char, 64> target{};
+        const ssize_t length = ::readlink(
+            "/proc/self", target.data(), target.size() - 1U);
+        if (length <= 0)
+        {
+            return true;
+        }
+        std::int32_t procSelfPid = 0;
+        if (!TryParsePid(
+                std::string_view(target.data(), static_cast<std::size_t>(length)),
+                procSelfPid))
+        {
+            return true;
+        }
+        return procSelfPid == static_cast<std::int32_t>(::getpid());
+    }
+
+    [[nodiscard]] std::int64_t LinuxBootTimeDateTimeTicks()
+    {
+        timespec boot{};
+        if (::clock_gettime(CLOCK_BOOTTIME, &boot) != 0)
+        {
+            throw std::system_error(errno, std::generic_category());
+        }
+        const std::int64_t sinceBootTicks
+            = static_cast<std::int64_t>(boot.tv_sec) * TicksPerSecond
+            + static_cast<std::int64_t>(boot.tv_nsec) / INT64_C(100);
+
+        timespec realtime{};
+        if (::clock_gettime(CLOCK_REALTIME_COARSE, &realtime) != 0)
+        {
+            throw std::system_error(errno, std::generic_category());
+        }
+        const std::int64_t sinceEpochTicks
+            = static_cast<std::int64_t>(realtime.tv_sec) * TicksPerSecond
+            + static_cast<std::int64_t>(realtime.tv_nsec) / INT64_C(100);
+        return UnixEpochDateTimeTicks + sinceEpochTicks - sinceBootTicks;
+    }
+
+    [[nodiscard]] std::int64_t LinuxJiffiesToTimeSpanTicks(std::uint64_t ticks)
+    {
+        static const long ticksPerSecond = []
+        {
+            const long value = ::sysconf(_SC_CLK_TCK);
+            if (value <= 0)
+            {
+                throw std::system_error(errno == 0 ? EINVAL : errno,
+                    std::generic_category());
+            }
+            return value;
+        }();
+        const double seconds = static_cast<double>(ticks)
+            / static_cast<double>(ticksPerSecond);
+        const double timeSpanTicks = seconds * static_cast<double>(TicksPerSecond);
+        if (timeSpanTicks > static_cast<double>(
+                std::numeric_limits<std::int64_t>::max())
+            || timeSpanTicks < static_cast<double>(
+                std::numeric_limits<std::int64_t>::min()))
+        {
+            throw OverflowException();
+        }
+        return static_cast<std::int64_t>(timeSpanTicks);
+    }
+
+    [[nodiscard]] std::pair<std::int64_t, std::int64_t>
+        LinuxProcessStartTime(
+            std::int32_t processId, std::int64_t bootTimeDateTimeTicks)
+    {
+        // Process.StartTime performs a fresh stat read after GetProcessesByName has
+        // finished constructing its Process array.
+        const LinuxProcessStat stat = ReadLinuxProcessStat(processId);
+        const std::int64_t dateTimeTicks = UncheckedAdd64(
+            bootTimeDateTimeTicks, LinuxJiffiesToTimeSpanTicks(stat.StartTicks));
+        const std::int64_t unixTicks = UncheckedSubtract64(
+            dateTimeTicks, UnixEpochDateTimeTicks);
+        return {
+            UnixTicksToLocalDateTimeTicks(unixTicks),
+            UnixTicksToMilliseconds(unixTicks)
+        };
+    }
+
+    [[nodiscard]] std::vector<std::int32_t> LinuxProcessIds()
+    {
+        if (!LinuxProcMatchesPidNamespace())
+        {
+            return {static_cast<std::int32_t>(::getpid())};
+        }
+
         DIR* directory = ::opendir("/proc");
         if (directory == nullptr)
         {
             throw std::system_error(errno, std::generic_category());
         }
-
-        std::vector<ProcessCandidate> result;
-        std::optional<std::int64_t> bootTime;
+        std::vector<std::int32_t> result;
         while (dirent* entry = ::readdir(directory))
         {
             std::int32_t processId = 0;
-            if (!TryParsePid(entry->d_name, processId))
+            if (TryParsePid(entry->d_name, processId))
             {
-                continue;
+                result.push_back(processId);
             }
+        }
+        ::closedir(directory);
+        return result;
+    }
 
-            const std::filesystem::path commPath
-                = std::filesystem::path("/proc") / entry->d_name / "comm";
-            std::ifstream comm(commPath);
-            if (!comm)
+    [[nodiscard]] std::vector<ProcessCandidate> FindProcessesByName()
+    {
+        // Process.GetProcessesByName first enumerates/builds the complete Process
+        // array, then Memory.Start reads StartTime for each Process in that array.
+        std::vector<std::int32_t> matched;
+        for (const std::int32_t processId : LinuxProcessIds())
+        {
+            const std::optional<LinuxProcessStat> stat
+                = TryReadLinuxProcessStat(processId);
+            if (!stat)
             {
                 continue;
             }
-            std::string name;
-            std::getline(comm, name);
+            const std::string name = LinuxProcessName(processId, *stat);
             if (!EqualsAsciiIgnoreCase(name, "NO$GBA"))
             {
                 continue;
             }
-
-            if (!bootTime)
-            {
-                bootTime = LinuxBootTimeMilliseconds();
-            }
-            const std::int64_t milliseconds
-                = LinuxProcessStartTimeMilliseconds(processId, *bootTime);
-            result.push_back({
-                processId,
-                UncheckedAdd64(0, milliseconds * INT64_C(10000)),
-                milliseconds
-            });
+            matched.push_back(processId);
         }
-        ::closedir(directory);
+
+        std::vector<ProcessCandidate> result;
+        if (matched.empty())
+        {
+            return result;
+        }
+        const std::int64_t bootTimeDateTimeTicks = LinuxBootTimeDateTimeTicks();
+        for (const std::int32_t processId : matched)
+        {
+            const auto [comparisonTicks, milliseconds]
+                = LinuxProcessStartTime(processId, bootTimeDateTimeTicks);
+            result.push_back({processId, comparisonTicks, milliseconds});
+        }
         return result;
     }
 #elif defined(__APPLE__)
@@ -1028,15 +1251,24 @@ namespace
             throw std::system_error(errno == 0 ? EIO : errno, std::generic_category());
         }
 
-        const std::int64_t seconds
-            = static_cast<std::int64_t>(info.pbsd.pbi_start_tvsec);
-        const std::int64_t microseconds
-            = static_cast<std::int64_t>(info.pbsd.pbi_start_tvusec);
-        const std::int64_t ticks = UncheckedAdd64(
-            seconds * INT64_C(10000000), microseconds * INT64_C(10));
-        const std::int64_t milliseconds = UncheckedAdd64(
-            seconds * INT64_C(1000), microseconds / INT64_C(1000));
-        return {ticks, milliseconds};
+        const double seconds
+            = static_cast<double>(info.pbsd.pbi_start_tvsec)
+            + static_cast<double>(info.pbsd.pbi_start_tvusec) / 1000000.0;
+        const double doubleTicks = seconds * static_cast<double>(TicksPerSecond);
+        if (doubleTicks > static_cast<double>(
+                std::numeric_limits<std::int64_t>::max())
+            || doubleTicks < static_cast<double>(
+                std::numeric_limits<std::int64_t>::min())
+            || std::isnan(doubleTicks))
+        {
+            throw OverflowException();
+        }
+        // TimeSpan.FromSeconds ultimately truncates the scaled double to Int64.
+        const std::int64_t unixTicks = static_cast<std::int64_t>(doubleTicks);
+        return {
+            UnixTicksToLocalDateTimeTicks(unixTicks),
+            UnixTicksToMilliseconds(unixTicks)
+        };
     }
 
     [[nodiscard]] std::vector<ProcessCandidate> FindProcessesByName()
@@ -1084,7 +1316,7 @@ namespace
             }
         }
 
-        std::vector<ProcessCandidate> result;
+        std::vector<std::int32_t> matched;
         for (pid_t pid : processIds)
         {
             if (pid < 0 || pid > std::numeric_limits<std::int32_t>::max())
@@ -1097,6 +1329,15 @@ namespace
             {
                 continue;
             }
+            matched.push_back(processId);
+        }
+
+        // As on the managed side, finish GetProcessesByName before evaluating
+        // the cached StartTime property in Memory.Start's foreach loop.
+        std::vector<ProcessCandidate> result;
+        result.reserve(matched.size());
+        for (const std::int32_t processId : matched)
+        {
             const auto [ticks, milliseconds] = AppleProcessStartTime(processId);
             result.push_back({processId, ticks, milliseconds});
         }
@@ -1458,27 +1699,16 @@ namespace MphRead::Memory
     void Memory::RefreshMemory()
     {
         const std::intptr_t processHandle = ProcessHandle();
-        std::vector<std::uint8_t> buffer(static_cast<std::size_t>(_size));
-        for (std::int32_t i = 0; i < _size; ++i)
-        {
-            buffer[static_cast<std::size_t>(i)]
-                = (*_buffer)[static_cast<std::size_t>(i)];
-        }
-
+        std::uint8_t* const buffer = _buffer->Length() == 0
+            ? nullptr
+            : std::addressof((*_buffer)[0]);
         std::intptr_t count = 0;
         const bool result = ReadProcessMemory(
             processHandle,
             _baseAddress,
-            buffer.data(),
+            buffer,
             _size,
             count);
-
-        for (std::int32_t i = 0; i < _size; ++i)
-        {
-            (*_buffer)[static_cast<std::size_t>(i)]
-                = buffer[static_cast<std::size_t>(i)];
-        }
-
         assert(result);
         assert(static_cast<std::int64_t>(count) == _size);
     }
@@ -1706,26 +1936,10 @@ namespace MphRead::Memory
         const std::intptr_t pointer = static_cast<std::intptr_t>(pointerValue);
         const std::intptr_t processHandle = ProcessHandle();
 
-        std::vector<std::uint8_t> marshaled;
         const std::uint8_t* source = nullptr;
-        if (value)
+        if (value && value->Length() != 0)
         {
-            const std::size_t valueLength = value->Length();
-            std::size_t nativeLength = valueLength;
-            if (size > 0
-                && static_cast<std::uint64_t>(size) > nativeLength)
-            {
-                // The C# P/Invoke signature does not tie nSize to the array length.
-                // Keep the native call safe while preserving the subsequent managed
-                // array bounds failure and the requested nSize.
-                nativeLength = static_cast<std::size_t>(size);
-            }
-            marshaled.resize(nativeLength);
-            for (std::size_t i = 0; i < valueLength; ++i)
-            {
-                marshaled[i] = (*value)[i];
-            }
-            source = marshaled.empty() ? nullptr : marshaled.data();
+            source = std::addressof((*value)[0]);
         }
 
         std::intptr_t count = 0;

@@ -506,7 +506,7 @@ namespace NCSFCommon::ReplayGain
         return ReplayGain::AnalyzeResult(GainData.Accum());
     }
 
-    double TrackGain::GetPeak() const noexcept
+    double TrackGain::GetPeak()
     {
         return GainData.PeakSample() / ReplayGain::MaxSampleValue;
     }

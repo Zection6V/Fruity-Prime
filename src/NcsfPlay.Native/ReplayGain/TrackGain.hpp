@@ -26,8 +26,8 @@ namespace NCSFCommon::ReplayGain
             std::span<const std::int32_t> leftSamples,
             std::span<const std::int32_t> rightSamples);
 
-        [[nodiscard]] double GetGain();
-        [[nodiscard]] double GetPeak() const noexcept;
+        double GetGain();
+        double GetPeak();
 
     private:
         friend class AlbumGain;

@@ -94,10 +94,11 @@ namespace MphRead::Mods::Render
             const std::int32_t sourceY = y / Factor;
             for (std::int32_t x = 0; x < outWidth; ++x)
             {
-                TextureAt(texture, WrappedAdd(WrappedProduct(y, outWidth), x)) =
-                    Ink(data, image, tilesX, width, height, x / Factor, sourceY) > 0.0F
-                        ? ink
-                        : transparent;
+                ColorRgba& target = TextureAt(
+                    texture, WrappedAdd(WrappedProduct(y, outWidth), x));
+                target = Ink(data, image, tilesX, width, height, x / Factor, sourceY) > 0.0F
+                    ? ink
+                    : transparent;
             }
         }
         if (inst.BindingId == -1)

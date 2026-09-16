@@ -2,6 +2,7 @@
 
 #include "../../Formats/Types.hpp"
 #include "../../HUD/HudInfo.hpp"
+#include "../../Mods/Render/PlayerEntityProHud.hpp"
 
 #include <array>
 #include <cstdint>
@@ -353,4 +354,5 @@ private:                                                                        
             value = std::make_shared<HudMessage>();                                            \
         }                                                                                      \
         return values;                                                                         \
-    }();
+    }();                                                                                       \
+    MPHREAD_PLAYER_ENTITY_PRO_HUD_MEMBERS

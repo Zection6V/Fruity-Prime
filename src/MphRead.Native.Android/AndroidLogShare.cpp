@@ -294,9 +294,7 @@ namespace
             );
             if (result == JNI_EDETACHED)
             {
-                if (_javaVm->AttachCurrentThread(
-                    reinterpret_cast<void**>(&_env), nullptr
-                ) != JNI_OK)
+                if (_javaVm->AttachCurrentThread(&_env, nullptr) != JNI_OK)
                 {
                     throw std::runtime_error(
                         "could not attach the current thread to the Android Java VM"
@@ -711,9 +709,7 @@ namespace MphRead::Droid
         );
         if (result == JNI_EDETACHED)
         {
-            if (_javaVm->AttachCurrentThread(
-                reinterpret_cast<void**>(&env), nullptr
-            ) == JNI_OK)
+            if (_javaVm->AttachCurrentThread(&env, nullptr) == JNI_OK)
             {
                 attached = true;
             }

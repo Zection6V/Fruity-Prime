@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 
+// Members contributed by the C# PlayerEntity partial in PlayerEntityProHud.cs.
 #define MPHREAD_PLAYER_ENTITY_PRO_HUD_MEMBERS                                                  \
 private:                                                                                       \
     inline static constexpr float ProHudWarn = 60.0F / 99.0F;                                 \

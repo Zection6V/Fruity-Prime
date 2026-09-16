@@ -33,7 +33,7 @@ namespace
 
 namespace NCSFCommon::ReplayGain
 {
-    ReplayGain::FrequencyInfoArray ReplayGain::FreqInfos =
+    std::shared_ptr<std::vector<std::shared_ptr<FrequencyInfo>>> ReplayGain::FreqInfos =
         std::make_shared<std::vector<std::shared_ptr<FrequencyInfo>>>(
             std::initializer_list<std::shared_ptr<FrequencyInfo>>{
                 std::make_shared<FrequencyInfo>(
@@ -167,9 +167,17 @@ namespace NCSFCommon::ReplayGain
         {
             return false;
         }
+        if (!FreqInfos)
+        {
+            throw std::invalid_argument("Value cannot be null. (Parameter 'source')");
+        }
 
         for (const auto& frequencyInfo : *FreqInfos)
         {
+            if (!frequencyInfo)
+            {
+                throw std::runtime_error("Object reference not set to an instance of an object.");
+            }
             if (static_cast<std::int64_t>(frequencyInfo->SampleRate()) == sampleRate)
             {
                 return true;

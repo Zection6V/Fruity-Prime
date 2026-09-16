@@ -28,8 +28,7 @@ namespace NCSFCommon::ReplayGain
         static constexpr std::int32_t MaxSamplesPerWindow =
             static_cast<std::int32_t>(MaxSampFreq * RmsWindowTime + 1);
 
-        using FrequencyInfoArray = std::shared_ptr<std::vector<std::shared_ptr<FrequencyInfo>>>;
-        static FrequencyInfoArray FreqInfos;
+        static std::shared_ptr<std::vector<std::shared_ptr<FrequencyInfo>>> FreqInfos;
 
         [[nodiscard]] static double AnalyzeResult(std::span<const std::int32_t> array);
         [[nodiscard]] static bool IsSupportedFormat(std::int32_t sampleRate, std::int32_t sampleSize);

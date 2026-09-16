@@ -464,44 +464,46 @@ namespace
         try
         {
             std::vector<std::uint8_t> bytes;
-            constexpr jsize BufferSize = 81920;
-            LocalRef<jbyteArray> buffer(env, env->NewByteArray(BufferSize));
-            CheckJavaException(env);
-            if (!buffer)
             {
-                throw std::bad_alloc();
-            }
-
-            for (;;)
-            {
-                const jint count = env->CallIntMethod(source.Get(), readMethod, buffer.Get());
+                constexpr jsize BufferSize = 81920;
+                LocalRef<jbyteArray> buffer(env, env->NewByteArray(BufferSize));
                 CheckJavaException(env);
-                if (count < 0)
+                if (!buffer)
                 {
-                    break;
-                }
-                if (count == 0)
-                {
-                    continue;
+                    throw std::bad_alloc();
                 }
 
-                const std::size_t oldSize = bytes.size();
-                const std::size_t added = static_cast<std::size_t>(count);
-                const std::size_t maxLength = static_cast<std::size_t>(
-                    std::numeric_limits<std::int32_t>::max()
-                );
-                if (oldSize > maxLength - added)
+                for (;;)
                 {
-                    throw std::runtime_error("Stream was too long.");
+                    const jint count = env->CallIntMethod(source.Get(), readMethod, buffer.Get());
+                    CheckJavaException(env);
+                    if (count < 0)
+                    {
+                        break;
+                    }
+                    if (count == 0)
+                    {
+                        continue;
+                    }
+
+                    const std::size_t oldSize = bytes.size();
+                    const std::size_t added = static_cast<std::size_t>(count);
+                    const std::size_t maxLength = static_cast<std::size_t>(
+                        std::numeric_limits<std::int32_t>::max()
+                    );
+                    if (oldSize > maxLength - added)
+                    {
+                        throw std::runtime_error("Stream was too long.");
+                    }
+                    bytes.resize(oldSize + added);
+                    env->GetByteArrayRegion(
+                        buffer.Get(),
+                        0,
+                        count,
+                        reinterpret_cast<jbyte*>(bytes.data() + oldSize)
+                    );
+                    CheckJavaException(env);
                 }
-                bytes.resize(oldSize + added);
-                env->GetByteArrayRegion(
-                    buffer.Get(),
-                    0,
-                    count,
-                    reinterpret_cast<jbyte*>(bytes.data() + oldSize)
-                );
-                CheckJavaException(env);
             }
 
             std::forward<Body>(body)(bytes);

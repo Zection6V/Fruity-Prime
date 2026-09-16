@@ -179,7 +179,7 @@ Freeze the complete `Scene` declaration surface before W4 bodies need it. Contri
 
 ### 5.2 `PlayerEntity`
 
-Canonical C++ declaration owner: `src/MphRead.Native/Entities/Players/PlayerEntity.hpp`.
+Canonical declaration owner: `src/MphRead.Native/Entities/Players/PlayerEntity.hpp`.
 
 The aggregate has 21 contributors:
 

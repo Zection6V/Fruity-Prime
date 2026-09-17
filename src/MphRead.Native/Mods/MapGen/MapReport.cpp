@@ -171,14 +171,24 @@ namespace MphRead::Mods::MapGen
             loading = false;
 
             std::vector<ShaderCount> counts;
-            for (const Q3Face& face : bsp->Faces())
+            for (const std::shared_ptr<Q3Face>& faceRef : bsp->Faces())
             {
+                if (!faceRef)
+                {
+                    throw System::NullReferenceException();
+                }
+                const Q3Face& face = *faceRef;
                 if (face.Type() != 1 && face.Type() != 3)
                 {
                     continue;
                 }
-                const Q3Texture& texture = bsp->Textures().at(
+                const std::shared_ptr<Q3Texture>& textureRef = bsp->Textures().at(
                     static_cast<std::size_t>(face.Texture()));
+                if (!textureRef)
+                {
+                    throw System::NullReferenceException();
+                }
+                const Q3Texture& texture = *textureRef;
                 if ((texture.Flags() & (Q3Bsp::SurfaceNoDraw | Q3Bsp::SurfaceSky
                     | Q3Bsp::SurfaceHint | Q3Bsp::SurfaceSkip)) != 0)
                 {

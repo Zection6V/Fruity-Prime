@@ -472,7 +472,7 @@ namespace
         [[nodiscard]] JsonValue Parse()
         {
             SkipTrivia();
-            JsonValue result = ParseValue();
+            JsonValue result = ParseValue(0);
             SkipTrivia();
             if (_position != _text.size())
             {
@@ -538,7 +538,7 @@ namespace
             }
         }
 
-        [[nodiscard]] JsonValue ParseValue()
+        [[nodiscard]] JsonValue ParseValue(std::size_t depth)
         {
             if (_position >= _text.size())
             {
@@ -573,9 +573,9 @@ namespace
                 return value;
             }
             case '[':
-                return ParseArray();
+                return ParseArray(depth);
             case '{':
-                return ParseObject();
+                return ParseObject(depth);
             default:
                 if (_text[_position] == '-' || (_text[_position] >= '0' && _text[_position] <= '9'))
                 {
@@ -769,8 +769,12 @@ namespace
             return std::string(_text.substr(start, _position - start));
         }
 
-        [[nodiscard]] JsonValue ParseArray()
+        [[nodiscard]] JsonValue ParseArray(std::size_t depth)
         {
+            if (depth >= 64)
+            {
+                Fail("The maximum configured JSON depth of 64 has been exceeded.");
+            }
             JsonValue value;
             value.Kind = JsonKind::Array;
             ++_position;
@@ -783,7 +787,7 @@ namespace
             for (;;)
             {
                 SkipTrivia();
-                value.Array.push_back(ParseValue());
+                value.Array.push_back(ParseValue(depth + 1));
                 SkipTrivia();
                 if (_position >= _text.size())
                 {
@@ -808,8 +812,12 @@ namespace
             }
         }
 
-        [[nodiscard]] JsonValue ParseObject()
+        [[nodiscard]] JsonValue ParseObject(std::size_t depth)
         {
+            if (depth >= 64)
+            {
+                Fail("The maximum configured JSON depth of 64 has been exceeded.");
+            }
             JsonValue value;
             value.Kind = JsonKind::Object;
             ++_position;
@@ -834,7 +842,7 @@ namespace
                 }
                 ++_position;
                 SkipTrivia();
-                value.Object.emplace_back(std::move(key), ParseValue());
+                value.Object.emplace_back(std::move(key), ParseValue(depth + 1));
                 SkipTrivia();
                 if (_position >= _text.size())
                 {
@@ -927,6 +935,62 @@ namespace
         return static_cast<T>(parsed);
     }
 
+    [[nodiscard]] int DecimalMagnitudeExponent(std::string_view text) noexcept
+    {
+        std::size_t position = (!text.empty() && text.front() == '-') ? 1U : 0U;
+        const std::size_t exponentPosition = text.find_first_of("eE", position);
+        const std::size_t mantissaEnd = exponentPosition == std::string_view::npos
+            ? text.size() : exponentPosition;
+        const std::size_t dotPosition = text.find('.', position);
+        const std::size_t integerDigits = (dotPosition != std::string_view::npos && dotPosition < mantissaEnd)
+            ? dotPosition - position : mantissaEnd - position;
+
+        std::size_t digitIndex = 0;
+        std::size_t firstNonZero = std::string_view::npos;
+        for (std::size_t i = position; i < mantissaEnd; ++i)
+        {
+            if (text[i] == '.')
+            {
+                continue;
+            }
+            if (firstNonZero == std::string_view::npos && text[i] != '0')
+            {
+                firstNonZero = digitIndex;
+            }
+            ++digitIndex;
+        }
+        if (firstNonZero == std::string_view::npos)
+        {
+            return 0;
+        }
+
+        long long exponent = static_cast<long long>(integerDigits)
+            - static_cast<long long>(firstNonZero) - 1;
+        if (exponentPosition != std::string_view::npos)
+        {
+            std::size_t i = exponentPosition + 1;
+            bool negative = false;
+            if (i < text.size() && (text[i] == '+' || text[i] == '-'))
+            {
+                negative = text[i] == '-';
+                ++i;
+            }
+            long long explicitExponent = 0;
+            constexpr long long Limit = 1000000;
+            for (; i < text.size(); ++i)
+            {
+                if (explicitExponent < Limit)
+                {
+                    explicitExponent = std::min(
+                        Limit, explicitExponent * 10 + static_cast<long long>(text[i] - '0'));
+                }
+            }
+            exponent += negative ? -explicitExponent : explicitExponent;
+            exponent = std::clamp(exponent, -Limit, Limit);
+        }
+        return static_cast<int>(exponent);
+    }
+
     [[nodiscard]] float JsonFloat(const JsonValue& value)
     {
         if (value.Kind != JsonKind::Number)
@@ -934,14 +998,50 @@ namespace
             ConversionError();
         }
         float parsed = 0.0F;
-        const auto result = std::from_chars(
-            value.Text.data(), value.Text.data() + value.Text.size(), parsed, std::chars_format::general);
-        if (result.ec != std::errc{} || result.ptr != value.Text.data() + value.Text.size()
-            || !std::isfinite(parsed))
+        const char* const first = value.Text.data();
+        const char* const last = first + value.Text.size();
+        const auto result = std::from_chars(first, last, parsed, std::chars_format::general);
+        if (result.ptr != last)
         {
             ConversionError();
         }
-        return parsed;
+        if (result.ec == std::errc{})
+        {
+            return parsed;
+        }
+        if (result.ec != std::errc::result_out_of_range)
+        {
+            ConversionError();
+        }
+
+        double wide = 0.0;
+        const auto wideResult = std::from_chars(first, last, wide, std::chars_format::general);
+        if (wideResult.ptr != last)
+        {
+            ConversionError();
+        }
+        if (wideResult.ec == std::errc{})
+        {
+            if (std::fabs(wide) > static_cast<double>(std::numeric_limits<float>::max()))
+            {
+                return std::signbit(wide)
+                    ? -std::numeric_limits<float>::infinity()
+                    : std::numeric_limits<float>::infinity();
+            }
+            return std::copysign(0.0F, wide);
+        }
+        if (wideResult.ec != std::errc::result_out_of_range)
+        {
+            ConversionError();
+        }
+
+        const bool negative = !value.Text.empty() && value.Text.front() == '-';
+        if (DecimalMagnitudeExponent(value.Text) >= 0)
+        {
+            return negative ? -std::numeric_limits<float>::infinity()
+                : std::numeric_limits<float>::infinity();
+        }
+        return std::copysign(0.0F, negative ? -1.0F : 1.0F);
     }
 
     template <typename T, typename Converter>
@@ -1042,7 +1142,6 @@ namespace
             (void)DecodeOneUtf8(value, position, scalar);
             switch (scalar)
             {
-            case '"': output += "\\\""; continue;
             case '\\': output += "\\\\"; continue;
             case '\b': output += "\\b"; continue;
             case '\f': output += "\\f"; continue;
@@ -1051,7 +1150,8 @@ namespace
             case '\t': output += "\\t"; continue;
             default: break;
             }
-            if (scalar < 0x20U || scalar == '<' || scalar == '>' || scalar == '&' || scalar == '\'')
+            if (scalar < 0x20U || scalar == '"' || scalar == '\'' || scalar == '&'
+                || scalar == '+' || scalar == '<' || scalar == '>' || scalar == '`')
             {
                 AppendHex4(output, static_cast<std::uint16_t>(scalar));
             }
@@ -1073,6 +1173,15 @@ namespace
         output.push_back('"');
     }
 
+    void AppendNewLine(std::string& output)
+    {
+#ifdef _WIN32
+        output += "\r\n";
+#else
+        output.push_back('\n');
+#endif
+    }
+
     void Indent(std::string& output, int depth)
     {
         output.append(static_cast<std::size_t>(depth) * 2U, ' ');
@@ -1085,7 +1194,7 @@ namespace
         {
             output.push_back(',');
         }
-        output.push_back('\n');
+        AppendNewLine(output);
         Indent(output, depth + 1);
         WriteJsonString(output, name);
         output += ": ";
@@ -1105,11 +1214,11 @@ namespace
                 {
                     output.push_back(',');
                 }
-                output.push_back('\n');
+                AppendNewLine(output);
                 Indent(output, depth + 1);
                 writer(values[i], depth + 1);
             }
-            output.push_back('\n');
+            AppendNewLine(output);
             Indent(output, depth);
         }
         output.push_back(']');
@@ -1143,12 +1252,26 @@ namespace
         {
             throw std::runtime_error("JSON does not support non-finite floating point values.");
         }
+        const float magnitude = std::fabs(value);
+        const std::chars_format format = magnitude != 0.0F
+            && (magnitude < 1.0e-4F || magnitude >= 1.0e9F)
+            ? std::chars_format::scientific
+            : std::chars_format::fixed;
+
         std::array<char, 64> buffer{};
         const auto result = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value, std::chars_format::general);
+            buffer.data(), buffer.data() + buffer.size(), value, format);
         if (result.ec != std::errc{})
         {
             throw std::runtime_error("Could not format floating point value.");
+        }
+        for (char* position = buffer.data(); position != result.ptr; ++position)
+        {
+            if (*position == 'e')
+            {
+                *position = 'E';
+                break;
+            }
         }
         output.append(buffer.data(), result.ptr);
     }
@@ -1646,7 +1769,7 @@ namespace MphRead::Mods::MapGen
             WriteObjectListProperty(output, depth, first, "Items", value._items, WriteMapItem);
             if (!first)
             {
-                output.push_back('\n');
+                AppendNewLine(output);
                 Indent(output, depth);
             }
             output.push_back('}');
@@ -1814,7 +1937,7 @@ namespace MphRead::Mods::MapGen
         {
             if (!first)
             {
-                output.push_back('\n');
+                AppendNewLine(output);
                 Indent(output, depth);
             }
             output.push_back('}');

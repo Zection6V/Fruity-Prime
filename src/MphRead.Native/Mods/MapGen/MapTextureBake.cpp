@@ -24,10 +24,6 @@
 
 namespace MphRead::Mods::MapGen::MapTextureBakeInterop
 {
-    // Exact dependency seams for the APIs MapTextureBake.cs receives from
-    // System.IO.Compression and ReFuel.Stb. As with Export/Images.cpp, these
-    // declarations carry no fallback or policy; the platform owner supplies
-    // the corresponding archive and RGB decoder implementations.
     class ZipArchive;
 
     struct DecodedImage final
@@ -52,7 +48,6 @@ namespace
     using MphRead::Mods::MapGen::MapTextureBakeInterop::ZipArchive;
 
     constexpr std::int32_t PaletteSize = 256;
-
     constexpr std::array<std::string_view, 7> SkySuffixes{
         "_1", "_2", "_ft", "_bk", "_lf", "_rt", "_up"
     };
@@ -74,6 +69,39 @@ namespace
         return std::bit_cast<std::int32_t>(
             static_cast<std::uint32_t>(left)
             * static_cast<std::uint32_t>(right));
+    }
+
+    [[nodiscard]] std::int32_t ManagedShiftRight(
+        std::int32_t value, unsigned count) noexcept
+    {
+        count &= 31U;
+        if (count == 0)
+        {
+            return value;
+        }
+        const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+        std::uint32_t shifted = bits >> count;
+        if ((bits & 0x80000000U) != 0)
+        {
+            shifted |= 0xFFFFFFFFU << (32U - count);
+        }
+        return std::bit_cast<std::int32_t>(shifted);
+    }
+
+    [[nodiscard]] std::int32_t ManagedShiftLeft(
+        std::int32_t value, unsigned count) noexcept
+    {
+        const std::uint32_t shifted
+            = std::bit_cast<std::uint32_t>(value) << (count & 31U);
+        return std::bit_cast<std::int32_t>(shifted);
+    }
+
+    [[nodiscard]] std::int32_t ManagedOr(
+        std::int32_t left, std::int32_t right) noexcept
+    {
+        return std::bit_cast<std::int32_t>(
+            std::bit_cast<std::uint32_t>(left)
+            | std::bit_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] std::size_t ArrayLength(std::int32_t value)
@@ -192,8 +220,6 @@ namespace
 
         ~ArchiveGuard()
         {
-            // ZipArchive.Dispose() is invoked in insertion order by the C#
-            // finally block. Reset in the same order before vector teardown.
             for (std::shared_ptr<ZipArchive>& archive : Values)
             {
                 archive.reset();
@@ -744,10 +770,13 @@ namespace
             g /= divisor;
             b /= divisor;
 
+            const std::int32_t packed = ManagedOr(
+                ManagedOr(
+                    ManagedShiftLeft(ManagedShiftRight(b, 3), 10),
+                    ManagedShiftLeft(ManagedShiftRight(g, 3), 5)),
+                ManagedShiftRight(r, 3));
             palette[i] = static_cast<std::uint16_t>(
-                ((b >> 3) << 10)
-                | ((g >> 3) << 5)
-                | (r >> 3));
+                std::bit_cast<std::uint32_t>(packed));
 
             for (std::int32_t j = box.Start; j < end; ++j)
             {
@@ -794,9 +823,18 @@ namespace
             throw std::invalid_argument(
                 "The value cannot be an empty string. (Parameter 'path')");
         }
+        if (path.find('\0') != std::string::npos)
+        {
+            throw std::invalid_argument(
+                "Null character in path. (Parameter 'path')");
+        }
 
         const std::filesystem::path absolute
             = std::filesystem::absolute(PathFromUtf8(path)).lexically_normal();
+        if (absolute == absolute.root_path())
+        {
+            throw System::ArgumentNullException("path");
+        }
         const std::filesystem::path directory = absolute.parent_path();
         if (directory.empty())
         {
@@ -822,9 +860,6 @@ namespace
 
         for (const BakedEntry& entry : entries)
         {
-            // Q3Bsp decodes texture names through Encoding.ASCII, so the
-            // native string is already the exact UTF-8 byte sequence emitted
-            // by Encoding.UTF8.GetBytes for every reachable name.
             const std::string& encoded = entry.Name;
             WriteU16(stream, static_cast<std::uint16_t>(entry.Index));
             WriteU16(stream, static_cast<std::uint16_t>(size));
@@ -845,6 +880,7 @@ namespace
                     static_cast<std::streamsize>(entry.Pixels.size()));
             }
         }
+        stream.close();
     }
 
     [[nodiscard]] std::int64_t FileLength(const std::string& path)

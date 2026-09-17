@@ -281,15 +281,10 @@ namespace
             return false;
         }
 
-        while (position < value.size())
+        while (position < value.size()
+            && IsAsciiWhitespace(static_cast<unsigned char>(value[position])))
         {
-            const std::string_view remainder = value.substr(position);
-            const std::size_t whitespace = LeadingWhitespaceBytes(remainder);
-            if (whitespace == 0)
-            {
-                break;
-            }
-            position += whitespace;
+            ++position;
         }
         while (position < value.size() && value[position] == '\0')
         {

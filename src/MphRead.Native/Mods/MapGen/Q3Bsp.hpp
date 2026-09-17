@@ -8,6 +8,7 @@
 #include <memory>
 #include <functional>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <typeinfo>
 #include <typeindex>
@@ -16,6 +17,52 @@
 
 namespace MphRead::Mods::MapGen
 {
+    class Q3String final
+    {
+    public:
+        Q3String() noexcept = default;
+        Q3String(std::nullptr_t) noexcept {}
+        Q3String(std::string value)
+            : _value(std::make_shared<std::string>(std::move(value))) {}
+        Q3String(const char* value)
+            : _value(value == nullptr ? nullptr : std::make_shared<std::string>(value)) {}
+
+        [[nodiscard]] bool HasValue() const noexcept { return _value != nullptr; }
+        [[nodiscard]] const std::string* Get() const noexcept { return _value.get(); }
+        [[nodiscard]] const std::string& Value() const
+        {
+            if (!_value) throw std::invalid_argument("String reference is null.");
+            return *_value;
+        }
+        [[nodiscard]] bool empty() const noexcept { return !_value || _value->empty(); }
+        [[nodiscard]] std::size_t size() const noexcept { return _value ? _value->size() : 0; }
+        [[nodiscard]] const char* data() const noexcept { return _value ? _value->data() : nullptr; }
+        [[nodiscard]] const char* c_str() const noexcept { return _value ? _value->c_str() : nullptr; }
+        explicit operator bool() const noexcept { return HasValue(); }
+        operator const std::string&() const { return Value(); }
+
+        friend bool operator==(const Q3String& left, const Q3String& right) noexcept
+        {
+            if (!left._value || !right._value) return left._value == right._value;
+            return *left._value == *right._value;
+        }
+        friend bool operator!=(const Q3String& left, const Q3String& right) noexcept
+        {
+            return !(left == right);
+        }
+        friend bool operator==(const Q3String& left, const std::string& right) noexcept
+        {
+            return left._value != nullptr && *left._value == right;
+        }
+        friend bool operator==(const std::string& left, const Q3String& right) noexcept
+        {
+            return right == left;
+        }
+
+    private:
+        std::shared_ptr<std::string> _value{};
+    };
+
     struct Q3StringHash
     {
         [[nodiscard]] std::size_t operator()(const std::string& value) const noexcept;
@@ -35,6 +82,14 @@ namespace MphRead::Mods::MapGen
     {
     public:
         Q3Texture(
+            Q3String name,
+            std::int32_t flags,
+            std::int32_t contents) noexcept;
+        Q3Texture(
+            std::nullptr_t name,
+            std::int32_t flags,
+            std::int32_t contents) noexcept;
+        Q3Texture(
             std::string name,
             std::int32_t flags,
             std::int32_t contents) noexcept;
@@ -44,7 +99,7 @@ namespace MphRead::Mods::MapGen
         Q3Texture& operator=(const Q3Texture&) = delete;
         Q3Texture& operator=(Q3Texture&&) = delete;
 
-        [[nodiscard]] const std::string& Name() const noexcept;
+        [[nodiscard]] const Q3String& Name() const noexcept;
         [[nodiscard]] std::int32_t Flags() const noexcept;
         [[nodiscard]] std::int32_t Contents() const noexcept;
 
@@ -54,12 +109,16 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] virtual std::shared_ptr<Q3Texture> Clone() const;
 
         void Deconstruct(
-            std::string& name,
+            Q3String& name,
             std::int32_t& flags,
             std::int32_t& contents) const noexcept;
+        void Deconstruct(
+            std::string& name,
+            std::int32_t& flags,
+            std::int32_t& contents) const;
 
         [[nodiscard]] std::shared_ptr<Q3Texture> With(
-            std::optional<std::string> name = std::nullopt,
+            std::optional<Q3String> name = std::nullopt,
             std::optional<std::int32_t> flags = std::nullopt,
             std::optional<std::int32_t> contents = std::nullopt) const;
 
@@ -69,7 +128,7 @@ namespace MphRead::Mods::MapGen
         virtual bool PrintMembers(std::string& builder) const;
 
     private:
-        std::string _name;
+        Q3String _name;
         std::int32_t _flags;
         std::int32_t _contents;
     };
@@ -417,6 +476,27 @@ namespace MphRead::Mods::MapGen
     [[nodiscard]] bool operator!=(const std::shared_ptr<Q3Model>& left,
         const std::shared_ptr<Q3Model>& right) noexcept;
 
+    class Q3UsedLumps final
+    {
+    public:
+        constexpr Q3UsedLumps() noexcept : _values{0, 1, 2, 7, 8, 9, 10, 11, 13} {}
+        Q3UsedLumps(const Q3UsedLumps&) = delete;
+        Q3UsedLumps(Q3UsedLumps&&) = delete;
+        Q3UsedLumps& operator=(const Q3UsedLumps&) = delete;
+        Q3UsedLumps& operator=(Q3UsedLumps&&) = delete;
+
+        [[nodiscard]] constexpr std::int32_t& operator[](std::size_t index) noexcept { return _values[index]; }
+        [[nodiscard]] constexpr const std::int32_t& operator[](std::size_t index) const noexcept { return _values[index]; }
+        [[nodiscard]] constexpr auto begin() noexcept { return _values.begin(); }
+        [[nodiscard]] constexpr auto end() noexcept { return _values.end(); }
+        [[nodiscard]] constexpr auto begin() const noexcept { return _values.begin(); }
+        [[nodiscard]] constexpr auto end() const noexcept { return _values.end(); }
+        [[nodiscard]] constexpr std::size_t size() const noexcept { return _values.size(); }
+
+    private:
+        std::array<std::int32_t, 9> _values;
+    };
+
     class Q3Bsp
     {
     public:
@@ -437,9 +517,13 @@ namespace MphRead::Mods::MapGen
         static constexpr std::int32_t SurfaceHint = 0x100;
         static constexpr std::int32_t SurfaceSkip = 0x200;
 
-        static std::array<std::int32_t, 9> UsedLumps;
+        static Q3UsedLumps UsedLumps;
 
         Q3Bsp() = default;
+        Q3Bsp(const Q3Bsp&) = delete;
+        Q3Bsp(Q3Bsp&&) = delete;
+        Q3Bsp& operator=(const Q3Bsp&) = delete;
+        Q3Bsp& operator=(Q3Bsp&&) = delete;
 
         [[nodiscard]] const TextureList& Textures() const noexcept;
         [[nodiscard]] const PlaneList& Planes() const noexcept;
@@ -454,9 +538,14 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] static std::vector<std::uint8_t> Trim(const std::vector<std::uint8_t>& bsp);
         [[nodiscard]] static std::shared_ptr<Q3Bsp> Load(
             const std::string& source, const std::optional<std::string>& mapName);
+        [[nodiscard]] static std::shared_ptr<Q3Bsp> Load(
+            const std::string* source, const std::optional<std::string>& mapName);
         [[nodiscard]] static std::vector<std::uint8_t> ReadLevel(
             const std::string& source, const std::optional<std::string>& mapName);
+        [[nodiscard]] static std::vector<std::uint8_t> ReadLevel(
+            const std::string* source, const std::optional<std::string>& mapName);
         [[nodiscard]] static std::vector<std::string> ListMaps(const std::string& source);
+        [[nodiscard]] static std::vector<std::string> ListMaps(const std::string* source);
 
     private:
         TextureList _textures{};
@@ -473,18 +562,22 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] static EntityList ParseEntities(const std::string& text);
     };
 
+    namespace Q3RecordRuntime
+    {
+        [[nodiscard]] std::uint32_t TypeHash(const std::type_info& type) noexcept;
+        [[nodiscard]] std::uint32_t StringHash(const Q3String& value) noexcept;
+        [[nodiscard]] std::uint32_t ReferenceHash(const void* value) noexcept;
+        [[nodiscard]] std::string IntString(std::int32_t value);
+        [[nodiscard]] std::string FloatString(float value);
+    }
+
     namespace
     {
         constexpr std::uint32_t Q3RecordHashFactor = 0xA5555529U;
 
-        [[nodiscard]] inline std::uint32_t TruncateHash(std::size_t value) noexcept
-        {
-            return static_cast<std::uint32_t>(value);
-        }
-
         [[nodiscard]] inline std::uint32_t RecordHashStart(const std::type_info& type) noexcept
         {
-            return TruncateHash(std::type_index(type).hash_code());
+            return Q3RecordRuntime::TypeHash(type);
         }
 
         [[nodiscard]] inline std::uint32_t RecordHashNext(std::uint32_t hash, std::uint32_t value) noexcept
@@ -512,32 +605,25 @@ namespace MphRead::Mods::MapGen
             return bits;
         }
 
-        [[nodiscard]] inline std::uint32_t StringHash(const std::string& value) noexcept
+        [[nodiscard]] inline std::uint32_t StringHash(const Q3String& value) noexcept
         {
-            return TruncateHash(std::hash<std::string>{}(value));
+            return Q3RecordRuntime::StringHash(value);
         }
 
         template <typename T>
         [[nodiscard]] inline std::uint32_t ReferenceHash(const std::shared_ptr<T>& value) noexcept
         {
-            if (!value)
-            {
-                return 0;
-            }
-            return TruncateHash(std::hash<const void*>{}(value.get()));
+            return Q3RecordRuntime::ReferenceHash(value.get());
         }
 
         [[nodiscard]] inline std::string FloatString(float value)
         {
-            if (std::isnan(value)) return "NaN";
-            if (std::isinf(value)) return std::signbit(value) ? "-Infinity" : "Infinity";
-            char buffer[64]{};
-            const auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
-            if (result.ec == std::errc{})
-            {
-                return std::string(buffer, result.ptr);
-            }
-            return std::to_string(value);
+            return Q3RecordRuntime::FloatString(value);
+        }
+
+        [[nodiscard]] inline std::string IntString(std::int32_t value)
+        {
+            return Q3RecordRuntime::IntString(value);
         }
     }
 
@@ -568,13 +654,13 @@ namespace MphRead::Mods::MapGen
     inline bool Q3Texture::PrintMembers(std::string& builder) const
     {
         builder += "Name = ";
-        builder += _name;
+        if (_name.HasValue()) builder += _name.Value();
         builder += ", ";
         builder += "Flags = ";
-        builder += std::to_string(_flags);
+        builder += IntString(_flags);
         builder += ", ";
         builder += "Contents = ";
-        builder += std::to_string(_contents);
+        builder += IntString(_contents);
         return true;
     }
 
@@ -595,7 +681,7 @@ namespace MphRead::Mods::MapGen
     }
 
     inline void Q3Texture::Deconstruct(
-        std::string& name,
+        Q3String& name,
         std::int32_t& flags,
         std::int32_t& contents) const noexcept
     {
@@ -604,8 +690,18 @@ namespace MphRead::Mods::MapGen
         contents = _contents;
     }
 
+    inline void Q3Texture::Deconstruct(
+        std::string& name,
+        std::int32_t& flags,
+        std::int32_t& contents) const
+    {
+        name = _name.Value();
+        flags = _flags;
+        contents = _contents;
+    }
+
     inline std::shared_ptr<Q3Texture> Q3Texture::With(
-        std::optional<std::string> name,
+        std::optional<Q3String> name,
         std::optional<std::int32_t> flags,
         std::optional<std::int32_t> contents) const
     {
@@ -751,13 +847,13 @@ namespace MphRead::Mods::MapGen
     inline bool Q3Brush::PrintMembers(std::string& builder) const
     {
         builder += "FirstSide = ";
-        builder += std::to_string(_firstSide);
+        builder += IntString(_firstSide);
         builder += ", ";
         builder += "SideCount = ";
-        builder += std::to_string(_sideCount);
+        builder += IntString(_sideCount);
         builder += ", ";
         builder += "Texture = ";
-        builder += std::to_string(_texture);
+        builder += IntString(_texture);
         return true;
     }
 
@@ -836,10 +932,10 @@ namespace MphRead::Mods::MapGen
     inline bool Q3BrushSide::PrintMembers(std::string& builder) const
     {
         builder += "Plane = ";
-        builder += std::to_string(_plane);
+        builder += IntString(_plane);
         builder += ", ";
         builder += "Texture = ";
-        builder += std::to_string(_texture);
+        builder += IntString(_texture);
         return true;
     }
 
@@ -1024,25 +1120,25 @@ namespace MphRead::Mods::MapGen
     inline bool Q3Face::PrintMembers(std::string& builder) const
     {
         builder += "Texture = ";
-        builder += std::to_string(_texture);
+        builder += IntString(_texture);
         builder += ", ";
         builder += "Effect = ";
-        builder += std::to_string(_effect);
+        builder += IntString(_effect);
         builder += ", ";
         builder += "Type = ";
-        builder += std::to_string(_type);
+        builder += IntString(_type);
         builder += ", ";
         builder += "Vertex = ";
-        builder += std::to_string(_vertex);
+        builder += IntString(_vertex);
         builder += ", ";
         builder += "VertexCount = ";
-        builder += std::to_string(_vertexCount);
+        builder += IntString(_vertexCount);
         builder += ", ";
         builder += "MeshVert = ";
-        builder += std::to_string(_meshVert);
+        builder += IntString(_meshVert);
         builder += ", ";
         builder += "MeshVertCount = ";
-        builder += std::to_string(_meshVertCount);
+        builder += IntString(_meshVertCount);
         builder += ", ";
         builder += "Normal = ";
         if (_normal) builder += "System.Single[]";
@@ -1165,16 +1261,16 @@ namespace MphRead::Mods::MapGen
         if (_maxs) builder += "System.Single[]";
         builder += ", ";
         builder += "Face = ";
-        builder += std::to_string(_face);
+        builder += IntString(_face);
         builder += ", ";
         builder += "FaceCount = ";
-        builder += std::to_string(_faceCount);
+        builder += IntString(_faceCount);
         builder += ", ";
         builder += "Brush = ";
-        builder += std::to_string(_brush);
+        builder += IntString(_brush);
         builder += ", ";
         builder += "BrushCount = ";
-        builder += std::to_string(_brushCount);
+        builder += IntString(_brushCount);
         return true;
     }
 

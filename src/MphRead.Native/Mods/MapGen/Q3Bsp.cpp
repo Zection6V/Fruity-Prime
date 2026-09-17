@@ -3,61 +3,275 @@
 #include "../../Program.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cctype>
+#include <clocale>
+#include <cwchar>
+#include <cwctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <locale>
+#include <mutex>
+#include <random>
+#include <sstream>
+#include <string_view>
 #include <stdexcept>
 #include <utility>
+
+#if defined(_WIN32)
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <locale.h>
+#include <dlfcn.h>
+#endif
 
 namespace
 {
     using ByteVector = std::vector<std::uint8_t>;
 
-    [[nodiscard]] char FoldAscii(char value) noexcept
+    [[nodiscard]] bool DecodeUtf8Scalar(
+        const std::uint8_t* data, std::size_t size, std::size_t& index, std::uint32_t& scalar) noexcept
     {
-        const unsigned char c = static_cast<unsigned char>(value);
-        if (c >= 'A' && c <= 'Z')
+        if (index >= size) return false;
+        const std::uint8_t first = data[index];
+        if (first < 0x80U)
         {
-            return static_cast<char>(c + ('a' - 'A'));
+            scalar = first;
+            ++index;
+            return true;
         }
-        return value;
+
+        std::size_t count = 0;
+        std::uint32_t value = 0;
+        std::uint32_t minimum = 0;
+        if (first >= 0xC2U && first <= 0xDFU)
+        {
+            count = 2; value = first & 0x1FU; minimum = 0x80U;
+        }
+        else if (first >= 0xE0U && first <= 0xEFU)
+        {
+            count = 3; value = first & 0x0FU; minimum = 0x800U;
+        }
+        else if (first >= 0xF0U && first <= 0xF4U)
+        {
+            count = 4; value = first & 0x07U; minimum = 0x10000U;
+        }
+        else
+        {
+            scalar = 0xFFFDU;
+            ++index;
+            return true;
+        }
+
+        if (count > size - index)
+        {
+            scalar = 0xFFFDU;
+            ++index;
+            return true;
+        }
+        for (std::size_t i = 1; i < count; ++i)
+        {
+            const std::uint8_t continuation = data[index + i];
+            if ((continuation & 0xC0U) != 0x80U)
+            {
+                scalar = 0xFFFDU;
+                ++index;
+                return true;
+            }
+            value = (value << 6) | (continuation & 0x3FU);
+        }
+        if (value < minimum || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
+        {
+            scalar = 0xFFFDU;
+            ++index;
+            return true;
+        }
+        index += count;
+        scalar = value;
+        return true;
+    }
+
+    void AppendUtf8(std::string& output, std::uint32_t scalar)
+    {
+        if (scalar <= 0x7FU) output.push_back(static_cast<char>(scalar));
+        else if (scalar <= 0x7FFU)
+        {
+            output.push_back(static_cast<char>(0xC0U | (scalar >> 6)));
+            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
+        }
+        else if (scalar <= 0xFFFFU)
+        {
+            output.push_back(static_cast<char>(0xE0U | (scalar >> 12)));
+            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
+            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
+        }
+        else
+        {
+            output.push_back(static_cast<char>(0xF0U | (scalar >> 18)));
+            output.push_back(static_cast<char>(0x80U | ((scalar >> 12) & 0x3FU)));
+            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
+            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
+        }
+    }
+
+    [[nodiscard]] std::vector<std::uint32_t> DecodeUtf8(const std::string& value)
+    {
+        std::vector<std::uint32_t> result;
+        result.reserve(value.size());
+        std::size_t index = 0;
+        while (index < value.size())
+        {
+            std::uint32_t scalar = 0;
+            (void)DecodeUtf8Scalar(reinterpret_cast<const std::uint8_t*>(value.data()),
+                value.size(), index, scalar);
+            result.push_back(scalar);
+        }
+        return result;
+    }
+
+#if !defined(_WIN32)
+    [[nodiscard]] void* FindVersionedIcuSymbol(void* library, const char* base) noexcept
+    {
+        if (library == nullptr) return nullptr;
+        if (void* symbol = dlsym(library, base); symbol != nullptr) return symbol;
+        char name[96]{};
+        for (int version = 99; version >= 50; --version)
+        {
+            const int count = std::snprintf(name, sizeof(name), "%s_%d", base, version);
+            if (count <= 0 || static_cast<std::size_t>(count) >= sizeof(name)) continue;
+            if (void* symbol = dlsym(library, name); symbol != nullptr) return symbol;
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] std::uint32_t IcuUpper(std::uint32_t scalar) noexcept
+    {
+        using UpperFunction = std::int32_t (*)(std::int32_t);
+        static UpperFunction upper = []() noexcept -> UpperFunction
+        {
+            void* library = dlopen("libicuuc.so", RTLD_LAZY | RTLD_LOCAL);
+#if defined(__APPLE__)
+            if (library == nullptr) library = dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY | RTLD_LOCAL);
+#endif
+            return reinterpret_cast<UpperFunction>(FindVersionedIcuSymbol(library, "u_toupper"));
+        }();
+        if (upper == nullptr || scalar > 0x10FFFFU) return scalar;
+        const std::int32_t mapped = upper(static_cast<std::int32_t>(scalar));
+        return mapped < 0 ? scalar : static_cast<std::uint32_t>(mapped);
+    }
+#endif
+
+    [[nodiscard]] std::uint32_t InvariantUpper(std::uint32_t scalar) noexcept
+    {
+        if (scalar >= 'a' && scalar <= 'z') return scalar - ('a' - 'A');
+#if defined(_WIN32)
+        if (scalar <= 0xFFFFU)
+        {
+            const wchar_t source = static_cast<wchar_t>(scalar);
+            wchar_t target = source;
+            if (LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE,
+                &source, 1, &target, 1, nullptr, nullptr, 0) == 1)
+            {
+                return static_cast<std::uint32_t>(target);
+            }
+        }
+#else
+        const std::uint32_t icuMapped = IcuUpper(scalar);
+        if (icuMapped != scalar) return icuMapped;
+        static locale_t locale = []() noexcept
+        {
+            locale_t value = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
+            if (value == nullptr) value = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
+            return value;
+        }();
+        if (locale != nullptr && scalar <= static_cast<std::uint32_t>(WCHAR_MAX))
+        {
+            const wint_t mapped = towupper_l(static_cast<wint_t>(scalar), locale);
+            if (mapped != WEOF) return static_cast<std::uint32_t>(mapped);
+        }
+#endif
+        // Unicode simple-uppercase fallbacks used when the platform has no Unicode locale.
+        if (scalar >= 0x00E0U && scalar <= 0x00F6U) return scalar - 0x20U;
+        if (scalar >= 0x00F8U && scalar <= 0x00FEU) return scalar - 0x20U;
+        if (scalar == 0x00FFU) return 0x0178U;
+        if (scalar >= 0x03B1U && scalar <= 0x03C1U) return scalar - 0x20U;
+        if (scalar >= 0x03C3U && scalar <= 0x03CBU) return scalar - 0x20U;
+        if (scalar >= 0x0430U && scalar <= 0x044FU) return scalar - 0x20U;
+        return scalar;
+    }
+
+    [[nodiscard]] std::vector<std::uint32_t> FoldOrdinalIgnoreCase(const std::string& value)
+    {
+        std::vector<std::uint32_t> result = DecodeUtf8(value);
+        for (std::uint32_t& scalar : result) scalar = InvariantUpper(scalar);
+        return result;
     }
 
     [[nodiscard]] bool OrdinalIgnoreCaseEquals(const std::string& left, const std::string& right) noexcept
     {
-        if (left.size() != right.size())
+        try
         {
-            return false;
+            return FoldOrdinalIgnoreCase(left) == FoldOrdinalIgnoreCase(right);
         }
-        for (std::size_t i = 0; i < left.size(); ++i)
+        catch (...)
         {
-            if (FoldAscii(left[i]) != FoldAscii(right[i]))
-            {
-                return false;
-            }
+            return left == right;
         }
-        return true;
     }
 
     [[nodiscard]] bool OrdinalIgnoreCaseEndsWith(const std::string& value, const std::string& suffix) noexcept
     {
-        if (suffix.size() > value.size())
+        try
+        {
+            const std::vector<std::uint32_t> foldedValue = FoldOrdinalIgnoreCase(value);
+            const std::vector<std::uint32_t> foldedSuffix = FoldOrdinalIgnoreCase(suffix);
+            if (foldedSuffix.size() > foldedValue.size()) return false;
+            return std::equal(foldedSuffix.begin(), foldedSuffix.end(),
+                foldedValue.end() - static_cast<std::ptrdiff_t>(foldedSuffix.size()));
+        }
+        catch (...)
         {
             return false;
         }
-        const std::size_t start = value.size() - suffix.size();
-        for (std::size_t i = 0; i < suffix.size(); ++i)
+    }
+
+    [[nodiscard]] std::string DecodeZipName(const std::uint8_t* data, std::size_t size)
+    {
+        // ZipArchive on .NET Core uses UTF-8 when no entry-name encoding is supplied;
+        // in .NET 9 the language-encoding flag is still honored, and the unset fallback is UTF-8.
+        std::string result;
+        std::size_t index = 0;
+        while (index < size)
         {
-            if (FoldAscii(value[start + i]) != FoldAscii(suffix[i]))
-            {
-                return false;
-            }
+            std::uint32_t scalar = 0;
+            (void)DecodeUtf8Scalar(data, size, index, scalar);
+            AppendUtf8(result, scalar);
         }
-        return true;
+        return result;
+    }
+
+    [[nodiscard]] std::wstring Utf8ToWide(const std::string& value)
+    {
+        std::wstring result;
+        for (std::uint32_t scalar : DecodeUtf8(value))
+        {
+#if WCHAR_MAX <= 0xFFFF
+            if (scalar <= 0xFFFFU) result.push_back(static_cast<wchar_t>(scalar));
+            else
+            {
+                scalar -= 0x10000U;
+                result.push_back(static_cast<wchar_t>(0xD800U + (scalar >> 10)));
+                result.push_back(static_cast<wchar_t>(0xDC00U + (scalar & 0x3FFU)));
+            }
+#else
+            result.push_back(static_cast<wchar_t>(scalar));
+#endif
+        }
+        return result;
     }
 
     [[nodiscard]] std::int32_t WrapAdd(std::int32_t left, std::int32_t right) noexcept
@@ -222,8 +436,25 @@ namespace
 
         [[nodiscard]] std::string ReadChars(std::size_t count)
         {
-            ByteVector bytes = ReadBytes(count);
-            return std::string(bytes.begin(), bytes.end());
+            std::string result;
+            std::size_t charCount = 0;
+            while (charCount < count && _position < _bytes.size())
+            {
+                std::size_t position = static_cast<std::size_t>(_position);
+                const std::size_t before = position;
+                std::uint32_t scalar = 0;
+                (void)DecodeUtf8Scalar(_bytes.data(), _bytes.size(), position, scalar);
+                const std::size_t units = scalar > 0xFFFFU ? 2U : 1U;
+                if (units > count - charCount)
+                {
+                    // A UTF-16 surrogate pair cannot be split across the requested char buffer.
+                    break;
+                }
+                _position += position - before;
+                AppendUtf8(result, scalar);
+                charCount += units;
+            }
+            return result;
         }
 
     private:
@@ -357,17 +588,17 @@ namespace
 
     void InflateCodes(BitReader& reader, ByteVector& output,
         const std::vector<HuffmanNode>& literalTree,
-        const std::vector<HuffmanNode>& distanceTree)
+        const std::vector<HuffmanNode>& distanceTree, bool deflate64)
     {
         static constexpr std::array<std::int32_t, 29> LengthBase{
             3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
         static constexpr std::array<std::int32_t, 29> LengthExtra{
             0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
-        static constexpr std::array<std::int32_t, 30> DistanceBase{
+        static constexpr std::array<std::int32_t, 32> DistanceBase{
             1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,
-            1025,1537,2049,3073,4097,6145,8193,12289,16385,24577};
-        static constexpr std::array<std::int32_t, 30> DistanceExtra{
-            0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
+            1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,32769,49153};
+        static constexpr std::array<std::int32_t, 32> DistanceExtra{
+            0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,14,14};
 
         while (true)
         {
@@ -387,13 +618,20 @@ namespace
             }
             const std::size_t lengthIndex = static_cast<std::size_t>(symbol - 257);
             std::int32_t length = LengthBase[lengthIndex];
-            if (LengthExtra[lengthIndex] != 0)
+            std::int32_t lengthExtra = LengthExtra[lengthIndex];
+            if (deflate64 && symbol == 285)
             {
-                length += static_cast<std::int32_t>(reader.ReadBits(LengthExtra[lengthIndex]));
+                length = 3;
+                lengthExtra = 16;
+            }
+            if (lengthExtra != 0)
+            {
+                length += static_cast<std::int32_t>(reader.ReadBits(lengthExtra));
             }
 
             const std::int32_t distanceSymbol = DecodeSymbol(reader, distanceTree);
-            if (distanceSymbol < 0 || distanceSymbol >= 30)
+            const std::int32_t distanceCodeCount = deflate64 ? 32 : 30;
+            if (distanceSymbol < 0 || distanceSymbol >= distanceCodeCount)
             {
                 throw std::runtime_error("Invalid deflate distance code.");
             }
@@ -413,7 +651,7 @@ namespace
         }
     }
 
-    [[nodiscard]] ByteVector InflateRaw(const ByteVector& input, std::size_t expectedSize)
+    [[nodiscard]] ByteVector InflateRaw(const ByteVector& input, std::size_t expectedSize, bool deflate64 = false)
     {
         BitReader reader(input);
         ByteVector output;
@@ -452,7 +690,7 @@ namespace
                 for (std::int32_t i = 256; i <= 279; ++i) literalLengths[i] = 7;
                 for (std::int32_t i = 280; i <= 287; ++i) literalLengths[i] = 8;
                 std::vector<std::uint8_t> distanceLengths(32, 5);
-                InflateCodes(reader, output, BuildHuffman(literalLengths), BuildHuffman(distanceLengths));
+                InflateCodes(reader, output, BuildHuffman(literalLengths), BuildHuffman(distanceLengths), deflate64);
             }
             else if (type == 2)
             {
@@ -504,7 +742,7 @@ namespace
                 }
                 std::vector<std::uint8_t> literalLengths(lengths.begin(), lengths.begin() + literalCount);
                 std::vector<std::uint8_t> distanceLengths(lengths.begin() + literalCount, lengths.end());
-                InflateCodes(reader, output, BuildHuffman(literalLengths), BuildHuffman(distanceLengths));
+                InflateCodes(reader, output, BuildHuffman(literalLengths), BuildHuffman(distanceLengths), deflate64);
             }
             else
             {
@@ -654,7 +892,7 @@ namespace
             {
                 throw std::runtime_error("Central Directory corrupt.");
             }
-            entry.name.assign(reinterpret_cast<const char*>(archive.data() + cursor + 46), nameLength);
+            entry.name = DecodeZipName(archive.data() + cursor + 46, nameLength);
             entry.compressedSize = compressed32;
             entry.uncompressedSize = uncompressed32;
             entry.localOffset = offset32;
@@ -715,21 +953,78 @@ namespace
         {
             return InflateRaw(compressed, static_cast<std::size_t>(entry.uncompressedSize));
         }
+        if (entry.method == 9)
+        {
+            return InflateRaw(compressed, static_cast<std::size_t>(entry.uncompressedSize), true);
+        }
         throw std::runtime_error("The ZIP entry uses an unsupported compression method.");
     }
 
     [[nodiscard]] bool CultureLess(const std::string& left, const std::string& right)
     {
+#if defined(_WIN32)
+        const std::wstring leftWide = Utf8ToWide(left);
+        const std::wstring rightWide = Utf8ToWide(right);
+        const int result = CompareStringEx(LOCALE_NAME_USER_DEFAULT, 0,
+            leftWide.data(), static_cast<int>(leftWide.size()),
+            rightWide.data(), static_cast<int>(rightWide.size()),
+            nullptr, nullptr, 0);
+        if (result != 0) return result == CSTR_LESS_THAN;
+#else
+        struct IcuCollation final
+        {
+            using Open = void* (*)(const char*, std::int32_t*);
+            using Compare = std::int32_t (*)(const void*, const char*, std::int32_t,
+                const char*, std::int32_t, std::int32_t*);
+            using Close = void (*)(void*);
+            void* library = nullptr;
+            Open open = nullptr;
+            Compare compare = nullptr;
+            Close close = nullptr;
+
+            IcuCollation() noexcept
+            {
+                library = dlopen("libicui18n.so", RTLD_LAZY | RTLD_LOCAL);
+#if defined(__APPLE__)
+                if (library == nullptr) library = dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY | RTLD_LOCAL);
+#endif
+                open = reinterpret_cast<Open>(FindVersionedIcuSymbol(library, "ucol_open"));
+                compare = reinterpret_cast<Compare>(FindVersionedIcuSymbol(library, "ucol_strcollUTF8"));
+                close = reinterpret_cast<Close>(FindVersionedIcuSymbol(library, "ucol_close"));
+            }
+        };
+        static const IcuCollation icu{};
+        if (icu.open != nullptr && icu.compare != nullptr && icu.close != nullptr)
+        {
+            std::int32_t status = 0;
+            void* collator = icu.open(nullptr, &status);
+            if (collator != nullptr && status <= 0)
+            {
+                status = 0;
+                const std::int32_t result = icu.compare(collator,
+                    left.data(), static_cast<std::int32_t>(left.size()),
+                    right.data(), static_cast<std::int32_t>(right.size()), &status);
+                icu.close(collator);
+                if (status <= 0) return result < 0;
+            }
+            else if (collator != nullptr)
+            {
+                icu.close(collator);
+            }
+        }
+#endif
         try
         {
             const std::locale locale("");
-            const auto& collate = std::use_facet<std::collate<char>>(locale);
-            return collate.compare(left.data(), left.data() + left.size(),
-                right.data(), right.data() + right.size()) < 0;
+            const std::wstring leftWide = Utf8ToWide(left);
+            const std::wstring rightWide = Utf8ToWide(right);
+            const auto& collate = std::use_facet<std::collate<wchar_t>>(locale);
+            return collate.compare(leftWide.data(), leftWide.data() + leftWide.size(),
+                rightWide.data(), rightWide.data() + rightWide.size()) < 0;
         }
         catch (const std::runtime_error&)
         {
-            return left < right;
+            return DecodeUtf8(left) < DecodeUtf8(right);
         }
     }
 
@@ -754,19 +1049,153 @@ namespace
     }
 }
 
+namespace MphRead::Mods::MapGen::Q3RecordRuntime
+{
+    namespace
+    {
+        [[nodiscard]] std::uint32_t ProcessSeed() noexcept
+        {
+            static const std::uint32_t seed = []() noexcept
+            {
+                try
+                {
+                    std::random_device device;
+                    const std::uint32_t first = device();
+                    const std::uint32_t second = device();
+                    return first ^ std::rotl(second, 13) ^ 0x9E3779B9U;
+                }
+                catch (...)
+                {
+                    const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(&ProcessSeed);
+                    return static_cast<std::uint32_t>(address)
+                        ^ static_cast<std::uint32_t>(address >> 32) ^ 0x9E3779B9U;
+                }
+            }();
+            return seed;
+        }
+
+        [[nodiscard]] std::uint32_t Mix(std::uint32_t hash, std::uint32_t value) noexcept
+        {
+            hash ^= value + 0x9E3779B9U + (hash << 6) + (hash >> 2);
+            hash = std::rotl(hash, 13) * 0x85EBCA6BU;
+            return hash;
+        }
+
+        [[nodiscard]] std::uint32_t HashUtf16(const std::string& value) noexcept
+        {
+            try
+            {
+                std::uint32_t hash = ProcessSeed() ^ 0x6D2B79F5U;
+                for (std::uint32_t scalar : DecodeUtf8(value))
+                {
+                    if (scalar <= 0xFFFFU)
+                    {
+                        hash = Mix(hash, scalar);
+                    }
+                    else
+                    {
+                        scalar -= 0x10000U;
+                        hash = Mix(hash, 0xD800U + (scalar >> 10));
+                        hash = Mix(hash, 0xDC00U + (scalar & 0x3FFU));
+                    }
+                }
+                return hash;
+            }
+            catch (...)
+            {
+                return ProcessSeed();
+            }
+        }
+
+        [[nodiscard]] char CurrentDecimalSeparator() noexcept
+        {
+            try
+            {
+                return std::use_facet<std::numpunct<char>>(std::locale("")).decimal_point();
+            }
+            catch (...)
+            {
+                return '.';
+            }
+        }
+    }
+
+    std::uint32_t TypeHash(const std::type_info& type) noexcept
+    {
+        std::uint32_t hash = ProcessSeed() ^ 0xA5A5A5A5U;
+        for (const unsigned char c : std::string_view(type.name()))
+        {
+            hash = Mix(hash, c);
+        }
+        return hash;
+    }
+
+    std::uint32_t StringHash(const Q3String& value) noexcept
+    {
+        return value.HasValue() ? HashUtf16(value.Value()) : 0U;
+    }
+
+    std::uint32_t ReferenceHash(const void* value) noexcept
+    {
+        if (value == nullptr) return 0U;
+        const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(value);
+        std::uint32_t hash = ProcessSeed() ^ 0xC2B2AE35U;
+        hash = Mix(hash, static_cast<std::uint32_t>(address));
+        if constexpr (sizeof(std::uintptr_t) > sizeof(std::uint32_t))
+        {
+            hash = Mix(hash, static_cast<std::uint32_t>(address >> 32));
+        }
+        return hash;
+    }
+
+    std::string IntString(std::int32_t value)
+    {
+        char buffer[32]{};
+        const auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
+        if (result.ec == std::errc{}) return std::string(buffer, result.ptr);
+        return std::to_string(value);
+    }
+
+    std::string FloatString(float value)
+    {
+        if (std::isnan(value)) return "NaN";
+        if (std::isinf(value)) return std::signbit(value) ? "-Infinity" : "Infinity";
+        char buffer[64]{};
+        const auto result = std::to_chars(std::begin(buffer), std::end(buffer), value, std::chars_format::general);
+        std::string text = result.ec == std::errc{}
+            ? std::string(buffer, result.ptr) : std::to_string(value);
+        for (char& ch : text)
+        {
+            if (ch == 'e') ch = 'E';
+            else if (ch == '.') ch = CurrentDecimalSeparator();
+        }
+        return text;
+    }
+}
+
 namespace MphRead::Mods::MapGen
 {
-    std::array<std::int32_t, 9> Q3Bsp::UsedLumps{0, 1, 2, 7, 8, 9, 10, 11, 13};
+    Q3UsedLumps Q3Bsp::UsedLumps{};
 
     std::size_t Q3StringHash::operator()(const std::string& value) const noexcept
     {
-        std::size_t hash = 1469598103934665603ULL;
-        for (char c : value)
+        try
         {
-            hash ^= static_cast<unsigned char>(FoldAscii(c));
-            hash *= 1099511628211ULL;
+            std::size_t hash = 1469598103934665603ULL;
+            for (std::uint32_t scalar : FoldOrdinalIgnoreCase(value))
+            {
+                for (std::int32_t shift = 0; shift < 32; shift += 8)
+                {
+                    hash ^= static_cast<std::uint8_t>(scalar >> shift);
+                    hash *= 1099511628211ULL;
+                }
+            }
+            return hash;
         }
-        return hash;
+        catch (...)
+        {
+            return 0;
+        }
     }
 
     bool Q3StringEqual::operator()(const std::string& left, const std::string& right) const noexcept
@@ -774,9 +1203,13 @@ namespace MphRead::Mods::MapGen
         return OrdinalIgnoreCaseEquals(left, right);
     }
 
-    Q3Texture::Q3Texture(std::string name, std::int32_t flags, std::int32_t contents) noexcept
+    Q3Texture::Q3Texture(Q3String name, std::int32_t flags, std::int32_t contents) noexcept
         : _name(std::move(name)), _flags(flags), _contents(contents) {}
-    const std::string& Q3Texture::Name() const noexcept { return _name; }
+    Q3Texture::Q3Texture(std::nullptr_t, std::int32_t flags, std::int32_t contents) noexcept
+        : Q3Texture(Q3String(nullptr), flags, contents) {}
+    Q3Texture::Q3Texture(std::string name, std::int32_t flags, std::int32_t contents) noexcept
+        : Q3Texture(Q3String(std::move(name)), flags, contents) {}
+    const Q3String& Q3Texture::Name() const noexcept { return _name; }
     std::int32_t Q3Texture::Flags() const noexcept { return _flags; }
     std::int32_t Q3Texture::Contents() const noexcept { return _contents; }
 
@@ -890,23 +1323,36 @@ namespace MphRead::Mods::MapGen
     std::shared_ptr<Q3Bsp> Q3Bsp::Load(
         const std::string& source, const std::optional<std::string>& mapName)
     {
+        return Load(&source, mapName);
+    }
+
+    std::shared_ptr<Q3Bsp> Q3Bsp::Load(
+        const std::string* source, const std::optional<std::string>& mapName)
+    {
         return Parse(ReadLevel(source, mapName));
     }
 
     std::vector<std::uint8_t> Q3Bsp::ReadLevel(
         const std::string& source, const std::optional<std::string>& mapName)
     {
+        return ReadLevel(&source, mapName);
+    }
+
+    std::vector<std::uint8_t> Q3Bsp::ReadLevel(
+        const std::string* source, const std::optional<std::string>& mapName)
+    {
+        const std::string sourceText = source == nullptr ? std::string{} : *source;
         std::error_code existsError;
-        const bool exists = std::filesystem::is_regular_file(source, existsError);
+        const bool exists = source != nullptr && std::filesystem::is_regular_file(sourceText, existsError);
         if (!exists || existsError)
         {
-            throw ProgramException("No such file: " + source);
+            throw ProgramException("No such file: " + sourceText);
         }
-        if (OrdinalIgnoreCaseEquals(Extension(source), ".bsp"))
+        if (OrdinalIgnoreCaseEquals(Extension(sourceText), ".bsp"))
         {
-            return ReadAllBytes(source);
+            return ReadAllBytes(sourceText);
         }
-        const ByteVector archive = ReadAllBytes(source);
+        const ByteVector archive = ReadAllBytes(sourceText);
         const std::vector<ZipEntry> entries = ReadZipEntries(archive);
         std::vector<const ZipEntry*> maps;
         for (const ZipEntry& entry : entries)
@@ -918,7 +1364,7 @@ namespace MphRead::Mods::MapGen
         }
         if (maps.empty())
         {
-            throw ProgramException(FileName(source) + " contains no .bsp.");
+            throw ProgramException(FileName(sourceText) + " contains no .bsp.");
         }
         const ZipEntry* selected = nullptr;
         if (!mapName.has_value())
@@ -951,18 +1397,28 @@ namespace MphRead::Mods::MapGen
                 if (i != 0) joined += ", ";
                 joined += available[i];
             }
-            throw ProgramException(FileName(source) + " has no map " + *mapName + ". It has: " + joined);
+            throw ProgramException(FileName(sourceText) + " has no map " + *mapName + ". It has: " + joined);
         }
         return ReadZipEntry(archive, *selected);
     }
 
     std::vector<std::string> Q3Bsp::ListMaps(const std::string& source)
     {
-        if (OrdinalIgnoreCaseEquals(Extension(source), ".bsp"))
+        return ListMaps(&source);
+    }
+
+    std::vector<std::string> Q3Bsp::ListMaps(const std::string* source)
+    {
+        if (source == nullptr)
         {
-            return {FileNameWithoutExtension(source)};
+            throw std::invalid_argument("source");
         }
-        const ByteVector archive = ReadAllBytes(source);
+        const std::string& sourceText = *source;
+        if (OrdinalIgnoreCaseEquals(Extension(sourceText), ".bsp"))
+        {
+            return {FileNameWithoutExtension(sourceText)};
+        }
+        const ByteVector archive = ReadAllBytes(sourceText);
         const std::vector<ZipEntry> entries = ReadZipEntries(archive);
         std::vector<std::string> maps;
         for (const ZipEntry& entry : entries)

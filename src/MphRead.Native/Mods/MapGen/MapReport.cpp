@@ -26,6 +26,12 @@ namespace
         std::int32_t Count;
     };
 
+    [[nodiscard]] const std::string& EmptyString()
+    {
+        static const std::string value;
+        return value;
+    }
+
     [[nodiscard]] std::int32_t ManagedAdd(
         std::int32_t left, std::int32_t right) noexcept
     {
@@ -154,23 +160,24 @@ namespace
 namespace MphRead::Mods::MapGen
 {
     std::int32_t MapReport::ListShaders(
-        const std::string& source,
+        const std::optional<std::string>& source,
         const std::optional<std::string>& mapName)
     {
         bool loading = true;
         try
         {
-            Q3Bsp bsp = Q3Bsp::Load(source, mapName);
+            std::shared_ptr<Q3Bsp> bsp = Q3Bsp::Load(
+                source.has_value() ? *source : EmptyString(), mapName);
             loading = false;
 
             std::vector<ShaderCount> counts;
-            for (const Q3Face& face : bsp.Faces())
+            for (const Q3Face& face : bsp->Faces())
             {
                 if (face.Type() != 1 && face.Type() != 3)
                 {
                     continue;
                 }
-                const Q3Texture& texture = bsp.Textures().at(
+                const Q3Texture& texture = bsp->Textures().at(
                     static_cast<std::size_t>(face.Texture()));
                 if ((texture.Flags() & (Q3Bsp::SurfaceNoDraw | Q3Bsp::SurfaceSky
                     | Q3Bsp::SurfaceHint | Q3Bsp::SurfaceSkip)) != 0)
@@ -195,7 +202,9 @@ namespace MphRead::Mods::MapGen
                 found->Count = ManagedAdd(found->Count, face.MeshVertCount() / 3);
             }
 
-            const std::string& label = mapName.has_value() ? *mapName : source;
+            const std::string& label = mapName.has_value()
+                ? *mapName
+                : (source.has_value() ? *source : EmptyString());
             std::string summary = label;
             summary += ": ";
             summary += FormatInt32(static_cast<std::int32_t>(counts.size()));
@@ -236,21 +245,30 @@ namespace MphRead::Mods::MapGen
         }
     }
 
-    std::int32_t MapReport::ListMaterials(const std::string& room)
+    std::int32_t MapReport::ListMaterials(
+        const std::optional<std::string>& room)
     {
         std::shared_ptr<Model> model;
         try
         {
-            model = Read::GetRoomModelInstance(room)->Model();
+            if (!room.has_value())
+            {
+                throw System::ArgumentNullException("key");
+            }
+            model = Read::GetRoomModelInstance(*room)->Model();
         }
         catch (const std::exception& ex)
         {
-            WriteLine("Could not load " + room + ": " + ex.what());
+            std::string message = "Could not load ";
+            message += room.has_value() ? *room : EmptyString();
+            message += ": ";
+            message += ex.what();
+            WriteLine(message);
             return 1;
         }
 
         const std::shared_ptr<Recolor>& recolor = model->Recolors->at(0);
-        std::string summary = room;
+        std::string summary = *room;
         summary += ": ";
         summary += FormatInt32(static_cast<std::int32_t>(model->Materials->size()));
         summary += " materials, ";

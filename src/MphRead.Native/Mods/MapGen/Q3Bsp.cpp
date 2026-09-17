@@ -10,6 +10,7 @@
 #include <cwchar>
 #include <cwctype>
 #include <cstring>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -33,66 +34,114 @@ namespace
 {
     using ByteVector = std::vector<std::uint8_t>;
 
-    [[nodiscard]] bool DecodeUtf8Scalar(
+    enum class Utf8DecodeStatus
+    {
+        Done,
+        NeedMoreData,
+        InvalidData
+    };
+
+    [[nodiscard]] Utf8DecodeStatus DecodeUtf8Scalar(
         const std::uint8_t* data, std::size_t size, std::size_t& index, std::uint32_t& scalar) noexcept
     {
-        if (index >= size) return false;
-        const std::uint8_t first = data[index];
-        if (first < 0x80U)
+        const std::size_t start = index;
+        if (start >= size)
+        {
+            scalar = 0xFFFDU;
+            return Utf8DecodeStatus::NeedMoreData;
+        }
+
+        const std::uint32_t first = data[start];
+        if (first <= 0x7FU)
         {
             scalar = first;
-            ++index;
-            return true;
+            index = start + 1;
+            return Utf8DecodeStatus::Done;
         }
 
-        std::size_t count = 0;
-        std::uint32_t value = 0;
-        std::uint32_t minimum = 0;
-        if (first >= 0xC2U && first <= 0xDFU)
-        {
-            count = 2; value = first & 0x1FU; minimum = 0x80U;
-        }
-        else if (first >= 0xE0U && first <= 0xEFU)
-        {
-            count = 3; value = first & 0x0FU; minimum = 0x800U;
-        }
-        else if (first >= 0xF0U && first <= 0xF4U)
-        {
-            count = 4; value = first & 0x07U; minimum = 0x10000U;
-        }
-        else
+        // Match Rune.DecodeFromUtf8's maximal-subpart rules, which are also
+        // what UTF8Encoding's replacement fallback uses on .NET 9.
+        if (first < 0xC2U || first > 0xF4U)
         {
             scalar = 0xFFFDU;
-            ++index;
-            return true;
+            index = start + 1;
+            return Utf8DecodeStatus::InvalidData;
+        }
+        if (start + 1 >= size)
+        {
+            scalar = 0xFFFDU;
+            index = size;
+            return Utf8DecodeStatus::NeedMoreData;
         }
 
-        if (count > size - index)
+        const std::uint32_t second = data[start + 1];
+        if ((second & 0xC0U) != 0x80U)
         {
             scalar = 0xFFFDU;
-            ++index;
-            return true;
+            index = start + 1;
+            return Utf8DecodeStatus::InvalidData;
         }
-        for (std::size_t i = 1; i < count; ++i)
+
+        if (first <= 0xDFU)
         {
-            const std::uint8_t continuation = data[index + i];
-            if ((continuation & 0xC0U) != 0x80U)
-            {
-                scalar = 0xFFFDU;
-                ++index;
-                return true;
-            }
-            value = (value << 6) | (continuation & 0x3FU);
+            scalar = ((first & 0x1FU) << 6) | (second & 0x3FU);
+            index = start + 2;
+            return Utf8DecodeStatus::Done;
         }
-        if (value < minimum || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
+
+        // The second byte can already prove a 3/4-byte sequence invalid. In
+        // that case the maximal invalid subpart is only the leading byte.
+        if ((first == 0xE0U && second < 0xA0U)
+            || (first == 0xEDU && second >= 0xA0U)
+            || (first == 0xF0U && second < 0x90U)
+            || (first == 0xF4U && second >= 0x90U))
         {
             scalar = 0xFFFDU;
-            ++index;
-            return true;
+            index = start + 1;
+            return Utf8DecodeStatus::InvalidData;
         }
-        index += count;
-        scalar = value;
-        return true;
+
+        if (start + 2 >= size)
+        {
+            scalar = 0xFFFDU;
+            index = size;
+            return Utf8DecodeStatus::NeedMoreData;
+        }
+
+        const std::uint32_t third = data[start + 2];
+        if ((third & 0xC0U) != 0x80U)
+        {
+            scalar = 0xFFFDU;
+            index = start + 2;
+            return Utf8DecodeStatus::InvalidData;
+        }
+
+        if (first <= 0xEFU)
+        {
+            scalar = ((first & 0x0FU) << 12) | ((second & 0x3FU) << 6) | (third & 0x3FU);
+            index = start + 3;
+            return Utf8DecodeStatus::Done;
+        }
+
+        if (start + 3 >= size)
+        {
+            scalar = 0xFFFDU;
+            index = size;
+            return Utf8DecodeStatus::NeedMoreData;
+        }
+
+        const std::uint32_t fourth = data[start + 3];
+        if ((fourth & 0xC0U) != 0x80U)
+        {
+            scalar = 0xFFFDU;
+            index = start + 3;
+            return Utf8DecodeStatus::InvalidData;
+        }
+
+        scalar = ((first & 0x07U) << 18) | ((second & 0x3FU) << 12)
+            | ((third & 0x3FU) << 6) | (fourth & 0x3FU);
+        index = start + 4;
+        return Utf8DecodeStatus::Done;
     }
 
     void AppendUtf8(std::string& output, std::uint32_t scalar)
@@ -167,6 +216,9 @@ namespace
 
     [[nodiscard]] std::uint32_t InvariantUpper(std::uint32_t scalar) noexcept
     {
+        // .NET OrdinalIgnoreCase intentionally disables these two ICU uppercase
+        // mappings so that dotless-i and long-s remain distinct in ordinal comparisons.
+        if (scalar == 0x0131U || scalar == 0x017FU) return scalar;
         if (scalar >= 'a' && scalar <= 'z') return scalar - ('a' - 'A');
 #if defined(_WIN32)
         if (scalar <= 0xFFFFU)
@@ -386,12 +438,17 @@ namespace
 
     [[nodiscard]] std::string FileNameWithoutExtension(const std::string& path)
     {
-        return std::filesystem::path(path).stem().string();
+        const std::string fileName = FileName(path);
+        const std::size_t dot = fileName.find_last_of('.');
+        return dot == std::string::npos ? fileName : fileName.substr(0, dot);
     }
 
     [[nodiscard]] std::string Extension(const std::string& path)
     {
-        return std::filesystem::path(path).extension().string();
+        const std::string fileName = FileName(path);
+        const std::size_t dot = fileName.find_last_of('.');
+        if (dot == std::string::npos || dot + 1 == fileName.size()) return {};
+        return fileName.substr(dot);
     }
 
     class ByteReader
@@ -441,16 +498,27 @@ namespace
             while (charCount < count && _position < _bytes.size())
             {
                 std::size_t position = static_cast<std::size_t>(_position);
-                const std::size_t before = position;
                 std::uint32_t scalar = 0;
-                (void)DecodeUtf8Scalar(_bytes.data(), _bytes.size(), position, scalar);
+                const Utf8DecodeStatus status = DecodeUtf8Scalar(
+                    _bytes.data(), _bytes.size(), position, scalar);
+
+                // BinaryReader's UTF-8 Decoder is invoked with flush:false. An
+                // incomplete terminal sequence is consumed into decoder state but
+                // emits no replacement character before end-of-stream is observed.
+                _position = position;
+                if (status == Utf8DecodeStatus::NeedMoreData)
+                {
+                    break;
+                }
+
                 const std::size_t units = scalar > 0xFFFFU ? 2U : 1U;
                 if (units > count - charCount)
                 {
-                    // A UTF-16 surrogate pair cannot be split across the requested char buffer.
-                    break;
+                    // Decoder.GetChars throws when a complete surrogate pair cannot
+                    // fit in the remaining destination rather than splitting it.
+                    throw std::runtime_error(
+                        "The output char buffer is too small to contain the decoded characters.");
                 }
-                _position += position - before;
                 AppendUtf8(result, scalar);
                 charCount += units;
             }
@@ -586,9 +654,9 @@ namespace
         throw std::runtime_error("Invalid deflate Huffman code.");
     }
 
-    void InflateCodes(BitReader& reader, ByteVector& output,
+    [[nodiscard]] bool InflateCodes(BitReader& reader, ByteVector& output,
         const std::vector<HuffmanNode>& literalTree,
-        const std::vector<HuffmanNode>& distanceTree, bool deflate64)
+        const std::vector<HuffmanNode>& distanceTree, bool deflate64, std::size_t outputLimit)
     {
         static constexpr std::array<std::int32_t, 29> LengthBase{
             3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
@@ -606,11 +674,12 @@ namespace
             if (symbol < 256)
             {
                 output.push_back(static_cast<std::uint8_t>(symbol));
+                if (output.size() >= outputLimit) return true;
                 continue;
             }
             if (symbol == 256)
             {
-                return;
+                return false;
             }
             if (symbol < 257 || symbol > 285)
             {
@@ -647,15 +716,16 @@ namespace
             for (std::int32_t i = 0; i < length; ++i)
             {
                 output.push_back(output[output.size() - static_cast<std::size_t>(distance)]);
+                if (output.size() >= outputLimit) return true;
             }
         }
     }
 
-    [[nodiscard]] ByteVector InflateRaw(const ByteVector& input, std::size_t expectedSize, bool deflate64 = false)
+    [[nodiscard]] ByteVector InflateRaw(const ByteVector& input, std::size_t outputLimit, bool deflate64 = false)
     {
-        BitReader reader(input);
         ByteVector output;
-        output.reserve(expectedSize);
+        if (outputLimit == 0) return output;
+        BitReader reader(input);
         bool finalBlock = false;
         while (!finalBlock)
         {
@@ -672,14 +742,20 @@ namespace
                 const std::uint16_t length = ReadU16(input, position);
                 const std::uint16_t complement = ReadU16(input, position + 2);
                 position += 4;
-                if (static_cast<std::uint16_t>(~length) != complement
-                    || position > input.size() || length > input.size() - position)
+                if (static_cast<std::uint16_t>(~length) != complement)
+                {
+                    throw std::runtime_error("Invalid stored deflate block.");
+                }
+                const std::size_t remaining = outputLimit - output.size();
+                const std::size_t copyCount = std::min<std::size_t>(length, remaining);
+                if (position > input.size() || copyCount > input.size() - position)
                 {
                     throw std::runtime_error("Invalid stored deflate block.");
                 }
                 output.insert(output.end(),
                     input.begin() + static_cast<std::ptrdiff_t>(position),
-                    input.begin() + static_cast<std::ptrdiff_t>(position + length));
+                    input.begin() + static_cast<std::ptrdiff_t>(position + copyCount));
+                if (copyCount < length || output.size() >= outputLimit) return output;
                 reader.BytePosition(position + length);
             }
             else if (type == 1)
@@ -690,7 +766,8 @@ namespace
                 for (std::int32_t i = 256; i <= 279; ++i) literalLengths[i] = 7;
                 for (std::int32_t i = 280; i <= 287; ++i) literalLengths[i] = 8;
                 std::vector<std::uint8_t> distanceLengths(32, 5);
-                InflateCodes(reader, output, BuildHuffman(literalLengths), BuildHuffman(distanceLengths), deflate64);
+                if (InflateCodes(reader, output, BuildHuffman(literalLengths),
+                    BuildHuffman(distanceLengths), deflate64, outputLimit)) return output;
             }
             else if (type == 2)
             {
@@ -742,16 +819,13 @@ namespace
                 }
                 std::vector<std::uint8_t> literalLengths(lengths.begin(), lengths.begin() + literalCount);
                 std::vector<std::uint8_t> distanceLengths(lengths.begin() + literalCount, lengths.end());
-                InflateCodes(reader, output, BuildHuffman(literalLengths), BuildHuffman(distanceLengths), deflate64);
+                if (InflateCodes(reader, output, BuildHuffman(literalLengths),
+                    BuildHuffman(distanceLengths), deflate64, outputLimit)) return output;
             }
             else
             {
                 throw std::runtime_error("Invalid deflate block type.");
             }
-        }
-        if (output.size() != expectedSize)
-        {
-            throw std::runtime_error("Invalid ZIP entry length.");
         }
         return output;
     }
@@ -943,10 +1017,6 @@ namespace
         }
         if (entry.method == 0)
         {
-            if (entry.compressedSize != entry.uncompressedSize)
-            {
-                throw std::runtime_error("Stored ZIP entry has inconsistent sizes.");
-            }
             return compressed;
         }
         if (entry.method == 8)
@@ -1107,16 +1177,268 @@ namespace MphRead::Mods::MapGen::Q3RecordRuntime
             }
         }
 
-        [[nodiscard]] char CurrentDecimalSeparator() noexcept
+        struct NumberSymbols final
         {
+            std::string decimalSeparator = ".";
+            std::string negativeSign = "-";
+            std::string positiveSign = "+";
+            std::string nan = "NaN";
+            std::string positiveInfinity = "Infinity";
+            std::string negativeInfinity = "-Infinity";
+        };
+
+        [[nodiscard]] std::string Utf16ToUtf8(const std::uint16_t* data, std::size_t length)
+        {
+            std::string result;
+            for (std::size_t i = 0; i < length; ++i)
+            {
+                std::uint32_t scalar = data[i];
+                if (scalar >= 0xD800U && scalar <= 0xDBFFU
+                    && i + 1 < length && data[i + 1] >= 0xDC00U && data[i + 1] <= 0xDFFFU)
+                {
+                    scalar = 0x10000U + ((scalar - 0xD800U) << 10) + (data[++i] - 0xDC00U);
+                }
+                else if (scalar >= 0xD800U && scalar <= 0xDFFFU)
+                {
+                    scalar = 0xFFFDU;
+                }
+                AppendUtf8(result, scalar);
+            }
+            return result;
+        }
+
+#if defined(_WIN32)
+        [[nodiscard]] std::string WindowsLocaleString(LCTYPE type, const std::string& fallback)
+        {
+            wchar_t buffer[128]{};
+            const int count = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type,
+                buffer, static_cast<int>(std::size(buffer)));
+            if (count <= 1) return fallback;
+            std::vector<std::uint16_t> utf16;
+            utf16.reserve(static_cast<std::size_t>(count - 1));
+            for (int i = 0; i < count - 1; ++i)
+            {
+                utf16.push_back(static_cast<std::uint16_t>(buffer[i]));
+            }
+            return Utf16ToUtf8(utf16.data(), utf16.size());
+        }
+#endif
+
+        [[nodiscard]] NumberSymbols CurrentNumberSymbols() noexcept
+        {
+            NumberSymbols symbols;
             try
             {
-                return std::use_facet<std::numpunct<char>>(std::locale("")).decimal_point();
+#if defined(_WIN32)
+                symbols.decimalSeparator = WindowsLocaleString(LOCALE_SDECIMAL, symbols.decimalSeparator);
+                symbols.negativeSign = WindowsLocaleString(LOCALE_SNEGATIVESIGN, symbols.negativeSign);
+                symbols.positiveSign = WindowsLocaleString(LOCALE_SPOSITIVESIGN, symbols.positiveSign);
+#if defined(LOCALE_SNAN)
+                symbols.nan = WindowsLocaleString(LOCALE_SNAN, symbols.nan);
+#endif
+#if defined(LOCALE_SPOSINFINITY)
+                symbols.positiveInfinity = WindowsLocaleString(LOCALE_SPOSINFINITY, symbols.positiveInfinity);
+#endif
+#if defined(LOCALE_SNEGINFINITY)
+                symbols.negativeInfinity = WindowsLocaleString(LOCALE_SNEGINFINITY,
+                    symbols.negativeSign + symbols.positiveInfinity);
+#else
+                symbols.negativeInfinity = symbols.negativeSign + symbols.positiveInfinity;
+#endif
+#else
+                struct IcuNumbers final
+                {
+                    using Open = void* (*)(std::int32_t, const std::uint16_t*, std::int32_t,
+                        const char*, void*, std::int32_t*);
+                    using GetSymbol = std::int32_t (*)(const void*, std::int32_t,
+                        std::uint16_t*, std::int32_t, std::int32_t*);
+                    using Close = void (*)(void*);
+                    void* library = nullptr;
+                    Open open = nullptr;
+                    GetSymbol getSymbol = nullptr;
+                    Close close = nullptr;
+
+                    IcuNumbers() noexcept
+                    {
+                        library = dlopen("libicui18n.so", RTLD_LAZY | RTLD_LOCAL);
+#if defined(__APPLE__)
+                        if (library == nullptr)
+                        {
+                            library = dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY | RTLD_LOCAL);
+                        }
+#endif
+                        open = reinterpret_cast<Open>(FindVersionedIcuSymbol(library, "unum_open"));
+                        getSymbol = reinterpret_cast<GetSymbol>(FindVersionedIcuSymbol(library, "unum_getSymbol"));
+                        close = reinterpret_cast<Close>(FindVersionedIcuSymbol(library, "unum_close"));
+                    }
+                };
+                static const IcuNumbers icu{};
+                if (icu.open != nullptr && icu.getSymbol != nullptr && icu.close != nullptr)
+                {
+                    std::int32_t status = 0;
+                    // UNUM_DECIMAL = 1. A null locale selects ICU's current default locale,
+                    // which is the same culture source used by .NET's ICU globalization path.
+                    void* formatter = icu.open(1, nullptr, 0, nullptr, nullptr, &status);
+                    if (formatter != nullptr && status <= 0)
+                    {
+                        const auto readSymbol = [&](std::int32_t symbol, const std::string& fallback)
+                        {
+                            std::uint16_t buffer[128]{};
+                            std::int32_t localStatus = 0;
+                            const std::int32_t length = icu.getSymbol(formatter, symbol, buffer,
+                                static_cast<std::int32_t>(std::size(buffer)), &localStatus);
+                            if (localStatus > 0 || length < 0
+                                || length > static_cast<std::int32_t>(std::size(buffer)))
+                            {
+                                return fallback;
+                            }
+                            return Utf16ToUtf8(buffer, static_cast<std::size_t>(length));
+                        };
+                        // UNumberFormatSymbol values from ICU: decimal=0, minus=6,
+                        // plus=7, infinity=14, NaN=15.
+                        symbols.decimalSeparator = readSymbol(0, symbols.decimalSeparator);
+                        symbols.negativeSign = readSymbol(6, symbols.negativeSign);
+                        symbols.positiveSign = readSymbol(7, symbols.positiveSign);
+                        symbols.positiveInfinity = readSymbol(14, symbols.positiveInfinity);
+                        symbols.nan = readSymbol(15, symbols.nan);
+                        // .NET's ICU CultureData has no separate negative-infinity
+                        // symbol and synthesizes it as NegativeSign + PositiveInfinitySymbol.
+                        symbols.negativeInfinity = symbols.negativeSign + symbols.positiveInfinity;
+                        icu.close(formatter);
+                        return symbols;
+                    }
+                    if (formatter != nullptr) icu.close(formatter);
+                }
+                try
+                {
+                    const auto& punctuation = std::use_facet<std::numpunct<char>>(std::locale(""));
+                    symbols.decimalSeparator.assign(1, punctuation.decimal_point());
+                }
+                catch (...)
+                {
+                }
+                symbols.negativeInfinity = symbols.negativeSign + symbols.positiveInfinity;
+#endif
             }
             catch (...)
             {
-                return '.';
             }
+            return symbols;
+        }
+
+        struct ShortestFloat final
+        {
+            bool negative = false;
+            std::string digits;
+            std::int32_t scale = 0;
+        };
+
+        [[nodiscard]] ShortestFloat DecomposeShortestFloat(float value)
+        {
+            ShortestFloat result;
+            result.negative = std::signbit(value);
+            const float magnitude = std::fabs(value);
+            char buffer[64]{};
+            const auto conversion = std::to_chars(std::begin(buffer), std::end(buffer),
+                magnitude, std::chars_format::general);
+            std::string text = conversion.ec == std::errc{}
+                ? std::string(buffer, conversion.ptr) : std::to_string(magnitude);
+
+            const std::size_t exponentPosition = text.find_first_of("eE");
+            std::int32_t exponent = 0;
+            if (exponentPosition != std::string::npos)
+            {
+                const char* first = text.data() + static_cast<std::ptrdiff_t>(exponentPosition + 1);
+                const char* last = text.data() + static_cast<std::ptrdiff_t>(text.size());
+                if (first != last && *first == '+') ++first;
+                (void)std::from_chars(first, last, exponent);
+                text.resize(exponentPosition);
+            }
+
+            const std::size_t decimalPosition = text.find('.');
+            const std::size_t integerDigits = decimalPosition == std::string::npos
+                ? text.size() : decimalPosition;
+            if (decimalPosition != std::string::npos) text.erase(decimalPosition, 1);
+
+            std::size_t leadingZeros = 0;
+            while (leadingZeros < text.size() && text[leadingZeros] == '0') ++leadingZeros;
+            if (leadingZeros == text.size())
+            {
+                result.digits.clear();
+                result.scale = 0;
+                return result;
+            }
+            result.digits = text.substr(leadingZeros);
+            while (!result.digits.empty() && result.digits.back() == '0') result.digits.pop_back();
+            result.scale = static_cast<std::int32_t>(integerDigits)
+                - static_cast<std::int32_t>(leadingZeros) + exponent;
+            return result;
+        }
+
+        [[nodiscard]] std::string DotNetGeneralFloat(float value, const NumberSymbols& symbols)
+        {
+            const ShortestFloat number = DecomposeShortestFloat(value);
+            std::string result;
+            if (number.negative) result += symbols.negativeSign;
+            if (number.digits.empty())
+            {
+                result += '0';
+                return result;
+            }
+
+            // Single's default G format uses the shortest round-trippable digits,
+            // but does not switch to scientific notation until Scale > max(DigitsCount, 9)
+            // or Scale < -3. This is the exact FormatGeneral threshold in .NET 9.
+            const std::int32_t maxDigits = std::max<std::int32_t>(
+                static_cast<std::int32_t>(number.digits.size()), 9);
+            const bool scientific = number.scale > maxDigits || number.scale < -3;
+            if (!scientific)
+            {
+                if (number.scale > 0)
+                {
+                    const std::size_t whole = static_cast<std::size_t>(number.scale);
+                    if (whole >= number.digits.size())
+                    {
+                        result += number.digits;
+                        result.append(whole - number.digits.size(), '0');
+                    }
+                    else
+                    {
+                        result.append(number.digits.data(), whole);
+                        result += symbols.decimalSeparator;
+                        result.append(number.digits.data() + static_cast<std::ptrdiff_t>(whole),
+                            number.digits.size() - whole);
+                    }
+                }
+                else
+                {
+                    result += '0';
+                    result += symbols.decimalSeparator;
+                    result.append(static_cast<std::size_t>(-number.scale), '0');
+                    result += number.digits;
+                }
+                return result;
+            }
+
+            result.push_back(number.digits.front());
+            if (number.digits.size() > 1)
+            {
+                result += symbols.decimalSeparator;
+                result.append(number.digits.begin() + 1, number.digits.end());
+            }
+            result += 'E';
+            const std::int32_t exponent = number.scale - 1;
+            const std::uint32_t magnitude = exponent < 0
+                ? static_cast<std::uint32_t>(-static_cast<std::int64_t>(exponent))
+                : static_cast<std::uint32_t>(exponent);
+            result += exponent < 0 ? symbols.negativeSign : symbols.positiveSign;
+            char exponentBuffer[16]{};
+            const auto exponentConversion = std::to_chars(
+                std::begin(exponentBuffer), std::end(exponentBuffer), magnitude);
+            std::string exponentText(exponentBuffer, exponentConversion.ptr);
+            if (exponentText.size() < 2) result.append(2 - exponentText.size(), '0');
+            result += exponentText;
+            return result;
         }
     }
 
@@ -1150,32 +1472,33 @@ namespace MphRead::Mods::MapGen::Q3RecordRuntime
 
     std::string IntString(std::int32_t value)
     {
+        const NumberSymbols symbols = CurrentNumberSymbols();
+        const bool negative = value < 0;
+        const std::uint32_t magnitude = negative
+            ? static_cast<std::uint32_t>(-static_cast<std::int64_t>(value))
+            : static_cast<std::uint32_t>(value);
         char buffer[32]{};
-        const auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
-        if (result.ec == std::errc{}) return std::string(buffer, result.ptr);
-        return std::to_string(value);
+        const auto result = std::to_chars(std::begin(buffer), std::end(buffer), magnitude);
+        std::string text = result.ec == std::errc{}
+            ? std::string(buffer, result.ptr) : std::to_string(magnitude);
+        return negative ? symbols.negativeSign + text : text;
     }
 
     std::string FloatString(float value)
     {
-        if (std::isnan(value)) return "NaN";
-        if (std::isinf(value)) return std::signbit(value) ? "-Infinity" : "Infinity";
-        char buffer[64]{};
-        const auto result = std::to_chars(std::begin(buffer), std::end(buffer), value, std::chars_format::general);
-        std::string text = result.ec == std::errc{}
-            ? std::string(buffer, result.ptr) : std::to_string(value);
-        for (char& ch : text)
+        const NumberSymbols symbols = CurrentNumberSymbols();
+        if (std::isnan(value)) return symbols.nan;
+        if (std::isinf(value))
         {
-            if (ch == 'e') ch = 'E';
-            else if (ch == '.') ch = CurrentDecimalSeparator();
+            return std::signbit(value) ? symbols.negativeInfinity : symbols.positiveInfinity;
         }
-        return text;
+        return DotNetGeneralFloat(value, symbols);
     }
 }
 
 namespace MphRead::Mods::MapGen
 {
-    Q3UsedLumps Q3Bsp::UsedLumps{};
+    const Q3UsedLumps Q3Bsp::UsedLumps{};
 
     std::size_t Q3StringHash::operator()(const std::string& value) const noexcept
     {
@@ -1209,6 +1532,8 @@ namespace MphRead::Mods::MapGen
         : Q3Texture(Q3String(nullptr), flags, contents) {}
     Q3Texture::Q3Texture(std::string name, std::int32_t flags, std::int32_t contents) noexcept
         : Q3Texture(Q3String(std::move(name)), flags, contents) {}
+    Q3Texture::Q3Texture(const char* name, std::int32_t flags, std::int32_t contents) noexcept
+        : Q3Texture(Q3String(name), flags, contents) {}
     const Q3String& Q3Texture::Name() const noexcept { return _name; }
     std::int32_t Q3Texture::Flags() const noexcept { return _flags; }
     std::int32_t Q3Texture::Contents() const noexcept { return _contents; }
@@ -1278,6 +1603,16 @@ namespace MphRead::Mods::MapGen
 
     std::vector<std::uint8_t> Q3Bsp::Trim(const std::vector<std::uint8_t>& bsp)
     {
+        return Trim(&bsp);
+    }
+
+    std::vector<std::uint8_t> Q3Bsp::Trim(const std::vector<std::uint8_t>* bspReference)
+    {
+        if (bspReference == nullptr)
+        {
+            throw std::runtime_error("Object reference not set to an instance of an object.");
+        }
+        const std::vector<std::uint8_t>& bsp = *bspReference;
         constexpr std::size_t HeaderSize = 8 + 17 * 8;
         if (bsp.size() < HeaderSize)
         {
@@ -1390,7 +1725,7 @@ namespace MphRead::Mods::MapGen
             {
                 available.push_back(FileNameWithoutExtension(entry->name));
             }
-            std::sort(available.begin(), available.end(), CultureLess);
+            std::stable_sort(available.begin(), available.end(), CultureLess);
             std::string joined;
             for (std::size_t i = 0; i < available.size(); ++i)
             {
@@ -1411,7 +1746,7 @@ namespace MphRead::Mods::MapGen
     {
         if (source == nullptr)
         {
-            throw std::invalid_argument("source");
+            throw std::runtime_error("Object reference not set to an instance of an object.");
         }
         const std::string& sourceText = *source;
         if (OrdinalIgnoreCaseEquals(Extension(sourceText), ".bsp"))
@@ -1428,7 +1763,7 @@ namespace MphRead::Mods::MapGen
                 maps.push_back(FileNameWithoutExtension(entry.name));
             }
         }
-        std::sort(maps.begin(), maps.end(), CultureLess);
+        std::stable_sort(maps.begin(), maps.end(), CultureLess);
         return maps;
     }
 

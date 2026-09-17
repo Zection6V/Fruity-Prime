@@ -93,6 +93,10 @@ namespace MphRead::Mods::MapGen
             std::string name,
             std::int32_t flags,
             std::int32_t contents) noexcept;
+        Q3Texture(
+            const char* name,
+            std::int32_t flags,
+            std::int32_t contents) noexcept;
 
         virtual ~Q3Texture() = default;
         Q3Texture(Q3Texture&&) = delete;
@@ -479,22 +483,17 @@ namespace MphRead::Mods::MapGen
     class Q3UsedLumps final
     {
     public:
-        constexpr Q3UsedLumps() noexcept : _values{0, 1, 2, 7, 8, 9, 10, 11, 13} {}
-        Q3UsedLumps(const Q3UsedLumps&) = delete;
-        Q3UsedLumps(Q3UsedLumps&&) = delete;
-        Q3UsedLumps& operator=(const Q3UsedLumps&) = delete;
-        Q3UsedLumps& operator=(Q3UsedLumps&&) = delete;
+        Q3UsedLumps()
+            : _values(std::make_shared<std::array<std::int32_t, 9>>(
+                std::array<std::int32_t, 9>{0, 1, 2, 7, 8, 9, 10, 11, 13})) {}
 
-        [[nodiscard]] constexpr std::int32_t& operator[](std::size_t index) noexcept { return _values[index]; }
-        [[nodiscard]] constexpr const std::int32_t& operator[](std::size_t index) const noexcept { return _values[index]; }
-        [[nodiscard]] constexpr auto begin() noexcept { return _values.begin(); }
-        [[nodiscard]] constexpr auto end() noexcept { return _values.end(); }
-        [[nodiscard]] constexpr auto begin() const noexcept { return _values.begin(); }
-        [[nodiscard]] constexpr auto end() const noexcept { return _values.end(); }
-        [[nodiscard]] constexpr std::size_t size() const noexcept { return _values.size(); }
+        [[nodiscard]] std::int32_t& operator[](std::size_t index) const { return _values->at(index); }
+        [[nodiscard]] auto begin() const noexcept { return _values->begin(); }
+        [[nodiscard]] auto end() const noexcept { return _values->end(); }
+        [[nodiscard]] std::size_t size() const noexcept { return _values->size(); }
 
     private:
-        std::array<std::int32_t, 9> _values;
+        std::shared_ptr<std::array<std::int32_t, 9>> _values;
     };
 
     class Q3Bsp
@@ -517,7 +516,7 @@ namespace MphRead::Mods::MapGen
         static constexpr std::int32_t SurfaceHint = 0x100;
         static constexpr std::int32_t SurfaceSkip = 0x200;
 
-        static Q3UsedLumps UsedLumps;
+        static const Q3UsedLumps UsedLumps;
 
         Q3Bsp() = default;
         Q3Bsp(const Q3Bsp&) = delete;
@@ -536,6 +535,7 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] const EntityList& Entities() const noexcept;
 
         [[nodiscard]] static std::vector<std::uint8_t> Trim(const std::vector<std::uint8_t>& bsp);
+        [[nodiscard]] static std::vector<std::uint8_t> Trim(const std::vector<std::uint8_t>* bsp);
         [[nodiscard]] static std::shared_ptr<Q3Bsp> Load(
             const std::string& source, const std::optional<std::string>& mapName);
         [[nodiscard]] static std::shared_ptr<Q3Bsp> Load(

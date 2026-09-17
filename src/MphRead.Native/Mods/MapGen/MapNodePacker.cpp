@@ -11,7 +11,7 @@
 #include <cstdio>
 #include <deque>
 #include <limits>
-#include <optional>
+#include <memory>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -24,6 +24,15 @@ namespace System
     public:
         InvalidOperationException()
             : std::runtime_error("Sequence contains no elements")
+        {
+        }
+    };
+
+    class IndexOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        IndexOutOfRangeException()
+            : std::out_of_range("Index was outside the bounds of the array.")
         {
         }
     };
@@ -54,7 +63,7 @@ namespace MphRead::Mods::MapGen
 
         struct BucketGrid final
         {
-            std::vector<std::optional<std::vector<std::int32_t>>> Buckets{};
+            std::vector<std::unique_ptr<std::vector<std::int32_t>>> Buckets{};
             std::int32_t Columns = 0;
             std::int32_t Rows = 0;
         };
@@ -134,13 +143,20 @@ namespace MphRead::Mods::MapGen
 
         [[nodiscard]] std::int32_t UncheckedInt32(float value) noexcept
         {
-            if (std::isnan(value)
-                || value < static_cast<float>(std::numeric_limits<std::int32_t>::min())
-                || value >= 2147483648.0F)
+            if (std::isnan(value))
+            {
+                return 0;
+            }
+            const double wide = static_cast<double>(value);
+            if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
             {
                 return std::numeric_limits<std::int32_t>::min();
             }
-            return static_cast<std::int32_t>(value);
+            if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
+            {
+                return std::numeric_limits<std::int32_t>::max();
+            }
+            return static_cast<std::int32_t>(std::trunc(wide));
         }
 
         [[nodiscard]] std::int32_t UncheckedAdd(std::int32_t left, std::int32_t right) noexcept
@@ -175,19 +191,274 @@ namespace MphRead::Mods::MapGen
             return half == std::floor(half) ? floor : floor + 1.0F;
         }
 
-        [[nodiscard]] bool ManagedFloatLess(float left, float right) noexcept
+        void SwapFloats(std::vector<float>& values, std::int32_t left, std::int32_t right) noexcept
         {
-            const bool leftNan = std::isnan(left);
-            const bool rightNan = std::isnan(right);
-            if (leftNan)
+            const float value = values[static_cast<std::size_t>(left)];
+            values[static_cast<std::size_t>(left)] = values[static_cast<std::size_t>(right)];
+            values[static_cast<std::size_t>(right)] = value;
+        }
+
+        void SwapIfGreater(std::vector<float>& values, std::int32_t left, std::int32_t right) noexcept
+        {
+            if (values[static_cast<std::size_t>(left)] > values[static_cast<std::size_t>(right)])
             {
-                return !rightNan;
+                SwapFloats(values, left, right);
             }
-            if (rightNan)
+        }
+
+        void InsertionSort(
+            std::vector<float>& values,
+            std::int32_t offset,
+            std::int32_t length) noexcept
+        {
+            for (std::int32_t i = 0; i < length - 1; i++)
             {
-                return false;
+                const float value = values[static_cast<std::size_t>(offset + i + 1)];
+                std::int32_t j = i;
+                while (j >= 0 && value < values[static_cast<std::size_t>(offset + j)])
+                {
+                    values[static_cast<std::size_t>(offset + j + 1)]
+                        = values[static_cast<std::size_t>(offset + j)];
+                    j--;
+                }
+                values[static_cast<std::size_t>(offset + j + 1)] = value;
             }
-            return left < right;
+        }
+
+        void DownHeap(
+            std::vector<float>& values,
+            std::int32_t offset,
+            std::int32_t i,
+            std::int32_t count) noexcept
+        {
+            const float value = values[static_cast<std::size_t>(offset + i - 1)];
+            while (i <= count >> 1)
+            {
+                std::int32_t child = 2 * i;
+                if (child < count
+                    && values[static_cast<std::size_t>(offset + child - 1)]
+                        < values[static_cast<std::size_t>(offset + child)])
+                {
+                    child++;
+                }
+                if (!(value < values[static_cast<std::size_t>(offset + child - 1)]))
+                {
+                    break;
+                }
+                values[static_cast<std::size_t>(offset + i - 1)]
+                    = values[static_cast<std::size_t>(offset + child - 1)];
+                i = child;
+            }
+            values[static_cast<std::size_t>(offset + i - 1)] = value;
+        }
+
+        void HeapSort(
+            std::vector<float>& values,
+            std::int32_t offset,
+            std::int32_t length) noexcept
+        {
+            for (std::int32_t i = length >> 1; i >= 1; i--)
+            {
+                DownHeap(values, offset, i, length);
+            }
+            for (std::int32_t i = length; i > 1; i--)
+            {
+                SwapFloats(values, offset, offset + i - 1);
+                DownHeap(values, offset, 1, i - 1);
+            }
+        }
+
+        [[nodiscard]] std::int32_t PickPivotAndPartition(
+            std::vector<float>& values,
+            std::int32_t offset,
+            std::int32_t length) noexcept
+        {
+            const std::int32_t last = offset + length - 1;
+            const std::int32_t middle = offset + ((length - 1) >> 1);
+            SwapIfGreater(values, offset, middle);
+            SwapIfGreater(values, offset, last);
+            SwapIfGreater(values, middle, last);
+
+            const float pivot = values[static_cast<std::size_t>(middle)];
+            const std::int32_t nextToLast = last - 1;
+            SwapFloats(values, middle, nextToLast);
+            std::int32_t left = offset;
+            std::int32_t right = nextToLast;
+            while (left < right)
+            {
+                do
+                {
+                    left++;
+                }
+                while (pivot > values[static_cast<std::size_t>(left)]);
+
+                do
+                {
+                    right--;
+                }
+                while (pivot < values[static_cast<std::size_t>(right)]);
+
+                if (left >= right)
+                {
+                    break;
+                }
+                SwapFloats(values, left, right);
+            }
+            if (left != nextToLast)
+            {
+                SwapFloats(values, left, nextToLast);
+            }
+            return left - offset;
+        }
+
+        void IntroSort(
+            std::vector<float>& values,
+            std::int32_t offset,
+            std::int32_t length,
+            std::int32_t depthLimit) noexcept
+        {
+            std::int32_t partitionSize = length;
+            while (partitionSize > 1)
+            {
+                if (partitionSize <= 16)
+                {
+                    if (partitionSize == 2)
+                    {
+                        SwapIfGreater(values, offset, offset + 1);
+                        return;
+                    }
+                    if (partitionSize == 3)
+                    {
+                        SwapIfGreater(values, offset, offset + 1);
+                        SwapIfGreater(values, offset, offset + 2);
+                        SwapIfGreater(values, offset + 1, offset + 2);
+                        return;
+                    }
+                    InsertionSort(values, offset, partitionSize);
+                    return;
+                }
+                if (depthLimit == 0)
+                {
+                    HeapSort(values, offset, partitionSize);
+                    return;
+                }
+                depthLimit--;
+                const std::int32_t pivot = PickPivotAndPartition(values, offset, partitionSize);
+                IntroSort(
+                    values,
+                    offset + pivot + 1,
+                    partitionSize - pivot - 1,
+                    depthLimit);
+                partitionSize = pivot;
+            }
+        }
+
+        void ManagedSort(std::vector<float>& values)
+        {
+            if (values.size() <= 1)
+            {
+                return;
+            }
+
+            std::int32_t nanLeft = 0;
+            const std::int32_t length = static_cast<std::int32_t>(values.size());
+            for (std::int32_t i = 0; i < length; i++)
+            {
+                if (std::isnan(values[static_cast<std::size_t>(i)]))
+                {
+                    SwapFloats(values, nanLeft, i);
+                    nanLeft++;
+                }
+            }
+            if (nanLeft == length)
+            {
+                return;
+            }
+
+            const std::int32_t remaining = length - nanLeft;
+            const std::int32_t depthLimit = 2 * static_cast<std::int32_t>(
+                std::bit_width(static_cast<std::uint32_t>(remaining)));
+            IntroSort(values, nanLeft, remaining, depthLimit);
+        }
+
+        [[nodiscard]] float LinqMin(
+            const MphRead::ManagedArray<Vector3>* points,
+            float Vector3::* component)
+        {
+            if (points->Length() == 0)
+            {
+                throw System::InvalidOperationException();
+            }
+            float value = (*points)[0].*component;
+            if (std::isnan(value))
+            {
+                return value;
+            }
+            for (std::size_t i = 1; i < points->Length(); i++)
+            {
+                const float current = (*points)[i].*component;
+                if (current < value)
+                {
+                    value = current;
+                }
+                else if (std::isnan(current))
+                {
+                    return current;
+                }
+            }
+            return value;
+        }
+
+        [[nodiscard]] float LinqMax(
+            const MphRead::ManagedArray<Vector3>* points,
+            float Vector3::* component)
+        {
+            if (points->Length() == 0)
+            {
+                throw System::InvalidOperationException();
+            }
+            std::size_t i = 0;
+            float value = (*points)[i].*component;
+            while (std::isnan(value))
+            {
+                i++;
+                if (i == points->Length())
+                {
+                    return value;
+                }
+                value = (*points)[i].*component;
+            }
+            i++;
+            while (i < points->Length())
+            {
+                const float current = (*points)[i].*component;
+                if (current > value)
+                {
+                    value = current;
+                }
+                i++;
+            }
+            return value;
+        }
+
+        [[nodiscard]] std::unique_ptr<std::vector<std::int32_t>>& BucketAt(
+            BucketGrid& grid, std::int32_t index)
+        {
+            if (index < 0 || static_cast<std::size_t>(index) >= grid.Buckets.size())
+            {
+                throw System::IndexOutOfRangeException();
+            }
+            return grid.Buckets[static_cast<std::size_t>(index)];
+        }
+
+        [[nodiscard]] const std::unique_ptr<std::vector<std::int32_t>>& BucketAt(
+            const BucketGrid& grid, std::int32_t index)
+        {
+            if (index < 0 || static_cast<std::size_t>(index) >= grid.Buckets.size())
+            {
+                throw System::IndexOutOfRangeException();
+            }
+            return grid.Buckets[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] const MphRead::ManagedArray<Vector3>* Points(const BuiltFace* face)
@@ -300,9 +571,12 @@ namespace MphRead::Mods::MapGen
             BucketGrid result{};
             result.Columns = columns;
             result.Rows = rows;
-            const std::size_t bucketCount = static_cast<std::size_t>(columns)
-                * static_cast<std::size_t>(rows);
-            result.Buckets.resize(bucketCount);
+            const std::int32_t bucketCount = UncheckedMultiply(columns, rows);
+            if (bucketCount < 0)
+            {
+                throw System::OverflowException();
+            }
+            result.Buckets.resize(static_cast<std::size_t>(bucketCount));
 
             if (solid == nullptr)
             {
@@ -311,23 +585,20 @@ namespace MphRead::Mods::MapGen
             for (std::int32_t i = 0; i < static_cast<std::int32_t>(solid->size()); i++)
             {
                 const BuiltFace* face = (*solid)[static_cast<std::size_t>(i)];
-                const auto* points = Points(face);
-                if (points->Length() == 0)
+                if (face == nullptr)
                 {
-                    throw System::InvalidOperationException();
+                    throw System::NullReferenceException();
                 }
-                float minX = (*points)[0].X;
-                float maxX = (*points)[0].X;
-                float minZ = (*points)[0].Z;
-                float maxZ = (*points)[0].Z;
-                for (std::size_t p = 1; p < points->Length(); p++)
+                const auto* rawPoints = face->Points();
+                if (rawPoints == nullptr)
                 {
-                    const Vector3 point = (*points)[p];
-                    minX = ManagedMin(minX, point.X);
-                    maxX = ManagedMax(maxX, point.X);
-                    minZ = ManagedMin(minZ, point.Z);
-                    maxZ = ManagedMax(maxZ, point.Z);
+                    throw System::ArgumentNullException("source");
                 }
+                const auto* points = reinterpret_cast<const MphRead::ManagedArray<Vector3>*>(rawPoints);
+                const float minX = LinqMin(points, &Vector3::X);
+                const float maxX = LinqMax(points, &Vector3::X);
+                const float minZ = LinqMin(points, &Vector3::Z);
+                const float maxZ = LinqMax(points, &Vector3::Z);
                 const std::int32_t c0 = std::clamp(
                     UncheckedInt32(std::floor((minX - low.X) / spacing)), 0, columns - 1);
                 const std::int32_t c1 = std::clamp(
@@ -340,14 +611,13 @@ namespace MphRead::Mods::MapGen
                 {
                     for (std::int32_t c = c0; c <= c1; c++)
                     {
-                        const std::size_t index = static_cast<std::size_t>(r)
-                            * static_cast<std::size_t>(columns)
-                            + static_cast<std::size_t>(c);
-                        if (!result.Buckets[index].has_value())
+                        const std::int32_t index = UncheckedAdd(UncheckedMultiply(r, columns), c);
+                        auto& bucket = BucketAt(result, index);
+                        if (!bucket)
                         {
-                            result.Buckets[index].emplace();
+                            bucket = std::make_unique<std::vector<std::int32_t>>();
                         }
-                        result.Buckets[index]->push_back(i);
+                        bucket->push_back(i);
                     }
                 }
             }
@@ -400,15 +670,14 @@ namespace MphRead::Mods::MapGen
                     const float x = min.X + (static_cast<float>(column) + 0.5F) * spacing;
                     const float z = min.Z + (static_cast<float>(row) + 0.5F) * spacing;
                     heights.clear();
-                    const std::size_t bucketIndex = static_cast<std::size_t>(row)
-                        * static_cast<std::size_t>(grid.Columns)
-                        + static_cast<std::size_t>(column);
-                    const auto& bucketValue = grid.Buckets[bucketIndex];
-                    if (!bucketValue.has_value())
+                    const std::int32_t bucketIndex = UncheckedAdd(
+                        UncheckedMultiply(row, grid.Columns), column);
+                    const auto& bucketValue = BucketAt(grid, bucketIndex);
+                    if (!bucketValue)
                     {
                         continue;
                     }
-                    const std::vector<std::int32_t>* bucket = &*bucketValue;
+                    const std::vector<std::int32_t>* bucket = bucketValue.get();
                     for (const std::int32_t index : *bucket)
                     {
                         const BuiltFace* face = (*solid)[static_cast<std::size_t>(index)];
@@ -419,7 +688,7 @@ namespace MphRead::Mods::MapGen
                         }
                         heights.push_back(y);
                     }
-                    std::sort(heights.begin(), heights.end(), ManagedFloatLess);
+                    ManagedSort(heights);
                     float last = std::numeric_limits<float>::lowest();
                     for (const float y : heights)
                     {
@@ -509,12 +778,12 @@ namespace MphRead::Mods::MapGen
             std::unordered_set<std::int32_t> seen{};
             for (const std::int32_t cell : Cells(from, to, min, spacing, grid.Columns, grid.Rows))
             {
-                const auto& bucketValue = grid.Buckets[static_cast<std::size_t>(cell)];
-                if (!bucketValue.has_value())
+                const auto& bucketValue = BucketAt(grid, cell);
+                if (!bucketValue)
                 {
                     continue;
                 }
-                const std::vector<std::int32_t>* bucket = &*bucketValue;
+                const std::vector<std::int32_t>* bucket = bucketValue.get();
                 for (const std::int32_t index : *bucket)
                 {
                     if (!seen.insert(index).second)
@@ -835,10 +1104,6 @@ namespace MphRead::Mods::MapGen
                     UncheckedMultiply(static_cast<std::int32_t>(routes[static_cast<std::size_t>(i)].size()), 4));
             }
             std::vector<std::uint8_t> bytes{};
-            if (cursor > 0)
-            {
-                bytes.reserve(static_cast<std::size_t>(cursor));
-            }
             WriteU16(bytes, 6);
             WriteU16(bytes, 1);
             WriteU32(bytes, static_cast<std::uint32_t>(indexOffset));
@@ -945,16 +1210,20 @@ namespace MphRead::Mods::MapGen
         const std::int32_t edges = DegreeSum(nodes) / 2;
         if (std::getenv("FP_NODEDEBUG") != nullptr)
         {
+            const std::int32_t largest = Largest(nodes);
+            const std::int32_t maxDegree = MaxDegree(nodes);
+            const std::int32_t isolated = IsolatedCount(nodes);
             std::printf(
                 "  [nodes] coarse %d nodes, %d edges, largest component %d, degree max %d, isolated %d\n",
                 static_cast<std::int32_t>(nodes.size()),
                 edges,
-                Largest(nodes),
-                MaxDegree(nodes),
-                IsolatedCount(nodes));
+                largest,
+                maxDegree,
+                isolated);
         }
+        std::vector<std::uint8_t> bytes = Write(nodes, spacing);
         return std::make_tuple(
-            Write(nodes, spacing),
+            std::move(bytes),
             static_cast<std::int32_t>(nodes.size()),
             edges);
     }

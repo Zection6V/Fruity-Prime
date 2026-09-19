@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <locale>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -602,9 +603,22 @@ namespace
             static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
     }
 
+    [[nodiscard]] std::locale CurrentUserLocale()
+    {
+        try
+        {
+            return std::locale("");
+        }
+        catch (const std::runtime_error&)
+        {
+            return std::locale::classic();
+        }
+    }
+
     [[nodiscard]] std::string FixedTwo(double value)
     {
         std::ostringstream stream;
+        stream.imbue(CurrentUserLocale());
         stream << std::fixed << std::setprecision(2) << value;
         return stream.str();
     }
@@ -615,7 +629,9 @@ namespace
         constexpr char version[] = MPHREAD_ENTRY_ASSEMBLY_VERSION;
         return std::string(version, sizeof(version) - 1);
 #else
-        return "?";
+        // MphRead.csproj does not override Version/AssemblyVersion, so the
+        // SDK-generated entry assembly version is 1.0.0.0.
+        return "1.0.0.0";
 #endif
     }
 
@@ -771,10 +787,14 @@ namespace MphRead::Mods
         _asked = OpenTK::Mathematics::Vector2i(width, height);
         _roomKey = roomKey;
         _settleFrames = SettleFrames;
+
+        const OpenTK::Mathematics::Vector2i size = _window->Size();
+        RendererPlatform::KeyboardState& keyboardState = _window->Keyboard();
+        RendererPlatform::MouseState& mouseState = _window->Mouse();
         _scene = std::make_shared<MphRead::Scene>(
-            _window->Size(),
-            _window->Keyboard(),
-            _window->Mouse(),
+            size,
+            keyboardState,
+            mouseState,
             [](std::string) {},
             [this]() { Close(); });
         _scene->AddPlayer(Hunter::Samus, 0, -1);
@@ -816,6 +836,7 @@ namespace MphRead::Mods
 
     void ThumbnailCapture::Close()
     {
+        OnClosing();
         _window->Close();
         _closeRequested = true;
     }
@@ -1000,8 +1021,6 @@ namespace MphRead::Mods
             args.Time = elapsed;
             OnRenderFrame(args);
         }
-
-        OnClosing();
     }
 
     std::int32_t ThumbnailCapture::CaptureRooms(
@@ -1019,10 +1038,14 @@ namespace MphRead::Mods
                 captured = WrappedAdd(captured, 1);
             }
 
+            std::string first = "[thumbnails] ";
+            first += ok ? "ok" : "FAILED";
+            first += "  ";
+            first += rooms[i];
+
             const double seconds = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - started).count();
-            std::cout << "[thumbnails] " << (ok ? "ok" : "FAILED")
-                      << "  " << rooms[i]
+            std::cout << first
                       << "  " << FixedTwo(seconds) << "s" << std::endl;
         }
         return captured;

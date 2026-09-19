@@ -442,11 +442,23 @@ namespace
                 exponentNegative = text[position] == '-';
                 ++position;
             }
-            constexpr std::int64_t Limit = 1'000'000;
+
+            bool oversizedExponent = false;
             while (position < text.size())
             {
-                const std::int64_t digit = text[position++] - '0';
-                exponent = std::min(Limit, exponent * 10 + digit);
+                if (exponent >= 100'000'000)
+                {
+                    oversizedExponent = true;
+                    break;
+                }
+                exponent = exponent * 10 + (text[position++] - '0');
+            }
+            if (oversizedExponent)
+            {
+                // .NET resets NumberBuffer.Scale before adding an exponent that
+                // trips its nine-digit guard, so the exponent sign alone decides
+                // floating-point overflow versus underflow.
+                return exponentNegative;
             }
             if (exponentNegative)
             {
@@ -1588,11 +1600,25 @@ namespace
         return digits;
     }
 
+    [[nodiscard]] std::string FormatInteger(std::int64_t value)
+    {
+        const NumberSymbols symbols = CurrentNumberSymbols();
+        std::string digits = std::to_string(value);
+        const bool negative = !digits.empty() && digits.front() == '-';
+        if (negative)
+        {
+            digits.erase(digits.begin());
+        }
+        return negative
+            ? symbols.NegativeSign + digits
+            : digits;
+    }
+
     [[nodiscard]] std::string FormatN0(std::int64_t value)
     {
         const NumberSymbols symbols = CurrentNumberSymbols();
         std::string digits = std::to_string(value);
-        bool negative = !digits.empty() && digits.front() == '-';
+        const bool negative = !digits.empty() && digits.front() == '-';
         if (negative)
         {
             digits.erase(digits.begin());
@@ -1630,9 +1656,13 @@ namespace
         const std::size_t exponentAt = text.find_first_of("eE");
         if (exponentAt != std::string::npos)
         {
-            const std::string_view exponentText(
+            std::string_view exponentText(
                 text.data() + exponentAt + 1,
                 text.size() - exponentAt - 1);
+            if (!exponentText.empty() && exponentText.front() == '+')
+            {
+                exponentText.remove_prefix(1);
+            }
             const char* first = exponentText.data();
             const char* last = first + exponentText.size();
             const auto parsed = std::from_chars(
@@ -2022,7 +2052,7 @@ namespace MphRead::Mods::MapGen
         std::cout
             << "  " << bakedValue->Baked
             << " textures at "
-            << textureSize << 'x' << textureSize
+            << FormatInteger(textureSize) << 'x' << FormatInteger(textureSize)
             << " -> " << FormatN0(bakedValue->Bytes)
             << " B  " << FileName(texturePath)
             << '\n';

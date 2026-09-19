@@ -174,4 +174,960 @@ namespace MphRead::Mods::Update
                 if (length < buffer.size() - 1)
                 {
                     return FileSystemPath(std::wstring(buffer.data(), length));
-             BË ôˆdÈ8Ð€€€€€€€€€€€€€€€¬Ý¡ä€¬€ˆ¤ì™•Ñ ¥Ð™É½´€ˆ€¬=ÁÑ¥½¹…±Q•áÐ¡ÕÁ‘…Ñ”¹A…•UÉ°¹•Ð ¤¤¤ì(€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€ô((€€€€€€€]É¥Ñ•1¥¹”¡ÍÑèéÍÑÉ¥¹œ ‰mÕÁ‘…Ñ•t™•Ñ¡¥¹œ€ˆ¤(€€€€€€€€€€€€¬=ÁÑ¥½¹…±Q•áÐ¡ÕÁ‘…Ñ”¹ÍÍ•Ñ9…µ”¹•Ð ¤¤¤ì(€€€€€€€¥˜€ …•Í­Ñ½ÁUÁ‘…Ñ”èéMÑ…”¡ÕÁ‘…Ñ”¤¤(€€€€€€€ì(€€€€€€€€€€€]É¥Ñ•1¥¹”¡ÍÑèéÍÑÉ¥¹œ ‰mÕÁ‘…Ñ•t½Õ±¹½ÐÍÑ…”è€ˆ¤(€€€€€€€€€€€€€€€€¬=ÁÑ¥½¹…±Q•áÐ¡•Í­Ñ½ÁUÁ‘…Ñ”èé1…ÍÑÉÉ½È ¤¤¤ì(€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€ô((€€€€€€€MÑ…Ñ”˜ÍÑ…Ñ”€ô•ÑMÑ…Ñ” ¤ì(€€€€€€€ì(€€€€€€€€€€€½¹ÍÐÍÑèé±½­}Õ…ÉñÍÑèéµÕÑ•àøÕ…É¡ÍÑ…Ñ”¹A•¹‘¥¹…Ñ”¤ì(€€€€€€€€€€€ÍÑ…Ñ”¹A•¹‘¥¹œ€ôÕÁ‘…Ñ”ì(€€€€€€€ô(€€€€€€€ÍÑ…Ñ”¹MÑ…•¹ÍÑ½É”¡ÑÉÕ”°ÍÑèéµ•µ½Éå}½É‘•É}É•±•…Í”¤ì(€€€€€€€É•ÑÕÉ¸ÑÉÕ”ì(€€€ô((€€€‰½½°M•ÉÙ•ÉUÁ‘…Ñ”èéMÝ…À¡½¹ÍÐÍÑèéÍÑÉ¥¹œ˜Ý¡ä¤(€€€ì(€€€€€€€½¹ÍÐÍÑèéÍÑÉ¥¹œÍÑ…•€ô•Í­Ñ½ÁUÁ‘…Ñ”èéMÑ…•‘	Õ¥±‘A…Ñ  ¤ì(€€€€€€€½¹ÍÐÍÑèéÍÑÉ¥¹œÑ…É•Ð€ô	…Í•¥É•Ñ½ÉåQ•áÐ ¤ì(€€€€€€€¥˜€ …¥É•Ñ½Éåá¥ÍÑÌ¡A…Ñ¡É½µUÑ˜à¡ÍÑ…•¤¤¤(€€€€€€€ì(€€€€€€€€€€€•ÑMÑ…Ñ” ¤¹MÑ…•¹ÍÑ½É”¡™…±Í”°ÍÑèéµ•µ½Éå}½É‘•É}É•±•…Í”¤ì(€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€ô((€€€€€€€ÍÑèéÍÑÉ¥¹œÙ•ÉÍ¥½¸€ô€‰Ñ¡”¹•Ü‰Õ¥±ˆì(€€€€€€€¥˜€¡A•¹‘¥¹œ ¤¹¡…Í}Ù…±Õ” ¤¤(€€€€€€€ì(€€€€€€€€€€€½¹ÍÐÍÑèé½ÁÑ¥½¹…°ñUÁ‘…Ñ•%¹™¼øÁ•¹‘¥¹œ€ôA•¹‘¥¹œ ¤ì(€€€€€€€€€€€¥˜€ …Á•¹‘¥¹œ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€Ñ¡É½Ü%¹Ù…±¥‘=Á•É…Ñ¥½¹á•ÁÑ¥½¸ ‰9Õ±±…‰±”½‰©•ÐµÕÍÐ¡…Ù”„Ù…±Õ”¸ˆ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€½¹ÍÐÍÑèé½ÁÑ¥½¹…°ñY•ÉÍ¥½¸ø˜Á•¹‘¥¹Y•ÉÍ¥½¸€ôÁ•¹‘¥¹œ´ùY•ÉÍ¥½¸¹•Ð ¤ì(€€€€€€€€€€€¥˜€ …Á•¹‘¥¹Y•ÉÍ¥½¸¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€Ñ¡É½Ü9Õ±±I•™•É•¹•á•ÁÑ¥½¸ ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€Ù•ÉÍ¥½¸€ôÁ•¹‘¥¹Y•ÉÍ¥½¸´ùQ½MÑÉ¥¹œ ¤ì(€€€€€€€ô(€€€€€€€]É¥Ñ•1¥¹”¡ÍÑèéÍÑÉ¥¹œ ‰mÕÁ‘…Ñ•t…ÁÁ±å¥¹œ€ˆ¤€¬Ù•ÉÍ¥½¸€¬€ˆ€ ˆ€¬Ý¡ä€¬€ˆ¤ˆ¤ì((€€€€€€€ÑÉä(€€€€€€€ì(€€€€€€€€€€€I•Á±…•%¹A±…”¡ÍÑ…•°Ñ…É•Ð¤ì(€€€€€€€ô(€€€€€€€…Ñ €¡½¹ÍÐÍÑèé•á•ÁÑ¥½¸˜•à¤(€€€€€€€ì(€€€€€€€€€€€]É¥Ñ•1¥¹”¡ÍÑèéÍÑÉ¥¹œ ‰mÕÁ‘…Ñ•tÑ¡”½Áä™…¥±•è€ˆ¤€¬•à¹Ý¡…Ð ¤¤ì(€€€€€€€€€€€]É¥Ñ•1¥¹”¡ÍÑèéÍÑÉ¥¹œ ‰mÕÁ‘…Ñ•tÑ¡”¹•Ü‰Õ¥±¥Ì¥¸€ˆ¤€¬ÍÑ…•(€€€€€€€€€€€€€€€€¬€ˆ€´´½Áä¥Ð½Ù•È€ˆ€¬Ñ…É•Ð€¬€ˆ‰ä¡…¹ˆ¤ì(€€€€€€€€€€€•ÑMÑ…Ñ” ¤¹MÑ…•¹ÍÑ½É”¡™…±Í”°ÍÑèéµ•µ½Éå}½É‘•É}É•±•…Í”¤ì(€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€ô((€€€€€€€•ÑMÑ…Ñ” ¤¹MÑ…•¹ÍÑ½É”¡™…±Í”°ÍÑèéµ•µ½Éå}½É‘•É}É•±•…Í”¤ì(€€€€€€€¥˜€¡MÕÁ•ÉÙ¥Í• ¤¤(€€€€€€€ì(€€€€€€€€€€€]É¥Ñ•1¥¹” ‰mÕÁ‘…Ñ•t…ÁÁ±¥•ì•á¥Ñ¥¹œ™½ÈÑ¡”ÍÕÁ•ÉÙ¥Í½È€ˆ(€€€€€€€€€€€€€€€€‰Ñ¼ÍÑ…ÉÐÑ¡”¹•Ü‰Õ¥±ˆ¤ì(€€€€€€€€€€€É•ÑÕÉ¸ÑÉÕ”ì(€€€€€€€ô(€€€€€€€¥˜€ …I•ÍÑ…ÉÐ¡Ñ…É•Ð¤¤(€€€€€€€ì(€€€€€€€€€€€]É¥Ñ•1¥¹” ‰mÕÁ‘…Ñ•t…ÁÁ±¥•°‰ÕÐ½Õ±¹½ÐÉ•ÍÑ…ÉÐ€´´€ˆ(€€€€€€€€€€€€€€€€‰Ñ¡¥ÌÍ•ÉÙ•È¥ÌÍÑ¥±°ÉÕ¹¹¥¹œÑ¡”½±‰Õ¥±Õ¹Ñ¥°¥Ð¥Ì€ˆ(€€€€€€€€€€€€€€€€‰É•ÍÑ…ÉÑ•‰ä¡…¹ˆ¤ì(€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€ô(€€€€€€€]É¥Ñ•1¥¹” ‰mÕÁ‘…Ñ•t…ÁÁ±¥•ìÉ•ÍÑ…ÉÑ¥¹œˆ¤ì(€€€€€€€É•ÑÕÉ¸ÑÉÕ”ì(€€€ô((€€€Ù½¥M•ÉÙ•ÉUÁ‘…Ñ”èéI•Á±…•%¹A±…”¡½¹ÍÐÍÑèéÍÑÉ¥¹œ˜Í½ÕÉ”°½¹ÍÐÍÑèéÍÑÉ¥¹œ˜Ñ…É•Ð¤(€€€ì(€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ Í½ÕÉ•A…Ñ €ôA…Ñ¡É½µUÑ˜à¡Í½ÕÉ”¤ì(€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ Ñ…É•ÑA…Ñ €ôA…Ñ¡É½µUÑ˜à¡Ñ…É•Ð¤ì(€€€€€€€¹Õµ•É…Ñ•¥±•Ì¡Í½ÕÉ•A…Ñ °l™t¡½¹ÍÐ¥±•MåÍÑ•µA…Ñ ˜Á…Ñ ¤(€€€€€€€ì(€€€€€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ É•±…Ñ¥Ù”€ôÁ…Ñ ¹±•á¥…±±å}É•±…Ñ¥Ù”¡Í½ÕÉ•A…Ñ ¤ì(€€€€€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ ‘•ÍÑ¥¹…Ñ¥½¸€ôÑ…É•ÑA…Ñ €¼É•±…Ñ¥Ù”ì(€€€€€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ ‘¥É•Ñ½Éä€ô‘•ÍÑ¥¹…Ñ¥½¸¹Á…É•¹Ñ}Á…Ñ  ¤ì(€€€€€€€€€€€¥˜€ …‘¥É•Ñ½Éä¹•µÁÑä ¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ÍÑèé™¥±•ÍåÍÑ•´èéÉ•…Ñ•}‘¥É•Ñ½É¥•Ì¡‘¥É•Ñ½Éä¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ ¥¹½µ¥¹œ€ôA…Ñ¡É½µUÑ˜à (€€€€€€€€€€€€€€€A…Ñ¡Q½UÑ˜à¡‘•ÍÑ¥¹…Ñ¥½¸¤€¬%¹½µ¥¹MÕ™™¥à¤ì(€€€€€€€€€€€ÍÑèé™¥±•ÍåÍÑ•´èé½Áå}™¥±”¡Á…Ñ °¥¹½µ¥¹œ°(€€€€€€€€€€€€€€€ÍÑèé™¥±•ÍåÍÑ•´èé½Áå}½ÁÑ¥½¹Ìèé½Ù•ÉÝÉ¥Ñ•}•á¥ÍÑ¥¹œ¤ì(€€€€€€€€€€€¥˜€¡¥±•á¥ÍÑÌ¡‘•ÍÑ¥¹…Ñ¥½¸¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€¥ÍÁ±…”¡A…Ñ¡Q½UÑ˜à¡‘•ÍÑ¥¹…Ñ¥½¸¤¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€5½Ù•9½I•Á±…”¡¥¹½µ¥¹œ°‘•ÍÑ¥¹…Ñ¥½¸¤ì(€€€€€€€€€€€5…­•á•ÕÑ…‰±”¡A…Ñ¡Q½UÑ˜à¡‘•ÍÑ¥¹…Ñ¥½¸¤¤ì(€€€€€€€ô¤ì(€€€ô((€€€Ù½¥M•ÉÙ•ÉUÁ‘…Ñ”èé¥ÍÁ±…”¡½¹ÍÐÍÑèéÍÑÉ¥¹œ˜‘•ÍÑ¥¹…Ñ¥½¸¤(€€€ì(€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ ‘•ÍÑ¥¹…Ñ¥½¹A…Ñ €ôA…Ñ¡É½µUÑ˜à¡‘•ÍÑ¥¹…Ñ¥½¸¤ì(€€€€€€€ÑÉä(€€€€€€€ì(€€€€€€€€€€€•±•Ñ•¥±”¡‘•ÍÑ¥¹…Ñ¥½¹A…Ñ ¤ì(€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€ô(€€€€€€€…Ñ €¡½¹ÍÐÍÑèé™¥±•ÍåÍÑ•´èé™¥±•ÍåÍÑ•µ}•ÉÉ½È˜¤(€€€€€€€ì(€€€€€€€€€€€€¼¼%=á•ÁÑ¥½¸€¼U¹…ÕÑ¡½É¥é•‘•ÍÍá•ÁÑ¥½¸•ÅÕ¥Ù…±•¹Ðè¥¸µÕÍ”(€€€€€€€€€€€€¼¼™¥±•Ì™…±°Ñ¡É½Õ Ñ¼Ñ¡”É•¹…µ”°Ý¡½Í”™…¥±ÕÉ”É•µ…¥¹ÌÙ¥Í¥‰±”¸(€€€€€€€ô((€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ …Í¥‘”€ôA…Ñ¡É½µUÑ˜à¡‘•ÍÑ¥¹…Ñ¥½¸€¬=±‘MÕ™™¥à¤ì(€€€€€€€•±•Ñ•¥±”¡…Í¥‘”¤ì(€€€€€€€5½Ù•9½I•Á±…”¡‘•ÍÑ¥¹…Ñ¥½¹A…Ñ °…Í¥‘”¤ì(€€€ô((€€€Ù½¥M•ÉÙ•ÉUÁ‘…Ñ”èéMÝ••Á=±¡½¹ÍÐÍÑèéÍÑÉ¥¹œ˜Ñ…É•Ð¤¹½•á•ÁÐ(€€€ì(€€€€€€€ÑÉä(€€€€€€€ì(€€€€€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ Ñ…É•ÑA…Ñ €ôA…Ñ¡É½µUÑ˜à¡Ñ…É•Ð¤ì(€€€€€€€€€€€¹Õµ•É…Ñ•¥±•Ì¡Ñ…É•ÑA…Ñ °=±‘MÕ™™¥à°mt¡½¹ÍÐ¥±•MåÍÑ•µA…Ñ ˜Á…Ñ ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ÑÉä(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€•±•Ñ•¥±”¡Á…Ñ ¤ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€…Ñ € ¸¸¸¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€ô¤ì(€€€€€€€€€€€¹Õµ•É…Ñ•¥±•Ì¡Ñ…É•ÑA…Ñ °%¹½µ¥¹MÕ™™¥à°mt¡½¹ÍÐ¥±•MåÍÑ•µA…Ñ ˜Á…Ñ ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ÑÉä(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€•±•Ñ•¥±”¡Á…Ñ ¤ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€…Ñ € ¸¸¸¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€ô¤ì(€€€€€€€ô(€€€€€€€…Ñ € ¸¸¸¤(€€€€€€€ì(€€€€€€€ô(€€€ô((€€€‰½½°M•ÉÙ•ÉUÁ‘…Ñ”èéI•ÍÑ…ÉÐ¡½¹ÍÐÍÑèéÍÑÉ¥¹œ˜Ñ…É•Ð¤¹½•á•ÁÐ(€€€ì(€€€€€€€ÑÉä(€€€€€€€ì(€€€€€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ Ñ…É•ÑA…Ñ €ôA…Ñ¡É½µUÑ˜à¡Ñ…É•Ð¤ì(€€€€€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ ‰¥¹…Éä€ôÑ…É•ÑA…Ñ €¼A…Ñ¡É½µUÑ˜à¡UÁ‘…Ñ•¡•¬èé	¥¹…Éå9…µ” ¤¤ì(€€€€€€€€€€€ÍÑèéÙ•Ñ½ÈñÍÑèéÍÑÉ¥¹œøÉ•±…Õ¹ ì(€€€€€€€€€€€MÑ…Ñ”˜ÍÑ…Ñ”€ô•ÑMÑ…Ñ” ¤ì(€€€€€€€€€€€™½È€¡ÍÑèé¥¹ÐÌÉ}Ð¤€ô€Àìì€¬­¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€½¹ÍÐÍÑèéÍ¡…É•‘}ÁÑÈñ½¹ÍÐÍÑèéÙ•Ñ½ÈñÍÑèéÍÑÉ¥¹œøø±•¹Ñ¡Y¥•Ü€ô(€€€€€€€€€€€€€€€€€€€ÍÑ…Ñ”¹I•±…Õ¹ ¹±½…¡ÍÑèéµ•µ½Éå}½É‘•É}…ÅÕ¥É”¤ì(€€€€€€€€€€€€€€€¥˜€¡ÍÑ…Ñ¥}…ÍÐñÍÑèéÍ¥é•}Ðø¡¤¤€øô±•¹Ñ¡Y¥•Ü´ùÍ¥é” ¤¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€‰É•…¬ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€½¹ÍÐÍÑèéÍ¡…É•‘}ÁÑÈñ½¹ÍÐÍÑèéÙ•Ñ½ÈñÍÑèéÍÑÉ¥¹œøøÙ…±Õ•Y¥•Ü€ô(€€€€€€€€€€€€€€€€€€€ÍÑ…Ñ”¹I•±…Õ¹ ¹±½…¡ÍÑèéµ•µ½Éå}½É‘•É}…ÅÕ¥É”¤ì(€€€€€€€€€€€€€€€É•±…Õ¹ ¹ÁÕÍ¡}‰…¬¡Ù…±Õ•Y¥•Ü´ù…Ð¡ÍÑ…Ñ¥}…ÍÐñÍÑèéÍ¥é•}Ðø¡¤¤¤¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€É•ÑÕÉ¸MÑ…ÉÑAÉ½•ÍÌ¡‰¥¹…Éä°Ñ…É•ÑA…Ñ °É•±…Õ¹ ¤ì(€€€€€€€ô(€€€€€€€…Ñ €¡½¹ÍÐÍÑèé•á•ÁÑ¥½¸˜•à¤(€€€€€€€ì(€€€€€€€€€€€]É¥Ñ•1¥¹”¡ÍÑèéÍÑÉ¥¹œ ‰mÕÁ‘…Ñ•t½Õ±¹½ÐÉ•ÍÑ…ÉÐè€ˆ¤€¬•à¹Ý¡…Ð ¤¤ì(€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€ô(€€€€€€€…Ñ € ¸¸¸¤(€€€€€€€ì(€€€€€€€€€€€]É¥Ñ•1¥¹” ‰mÕÁ‘…Ñ•t½Õ±¹½ÐÉ•ÍÑ…ÉÐˆ¤ì(€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€ô(€€€ô((€€€Ù½¥M•ÉÙ•ÉUÁ‘…Ñ”èé5…­•á•ÕÑ…‰±”¡½¹ÍÐÍÑèéÍÑÉ¥¹œ˜Á…Ñ ¤¹½•á•ÁÐ(€€€ì(¥™‘•˜}]%8ÌÈ(€€€€€€€€¡Ù½¥¥Á…Ñ ì(€€€€€€€É•ÑÕÉ¸ì(•±Í”(€€€€€€€ÑÉä(€€€€€€€ì(€€€€€€€€€€€½¹ÍÐ¥±•MåÍÑ•µA…Ñ ™¥±”€ôA…Ñ¡É½µUÑ˜à¡Á…Ñ ¤ì(€€€€€€€€€€€¥˜€¡!…ÍáÑ•¹Í¥½¸¡™¥±”¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€ô(€€€€€€€€€€€ÍÑÉÕÐÍÑ…ÐÍÑ…ÑÕÍíôì(€€€€€€€€€€€¥˜€ èéÍÑ…Ð¡™¥±”¹}ÍÑÈ ¤°€™ÍÑ…ÑÕÌ¤€„ô€À¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€Ñ¡É½ÜÍÑèéÍåÍÑ•µ}•ÉÉ½È¡•ÉÉ¹¼°ÍÑèé•¹•É¥}…Ñ•½Éä ¤¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€¥˜€ èé¡µ½¡™¥±”¹}ÍÑÈ ¤°ÍÑ…ÑÕÌ¹ÍÑ}µ½‘”ðM}%aUMHðM}%aI@ðM}%a=Q ¤€„ô€À¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€Ñ¡É½ÜÍÑèéÍåÍÑ•µ}•ÉÉ½È¡•ÉÉ¹¼°ÍÑèé•¹•É¥}…Ñ•½Éä ¤¤ì(€€€€€€€€€€€ô(€€€€€€€ô(€€€€€€€…Ñ € ¸¸¸¤(€€€€€€€ì(€€€€€€€ô(•¹‘¥˜(€€€ô)ô()¹…µ•ÍÁ…”5Á¡I•…èé5½‘Ìèé9•ÑÝ½É¬èé•Ñ…¥°)ì(€€€‰½½°•‘¥…Ñ•‘M•ÉÙ•ÉM•ÉÙ•ÉUÁ‘…Ñ•M¡½Õ±‘I•ÍÑ…ÉÐ¡ÍÑèé¥¹ÐÌÉ}ÐÁ••É½Õ¹Ð¤(€€€ì(€€€€€€€É•ÑÕÉ¸5Á¡I•…èé5½‘ÌèéUÁ‘…Ñ”èéM•ÉÙ•ÉUÁ‘…Ñ”èéM¡½Õ±‘I•ÍÑ…ÉÐ¡Á••É½Õ¹Ð¤ì(€€€ô)ô(
+                }
+                buffer.resize(buffer.size() * 2);
+            }
+#elif defined(__APPLE__)
+            std::uint32_t size = 0;
+            (void)::_NSGetExecutablePath(nullptr, &size);
+            std::vector<char> buffer(static_cast<std::size_t>(size) + 1U, '\0');
+            if (::_NSGetExecutablePath(buffer.data(), &size) != 0)
+            {
+                throw std::runtime_error("Could not determine the process path.");
+            }
+            char resolved[PATH_MAX]{};
+            if (::realpath(buffer.data(), resolved) != nullptr)
+            {
+                return FileSystemPath(resolved);
+            }
+            return FileSystemPath(buffer.data());
+#elif defined(__linux__) || defined(__ANDROID__)
+            std::vector<char> buffer(512);
+            for (;;)
+            {
+                const ssize_t length = ::readlink("/proc/self/exe", buffer.data(), buffer.size());
+                if (length < 0)
+                {
+                    throw std::system_error(errno, std::generic_category());
+                }
+                if (static_cast<std::size_t>(length) < buffer.size())
+                {
+                    return FileSystemPath(std::string(buffer.data(),
+                        static_cast<std::size_t>(length)));
+                }
+                buffer.resize(buffer.size() * 2);
+            }
+#else
+#error Unsupported platform for AppContext.BaseDirectory equivalence.
+#endif
+        }
+
+        const FileSystemPath& BaseDirectoryPath()
+        {
+            static const FileSystemPath value = ReadProcessPath().parent_path();
+            return value;
+        }
+
+        std::string BaseDirectoryText()
+        {
+            std::string value = PathToUtf8(BaseDirectoryPath());
+#ifdef _WIN32
+            constexpr char separator = '\\';
+#else
+            constexpr char separator = '/';
+#endif
+            if (value.empty() || (value.back() != '/' && value.back() != '\\'))
+            {
+                value.push_back(separator);
+            }
+            return value;
+        }
+
+        std::int64_t AddDateTime(std::int64_t dateTimeTicks, std::int64_t spanTicks)
+        {
+            if (spanTicks > 0)
+            {
+                if (dateTimeTicks > MaxDateTimeTicks - spanTicks)
+                {
+                    throw std::out_of_range(
+                        "The added or subtracted value results in an un-representable DateTime.");
+                }
+            }
+            else if (spanTicks < 0)
+            {
+                if (spanTicks == std::numeric_limits<std::int64_t>::min()
+                    || dateTimeTicks < -spanTicks)
+                {
+                    throw std::out_of_range(
+                        "The added or subtracted value results in an un-representable DateTime.");
+                }
+            }
+            return dateTimeTicks + spanTicks;
+        }
+
+        std::int64_t UtcNowTicks()
+        {
+            const auto sinceUnix = std::chrono::system_clock::now().time_since_epoch();
+            const std::int64_t ticksSinceUnix =
+                std::chrono::duration_cast<TimeSpan>(sinceUnix).count();
+            return AddDateTime(UnixEpochTicks, ticksSinceUnix);
+        }
+
+        std::string OptionalText(const std::optional<std::string>& value)
+        {
+            return value.value_or(std::string{});
+        }
+
+        void WriteLine(std::string line)
+        {
+            line.push_back('\n');
+            std::cout << line;
+        }
+
+        bool DirectoryExists(const FileSystemPath& path) noexcept
+        {
+            std::error_code error;
+            const bool result = std::filesystem::is_directory(path, error);
+            return !error && result;
+        }
+
+        bool FileExists(const FileSystemPath& path) noexcept
+        {
+            std::error_code error;
+            const bool result = std::filesystem::is_regular_file(path, error);
+            return !error && result;
+        }
+
+        void DeleteFile(const FileSystemPath& path)
+        {
+#ifdef _WIN32
+            if (::DeleteFileW(path.c_str()))
+            {
+                return;
+            }
+            const DWORD error = ::GetLastError();
+            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+            {
+                return;
+            }
+            throw std::filesystem::filesystem_error("File.Delete", path,
+                std::error_code(static_cast<int>(error), std::system_category()));
+#else
+            if (::unlink(path.c_str()) == 0)
+            {
+                return;
+            }
+            const int error = errno;
+            if (error == ENOENT)
+            {
+                return;
+            }
+            throw std::filesystem::filesystem_error("File.Delete", path,
+                std::error_code(error, std::generic_category()));
+#endif
+        }
+
+        void MoveNoReplace(const FileSystemPath& source, const FileSystemPath& destination)
+        {
+#ifdef _WIN32
+            if (::MoveFileW(source.c_str(), destination.c_str()))
+            {
+                return;
+            }
+            throw std::filesystem::filesystem_error("File.Move", source, destination,
+                std::error_code(static_cast<int>(::GetLastError()), std::system_category()));
+#elif defined(__linux__) && defined(SYS_renameat2)
+            constexpr unsigned int RenameNoReplace = 1U;
+            if (::syscall(SYS_renameat2, AT_FDCWD, source.c_str(),
+                    AT_FDCWD, destination.c_str(), RenameNoReplace) == 0)
+            {
+                return;
+            }
+            if (errno != ENOSYS && errno != EINVAL)
+            {
+                throw std::filesystem::filesystem_error("File.Move", source, destination,
+                    std::error_code(errno, std::generic_category()));
+            }
+            if (::link(source.c_str(), destination.c_str()) != 0)
+            {
+                throw std::filesystem::filesystem_error("File.Move", source, destination,
+                    std::error_code(errno, std::generic_category()));
+            }
+            if (::unlink(source.c_str()) != 0)
+            {
+                const int error = errno;
+                (void)::unlink(destination.c_str());
+                throw std::filesystem::filesystem_error("File.Move", source, destination,
+                    std::error_code(error, std::generic_category()));
+            }
+#elif defined(__APPLE__) && defined(RENAME_EXCL)
+            if (::renamex_np(source.c_str(), destination.c_str(), RENAME_EXCL) == 0)
+            {
+                return;
+            }
+            throw std::filesystem::filesystem_error("File.Move", source, destination,
+                std::error_code(errno, std::generic_category()));
+#else
+            if (FileExists(destination) || DirectoryExists(destination))
+            {
+                throw std::filesystem::filesystem_error("File.Move", source, destination,
+                    std::make_error_code(std::errc::file_exists));
+            }
+            std::filesystem::rename(source, destination);
+#endif
+        }
+
+        bool EndsWithSuffix(std::string_view value, std::string_view suffix) noexcept
+        {
+            if (value.size() < suffix.size())
+            {
+                return false;
+            }
+            const std::size_t offset = value.size() - suffix.size();
+            for (std::size_t i = 0; i < suffix.size(); ++i)
+            {
+                unsigned char left = static_cast<unsigned char>(value[offset + i]);
+                unsigned char right = static_cast<unsigned char>(suffix[i]);
+#ifdef _WIN32
+                if (left >= 'A' && left <= 'Z') left = static_cast<unsigned char>(left + ('a' - 'A'));
+                if (right >= 'A' && right <= 'Z') right = static_cast<unsigned char>(right + ('a' - 'A'));
+#endif
+                if (left != right)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        template <typename Action>
+        void EnumerateFiles(const FileSystemPath& root, Action&& action)
+        {
+            for (std::filesystem::recursive_directory_iterator iterator(root), end;
+                iterator != end; ++iterator)
+            {
+                if (!iterator->is_directory())
+                {
+                    action(iterator->path());
+                }
+            }
+        }
+
+        template <typename Action>
+        void EnumerateFiles(const FileSystemPath& root, std::string_view suffix,
+            Action&& action)
+        {
+            EnumerateFiles(root, [&](const FileSystemPath& path)
+            {
+                if (EndsWithSuffix(PathToUtf8(path.filename()), suffix))
+                {
+                    action(path);
+                }
+            });
+        }
+
+        bool HasExtension(const FileSystemPath& path)
+        {
+            // Path.GetExtension scans the final path component from the end.
+            // A trailing dot is no extension; a leading dot followed by text
+            // (for example .tool) is an extension.
+            const std::string name = PathToUtf8(path.filename());
+            const std::size_t dot = name.rfind('.');
+            return dot != std::string::npos && dot + 1 < name.size();
+        }
+
+#ifdef _WIN32
+        bool IsDotNetWhiteSpace(wchar_t value) noexcept
+        {
+            if (value >= L'\t' && value <= L'\r')
+            {
+                return true;
+            }
+            switch (value)
+            {
+            case 0x0020:
+            case 0x0085:
+            case 0x00A0:
+            case 0x1680:
+            case 0x2028:
+            case 0x2029:
+            case 0x202F:
+            case 0x205F:
+            case 0x3000:
+                return true;
+            default:
+                return value >= 0x2000 && value <= 0x200A;
+            }
+        }
+
+        std::wstring QuoteWindowsArgument(std::wstring_view value)
+        {
+            bool simple = !value.empty();
+            if (simple)
+            {
+                for (wchar_t ch : value)
+                {
+                    if (IsDotNetWhiteSpace(ch) || ch == L'"')
+                    {
+                        simple = false;
+                        break;
+                    }
+                }
+            }
+            if (simple)
+            {
+                return std::wstring(value);
+            }
+
+            std::wstring result;
+            result.push_back(L'"');
+            std::size_t slashes = 0;
+            for (wchar_t ch : value)
+            {
+                if (ch == L'\\')
+                {
+                    ++slashes;
+                    continue;
+                }
+                if (ch == L'"')
+                {
+                    result.append(slashes * 2 + 1, L'\\');
+                    result.push_back(L'"');
+                    slashes = 0;
+                    continue;
+                }
+                result.append(slashes, L'\\');
+                slashes = 0;
+                result.push_back(ch);
+            }
+            result.append(slashes * 2, L'\\');
+            result.push_back(L'"');
+            return result;
+        }
+
+        std::string WindowsErrorMessage(DWORD error)
+        {
+            if (error == ERROR_BAD_EXE_FORMAT || error == ERROR_EXE_MACHINE_TYPE_MISMATCH)
+            {
+                return "The specified executable is not a valid application for this OS platform.";
+            }
+            LPWSTR buffer = nullptr;
+            const DWORD length = ::FormatMessageW(
+                FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
+                    | FORMAT_MESSAGE_IGNORE_INSERTS,
+                nullptr, error, 0, reinterpret_cast<LPWSTR>(&buffer), 0, nullptr);
+            if (length == 0 || buffer == nullptr)
+            {
+                return std::system_category().message(static_cast<int>(error));
+            }
+            std::wstring_view message(buffer, length);
+            while (!message.empty() && (message.back() == L'\r' || message.back() == L'\n'))
+            {
+                message.remove_suffix(1);
+            }
+            std::string result = WideToUtf8(message);
+            ::LocalFree(buffer);
+            return result;
+        }
+#endif
+
+        std::runtime_error ProcessStartFailure(const FileSystemPath& binary,
+            const FileSystemPath& workingDirectory, const std::string& error)
+        {
+            return std::runtime_error(
+                "An error occurred trying to start process '" + PathToUtf8(binary)
+                + "' with working directory '" + PathToUtf8(workingDirectory)
+                + "'. " + error);
+        }
+
+        bool StartProcess(const FileSystemPath& binary,
+            const FileSystemPath& workingDirectory,
+            const std::vector<std::string>& arguments)
+        {
+#ifdef _WIN32
+            std::wstring command = L"\"" + binary.native() + L"\"";
+            for (const std::string& argument : arguments)
+            {
+                command.push_back(L' ');
+                command += QuoteWindowsArgument(Utf8ToWide(argument));
+            }
+            std::vector<wchar_t> mutableCommand(command.begin(), command.end());
+            mutableCommand.push_back(L'\0');
+
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            PROCESS_INFORMATION process{};
+            if (!::CreateProcessW(nullptr, mutableCommand.data(), nullptr, nullptr, FALSE,
+                    0, nullptr, workingDirectory.c_str(), &startup, &process))
+            {
+                const DWORD error = ::GetLastError();
+                throw ProcessStartFailure(binary, workingDirectory,
+                    WindowsErrorMessage(error));
+            }
+            ::CloseHandle(process.hThread);
+            ::CloseHandle(process.hProcess);
+            return true;
+#else
+            std::vector<std::string> storage;
+            storage.reserve(arguments.size() + 1);
+            storage.push_back(PathToUtf8(binary));
+            storage.insert(storage.end(), arguments.begin(), arguments.end());
+            std::vector<char*> argv;
+            argv.reserve(storage.size() + 1);
+            for (std::string& value : storage)
+            {
+                argv.push_back(value.data());
+            }
+            argv.push_back(nullptr);
+
+            int pipefd[2]{-1, -1};
+#if defined(__linux__) && defined(O_CLOEXEC)
+            if (::pipe2(pipefd, O_CLOEXEC) != 0)
+            {
+                throw std::system_error(errno, std::generic_category());
+            }
+#else
+            if (::pipe(pipefd) != 0)
+            {
+                throw std::system_error(errno, std::generic_category());
+            }
+            for (int fd : pipefd)
+            {
+                const int flags = ::fcntl(fd, F_GETFD);
+                if (flags < 0 || ::fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0)
+                {
+                    const int error = errno;
+                    ::close(pipefd[0]);
+                    ::close(pipefd[1]);
+                    throw std::system_error(error, std::generic_category());
+                }
+            }
+#endif
+
+            const std::string binaryText = PathToUtf8(binary);
+            const std::string workingText = PathToUtf8(workingDirectory);
+
+            std::error_code directoryError;
+            if (std::filesystem::is_directory(binary, directoryError) && !directoryError)
+            {
+                ::close(pipefd[0]);
+                ::close(pipefd[1]);
+                throw std::runtime_error(
+                    "The FileName property should not be a directory unless UseShellExecute is set.");
+            }
+
+            sigset_t allSignals{};
+            sigset_t oldSignals{};
+            ::sigfillset(&allSignals);
+            const int maskResult = ::pthread_sigmask(SIG_SETMASK, &allSignals, &oldSignals);
+            if (maskResult != 0)
+            {
+                ::close(pipefd[0]);
+                ::close(pipefd[1]);
+                throw std::system_error(maskResult, std::generic_category());
+            }
+
+            const pid_t pid = ::fork();
+            const int forkError = errno;
+            if (pid != 0)
+            {
+                (void)::pthread_sigmask(SIG_SETMASK, &oldSignals, nullptr);
+            }
+            if (pid < 0)
+            {
+                ::close(pipefd[0]);
+                ::close(pipefd[1]);
+                throw ProcessStartFailure(binary, workingDirectory,
+                    std::error_code(forkError, std::generic_category()).message());
+            }
+            if (pid == 0)
+            {
+                ::close(pipefd[0]);
+                auto fail = [&](int error) noexcept
+                {
+                    const char* bytes = reinterpret_cast<const char*>(&error);
+                    std::size_t written = 0;
+                    while (written < sizeof(error))
+                    {
+                        const ssize_t count = ::write(pipefd[1], bytes + written,
+                            sizeof(error) - written);
+                        if (count > 0)
+                        {
+                            written += static_cast<std::size_t>(count);
+                        }
+                        else if (count < 0 && errno == EINTR)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    ::_exit(127);
+                };
+
+                struct sigaction defaultAction{};
+                defaultAction.sa_handler = SIG_DFL;
+                ::sigemptyset(&defaultAction.sa_mask);
+                for (int signal = 1; signal < NSIG; ++signal)
+                {
+                    if (signal == SIGKILL || signal == SIGSTOP)
+                    {
+                        continue;
+                    }
+                    struct sigaction current{};
+                    if (::sigaction(signal, nullptr, &current) == 0
+                        && current.sa_handler != SIG_DFL
+                        && current.sa_handler != SIG_IGN)
+                    {
+                        (void)::sigaction(signal, &defaultAction, nullptr);
+                    }
+                }
+                (void)::pthread_sigmask(SIG_SETMASK, &oldSignals, nullptr);
+
+                if (::chdir(workingText.c_str()) != 0)
+                {
+                    fail(errno);
+                }
+                ::execv(binaryText.c_str(), argv.data());
+                fail(errno);
+            }
+
+            ::close(pipefd[1]);
+            int launchError = 0;
+            std::size_t received = 0;
+            while (received < sizeof(launchError))
+            {
+                const ssize_t count = ::read(pipefd[0],
+                    reinterpret_cast<char*>(&launchError) + received,
+                    sizeof(launchError) - received);
+                if (count > 0)
+                {
+                    received += static_cast<std::size_t>(count);
+                    continue;
+                }
+                if (count == 0)
+                {
+                    break;
+                }
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                launchError = errno;
+                received = sizeof(launchError);
+                break;
+            }
+            ::close(pipefd[0]);
+            if (received != 0)
+            {
+                int status = 0;
+                while (::waitpid(pid, &status, 0) < 0 && errno == EINTR)
+                {
+                }
+                throw ProcessStartFailure(binary, workingDirectory,
+                    std::error_code(launchError, std::generic_category()).message());
+            }
+            return true;
+#endif
+        }
+    }
+
+    bool ServerUpdate::Enabled() noexcept
+    {
+        return GetState().Enabled.load(std::memory_order_relaxed);
+    }
+
+    void ServerUpdate::Enabled(bool value) noexcept
+    {
+        GetState().Enabled.store(value, std::memory_order_relaxed);
+    }
+
+    ServerUpdate::TimeSpan ServerUpdate::Interval() noexcept
+    {
+        return TimeSpan(GetState().IntervalTicks.load(std::memory_order_relaxed));
+    }
+
+    void ServerUpdate::Interval(TimeSpan value) noexcept
+    {
+        GetState().IntervalTicks.store(value.count(), std::memory_order_relaxed);
+    }
+
+    std::optional<UpdateInfo> ServerUpdate::Pending()
+    {
+        State& state = GetState();
+        const std::lock_guard<std::mutex> guard(state.PendingGate);
+        return state.Pending;
+    }
+
+    bool ServerUpdate::Staged() noexcept
+    {
+        return GetState().Staged.load(std::memory_order_acquire);
+    }
+
+    bool ServerUpdate::Supervised() noexcept
+    {
+        const char* invocation = std::getenv("INVOCATION_ID");
+        if (invocation != nullptr && *invocation != '\0')
+        {
+            return true;
+        }
+        const char* listenPid = std::getenv("LISTEN_PID");
+        return listenPid != nullptr && *listenPid != '\0';
+    }
+
+    bool ServerUpdate::AtStartup(const std::vector<std::string>& commandLine)
+    {
+        State& state = GetState();
+        {
+            auto relaunch = std::make_shared<const std::vector<std::string>>(commandLine);
+            state.Relaunch.store(std::move(relaunch), std::memory_order_release);
+            const std::int64_t now = UtcNowTicks();
+            const std::int64_t interval =
+                state.IntervalTicks.load(std::memory_order_relaxed);
+            state.NextCheckTicks.store(AddDateTime(now, interval),
+                std::memory_order_relaxed);
+        }
+
+        const std::string target = BaseDirectoryText();
+        SweepOld(target);
+        if (!Enabled() || Detail::ServerUpdateUpdaterDisabled())
+        {
+            return false;
+        }
+
+        std::optional<UpdateInfo> update;
+        try
+        {
+            update = Detail::ServerUpdateUpdaterCheck();
+        }
+        catch (const std::exception& ex)
+        {
+            WriteLine(std::string("[update] could not check: ") + ex.what());
+            return false;
+        }
+        if (!update)
+        {
+            const std::optional<std::string> reason = UpdateCheck::LastReason();
+            if (reason && !reason->empty())
+            {
+                WriteLine(std::string("[update] ") + *reason);
+            }
+            return false;
+        }
+
+        WriteLine(std::string("[update] ")
+            + Detail::ServerUpdateUpdaterDescribe(*update));
+        if (!Stage(*update))
+        {
+            WriteLine(std::string("[update] carrying on with ") + BuildVersion::Display());
+            return false;
+        }
+        return Swap("before binding");
+    }
+
+    bool ServerUpdate::ShouldRestart(std::int32_t playerCount)
+    {
+        State& state = GetState();
+        if (!Enabled() || Detail::ServerUpdateUpdaterDisabled())
+        {
+            return false;
+        }
+        if (state.Staged.load(std::memory_order_acquire))
+        {
+            if (playerCount > 0)
+            {
+                return false;
+            }
+            return Swap("the server is empty");
+        }
+
+        {
+            const std::lock_guard<std::mutex> guard(state.Gate);
+            if (state.Working || UtcNowTicks()
+                < state.NextCheckTicks.load(std::memory_order_relaxed))
+            {
+                return false;
+            }
+            state.Working = true;
+            const std::int64_t now = UtcNowTicks();
+            const std::int64_t interval =
+                state.IntervalTicks.load(std::memory_order_relaxed);
+            state.NextCheckTicks.store(AddDateTime(now, interval),
+                std::memory_order_relaxed);
+        }
+
+        std::thread([]
+        {
+            State& taskState = GetState();
+            struct WorkingFinally final
+            {
+                State& Value;
+                ~WorkingFinally() noexcept
+                {
+                    try
+                    {
+                        const std::lock_guard<std::mutex> guard(Value.Gate);
+                        Value.Working = false;
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            } finally{taskState};
+
+            try
+            {
+                try
+                {
+                    std::optional<UpdateInfo> update = Detail::ServerUpdateUpdaterCheck();
+                    if (update)
+                    {
+                        WriteLine(std::string("[update] ")
+                            + Detail::ServerUpdateUpdaterDescribe(*update));
+                        if (Stage(*update))
+                        {
+                            WriteLine("[update] staged; it will be applied "
+                                "as soon as the server is empty");
+                        }
+                    }
+                }
+                catch (const std::exception& ex)
+                {
+                    WriteLine(std::string("[update] check failed: ") + ex.what());
+                }
+            }
+            catch (...)
+            {
+                // Task.Run stores exceptions thrown by the delegate; this task
+                // is intentionally unobserved by the caller.
+            }
+        }).detach();
+        return false;
+    }
+
+    bool ServerUpdate::Stage(UpdateInfo update)
+    {
+        if (!DesktopUpdate::Supported())
+        {
+            std::optional<std::string> error = DesktopUpdate::LastError();
+            const std::string why = error ? *error : "the directory is not writable";
+            WriteLine(std::string("[update] this installation cannot update itself (")
+                + why + "); fetch it from " + OptionalText(update.PageUrl.Get()));
+            return false;
+        }
+
+        WriteLine(std::string("[update] fetching ")
+            + OptionalText(update.AssetName.Get()));
+        if (!DesktopUpdate::Stage(update))
+        {
+            WriteLine(std::string("[update] could not stage: ")
+                + OptionalText(DesktopUpdate::LastError()));
+            return false;
+        }
+
+        State& state = GetState();
+        {
+            const std::lock_guard<std::mutex> guard(state.PendingGate);
+            state.Pending = update;
+        }
+        state.Staged.store(true, std::memory_order_release);
+        return true;
+    }
+
+    bool ServerUpdate::Swap(const std::string& why)
+    {
+        const std::string staged = DesktopUpdate::StagedBuildPath();
+        const std::string target = BaseDirectoryText();
+        if (!DirectoryExists(PathFromUtf8(staged)))
+        {
+            GetState().Staged.store(false, std::memory_order_release);
+            return false;
+        }
+
+        std::string version = "the new build";
+        if (Pending().has_value())
+        {
+            const std::optional<UpdateInfo> pending = Pending();
+            if (!pending)
+            {
+                throw InvalidOperationException("Nullable object must have a value.");
+            }
+            const std::optional<Version>& pendingVersion = pending->Version.Get();
+            if (!pendingVersion)
+            {
+                throw NullReferenceException();
+            }
+            version = pendingVersion->ToString();
+        }
+        WriteLine(std::string("[update] applying ") + version + " (" + why + ")");
+
+        try
+        {
+            ReplaceInPlace(staged, target);
+        }
+        catch (const std::exception& ex)
+        {
+            WriteLine(std::string("[update] the copy failed: ") + ex.what());
+            WriteLine(std::string("[update] the new build is in ") + staged
+                + " -- copy it over " + target + " by hand");
+            GetState().Staged.store(false, std::memory_order_release);
+            return false;
+        }
+
+        GetState().Staged.store(false, std::memory_order_release);
+        if (Supervised())
+        {
+            WriteLine("[update] applied; exiting for the supervisor "
+                "to start the new build");
+            return true;
+        }
+        if (!Restart(target))
+        {
+            WriteLine("[update] applied, but could not restart -- "
+                "this server is still running the old build until it is "
+                "restarted by hand");
+            return false;
+        }
+        WriteLine("[update] applied; restarting");
+        return true;
+    }
+
+    void ServerUpdate::ReplaceInPlace(const std::string& source, const std::string& target)
+    {
+        const FileSystemPath sourcePath = PathFromUtf8(source);
+        const FileSystemPath targetPath = PathFromUtf8(target);
+        EnumerateFiles(sourcePath, [&](const FileSystemPath& path)
+        {
+            const FileSystemPath relative = path.lexically_relative(sourcePath);
+            const FileSystemPath destination = targetPath / relative;
+            const FileSystemPath directory = destination.parent_path();
+            if (!directory.empty())
+            {
+                std::filesystem::create_directories(directory);
+            }
+            const FileSystemPath incoming = PathFromUtf8(
+                PathToUtf8(destination) + IncomingSuffix);
+            std::filesystem::copy_file(path, incoming,
+                std::filesystem::copy_options::overwrite_existing);
+            if (FileExists(destination))
+            {
+                Displace(PathToUtf8(destination));
+            }
+            MoveNoReplace(incoming, destination);
+            MakeExecutable(PathToUtf8(destination));
+        });
+    }
+
+    void ServerUpdate::Displace(const std::string& destination)
+    {
+        const FileSystemPath destinationPath = PathFromUtf8(destination);
+        try
+        {
+            DeleteFile(destinationPath);
+            return;
+        }
+        catch (const std::filesystem::filesystem_error&)
+        {
+            // IOException / UnauthorizedAccessException equivalent: in-use
+            // files fall through to the rename, whose failure remains visible.
+        }
+
+        const FileSystemPath aside = PathFromUtf8(destination + OldSuffix);
+        DeleteFile(aside);
+        MoveNoReplace(destinationPath, aside);
+    }
+
+    void ServerUpdate::SweepOld(const std::string& target) noexcept
+    {
+        try
+        {
+            const FileSystemPath targetPath = PathFromUtf8(target);
+            EnumerateFiles(targetPath, OldSuffix, [](const FileSystemPath& path)
+            {
+                try
+                {
+                    DeleteFile(path);
+                }
+                catch (...)
+                {
+                }
+            });
+            EnumerateFiles(targetPath, IncomingSuffix, [](const FileSystemPath& path)
+            {
+                try
+                {
+                    DeleteFile(path);
+                }
+                catch (...)
+                {
+                }
+            });
+        }
+        catch (...)
+        {
+        }
+    }
+
+    bool ServerUpdate::Restart(const std::string& target) noexcept
+    {
+        try
+        {
+            const FileSystemPath targetPath = PathFromUtf8(target);
+            const FileSystemPath binary = targetPath / PathFromUtf8(UpdateCheck::BinaryName());
+            std::vector<std::string> relaunch;
+            State& state = GetState();
+            for (std::int32_t i = 0;; ++i)
+            {
+                const std::shared_ptr<const std::vector<std::string>> lengthView =
+                    state.Relaunch.load(std::memory_order_acquire);
+                if (static_cast<std::size_t>(i) >= lengthView->size())
+                {
+                    break;
+                }
+                const std::shared_ptr<const std::vector<std::string>> valueView =
+                    state.Relaunch.load(std::memory_order_acquire);
+                relaunch.push_back(valueView->at(static_cast<std::size_t>(i)));
+            }
+            return StartProcess(binary, targetPath, relaunch);
+        }
+        catch (const std::exception& ex)
+        {
+            WriteLine(std::string("[update] could not restart: ") + ex.what());
+            return false;
+        }
+        catch (...)
+        {
+            WriteLine("[update] could not restart");
+            return false;
+        }
+    }
+
+    void ServerUpdate::MakeExecutable(const std::string& path) noexcept
+    {
+#ifdef _WIN32
+        (void)path;
+        return;
+#else
+        try
+        {
+            const FileSystemPath file = PathFromUtf8(path);
+            if (HasExtension(file))
+            {
+                return;
+            }
+            struct stat status{};
+            if (::stat(file.c_str(), &status) != 0)
+            {
+                throw std::system_error(errno, std::generic_category());
+            }
+            if (::chmod(file.c_str(), status.st_mode | S_IXUSR | S_IXGRP | S_IXOTH) != 0)
+            {
+                throw std::system_error(errno, std::generic_category());
+            }
+        }
+        catch (...)
+        {
+        }
+#endif
+    }
+}
+
+namespace MphRead::Mods::Network::Detail
+{
+    bool DedicatedServerServerUpdateShouldRestart(std::int32_t peerCount)
+    {
+        return MphRead::Mods::Update::ServerUpdate::ShouldRestart(peerCount);
+    }
+}

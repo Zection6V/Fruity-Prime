@@ -1890,11 +1890,9 @@ namespace
             ByteVector zip64End;
             PushU32(zip64End, 0x06064B50U);
             PushU64(zip64End, 44U);
-#if defined(_WIN32)
+            // Zip64EndOfCentralDirectoryRecord.WriteBlock writes the
+            // version-made-by field as MS-DOS/45 on every platform.
             PushU16(zip64End, 45U);
-#else
-            PushU16(zip64End, static_cast<std::uint16_t>(0x0300U | 45U));
-#endif
             PushU16(zip64End, 45U);
             PushU32(zip64End, 0U);
             PushU32(zip64End, 0U);
@@ -1916,10 +1914,16 @@ namespace
         PushU32(end, 0x06054B50U);
         PushU16(end, 0U);
         PushU16(end, 0U);
-        PushU16(end, zip64 ? 0xFFFFU : static_cast<std::uint16_t>(entries.size()));
-        PushU16(end, zip64 ? 0xFFFFU : static_cast<std::uint16_t>(entries.size()));
-        PushU32(end, zip64 ? 0xFFFFFFFFU : static_cast<std::uint32_t>(centralSize));
-        PushU32(end, zip64 ? 0xFFFFFFFFU : static_cast<std::uint32_t>(centralOffset));
+        const std::uint16_t entryCount16 = entries.size() > 0xFFFFU
+            ? 0xFFFFU : static_cast<std::uint16_t>(entries.size());
+        const std::uint32_t centralSize32 = centralSize > 0xFFFFFFFFULL
+            ? 0xFFFFFFFFU : static_cast<std::uint32_t>(centralSize);
+        const std::uint32_t centralOffset32 = centralOffset > 0xFFFFFFFFULL
+            ? 0xFFFFFFFFU : static_cast<std::uint32_t>(centralOffset);
+        PushU16(end, entryCount16);
+        PushU16(end, entryCount16);
+        PushU32(end, centralSize32);
+        PushU32(end, centralOffset32);
         PushU16(end, 0U);
         WriteBytes(stream, end);
     }
@@ -2008,7 +2012,8 @@ namespace MphRead::Mods::MapGen
             Q3Bsp::ReadLevel(*level, import->MapName()));
 
         std::optional<std::string> texturePath = import->ResolveTextures();
-        if (!texturePath && import->Textures() && !import->Textures()->empty())
+        const std::optional<std::string>& requestedTextures = import->Textures();
+        if (!texturePath && requestedTextures && !requestedTextures->empty())
         {
             texturePath = Q3Import::BakeTextures(
                 Q3Bsp::Load(*level, import->MapName()), import, verbose);
@@ -2076,8 +2081,10 @@ namespace MphRead::Mods::MapGen
 
         if (verbose)
         {
-            const std::int64_t before = WrapAddInt64(
-                FileLength(*level), texturePath ? FileLength(*texturePath) : 0);
+            const std::int64_t levelLength = FileLength(*level);
+            const std::int64_t textureLength
+                = texturePath ? FileLength(*texturePath) : 0;
+            const std::int64_t before = WrapAddInt64(levelLength, textureLength);
             std::cout << "[mapbundle] " << definition->Name() << " -> " << path
                 << " (" << FileLength(path) / 1024 << " KiB, from "
                 << before / 1024 << " KiB)" << std::endl;

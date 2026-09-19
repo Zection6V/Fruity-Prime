@@ -136,73 +136,144 @@ namespace MphRead::Mods::Launcher::Gui
     {
         if (function != nullptr)
         {
-            _invocations.push_back(Invocation{std::move(target), function});
+            auto list = std::make_shared<std::vector<Invocation>>();
+            list->push_back(Invocation{std::move(target), function});
+            _invocations = std::move(list);
         }
+    }
+
+    SliderRowEventHandler::SliderRowEventHandler(
+        std::shared_ptr<const std::vector<Invocation>> invocations) noexcept
+        : _invocations(std::move(invocations))
+    {
     }
 
     SliderRowEventHandler SliderRowEventHandler::Combine(
         const SliderRowEventHandler& left, const SliderRowEventHandler& right)
     {
-        SliderRowEventHandler combined;
-        combined._invocations.reserve(
-            left._invocations.size() + right._invocations.size());
-        combined._invocations.insert(combined._invocations.end(),
-            left._invocations.begin(), left._invocations.end());
-        combined._invocations.insert(combined._invocations.end(),
-            right._invocations.begin(), right._invocations.end());
-        return combined;
+        if (left.IsNull())
+        {
+            return right;
+        }
+        if (right.IsNull())
+        {
+            return left;
+        }
+
+        auto list = std::make_shared<std::vector<Invocation>>();
+        list->reserve(left._invocations->size() + right._invocations->size());
+        list->insert(list->end(), left._invocations->begin(), left._invocations->end());
+        list->insert(list->end(), right._invocations->begin(), right._invocations->end());
+        return SliderRowEventHandler(std::move(list));
     }
 
-    void SliderRowEvent::Add(SliderRowEventHandler handler)
+    bool SliderRowEventHandler::IsNull() const noexcept
     {
-        if (handler._invocations.empty())
-        {
-            return;
-        }
-        std::lock_guard lock(_mutex);
-        _handlers.insert(_handlers.end(),
-            std::make_move_iterator(handler._invocations.begin()),
-            std::make_move_iterator(handler._invocations.end()));
+        return !_invocations || _invocations->empty();
     }
 
-    void SliderRowEvent::Remove(SliderRowEventHandler handler)
+    bool operator==(
+        const SliderRowEventHandler& left, const SliderRowEventHandler& right) noexcept
     {
-        if (handler._invocations.empty())
+        if (left.IsNull() || right.IsNull())
+        {
+            return left.IsNull() == right.IsNull();
+        }
+        const auto& a = *left._invocations;
+        const auto& b = *right._invocations;
+        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
+    }
+
+    void SliderRowEvent::Add(const SliderRowEventHandler& handler)
+    {
+        if (handler.IsNull())
         {
             return;
         }
-        std::lock_guard lock(_mutex);
-        if (handler._invocations.size() > _handlers.size())
+
+        std::shared_ptr<const InvocationList> current = _handlers.load();
+        for (;;)
         {
-            return;
-        }
-        const std::size_t count = handler._invocations.size();
-        for (std::size_t end = _handlers.size(); end >= count; --end)
-        {
-            const std::size_t begin = end - count;
-            if (std::equal(handler._invocations.begin(), handler._invocations.end(),
-                _handlers.begin() + static_cast<std::ptrdiff_t>(begin)))
+            std::shared_ptr<const InvocationList> desired;
+            if (!current)
             {
-                _handlers.erase(
-                    _handlers.begin() + static_cast<std::ptrdiff_t>(begin),
-                    _handlers.begin() + static_cast<std::ptrdiff_t>(end));
+                desired = handler._invocations;
+            }
+            else
+            {
+                auto next = std::make_shared<InvocationList>();
+                next->reserve(current->size() + handler._invocations->size());
+                next->insert(next->end(), current->begin(), current->end());
+                next->insert(next->end(),
+                    handler._invocations->begin(), handler._invocations->end());
+                desired = std::move(next);
+            }
+            if (_handlers.compare_exchange_weak(current, desired))
+            {
                 return;
             }
-            if (end == count)
+        }
+    }
+
+    void SliderRowEvent::Remove(const SliderRowEventHandler& handler)
+    {
+        if (handler.IsNull())
+        {
+            return;
+        }
+
+        std::shared_ptr<const InvocationList> current = _handlers.load();
+        for (;;)
+        {
+            if (!current || current->size() < handler._invocations->size())
             {
-                break;
+                return;
+            }
+
+            const std::size_t removeCount = handler._invocations->size();
+            std::optional<std::size_t> match;
+            for (std::size_t start = current->size() - removeCount + 1; start-- > 0;)
+            {
+                if (std::equal(handler._invocations->begin(), handler._invocations->end(),
+                    current->begin() + static_cast<std::ptrdiff_t>(start)))
+                {
+                    match = start;
+                    break;
+                }
+            }
+            if (!match.has_value())
+            {
+                return;
+            }
+
+            std::shared_ptr<const InvocationList> desired;
+            if (removeCount != current->size())
+            {
+                auto next = std::make_shared<InvocationList>();
+                next->reserve(current->size() - removeCount);
+                next->insert(next->end(), current->begin(),
+                    current->begin() + static_cast<std::ptrdiff_t>(*match));
+                next->insert(next->end(),
+                    current->begin() + static_cast<std::ptrdiff_t>(*match + removeCount),
+                    current->end());
+                desired = std::move(next);
+            }
+
+            if (_handlers.compare_exchange_weak(current, desired))
+            {
+                return;
             }
         }
     }
 
     void SliderRowEvent::Invoke(void* sender, const SliderRowEventArgs& args) const
     {
-        std::vector<SliderRowEventHandler::Invocation> handlers;
+        const std::shared_ptr<const InvocationList> handlers = _handlers.load();
+        if (!handlers)
         {
-            std::lock_guard lock(_mutex);
-            handlers = _handlers;
+            return;
         }
-        for (const SliderRowEventHandler::Invocation& handler : handlers)
+        for (const Invocation& handler : *handlers)
         {
             handler.Function(handler.Target.get(), sender, args);
         }
@@ -267,14 +338,14 @@ namespace MphRead::Mods::Launcher::Gui
         }
     }
 
-    void SliderRow::AddValueChanged(SliderRowEventHandler handler)
+    void SliderRow::AddValueChanged(const SliderRowEventHandler& handler)
     {
-        _valueChanged.Add(std::move(handler));
+        _valueChanged.Add(handler);
     }
 
-    void SliderRow::RemoveValueChanged(SliderRowEventHandler handler)
+    void SliderRow::RemoveValueChanged(const SliderRowEventHandler& handler)
     {
-        _valueChanged.Remove(std::move(handler));
+        _valueChanged.Remove(handler);
     }
 
     void SliderRow::InvalidateVisual()
@@ -419,13 +490,13 @@ namespace MphRead::Mods::Launcher::Gui
         GuiBrush dim{GuiColor::FromRgb(70, 76, 90)};
         const std::u16string upper = _control.ToUpperInvariant(RequireLabel());
         const bool labelEnabled = _control.GetIsEnabled();
+        const double labelBoundsHeight = _control.Bounds().Height;
+        const double labelLineHeight = TrackedText::LineHeight(context, 11.0);
         TrackedText::Draw(context, upper, 11.0,
             TrackedTextBrush{labelEnabled
                 ? static_cast<const void*>(&GuiTheme::TextDimBrush)
                 : static_cast<const void*>(&dim)},
-            4.0,
-            (_control.Bounds().Height - TrackedText::LineHeight(context, 11.0)) / 2.0,
-            1.0);
+            4.0, (labelBoundsHeight - labelLineHeight) / 2.0, 1.0);
 
         const GuiRect track = Track();
         context.FillRectangle(SliderRowBrush::From(GuiTheme::PanelLightBrush), track);

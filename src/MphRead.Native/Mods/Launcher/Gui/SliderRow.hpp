@@ -3,10 +3,10 @@
 #include "GuiTheme.hpp"
 #include "TrackedText.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -101,6 +101,11 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] static SliderRowEventHandler Combine(
             const SliderRowEventHandler& left, const SliderRowEventHandler& right);
 
+        [[nodiscard]] bool IsNull() const noexcept;
+
+        friend bool operator==(
+            const SliderRowEventHandler& left, const SliderRowEventHandler& right) noexcept;
+
     private:
         struct Invocation final
         {
@@ -115,7 +120,10 @@ namespace MphRead::Mods::Launcher::Gui
             }
         };
 
-        std::vector<Invocation> _invocations;
+        explicit SliderRowEventHandler(
+            std::shared_ptr<const std::vector<Invocation>> invocations) noexcept;
+
+        std::shared_ptr<const std::vector<Invocation>> _invocations;
 
         friend class SliderRowEvent;
     };
@@ -123,15 +131,16 @@ namespace MphRead::Mods::Launcher::Gui
     class SliderRowEvent final
     {
     public:
-        void Add(SliderRowEventHandler handler);
-        void Remove(SliderRowEventHandler handler);
+        void Add(const SliderRowEventHandler& handler);
+        void Remove(const SliderRowEventHandler& handler);
 
     private:
         friend class SliderRow;
         void Invoke(void* sender, const SliderRowEventArgs& args) const;
 
-        mutable std::mutex _mutex;
-        std::vector<SliderRowEventHandler::Invocation> _handlers;
+        using Invocation = SliderRowEventHandler::Invocation;
+        using InvocationList = std::vector<Invocation>;
+        std::atomic<std::shared_ptr<const InvocationList>> _handlers{};
     };
 
     class SliderRowControlAdapter
@@ -209,8 +218,8 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] std::int32_t Value() const noexcept;
         void Value(std::int32_t value);
 
-        void AddValueChanged(SliderRowEventHandler handler);
-        void RemoveValueChanged(SliderRowEventHandler handler);
+        void AddValueChanged(const SliderRowEventHandler& handler);
+        void RemoveValueChanged(const SliderRowEventHandler& handler);
 
         void InvalidateVisual();
 

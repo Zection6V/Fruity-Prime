@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using OpenTK.Graphics.OpenGL;
 using ReFuel.Stb;
+using OpenTK.Windowing.GraphicsLibraryFramework;
 
 namespace MphRead.Mods
 {
@@ -44,9 +45,38 @@ namespace MphRead.Mods
             return Save(scene, path, scene.ReadSceneTarget);
         }
 
+        /// <summary>
+        /// Save what the window holds when there is no scene at all -- the
+        /// launcher, drawn into the game window with nothing behind it.
+        ///
+        /// Same rules as <see cref="SaveWindow(Scene, string)"/>: the window has to be
+        /// visible, and this has to be called after the draw and before the
+        /// buffer swap. There is no scene to describe if it comes out black,
+        /// which is itself the answer -- a black frame here means the overlay
+        /// drew nothing.
+        /// </summary>
+        public static bool SaveWindow(int width, int height, string path)
+        {
+            return Save(scene: null, path, (out int w, out int h) =>
+            {
+                w = width;
+                h = height;
+                if (width <= 0 || height <= 0)
+                {
+                    return null;
+                }
+                byte[] buffer = new byte[width * height * 3];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, 0);
+                GL.ReadBuffer(ReadBufferMode.Back);
+                GL.PixelStore(PixelStoreParameter.PackAlignment, 1);
+                GL.ReadPixels(0, 0, width, height, PixelFormat.Rgb, PixelType.UnsignedByte, buffer);
+                return buffer;
+            });
+        }
+
         private delegate byte[]? ReadPixels(out int width, out int height);
 
-        private static bool Save(Scene scene, string path, ReadPixels read)
+        private static bool Save(Scene? scene, string path, ReadPixels read)
         {
             try
             {
@@ -150,6 +180,16 @@ namespace MphRead.Mods
         {
             try
             {
+                // OpenTK can call a null native function pointer for an absent
+                // extension. A managed catch cannot recover from that fault.
+                if (OperatingSystem.IsAndroid()
+                    || (ContextVersion() < new Version(4, 3) && !GLFW.ExtensionSupported("GL_KHR_debug"))
+                    || GLFW.GetProcAddress("glDebugMessageCallback") == IntPtr.Zero)
+                {
+                    report("GL debug output unavailable; continuing without optional diagnostics.");
+                    return;
+                }
+                _messagesLogged = 0;
                 _debugCallback = (source, type, id, severity, length, message, param) =>
                 {
                     if (severity == DebugSeverity.DebugSeverityNotification || _messagesLogged >= 12)
@@ -157,8 +197,15 @@ namespace MphRead.Mods
                         return;
                     }
                     _messagesLogged++;
-                    string text = System.Runtime.InteropServices.Marshal.PtrToStringAnsi(message, length);
-                    report($"GL says: [{severity}] {type} from {source}: {text}");
+                    try
+                    {
+                        string text = System.Runtime.InteropServices.Marshal.PtrToStringAnsi(message, length);
+                        report($"GL says: [{severity}] {type} from {source}: {text}");
+                    }
+                    catch (Exception)
+                    {
+                        // Diagnostic sinks must never throw through a driver callback.
+                    }
                 };
                 GL.Enable(EnableCap.DebugOutput);
                 GL.Enable((EnableCap)All.DebugOutputSynchronous);
@@ -171,6 +218,12 @@ namespace MphRead.Mods
             }
         }
 
+        private static Version ContextVersion()
+        {
+            string first = (GL.GetString(StringName.Version) ?? "").Split(' ')[0];
+            return Version.TryParse(first, out var version) ? version : new Version(0, 0);
+        }
+
         public static string DescribeContext()
         {
             try
@@ -178,7 +231,9 @@ namespace MphRead.Mods
                 string vendor = GL.GetString(StringName.Vendor) ?? "?";
                 string renderer = GL.GetString(StringName.Renderer) ?? "?";
                 string version = GL.GetString(StringName.Version) ?? "?";
-                int flags = GL.GetInteger((GetPName)All.ContextFlags);
+                Version contextVersion = ContextVersion();
+                int flags = contextVersion >= new Version(3, 0)
+                    ? GL.GetInteger((GetPName)All.ContextFlags) : 0;
                 // The one that actually decides whether immediate mode
                 // exists. The profile mask can say "compatibility" while this
                 // bit has already removed every deprecated entry point.
@@ -186,8 +241,10 @@ namespace MphRead.Mods
                     ? ", FORWARD-COMPATIBLE (deprecated entry points removed, "
                         + "which is all of immediate mode)"
                     : "";
-                int mask = GL.GetInteger((GetPName)All.ContextProfileMask);
-                string profile = (mask & (int)All.ContextCoreProfileBit) != 0
+                int mask = contextVersion >= new Version(3, 2)
+                    ? GL.GetInteger((GetPName)All.ContextProfileMask) : 0;
+                string profile = contextVersion < new Version(3, 2) ? "legacy"
+                    : (mask & (int)All.ContextCoreProfileBit) != 0
                     ? "CORE (immediate mode is unavailable, which renders everything black)"
                     : (mask & (int)All.ContextCompatibilityProfileBit) != 0 ? "compatibility" : "unreported";
                 return $"GL {version}, profile {profile}{forward}, {vendor} / {renderer}";

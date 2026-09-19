@@ -59,24 +59,12 @@ jobs:
             rid: linux-arm64
             summary: the dedicated server and the directory, for a Raspberry Pi
             extra: "-p:MphReadServer=true"
-          # macOS, both processors. Cross-compiled here like the rest: the
-          # launcher is Avalonia on every platform now, so there is nothing in
-          # a mac build that has to be produced on a mac. Nobody has started
-          # one -- see the known gaps in CLAUDE.md.
-          - id: osx-x64
-            rid: osx-x64
-            summary: the game and the launcher, for an Intel Mac
-            extra: ""
-          - id: osx-arm64
-            rid: osx-arm64
-            summary: the game and the launcher, for an Apple Silicon Mac
-            extra: ""
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       # Cook every custom map into the one file it ships as. The recipe, the
       # level it converts and the textures baked from it go into a .fpmap,
@@ -88,14 +76,27 @@ jobs:
       - name: cook the map bundles
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
 
-      # Every target is net9.0 and every launcher is Avalonia, so all six of
-      # these come off one Ubuntu runner.
+      # Windows and Linux targets remain cross-published on Ubuntu.
       - name: publish ${{ matrix.summary }}
         run: >
           dotnet publish src/MphRead/MphRead.csproj
           -c Release -r ${{ matrix.rid }} ${{ matrix.extra }}
           --self-contained true -p:PublishSingleFile=true
           -o publish/${{ matrix.id }}
+
+      - name: bounded thumbnail worker regression
+        if: matrix.id == 'linux-x64'
+        run: dotnet run --project tools/thumbnail-batch-check/thumbnail-batch-check.csproj -c Release
+
+      - name: legacy thumbnail diagnostics without KHR_debug
+        if: matrix.id == 'linux-x64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb xauth libgl1-mesa-dri libglx-mesa0 libxinerama1 libxcursor1 libxi6
+          chmod +x publish/linux-x64/FruityPrime
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+            MESA_GL_VERSION_OVERRIDE=2.1 MESA_EXTENSION_OVERRIDE=-GL_KHR_debug \
+            publish/linux-x64/FruityPrime -thumbnailwindowcheck -legacyglcheck
 
       - name: nothing from the game is in the output
         run: tools/check-no-game-assets.sh publish/${{ matrix.id }}
@@ -115,6 +116,47 @@ jobs:
         if: matrix.id == 'win-x64'
         run: tools/check-subsystem.sh gui publish/${{ matrix.id }}/FruityPrime.exe
 
+      # Every avares:// asset the screens name has to be in the package.
+      # Avalonia does not fall back for a font behind one of those: it throws
+      # out of the measure pass, which is a crash on the first screen. Cheap,
+      # and it reads the project rather than the picture, so it holds for the
+      # targets nothing here can start.
+      - name: the launcher's assets are in the package
+        if: matrix.extra == ''
+        run: >
+          tools/check-avares.py src/MphRead/MphRead.csproj
+          -p:RuntimeIdentifier=${{ matrix.rid }}
+
+      # The launcher has to actually come up.
+      #
+      # Nothing else here opens a window: every check above reads the files a
+      # publish produced. So a fault that only exists once the toolkit is
+      # drawing -- a control invalidating itself inside the render pass, which
+      # Avalonia throws on -- passed six green jobs and shipped, and what a
+      # player saw was a program that starts and shows nothing. On Windows
+      # there is not even a console for it to say so in.
+      #
+      # -shellshot opens the real shell window, photographs the front screen,
+      # walks into the browser and presses Escape, and exits non-zero if the
+      # launcher could not be opened at all. It needs a display and no game
+      # files, which is what Xvfb and this runner are. Linux only: it is the
+      # same shared launcher on every desktop target.
+      - name: the launcher opens
+        if: matrix.id == 'linux-x64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgl1 libglx-mesa0
+          xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            publish/${{ matrix.id }}/FruityPrime -shellshot "$RUNNER_TEMP/shellshot"
+
+      - name: the screens it drew
+        if: matrix.id == 'linux-x64' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: launcher-screens
+          path: ${{ runner.temp }}/shellshot
+          if-no-files-found: warn
+
       # Both x64 Linux builds contain a dedicated server -- one with a launcher
       # attached, one without. CI cannot contain the proprietary game files an
       # authoritative server needs, so it verifies the safe startup contract:
@@ -131,10 +173,56 @@ jobs:
           path: publish/${{ matrix.id }}
           if-no-files-found: error
 
+  macos:
+    name: macOS ${{ matrix.rid }}
+    needs: assets
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: osx-arm64
+            runner: macos-latest
+          - rid: osx-x64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: bounded thumbnail worker regression
+        run: dotnet run --project tools/thumbnail-batch-check/thumbnail-batch-check.csproj -c Release
+
+      - name: signing gate regressions
+        run: tools/test-macos-tools.sh
+      - name: cook the map bundles
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
+      - name: publish, sign and validate
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          set -euo pipefail
+          dotnet publish src/MphRead/MphRead.csproj -c Release -r "$RID" \
+            --self-contained true -p:PublishSingleFile=true -o "publish/$RID"
+          chmod +x "publish/$RID/FruityPrime"
+          tools/sign-macos.sh "publish/$RID"
+          tools/check-macos-build.sh "publish/$RID" "$RID"
+          tools/run-macos-smoke.sh "publish/$RID" "$RID"
+          python3 tools/test-compatibility-smoke.py "publish/$RID/FruityPrime"
+          tools/check-no-game-assets.sh "publish/$RID"
+          tools/check-maps-shipped.sh "publish/$RID"
+          VERSION=$(dotnet msbuild src/MphRead/MphRead.csproj -getProperty:Version)
+          tools/package-macos.sh "publish/$RID" dist "$RID" "$VERSION"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: FruityPrime-${{ matrix.rid }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   # The Android head, and the APK a phone can install.
   #
   # Its own job rather than a row in the matrix above, because nothing about it
-  # matches: a different target framework (net9.0-android35.0, not net9.0), a
+  # matches: a different target framework (net10.0-android36.0, not net10.0), a
   # JDK and an Android SDK the other six targets do not need, and an APK rather
   # than a folder of binaries. It is also the only job whose failure is usually
   # about *shared* code -- the head compiles the same sources with ANDROID
@@ -154,7 +242,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       # The Android workload brings the .NET side of the toolchain. It does not
       # bring a JDK, and the Android SDK's build tools are Java.
@@ -176,7 +264,7 @@ jobs:
       - name: cook the map bundles
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
 
-      # net9.0-android35.0 wants platform 35 and its build tools, which a
+      # net10.0-android36.0 wants platform 36 and its build tools, which a
       # runner image does not necessarily carry. This target asks for exactly
       # what the project declares and accepts the licences, instead of naming
       # sdkmanager packages here that would then have to be kept in step with
@@ -188,6 +276,15 @@ jobs:
           -p:AndroidSdkDirectory="$ANDROID_HOME"
           -p:JavaSdkDirectory="$JAVA_HOME"
           -p:AcceptAndroidSDKLicenses=True
+
+      # The same check, on the head it was written for: this is the project
+      # whose asset list drifted from the desktop's, and the APK builds and
+      # signs perfectly well without the fonts its every label asks for.
+      - name: the launcher's assets are in the APK
+        run: >
+          tools/check-avares.py src/MphRead.Android/MphRead.Android.csproj
+          -p:AndroidSdkDirectory="$ANDROID_HOME"
+          -p:JavaSdkDirectory="$JAVA_HOME"
 
       # The one a player would install. Release runs the IL trimmer over this
       # app, which matters here more than usual: the touch controls reach
@@ -261,7 +358,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       - name: publish the dedicated server, for Windows
         run: >

@@ -17,13 +17,11 @@ namespace MphRead.Mods.Launcher
     public static class LauncherPrefs
     {
         /// <summary>
-        /// Where launcher.txt lives. Beside the executable, which is where the
-        /// rest of a portable install keeps its files -- except where the
-        /// program does not own that folder. An Android package's own
-        /// directory is read-only, so the head there points this at the app's
-        /// data directory before anything reads.
+        /// Where launcher.txt lives: Application Support on macOS and beside
+        /// the executable in portable Windows/Linux installs. Android's head
+        /// points this at the app's writable data directory before any reads.
         /// </summary>
-        public static string Directory { get; set; } = AppContext.BaseDirectory;
+        public static string Directory { get; set; } = Platform.AppPaths.UserDataDirectory;
 
         private static string Path => System.IO.Path.Combine(Directory, "launcher.txt");
 
@@ -68,7 +66,7 @@ namespace MphRead.Mods.Launcher
         public static int LastColor { get; set; }
         /// <summary>Bots in an offline match.</summary>
         public static int Bots { get; set; } = 3;
-        /// <summary>0 easy, 1 normal, 2 hard -- PlayerEntity.BotLevel.</summary>
+        /// <summary>0 easy, 1 normal, 2 hard, 3 insane -- PlayerEntity.BotLevel.</summary>
         public static int BotLevel { get; set; } = 1;
         public static int HostPort { get; set; } = Network.NetConfig.DefaultPort;
 
@@ -113,6 +111,41 @@ namespace MphRead.Mods.Launcher
         /// Mods.WindowMode, which is where the window itself lives.
         /// </summary>
         public static WindowStartMode WindowMode { get; set; } = WindowStartMode.Windowed;
+
+        /// <summary>
+        /// The size and corner the game window last had, or zeroes for a
+        /// first run.
+        ///
+        /// The *windowed* geometry, never fullscreen's: a window remembered at
+        /// the size of the monitor and then opened with a title bar is a
+        /// window taller than the screen, and the thing worth putting back is
+        /// what the player dragged it to.
+        ///
+        /// The position travels with the size because half of it is no
+        /// feature: a window that comes back the right shape in the middle of
+        /// the screen has still been moved. Both are checked against the
+        /// displays that exist now before they are used -- see
+        /// <see cref="Mods.WindowGeometry"/> -- because a monitor that has been
+        /// unplugged is a window nobody can reach.
+        /// </summary>
+        public static int WindowWidth { get; set; }
+        public static int WindowHeight { get; set; }
+
+        /// <summary>Where the window's client area started. Meaningless while both sizes are 0.</summary>
+        public static int WindowX { get; set; }
+        public static int WindowY { get; set; }
+
+        /// <summary>
+        /// Whether it was maximized, which is not a size.
+        ///
+        /// Kept apart because restoring a maximized window by its rectangle
+        /// gets it visibly wrong: it comes back filling the screen but not
+        /// *maximized*, so the button says restore, dragging it does nothing
+        /// expected, and it does not follow a change of resolution. The
+        /// rectangle underneath is still saved, so un-maximizing lands where
+        /// it used to.
+        /// </summary>
+        public static bool WindowMaximized { get; set; }
 
         /// <summary>
         /// Whether the program writes a file of everything it can say about
@@ -239,6 +272,22 @@ namespace MphRead.Mods.Launcher
                         case "window_mode":
                             WindowMode = Mods.WindowMode.Parse(value, WindowMode);
                             break;
+                        case "window_size":
+                            ReadPair(value, out int width, out int height);
+                            WindowWidth = width;
+                            WindowHeight = height;
+                            break;
+                        case "window_pos":
+                            ReadPair(value, out int x, out int y);
+                            WindowX = x;
+                            WindowY = y;
+                            break;
+                        case "window_maximized":
+                            if (Boolean.TryParse(value, out bool maximized))
+                            {
+                                WindowMaximized = maximized;
+                            }
+                            break;
                         case "auto_update":
                             if (Boolean.TryParse(value, out bool autoUpdate))
                             {
@@ -268,6 +317,31 @@ namespace MphRead.Mods.Launcher
             }
         }
 
+        /// <summary>
+        /// "1280x768" or "40,60" -- one parser for both, since the only
+        /// difference is which character is in the middle. Leaves both at zero
+        /// on anything it does not understand, which is the value that means
+        /// "no saved geometry".
+        /// </summary>
+        private static void ReadPair(string value, out int first, out int second)
+        {
+            first = 0;
+            second = 0;
+            int at = value.IndexOfAny(new[] { 'x', 'X', ',' });
+            if (at <= 0)
+            {
+                return;
+            }
+            if (Int32.TryParse(value[..at], NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int a)
+                && Int32.TryParse(value[(at + 1)..], NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int b))
+            {
+                first = a;
+                second = b;
+            }
+        }
+
         public static void Save()
         {
             try
@@ -291,7 +365,12 @@ namespace MphRead.Mods.Launcher
                     $"last_kind={LastKind.ToString(CultureInfo.InvariantCulture)}",
                     $"auto_update={AutoUpdate.ToString().ToLowerInvariant()}",
                     $"debug_logs={DebugLogs.ToString().ToLowerInvariant()}",
-                    $"window_mode={(WindowMode == WindowStartMode.BorderlessFullscreen ? "borderless" : "windowed")}"
+                    $"window_mode={(WindowMode == WindowStartMode.BorderlessFullscreen ? "borderless" : "windowed")}",
+                    $"window_size={WindowWidth.ToString(CultureInfo.InvariantCulture)}x"
+                        + WindowHeight.ToString(CultureInfo.InvariantCulture),
+                    $"window_pos={WindowX.ToString(CultureInfo.InvariantCulture)},"
+                        + WindowY.ToString(CultureInfo.InvariantCulture),
+                    $"window_maximized={WindowMaximized.ToString().ToLowerInvariant()}"
                 });
             }
             catch (Exception)

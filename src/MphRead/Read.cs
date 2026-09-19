@@ -19,6 +19,30 @@ namespace MphRead
         private static readonly Dictionary<string, Model> _modelCache = [];
         private static readonly Dictionary<string, Model> _fhModelCache = [];
 
+        /// <summary>
+        /// Every model held in the caches.
+        ///
+        /// For the one caller that has to give GL its resources back: a
+        /// model's display lists are made against a context and live on the
+        /// *model*, which outlives any one scene, so a session that plays a
+        /// second match has to be able to walk them. See
+        /// <c>Scene.UnloadGl</c>.
+        /// </summary>
+        public static IEnumerable<Model> CachedModels
+        {
+            get
+            {
+                foreach (Model model in _modelCache.Values)
+                {
+                    yield return model;
+                }
+                foreach (Model model in _fhModelCache.Values)
+                {
+                    yield return model;
+                }
+            }
+        }
+
         public static void ClearCache()
         {
             _modelCache.Clear();

@@ -41,7 +41,7 @@ LAGS=(0 15 30 60 100 150 250)
 # against any.
 LOSSES=(0 0 0 1 2 3)
 
-BUILD=~/MphRead-dev/src/MphRead/bin/Release/net9.0
+BUILD=~/MphRead-dev/src/MphRead/bin/Release/net10.0
 cp "$BUILD"/FruityPrime.dll "$BUILD"/FruityPrime.deps.json "$BUILD"/FruityPrime.runtimeconfig.json bin/ || exit 1
 GAME=bin/FruityPrime.dll
 

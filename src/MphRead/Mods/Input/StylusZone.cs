@@ -47,6 +47,21 @@ namespace MphRead.Mods.Input
     /// the missile with its ammo count, the weapon and the weapon select --
     /// the alt form in the bottom right corner, and the map filling the
     /// middle, which is where aiming happens.
+    ///
+    /// <para>
+    /// Inside the zone the pen is a pen and not a mouse, and that is three
+    /// rules rather than one. A touch is owned by whatever it went down on
+    /// until it lifts (<see cref="Held"/>), so a drag may wander anywhere
+    /// without becoming something else. Aiming is that drag on the map and
+    /// nothing else (<see cref="Aiming"/>) -- not the pointer's raw movement,
+    /// which for a tablet is the distance the hand travelled to reach the
+    /// weapon it was going for. And the tip never fires
+    /// (<see cref="Capturing"/>): the DS put the trigger on a shoulder button,
+    /// this screen has no trigger on it, and here the tip arrives as the left
+    /// mouse button, which is the fire bind. A touch that begins *outside* the
+    /// zone is an ordinary click and is left alone, which is what a tablet
+    /// player shoots with.
+    /// </para>
     /// </summary>
     public static class StylusZone
     {
@@ -88,8 +103,36 @@ namespace MphRead.Mods.Input
             new Button(StylusRegion.AltForm, 228, 166, 22, "ALT")
         };
 
-        /// <summary>Whether the zone is being used at all.</summary>
-        public static bool Enabled { get; set; }
+        /// <summary>
+        /// Whether the zone is being used at all.
+        ///
+        /// Two switches, one answer: the player's own
+        /// (<see cref="Wanted"/>, "DS bottom screen for a pen tablet") and the
+        /// master above it (<see cref="PointerInput.StylusMode"/>, the
+        /// settings screen's "Stylus mode"). The zone is a pen tablet's bottom
+        /// screen and means nothing without a pen, so the master wins -- and
+        /// it has to, because the zone's own row is *hidden* while stylus mode
+        /// is off. Left ungated, turning stylus mode off changed nothing the
+        /// player could see: the aim was still a drag on the map, the tip
+        /// still did not fire, the wheel was still drawn in a rectangle, and
+        /// the only control that would have undone any of it was no longer on
+        /// the screen.
+        ///
+        /// The player's own answer is kept rather than cleared, so turning
+        /// stylus mode back on restores the zone they drew instead of asking
+        /// them to draw it again.
+        /// </summary>
+        public static bool Enabled
+        {
+            get => Wanted && PointerInput.StylusMode;
+            set => Wanted = value;
+        }
+
+        /// <summary>
+        /// What the player asked for, whatever the master switch says. This is
+        /// what the settings row shows and what is written to the file.
+        /// </summary>
+        public static bool Wanted { get; private set; }
 
         // Where the zone is, as fractions of the window, so it survives a
         // resize and a change of monitor. Width alone: the height follows
@@ -159,15 +202,64 @@ namespace MphRead.Mods.Input
             _placeAnchored = true;
         }
 
-        /// <summary>A drag while placing: the far corner, so far.</summary>
+        /// <summary>
+        /// A drag while placing: the far corner, so far.
+        ///
+        /// The corner the pen went down on stays where it was put, and the
+        /// drag decides only how wide the box is and which way it grows --
+        /// down from that corner, or up onto it. That is not what this did:
+        /// it took the top edge from whichever of the two points was higher
+        /// and then let <see cref="SetRect"/> clamp it, and since the height
+        /// is derived from the width and the width was still growing, a box
+        /// dragged out anywhere near the bottom of the window slid upwards
+        /// under the hand for the whole of the drag. Which is the whole of
+        /// "I cannot put it where I want it".
+        /// </summary>
         public static void PlacementDrag(float x, float y)
         {
             if (!Placing || !_placeAnchored)
             {
                 return;
             }
-            float width = Math.Abs(Math.Clamp(x, 0, 1) - _placeAnchorX);
-            SetRect(Math.Min(_placeAnchorX, x), Math.Min(_placeAnchorY, y), width);
+            x = Math.Clamp(x, 0, 1);
+            y = Math.Clamp(y, 0, 1);
+            Width = Math.Clamp(Math.Abs(x - _placeAnchorX), 0.10f, 1f);
+            float height = Height;
+            float left = Math.Min(_placeAnchorX, x);
+            // Up or down from the anchor, rather than "the higher of the two":
+            // the anchored corner is the one the hand chose and it is the one
+            // that must not move.
+            float top = y >= _placeAnchorY ? _placeAnchorY : _placeAnchorY - height;
+            Left = Math.Clamp(left, 0, Math.Max(0, 1 - Width));
+            Top = Math.Clamp(top, 0, Math.Max(0, 1 - height));
+        }
+
+        /// <summary>
+        /// Move or resize the zone from the keyboard while it is being placed.
+        ///
+        /// A drag puts the rectangle roughly where it goes; a tablet is an
+        /// absolute device and "roughly" is the one thing it cannot live with,
+        /// since the hand learns the position once and then stops looking. The
+        /// arrows move it and the brackets resize it, both by a step small
+        /// enough to land on a pixel and with a finer one on Shift.
+        /// </summary>
+        public static void Nudge(float dx, float dy)
+        {
+            if (!Placing)
+            {
+                return;
+            }
+            Left = Math.Clamp(Left + dx, 0, Math.Max(0, 1 - Width));
+            Top = Math.Clamp(Top + dy, 0, Math.Max(0, 1 - Height));
+        }
+
+        public static void Resize(float by)
+        {
+            if (!Placing)
+            {
+                return;
+            }
+            SetRect(Left, Top, Width + by);
         }
 
         /// <summary>Release: that is the zone. Enabling it is the point of
@@ -186,6 +278,22 @@ namespace MphRead.Mods.Input
             _placeAnchored = false;
         }
 
+        /// <summary>
+        /// Keep what is on screen and stop placing, for a player who moved an
+        /// existing zone with the keys rather than drawing a new one -- there
+        /// is no release to end that, and Escape means "leave it as it was".
+        /// </summary>
+        public static void CommitPlacement()
+        {
+            if (!Placing)
+            {
+                return;
+            }
+            Placing = false;
+            _placeAnchored = false;
+            Enabled = true;
+        }
+
         // ------------------------------------------------------------- input
 
         /// <summary>Where the pen is, this frame.</summary>
@@ -196,13 +304,88 @@ namespace MphRead.Mods.Input
         public static bool Contact { get; private set; }
 
         /// <summary>
-        /// A button that was touched this frame and not the frame before.
-        /// <see cref="StylusRegion.None"/> when nothing was.
+        /// What the touch on the screen right now belongs to.
+        ///
+        /// A touch is owned by whatever it went down on, the way every
+        /// touchscreen in the world works and the way the DS's did: the pen
+        /// may then be dragged anywhere at all and the thing it started on is
+        /// still the thing it is doing. That is what makes the two gestures
+        /// this screen actually has work at all -- dragging the map to aim,
+        /// which wanders over a button constantly, and holding the weapon
+        /// select while taking the pen up to the wheel to choose off it.
+        ///
+        /// The one exception is the row of plain buttons, which stay
+        /// slide-sensitive: the hand runs along BEAM-MSL-WPN with the tip
+        /// down far more often than it taps each one, and none of those three
+        /// is a gesture with an end to protect.
+        /// </summary>
+        public static StylusRegion Held { get; private set; }
+
+        /// <summary>
+        /// A button that was touched and has not been acted on yet.
+        ///
+        /// A latch rather than a flag that is true for one frame, because the
+        /// frames that matter are not the same frames: this is set once per
+        /// *picture* and read once per *simulation step*, and at 144 Hz most
+        /// pictures have no step behind them. The press that landed on one of
+        /// those used to be overwritten by the next frame's None and reach the
+        /// game not at all. Taken with <see cref="TakePressed"/>.
         /// </summary>
         public static StylusRegion Pressed { get; private set; }
 
-        private static StylusRegion _lastRegion;
+        /// <summary>
+        /// Read the pending press and clear it, so one touch is one press
+        /// however many steps or pictures follow it.
+        /// </summary>
+        public static StylusRegion TakePressed()
+        {
+            StylusRegion pressed = Pressed;
+            Pressed = StylusRegion.None;
+            return pressed;
+        }
+
+        /// <summary>
+        /// The pen is dragging the map, which is this game's aiming.
+        ///
+        /// False on the frame the tip lands, which is the frame that carries
+        /// the whole of the distance between wherever the pen was hovering and
+        /// where it was put down -- integrated, that is the view spinning
+        /// round on every touch, which is the fault
+        /// <see cref="PointerInput"/> guards against for a pen that has no
+        /// zone.
+        /// </summary>
+        public static bool Aiming => Enabled && !Placing && Contact
+            && Held == StylusRegion.Aim && _aimReady;
+
+        /// <summary>
+        /// The weapon select is being held down.
+        ///
+        /// The DS's weapon menu is a hold: the wheel is up for as long as the
+        /// tip is on the screen and the weapon under it when the tip lifts is
+        /// the one taken. Pressing the button for a single frame -- which is
+        /// what this did -- opened the wheel and closed it again before the
+        /// pen could be moved anywhere near it, so the menu flickered and
+        /// nothing was ever chosen.
+        /// </summary>
+        public static bool MenuHeld => Enabled && !Placing && Contact
+            && Held == StylusRegion.WeaponSelect;
+
+        /// <summary>
+        /// The pointer belongs to the pen rather than to the game: nothing
+        /// here may fire the gun or turn the view by raw movement.
+        ///
+        /// True for the whole of a touch that began inside the zone, wherever
+        /// the pen has been dragged since, and for the whole of a placement. A
+        /// touch that began outside the zone is an ordinary click and is left
+        /// alone -- which is how a tablet player fires at all, the DS having
+        /// put its trigger on a shoulder button that this screen does not
+        /// have.
+        /// </summary>
+        public static bool Capturing => Placing
+            || (Enabled && Contact && Held != StylusRegion.None);
+
         private static bool _lastContact;
+        private static bool _aimReady;
 
         /// <summary>
         /// One frame of pointer, in window fractions. Called by the renderer
@@ -211,34 +394,66 @@ namespace MphRead.Mods.Input
         /// </summary>
         public static void Update(float x, float y, bool contact)
         {
-            Pressed = StylusRegion.None;
             if (Placing)
             {
                 Region = StylusRegion.None;
+                Held = StylusRegion.None;
+                Pressed = StylusRegion.None;
                 Contact = contact;
                 _lastContact = contact;
+                _aimReady = false;
                 return;
             }
             if (!Enabled)
             {
                 Region = StylusRegion.None;
+                Held = StylusRegion.None;
+                Pressed = StylusRegion.None;
                 Contact = false;
-                _lastRegion = StylusRegion.None;
                 _lastContact = false;
+                _aimReady = false;
                 return;
             }
-            Region = RegionAt(x, y);
-            Contact = contact;
-            // A press is a contact that has just begun, or one that has slid
-            // onto a different button without lifting. The second half
-            // matters on a tablet: the hand moves along the row of buttons
-            // with the tip down far more often than it taps each one.
-            if (contact && Region != StylusRegion.Aim && Region != StylusRegion.None
-                && (!_lastContact || Region != _lastRegion))
+            StylusRegion under = RegionAt(x, y);
+            if (!contact)
             {
-                Pressed = Region;
+                // Nothing is owed to a touch that is over. A press nobody took
+                // is dropped with it rather than being handed to the game
+                // whenever it next looks.
+                Held = StylusRegion.None;
+                Pressed = StylusRegion.None;
+                _aimReady = false;
             }
-            _lastRegion = Region;
+            else if (!_lastContact)
+            {
+                Held = under;
+                _aimReady = false;
+                if (under != StylusRegion.None && under != StylusRegion.Aim
+                    && under != StylusRegion.WeaponSelect)
+                {
+                    Pressed = under;
+                }
+            }
+            else
+            {
+                // A drag that began on one of the plain buttons may walk onto
+                // another; a drag that began on the map or on the select owns
+                // the touch to the end of it.
+                if (Held != StylusRegion.None && Held != StylusRegion.Aim
+                    && Held != StylusRegion.WeaponSelect
+                    && under != Held && under != StylusRegion.None
+                    && under != StylusRegion.Aim)
+                {
+                    Held = under;
+                    if (under != StylusRegion.WeaponSelect)
+                    {
+                        Pressed = under;
+                    }
+                }
+                _aimReady = true;
+            }
+            Region = contact ? Held : under;
+            Contact = contact;
             _lastContact = contact;
         }
 
@@ -266,26 +481,14 @@ namespace MphRead.Mods.Input
             return StylusRegion.Aim;
         }
 
-        /// <summary>
-        /// Whether the pointer is somewhere that must not also aim or fire.
-        ///
-        /// On the DS the stylus aims and the shoulder button fires, so a touch
-        /// on a button is not a shot. Here the pen tip *is* the left mouse
-        /// button, which is the fire bind -- so touching the weapon button
-        /// would fire the weapon it just selected, and dragging the tip
-        /// across the row would turn the view. Both are suppressed while the
-        /// tip is on a button, and neither is touched anywhere else.
-        /// </summary>
-        public static bool OnButton => Enabled && !Placing
-            && Region != StylusRegion.None && Region != StylusRegion.Aim;
-
         public static void Reset()
         {
             Region = StylusRegion.None;
+            Held = StylusRegion.None;
             Pressed = StylusRegion.None;
             Contact = false;
-            _lastRegion = StylusRegion.None;
             _lastContact = false;
+            _aimReady = false;
             Placing = false;
             _placeAnchored = false;
         }

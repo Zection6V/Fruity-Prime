@@ -22,6 +22,9 @@ namespace MphRead.Entities
         private HudObjectInstance _doubleDamageInst = null!;
         private readonly HudObjectInstance[] _weaponSelectInsts = new HudObjectInstance[6];
         private readonly HudObjectInstance[] _selectBoxInsts = new HudObjectInstance[6];
+        /// <summary>Where the six sit on the DS's own screen, as fractions.
+        /// See <c>ModPlaceWeaponSelect</c>.</summary>
+        private readonly Vector2[] _weaponSelectHome = new Vector2[6];
         private HudObjectInstance _textInst = null!;
 
         private HudMeter _healthbarMainMeter = null!;
@@ -210,6 +213,12 @@ namespace MphRead.Entities
                 weaponInst.PositionY = position.Y;
                 boxInst.PositionX = position.X;
                 boxInst.PositionY = position.Y;
+                // Kept, because the wheel does not always go where it was
+                // authored any more: with a pen zone marked out it is drawn
+                // inside that zone, which means these have to be re-derived
+                // every frame from the original fractions rather than moved
+                // once. See ModPlaceWeaponSelect.
+                _weaponSelectHome[i] = position;
                 _weaponSelectInsts[i] = weaponInst;
                 _selectBoxInsts[i] = boxInst;
             }
@@ -740,6 +749,9 @@ namespace MphRead.Entities
             else
             {
                 _hudWeaponMenuOpen = false;
+                // The drag has no state worth keeping between two holds: the
+                // next one starts from the weapon in the player's hands.
+                Mods.Input.WeaponWheel.Close();
             }
             if (ScanVisor)
             {
@@ -914,16 +926,97 @@ namespace MphRead.Entities
 
         private int _hudPreviousWeaponSelection = -1;
 
+        /// <summary>
+        /// Which of the wheel's six the player can equip, for the drag to step
+        /// through. Filled from the instances' own frames rather than from a
+        /// second list of beams, so the order cannot drift from the picture.
+        /// </summary>
+        private readonly bool[] _wheelAvailable = new bool[Mods.Input.WeaponWheel.Slots];
+
         private void UpdateWeaponSelect()
         {
-            BeamType previousWeapon = WeaponSelection;
+            int selection = Mods.Input.WeaponWheel.Absolute
+                ? UpdateWeaponArc()
+                : UpdateWeaponDrag();
+            for (int i = 0; i < 6; i++)
+            {
+                HudObjectInstance weaponInst = _weaponSelectInsts[i];
+                bool available = _availableWeapons[weaponInst.CurrentFrame];
+                weaponInst.Enabled = available;
+                HudObjectInstance boxInst = _selectBoxInsts[i];
+                boxInst.SetIndex(available ? (i == selection ? 2 : 1) : 0, _scene);
+            }
+            if (selection != _hudPreviousWeaponSelection)
+            {
+                _soundSource.PlayFreeSfx(SfxId.HUD_WEAPON_SWITCH2);
+                _hudPreviousWeaponSelection = selection;
+            }
+        }
+
+        /// <summary>
+        /// The wheel answered by dragging: hold, move up or down, let go.
+        /// What a mouse can do. See <see cref="Mods.Input.WeaponWheel"/>.
+        ///
+        /// A tenth of the window's height per weapon, so the whole list is
+        /// about half a screen of movement whatever the window is -- a flick,
+        /// not a haul, and not a number that means something different on
+        /// every monitor.
+        /// </summary>
+        private int UpdateWeaponDrag()
+        {
+            int current = -1;
+            for (int i = 0; i < Mods.Input.WeaponWheel.Slots; i++)
+            {
+                HudObjectInstance inst = _weaponSelectInsts[i];
+                _wheelAvailable[i] = _availableWeapons[inst.CurrentFrame];
+                if ((BeamType)inst.CurrentFrame == CurrentWeapon)
+                {
+                    current = i;
+                }
+            }
+            int selection = Mods.Input.WeaponWheel.Drag(Input.MouseDeltaY,
+                _scene.Size.Y / 10f, _wheelAvailable, current);
+            if (selection >= 0)
+            {
+                WeaponSelection = (BeamType)_weaponSelectInsts[selection].CurrentFrame;
+            }
+            return selection;
+        }
+
+        /// <summary>
+        /// The DS's own: the weapon is the segment of the arc the pointer is
+        /// standing in, which needs a pointer that stands somewhere -- a pen
+        /// on a tablet, or a finger.
+        /// </summary>
+        private int UpdateWeaponArc()
+        {
             int selection = -1;
             float x = Input.MouseState?.X ?? 0;
             float y = Input.MouseState?.Y ?? 0;
             float ratioX = _scene.Size.X / 256f;
             float ratioY = _scene.Size.Y / 192f;
-            float distX = 224 * ratioX - x; // todo: invert for left-handed mode
-            float distY = y - 38 * ratioY;
+            float originX = 0;
+            float originY = 0;
+            // The wheel belongs to the bottom screen, and with a pen zone
+            // marked out that is the zone and not the window: the arc is
+            // measured from its corner, in its units, and a pen that has left
+            // it has left the wheel. See ModPlaceWeaponSelect, which draws it
+            // in the same rectangle -- one description of where the wheel is,
+            // read by the picture and by the hit test.
+            if (Mods.Input.StylusZone.Enabled)
+            {
+                originX = Mods.Input.StylusZone.Left * _scene.Size.X;
+                originY = Mods.Input.StylusZone.Top * _scene.Size.Y;
+                ratioX = Mods.Input.StylusZone.Width * _scene.Size.X / 256f;
+                ratioY = Mods.Input.StylusZone.Height * _scene.Size.Y / 192f;
+                if (x < originX || x >= originX + 256 * ratioX
+                    || y < originY || y >= originY + 192 * ratioY)
+                {
+                    return -1;
+                }
+            }
+            float distX = originX + 224 * ratioX - x; // todo: invert for left-handed mode
+            float distY = y - (originY + 38 * ratioY);
             if (distX > 0 && distY > 0 && distX * distX + distY * distY > 20 * ratioY * 20 * ratioY)
             {
                 float div = distX / distY;
@@ -973,19 +1066,7 @@ namespace MphRead.Entities
                     WeaponSelection = BeamType.VoltDriver;
                 }
             }
-            for (int i = 0; i < 6; i++)
-            {
-                HudObjectInstance weaponInst = _weaponSelectInsts[i];
-                bool available = _availableWeapons[weaponInst.CurrentFrame];
-                weaponInst.Enabled = available;
-                HudObjectInstance boxInst = _selectBoxInsts[i];
-                boxInst.SetIndex(available ? (i == selection ? 2 : 1) : 0, _scene);
-            }
-            if (selection != _hudPreviousWeaponSelection)
-            {
-                _soundSource.PlayFreeSfx(SfxId.HUD_WEAPON_SWITCH2);
-                _hudPreviousWeaponSelection = selection;
-            }
+            return selection;
         }
 
         private void UpdateDamageIndicators()
@@ -1296,6 +1377,7 @@ namespace MphRead.Entities
             {
                 DrawFps();
             }
+            DrawRadar();
             // Before the pause and spectator checks, like the counter above
             // it and for the same reason: somebody watching a match is in the
             // one position where reading what the players are saying is most
@@ -1361,10 +1443,11 @@ namespace MphRead.Entities
             }
             else if (Flags1.TestFlag(PlayerFlags1.WeaponMenuOpen))
             {
+                float wheelScale = ModPlaceWeaponSelect();
                 for (int i = 0; i < 6; i++)
                 {
-                    _scene.DrawHudObject(_selectBoxInsts[i], mode: 1);
-                    _scene.DrawHudObject(_weaponSelectInsts[i], mode: 1);
+                    _scene.DrawHudObject(_selectBoxInsts[i], mode: 1, scale: wheelScale);
+                    _scene.DrawHudObject(_weaponSelectInsts[i], mode: 1, scale: wheelScale);
                 }
             }
             else if (ShowScoreboard)
@@ -1814,7 +1897,8 @@ namespace MphRead.Entities
                     string teamValue2 = ChooseValue2(GameState.TeamDeaths[curTeam], GameState.TeamKills[curTeam]);
                     var teamColor = new ColorRgba(player.Team == Team.Orange ? 0x23Fu : 0x2BEAu);
                     string teamName = $"{teamText} {player.TeamIndex + 1}";
-                    DrawText2D(42, posY, Align.Center, 0, teamName, teamColor, fontSpacing: 8);
+                    DrawText2D(ModScoreNameColumn - 18, posY, Align.Center, 0, teamName,
+                        teamColor, fontSpacing: 8);
                     DrawText2D(ModScoreColumn1, posY, Align.Center, 0, teamValue1, teamColor, fontSpacing: 8);
                     DrawText2D(ModScoreColumn2, posY, Align.Center, 0, teamValue2, teamColor, fontSpacing: 8);
                     posY += _scoreTeamLineSpace;
@@ -1836,7 +1920,8 @@ namespace MphRead.Entities
                     }
                     color = new ColorRgba((byte)(rg * 255), (byte)(rg * 255), 255, 255);
                 }
-                DrawScoreboardPlayer(60, posY, color, _hunterInsts[(int)player.Hunter], slot);
+                DrawScoreboardPlayer(ModScoreNameColumn, posY, color,
+                    _hunterInsts[(int)player.Hunter], slot);
                 DrawText2D(ModScoreColumn1, posY, Align.Center, 0, value1, color, fontSpacing: 8);
                 DrawText2D(ModScoreColumn2, posY, Align.Center, 0, value2, color, fontSpacing: 8);
                 ModDrawPingRow(posY, color, slot);
@@ -2029,9 +2114,19 @@ namespace MphRead.Entities
             float iconBoxX = iconBox * aspectFix;
             float ammoRightX = panelX + panelWidth - 1.5f * scale * aspectFix;
             float y = 46;
-            for (int i = 0; i < _weaponListIcons.Length; i++)
+            // Drawn in _weaponOrder, not in BeamType's own numeric order: that
+            // enum is declaration order (Power Beam, Volt Driver, Missile,
+            // ...), not the cartridge's cycling order (Power Beam, Missile,
+            // Volt Driver, ...), and drawing raw enum order put Missile one
+            // row below where NextWeapon/PrevWeapon actually sends the
+            // selection, which reads as the scroll wheel skipping a weapon.
+            // _weaponOrder is the one true order; every other table here is
+            // still indexed by the beam's own numeric value, since that is
+            // the weapon's identity and not its position in this list.
+            for (int row = 0; row < _weaponOrder.Length; row++)
             {
-                var beam = (BeamType)i;
+                BeamType beam = _weaponOrder[row];
+                int i = (int)beam;
                 if (!AvailableWeapons[beam])
                 {
                     continue;
@@ -3312,6 +3407,187 @@ namespace MphRead.Entities
                 palette: 0, "fps", color, fontSpacing: 8, scale: UnitScale);
             DrawText2D(unit.X - HudAspectFix, NumberY, Align.Right, palette: 0,
                 buffer[..written], color, fontSpacing: 8, scale: NumberScale);
+        }
+
+        /// <summary>
+        /// The round motion-tracker overlay, top-right under the FPS counter.
+        /// See <see cref="Mods.Render.Radar"/> for why nothing here is cut
+        /// from a DS sprite.
+        ///
+        /// Heading-up: this player's facing is always straight up on the
+        /// dial and the world rotates around it, which is why every other
+        /// position is measured against <see cref="FacingVector"/> rather
+        /// than against a fixed compass direction.
+        /// </summary>
+        private void DrawRadar()
+        {
+            if (!Mods.Render.Radar.Enabled)
+            {
+                return;
+            }
+            // Not during the match's own intro fly-through -- the player has
+            // no body yet and the camera is not looking through anyone's
+            // eyes, so a reading centred on "this player" means nothing.
+            // Spectating is different: SpectatorMode.FreeCamera still has a
+            // real followed player underneath it, so that one stays on.
+            if (CameraSequence.Current?.IsIntro == true)
+            {
+                return;
+            }
+            // Nor once the match is over. There is nothing left to navigate
+            // towards -- the players are standing in an orbit shot of the
+            // winner -- and the top right corner it lives in is the corner the
+            // results screen's pickers are drawn in, so it was a dial sitting
+            // on top of the hunter portrait.
+            if (GameState.Multiplayer && GameState.MatchState != MatchState.InProgress)
+            {
+                return;
+            }
+            float u = _scene.Size.Y / 192f;
+            // The dial itself (background, rings, cone) and what sits on it
+            // (the hunter/weapon/power-up blips) now scale apart on request:
+            // the dial was +30%, then asked 20% smaller again (1.3 * 0.8);
+            // the blips were the same +30%, then asked another 20% bigger on
+            // top of that (1.3 * 1.2). The centre triangle standing in for
+            // this player is neither -- it keeps its own size, unscaled.
+            const float dialGrow = 1.3f * 0.8f;
+            const float blipGrow = 1.3f * 1.2f;
+            float radius = 19.44f * dialGrow * u; // 30 -> 22.5 -> 18 -> 9 -> 13.5 -> 16.2 -> 19.44 on request
+            // Margins are to the dial's edge, not its centre, so tightening
+            // them tucks the whole thing into the corner regardless of
+            // radius: right edge sits rightGap from the window's right edge,
+            // top edge sits topGap below the FPS row (which ends around HUD
+            // unit 7) with a few units of clearance.
+            float rightGap = 5f * u;
+            float topGap = 10f * u;
+            float posX = (_scene.Size.X - rightGap - radius) / _scene.Size.X;
+            float posY = (topGap + radius) / _scene.Size.Y;
+
+            // The camera's own view direction, not FacingVector -- that one
+            // is the aim/gun vector (see PlayerInput's _gunVec1 assignments)
+            // and can drift from where the camera is actually pointed, most
+            // visibly with a dynamic (Metroid-style) weapon, where the gun
+            // settles behind the aim point after the camera has already
+            // moved. A heading-up dial has to agree with what is on screen,
+            // which is the camera, whatever the gun is doing.
+            Vector3 facing = CameraInfo.Facing;
+            float fx = facing.X;
+            float fz = facing.Z;
+            float faceLen = MathF.Sqrt(fx * fx + fz * fz);
+            if (faceLen < 0.0001f)
+            {
+                fx = 0f;
+                fz = 1f;
+            }
+            else
+            {
+                fx /= faceLen;
+                fz /= faceLen;
+            }
+            // "Right" on the dial, rotated 90 degrees from facing in the
+            // world's XZ plane. The other rotation (fz, -fx) mirrors the
+            // dial left-right against what the player actually sees, because
+            // screen-right for a forward vector (Fx, Fz) is (-Fz, Fx) in
+            // this engine's XZ handedness, not (Fz, -Fx).
+            float rx = -fz;
+            float rz = fx;
+
+            Mods.Render.Radar.Palette pal = Mods.Render.Radar.PaletteOf;
+
+            if (Mods.Render.Radar.ShowBackground)
+            {
+                _scene.DrawFlatDisc(posX, posY, Vector2.Zero, radius, pal.Background);
+            }
+            if (Mods.Render.Radar.ShowOutlines)
+            {
+                _scene.DrawFlatRing(posX, posY, Vector2.Zero, radius, 0.35f * dialGrow * u, pal.Ring);
+                _scene.DrawFlatRing(posX, posY, Vector2.Zero, radius * 0.55f, 0.25f * dialGrow * u, pal.Ring);
+                float coneAngle = MathHelper.DegreesToRadians(55f);
+                var left = new Vector2(-radius * MathF.Sin(coneAngle), radius * MathF.Cos(coneAngle));
+                var right = new Vector2(radius * MathF.Sin(coneAngle), radius * MathF.Cos(coneAngle));
+                _scene.DrawFlatLine(posX, posY, Vector2.Zero, left, 0.25f * dialGrow * u, pal.Cone);
+                _scene.DrawFlatLine(posX, posY, Vector2.Zero, right, 0.25f * dialGrow * u, pal.Cone);
+            }
+
+            float worldToPixel = radius / Mods.Render.Radar.Range;
+
+            void PlaceBlip(Vector3 worldPos, bool isHunter, bool isWeapon)
+            {
+                float dx = worldPos.X - Position.X;
+                float dz = worldPos.Z - Position.Z;
+                float sx = dx * rx + dz * rz;
+                float sy = dx * fx + dz * fz;
+                if (sx * sx + sy * sy < 0.0004f)
+                {
+                    // On top of the player -- nothing useful to point at.
+                    return;
+                }
+                float px = sx * worldToPixel;
+                float py = sy * worldToPixel;
+                float pixelLen = MathF.Sqrt(px * px + py * py);
+                if (pixelLen > radius)
+                {
+                    // Beyond range: clamp to the rim rather than drop it, the
+                    // same directional-indicator shape DrawLocatorIcon uses.
+                    px *= radius / pixelLen;
+                    py *= radius / pixelLen;
+                }
+                var local = new Vector2(px, py);
+                if (isHunter)
+                {
+                    // hud_icon_player -- the real locator-icon asset -- would
+                    // belong here, but it is a 3D model meant to be drawn
+                    // from DrawHudModels, in the pass that still has the
+                    // perspective camera live; called from here, in the flat
+                    // 2D HUD pass, it picks up the wrong projection and blows
+                    // up to fill the screen. Left as a ring.
+                    _scene.DrawFlatRing(posX, posY, local, 0.59f * blipGrow * u, 0.2f * blipGrow * u, pal.Hunter);
+                }
+                else if (isWeapon)
+                {
+                    float d = 0.49f * blipGrow * u;
+                    Span<Vector2> diamond = stackalloc Vector2[]
+                    {
+                        new Vector2(0, d), new Vector2(d, 0), new Vector2(0, -d), new Vector2(-d, 0)
+                    };
+                    _scene.DrawFlatPolygon(posX, posY, local, diamond, pal.Weapon);
+                }
+                else
+                {
+                    _scene.DrawFlatDisc(posX, posY, local, 0.39f * blipGrow * u, pal.Powerup);
+                }
+            }
+
+            for (int i = 0; i < Players.Count; i++)
+            {
+                PlayerEntity other = Players[i];
+                if (other == this || other.Health <= 0
+                    || !other.LoadFlags.TestFlag(LoadFlags.Spawned))
+                {
+                    continue;
+                }
+                PlaceBlip(other.Position, isHunter: true, isWeapon: false);
+            }
+            foreach (ItemInstanceEntity item in _scene.GetItemInstanceEntities())
+            {
+                if (item.Hidden || item.DespawnTimer == 0)
+                {
+                    continue;
+                }
+                PlaceBlip(item.Position, isHunter: false, Mods.Render.Radar.IsWeaponItem(item.ItemType));
+            }
+
+            // The player's own marker, always last so it sits above every
+            // blip, and always drawn regardless of ShowOutlines -- a reading
+            // with no "you are here" at all is not a reading, so this one
+            // does not go away with the rings and cone.
+            float triSize = 1.25f * u; // half of 5, then half again, on request
+            Span<Vector2> tri = stackalloc Vector2[]
+            {
+                new Vector2(0, triSize), new Vector2(-triSize * 0.75f, -triSize * 0.7f),
+                new Vector2(triSize * 0.75f, -triSize * 0.7f)
+            };
+            _scene.DrawFlatPolygon(posX, posY, Vector2.Zero, tri, pal.Player);
         }
 
         private float _textSpacingY = 0;

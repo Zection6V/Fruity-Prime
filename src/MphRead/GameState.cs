@@ -83,7 +83,35 @@ namespace MphRead
         public static bool FriendlyFire { get; set; } = false;
         public static int PointGoal { get; set; } = 0; // also used for starting extra lives
         public static float TimeGoal { get; set; } = 0; // also used for starting extra lives
-        public static int DamageLevel { get; set; } = 1;
+        /// <summary>
+        /// The multiplier every hit is scaled by inside <c>TakeDamage</c>:
+        /// index into <see cref="Metadata.DamageLevels"/>, 0.75 / 1 / 1.25.
+        ///
+        /// <b>Pinned to medium, which is x1, and nothing sets it.</b> It was a
+        /// per-machine setting read out of each player's own settings file,
+        /// and it multiplies the damage of *every* weapon -- so two machines
+        /// that disagreed about it disagreed about every shot in the match by
+        /// up to a third, in the one direction nothing corrects: a client
+        /// resolves its own hits the instant it fires them
+        /// (<c>NetHitPrediction</c>) and the authority resolves them again a
+        /// round trip later, so a client scaling higher runs a victim's health
+        /// down faster than the machine keeping score and eventually predicts
+        /// a kill on somebody who is standing up.
+        ///
+        /// Nobody was asking for the other two answers and the cartridge's own
+        /// default is the middle one, so there is one answer. <b>The setter
+        /// accepts and discards</b>: upstream's console menu still has a
+        /// Damage Level row and still assigns this, and the point is that the
+        /// assignment does nothing rather than that the row is edited out of a
+        /// file every pull from upstream has to fast-forward through.
+        /// `GameSettings.ApplyMatchRules` -- which is this project's own --
+        /// does not assign it at all.
+        /// </summary>
+        public static int DamageLevel
+        {
+            get => 1;
+            set { }
+        }
         public static bool OctolithReset { get; set; } = false;
         public static bool RadarPlayers { get; set; } = false;
         public static bool AffinityWeapons { get; set; } = false;
@@ -530,7 +558,7 @@ namespace MphRead
                 if (MatchTime == 0)
                 {
                     MatchTime = -1;
-                    if (Mods.Network.NetMatchEnd.ShouldLeaveAfterMatch)
+                    if (Mods.Network.NetMatchEnd.ShouldLeaveAfterMatch && !PlayPickedMap())
                     {
                         scene.SetFade(FadeType.FadeOutBlack, 20 / 30f, overwrite: true, AfterFade.Exit);
                     }
@@ -543,6 +571,37 @@ namespace MphRead
                     // group that was playing it.
                 }
             }
+        }
+
+        /// <summary>
+        /// Load the map the results screen picked, offline, instead of going
+        /// back to the launcher.
+        ///
+        /// A rotation is what a server does with the answer to "where next";
+        /// with nobody else in the match there is no server, so the shell does
+        /// it -- the same two requests the pause menu's "Leave match" and the
+        /// front screen's "Start" already use, sent on one frame. False when
+        /// there is nothing to do: no shell, not an offline match of one's
+        /// own, or nothing picked. The caller then fades out to the launcher
+        /// exactly as it always did.
+        /// </summary>
+        private static bool PlayPickedMap()
+        {
+#if MPHREAD_SHELL
+            if (!Mods.Launcher.Gui.Shell.CanPlayAnother)
+            {
+                return false;
+            }
+            string room = Mods.MapPick.Chosen();
+            if (room.Length == 0)
+            {
+                return false;
+            }
+            Mods.Launcher.Gui.Shell.PlayAnother(room);
+            return true;
+#else
+            return false;
+#endif
         }
 
         private static void EnsureIntroCamSeq()
@@ -1771,7 +1830,6 @@ namespace MphRead
             FriendlyFire = false;
             PointGoal = 0;
             TimeGoal = 0;
-            DamageLevel = 1;
             OctolithReset = false;
             RadarPlayers = false;
             AffinityWeapons = false;

@@ -53,6 +53,13 @@ namespace MphRead.Mods.Network
             {
                 FriendlyFire = GameState.FriendlyFire,
                 ShadowFreeze = GameState.ShadowFreeze,
+                // The host's own affinity-weapons rule, for the same reason:
+                // the affinity weapons are a different row of the damage
+                // table, and until this was sent each guest played by whatever
+                // its own settings file said. The damage level is pinned to
+                // medium everywhere and is published by DedicatedServer
+                // itself.
+                AffinityWeapons = GameState.AffinityWeapons,
                 // This one cannot run the match, and it is the only server in
                 // the program that says so on purpose: it is a thread inside
                 // the host's own game, and the player who started it already

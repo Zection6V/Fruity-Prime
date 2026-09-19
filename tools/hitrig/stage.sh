@@ -12,7 +12,7 @@
 # the binary that produced a result is still sitting beside it.
 set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BUILD="$ROOT/src/MphRead/bin/Release/net9.0"
+BUILD="$ROOT/src/MphRead/bin/Release/net10.0"
 DEST="${1:-$ROOT/tools/hitrig/bin}"
 [ -f "$BUILD/FruityPrime.dll" ] || { echo "no build at $BUILD"; exit 1; }
 rm -rf "$DEST"

@@ -1438,7 +1438,16 @@ namespace MphRead
 
         public static string FileSystem => _allPaths[MphKey];
         public static string FhFileSystem => _allPaths[FhKey];
-        public static string Export => _allPaths["Export"];
+        /// <summary>
+        /// Where anything this program writes goes: recordings, exports,
+        /// screenshots. Empty until paths.txt has been read, and empty rather
+        /// than an exception -- it is a place to write, not a game file, and
+        /// the launcher asks for it on screens a player reaches before they
+        /// have set anything up. A missing key here used to take the whole
+        /// launcher down with a KeyNotFoundException.
+        /// </summary>
+        public static string Export =>
+            _allPaths.TryGetValue("Export", out string? export) ? export : "";
 
         public static bool IsMphAmericas => MphKey == Ver.AMHE0 || MphKey == Ver.AMHE1;
         public static bool IsMphEurope => MphKey == Ver.AMHP0 || MphKey == Ver.AMHP1;
@@ -1464,7 +1473,7 @@ namespace MphRead
             {
                 UpdatePaths();
             }
-            _allPaths[key] = path;
+            _allPaths[key] = Absolute(path);
         }
 
         public static void UpdatePaths()
@@ -1490,9 +1499,59 @@ namespace MphRead
                     string key = split[0].Trim();
                     if (split.Length == 2 && _allPaths.ContainsKey(key))
                     {
-                        _allPaths[key] = split[1].Trim();
+                        _allPaths[key] = Absolute(split[1].Trim());
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// A root written in paths.txt, made absolute.
+        ///
+        /// <para>
+        /// <b>Why this is not cosmetic.</b> Several read paths combine the
+        /// root in more than once: <c>Read.GetEntities</c> combines it, then
+        /// calls <c>GetEntitiesFromPath</c> which combines it again, which
+        /// calls <c>ReadBytes</c> which combines it a third time. That is
+        /// invisible for an absolute root -- <c>Path.Combine(abs, abs)</c> is
+        /// <c>abs</c>, so the second and third do nothing -- and it stacks for
+        /// a relative one. A player whose paths.txt read
+        /// <c>AMHE0=files\AMHE0</c> was therefore told, at startup, that every
+        /// room's spawns were missing from
+        /// <c>...\files\AMHE0\files\AMHE0\files\AMHE0\levels\entities\</c>,
+        /// and every hunter model from the same folder doubled. The files were
+        /// exactly where they should be.
+        /// </para>
+        /// <para>
+        /// Fixed here rather than by unpicking the three call sites: making
+        /// the root absolute changes nothing for anybody it already was
+        /// absolute for -- which is everybody who has never seen this -- and
+        /// it fixes every call site at once, including the ones nobody has
+        /// walked yet. Against the working directory, not
+        /// <c>AppContext.BaseDirectory</c>: paths.txt itself is found by a
+        /// bare <c>File.Exists("paths.txt")</c>, so a relative root has to
+        /// resolve against whatever directory that lookup just used, and
+        /// <see cref="Launcher.GameFiles.Root"/>'s own contract is that
+        /// whoever sets it also makes it the working directory (Application
+        /// Support on macOS, the app's own directory on Android) -- which is
+        /// not always where the assembly sits.
+        /// </para>
+        /// </summary>
+        private static string Absolute(string path)
+        {
+            if (path.Length == 0 || Path.IsPathRooted(path))
+            {
+                return path;
+            }
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                // A path with something in it the platform will not take is
+                // the path the player wrote, not a crash at startup.
+                return path;
             }
         }
 
@@ -1635,6 +1694,15 @@ namespace MphRead
         }
 
         public static Span<T> Slice<T>(this Span<T> source, long start)
+        {
+            return source.Slice((int)start);
+        }
+
+        // C# 14 made Span<T> to ReadOnlySpan<T> a standard implicit conversion,
+        // which put the uint overload above in the running for a Span and made
+        // every `span.Slice(someUint)` in the tree ambiguous against the long
+        // one. An exact match settles it without touching the call sites.
+        public static Span<T> Slice<T>(this Span<T> source, uint start)
         {
             return source.Slice((int)start);
         }

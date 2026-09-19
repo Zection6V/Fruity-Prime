@@ -22,7 +22,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         /// <summary>
         /// Its own width when nothing constrains it, for the same reason
-        /// <see cref="MenuEntry.MeasureOverride"/> has one: in a row, a
+        /// <see cref="UiWord.MeasureOverride"/> has one: in a row, a
         /// control that measures to nothing is drawn on top of its neighbours.
         /// </summary>
         protected override Size MeasureOverride(Size availableSize)
@@ -64,6 +64,7 @@ namespace MphRead.Mods.Launcher.Gui
         private int _index;
         private bool _leftHot;
         private bool _rightHot;
+        private readonly Tap _tap = new();
 
         public event EventHandler? Changed;
 
@@ -155,9 +156,17 @@ namespace MphRead.Mods.Launcher.Gui
         {
             get
             {
+                // The label keeps 110 points where there are 110 to spare and
+                // a little under half the row where there are not. A flat
+                // floor is what put the arrows 138 points apart inside the
+                // play screen's drawer, which left the value about thirty
+                // points of column -- and a value that does not fit does not
+                // ellipsize, it *wraps*, so "Normal" came out as three
+                // stacked syllables.
+                double floor = Math.Min(110, Bounds.Width * 0.42);
                 double x = Bounds.Width - PreviewRoom - ArrowWidth - ValueColumn - ArrowWidth;
                 // Never over the label, on a card too narrow for the column.
-                return new Rect(Math.Max(110, x), 0, ArrowWidth, Bounds.Height);
+                return new Rect(Math.Max(floor, x), 0, ArrowWidth, Bounds.Height);
             }
         }
 
@@ -175,12 +184,15 @@ namespace MphRead.Mods.Launcher.Gui
                 _rightHot = right;
                 InvalidateVisual();
             }
+            // A finger on its way down the page is not answering this row.
+            _tap.Moved(e, this);
             base.OnPointerMoved(e);
         }
 
         protected override void OnPointerExited(PointerEventArgs e)
         {
             _leftHot = _rightHot = false;
+            _tap.Cancel();
             InvalidateVisual();
             base.OnPointerExited(e);
         }
@@ -188,18 +200,29 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             Focus();
-            Point p = e.GetPosition(this);
-            // Anywhere that is not the back arrow steps forward, so the row can
-            // be poked at without aiming.
-            if (LeftArrow.Contains(p))
-            {
-                Step(-1);
-            }
-            else
-            {
-                Step(1);
-            }
+            // The press decides nothing: see Tap. This row used to step here,
+            // which meant scrolling the settings page cycled every row the
+            // drag began on.
+            _tap.Press(e, this);
             base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            if (_tap.Release(e, this))
+            {
+                // Anywhere that is not the back arrow steps forward, so the row
+                // can be poked at without aiming.
+                Step(LeftArrow.Contains(e.GetPosition(this)) ? -1 : 1);
+            }
+            base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            // The scroll gesture above has taken the pointer.
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -234,7 +257,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
-            // See MenuEntry.Render: hit testing follows the drawing.
+            // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
             if (IsFocused)
@@ -255,6 +278,12 @@ namespace MphRead.Mods.Launcher.Gui
             if (value.Width > room)
             {
                 value.MaxTextWidth = Math.Max(20, room);
+                // One line, whatever the trimming decides. Without a height
+                // limit Avalonia wraps at the first space rather than
+                // ellipsizing -- see the same note in DeckText.Lay -- and a
+                // wrapped value in a fixed-height row draws over the rows
+                // either side of it.
+                value.MaxTextHeight = 13 * 1.9;
                 value.Trimming = TextTrimming.CharacterEllipsis;
             }
             double centre = (left.Right + RightArrow.X) / 2;
@@ -304,6 +333,7 @@ namespace MphRead.Mods.Launcher.Gui
     {
         private readonly string _label;
         private bool _on;
+        private readonly Tap _tap = new();
 
         public event EventHandler? Changed;
 
@@ -333,8 +363,38 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             Focus();
-            On = !On;
+            // Not On = !On: a toggle flipped by the press is a toggle flipped
+            // by every scroll that starts on it, and there is no taking it
+            // back once it has happened. See Tap.
+            _tap.Press(e, this);
             base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            if (_tap.Release(e, this))
+            {
+                On = !On;
+            }
+            base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerExited(PointerEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerExited(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -351,7 +411,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
-            // See MenuEntry.Render: hit testing follows the drawing.
+            // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
             if (IsFocused)
@@ -386,9 +446,15 @@ namespace MphRead.Mods.Launcher.Gui
             set => Box.Text = value;
         }
 
-        public FieldRow(string label, string value, double boxWidth = 150)
+        /// <param name="compact">
+        /// A bare box in a bar rather than a labelled row in a column: 21
+        /// points tall, which is what the layout this is a port of gives the
+        /// two fields over its server list.
+        /// </param>
+        public FieldRow(string label, string value, double boxWidth = 150,
+            bool compact = false)
         {
-            Height = 36;
+            Height = compact ? 21 : 36;
             var caption = new TextBlock
             {
                 Text = label,
@@ -407,12 +473,18 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 Text = value,
                 Width = boxWidth,
+                Height = compact ? 21 : Double.NaN,
+                MinHeight = compact ? 21 : 0,
                 FontFamily = GuiTheme.Display,
-                FontSize = 13,
+                FontSize = compact ? 11 : 13,
                 CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(8, 4, 8, 4),
+                Padding = compact
+                    ? new Thickness(6, 0, 6, 0)
+                    : new Thickness(8, 4, 8, 4),
+                VerticalContentAlignment = VerticalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Right
+                HorizontalAlignment = compact
+                    ? HorizontalAlignment.Left : HorizontalAlignment.Right
             };
             Children.Add(caption);
             Children.Add(Box);
@@ -422,14 +494,60 @@ namespace MphRead.Mods.Launcher.Gui
     /// <summary>A line of explanation, wrapped, under a group of rows.</summary>
     internal sealed class Note : TextBlock
     {
-        public Note(string text, Color? color = null)
+        /// <summary>How many lines it is held to, or 0 for as many as it takes.</summary>
+        private readonly int _lines;
+
+        /// <param name="lines">
+        /// Two by default -- see <see cref="MeasureOverride"/>. Zero for a
+        /// note that is a paragraph rather than a status line: the setup
+        /// screen explains what it is about to do with somebody's cartridge
+        /// dump, and two lines of that ended mid-sentence in an ellipsis. Its
+        /// own log is the same shape, and was showing two lines of an
+        /// extraction inside a box 160 points tall.
+        /// </param>
+        public Note(string text, Color? color = null, int lines = 2)
         {
+            _lines = lines;
             Text = text;
-            FontFamily = GuiTheme.Display;
-            FontSize = 12;
+            // The body face, not the display one. This is the one string on
+            // the screen that is a *sentence* -- "12 of 13 answered. Click one
+            // to pick your hunter and join." -- and a sentence set in a pixel
+            // font at eight points is a texture.
+            FontFamily = Deck.Mono;
             Foreground = new SolidColorBrush(color ?? GuiTheme.TextDim);
             TextWrapping = TextWrapping.Wrap;
-            Margin = new Thickness(4, 4, 4, 4);
+            if (lines > 0)
+            {
+                MaxLines = lines;
+                TextTrimming = TextTrimming.CharacterEllipsis;
+            }
+            Margin = new Thickness(0);
+        }
+
+        /// <summary>
+        /// `.76em`, and a fixed `2.3em` of height whatever it says.
+        ///
+        /// Fixed on purpose: the note changes on every keystroke in the
+        /// browser ("asking 13 servers... 4 answered") and a box that grew and
+        /// shrank with it would walk the whole foot up and down the panel
+        /// while the list was still answering.
+        /// </summary>
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            double em = Deck.GetEm(this);
+            double size = em * 0.76;
+            if (Math.Abs(size - FontSize) > 0.01)
+            {
+                FontSize = size;
+                LineHeight = Math.Round(size * 1.15);
+            }
+            Size measured = base.MeasureOverride(availableSize);
+            if (_lines <= 0)
+            {
+                return measured;
+            }
+            double height = Math.Round(size * 1.15 * _lines);
+            return new Size(measured.Width, height);
         }
     }
 }

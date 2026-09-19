@@ -111,6 +111,7 @@ namespace MphRead.Mods.Input
             {
                 if (!_initialised)
                 {
+                    Render.DesktopGlContext.PreserveWorkingDirectory();
                     GLFW.Init();
                     _initialised = true;
                 }

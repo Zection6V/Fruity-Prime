@@ -13,11 +13,12 @@ namespace MphRead.Droid
     /// The Avalonia application on Android.
     ///
     /// A phone has one view rather than a desktop full of windows, so this is a
-    /// single view lifetime -- and the view it shows is <see cref="HomeView"/>,
+    /// single view lifetime -- and the view it shows is <see cref="StartScreen"/>,
     /// the desktop front screen itself. Not a copy of it, not a phone-shaped
-    /// rewrite of it: the same file, which folds to one column below a width and
-    /// opens its settings and map grid as overlays where there is no second
-    /// window to open. A change to the launcher is a change to both platforms,
+    /// rewrite of it: the same file, which opens every other screen on one
+    /// stack over the picture -- the same stack the desktop uses, since there
+    /// is no second window to open anything in here.
+    /// A change to the launcher is a change to both platforms,
     /// which is the whole reason this is Avalonia.
     ///
     /// What is left here is the front half of the loop the desktop's
@@ -28,10 +29,22 @@ namespace MphRead.Droid
     public class AndroidApp : Application
     {
         /// <summary>The front screen, for the activity to drive after a match.</summary>
-        internal static HomeView? Home { get; private set; }
+        internal static StartScreen? Home { get; private set; }
 
         public override void Initialize()
         {
+            // Before anything else builds a screen. Android has no console to
+            // print a stack into and the process is gone by the time anybody
+            // could look, so a crash writes a file the log-sharing entry can
+            // hand out -- see Mods/CrashReport.cs, which exists because the
+            // same fault on Windows was invisible for the same reason.
+            CrashReport.Install();
+            Android.Runtime.AndroidEnvironment.UnhandledExceptionRaiser += (_, e) =>
+            {
+                // The Java side's own: an exception crossing back out of a
+                // callback the runtime invoked. AppDomain never sees these.
+                CrashReport.Report(e.Exception, "android");
+            };
             Styles.Add(new FluentTheme());
             RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
             base.Initialize();
@@ -39,14 +52,38 @@ namespace MphRead.Droid
 
         public override void OnFrameworkInitializationCompleted()
         {
-            if (ApplicationLifetime is ISingleViewApplicationLifetime single)
+            // A factory, not the view itself: this runs from MainApplication,
+            // Android's Application.OnCreate, before any activity exists, and
+            // BuildHome reaches things -- ThumbnailHost.Current's activity,
+            // MainActivity.Instance -- that are only there once one has been
+            // created. Avalonia's own activity is what calls this factory,
+            // from MainActivity.OnCreate, which is late enough.
+            if (ApplicationLifetime is IActivityApplicationLifetime activity)
             {
-                single.MainView = Home = BuildHome();
+                activity.MainViewFactory = () =>
+                {
+                    // Wrapped, not handed over bare. The screens in
+                    // Mods/Launcher/Gui are authored for a box near 960x600
+                    // points and a phone in landscape is about 830x390, so
+                    // without the scale host every one of them is laid out
+                    // three times too large for the view it is in -- which is
+                    // a front screen with its words off the edges and a
+                    // server browser arranged somewhere off the side of the
+                    // display. The desktop scales the same screens the same
+                    // way; see UiScaleHost.
+                    Home = BuildHome();
+                    return new UiScaleHost(Home);
+                };
+            }
+            else if (ApplicationLifetime is ISingleViewApplicationLifetime single)
+            {
+                Home = BuildHome();
+                single.MainView = new UiScaleHost(Home);
             }
             base.OnFrameworkInitializationCompleted();
         }
 
-        private static HomeView BuildHome()
+        private static StartScreen BuildHome()
         {
             LauncherPrefs.Load();
             // Keys, mouse feel, pad bindings and the touch layout. The
@@ -72,7 +109,7 @@ namespace MphRead.Droid
                 GameFiles.ApplyPaths();
                 rooms = ThumbnailGenerator.MultiplayerRooms();
             }
-            var home = new HomeView(settings, rooms);
+            var home = new StartScreen(settings, rooms);
             home.Done += (_, plan) =>
             {
                 if (plan.Kind == LaunchKind.None)

@@ -183,8 +183,9 @@ namespace MphRead.Sound
                 ALC.DestroyContext(context);
                 ALC.CloseDevice(device);
             }
-            catch (DllNotFoundException)
+            catch (Exception ex) when (ex is DllNotFoundException or BadImageFormatException or TypeInitializationException)
             {
+                Mods.Diagnostics.PlatformDiagnostics.Report("libopenal.1.dylib", ex);
                 return SoundCapability.None;
             }
             return loopPointsSupported ? SoundCapability.Supported : SoundCapability.Unsupported;
@@ -263,6 +264,7 @@ namespace MphRead.Sound
                 // instance is not shut down: Load can throw before _device,
                 // _context or the buffer/source arrays are assigned, and
                 // ShutDown assumes they are.
+                Mods.Diagnostics.PlatformDiagnostics.Report("libopenal.1.dylib", ex);
                 Console.WriteLine($"[sound] SFX device unavailable ({ex.Message}); continuing without SFX");
                 Instance = new SfxInstanceBase();
             }

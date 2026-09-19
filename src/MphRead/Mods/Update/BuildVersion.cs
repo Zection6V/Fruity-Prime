@@ -67,8 +67,8 @@ namespace MphRead.Mods.Update
         }
 
         /// <summary>
-        /// "v1.2.0", "1.2.0", "1.2" -> a Version. Anything else, including the
-        /// 1.0.0 the SDK invents when nothing was asked for, is not a release.
+        /// "v1.2.0", "1.2.0", "1.2" -> a Version. The explicit "local" stamp
+        /// used by unstamped desktop and Android builds is not a release.
         /// </summary>
         public static Version? Parse(string? text)
         {
@@ -88,14 +88,6 @@ namespace MphRead.Mods.Update
                 return null;
             }
             if (!Version.TryParse(text, out Version? version))
-            {
-                return null;
-            }
-            // 1.0.0 is what the SDK stamps when no version was given, so it
-            // cannot be told apart from a real v1.0.0 release. Treating it as
-            // "not a release" costs one version number and removes the only
-            // case where a local build could be talked into updating itself.
-            if (version.Major == 1 && version.Minor == 0 && version.Build <= 0)
             {
                 return null;
             }

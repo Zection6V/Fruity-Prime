@@ -58,7 +58,25 @@ setsid "$DN" FruityPrime.dll -server -port "$PORT" -players 8 -simulate -nomaste
     -noautoupdate -maxrewind "$MAXREWIND" ${HITRIG_SERVER_EXTRA:-} \
     -servername "hitrig $LABEL" \
     > "$OUT/server.log" 2>&1 < /dev/null &
-sleep 5
+# Wait for the server to be *listening*, not for a guess.
+#
+# Five seconds was the guess and it is not enough on a loaded box: the server
+# has to load the room before it binds anything a client can join, every custom
+# map in maps/ is built on startup, and a client whose Hello goes unanswered
+# gives up after eight seconds and writes "the server may be off, or UDP may be
+# blocked". That reads as a scenario that produced nothing rather than as an
+# arm that never started, and it cost the first protocol-7 comparison its
+# baseline. Thirty seconds is well past a cold start here and still bounded.
+for _ in $(seq 1 30); do
+  ss -lun 2>/dev/null | grep -q ":$PORT " && break
+  sleep 1
+done
+if ! ss -lun 2>/dev/null | grep -q ":$PORT "; then
+  echo "the server never bound $PORT; see $OUT/server.log" >&2
+  exit 1
+fi
+# And a moment past that for the room: binding happens first.
+sleep 3
 
 pids=()
 i=0

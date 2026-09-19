@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading.Tasks;
 using Android.App;
 using Android.Content.PM;
@@ -8,11 +7,11 @@ using Android.OS;
 using Android.Views;
 using Android.Views.InputMethods;
 using Android.Widget;
-using Avalonia;
 using Avalonia.Android;
 using MphRead.Mods;
 using MphRead.Mods.Launcher;
 using MphRead.Mods.Network;
+using MovingBackdrop = MphRead.Mods.Launcher.Gui.MovingBackdrop;
 
 namespace MphRead.Droid
 {
@@ -36,10 +35,28 @@ namespace MphRead.Droid
         // See Resources/values/styles.xml.
         Theme = "@style/FruityPrime",
         MainLauncher = true,
+        // Landscape, from the icon onwards, and not only for a match.
+        //
+        // The match already asked for it -- a first-person game on a phone is
+        // landscape -- and the launcher was left to the sensor, which meant
+        // the program started portrait, turned sideways to play and turned
+        // back when the match ended. That is a rotation the player did not
+        // ask for at each end of every match, and on this head a rotation is
+        // a real cost: the activity handles the configuration change itself,
+        // so every one of them re-measures the whole Avalonia tree and
+        // re-bakes the backdrop at the new shape.
+        //
+        // It is also the shape the screens want. They are authored for a box
+        // wider than it is tall (UiLayout.MinBoxWidth by MinBoxHeight), and
+        // portrait gives UiScaleHost the least of both: 390 points across a
+        // phone held upright is a 0.4 factor before the clamp, so the screens
+        // come out at the floor with the box no bigger for it. Sensor rather
+        // than plain Landscape so the phone can still be held either way up.
+        ScreenOrientation = ScreenOrientation.SensorLandscape,
         LaunchMode = LaunchMode.SingleTop,
         ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize
             | ConfigChanges.UiMode | ConfigChanges.Density | ConfigChanges.KeyboardHidden)]
-    public class MainActivity : AvaloniaMainActivity<AndroidApp>,
+    public class MainActivity : AvaloniaMainActivity,
         Android.Hardware.Display.DisplayManager.IDisplayListener
     {
         internal static MainActivity? Instance { get; private set; }
@@ -51,127 +68,26 @@ namespace MphRead.Droid
         private TextView? _notice;
         private volatile bool _renderingPreviews;
         private volatile bool _renderingHere;
-        private readonly TouchControls _controls = new TouchControls();
-        private ScreenOrientation _orientationBefore = ScreenOrientation.Unspecified;
-
-        internal bool InMatch => _gameView != null;
-
-        protected override AppBuilder CustomizeAppBuilder(AppBuilder builder)
-        {
-            // First: everything below reports through Console, and in a
-            // release build that goes nowhere unless this is installed.
-            AndroidConsole.Install();
-            // The package's own directory is read-only on Android, so both the
-            // preferences and paths.txt move. They move to *external* files
-            // rather than internal ones because the extracted game files are
-            // hundreds of megabytes a player has to copy onto the device
-            // themselves, and this is the directory they can reach over USB
-            // without the app asking for a storage permission.
-            string root = ChooseRoot();
-            if (root.Length > 0)
-            {
-                LauncherPrefs.Directory = root;
-                GameFiles.Root = root;
-                try
-                {
-                    // Upstream's Paths reads paths.txt relative to the working
-                    // directory, so the two have to agree.
-                    Directory.SetCurrentDirectory(root);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[android] could not use {root} as the working directory: {ex.Message}");
-                }
-            }
-            // Before the front screen, which lists the rooms: the custom maps
-            // have to be out of the package and their directory named before
-            // anything reads the room tables, since that list is built once.
-            AndroidMaps.Install(Assets, root);
-            // Before base.OnCreate, which is what builds the front screen:
-            // the screen asks whether previews can be rendered while it is
-            // being constructed, and on the desktop the same seam is left empty
-            // so the batch of worker processes answers instead.
-            ThumbnailHost.Current = new AndroidThumbnailHost(this);
-            // Also before the front screen: it decides whether its update
-            // entry fetches and installs or opens a page while it is being
-            // laid out. A phone is the one platform where the browser round
-            // trip is worth removing -- no file manager can reach the app's
-            // own download directory, and the system has an installer that
-            // does the whole job. See Mods/Update/UpdateInstall.cs.
-            MphRead.Mods.Update.UpdateInstall.Current = new AndroidUpdateInstaller(this);
-            // Same shape, and for the same kind of reason: the front screen's
-            // Share button exists only where something can receive a file, and
-            // on a phone that is the whole answer to "send me your logs" --
-            // the app's own directory is one no file manager will browse.
-            MphRead.Mods.LogShare.Current = new AndroidLogShare(this);
-            ScreenCapture.PngWriter = AndroidPng.Write;
-            return base.CustomizeAppBuilder(builder).WithInterFont();
-        }
 
         /// <summary>
-        /// The directory everything writable lives in.
+        /// Asked of the in-process preview run between rooms: put it down, a
+        /// player wants to play.
         ///
-        /// External files by preference, because the extracted game files are
-        /// hundreds of megabytes a player copies over USB and that is the
-        /// directory they can reach. But a non-null answer from
-        /// <c>GetExternalFilesDir</c> is not a promise that it can be used:
-        /// early after install it returns the path before the volume is ready,
-        /// and every write to it is refused. Taking it on trust is how one
-        /// launch put its files internally, the next one looked externally,
-        /// and the game appeared to lose the files the player had copied.
-        ///
-        /// So: whichever already holds a paths.txt wins, and otherwise the
-        /// first one that can actually be written to.
+        /// See <see cref="StartMatch"/>. It is set from the UI thread and read
+        /// from the render thread, and it is cleared by whoever set it down --
+        /// <see cref="RenderHere"/>'s finally -- so that a later run is not
+        /// born already cancelled.
         /// </summary>
-        private string ChooseRoot()
-        {
-            var candidates = new List<string>();
-            string? external = GetExternalFilesDir(null)?.AbsolutePath;
-            if (!String.IsNullOrEmpty(external))
-            {
-                candidates.Add(external);
-            }
-            string? internalFiles = FilesDir?.AbsolutePath;
-            if (!String.IsNullOrEmpty(internalFiles))
-            {
-                candidates.Add(internalFiles);
-            }
-            foreach (string candidate in candidates)
-            {
-                if (Writable(candidate) && File.Exists(Path.Combine(candidate, "paths.txt")))
-                {
-                    return candidate;
-                }
-            }
-            foreach (string candidate in candidates)
-            {
-                if (Writable(candidate))
-                {
-                    if (candidate != candidates[0])
-                    {
-                        Console.WriteLine($"[android] {candidates[0]} cannot be written to; using {candidate}");
-                    }
-                    return candidate;
-                }
-            }
-            return "";
-        }
+        private volatile bool _stopPreviews;
+        private readonly TouchControls _controls = new TouchControls();
+        // What the launcher is in, which is what a match puts back when it
+        // ends. The activity itself asks for landscape now, so this is what
+        // RequestedOrientation reads back as; it is stated rather than left
+        // Unspecified so that a match ending before one ever started cannot
+        // hand the front screen an orientation the manifest never asked for.
+        private ScreenOrientation _orientationBefore = ScreenOrientation.SensorLandscape;
 
-        private static bool Writable(string directory)
-        {
-            try
-            {
-                Directory.CreateDirectory(directory);
-                string probe = Path.Combine(directory, ".write-probe");
-                File.WriteAllBytes(probe, Array.Empty<byte>());
-                File.Delete(probe);
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
+        internal bool InMatch => _gameView != null;
 
         protected override void OnCreate(Bundle? savedInstanceState)
         {
@@ -206,11 +122,17 @@ namespace MphRead.Droid
             }
             _renderingPreviews = true;
             void Report(string line) => RunOnUiThread(() => report(line));
+            // A preview run is every core the device has, in worker processes
+            // with GL contexts of their own; the front screen's moving layer
+            // is the one thing this process does a frame while it waits, and
+            // it is what made the run take minutes.
+            RunOnUiThread(() => MovingBackdrop.Suspended = true);
             // The workers are ordinary services, and a device that goes to
             // sleep throttles them; the run is long enough for that to matter.
             RunOnUiThread(() => Window?.AddFlags(WindowManagerFlags.KeepScreenOn));
             return Task.Run(() =>
             {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
                     ThumbnailGenerator.EnsureCacheDirectory();
@@ -226,8 +148,14 @@ namespace MphRead.Droid
                     }
                     if (left.Count > 0)
                     {
+                        // The workers were killed or would not start. One room
+                        // at a time from here, which is why it is worth saying
+                        // how many ended up on this path.
+                        Report($"[thumbnails] {left.Count} left to render here");
                         written += RenderHere(left, Report);
                     }
+                    Report($"[thumbnails] {written}/{rooms.Count} in "
+                        + $"{clock.Elapsed.TotalSeconds:0.0}s");
                     return written;
                 }
                 catch (Exception ex)
@@ -243,6 +171,7 @@ namespace MphRead.Droid
                     {
                         if (!InMatch)
                         {
+                            MovingBackdrop.Suspended = false;
                             Window?.ClearFlags(WindowManagerFlags.KeepScreenOn);
                         }
                     });
@@ -256,20 +185,30 @@ namespace MphRead.Droid
         ///
         /// A match cannot run at the same time -- one process holds one world,
         /// and <see cref="Mods.ThumbnailMode"/> is on while this runs -- so
-        /// <see cref="StartMatch"/> refuses while it does.
+        /// <see cref="StartMatch"/> puts it down rather than queueing behind
+        /// it: the run is asked to stop between rooms (<see cref="_stopPreviews"/>)
+        /// and the match starts as soon as the room in flight is finished with.
         /// </summary>
         private int RenderHere(IReadOnlyList<string> rooms, Action<string> report)
         {
-            if (InMatch)
+            if (InMatch || _pending != null)
             {
+                // `_pending` as well as the match itself: a start that has been
+                // asked for and is waiting for the window is a match about to
+                // own the world, and a run begun in that gap would be one this
+                // process then has to stop again.
                 report("[thumbnails] not while a match is running");
                 return 0;
             }
             _renderingHere = true;
+            // Nothing has asked this run to stop yet; a request that arrived
+            // while there was no run to receive it is not one against this.
+            _stopPreviews = false;
             try
             {
                 using var gl = OffscreenGl.Create(PreviewRun.Width, PreviewRun.Height);
-                return PreviewRun.Render(rooms, PreviewRun.Width, PreviewRun.Height, report);
+                return PreviewRun.Render(rooms, PreviewRun.Width, PreviewRun.Height, report,
+                    () => _stopPreviews);
             }
             catch (Exception ex)
             {
@@ -280,6 +219,7 @@ namespace MphRead.Droid
             finally
             {
                 _renderingHere = false;
+                _stopPreviews = false;
             }
         }
 
@@ -584,11 +524,24 @@ namespace MphRead.Droid
             {
                 // One process holds one world: the preview run owns the entity
                 // lists and the game state until it is finished, and
-                // ThumbnailMode is on while it is.
-                Toast.MakeText(this, "Still rendering map previews; try again in a moment.",
-                    ToastLength.Long)?.Show();
-                AndroidApp.Home?.Reset();
-                return;
+                // ThumbnailMode is on while it is. So it is put down, not
+                // queued behind.
+                //
+                // **This is what "I press START and nothing happens" was.**
+                // A first run renders every map's picture without being asked
+                // (StartScreen.CatchUpPreviews), which is minutes of work on a
+                // phone, and pressing START during it refused the match and
+                // called Reset() -- which throws the whole screen stack away
+                // and puts the player back on the front screen, having lost
+                // the map they picked, with nothing to read but a toast behind
+                // an immersive window. The picture of a map nobody has asked
+                // for yet does not outrank playing: the run is told to stop
+                // between rooms and the start waits for the room in flight,
+                // which is a second or two. Whatever it did not get to is
+                // rendered by the next launch, or from the Render map
+                // previews entry on the setup screen.
+                Console.WriteLine("[android] stopping the preview run: a match was asked for");
+                _stopPreviews = true;
             }
             var input = new AndroidInput();
             _controls.ReleaseEverything();
@@ -679,6 +632,19 @@ namespace MphRead.Droid
             {
                 return;
             }
+            // The preview run has been asked to stop and is finishing the room
+            // it was in the middle of. Nothing may build a scene until it has
+            // let go of the one it has -- the entity lists and the game state
+            // are static and there is one of each per process. The clocks are
+            // held back with it, so the deadlines below measure the window
+            // rather than the wait for a picture of a map.
+            if (_renderingHere)
+            {
+                _waitingSince = SystemClock.UptimeMillis();
+                _sizeSettledAt = _waitingSince;
+                _content.PostDelayed(WaitForSteadyWindow, 50);
+                return;
+            }
             long now = SystemClock.UptimeMillis();
             (int Width, int Height) size = ContentSize;
             if (size != _lastSize)
@@ -758,6 +724,11 @@ namespace MphRead.Droid
             {
                 _launcherView.Visibility = ViewStates.Gone;
             }
+            // An Android view going away is not a detach, so the front
+            // screen's moving layer would go on filling a noise field and
+            // blending a full-window bitmap for the whole match, on the UI
+            // thread of the process running it.
+            MovingBackdrop.Suspended = true;
             if (note != null)
             {
                 Console.WriteLine($"[android] starting the match anyway: {note}");
@@ -1010,6 +981,9 @@ namespace MphRead.Droid
             {
                 _launcherView.Visibility = ViewStates.Visible;
             }
+            // The front screen is on the glass again, so its ground may move
+            // -- unless the device is still rendering previews.
+            MovingBackdrop.Suspended = _renderingPreviews;
             // The desktop builds a fresh front screen each time round its loop;
             // this one is the same object across a match, so it is told the
             // match is over rather than left believing it already answered.

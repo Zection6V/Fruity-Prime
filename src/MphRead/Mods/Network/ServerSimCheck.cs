@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using MphRead.Entities;
+using MphRead.Formats;
 using OpenTK.Mathematics;
 
 namespace MphRead.Mods.Network
@@ -22,7 +23,8 @@ namespace MphRead.Mods.Network
     /// </summary>
     public static class ServerSimCheck
     {
-        public static int Run(string room, int players, double seconds, GameMode mode)
+        public static int Run(string room, int players, double seconds, GameMode mode,
+            bool formCheck = false)
         {
             players = Math.Clamp(players, 1, PlayerEntity.SlotCapacity);
             Console.WriteLine($"[simcheck] \"{room}\" ({mode}), {players} player(s), {seconds:0} s");
@@ -85,12 +87,79 @@ namespace MphRead.Mods.Network
                 + $" | wall {wall.Elapsed.TotalSeconds:0.0} s for {seconds:0} s simulated"
                 + $" | rss {Mb(beforeLoad)}->{Mb(afterLoad)}->{Mb(afterRun)} MB"
                 + $" | peak {Mb(PeakWorkingSetBytes())} MB");
+            bool formPassed = !formCheck || CheckStalledUnmorph();
             sim.Stop();
             // The one thing this can fail on: a room that loaded and then
             // could not put anybody in it is a room the server cannot host,
             // and it is worth an exit code so a sweep over every map can be a
             // shell loop.
-            return spawned == players ? 0 : 1;
+            return spawned == players && formPassed ? 0 : 1;
+        }
+
+        /// <summary>
+        /// Exercise the real player's forced completion, which the pure timing
+        /// test cannot: unmorph changes IsAltForm before its animation ends.
+        /// Hold the simulation while the reconciler's clock reaches its safety
+        /// ceiling, then verify the biped's position, hitbox, model and camera.
+        /// </summary>
+        private static bool CheckStalledUnmorph()
+        {
+            if (PlayerEntity.Players.Count == 0)
+            {
+                Console.WriteLine("FORMCHECK FAIL: no player");
+                return false;
+            }
+            PlayerEntity player = PlayerEntity.Players[0];
+            if (!player.LoadFlags.TestFlag(LoadFlags.Spawned) || player.Health == 0)
+            {
+                Console.WriteLine("FORMCHECK FAIL: player did not spawn alive");
+                return false;
+            }
+
+            player.ModForceForm(altForm: true);
+            player.ExitAltForm();
+            player.ModRefreshNodeRef(player.Position);
+            CollisionVolume expectedBiped = CollisionVolume.Move(
+                PlayerEntity.PlayerVolumes[(int)player.Hunter, 0], player.Position);
+            bool prepared = !player.IsAltForm && player.IsUnmorphing
+                && player.NodeRef != Formats.Culling.NodeRef.None
+                && player.Volume.Equals(expectedBiped)
+                && player.CameraType == CameraType.First
+                && player.BipedModel2.AnimInfo.Index[0] == (int)PlayerAnimation.Unmorph;
+            Vector3 position = player.Position;
+            CollisionVolume volume = player.Volume;
+            // Normal animation completion refreshes this node. Poisoning just
+            // that field makes the forced-completion assertion meaningful.
+            player.CameraInfo.NodeRef = Formats.Culling.NodeRef.None;
+
+            var reconciliation = new FormReconciliation();
+            bool earlyForce = false;
+            for (uint frame = 0; frame <= 90; frame++)
+            {
+                FormCorrection correction = reconciliation.Step(frame, desiredAlt: false,
+                    player.IsAltForm, player.IsMorphing, player.IsUnmorphing, 300);
+                if (correction == FormCorrection.Force)
+                {
+                    if (frame != 90)
+                    {
+                        earlyForce = true;
+                    }
+                    player.ModForceForm(altForm: false);
+                }
+            }
+            bool passed = prepared && !earlyForce && !player.IsAltForm
+                && !player.IsMorphing && !player.IsUnmorphing
+                && player.Position == position && player.Volume.Equals(volume)
+                && player.Volume.Equals(expectedBiped)
+                && player.CameraType == CameraType.First
+                && player.CameraInfo.NodeRef == player.NodeRef
+                && player.BipedModel2.AnimInfo.Index[0] == (int)PlayerAnimation.Idle;
+            Console.WriteLine($"FORMCHECK {(passed ? "PASS" : "FAIL")}: "
+                + $"prepared={prepared} earlyForce={earlyForce}"
+                + $" form={player.ModFormState()} positionHeld={player.Position == position}"
+                + $" volumeHeld={player.Volume.Equals(volume)}"
+                + $" camera={player.CameraType} node={player.CameraInfo.NodeRef == player.NodeRef}");
+            return passed;
         }
 
         private static void ApplyRoster(int players)

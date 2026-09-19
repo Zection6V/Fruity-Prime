@@ -25,6 +25,11 @@ a map is loading. The log is the only thing that can be read afterwards.
 | `logs/FruityPrime-<yyyyMMdd-HHmmss>.log` | the file, beside the executable |
 | `logs/FruityPrime-<yyyyMMdd-HHmmss>-native.txt` | the same run's **native** standard error, in a file of its own |
 
+On macOS these logs live under `~/Library/Application Support/Fruity Prime/logs/`.
+`platform-startup.log` is also written there on every launch, even when debug
+logging is off; it records the runtime/native-loader diagnostics described in
+`build-deploy/MACOS.md`.
+
 On Android the file goes to the app's data directory, because
 `LauncherPrefs.Directory` is pointed there by the head before anything reads --
 a package's own directory is read-only. The switch is the same control on the
@@ -133,6 +138,50 @@ On top of that, the things a log needs and a terminal does not:
 - the stack of anything that kills the process
   (`AppDomain.UnhandledException`), of an unobserved task, and of the
   match-start failure the launcher catches.
+
+## The net log, and the one line to read about hit registration
+
+A networked client also writes `netlog-<name>.txt` beside the executable, and
+that one is **not** this switch's: `NetLog.Open` runs on every join, debug
+logging on or off. **The machine running the match writes one too, and that one
+*is* this switch's** -- `netlog-server.txt`, opened only under `-debuglog`,
+because a dedicated server runs for weeks. It is the only log with the numbers
+that decide the question: the rewind depth it served, what the ceiling refused,
+and a line for every hit claim it rescued or turned down. It carries a periodic `STATE` block -- every slot's
+position, health, form, node ref and whether the engine is simulating it -- and
+since protocol 7 a **`hitreg`** line beside it, which is the one to read when
+somebody says a shot went through somebody:
+
+```
+hitreg read=2136+0.05 buffer=2f newestSnap=2142 starved=1 snaps=36
+       claims=1 applied=1 dup=0 voidShooter=0 voidVictim=0 refused=0 unanswered=0
+       predicted=1 confirmed=1 denied=0 unpredicted=0
+```
+
+On the machine running the match the same line carries the rewind instead --
+`rewound`, `meanRewind`, `ceiling`, `clamped`, `historyMiss` -- and the
+`claimsIn`/`rescued` counts, since only that machine has them.
+
+It exists because "it went through him" is three separate questions and nothing
+else in the log separates them:
+
+| | |
+|---|---|
+| `read` / `buffer` / `newestSnap` | the world this client was **shown**. The playout clock reads a point between two snapshots (`.claude/multiplayer/NETWORK-SMOOTHING.md`); `buffer` climbing means the line is losing datagrams and the client is holding opponents further back to cover it |
+| `rewound` / `meanRewind` / `ceiling` / `clamped` | the world the authority **resolved against**. `clamped` non-zero is the fault this whole area exists for: those shots were resolved against a world nobody was looking at. Only the machine running the match fills these in |
+| `claims` / `applied` / `dup` / `voidShooter` | what this client **asked for and got** (`NETWORK-HITCLAIMS.md`). `dup` is the healthy majority — the authority found the hit itself; `applied` is a hit it never would have; `voidShooter` is the arbitration saying somebody killed you first |
+| `predicted` / `confirmed` / `denied` | what this client **showed** |
+
+On a jump pad all three are live at once — a target crossing 0.3 units a frame
+against a headshot band 0.3 units tall — which is why `TEST PADS` exists and
+why `tools/hitrig/bench-p7.sh` runs its protocol-7 arms with `-debuglog`.
+Every rescued hit also gets an `EVENT` line of its own naming the slots, the
+damage, whether it was a headshot, and how many frames back it was aimed.
+
+A `read` several frames further behind `newestSnap` than `buffer` says is the
+*client* failing to hold 60 Hz, not the line -- the playout clock is being
+dragged along behind its own target. It costs nothing in hit registration,
+because the ack names where the clock actually is.
 
 Eight files are kept; the oldest is deleted on the way in. The file is opened
 `FileShare.ReadWrite`, so it can be read while the game is still running --

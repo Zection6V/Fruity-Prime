@@ -24,15 +24,15 @@ namespace MphRead.Mods.Launcher
     public static class GameFiles
     {
         /// <summary>
-        /// Where paths.txt sits. The directory the program was started from
-        /// everywhere but Android, where the package's own directory is
+        /// Where paths.txt sits: Application Support on macOS, beside the
+        /// executable on Windows/Linux. Android's package directory is
         /// read-only and the files a player copies onto the device land
         /// somewhere else entirely -- the head sets this before the first
         /// screen is built, the same way it does LauncherPrefs.Directory.
         /// Whoever sets it must also make it the working directory, since
         /// upstream's Paths reads paths.txt relative to that.
         /// </summary>
-        public static string Root { get; set; } = AppContext.BaseDirectory;
+        public static string Root { get; set; } = Platform.AppPaths.UserDataDirectory;
 
         private static string PathsFile => Path.Combine(Root, "paths.txt");
 

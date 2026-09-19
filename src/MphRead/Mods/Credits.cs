@@ -95,7 +95,11 @@ namespace MphRead.Mods
             new Entry("OpenTK", "the OpenGL bindings the renderer uses",
                 "https://github.com/opentk/opentk"),
             new Entry("OpenAL Soft and SoundFlow", "audio",
-                "https://github.com/LSXPrime/SoundFlow")
+                "https://github.com/LSXPrime/SoundFlow"),
+            // CC BY 4.0 asks for this by name, so it is an entry rather than a
+            // line in a file beside the data.
+            new Entry("DB-IP", "IP geolocation, for the flags in the server "
+                + "browser (DB-IP Lite, CC BY 4.0)", "https://db-ip.com")
         };
 
         /// <summary>The whole thing, for a console or a log.</summary>

@@ -75,6 +75,14 @@ namespace MphRead.Mods.Network
             /// </summary>
             public byte Ballot;
             /// <summary>
+            /// Which map off the intermission's ballot this player wants, or
+            /// "" for none. The last one heard stands, unlike
+            /// <see cref="Ballot"/>: this is asked with a countdown on screen
+            /// and changing your mind while the picture is up is the normal
+            /// case rather than a way to game a race.
+            /// </summary>
+            public string Pick = "";
+            /// <summary>
             /// Who this peer says it is, independent of where it is. See
             /// <see cref="NetSession.ClientId"/>. Zero from a client built
             /// before this existed, which gets the old behaviour.
@@ -295,6 +303,25 @@ namespace MphRead.Mods.Network
         public bool FriendlyFire { get; set; }
 
         /// <summary>
+        /// The damage level this server plays at, broadcast so that nobody's
+        /// copy of <c>TakeDamage</c> uses a different multiplier from the
+        /// machine resolving the shot.
+        ///
+        /// <b>Always medium, which is x1.</b> It is not an option and there is
+        /// no flag for it: see <see cref="GameState.DamageLevel"/>. Sent
+        /// anyway, because sending it is what puts right a client that has one
+        /// of the other two from somewhere.
+        /// </summary>
+        public int DamageLevel => 1;
+
+        /// <summary>
+        /// Whether weapon pickups are the picking hunter's affinity variant,
+        /// broadcast for the same reason: the affinity weapons are a different
+        /// row of the damage table. <c>-affinityweapons</c>.
+        /// </summary>
+        public bool AffinityWeapons { get; set; }
+
+        /// <summary>
         /// Whether the shadow freeze glitch is allowed here. On by default,
         /// because it is what the cartridge does and a server that quietly
         /// changed the game would be a surprising one; <c>-noshadowfreeze</c>
@@ -335,7 +362,7 @@ namespace MphRead.Mods.Network
         /// player owns the session; simulating here would have
         /// <c>ServerSim.Start</c> call <c>NetSession.StartServerAuthority</c>
         /// on top of the player who started it.</item>
-        /// <item><see cref="NetMaster"/> -- "Host: online". The directory runs
+        /// <item><see cref="MasterServer"/> -- "Host: online". The directory runs
         /// one of these per hosted match, several at a time, in one
         /// process.</item>
         /// </list>
@@ -350,6 +377,13 @@ namespace MphRead.Mods.Network
         /// </summary>
         public bool RunsTheMatch { get; init; } = true;
 
+        /// <summary>
+        /// The extra matches this server is running for other people, on
+        /// ports of its own. Empty and refusing everything unless an admin
+        /// passed <c>-hostports</c>. See <see cref="HostPool"/>.
+        /// </summary>
+        public HostPool Hosts { get; }
+
         /// <summary>True when this server is the match's simulation authority.</summary>
         public bool Simulating => _sim != null && _sim.Running;
 
@@ -359,6 +393,16 @@ namespace MphRead.Mods.Network
             _port = port;
             _maxPlayers = Math.Clamp(maxPlayers, 2, MphRead.Entities.PlayerEntity.SlotCapacity);
             _rotation = rotation ?? new MapRotation();
+            Hosts = new HostPool
+            {
+                Log = Log,
+                // A game this server opens announces itself the way this
+                // server does, to the same directory: a hosted match nobody
+                // can find is a match nobody joins.
+                ReporterFactory = () => Reporter == null
+                    ? null
+                    : new MasterReporter(Reporter.Host, Reporter.Port)
+            };
         }
 
         public void Run(CancellationToken cancel = default)
@@ -371,6 +415,7 @@ namespace MphRead.Mods.Network
                 ? "this server runs the match itself"
                 : "hosted game: the first client to connect runs the match");
             Log($"rotation: {_rotation.Entries.Count} map(s), starting on {_rotation.Current}");
+            Log(Hosts.Describe());
 
             // The bound port, taken once: the heartbeat has to advertise the
             // port players dial, which is not the requested one when the
@@ -426,6 +471,14 @@ namespace MphRead.Mods.Network
                         // get another one. Both are this cadence's job.
                         Tally(now);
                         BroadcastVoteState(now);
+                        // UDP drops, and a client that missed the ballot would
+                        // sit out the whole intermission with nothing to pick
+                        // from. Sent only while there is one, so this costs
+                        // nothing during a match.
+                        if (_ballotOpen)
+                        {
+                            BroadcastMapChoices();
+                        }
                         if (_authority != null && !Simulating)
                         {
                             NotifyAuthority(_authority);
@@ -434,11 +487,21 @@ namespace MphRead.Mods.Network
                             (byte)_peers.Count, (byte)_maxPlayers,
                             (byte)_rotation.Current.Mode, _rotation.Current.RoomKey);
                     }
+                    // The games this server is running for other people,
+                    // reaped here rather than on their own threads: a match
+                    // that ended on Tuesday is a port nobody can use until
+                    // somebody notices.
+                    Hosts.Reap(now);
                     // Newest release, checked on a timer and applied the
                     // moment there is nobody to interrupt. It says yes at most
                     // once, and only with an empty server, so a busy one keeps
                     // playing and swaps when the last person leaves.
-                    if (AutoUpdate && Update.ServerUpdate.ShouldRestart(_peers.Count))
+                    //
+                    // Hosted games count as people: they live in this process,
+                    // so a restart ends them, and somebody mid-match on one
+                    // would be dropped by an update they cannot see.
+                    if (AutoUpdate
+                        && Update.ServerUpdate.ShouldRestart(_peers.Count + Hosts.Count))
                     {
                         Log("shutting down to come back on the new build");
                         _running = false;
@@ -465,7 +528,16 @@ namespace MphRead.Mods.Network
                             // prints now that no client is the authority.
                             Log($"sim: {_sim.DescribeUnlagged()}");
                             Log($"sim: {_sim.DescribeRewindDepths()}");
+                            string? claimLine = _sim.DescribeClaims();
+                            if (claimLine != null)
+                            {
+                                Log($"sim: {claimLine}");
+                            }
                             Log($"sim: {_sim.DescribeShots()}");
+                            foreach (string line in _sim.DescribeAgreement().Split('\n'))
+                            {
+                                Log($"sim: {line}");
+                            }
                         }
                     }
                     // A millisecond between passes while anyone is connected --
@@ -502,6 +574,7 @@ namespace MphRead.Mods.Network
         private void Shutdown(ushort listenPort)
         {
             Log("shutting down");
+            Hosts.StopAll("the server is shutting down");
             _running = false;
             try
             {
@@ -524,6 +597,7 @@ namespace MphRead.Mods.Network
             // done before it starts another.
             _sim?.Stop();
             _sim = null;
+            NetHitClaims.VerdictSink = null;
         }
 
         /// <summary>
@@ -539,9 +613,14 @@ namespace MphRead.Mods.Network
                 return;
             }
             _matchEndedAt = now;
+            // Before the state goes out, so the first results screen anybody
+            // draws can already be scrolled.
+            OpenBallot();
             Log($"match over on {_rotation.Current.RoomKey} ({reason}); "
-                + $"{_rotation.Next.RoomKey} in {EndSequenceFor():0} s");
+                + $"{_rotation.Next.RoomKey} in {EndSequenceFor():0} s"
+                + (_ballotOpen ? "; ballot open" : ""));
             BroadcastMatchState(now);
+            BroadcastMapChoices();
         }
 
         private void AdvanceMap(double now)
@@ -568,6 +647,11 @@ namespace MphRead.Mods.Network
             {
                 _peers[i].Ready = false;
             }
+            // The ballot has been acted on; there is no next map to choose
+            // again until this one is over. Closed *after* Advance has taken
+            // what the picks made pending, which is the line above it.
+            CloseBallot();
+            BroadcastMapChoices();
             Log($"rotating to {entry}");
             MatchStatePacket state = BuildState(now);
             // The simulation follows a rotation the way every client does:
@@ -603,7 +687,8 @@ namespace MphRead.Mods.Network
                 PlayerCount = (byte)_peers.Count,
                 Flags = (byte)((ending ? MatchStatePacket.FlagEnding : MatchStatePacket.FlagInProgress)
                     | (FriendlyFire ? MatchStatePacket.FlagFriendlyFire : 0)
-                    | (ShadowFreeze ? 0 : MatchStatePacket.FlagNoShadowFreeze)),
+                    | (ShadowFreeze ? 0 : MatchStatePacket.FlagNoShadowFreeze)
+                    | MatchStatePacket.RuleFlags(DamageLevel, AffinityWeapons)),
                 PointGoal = (ushort)Math.Clamp(entry.PointGoal, 0, UInt16.MaxValue),
                 MatchId = _matchId,
                 RoomKey = entry.RoomKey,
@@ -677,6 +762,10 @@ namespace MphRead.Mods.Network
                 throw new ProgramException($"the server could not load \"{entry.RoomKey}\"");
             }
             _sim = sim;
+            // This server arbitrates its clients' hit claims for as long as it
+            // is running the match, so it needs a way to answer them.
+            // NetHitClaims.
+            NetHitClaims.VerdictSink = SendVerdicts;
             SyncSimulationState(_now);
         }
 
@@ -744,6 +833,9 @@ namespace MphRead.Mods.Network
                 case PacketType.Pong:
                     HandlePong(packet, now);
                     break;
+                case PacketType.HostRequest:
+                    HandleHostRequest(packet, now);
+                    break;
                 case PacketType.StatusQuery:
                     SendStatus(packet.Sender, now);
                     break;
@@ -756,6 +848,62 @@ namespace MphRead.Mods.Network
                 case PacketType.Vote:
                     HandleVote(packet, now);
                     break;
+                case PacketType.MapPick:
+                    HandleMapPick(packet, now);
+                    break;
+                case PacketType.HitClaim:
+                    HandleHitClaim(packet, now);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// The hits one client says it landed.
+        ///
+        /// The slot comes from the endpoint the datagram arrived on and from
+        /// nowhere else, exactly as it does for chat and for a vote: a claim
+        /// that could be made on somebody else's behalf is not a claim. What
+        /// happens to it after that is <see cref="NetHitClaims"/>'s, which
+        /// runs inside the simulation -- this handler and the simulation step
+        /// are the same thread, which is what makes it safe to apply damage
+        /// from here.
+        ///
+        /// A server that is not running the match has no history to check a
+        /// claim against and no simulation to apply it to, so it drops them.
+        /// The client repeats a few times, gives up, and plays the game every
+        /// build before protocol 7 played.
+        /// </summary>
+        private void HandleHitClaim(ReceivedPacket packet, double now)
+        {
+            Peer? peer = Find(packet.Sender);
+            if (peer == null || peer.SlotIndex < 0 || !Simulating)
+            {
+                return;
+            }
+            peer.LastSeen = now;
+            NetHitClaims.Receive(peer.SlotIndex, packet.Payload);
+        }
+
+        /// <summary>
+        /// Answer one client's claims. Hung off
+        /// <see cref="NetHitClaims.VerdictSink"/> when the simulation starts.
+        /// </summary>
+        private void SendVerdicts(int slot, ReadOnlySpan<(ushort Id, byte Result)> verdicts)
+        {
+            if (verdicts.Length == 0 || _transport == null)
+            {
+                return;
+            }
+            for (int i = 0; i < _peers.Count; i++)
+            {
+                if (_peers[i].SlotIndex != slot)
+                {
+                    continue;
+                }
+                HitVerdictPacket.Write(_scratch, verdicts);
+                _transport.Send(_peers[i].EndPoint, PacketType.HitVerdict,
+                    _scratch.AsSpan(0, 1 + verdicts.Length * HitVerdictPacket.EntrySize));
+                return;
             }
         }
 
@@ -794,6 +942,249 @@ namespace MphRead.Mods.Network
             peer.Ballot = vote.Kind;
             BroadcastVoteState(now);
             Tally(now);
+        }
+
+        // ------------------------------------------- the intermission ballot
+
+        /// <summary>
+        /// Whether the results screen's ballot is open: a match has ended and
+        /// the room may say where it goes next.
+        /// </summary>
+        private bool _ballotOpen;
+
+        /// <summary>
+        /// The tally, rebuilt from the peers' picks whenever one changes.
+        /// Only maps somebody has picked are in it -- every map is votable and
+        /// the client scrolls its own room list, so what travels is the
+        /// answer and not the question.
+        /// </summary>
+        private readonly List<string> _tallyRooms = new();
+        private readonly List<int> _tallyVotes = new();
+
+        /// <summary>
+        /// Open the ballot. Called as the match ends, before the state goes
+        /// out, so the first results screen anybody draws already has a list
+        /// to scroll.
+        /// </summary>
+        private void OpenBallot()
+        {
+            _ballotOpen = AllowMapVotes;
+            _tallyRooms.Clear();
+            _tallyVotes.Clear();
+            for (int i = 0; i < _peers.Count; i++)
+            {
+                _peers[i].Pick = "";
+            }
+        }
+
+        private void CloseBallot()
+        {
+            _ballotOpen = false;
+            _tallyRooms.Clear();
+            _tallyVotes.Clear();
+            for (int i = 0; i < _peers.Count; i++)
+            {
+                _peers[i].Pick = "";
+            }
+        }
+
+        /// <summary>
+        /// One player's pick: any map this server can load, rather than one of
+        /// a short list it drew up.
+        ///
+        /// The ballot used to be four maps chosen here, which is a different
+        /// thing from what people want out of a vote -- "the next map" is not
+        /// a multiple-choice question, and the four on offer were never the
+        /// one somebody had in mind. So the client scrolls its own room list
+        /// and names what it wants; the only validation left is the one that
+        /// matters, which is that the key loads something.
+        /// </summary>
+        private void HandleMapPick(ReceivedPacket packet, double now)
+        {
+            Peer? peer = Find(packet.Sender);
+            if (peer == null || peer.SlotIndex < 0 || packet.Payload.Length < MapPickPacket.Size)
+            {
+                return;
+            }
+            peer.LastSeen = now;
+            if (!_ballotOpen)
+            {
+                return;
+            }
+            string key = MapPickPacket.Read(packet.Payload).RoomKey;
+            if (key.Length > 0)
+            {
+                string? resolved = ResolveRoomKey(key);
+                if (resolved == null || String.Equals(resolved, _rotation.Current.RoomKey,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    // No map, or the one they are standing in. Answered
+                    // privately rather than announced, StartVote's rule.
+                    Tell(peer, resolved == null ? $"no map called \"{key}\""
+                        : "that is the map you are on");
+                    return;
+                }
+                key = resolved;
+            }
+            if (String.Equals(peer.Pick, key, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            string was = peer.Pick;
+            peer.Pick = key;
+            Recount();
+            if (key.Length > 0 && VotesFor(key) == 1)
+            {
+                // Said out loud only when this player is the first behind that
+                // map: somebody proposing one is news, and the eighth person
+                // to agree with them is a number on a screen everybody is
+                // already looking at.
+                string who = peer.Name.Length > 0 ? peer.Name : $"Player{peer.SlotIndex + 1}";
+                Announce($"{who} wants {key} next -- pick it to agree; "
+                    + "the map with the most votes is the one loaded");
+            }
+            else if (key.Length == 0 && was.Length > 0)
+            {
+                Log($"slot {peer.SlotIndex} took back its pick of {was}");
+            }
+            ApplyLeader();
+            BroadcastMapChoices();
+        }
+
+        private int VotesFor(string roomKey)
+        {
+            for (int i = 0; i < _tallyRooms.Count; i++)
+            {
+                if (String.Equals(_tallyRooms[i], roomKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    return _tallyVotes[i];
+                }
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Rebuild the tally from the picks, most-wanted first. Sorted here so
+        /// every client draws the same order and a row cannot jump under
+        /// somebody's cursor differently on two machines.
+        /// </summary>
+        private void Recount()
+        {
+            _tallyRooms.Clear();
+            _tallyVotes.Clear();
+            for (int i = 0; i < _peers.Count; i++)
+            {
+                string key = _peers[i].Pick;
+                if (key.Length == 0)
+                {
+                    continue;
+                }
+                int at = -1;
+                for (int j = 0; j < _tallyRooms.Count; j++)
+                {
+                    if (String.Equals(_tallyRooms[j], key, StringComparison.OrdinalIgnoreCase))
+                    {
+                        at = j;
+                        break;
+                    }
+                }
+                if (at < 0)
+                {
+                    _tallyRooms.Add(key);
+                    _tallyVotes.Add(1);
+                }
+                else
+                {
+                    _tallyVotes[at]++;
+                }
+            }
+            for (int i = 1; i < _tallyRooms.Count; i++)
+            {
+                for (int j = i; j > 0 && _tallyVotes[j] > _tallyVotes[j - 1]; j--)
+                {
+                    (_tallyVotes[j], _tallyVotes[j - 1]) = (_tallyVotes[j - 1], _tallyVotes[j]);
+                    (_tallyRooms[j], _tallyRooms[j - 1]) = (_tallyRooms[j - 1], _tallyRooms[j]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The map with the most votes becomes the one the rotation plays --
+        /// as the picks arrive rather than when the countdown ends.
+        ///
+        /// A plurality and no threshold. A mid-match vote needs one because it
+        /// interrupts seven people who did not ask to be asked, so it had
+        /// better be something most of them want; an intermission interrupts
+        /// nothing, and a bar there only produces the outcome nobody voted for
+        /// -- a room that picked three different maps and is sent to a fourth
+        /// because none of the three reached seventy per cent.
+        ///
+        /// Applying it early is what makes the screen honest: NextRoomKey is
+        /// read off the rotation, so the NEXT line and the ring on the list
+        /// are the same fact rather than two guesses about it, and a player
+        /// who changes the answer with three seconds left sees it change.
+        /// Falling back the other way matters just as much: the last pick
+        /// taken back, or the only voter leaving, puts the borrowed turn back
+        /// and the rotation's own next map returns to the NEXT line. A tie
+        /// goes to the map that got there first, which is where
+        /// <see cref="Recount"/>'s stable order comes in.
+        /// </summary>
+        private void ApplyLeader()
+        {
+            if (_tallyRooms.Count == 0 || _tallyVotes[0] <= 0)
+            {
+                _rotation.ClearPending();
+                return;
+            }
+            _rotation.PlayNext(_tallyRooms[0], ModeForRoom(_tallyRooms[0]));
+        }
+
+        /// <summary>The ballot and its tally, to everybody.</summary>
+        private void BroadcastMapChoices()
+        {
+            if (_peers.Count == 0)
+            {
+                return;
+            }
+            int count = Math.Min(_tallyRooms.Count, MapChoicesPacket.MaxChoices);
+            var keys = new string[count];
+            var votes = new byte[count];
+            for (int i = 0; i < count; i++)
+            {
+                keys[i] = _tallyRooms[i];
+                votes[i] = (byte)Math.Clamp(_tallyVotes[i], 0, 255);
+            }
+            var packet = new MapChoicesPacket
+            {
+                Open = (byte)(_ballotOpen ? 1 : 0),
+                Count = (byte)count,
+                RoomKeys = keys,
+                Votes = votes,
+                Eligible = (byte)Math.Clamp(_peers.Count, 0, 255)
+            };
+            packet.Write(_scratch);
+            for (int i = 0; i < _peers.Count; i++)
+            {
+                _transport?.Send(_peers[i].EndPoint, PacketType.MapChoices,
+                    _scratch.AsSpan(0, MapChoicesPacket.Size));
+            }
+        }
+
+        /// <summary>
+        /// The same review the mid-match vote gets when somebody leaves, and
+        /// for the same reason: the threshold is computed against who is
+        /// connected, so a map can clear it or fall back under it because a
+        /// player left rather than because anybody picked anything.
+        /// </summary>
+        private void ReviewPicks()
+        {
+            if (!_ballotOpen)
+            {
+                return;
+            }
+            Recount();
+            ApplyLeader();
+            BroadcastMapChoices();
         }
 
         /// <summary>
@@ -1185,11 +1576,60 @@ namespace MphRead.Mods.Network
                 Match = BuildState(now),
                 MaxPlayers = (byte)_maxPlayers,
                 Protocol = NetConfig.ProtocolVersion,
-                ServerName = ServerName
+                ServerName = ServerName,
+                // What this box can do besides the match it is running. The
+                // launcher's create-server screen asks every server on the
+                // directory's list exactly this, on the port it already pings
+                // them on -- which is why hosting elsewhere needed no second
+                // directory and no second port.
+                Flags = (byte)(Hosts.CanHost ? ServerStatusPacket.FlagCanHost : 0)
             };
             status.Write(_scratch);
             _transport?.Send(sender, PacketType.StatusReply,
-                _scratch.AsSpan(0, ServerStatusPacket.Size));
+                _scratch.AsSpan(0, ServerStatusPacket.SizeWithFlags));
+        }
+
+        /// <summary>
+        /// "Open a game for me, on a port of your own."
+        ///
+        /// The same request the directory answers, answered by an ordinary
+        /// server on its own port. That is the whole of what lets a player
+        /// host in Tokyo: only a process running in Tokyo can start a server
+        /// there, and this is that process -- it is already listed, already
+        /// pinged and already reachable, so nothing new has to be deployed,
+        /// opened or found.
+        /// </summary>
+        private void HandleHostRequest(ReceivedPacket packet, double now)
+        {
+            var reply = new HostReplyPacket();
+            if (packet.Payload.Length < HostRequestPacket.Size)
+            {
+                reply.Reason = "malformed request";
+            }
+            else
+            {
+                HostRequestPacket request = HostRequestPacket.Read(packet.Payload);
+                if (request.Protocol != NetConfig.ProtocolVersion)
+                {
+                    reply.Reason = $"this server speaks protocol {NetConfig.ProtocolVersion}, "
+                        + $"your build speaks {request.Protocol}";
+                }
+                else if (!Hosts.CanHost)
+                {
+                    reply.Reason = "this server does not open new games";
+                }
+                else
+                {
+                    reply = Hosts.Start(request, packet.Sender, now);
+                }
+            }
+            reply.Write(_scratch);
+            _transport?.Send(packet.Sender, PacketType.HostReply,
+                _scratch.AsSpan(0, HostReplyPacket.Size));
+            if (!reply.Started)
+            {
+                Log($"refused a game for {packet.Sender}: {reply.Reason}");
+            }
         }
 
         private void HandleHello(ReceivedPacket packet, double now)
@@ -1665,8 +2105,11 @@ namespace MphRead.Mods.Network
             _peers.Remove(peer);
             BroadcastRoster();
             // A vote is counted against everybody connected, so somebody
-            // leaving can decide one that nobody has voted in since.
+            // leaving can decide one that nobody has voted in since. The
+            // results screen's ballot is counted the same way and moves for
+            // the same reason.
             ReviewVote(_now);
+            ReviewPicks();
             Log($"{peer.EndPoint} {reason} (slot {peer.SlotIndex})");
             if (peer.Name.Length > 0)
             {

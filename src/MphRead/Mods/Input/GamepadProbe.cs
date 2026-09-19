@@ -22,6 +22,7 @@ namespace MphRead.Mods.Input
     {
         public static int Run(double seconds)
         {
+            Render.DesktopGlContext.PreserveWorkingDirectory();
             if (!GLFW.Init())
             {
                 Console.WriteLine("[gamepad] GLFW would not start; no pads can be read here.");

@@ -320,6 +320,21 @@ namespace MphRead.Mods.Network
             }
             if (NetSession.IsHost || NetSession.IsAuthority)
             {
+                // Except its own copy of a shot a hit claim has already made
+                // real. For anything that travels, the authority's projectile
+                // can still be in the air when the claim for it is applied,
+                // and this is the only point early enough to refuse the second
+                // helping. NetHitClaims.AlreadyRescued.
+                if (source is BeamProjectileEntity rescued && rescued.ModLaunchFrame != 0)
+                {
+                    PlayerEntity? owner = rescued.Owner as PlayerEntity
+                        ?? (rescued.Owner as HalfturretEntity)?.Owner;
+                    if (owner != null && NetHitClaims.AlreadyRescued(
+                        owner.SlotIndex, victim.SlotIndex, rescued.ModLaunchFrame))
+                    {
+                        return true;
+                    }
+                }
                 return false;
             }
             // Except for this machine's own shots on somebody else, which are
@@ -328,10 +343,70 @@ namespace MphRead.Mods.Network
             return !NetHitPrediction.Predicts(victim, source, flags);
         }
 
+        /// <summary>
+        /// The beam a rescued hit claim was fired with.
+        ///
+        /// A claim is applied on the authority with the shooter as the source
+        /// rather than a beam, because the beam only ever existed on the
+        /// machine that fired it -- so <c>TakeDamage</c> hands
+        /// <see cref="Note"/> <see cref="BeamType.None"/> and the victim's own
+        /// machine would replay a nameless hit with the wrong effect, the
+        /// wrong sound and no weapon on the kill feed. Set for the length of
+        /// one <c>TakeDamage</c> call and cleared straight after.
+        /// <see cref="NetHitClaims"/>.
+        /// </summary>
+        private static BeamType _claimedBeam = BeamType.None;
+
+        public static void SetClaimedBeam(BeamType beam) => _claimedBeam = beam;
+
+        /// <summary>
+        /// True for the length of the one <c>TakeDamage</c> call that applies a
+        /// rescued hit claim.
+        ///
+        /// <b>It stops the damage being multiplied twice.</b> A claim carries
+        /// the number the shooter's own machine arrived at, with every
+        /// multiplier that machine knows about already in it -- the beam's
+        /// effectiveness against that hunter, the double-damage powerup, the
+        /// match's damage level. <c>TakeDamage</c> would then apply the two it
+        /// can see all over again: 4x for a shooter holding double damage, and
+        /// 1.25x on a server set to high. The effectiveness multiplier is not
+        /// among them, because that branch only runs for a beam and a claim
+        /// has none.
+        ///
+        /// Read by <c>PlayerEntity.TakeDamage</c> in exactly two places, both
+        /// of which are the word "again". <see cref="NetHitClaims"/>.
+        /// </summary>
+        public static bool ApplyingClaim { get; private set; }
+
+        /// <summary>
+        /// Wrap the one call that applies a claim. A struct rather than a
+        /// pair of calls so that an exception inside <c>TakeDamage</c> cannot
+        /// leave every subsequent hit in the match unmultiplied.
+        /// </summary>
+        public readonly struct ClaimScope : IDisposable
+        {
+            public ClaimScope(BeamType beam)
+            {
+                _claimedBeam = beam;
+                ApplyingClaim = true;
+            }
+
+            public void Dispose()
+            {
+                _claimedBeam = BeamType.None;
+                ApplyingClaim = false;
+            }
+        }
+
         /// <summary>Called by the authority for every hit it resolves.</summary>
         public static void Note(PlayerEntity victim, PlayerEntity? attacker, BeamType beam,
-            DamageFlags flags, Vector3? direction, uint amount = 0, bool fromBomb = false)
+            DamageFlags flags, Vector3? direction, uint amount = 0, bool fromBomb = false,
+            uint launchFrame = 0)
         {
+            if (beam == BeamType.None && _claimedBeam != BeamType.None)
+            {
+                beam = _claimedBeam;
+            }
             if (!NetSession.Active || Replaying || NetHitPrediction.Predicting)
             {
                 // A predicted hit is not a resolution. Letting it through here
@@ -360,6 +435,23 @@ namespace MphRead.Mods.Network
             }
             _sequence[slot]++;
             Resolved[slot]++;
+            if (NetLog.Enabled)
+            {
+                // Every hit the machine running the match resolves, with the
+                // stamp that identifies the shot. The only way to line a
+                // client's claims up against what the authority actually did
+                // with the same shots -- a client's own report can say it hit
+                // and the authority's silence cannot be read from outside.
+                NetLog.Event($"[resolve] slot {(attacker != null ? attacker.SlotIndex : -1)} "
+                    + $"hit slot {slot} for {amount} with {beam} (launch {launchFrame}), "
+                    + $"health {victim.Health} -> {Math.Max(0, victim.Health - (int)amount)}");
+            }
+            // The world-frame this hit was aimed at, for the kill
+            // arbitration: two players who killed each other are separated by
+            // which of them pulled the trigger in the earlier world, and this
+            // is where that stamp is taken. NetHitClaims.
+            NetHitClaims.NoteAuthorityHit(
+                attacker != null ? attacker.SlotIndex : -1, slot, launchFrame, (int)amount);
             _attacker[slot] = attacker != null && attacker.SlotIndex >= 0 && attacker.SlotIndex < Slots
                 ? (byte)attacker.SlotIndex
                 : NoSlot;
@@ -547,6 +639,7 @@ namespace MphRead.Mods.Network
             // here, and on the Imperialist they are a kill and half a kill.
             bool authorityHeadshot = ((DamageFlags)state.DamageFlags).TestFlag(DamageFlags.Headshot);
             bool predicted = mine && NetHitPrediction.Confirm(slot, landed, authorityHeadshot);
+
             if (player.Health <= 0)
             {
                 return; // already down here; the respawn is what matters next

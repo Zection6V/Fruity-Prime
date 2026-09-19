@@ -89,3 +89,84 @@ The netlog couldn't show any of this and now can: `STATE` lines carry
 `matchState=` and `goal=`, and each slot carries
 `score=<points>/<teampoints>p <kills>k<deaths>d` -- which is what made the
 double count visible as `1/2p` in a single line.
+
+## The next map, voted on the results screen (2026-09-13)
+
+`callvote map`, moved to the one moment nobody is playing. The mid-match vote
+(`MapVote`, `PacketType.Vote`/`VoteState`, F1/F2) is unchanged and still there;
+this is the same question asked during the intermission, where it interrupts
+nothing and needs neither a cooldown nor a minimum player count to stop it
+being a nuisance.
+
+**Every map, and the most votes wins.** Two decisions that are easy to undo by
+accident and were both arrived at the hard way:
+
+- The first shape of this was a four-map ballot the server drew up. It asked
+  the wrong question -- "where next" is not multiple choice and the four on
+  offer were never the one somebody had in mind. So the list is the client's
+  own room list, scrolled, and what travels is only the tally. Maps with votes
+  are **pulled to the top**, which is what makes a vote visible at all: four
+  rows of a twenty-seven-map list are otherwise a window onto nothing.
+- There is **no threshold**. A mid-match vote needs one because it interrupts
+  seven people who did not ask to be asked; an intermission interrupts nobody,
+  and a bar to clear only produces the outcome nobody voted for -- a room that
+  picked three maps between them and is sent to a fourth because none of the
+  three reached seventy per cent.
+
+| Piece | What |
+|---|---|
+| `PacketType.MapChoices` (28) | server -> clients: whether the ballot is open, how many players there are, and up to eight (room key, votes) pairs -- the maps somebody has picked, most-wanted first. Broadcast on the same one-second tick as everything else and only while the ballot is open, for `MatchStatePacket`'s reason: UDP drops, and a client that missed the one packet would sit out the whole intermission with no tally |
+| `PacketType.MapPick` (29) | client -> server: one room key, or empty to take the pick back. Re-sendable, unlike a vote's ballot -- this is asked with a countdown on screen, so changing your mind while the picture is up is the normal case rather than a way to game a race. The client repeats its pick once a second in case one was lost |
+| server validation | any map `ResolveRoomKey` can load, except the one being played. There is no short list to check against any more, and that is the only check that was ever load-bearing |
+| `DedicatedServer.ApplyLeader` | the most-voted map becomes `_rotation.PlayNext` **as the picks arrive**, not when the countdown ends -- `NextRoomKey` is read off the rotation, so the NEXT line and the row marked NEXT are one fact rather than two guesses. It falls back the other way too (`MapRotation.ClearPending`), which is what the last pick being taken back, or the only voter leaving (`ReviewPicks`), has to do. Ties go to whoever got there first, which is what `Recount`'s stable order is for |
+| `Mods/MapPick.cs` | the client's list, cursor, scroll and mirror of the tally. The order is **the server's** for the voted part: two machines sorting equal counts differently would put a different row under each player's cursor while they are clicking. The cursor tracks the *row* rather than the index, since the order moves under it every time anybody votes |
+| `Mods/Render/PlayerEntityMapPick.cs` | four rows under the hunter picker, in the same column: a preview, the name, `3 OF 8`, and NEXT on the leader. A scroll bar down the outer edge, because four rows of a long list look exactly like a short list. The row count is chosen to fit the space left under the picker rather than stated -- that space is not a number anybody can write down, since the picker's height is derived from its contents and is half again as tall on a phone |
+| `Mods/Render/MapThumbnail.cs` | the launcher's own PNG previews, decoded, box-filtered to 256x144 and bound as a scene texture. **Thrown away on both edges of the results screen**: texture names are counted per room (`Scene._textureCount`) and a binding kept across a map change is a name the next room will overwrite. One decode per frame, so twenty-seven files never land on one frame |
+| `Scene.DrawHudTexture` | `DrawHudFlatBox`'s rectangle with a texture on it. `DrawHudObject` derives its destination from the *source's* dimensions, which is right for art authored at one texel per DS pixel and useless for a photograph that has to land where the layout says |
+| the scoreboard | squeezed left while the screen is up (`ModScoreSqueeze`), and the ping column dropped -- both it and the radar live in the corner the pickers do. The squeeze is worked out from where the panel actually is, since that edge moves with the window's shape |
+
+**Three traps, and the previews hit all three before they drew.**
+
+1. The per-frame bookkeeping (`EndScreen.Tick`, the thumbnail cache's
+   one-decode-per-frame reset) was first put in `RenderWindow.OnRenderFrame`,
+   which **every harness client skips** -- they drive `Scene.OnUpdateFrame`
+   directly -- so the previews were blank under `-netcheck` while the list
+   beside them was correct. It lives in `Scene.OnDrawFrame` now.
+2. `Scene.BindGetTexture` hands back the next value of `_textureCount`, which
+   is **also what the next model loaded takes** -- and the next model loaded is
+   the hunter the results screen puts in its own preview window, built on the
+   very frame the cache is filled. The thumbnails were quietly overwritten with
+   pieces of Samus's armour a frame after they were bound. They take reserved
+   names of their own now (1_100_000 upwards, in a ring of 64), which is
+   `UiOverlay`'s trap and `UiOverlay`'s answer.
+3. **`StbImage.Load(..., StbiImageFormat.Rgba)` gives a span whose length is
+   the *file's* channel count, not the format asked for.** These PNGs are
+   opaque, so the buffer is four bytes a pixel while the span reports three
+   quarters of it: every read at a three-byte stride lands a channel further
+   into the row than the last, which is a picture of vertical red, green and
+   blue stripes. Asking for `Rgb` -- what the file already is, and the call
+   `MapTextureBake` has been making correctly all along -- makes the two agree.
+
+Additive in both directions, so **no protocol bump**: a server built before
+this never opens a ballot and the results screen shows the NEXT line it always
+showed; a client built before it drops an unknown type on the floor.
+
+Offline the same list is offered and the answer starts the next match --
+`GameState.PlayPickedMap` -> `Shell.PlayAnother`, which is the pause menu's
+"Leave match" and the front screen's "Start" sent on one frame, so the launcher
+is rebuilt and hidden again without being drawn. One player is the whole room.
+
+Measured with `~/mph-net-test/run-mapvote.sh` (a copy of `run-rotate.sh` with
+`-mapvote`): three clients, four 30-second matches, **every vote cast carried
+by the server** (9/9 and 11/11 across two runs), three rotations followed by
+every client, zero crashes, zero node refs outliving their room, zero feature
+mismatches.
+The harness votes the way the feature is meant to be used -- agree with
+whatever is in front, propose row N only when nothing is -- which is both the
+shape of the thing and the only rule that converges, since a voted map moves
+to the top of everybody's list. `MphRead -netcheck ... -mapvote N` is off by
+default on purpose: a scripted client that votes changes what a real server
+plays next, and the hard-case batch runs against the public one.
+`-netcheck ... -hudshots` is the other half of the instrument and is new with
+this: a visible window and `SaveWindow`, so the HUD -- which is the whole of
+what a results screen is -- can be photographed from a networked client at all.

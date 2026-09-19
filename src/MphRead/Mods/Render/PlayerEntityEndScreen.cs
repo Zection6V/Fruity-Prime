@@ -99,6 +99,18 @@ namespace MphRead.Entities
             {
                 return;
             }
+#if MPHREAD_SHELL
+            // The deck panel is up over this: it asks the same two questions
+            // -- where next, and who you are coming back as -- with the rest
+            // of the program's own controls rather than with arrows and
+            // swatches beside a 32x32 sprite. The scoreboard to the left of
+            // here is untouched either way; it is the engine's screen and a
+            // scoreboard is not a place to put a theme.
+            if (Mods.Launcher.Gui.Shell.EndPanelUp)
+            {
+                return;
+            }
+#endif
             float aspect = HudAspectFix;
             float scale = EndScale;
             float right = 254;
@@ -214,6 +226,11 @@ namespace MphRead.Entities
                     $"NEXT: {next.ToUpperInvariant()}",
                     color: _endDim, fontSpacing: 8, scale: 0.45f * scale);
             }
+            // The ballot, under the picker and in the same column. Given the
+            // panel's floor rather than working it out again, because the
+            // panel's height is derived from what went in it and there is no
+            // second copy of that arithmetic to be wrong.
+            ModDrawMapPick(bottom);
         }
 
         /// <summary>A hairline box around the preview window.</summary>

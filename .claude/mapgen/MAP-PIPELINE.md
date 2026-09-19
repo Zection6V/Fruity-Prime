@@ -467,3 +467,39 @@ listed and crashing. With nothing shipping, the APK now logs
   is as much as it can check.
 - **Nothing hashes the map** in the network handshake: two clients on the same
   build with different `maps/` will disagree silently.
+
+## Handing a custom map to a client that does not have it
+
+**Not implemented. The packet numbers are spent, and that is the whole of it.**
+
+`PacketType` 32-35 are reserved for it -- `MapOffer` (the server names the map,
+its hash and its size), `MapWant` (the client asks for the bytes from offset N),
+`MapChunk` (one piece of the `.fpmap`), `MapDone` (the client has it and it
+hashes right). Nothing in this build sends or answers any of them.
+
+They were spent early on purpose. `NetConfig.ProtocolVersion` 7 already refuses
+every client built before it, for reasons that have nothing to do with map
+transfer; taking the numbers now means that refusal is the same refusal that
+will cover the transfer, instead of a second protocol bump -- and a second bump
+is a second day of every server in the world having to be redeployed before
+anybody can play. A client built today cannot meet a server that speaks the
+transfer and misread a chunk as something else, because it cannot connect to it
+at all.
+
+What is settled about the shape, so that the numbers mean something:
+
+- **the bundle is the unit.** `-mapbundle` already cooks a map into one
+  `.fpmap` -- recipe, level and baked textures, level trimmed to the lumps the
+  importer reads, 376 KB for de_dust2 against 2.8 MB for the folder. That file
+  is what would travel, and its hash is what identifies it.
+- **the offer comes before the load, not during it.** A client that is told
+  about a custom map at the moment the rotation reaches it has a room to load
+  and no bytes to load it from; the offer belongs with the match state, early
+  enough that the transfer finishes before the map is needed.
+- **the hash is the name.** Two people with a map called `de_dust2` do not
+  necessarily have the same map, and a rotation that names one by string alone
+  cannot tell.
+- **`net.livetek.fr` is where they come from.** The directory already knows
+  which servers are up and is the one machine in the world every launcher
+  talks to; hosting the bundles there means a server does not have to serve
+  them out of its own bandwidth mid-match.

@@ -63,6 +63,17 @@ namespace MphRead.Mods.Network
         /// </summary>
         public int Protocol { get; init; }
 
+        /// <summary>
+        /// Whether this server will open a *new* match for you, on a port of
+        /// its own, beside the one it is already running.
+        ///
+        /// False for a server that did not say, and that is the right default:
+        /// hosting is off unless an admin passed <c>-hostports</c>, so silence
+        /// and no are the same answer -- unlike the directory's own flag,
+        /// where hosting is on by default and silence means "too old to say".
+        /// </summary>
+        public bool CanHost { get; init; }
+
         public static ServerStatus Offline(string message) => new()
         {
             RoomKey = "",
@@ -271,6 +282,7 @@ namespace MphRead.Mods.Network
                 Latency = latency,
                 Legacy = legacy,
                 Protocol = status.Protocol,
+                CanHost = (status.Flags & ServerStatusPacket.FlagCanHost) != 0,
                 Message = message
             };
         }

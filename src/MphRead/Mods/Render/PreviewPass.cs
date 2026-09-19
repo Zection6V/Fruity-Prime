@@ -36,6 +36,9 @@ namespace MphRead
         /// </summary>
         private bool _collectingPreview;
 
+        /// <summary>The hunter whose meshes have been handed to GL.</summary>
+        private Hunter _previewInited = Hunter.Random;
+
         /// <summary>
         /// Where the preview goes, in fractions of the window: the panel's
         /// portrait slot. Published by the HUD, because the panel decides its
@@ -50,6 +53,36 @@ namespace MphRead
         public static bool PreviewWanted { get; set; }
 
         /// <summary>
+        /// The launcher is asking, rather than the results screen.
+        ///
+        /// The two want the same picture for the same reason -- "who am I
+        /// going in as" is the same question before a match and between two --
+        /// and the pass below does not care which of them is asking. What
+        /// differs is only where the hunter and the suit are read from, and
+        /// that the launcher's frame has no world in it at all: see
+        /// <see cref="ModDrawPreviewAlone"/>.
+        /// </summary>
+        public static bool LauncherPreview { get; set; }
+
+        /// <summary>Who the launcher is showing, while it is the one asking.</summary>
+        public static Hunter LauncherHunter { get; set; } = Hunter.Samus;
+
+        public static int LauncherSuit { get; set; }
+
+        /// <summary>Did anybody ask for a preview this frame?</summary>
+        private static bool PreviewAsked => Mods.EndScreen.Available || LauncherPreview;
+
+        /// <summary>
+        /// Whether a hunter was actually put on the screen last frame, by
+        /// either path.
+        ///
+        /// What the screens read to decide between leaving a hole and drawing
+        /// their own boxes. Static because the control asking is in the
+        /// launcher's tree and has no scene to ask.
+        /// </summary>
+        public static bool PreviewDrawnLastFrame { get; private set; }
+
+        /// <summary>
         /// Turn the model, once a simulation step. Called from the step rather
         /// than the draw for the reason everything else here is: a picture with
         /// no step behind it must not advance anything, or the hunter spins at
@@ -57,7 +90,7 @@ namespace MphRead
         /// </summary>
         public void ModStepPreview()
         {
-            if (!Mods.EndScreen.Available)
+            if (!PreviewAsked)
             {
                 _preview?.Reset();
                 // So a rectangle from the last results screen cannot be used
@@ -67,7 +100,25 @@ namespace MphRead
                 return;
             }
             _preview ??= new Mods.Render.HunterPreviewEntity(this);
-            _preview.SetUp(Mods.EndScreen.Hunter, Mods.EndScreen.Suit);
+            Hunter want = LauncherPreview ? LauncherHunter : Mods.EndScreen.Hunter;
+            _preview.SetUp(want, LauncherPreview ? LauncherSuit : Mods.EndScreen.Suit);
+            // Textures and display lists, which nobody else is going to make.
+            //
+            // In a match this is free and invisible: the player standing in
+            // the room is the same hunter model, `Read` caches the Model, and
+            // `GenerateLists` writes the list id onto that shared Model -- so
+            // the preview has always been reusing lists the player's own
+            // entity generated. On the launcher there is no player and no
+            // room, so nothing ever did, and the first draw died looking a
+            // palette up by an id that was never registered.
+            if (_previewInited != want)
+            {
+                _previewInited = want;
+                if (_preview.Ready)
+                {
+                    InitEntity(_preview);
+                }
+            }
             _preview.Step();
         }
 
@@ -78,7 +129,7 @@ namespace MphRead
         private void ModCollectPreview()
         {
             _previewItems.Clear();
-            if (!Mods.EndScreen.Available || _preview == null || !_preview.Ready)
+            if (!PreviewAsked || _preview == null || !_preview.Ready)
             {
                 return;
             }
@@ -132,12 +183,88 @@ namespace MphRead
         /// that is not dimmed -- which is right, it is the thing being asked
         /// about.
         /// </summary>
+        /// <summary>
+        /// The same hunter, in a frame with no match behind it: the launcher's
+        /// own screens.
+        ///
+        /// <para>
+        /// Everything the pass below needs was set up by <see cref="OnLoad"/>
+        /// -- the shader, the toon table, the shift table -- and none of it
+        /// needs a room. What a match's frame adds is the world, and this
+        /// draws no world: it is one scissored rectangle with its own camera
+        /// and its own cleared depth, which is what the pass already was. So
+        /// the launcher stands a scene up with nothing in it and calls this.
+        /// </para>
+        /// <para>
+        /// Straight into the back buffer rather than into the scene's own
+        /// offscreen target, because nothing is going to present that target:
+        /// the launcher's frame is the photograph, this, and the screens'
+        /// texture over the top. <paramref name="windowSize"/> is therefore
+        /// the window's, and it is what the rectangle is measured against.
+        /// </para>
+        /// <para>
+        /// Returns whether anything was actually drawn, and that answer is
+        /// load-bearing: the screens only leave a hole where the model goes
+        /// once this has said yes, so a hunter whose model will not load, or
+        /// the frames before it has, show the drawn stand instead of a hole
+        /// with nothing in it.
+        /// </para>
+        /// </summary>
+        public bool ModDrawPreviewAlone(Vector2i windowSize)
+        {
+            if (!LauncherPreview || windowSize.X <= 0 || windowSize.Y <= 0)
+            {
+                return false;
+            }
+            _targetSize = windowSize;
+            try
+            {
+                ModStepPreview();
+                ModCollectPreview();
+                if (!ModPreviewDrawn)
+                {
+                    return false;
+                }
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                GL.UseProgram(_shaderProgramId);
+                ModDrawPreview();
+                GL.UseProgram(0);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // A preview that will not draw is the launcher's boxes again,
+                // not a dead launcher. Said once: this is a per-frame path.
+                if (!_previewComplained)
+                {
+                    _previewComplained = true;
+                    Mods.DebugLog.Line("ui", $"the hunter preview could not be drawn: {ex.Message}");
+                }
+                LauncherPreview = false;
+                return false;
+            }
+        }
+
+        private bool _previewComplained;
+
         private void ModDrawPreview()
         {
             if (_previewItems.Count == 0 || !PreviewWanted)
             {
+                PreviewDrawnLastFrame = false;
                 return;
             }
+#if MPHREAD_SHELL
+            // Not from inside the world's render while the deck panel is up.
+            // That draws the model *under* the screens, and the panel it goes
+            // in is opaque -- so it would be a hunter behind a card, drawn for
+            // nothing. UiOverlay draws it over the screens instead, once the
+            // texture is down. See LauncherHunter.
+            if (Mods.Launcher.Gui.Shell.EndPanelUp && !LauncherPreview)
+            {
+                return;
+            }
+#endif
             Vector2i target = _targetSize;
             // The rectangle, in the render target's pixels rather than the
             // window's: the scene may be rendered smaller than the window and
@@ -190,6 +317,7 @@ namespace MphRead
             GL.UniformMatrix4(_shaderLocations.ViewMatrix, transpose: false, ref _viewMatrix);
             GL.Uniform1(_shaderLocations.UseFog, _hasFog && FogOn ? 1 : 0);
             GL.PolygonMode(TriangleFace.FrontAndBack, OpenTK.Graphics.OpenGL.PolygonMode.Fill);
+            PreviewDrawnLastFrame = true;
         }
     }
 }

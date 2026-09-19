@@ -49,11 +49,25 @@ namespace MphRead.Mods.Input
         /// a fast flick with a high-DPI mouse at high sensitivity clears 600
         /// px in a single 60 Hz simulation frame and had its aim zeroed for
         /// it, reported as "my aim doesn't follow anymore" after this guard
-        /// shipped. A pen tablet user turns it back on from the aim
-        /// settings; a mouse player, who vastly outnumbers them, is no
-        /// longer silently penalised for owning a fast mouse.
+        /// shipped. A pen tablet user turns it back on from Settings ->
+        /// Controls -> Stylus mode; a mouse player, who vastly outnumbers
+        /// them, is no longer silently penalised for owning a fast mouse.
         /// </summary>
         public static bool GuardJumps { get; set; } = false;
+
+        /// <summary>
+        /// Whether the player has said they are aiming with a pen.
+        ///
+        /// The same switch by the name the settings screen gives it -- the
+        /// "Stylus mode" row writes <see cref="GuardJumps"/> -- and it is the
+        /// **master** for everything that follows from owning a tablet, not
+        /// only the jump guard. <see cref="StylusZone"/> reads it, which is
+        /// what makes turning the row off actually turn the bottom screen off:
+        /// the zone had a switch of its own, that switch's row is hidden while
+        /// stylus mode is off, and a hidden switch left on is a feature
+        /// somebody cannot get rid of.
+        /// </summary>
+        public static bool StylusMode => GuardJumps;
 
         /// <summary>
         /// Pointer jumps ignored so far. Zero for anybody using a mouse,

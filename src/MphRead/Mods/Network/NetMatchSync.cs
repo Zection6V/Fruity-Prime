@@ -61,6 +61,25 @@ namespace MphRead.Mods.Network
             // switched the glitch off on its own would still be frozen through
             // the floor by a server that had not.
             GameState.ShadowFreeze = state.ShadowFreeze;
+            // And whether weapon pickups are the picking hunter's affinity
+            // variant, which is a different row of the damage table -- an
+            // affinity Battlehammer deals 18 where the plain one deals 12. The
+            // same argument again, and a sharper one, because this is
+            // multiplied into the damage itself: a client reading its own
+            // settings took a different amount off every victim's health than
+            // the authority did, ran them to the bottom of the bar a shot
+            // early, and predicted a kill the authority refused.
+            //
+            // Silence is not a no. A server built before this says nothing,
+            // and nothing means "keep playing by the local setting", exactly
+            // as before -- which is what StatesRules asks. The damage level
+            // travels in the same bits and is what marks the packet as
+            // stating anything at all, but it is not adopted here: it is
+            // pinned to medium on every machine. GameState.DamageLevel.
+            if (state.StatesRules)
+            {
+                GameState.AffinityWeapons = state.AffinityWeapons;
+            }
             // Not while the match is ending. MatchTime is the countdown the
             // results sequence itself runs on -- three seconds of the winner's
             // camera, then five of the scoreboard -- so adopting the server's

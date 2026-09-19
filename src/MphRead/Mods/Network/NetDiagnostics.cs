@@ -226,6 +226,25 @@ namespace MphRead.Mods.Network
             {
                 line.Append(" placementsRefused=").Append(NetPlayerBridge.PlacementsRefused);
             }
+            // Not a fault: a respawn this client and the authority placed on
+            // different spawn points is the normal case, and the number is
+            // how many of them this player was turned to face correctly for.
+            // The worst is what the bug used to look like at its worst.
+            if (NetPlayerBridge.SpawnFacingsTurned > 0)
+            {
+                line.Append(" spawnFacings=").Append(NetPlayerBridge.SpawnFacingsTurned)
+                    .Append(" worstSpawnFacing=")
+                    .Append(NetPlayerBridge.WorstSpawnFacing.ToString("0.0"));
+            }
+            // Snapshots about a life this player had already left, dropped
+            // rather than replayed onto the new one. Also not a fault: any
+            // respawn taken early on a slow line produces a few. Each one is
+            // a death cry that would have played on the frame the player
+            // stood up. See NetPlayerBridge.DescribesTheLifeBefore.
+            if (NetPlayerBridge.StaleDeathsIgnored > 0)
+            {
+                line.Append(" staleDeaths=").Append(NetPlayerBridge.StaleDeathsIgnored);
+            }
 
             MatchStatePacket? match = NetSession.ServerMatch;
             if (match != null)

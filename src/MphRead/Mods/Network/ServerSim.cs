@@ -365,6 +365,30 @@ namespace MphRead.Mods.Network
         public string DescribeRewindDepths() => NetUnlagged.DescribeDepths();
 
         /// <summary>
+        /// What the machine running the match did with the hits its clients
+        /// said they landed. Only this machine has the numbers -- a client
+        /// sees its own claims answered and nothing about anybody else's --
+        /// and the pair worth reading is <c>applied</c> against
+        /// <c>already resolved</c>: the second is the rewind doing its job
+        /// unaided, the first is what it could not reach.
+        /// </summary>
+        public string? DescribeClaims() => NetHitClaims.Describe();
+
+        /// <summary>
+        /// Whether each client's own arithmetic for a shot came out the same
+        /// as this machine's, a weapon at a time.
+        ///
+        /// The measurement nothing else can take: a claim carries the number
+        /// the *shooter* computed for a shot, and this machine pairs it with
+        /// its own hit for the same shot in order to refuse it as a duplicate
+        /// -- so the comparison is free and it is exact. Both sides run the
+        /// same table, so anything but 100% agreement means one of them is
+        /// reading a quantity the other was never sent, and the weapon it
+        /// happens on says which. NetHitClaims.DescribeAgreement.
+        /// </summary>
+        public string DescribeAgreement() => NetHitClaims.DescribeAgreement();
+
+        /// <summary>
         /// How many beams each slot's gun spawned *here*.
         ///
         /// The number that says whether the two machines agree about how often

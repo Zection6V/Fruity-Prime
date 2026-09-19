@@ -73,6 +73,51 @@ namespace MphRead.Entities
         }
 
         /// <summary>
+        /// Put the weapon wheel where the bottom screen is, and say how big to
+        /// draw it.
+        ///
+        /// The wheel is the DS's touch screen: a quarter-arc in the corner of
+        /// it, chosen by putting the stylus on a segment. The port drew it
+        /// across the whole window, which is the right answer when the window
+        /// *is* the bottom screen and the wrong one the moment the player has
+        /// marked out a rectangle and mapped a tablet to it -- the picture was
+        /// then in one place and the hand in another, and the arc filled a
+        /// screen it had no business covering. So with a zone, the wheel is
+        /// drawn in the zone: the same six positions, the same shape, in the
+        /// rectangle the hand already knows.
+        ///
+        /// Returns the scale for <c>DrawHudObject</c>'s mode 1, which derives
+        /// its size from the window's height -- the zone's own height as a
+        /// fraction of the window is exactly the factor that turns "as big as
+        /// the screen" into "as big as the zone", and it goes on both axes so
+        /// the icons keep their shape.
+        ///
+        /// <see cref="PlayerEntity.UpdateWeaponArc"/> measures the arc in the
+        /// same rectangle, from the same four numbers. Two descriptions of
+        /// where the wheel is would drift, and the one that drifts is the
+        /// invisible one.
+        /// </summary>
+        internal float ModPlaceWeaponSelect()
+        {
+            for (int i = 0; i < _weaponSelectHome.Length; i++)
+            {
+                Vector2 home = _weaponSelectHome[i];
+                float x = home.X;
+                float y = home.Y;
+                if (StylusZone.Enabled)
+                {
+                    x = StylusZone.Left + home.X * StylusZone.Width;
+                    y = StylusZone.Top + home.Y * StylusZone.Height;
+                }
+                _weaponSelectInsts[i].PositionX = x;
+                _weaponSelectInsts[i].PositionY = y;
+                _selectBoxInsts[i].PositionX = x;
+                _selectBoxInsts[i].PositionY = y;
+            }
+            return StylusZone.Enabled ? StylusZone.Height : 1;
+        }
+
+        /// <summary>
         /// A filled ellipse, as a stack of horizontal spans.
         ///
         /// Two radii rather than one: the zone is a fraction of the window in

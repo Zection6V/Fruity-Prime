@@ -32,6 +32,7 @@ namespace MphRead.Mods.Launcher.Gui
         private bool _listening;
         private bool _hot;
         private DispatcherTimer? _watch;
+        private readonly Tap _tap = new();
 
         /// <summary>
         /// What the pad already had held when listening began, so a button
@@ -58,12 +59,35 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             Focus();
+            // On the release, and only if the finger stayed: see KeyRow, and
+            // Tap for why a press decides nothing on a page that scrolls.
             if (!_listening && Box.Contains(e.GetPosition(this)))
             {
-                Listen();
+                _tap.Press(e, this);
             }
             e.Handled = true;
             base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            if (!_listening && _tap.Release(e, this) && Box.Contains(e.GetPosition(this)))
+            {
+                Listen();
+            }
+            base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -163,7 +187,7 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnPointerExited(e);
         }
 
-        protected override void OnLostFocus(Avalonia.Interactivity.RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             if (_listening)
             {
@@ -172,7 +196,7 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnLostFocus(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnGotFocus(e);
@@ -189,7 +213,18 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
-            // See MenuEntry.Render: hit testing follows the drawing.
+            // A row on a sub-page that is not showing is attached to the tree
+            // and rendered once all the same, and a control that has never
+            // been arranged has zero Bounds -- which makes Box four points
+            // *negative* and MaxTextHeight below throw. That exception comes
+            // out of the compositor's own pass, so nothing here catches it and
+            // the process goes down the moment Controls is opened. There is
+            // nothing to draw at this size anyway.
+            if (Bounds.Width <= 0 || Bounds.Height <= 0)
+            {
+                return;
+            }
+            // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
             FormattedText label = TrackedText.Make(PadBindings.Name(_action), 12,

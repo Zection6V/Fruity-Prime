@@ -155,9 +155,15 @@ namespace MphRead.Mods.Network
         /// a stall in the snapshot stream does not freeze every puppet on the
         /// map. Only the position is handed over.
         ///
-        /// Off by default and on with <c>-snapshotpuppets</c>.
+        /// <b>On by default since protocol 7</b>, and <c>-relayedpuppets</c>
+        /// is the control. Two things made it the default rather than an arm:
+        /// the measurement above, and the playout clock
+        /// (<see cref="NetSmoothing"/>), which needs the snapshot to own the
+        /// position outright -- an interpolated point and a relayed intent
+        /// writing the same puppet on alternate frames is the stutter it
+        /// exists to remove, with extra steps.
         /// </summary>
-        public static bool SnapshotOwnsPuppets { get; set; }
+        public static bool SnapshotOwnsPuppets { get; set; } = true;
 
         /// <summary>
         /// How long the snapshot stream may go quiet before the relayed
@@ -264,14 +270,39 @@ namespace MphRead.Mods.Network
             {
                 return false;
             }
+            // A puppet the snapshot owns is placed here as well as after the
+            // movement step, and both writes put it in the same place.
+            //
+            // <b>The measured fault this closes.</b> A client's own beam is
+            // spawned inside ProcessInput, which runs *before* the movement
+            // step -- so with the placement happening only in
+            // AfterRemoteMovement the shot was tested against the position
+            // that step left behind on the *previous* frame, while the intent
+            // it travelled with acked this frame's. One frame of a target's
+            // motion, against a headshot band 0.30 units tall and a runner
+            // measured at 0.377 units a frame: the whole band. Measured as
+            // headshot agreement falling from 75% to 30% when snapshot-owned
+            // puppets were turned on, which is what sent anyone looking.
+            //
+            // Writing the same number twice is what makes it safe: the value
+            // is NetSmoothing's read point either way, so the two writes
+            // cannot disagree, and the restore afterwards is still needed
+            // because the engine's own movement step runs in between.
+            if (player.LoadFlags.TestFlag(LoadFlags.Spawned) && player.Health > 0
+                && !NetRoomChange.Settling && SnapshotPositions
+                && NetSession.RemoteStateValid[slot])
+            {
+                NetPlayerBridge.RestoreSnapshotPosition(player, NetSession.RemoteStates[slot]);
+            }
             if (player.LoadFlags.TestFlag(LoadFlags.Active) && NetSession.RemoteIntentValid[slot])
             {
                 if (player.LoadFlags.TestFlag(LoadFlags.Spawned) && player.Health > 0
                     && !NetRoomChange.Settling
-                    // Not while the snapshot owns this puppet: the whole point
-                    // is that the position it is drawn at and the position it
-                    // is shot at are the same one, and this is the write that
-                    // made them differ.
+                    // Not from the relayed intent while the snapshot owns this
+                    // puppet: the whole point is that the position it is drawn
+                    // at and the position it is shot at are the same one, and
+                    // this is the write that made them differ. The block above
+                    // is what puts it there instead.
                     && !SnapshotPositions
                     // And not from an intent that stopped coming. The pin is
                     // "this player says they are here", which is only true
@@ -458,6 +489,11 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            // The playout clock, before anything reads a puppet position from
+            // it. One tick a simulation frame, like every other counter here:
+            // a picture with no step behind it must not advance it.
+            // NetSmoothing.
+            NetSmoothing.Tick();
             // Before publishing or applying anything: a vector that has
             // stopped being a number spreads from one player to every client
             // and back, and the only cheap moment to stop it is here.

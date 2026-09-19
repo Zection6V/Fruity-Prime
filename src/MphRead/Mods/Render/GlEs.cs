@@ -590,6 +590,17 @@ namespace MphRead.Mods.Render
             return ES.GL.CreateProgram();
         }
 
+        /// <summary>
+        /// Release a linked program. Called when the renderer is torn down --
+        /// which on the desktop happens when the window closes and on Android
+        /// happens whenever the surface goes away, so it is the head that
+        /// needs it most.
+        /// </summary>
+        public static void DeleteProgram(int program)
+        {
+            ES.GL.DeleteProgram(program);
+        }
+
         public static void AttachShader(int program, int shader)
         {
             ES.GL.AttachShader(program, shader);
@@ -679,6 +690,11 @@ namespace MphRead.Mods.Render
         public static void PolygonMode(TriangleFace face, OpenTK.Graphics.OpenGL.PolygonMode mode)
         {
             // ES has no glPolygonMode. Only the debug views ask for Line.
+        }
+
+        public static void LineWidth(float width)
+        {
+            // Goes with PolygonMode above -- no wireframe to widen on ES.
         }
 
         public static void DebugMessageCallback(DebugProc callback, IntPtr userParam)
@@ -917,6 +933,21 @@ namespace MphRead.Mods.Render
             ES.GL.GetFramebufferAttachmentParameter((ES.FramebufferTarget)(int)target,
                 (ES.FramebufferAttachment)(int)attachment,
                 (ES.FramebufferParameterName)(int)pname, out result);
+        }
+
+        /// <summary>
+        /// Release the offscreen target and its depth attachment. The names
+        /// are the driver's own here -- unlike textures, which GlEs hands out
+        /// itself -- so both pass straight through.
+        /// </summary>
+        public static void DeleteFramebuffer(int framebuffer)
+        {
+            ES.GL.DeleteFramebuffer(framebuffer);
+        }
+
+        public static void DeleteRenderbuffer(int renderbuffer)
+        {
+            ES.GL.DeleteRenderbuffer(renderbuffer);
         }
 
         public static FramebufferErrorCode CheckFramebufferStatus(FramebufferTarget target)

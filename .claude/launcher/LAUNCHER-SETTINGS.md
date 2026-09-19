@@ -19,6 +19,11 @@ Layout
   which is not taken off the measured width.
 - The footer's button says **Save and close** from the launcher and **Apply**
   from a match.
+- **Every row on the page acts on the release, not the press**, and gives the
+  gesture up if the finger travels: this is the page people scroll, and a row
+  that answered its press answered every drag that started on it. The rule is
+  `Mods/Launcher/Gui/Tap.cs`, the check is `MphRead -tapcheck`, and the
+  reasoning is in `.claude/launcher/LAUNCHER-DESIGN.md`.
 
 Sections
 
@@ -146,7 +151,10 @@ Notable toggles
   and it puts the address in the row itself when there is no browser to hand it
   to. `SettingsView.ShowSection` exists so `-uishot` can photograph that page
   (and any other) from a headless box, where everything but Display is
-  otherwise behind a click.
+  otherwise behind a click. It takes a `sub` index too, for the Controls
+  page's own Keyboard/Gamepad/Stylus strip: `settings-controls` and
+  `settings-gamepad` are both shot, because the rows that crashed the program
+  were on the sub-page the first of those does not show.
 - Controls: `Mods.InputSettings` holds the canonical `PlayerControls` and writes
   it to `controls.txt`. A rebind made from the pause menu also goes through
   `ApplyToPlayers`, because the players in a running match already hold their

@@ -92,7 +92,19 @@ namespace MphRead
 
         private CameraMode _cameraMode = CameraMode.Pivot;
         public CameraMode CameraMode => _cameraMode;
-        public bool ShowCursor => PlayerEntity.Main?.Flags1.TestFlag(PlayerFlags1.WeaponMenuOpen) == true;
+        /// <summary>
+        /// Let go of the pointer, because something on screen is being pointed
+        /// at. The weapon wheel was that, and on a mouse it no longer is: it
+        /// is answered by dragging, with the pointer still grabbed and no
+        /// cursor drawn (see <see cref="Mods.Input.WeaponWheel"/>). Releasing
+        /// it there did real harm -- the cursor reappeared wherever the
+        /// windowing system had left it, which on the wheel's own arc is
+        /// already a weapon chosen, and a grabbed pointer is the only kind
+        /// that keeps producing movement once it reaches the edge of the
+        /// screen.
+        /// </summary>
+        public bool ShowCursor => Mods.Input.WeaponWheel.Absolute
+            && PlayerEntity.Main?.Flags1.TestFlag(PlayerFlags1.WeaponMenuOpen) == true;
         private float _pivotAngleY = 0.0f;
         private float _pivotAngleX = 0.0f;
         private float _pivotDistance = 5.0f;
@@ -110,7 +122,9 @@ namespace MphRead
 
         private bool _showTextures = true;
         private bool _showColors = true;
-        private bool _wireframe = false;
+        // 0 is fill; 1..MaxWireframeLevel is wireframe, line width = level
+        private int _wireframeLevel = 0;
+        private const int MaxWireframeLevel = 5;
         // 0 - lines + fill, 1 - lines only, 2 - fill only
         private int _volumeEdges = 0;
         private bool _faceCulling = true;
@@ -521,6 +535,9 @@ namespace MphRead
                 // options actually came out as is the first thing worth
                 // knowing when a picture is wrong on a device nobody here can
                 // plug in.
+                Console.WriteLine($"[render] field of view "
+                    + $"{Mods.RenderOptions.FieldOfView} degrees"
+                    + $"{(Mods.RenderOptions.FieldOfView == Mods.RenderOptions.DefaultFov ? " (the DS's own)" : "")}");
                 Console.WriteLine($"[render] cel shading "
                     + $"{(Mods.RenderOptions.CelShading ? "on" : "off")}, "
                     + $"{Mods.RenderOptions.CelBands} bands, "
@@ -553,9 +570,17 @@ namespace MphRead
                     InitEntity(player.Halfturret);
                 }
             }
-            if (!Mods.Headless.Active)
+            if (!Mods.Headless.Active && !SideScene)
             {
                 // The console prompt, which is a question put to a person.
+                //
+                // Not on a side scene. That one belongs to the launcher's
+                // hunter preview, and the launcher's Windows build is a GUI
+                // binary with no console at all -- so the first Console.Clear
+                // this loop reaches throws "The handle is invalid" on a task
+                // nobody is awaiting, and the finalizer rethrows it. There is
+                // also nobody to prompt: the scene has no room to load into
+                // and no camera to move.
                 OutputStart();
             }
             GC.Collect(generation: 2, GCCollectionMode.Forced, blocking: true, compacting: true);
@@ -592,6 +617,16 @@ namespace MphRead
             Mods.RenderOptions.Scaled(Size.X), Mods.RenderOptions.Scaled(Size.Y));
 
         private Vector2i _targetSize;
+
+        /// <summary>
+        /// Whether this scene is somebody's private one rather than the
+        /// window's match.
+        ///
+        /// Set by <see cref="RenderWindow.NewSideScene"/>. It turns off the
+        /// things that only make sense for a match somebody is playing -- see
+        /// where it is read.
+        /// </summary>
+        public bool SideScene { get; set; }
 
         public void OnResize()
         {
@@ -1562,6 +1597,13 @@ namespace MphRead
                 {
                     UpdateScene();
                 }
+                // Before the snapshot rather than after it: this is where the
+                // authority applies the hits its clients said they landed and
+                // it never found, and a hit applied after BroadcastSnapshot
+                // would sit a whole frame waiting for the next one. The claim
+                // outbox is aged on the same call, for the reason everything
+                // here is counted in frames. Mods.Network.NetHitClaims.
+                Mods.Network.NetHitClaims.Tick();
                 Mods.Network.NetHooks.AfterSimulation();
                 // Ages the predictions the authority has not answered yet and
                 // counts the hit mark down. Outside the network hooks because
@@ -1677,6 +1719,15 @@ namespace MphRead
         /// </summary>
         public void OnDrawFrame()
         {
+            // The results screen coming up and going away, which the map
+            // ballot and the previews on it hang off. In the scene's own draw
+            // rather than in the window's frame: every harness client drives
+            // Scene.OnUpdateFrame directly and none of them goes near
+            // RenderWindow, so bookkeeping put there runs for a player and for
+            // nobody else -- which is how the previews came out blank under
+            // -netcheck while the ballot beside them was correct.
+            Mods.EndScreen.Tick(_room?.Meta.Name ?? "", _globalElapsedTime);
+            Mods.Render.MapThumbnail.BeginFrame();
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
             // The scene's own target, which the resolution scale may have made
             // smaller than the window. Reallocated here rather than only on a
@@ -2687,7 +2738,15 @@ namespace MphRead
                 if (_cameraMode == CameraMode.Player)
                 {
                     _viewMatrix = PlayerEntity.Main.CameraInfo.ViewMatrix;
-                    float fov = PlayerEntity.Main.CameraInfo.Fov > 0 ? PlayerEntity.Main.CameraInfo.Fov : 78;
+                    float fov = PlayerEntity.Main.CameraInfo.Fov > 0
+                        ? PlayerEntity.Main.CameraInfo.Fov
+                        : Mods.RenderOptions.DefaultFov;
+                    // The player's own setting, as a multiplier rather than a
+                    // number: what the camera asked for may be a zoom, a scope
+                    // or a scripted shot, and each of those keeps the
+                    // proportion it had on the cartridge. See
+                    // RenderOptions.FieldOfView.
+                    fov = Math.Clamp(fov * Mods.RenderOptions.FovScale, 1f, 175f);
                     _cameraFov = MathHelper.DegreesToRadians(fov);
                 }
                 else
@@ -4163,6 +4222,88 @@ namespace MphRead
             }
         }
 
+        /// <summary>
+        /// Give every GL object this scene made back to the driver.
+        ///
+        /// Nothing needed this while a match was a window: the context died
+        /// with the window and took the lot with it. One window for the whole
+        /// session means the context outlives the match, so a player who plays
+        /// three maps would otherwise hold three sets of shaders, three
+        /// offscreen targets and three uploads of every texture in every model
+        /// -- which is the several hundred megabytes a scene weighs, times the
+        /// number of matches played.
+        ///
+        /// The display lists are the awkward half. They are made against the
+        /// context but stored on the <see cref="Model"/>, which lives in
+        /// <see cref="Read"/>'s cache and outlives the scene, and
+        /// <c>InitTextures</c> skips any mesh that already has one -- so
+        /// deleting a list without forgetting the model would leave the next
+        /// match drawing through a list id the driver has taken back. Both go,
+        /// together.
+        /// </summary>
+        public void UnloadGl()
+        {
+            if (Mods.Headless.Active)
+            {
+                return;
+            }
+            foreach (TextureMap map in _texPalMap.Values)
+            {
+                foreach (KeyValuePair<int, (int BindingId, bool OnlyOpaque)> kvp in map)
+                {
+                    GL.DeleteTexture(kvp.Value.BindingId);
+                }
+            }
+            _texPalMap.Clear();
+            foreach (Model model in Read.CachedModels)
+            {
+                foreach (Mesh mesh in model.Meshes)
+                {
+                    if (mesh.ListId != 0)
+                    {
+                        GL.DeleteLists(mesh.ListId, 1);
+                        mesh.ListId = 0;
+                    }
+                }
+            }
+            Read.ClearCache();
+            if (_frameBuffer != 0)
+            {
+                GL.DeleteFramebuffer(_frameBuffer);
+                _frameBuffer = 0;
+            }
+            if (_renderBuffer != 0)
+            {
+                GL.DeleteRenderbuffer(_renderBuffer);
+                _renderBuffer = 0;
+            }
+            DeleteTexture(ref _screenTexture);
+            DeleteTexture(ref _celTexture);
+            DeleteTexture(ref _depthTexture);
+            DeleteProgram(ref _shaderProgramId);
+            DeleteProgram(ref _rttShaderProgramId);
+            DeleteProgram(ref _shiftShaderProgramId);
+            DeleteProgram(ref _celShaderProgramId);
+        }
+
+        private static void DeleteTexture(ref int texture)
+        {
+            if (texture != 0)
+            {
+                GL.DeleteTexture(texture);
+                texture = 0;
+            }
+        }
+
+        private static void DeleteProgram(ref int program)
+        {
+            if (program != 0)
+            {
+                GL.DeleteProgram(program);
+                program = 0;
+            }
+        }
+
         private void EndFade()
         {
             if (_afterFade == AfterFade.Exit || _afterFade == AfterFade.EnterShip)
@@ -4256,10 +4397,12 @@ namespace MphRead
                     GL.CullFace(TriangleFace.Front);
                 }
             }
+            bool wireframe = _wireframeLevel > 0 || item.Wireframe;
             GL.PolygonMode(TriangleFace.FrontAndBack,
-                _wireframe || item.Wireframe
+                wireframe
                 ? OpenTK.Graphics.OpenGL.PolygonMode.Line
                 : OpenTK.Graphics.OpenGL.PolygonMode.Fill);
+            GL.LineWidth(wireframe ? Math.Max(1, _wireframeLevel) : 1);
             if (item.Type == RenderItemType.Mesh)
             {
                 GL.CallList(item.ListId);
@@ -4829,6 +4972,193 @@ namespace MphRead
             GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
         }
 
+        /// <summary>
+        /// A picture in a box of HUD units, from a texture bound by somebody
+        /// else -- a map preview, in practice (see <c>Mods.MapThumbnail</c>).
+        ///
+        /// <see cref="DrawHudObject"/> is the way every sprite the game ships
+        /// reaches the screen, and it is the wrong shape for this: it derives
+        /// the destination from the *source's* dimensions and an integer size
+        /// on the instance, which is right for art authored at one texel per
+        /// DS pixel and useless for a photograph that has to land in a
+        /// rectangle the layout chose. This is <see cref="DrawHudFlatBox"/>'s
+        /// rectangle with a texture on it instead of a colour, which is
+        /// exactly what the layout is asking for.
+        ///
+        /// The HUD shader takes the flat fill when <c>fade_color</c> has any
+        /// alpha and samples the texture otherwise, so leaving it at zero --
+        /// which every other draw here does on its way out -- is the whole of
+        /// what "textured" means.
+        /// </summary>
+        public void DrawHudTexture(float left, float top, float right, float bottom,
+            int bindingId, float alpha = 1, bool smooth = true)
+        {
+            if (bindingId <= 0)
+            {
+                return;
+            }
+            float halfW = Size.X / 2f;
+            float halfH = Size.Y / 2f;
+            float x0 = (left / 256f * Size.X - halfW) / halfW;
+            float x1 = (right / 256f * Size.X - halfW) / halfW;
+            float y0 = (halfH - top / 192f * Size.Y) / halfH;
+            float y1 = (halfH - bottom / 192f * Size.Y) / halfH;
+            GL.Uniform1(_shaderLocations.LayerAlpha, alpha);
+            GL.Uniform1(_shaderLocations.UseMask, 0);
+            GL.BindTexture(TextureTarget.Texture2D, bindingId);
+            // Linear, like the weapon icons and for the opposite reason: this
+            // is a photograph of a room reduced to a thumbnail, so there is no
+            // DS pixel grid to preserve and nearest would only alias it.
+            int min = (int)(smooth ? TextureMinFilter.Linear : TextureMinFilter.Nearest);
+            int mag = (int)(smooth ? TextureMagFilter.Linear : TextureMagFilter.Nearest);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, min);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, mag);
+            GL.TexParameter(TextureTarget.Texture2D,
+                TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+            GL.TexParameter(TextureTarget.Texture2D,
+                TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+            GL.Begin(PrimitiveType.TriangleStrip);
+            GL.TexCoord3(1f, 0f, 0f);
+            GL.Vertex3(x1, y0, 0f);
+            GL.TexCoord3(0f, 0f, 0f);
+            GL.Vertex3(x0, y0, 0f);
+            GL.TexCoord3(1f, 1f, 0f);
+            GL.Vertex3(x1, y1, 0f);
+            GL.TexCoord3(0f, 1f, 0f);
+            GL.Vertex3(x0, y1, 0f);
+            GL.End();
+            GL.BindTexture(TextureTarget.Texture2D, 0);
+            GL.Uniform1(_shaderLocations.LayerAlpha, 1f);
+        }
+
+        /// <summary>
+        /// A filled circle, same flat-fill trick as <see cref="DrawCustomCrosshair"/>.
+        /// <paramref name="localCenter"/> is a pixel offset from
+        /// (<paramref name="posX"/>, <paramref name="posY"/>), y up -- the same
+        /// convention <see cref="DrawHitMarker"/>'s bars use, generalised to a
+        /// caller that draws more than one shape around the same anchor (a
+        /// round HUD panel, or a set of blips inside one).
+        /// </summary>
+        public void DrawFlatDisc(float posX, float posY, Vector2 localCenter, float radius,
+            Vector4 color, int segments = 32)
+        {
+            float halfW = Size.X / 2f;
+            float halfH = Size.Y / 2f;
+            float offX = posX * 2f - 1f + localCenter.X / halfW;
+            float offY = 1f - posY * 2f + localCenter.Y / halfH;
+            GL.Uniform4(_shaderLocations.FadeColor, color);
+            GL.Begin(PrimitiveType.TriangleFan);
+            GL.Vertex3(offX, offY, 0f);
+            for (int i = 0; i <= segments; i++)
+            {
+                float angle = MathHelper.TwoPi * i / segments;
+                GL.Vertex3(offX + radius * MathF.Cos(angle) / halfW,
+                    offY + radius * MathF.Sin(angle) / halfH, 0f);
+            }
+            GL.End();
+            GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
+        }
+
+        /// <summary>An unfilled ring; radius is to the middle of the stroke.</summary>
+        public void DrawFlatRing(float posX, float posY, Vector2 localCenter, float radius,
+            float thickness, Vector4 color, int segments = 48)
+        {
+            float halfW = Size.X / 2f;
+            float halfH = Size.Y / 2f;
+            float offX = posX * 2f - 1f + localCenter.X / halfW;
+            float offY = 1f - posY * 2f + localCenter.Y / halfH;
+            float inner = radius - thickness / 2;
+            float outer = radius + thickness / 2;
+            GL.Uniform4(_shaderLocations.FadeColor, color);
+            GL.Begin(PrimitiveType.TriangleStrip);
+            for (int i = 0; i <= segments; i++)
+            {
+                float angle = MathHelper.TwoPi * i / segments;
+                float cos = MathF.Cos(angle);
+                float sin = MathF.Sin(angle);
+                GL.Vertex3(offX + outer * cos / halfW, offY + outer * sin / halfH, 0f);
+                GL.Vertex3(offX + inner * cos / halfW, offY + inner * sin / halfH, 0f);
+            }
+            GL.End();
+            GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
+        }
+
+        /// <summary>
+        /// A straight bar between two points local to (<paramref name="posX"/>,
+        /// <paramref name="posY"/>), in pixels, y up.
+        /// </summary>
+        public void DrawFlatLine(float posX, float posY, Vector2 from, Vector2 to,
+            float thickness, Vector4 color)
+        {
+            Vector2 dir = to - from;
+            float len = dir.Length;
+            if (len < 0.0001f)
+            {
+                return;
+            }
+            float halfW = Size.X / 2f;
+            float halfH = Size.Y / 2f;
+            float offX = posX * 2f - 1f;
+            float offY = 1f - posY * 2f;
+            Vector2 perp = new Vector2(-dir.Y, dir.X) / len * (thickness / 2f);
+            GL.Uniform4(_shaderLocations.FadeColor, color);
+            GL.Begin(PrimitiveType.TriangleStrip);
+            GL.Vertex3(offX + (from.X + perp.X) / halfW, offY + (from.Y + perp.Y) / halfH, 0f);
+            GL.Vertex3(offX + (from.X - perp.X) / halfW, offY + (from.Y - perp.Y) / halfH, 0f);
+            GL.Vertex3(offX + (to.X + perp.X) / halfW, offY + (to.Y + perp.Y) / halfH, 0f);
+            GL.Vertex3(offX + (to.X - perp.X) / halfW, offY + (to.Y - perp.Y) / halfH, 0f);
+            GL.End();
+            GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
+        }
+
+        /// <summary>
+        /// A filled, axis-aligned square local to (<paramref name="posX"/>,
+        /// <paramref name="posY"/>), in pixels.
+        /// </summary>
+        public void DrawFlatSquare(float posX, float posY, Vector2 localCenter, float halfSize,
+            Vector4 color)
+        {
+            float halfW = Size.X / 2f;
+            float halfH = Size.Y / 2f;
+            float offX = posX * 2f - 1f;
+            float offY = 1f - posY * 2f;
+            float cx = localCenter.X;
+            float cy = localCenter.Y;
+            GL.Uniform4(_shaderLocations.FadeColor, color);
+            GL.Begin(PrimitiveType.TriangleStrip);
+            GL.Vertex3(offX + (cx + halfSize) / halfW, offY + (cy + halfSize) / halfH, 0f);
+            GL.Vertex3(offX + (cx - halfSize) / halfW, offY + (cy + halfSize) / halfH, 0f);
+            GL.Vertex3(offX + (cx + halfSize) / halfW, offY + (cy - halfSize) / halfH, 0f);
+            GL.Vertex3(offX + (cx - halfSize) / halfW, offY + (cy - halfSize) / halfH, 0f);
+            GL.End();
+            GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
+        }
+
+        /// <summary>
+        /// A filled convex polygon (a triangle or a diamond, say), given as
+        /// points local to <paramref name="localCenter"/>, itself local to
+        /// (<paramref name="posX"/>, <paramref name="posY"/>). Points must
+        /// already be in fan order.
+        /// </summary>
+        public void DrawFlatPolygon(float posX, float posY, Vector2 localCenter,
+            ReadOnlySpan<Vector2> localPoints, Vector4 color)
+        {
+            float halfW = Size.X / 2f;
+            float halfH = Size.Y / 2f;
+            float offX = posX * 2f - 1f;
+            float offY = 1f - posY * 2f;
+            GL.Uniform4(_shaderLocations.FadeColor, color);
+            GL.Begin(PrimitiveType.TriangleFan);
+            for (int i = 0; i < localPoints.Length; i++)
+            {
+                float x = localCenter.X + localPoints[i].X;
+                float y = localCenter.Y + localPoints[i].Y;
+                GL.Vertex3(offX + x / halfW, offY + y / halfH, 0f);
+            }
+            GL.End();
+            GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
+        }
+
         /// <param name="scale">
         /// Multiplies the size the object is drawn at, without touching the
         /// size it is *cut out* at. Those are the same field on the instance --
@@ -4921,9 +5251,16 @@ namespace MphRead
             GL.BindTexture(TextureTarget.Texture2D, 0);
         }
 
-        public void DrawIconModel(Vector2 position, float angle, ModelInstance inst, ColorRgb color, float alpha)
+        /// <param name="scaleMult">
+        /// Multiplies the icon's usual HUD size (<c>Size.Y / 192</c>, the same
+        /// scale every other DS-native HUD element uses). 1 for the locator
+        /// arrow this was written for; smaller for a radar blip, which wants
+        /// the same asset at a fraction of that size.
+        /// </param>
+        public void DrawIconModel(Vector2 position, float angle, ModelInstance inst, ColorRgb color,
+            float alpha, float scaleMult = 1f)
         {
-            float scale = Size.Y / 192f;
+            float scale = Size.Y / 192f * scaleMult;
             var position3d = new Vector3(position.X * Size.X - Size.X / 2, (1 - position.Y) * Size.Y - (Size.Y / 2), -1f);
             Matrix4 transform = Matrix4.CreateRotationZ(MathHelper.DegreesToRadians(angle))
                 * Matrix4.CreateScale(scale, scale, 1) * Matrix4.CreateTranslation(position3d);
@@ -5615,7 +5952,7 @@ namespace MphRead
                 }
                 else if (e.Control)
                 {
-                    _wireframe = !_wireframe;
+                    _wireframeLevel = (_wireframeLevel + 1) % (MaxWireframeLevel + 1);
                 }
             }
             else if (e.Key == Keys.B)
@@ -6109,7 +6446,7 @@ namespace MphRead
             _sb.AppendLine(" - Hold Shift to move the camera faster");
             _sb.AppendLine($" - T toggles texturing ({OnOff(_showTextures)})");
             _sb.AppendLine($" - Ctrl+C toggles vertex colors ({OnOff(_showColors)})");
-            _sb.AppendLine($" - Ctrl+Q toggles wireframe ({OnOff(_wireframe)})");
+            _sb.AppendLine($" - Ctrl+Q cycles wireframe (level {_wireframeLevel}/{MaxWireframeLevel})");
             _sb.AppendLine($" - B toggles face culling ({OnOff(_faceCulling)})");
             _sb.AppendLine($" - F toggles texture filtering ({OnOff(FilteringOn)})");
             _sb.AppendLine($" - L toggles lighting ({OnOff(LightingOn)})");
@@ -6397,17 +6734,37 @@ namespace MphRead
             UpdateFrequency = 0
         };
 
-        private static readonly NativeWindowSettings _nativeWindowSettings = new NativeWindowSettings()
-        {
-            ClientSize = new Vector2i(1280, 768),
-            Title = Mods.Branding.Name,
-            Profile = ContextProfile.Compatability,
-            Flags = ContextFlags.Default,
-            APIVersion = new Version(3, 2),
-            StartVisible = false
-        };
+        private static readonly NativeWindowSettings _nativeWindowSettings = Mods.Render.DesktopGlContext.Settings();
 
-        public Scene Scene { get; }
+        /// <summary>
+        /// The match, while there is one.
+        ///
+        /// Null in the *shell*, which is the state the program now spends its
+        /// life in: one window, opened once, showing the launcher until a
+        /// match is loaded into it and showing it again afterwards. Every
+        /// other entry point -- the map sweeps, the network harness, the
+        /// thumbnail runs -- builds its scene in the constructor as it always
+        /// did and never sees a null here, which is why this is not a nullable
+        /// property: making it one would put a question mark on two hundred
+        /// call sites to describe a state only the launcher can be in.
+        /// </summary>
+        public Scene Scene => _scene!;
+
+        /// <summary>Whether a match is loaded. False while the launcher is up.</summary>
+        public bool HasScene => _scene != null;
+
+        private Scene? _scene;
+
+        /// <summary>
+        /// True when this window is the program's shell rather than one match's
+        /// window: it outlives every match, draws the launcher when there is
+        /// none, and closing it ends the program.
+        /// </summary>
+        private readonly bool _shell;
+
+        /// <summary>Whether <see cref="Scene.OnLoad"/> has run for the scene now loaded.</summary>
+        private bool _sceneLoaded;
+
         private bool _startedHidden = true;
 
         /// <summary>
@@ -6461,17 +6818,64 @@ namespace MphRead
         /// </summary>
         public static void LogCreatingWindow()
         {
+            // The mode the window is actually about to open in, which is the
+            // saved one unless the command line overrode it for this run --
+            // this used to print the preference, and so said "Windowed" for a
+            // session started with -fullscreen.
             Mods.DebugLog.Line("render", "creating the game window and GL context "
-                + $"({Mods.Launcher.LauncherPrefs.WindowMode})");
+                + $"({Mods.WindowMode.Startup}"
+                + (Mods.WindowMode.StartupForced ? ", from the command line" : "") + ")");
         }
 
-        public RenderWindow() : base(_gameWindowSettings, _nativeWindowSettings)
+        public RenderWindow(bool shell = false) : base(_gameWindowSettings, _nativeWindowSettings)
         {
-            Mods.DebugLog.Line("render", $"game window created, {Size.X}x{Size.Y}");
-            // Before anything asks GLFW a question it may not be able to
-            // answer. GLFW is initialised by the base constructor, so this is
-            // the first point the callback can be replaced.
+            _shell = shell;
+            // First, before anything asks GLFW a question it may not be able
+            // to answer. GLFW is initialised by the base constructor, so this
+            // is the earliest point the callback can be replaced -- and it has
+            // to be the *first* statement here, not merely an early one: every
+            // line below is a question, and the one under it was enough to
+            // bring the Wayland startup crash back. See
+            // IgnoreUnavailableGlfwFeatures for why a throw here is fatal
+            // rather than catchable.
             IgnoreUnavailableGlfwFeatures();
+            // The mark, on this window: it is the only one the program has
+            // now, so it is the only one that can carry it. Set here rather
+            // than in the settings above because those are static and shared
+            // by every window this process opens, and decoding a PNG is not
+            // work for a type initializer.
+            //
+            // Under the callback above, deliberately: glfwSetWindowIcon is one
+            // of the calls Wayland answers with FEATURE_UNAVAILABLE ("the
+            // platform does not support setting the window icon" -- an icon
+            // there comes from the .desktop file the app-id names, not from
+            // the client). Setting it before the callback was replaced put an
+            // OpenTK throw on a native GLFW frame the runtime cannot unwind,
+            // and the process aborted with "terminate called after throwing an
+            // instance of 'pal_sehexception'" before any window appeared.
+            OpenTK.Windowing.Common.Input.WindowIcon? icon = Mods.Render.AppIcon.Load();
+            if (icon != null)
+            {
+                Icon = icon;
+            }
+            Mods.DebugLog.Line("render",
+                $"game window created, {ClientSize.X}x{ClientSize.Y} client, "
+                + $"{FramebufferSize.X}x{FramebufferSize.Y} pixels");
+            // Where the player left it, and only for the window the player
+            // uses. Every other RenderWindow this process opens was given a
+            // size on purpose -- a map sweep, a thumbnail run, the network
+            // harness -- and must neither read the preference nor write it.
+            // Here rather than in _nativeWindowSettings because those are
+            // static and shared by all of them.
+            if (shell)
+            {
+                // Said before the restore, because it is also what lets
+                // WindowMode write the mode down when the player presses F11:
+                // that happens far from here, with no window to ask whether it
+                // is this one.
+                Mods.WindowGeometry.Owned = true;
+                Mods.WindowGeometry.Restore(this, _minimumSize);
+            }
             // The scene first, and the size floor after it: applying size
             // limits to a window smaller than the floor makes GLFW resize it
             // on the spot, which calls the size callback -- and that reached
@@ -6481,15 +6885,142 @@ namespace MphRead
             // could not hold a 1024x720 window died with a null reference
             // inside Run() with the whole room already loaded and nothing
             // near the crash to explain it.
-            Scene = new Scene(Size, KeyboardState, MouseState, (string title) =>
+            if (!shell)
             {
-                Title = title;
-            }, () =>
-            {
-                Close();
-            });
+                _scene = NewScene();
+            }
             _sceneReady = true;
             FitToScreen();
+        }
+
+        /// <summary>
+        /// The size everything drawn is measured in: the framebuffer's, in
+        /// real pixels.
+        ///
+        /// Not <see cref="OpenTK.Windowing.Desktop.NativeWindow.Size"/>, which
+        /// is the *external* window -- title bar, border and all (1076x717 for
+        /// a 1000x620 client area here). The scene was built and resized
+        /// against that, so it rendered a picture bigger than the window it
+        /// was drawn into and GL, whose origin is the bottom-left corner, cut
+        /// the difference off the top: "the top of the picture is cropped in
+        /// windowed mode, by about the height of the title bar". Fullscreen
+        /// has no decorations, which is why it only ever happened windowed.
+        ///
+        /// Not ClientSize either, which is in screen coordinates: on a display
+        /// running at 150% those are two thirds of a pixel each, and the
+        /// framebuffer is what GL draws into. ClientSize is still the right
+        /// unit for the pointer, which GLFW reports in the same coordinates.
+        /// </summary>
+        private Vector2i PixelSize => FramebufferSize;
+
+        /// <summary>
+        /// A pointer position as GLFW reports it -- screen coordinates inside
+        /// the client area -- in the framebuffer's pixels, which is what the
+        /// screens are laid out and drawn in. The two are the same number
+        /// except on a display running at anything but 100%.
+        /// </summary>
+        private (double X, double Y) PointerPixels(double x, double y)
+        {
+            double scaleX = ClientSize.X > 0 ? FramebufferSize.X / (double)ClientSize.X : 1;
+            double scaleY = ClientSize.Y > 0 ? FramebufferSize.Y / (double)ClientSize.Y : 1;
+            return (x * scaleX, y * scaleY);
+        }
+
+        private Scene NewScene()
+        {
+            return new Scene(PixelSize, KeyboardState, MouseState, (string title) =>
+            {
+                Title = title;
+            }, EndOrClose);
+        }
+
+        /// <summary>
+        /// What the engine means by "quit": the end of the match.
+        ///
+        /// In the shell that is the launcher coming back, not the program
+        /// ending -- the window it would have closed is the only one there is,
+        /// and the player asked to leave a match rather than to leave. Every
+        /// other window is one match's, and closing it is right.
+        /// </summary>
+        private void EndOrClose()
+        {
+#if MPHREAD_SHELL
+            if (_shell)
+            {
+                Mods.Launcher.Gui.Shell.RequestEndMatch();
+                return;
+            }
+#endif
+            Close();
+        }
+
+        /// <summary>
+        /// A scene this window does <b>not</b> hold: one the caller owns, for
+        /// something that needs the renderer without being a match.
+        ///
+        /// <see cref="OnRenderFrame"/> routes on <c>_scene == null</c> -- that
+        /// is what tells the shell's frame apart from a match's -- so anything
+        /// that stood a scene up the ordinary way would send the window down
+        /// the match path with no room in it. The launcher's hunter preview
+        /// needs a scene for its shader and its render-item list and needs
+        /// nothing else from one; this is how it gets one without the window
+        /// deciding a match has started. See
+        /// <see cref="Mods.Render.LauncherHunter"/>.
+        /// </summary>
+        public Scene NewSideScene()
+        {
+            var scene = NewScene();
+            scene.Size = PixelSize;
+            scene.SideScene = true;
+            return scene;
+        }
+
+        /// <summary>
+        /// Make the scene a match will be built into. The caller fills it --
+        /// players, then the room -- and calls <see cref="LoadScene"/>.
+        /// </summary>
+        public Scene BeginScene()
+        {
+            _scene = NewScene();
+            _scene.Size = PixelSize;
+            _sceneLoaded = false;
+            return _scene;
+        }
+
+        /// <summary>
+        /// Hand the built scene to GL. Separate from <see cref="BeginScene"/>
+        /// because everything between the two -- the players, the room, the
+        /// entity graph -- has to exist before <see cref="Scene.OnLoad"/>
+        /// initialises it.
+        /// </summary>
+        public void LoadScene()
+        {
+            if (_scene == null || _sceneLoaded)
+            {
+                return;
+            }
+            _scene.OnLoad();
+            _sceneLoaded = true;
+            _scene.OnResize();
+        }
+
+        /// <summary>
+        /// End the match and give its GL objects back. The window stays.
+        /// </summary>
+        public void EndScene()
+        {
+            if (_scene == null)
+            {
+                return;
+            }
+            _scene.DoCleanup();
+            _scene.UnloadGl();
+            _scene = null;
+            _sceneLoaded = false;
+            // A scene is the largest thing this program allocates, and the
+            // next screen the player sees is a menu: this is the one moment in
+            // a session when a collection costs nothing anybody can see.
+            GC.Collect();
         }
 
         /// <summary>
@@ -6575,6 +7106,7 @@ namespace MphRead
                     Mods.DebugLog.Line("window", $"glfw feature unavailable, ignored: {description}");
                     return;
                 }
+                Console.Error.WriteLine($"[window] GLFW {code}: {description}");
                 throw new GLFWException(description, code);
             };
             GLFW.SetErrorCallback(_glfwErrorCallback);
@@ -6612,7 +7144,16 @@ namespace MphRead
 
         protected override void OnClosing(CancelEventArgs e)
         {
-            Scene.DoCleanup();
+            // Before the cleanup, and before the window is gone: the geometry
+            // has to be read off a window that still exists.
+            if (_shell)
+            {
+                Mods.WindowGeometry.Remember(this);
+                Mods.Launcher.LauncherPrefs.Save();
+            }
+            // Only if there is a match to clean up. In the shell this window
+            // is closed from the front screen, where there is none.
+            _scene?.DoCleanup();
             base.OnClosing(e);
         }
 
@@ -6652,7 +7193,15 @@ namespace MphRead
 
         protected override void OnLoad()
         {
-            Scene.OnLoad();
+            // Not in the shell, which opens with no match in it: the scene is
+            // loaded by LoadScene when one is started. The guard also covers
+            // the ordinary path twice over, since a caller that has already
+            // built and loaded a scene must not have it initialised again.
+            if (_scene != null && !_sceneLoaded)
+            {
+                _scene.OnLoad();
+                _sceneLoaded = true;
+            }
             base.OnLoad();
         }
 
@@ -6691,6 +7240,43 @@ namespace MphRead
 
         protected override void OnRenderFrame(FrameEventArgs args)
         {
+            ApplyFrameRateSettings();
+#if MPHREAD_SHELL
+            // The launcher and the in-game menus, which are screens in this
+            // window rather than windows of their own: the shell starts and
+            // ends matches here, and the surface renders whatever screen is up
+            // into the texture drawn at the end of the frame.
+            Mods.Launcher.Gui.Shell.BeforeFrame(this);
+            // The results panel comes and goes with the results themselves,
+            // which nothing on this machine announces -- the server decides
+            // the match is over. See Shell.TickEndPanel.
+            Mods.Launcher.Gui.Shell.TickEndPanel();
+            Mods.Launcher.Gui.Shell.TickUi(this);
+#endif
+#if MPHREAD_SHELL
+            if (_scene == null)
+            {
+                // The launcher, with no match behind it. The pointer is the
+                // system's -- there is nobody to aim.
+                CursorState = CursorState.Normal;
+                Mods.Render.UiOverlay.DrawAlone(this, FramebufferSize.X, FramebufferSize.Y);
+                // Before the swap: the back buffer holds this frame and
+                // nothing else does. Only -shellshot asks.
+                Mods.Launcher.Gui.Shell.AfterDraw(this);
+                SwapBuffers();
+                Reveal();
+                // The window work, on the front screen too. It used to run
+                // only while a match was loaded, which is how a fullscreen
+                // session that ended a match came back to a launcher with the
+                // taskbar across the bottom of it: nothing re-asserted the
+                // topmost flag the window drops whenever it loses focus, and
+                // the buttons in the bottom corners are exactly what the
+                // taskbar covers.
+                Mods.PauseMenu.Poll(this);
+                base.OnRenderFrame(args);
+                return;
+            }
+#endif
             // The pause menu wants the pointer back, and so does the results
             // screen: its hunter picker is something you click, and a grabbed
             // cursor has no position on screen to click with.
@@ -6706,15 +7292,18 @@ namespace MphRead
                 ? CursorState.Grabbed
                 : CursorState.Normal;
             // Where the pointer is, for the picker to light up what it is
-            // over, and in the same units its hit boxes are kept in.
-            float pointerX = MouseState.X / (float)Math.Max(Size.X, 1);
-            float pointerY = MouseState.Y / (float)Math.Max(Size.Y, 1);
+            // over, and in the same units its hit boxes are kept in. Against
+            // the client area, which is what GLFW reports the pointer in --
+            // Size is the window with its title bar, so every hit box was off
+            // by the fraction of the window that is decoration.
+            float pointerX = MouseState.X / (float)Math.Max(ClientSize.X, 1);
+            float pointerY = MouseState.Y / (float)Math.Max(ClientSize.Y, 1);
             Mods.EndScreen.NotePointer(pointerX, pointerY);
             // The DS bottom screen, if the player has marked one out. The
             // window's shape goes with it: the zone is given as a fraction of
             // the width and has to come out the DS's shape on screen.
-            Mods.Input.StylusZone.AspectCorrection = Size.Y > 0
-                ? Size.X / (float)Size.Y : 16f / 9f;
+            Mods.Input.StylusZone.AspectCorrection = ClientSize.Y > 0
+                ? ClientSize.X / (float)ClientSize.Y : 16f / 9f;
             Mods.Input.StylusZone.Update(pointerX, pointerY,
                 MouseState.IsButtonDown(MouseButton.Left));
             if (Mods.Input.StylusZone.Placing)
@@ -6722,7 +7311,6 @@ namespace MphRead
                 Mods.Input.StylusZone.PlacementDrag(pointerX, pointerY);
             }
             GameState.ApplyPause();
-            ApplyFrameRateSettings();
             // The simulation runs at 60 Hz and the picture runs at the
             // display's rate, so this is 1 on a 60 Hz screen, 0 or 1 on a
             // faster one, and 2 or more only on a frame that took longer than
@@ -6770,25 +7358,22 @@ namespace MphRead
             {
                 return;
             }
+            // Last, over the finished picture: the pause menu is a scrim over
+            // a match that is still being played, and the settings opened from
+            // it cover the same rectangle. Nothing is drawn when no screen is
+            // up.
+#if MPHREAD_SHELL
+            Mods.Render.UiOverlay.Draw(PixelSize.X, PixelSize.Y);
+            // The real hunter, over the screens, when a screen is asking for
+            // one during a match -- which is the results panel. Under the
+            // texture is where the world's own pass would put it, and the
+            // panel it goes in is opaque, so under is behind a card.
+            Mods.Render.LauncherHunter.Draw(this, PixelSize.X, PixelSize.Y);
+            // Before the swap, for the reason the sceneless branch gives.
+            Mods.Launcher.Gui.Shell.AfterDraw(this);
+#endif
             SwapBuffers();
-            if (_startedHidden)
-            {
-                IsVisible = true;
-                _startedHidden = false;
-                // Not on this frame. The window has only just been shown and
-                // the window manager has not mapped it yet, so the geometry
-                // Enter() sets is computed against a window that is not on the
-                // screen and the map that follows puts it back -- which is the
-                // startup half of the "needed a second F11" problem Enter
-                // already describes. Waiting a few frames lets the map settle
-                // first, and it is the difference between opening fullscreen
-                // and having to ask for it by hand once the game is up.
-                _applyStartupIn = 3;
-            }
-            else if (_applyStartupIn > 0 && --_applyStartupIn == 0)
-            {
-                Mods.WindowMode.ApplyStartup(this);
-            }
+            Reveal();
             // What the pause menu asked for, done on the thread that owns the
             // window: closing it and changing its border belong here.
             Mods.PauseMenu.Poll(this);
@@ -6796,8 +7381,50 @@ namespace MphRead
             base.OnRenderFrame(args);
         }
 
+        /// <summary>
+        /// Show the window, once, after the first frame has been drawn into
+        /// it, and apply the saved window mode a few frames later.
+        ///
+        /// Not on the same frame. The window has only just been shown and the
+        /// window manager has not mapped it yet, so the geometry Enter() sets
+        /// is computed against a window that is not on the screen and the map
+        /// that follows puts it back -- which is the startup half of the
+        /// "needed a second F11" problem Enter already describes. Waiting a
+        /// few frames lets the map settle first, and it is the difference
+        /// between opening fullscreen and having to ask for it by hand once
+        /// the game is up.
+        /// </summary>
+        private void Reveal()
+        {
+            // Once a frame, and almost always nothing: the check is a bool.
+            // Writing the file here rather than only as the window closes is
+            // what makes the size survive a crash, a kill, or an exit path
+            // that never runs the close handler.
+            if (_shell)
+            {
+                Mods.WindowGeometry.Flush();
+            }
+            if (_startedHidden)
+            {
+                IsVisible = true;
+                _startedHidden = false;
+                _applyStartupIn = 3;
+            }
+            else if (_applyStartupIn > 0 && --_applyStartupIn == 0)
+            {
+                Mods.WindowMode.ApplyStartup(this);
+            }
+        }
+
         protected override void OnResize(ResizeEventArgs e)
         {
+            // The shape first, and outside the _sceneReady guard: a window
+            // resized before the scene exists is still a window the player
+            // resized, and this only touches memory.
+            if (_shell)
+            {
+                Mods.WindowGeometry.Note(this);
+            }
             // GLFW can call this while the window is still being built, before
             // there is a scene to hand the new size to. Nothing is lost by
             // ignoring it: the window's real size is read again when the scene
@@ -6806,14 +7433,87 @@ namespace MphRead
             {
                 return;
             }
-            GL.Viewport(0, 0, e.Size.X, e.Size.Y);
-            Scene.Size = e.Size;
-            Scene.OnResize();
+            ResizeToFramebuffer();
             base.OnResize(e);
+        }
+
+        /// <summary>
+        /// The window was dragged somewhere else. Nothing in the engine cares,
+        /// which is why there was no override here before -- but a remembered
+        /// size with a forgotten corner is half a feature.
+        /// </summary>
+        protected override void OnMove(WindowPositionEventArgs e)
+        {
+            if (_shell)
+            {
+                Mods.WindowGeometry.Note(this);
+            }
+            base.OnMove(e);
+        }
+
+        /// <summary>
+        /// Maximized or restored. A separate callback because it is a state
+        /// rather than a size, and because the size that arrives with it is
+        /// the monitor's -- see <c>WindowGeometry</c> on why the two are kept
+        /// apart.
+        /// </summary>
+        protected override void OnMaximized(MaximizedEventArgs e)
+        {
+            if (_shell)
+            {
+                Mods.WindowGeometry.Note(this);
+            }
+            base.OnMaximized(e);
+        }
+
+        /// <summary>
+        /// The framebuffer changed without the window doing so -- the window
+        /// was dragged onto a display with a different scaling factor, which
+        /// is the one case the resize callback does not cover.
+        /// </summary>
+        protected override void OnFramebufferResize(FramebufferResizeEventArgs e)
+        {
+            if (_sceneReady)
+            {
+                ResizeToFramebuffer();
+            }
+            base.OnFramebufferResize(e);
+        }
+
+        /// <summary>
+        /// Put the viewport and the scene on the framebuffer's own size. See
+        /// <see cref="PixelSize"/> for why the event's size is not used.
+        /// </summary>
+        private void ResizeToFramebuffer()
+        {
+            Vector2i size = PixelSize;
+            if (size.X <= 0 || size.Y <= 0)
+            {
+                return;
+            }
+            GL.Viewport(0, 0, size.X, size.Y);
+            if (_scene != null && _scene.Size != size)
+            {
+                _scene.Size = size;
+                _scene.OnResize();
+            }
         }
 
         protected override void OnMouseDown(MouseButtonEventArgs e)
         {
+#if MPHREAD_SHELL
+            // A screen is up in this window -- the launcher, the pause menu,
+            // the settings. It gets the whole of the input while it is, the
+            // way a window on top of the game used to get it from the window
+            // manager: the player is choosing something, not playing.
+            if (Mods.Launcher.Gui.Shell.UiVisible)
+            {
+                (double px, double py) = PointerPixels(MouseState.X, MouseState.Y);
+                Mods.Launcher.Gui.Shell.PointerButton(e.Button, px, py, down: true);
+                base.OnMouseDown(e);
+                return;
+            }
+#endif
             if (e.Button == MouseButton.Button1)
             {
                 // Drawing the pen zone takes the pointer outright: the
@@ -6821,8 +7521,8 @@ namespace MphRead
                 if (Mods.Input.StylusZone.Placing)
                 {
                     Mods.Input.StylusZone.PlacementDown(
-                        MouseState.X / (float)Math.Max(Size.X, 1),
-                        MouseState.Y / (float)Math.Max(Size.Y, 1));
+                        MouseState.X / (float)Math.Max(ClientSize.X, 1),
+                        MouseState.Y / (float)Math.Max(ClientSize.Y, 1));
                     base.OnMouseDown(e);
                     return;
                 }
@@ -6857,6 +7557,19 @@ namespace MphRead
 
         protected override void OnMouseUp(MouseButtonEventArgs e)
         {
+#if MPHREAD_SHELL
+            // A screen is up in this window -- the launcher, the pause menu,
+            // the settings. It gets the whole of the input while it is, the
+            // way a window on top of the game used to get it from the window
+            // manager: the player is choosing something, not playing.
+            if (Mods.Launcher.Gui.Shell.UiVisible)
+            {
+                (double px, double py) = PointerPixels(MouseState.X, MouseState.Y);
+                Mods.Launcher.Gui.Shell.PointerButton(e.Button, px, py, down: false);
+                base.OnMouseUp(e);
+                return;
+            }
+#endif
             if (e.Button == MouseButton.Button1)
             {
                 if (Mods.Input.StylusZone.Placing)
@@ -6875,6 +7588,19 @@ namespace MphRead
 
         protected override void OnMouseMove(MouseMoveEventArgs e)
         {
+#if MPHREAD_SHELL
+            // A screen is up in this window -- the launcher, the pause menu,
+            // the settings. It gets the whole of the input while it is, the
+            // way a window on top of the game used to get it from the window
+            // manager: the player is choosing something, not playing.
+            if (Mods.Launcher.Gui.Shell.UiVisible)
+            {
+                (double px, double py) = PointerPixels(e.X, e.Y);
+                Mods.Launcher.Gui.Shell.PointerMoved(px, py);
+                base.OnMouseMove(e);
+                return;
+            }
+#endif
             // Filtered for the same reason the player's aim is: the free
             // camera is reached from a match, with the same pointer.
             Scene.OnMouseMove(Mods.Input.PointerInput.Filter(e.DeltaX),
@@ -6884,6 +7610,28 @@ namespace MphRead
 
         protected override void OnMouseWheel(MouseWheelEventArgs e)
         {
+            // The results screen's map list, which is longer than the panel it
+            // is drawn in. Ahead of the shell's own handling only in the sense
+            // that the two cannot both be up: a screen and a results screen
+            // are different moments.
+            if (Mods.MapPick.Available && e.OffsetY != 0)
+            {
+                Mods.MapPick.Wheel(e.OffsetY > 0 ? -1 : 1);
+                base.OnMouseWheel(e);
+                return;
+            }
+#if MPHREAD_SHELL
+            // A screen is up in this window -- the launcher, the pause menu,
+            // the settings. It gets the whole of the input while it is, the
+            // way a window on top of the game used to get it from the window
+            // manager: the player is choosing something, not playing.
+            if (Mods.Launcher.Gui.Shell.UiVisible)
+            {
+                Mods.Launcher.Gui.Shell.PointerWheel(e.OffsetX, e.OffsetY);
+                base.OnMouseWheel(e);
+                return;
+            }
+#endif
             Scene.OnMouseWheel(e.OffsetY);
             base.OnMouseWheel(e);
         }
@@ -6896,12 +7644,83 @@ namespace MphRead
         /// </summary>
         protected override void OnTextInput(TextInputEventArgs e)
         {
+#if MPHREAD_SHELL
+            // A screen is up in this window -- the launcher, the pause menu,
+            // the settings. It gets the whole of the input while it is, the
+            // way a window on top of the game used to get it from the window
+            // manager: the player is choosing something, not playing.
+            if (Mods.Launcher.Gui.Shell.UiVisible)
+            {
+                Mods.Launcher.Gui.Shell.TextInput(e.AsString);
+                base.OnTextInput(e);
+                return;
+            }
+#endif
             Mods.Chat.ChatBox.HandleText(e.Unicode);
             base.OnTextInput(e);
         }
 
+        /// <summary>
+        /// Only the screens want this: nothing in the game is driven by a key
+        /// going up (the engine reads the keyboard's state every step), and a
+        /// text box does.
+        /// </summary>
+        protected override void OnKeyUp(KeyboardKeyEventArgs e)
+        {
+#if MPHREAD_SHELL
+            if (Mods.Launcher.Gui.Shell.UiVisible)
+            {
+                Mods.Launcher.Gui.Shell.KeyUp(e);
+            }
+#endif
+            base.OnKeyUp(e);
+        }
+
+        /// <summary>
+        /// Put a key through the window's own handler, as if it had been
+        /// pressed.
+        ///
+        /// For <c>-shellshot</c>. Its own <c>Key</c> helper hands the key
+        /// straight to <c>UiSurface</c>, which is the right shape for testing
+        /// a *screen* -- and is exactly the wrong shape for testing the keys
+        /// the window claims before any screen sees them, since it skips the
+        /// code that claims them. A test that cannot fail is worse than none.
+        /// </summary>
+        internal void FeedKey(KeyboardKeyEventArgs e) => OnKeyDown(e);
+
         protected override void OnKeyDown(KeyboardKeyEventArgs e)
         {
+#if MPHREAD_SHELL
+            // F11 and Alt+Enter first, screen or no screen.
+            //
+            // They are gestures at the *window*, not input to whatever is
+            // drawn in it, and every other program in the world treats them
+            // that way. The shell takes the whole of the keyboard while a
+            // screen is up -- which is right for every other key -- so
+            // fullscreen was the one thing the launcher could not do, and a
+            // player who wanted it had to start a match first.
+            //
+            // Except while a rebind row is waiting: "press a key" has to be
+            // able to be told F11, or F11 is the one key in the game nobody
+            // can bind.
+            if (Mods.Launcher.Gui.Shell.UiVisible
+                && !Mods.Launcher.Gui.KeyRow.AnyListening
+                && Mods.WindowMode.HandleKey(this, e))
+            {
+                base.OnKeyDown(e);
+                return;
+            }
+            // A screen is up in this window -- the launcher, the pause menu,
+            // the settings. It gets the whole of the input while it is, the
+            // way a window on top of the game used to get it from the window
+            // manager: the player is choosing something, not playing.
+            if (Mods.Launcher.Gui.Shell.UiVisible)
+            {
+                Mods.Launcher.Gui.Shell.KeyDown(e);
+                base.OnKeyDown(e);
+                return;
+            }
+#endif
             // First, before anything else claims a key. While the chat prompt
             // is up every key belongs to it: Escape closes the prompt rather
             // than the match, Space types a space rather than jumping, and
@@ -6926,14 +7745,57 @@ namespace MphRead
                 base.OnKeyDown(e);
                 return;
             }
-            // Escape gives up on placing the pen zone rather than leaving
-            // the match, which is what it would otherwise do.
-            if (e.Key == Keys.Escape && Mods.Input.StylusZone.Placing)
+            // The keys that belong to placing the pen zone, which owns all of
+            // them while it is up: Escape gives up rather than leaving the
+            // match, the arrows move the rectangle, the brackets resize it and
+            // Enter keeps it. A drag puts it roughly where it goes and a
+            // tablet cannot live with roughly -- the hand learns the place
+            // once and then stops looking at it.
+            if (Mods.Input.StylusZone.Placing)
             {
-                Mods.Input.StylusZone.CancelPlacement();
-                Mods.Chat.ChatBox.System("pen zone left as it was");
-                base.OnKeyDown(e);
-                return;
+                float step = e.Shift ? 0.002f : 0.01f;
+                switch (e.Key)
+                {
+                    case Keys.Escape:
+                        Mods.Input.StylusZone.CancelPlacement();
+                        Mods.Chat.ChatBox.System("pen zone left as it was");
+                        base.OnKeyDown(e);
+                        return;
+                    case Keys.Left:
+                        Mods.Input.StylusZone.Nudge(-step, 0);
+                        base.OnKeyDown(e);
+                        return;
+                    case Keys.Right:
+                        Mods.Input.StylusZone.Nudge(step, 0);
+                        base.OnKeyDown(e);
+                        return;
+                    case Keys.Up:
+                        Mods.Input.StylusZone.Nudge(0, -step);
+                        base.OnKeyDown(e);
+                        return;
+                    case Keys.Down:
+                        Mods.Input.StylusZone.Nudge(0, step);
+                        base.OnKeyDown(e);
+                        return;
+                    case Keys.LeftBracket:
+                    case Keys.Minus:
+                    case Keys.KeyPadSubtract:
+                        Mods.Input.StylusZone.Resize(-step);
+                        base.OnKeyDown(e);
+                        return;
+                    case Keys.RightBracket:
+                    case Keys.Equal:
+                    case Keys.KeyPadAdd:
+                        Mods.Input.StylusZone.Resize(step);
+                        base.OnKeyDown(e);
+                        return;
+                    case Keys.Enter:
+                    case Keys.KeyPadEnter:
+                        Mods.Input.StylusZone.CommitPlacement();
+                        Mods.Chat.ChatBox.System("pen zone set");
+                        base.OnKeyDown(e);
+                        return;
+                }
             }
             // Answering a map vote. Ahead of the clip key and everything
             // below it because the prompt is on screen for thirty seconds and
@@ -7017,7 +7879,9 @@ namespace MphRead
                 {
                     Menu.NeededSave = Menu.SaveFromExit;
                 }
-                Close();
+                // The match, not the program: in the shell this is the
+                // launcher coming back. See EndOrClose.
+                EndOrClose();
             }
             else
             {

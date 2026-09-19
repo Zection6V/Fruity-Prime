@@ -365,6 +365,10 @@ namespace MphRead.Entities
             {
                 _altAttackCooldown--;
             }
+            if (_boostAimLock > 0)
+            {
+                _boostAimLock--;
+            }
             if (_jumpPadControlLock > 0)
             {
                 _jumpPadControlLock--;
@@ -807,6 +811,10 @@ namespace MphRead.Entities
             if ((IsAltForm || IsMorphing) && _frozenTimer == 0)
             {
                 UpdateAnimFrames(_altModel);
+            }
+            if (Hunter == Hunter.Spire && Flags2.TestFlag(PlayerFlags2.AltAttack))
+            {
+                UpdateSpireAltCollisionPose();
             }
             if (_boostEffect != null)
             {
@@ -1796,6 +1804,23 @@ namespace MphRead.Entities
                 _modelTransform = GetTransformMatrix(new Vector3(_field80, 0, _field84), Vector3.UnitY);
             }
         }
+
+        private void AnimateSpireAltAttack()
+        {
+            Matrix4 transform = GetTransformMatrix(_spireAltFacing, _spireAltUp);
+            _altModel.Model.AnimateNodes(index: 0, useNodeTransform: false, transform, Vector3.One, _altModel.AnimInfo);
+        }
+
+        private void UpdateSpireAltCollisionPose()
+        {
+            // Keep collision pose advancing even when no draw pass runs.
+            AnimateSpireAltAttack();
+            _spireRockPosL = _spireAltNodes[0]!.Animation.Row3.Xyz + Position;
+            _spireRockPosR = _spireAltNodes[1]!.Animation.Row3.Xyz + Position;
+        }
+
+        internal (Vector3 Left, Vector3 Right) ModSpireAltCollisionPose()
+            => (_spireRockPosL, _spireRockPosR);
 
         private void UpdateStinglarvaSegments()
         {

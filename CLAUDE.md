@@ -28,8 +28,8 @@ area is the one being touched.
 | `src/MphRead.Android/` | the Android head: the same sources, an APK, a front screen and a match, over GL ES and touch controls |
 | `src/MphRead/Mods/Network/` | the whole multiplayer feature |
 | `src/MphRead/Mods/Launcher/` | the launcher: `Gui/` is every window (Avalonia, all platforms), `Portable/` is the logic and the text screen |
-| `~/mph-test/` | the extracted game files and `paths.txt`. **`paths.txt` has to sit next to the DLL** you are running, so copy it into `src/MphRead/bin/Release/net9.0/` and run `dotnet FruityPrime.dll` from there |
-| `~/mph-net-test/` | the test rig -- `bin/`, `run-check.sh`, `compare-reports.py`, `hard/`, and every `run-*.sh` named in the table below. **It does not exist on this box** and every command that names it has to be rebuilt before it can be run; the game files in `~/mph-test/` are what survived. A two-client run against a real server needs nothing more than two `-netcheck` processes and the game files |
+| `~/mph-test/` | the extracted game files and `paths.txt`. **`paths.txt` has to sit next to the DLL** you are running, so copy it into `src/MphRead/bin/Release/net10.0/` and run `dotnet FruityPrime.dll` from there |
+| `~/mph-net-test/` | the test rig -- `bin/` (with its own `paths.txt`, game files and thumbnail cache), `run-check.sh`, `compare-reports.py`, `hard/`, and every `run-*.sh` named in the table below. It **does** exist on this box, whatever an older copy of this file said. A two-client run against a real server needs nothing more than two `-netcheck` processes and the game files |
 | `C:\Users\livetek\Desktop\MPH\MphRead-develop\` | the Windows deliverable |
 | `net.livetek.fr:27888` | the dedicated server on the user's Pi (systemd unit `mphread-server`) |
 
@@ -53,10 +53,10 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 - If `~/.dotnet` is empty, the SDK is not installed at all:
   `curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 9.0`
   puts it there.
-- The Avalonia launcher needs `libICE` and `libSM`, which the game itself does
-  not and a minimal WSL install does not have. Without them it falls back to the
-  text launcher rather than failing, so a window that never appears is this and
-  not a bug in the screen. `sudo apt install libice6 libsm6`.
+- The launcher used to need `libICE` and `libSM`, and no longer does: it opens
+  no window of its own, so it binds no X11 client libraries. `fontconfig` is
+  still needed (`libfontconfig1`), and a screen that will not start now means
+  Skia or the fonts, not the windowing system.
 - `dotnet` aborting on startup with *"Couldn't find a valid ICU package"* is a
   missing `libicu`, not a broken SDK. `sudo apt install libicu-dev` is the fix;
   `export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` gets a build out of a box
@@ -78,7 +78,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
   (`Scene.ReadSceneTarget`, used by `Mods/ScreenCapture.cs`), which carries the
   world but not the HUD.
 - `paths.txt` must sit **next to the DLL**, not in the working directory:
-  `ConsoleSetup.Run` does `Directory.SetCurrentDirectory(BaseDirectory)`.
+  `ConsoleSetup.Run` selects the installation directory on Windows/Linux and the user-data directory on macOS (see `.claude/build-deploy/MACOS.md`).
 - Audio failures used to kill the process from a static constructor. That is now
   non-fatal, but under WSL the audio device is flaky enough that the test rig
   disables it outright.
@@ -91,22 +91,29 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | Command | Use |
 |---|---|
 | `MphRead -server ... -noshadowfreeze` | run the room with the Judicator's ice wave as a cone rather than as a column of infinite height. A rule, broadcast to every client in the match state, because the machine resolving a shot decides who it hit |
-| `MphRead -server -port N -players 8` | dedicated **authoritative** server: it runs the match itself, so it needs the game files and `paths.txt` beside the binary, and it refuses to start without them. `-simulate`/`-authority` are accepted and do nothing. `-servername "NAME"` is what a browser shows; it announces itself to `net.livetek.fr` unless `-nomaster` is passed, and `-master HOST -masterport N` points it elsewhere |
+| `MphRead -server -port N -players 8` | dedicated **authoritative** server: it runs the match itself, so it needs the game files and `paths.txt` beside the binary, and it refuses to start without them. `-simulate`/`-authority` are accepted and do nothing. `-servername "NAME"` is what a browser shows; it announces itself to `net.livetek.fr` unless `-nomaster` is passed, and `-master HOST -masterport N` points it elsewhere. `-affinityweapons` is a **match rule broadcast to every client**, not a local preference: the affinity weapons are a different row of the damage table, so a client playing by its own settings ran a victim's health down at a different rate from the machine keeping score. The **damage level is pinned to medium (x1) everywhere** and has no flag -- it multiplied every weapon's damage and was the one rule each machine read out of its own file |
 | `MphRead -simcheck "ROOM" [-players N] [-seconds N]` | what a room costs a server: peak memory, milliseconds a simulation step, and whether every slot spawned. Runs the headless engine with nobody connected. The measurement that decides whether a given box can be the authority for a given map |
 | `MphReadServer.exe -server ...` | the same server on Windows, as its own console binary. `MphRead.exe` can also do it, but it is a GUI binary: a shell will not wait for it and its exit code never reaches `%ERRORLEVEL%`. Run with no arguments it prints what it is for |
 | `MphRead -masterserver [-port N] [-public HOST] [-hostports A-B]` | the server directory the launcher's browser asks, and the machine that runs matches for players who cannot open a port. Same binary, no game files, keeps nothing on disk. `-public` is the address to publish for servers registering from this same machine, whose heartbeats arrive over the loopback |
-| `MphRead -hostgame "ROOM" [-mode M] [-master HOST]` | ask the directory to run a match and join it. No port forwarding anywhere; the only way to host from a machine with no launcher |
-| `MphRead -servers [-master HOST] [-masterport N]` | print the server list the launcher's browser would show, with each server's map, players and round trip |
+| `MphRead -hostgame "ROOM" [-mode M] [-maprotation "A,B,C"] [-master HOST]` | ask the directory to run a match and join it. No port forwarding anywhere; the only way to host from a machine with no launcher. `-maprotation` is the rest of the cycle, comma separated -- the map named by `-hostgame` is always first, so the two cannot disagree about what starts |
+| `MphRead -hostlocal "A,B,C" [-mode M] [-servername N] [-seconds N]` | the launcher's create-server screen, **Dedicated** half, with no launcher: start a server on this machine, on the first free port from 27888, and report where it landed. The one path in that feature a rendered screen cannot check -- it spawns a process, writes a rotation, copies `paths.txt` and waits for a socket, and each of those fails differently on a headless box |
+| `MphRead -installserver` | fetch and unpack the dedicated-server package for this platform into `server/`, which is what the create-server screen's **install** mark does. "The button did nothing" is otherwise unanswerable from a machine with no display: the two halves that can fail -- finding the asset and unpacking it -- both land on one sentence on screen. Prints the tag it installed, which is the **latest release** and not necessarily this build -- a protocol mismatch there is a server this client cannot join |
+| `MphRead -hosts [-master HOST] [-masterport N]` | the create-server screen's **Host on** page, printed: every box the directory names, asked on the directory port as well, with the reason against each one that cannot run a match. The question that page exists to answer, and the one thing a screenshot of it cannot be checked against |
+| `MphRead -servers [-master HOST] [-masterport N]` | print the server list the launcher's browser would show, with each server's map, players and round trip -- and whether that directory will **start** games, which is what the create-server screen's "Host on" row asks it and the only way to tell a directory that is down from one that simply does not host |
 | `MphRead -connect HOST -port N -name X -hunter H` | join from the command line, no launcher |
-| `MphRead -netcheck HOST -port N -name X -hunter H -seconds N [-shots DIR] [-size WxH]` | a real client driven by a script, which reports what it saw. Exit code 0 = pass. `-spectate [SEC]` makes it stop playing and watch, `-rejoin SEC` puts it back in -- the one player state the tour cannot reach on its own |
+| `MphRead -netcheck HOST -port N -name X -hunter H -seconds N [-shots DIR] [-size WxH]` | a real client driven by a script, which reports what it saw. Exit code 0 = pass. `-spectate [SEC]` makes it stop playing and watch, `-rejoin SEC` puts it back in -- the one player state the tour cannot reach on its own. `-mapvote N` votes on the results screen's map list -- agreeing with whatever is in front, proposing row N when nothing is -- and is **off** unless asked, since a scripted client that votes changes what a real server plays next and the hard-case batch runs against the public one. `-hudshots` opens a real window and photographs *it*, which is the only capture that carries the HUD: a results screen is HUD and nothing else |
 | `MphRead -netlag MS[:JITTER]` / `-netloss PCT` | play, or run any check, over a line this client makes up: `-netlag 200` adds 200 ms to the round trip (half each way), `-netlag 200:40` gives it jitter, `-netloss 5` eats one datagram in twenty. Works against the real server, on any platform, with no proxy and no `sudo` -- and unlike `hard/run-latency.sh`'s netem it can be given to **one** client while the others stay fast, which is the case a player with a bad line actually is. Every report says so when it is on |
 | `MphRead -nounlagged` | resolve shots against the present, the way every build before lag compensation did. The control for measuring it; on by default. `.claude/multiplayer/NETWORK-UNLAGGED.md` |
-| `MphRead -nohitprediction` / `-nohitmarker` / `-deathprediction` | wait for the authority before a hit lands, the way every build before instant hit registration did; drop the mark over the crosshair that says one has; and let a prediction kill **somebody else**, which it does not by default -- a predicted hit is clamped to leave the victim standing on one point of health and the dying waits for the authority. Hit prediction and the mark are on by default, predicted kills on other players are **off** (`-nodeathprediction` is still accepted and is what the default already does), and a **self**-kill is predicted whatever any of them say. `.claude/multiplayer/NETWORK-PREDICTION.md` |
+| `MphRead -nohitprediction` / `-nohitmarker` / `-nodeathprediction` | wait for the authority before a hit lands, the way every build before instant hit registration did; drop the mark over the crosshair that says one has; and stop a prediction killing **somebody else**, which since protocol 7 it does by default -- the claim below is what made that safe again. All three are on by default, and a **self**-kill is predicted whatever any of them say. `.claude/multiplayer/NETWORK-PREDICTION.md` |
+| `MphRead -noclaims` | stop a client telling the authority which of its own shots landed. On by default: a hit the authority's own rewind cannot find -- because the rewind hit its ceiling, because the trigger pull was recovered from a press history, or because **the shooter was killed during the round trip and the authority never ran the shot at all** -- is declared, checked against the authority's own history, and either applied or refused with a reason. That last case is the one a player calls unfair rather than laggy, and the rule it is answered by is: a shot counts unless its shooter had already been put down by a hit aimed at a strictly earlier world, and two shots aimed at the same world both count. Every weapon, not just the Imperialist. `.claude/multiplayer/NETWORK-HITCLAIMS.md` |
+| `MphRead -nointerp` / `-relayedpuppets` | draw remote players by snapping them to whichever snapshot arrived last, the way every build before protocol 7 did, instead of reading them off a playout clock held a few frames behind. Interpolation is on by default and is why opponents on a bad line move instead of stuttering; it costs a few frames of extra rewind and gives nothing up in hit registration, because the read point travels in the intent as a sub-frame ack and the authority rewinds to exactly it. `-relayedpuppets` also hands puppet positions back to the owner's relayed intent, which is the full protocol-6 arm. `.claude/multiplayer/NETWORK-SMOOTHING.md` |
+| `MphRead -maxrewind N` | the furthest back a shot may be resolved, in frames. **45 (750 ms)** by default since protocol 7, against 24 (400 ms) before it: at a 320 ms round trip with jitter the old ceiling was clamping **89% of shots**, with the requested-depth distribution's mode two frames past it. `.claude/multiplayer/NETWORK-UNLAGGED.md` |
 | `MphRead -debuglog` | write the file the launcher's corner switch writes, for one run. `.claude/DEBUG-LOGS.md` |
 | `~/mph-net-test/probe-chat.py [HOST] [PORT]` | what the server does with chat, asked the way no real client can: a spoofed sender, and a flood. `.claude/multiplayer/NETWORK-CHAT.md` |
 | `~/mph-net-test/run-remote.sh HOST PORT SECONDS hunter...` | the same check against a server that is not on this machine -- which is the one that matters, since eight clients on one box measure the box |
 | `~/mph-net-test/run-demo.sh SEC [authority\|client]` | record a demo from a scripted client and print what landed in the file. The authority is the case that matters: it is whichever client joined first, so it is normally whoever set the match up, and the server sends it no snapshots at all |
 | `~/mph-net-test/run-rejoin.sh SEC LEAVE REJOIN [host] [port]` | the rejoin scenario, with a control: A hosts and leaves, the authority moves, then one client takes the vacated slot and another takes a fresh one. Prints what each took. `.claude/multiplayer/NETWORK-DIAGNOSTICS.md` |
+| `~/mph-net-test/run-mapvote.sh SEC hunter...` | `run-rotate.sh` with the clients voting: four 30-second matches, and it reports votes cast against votes the server carried. What proves the results screen's map vote end to end |
 | `~/mph-net-test/hard/run-all.sh` / `run-all2.sh` | the hard-case batch against the Pi: a ninth player, a line that goes away, 100-300 ms, packet loss, everybody spectating, everybody recording, a match boundary, an authority leaving, and a ramp to twenty-odd matches at once. `.claude/testing/TEST-HARD-CASES.md` |
 | `~/mph-net-test/run-lag.sh MS SECONDS hunter...` | the same check against a loopback server behind `udp-lag.py`, which holds every datagram for `MS` before passing it on. A latency bug reproduced at a number you chose, rather than at whatever the internet is doing -- and the Pi answers in 7-17 ms, so it is the *worse* instrument for one |
 | `MphRead -maptest "ROOM" -players 8 -seconds 22` | load one room with a full house, drive every player, and report what the map holds and whether it survived |
@@ -114,17 +121,22 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -maptest "ROOM" -hunter H -hudshots` | put that hunter in slot 0, whose eyes and whose HUD every capture is taken through. Each of the eight lays its readouts out differently, so a HUD picture with no hunter named is a picture of Samus's and of nobody else's |
 | `MphRead -maptest "ROOM" -renderprobe` | stand on every spawn point in the room in turn, read the frame, walk forward five seconds, read the worst. Catches a room that draws nothing -- the failure no other check can see, because everything else about it passes. `-shots DIR` writes the PNGs, `-allnodes` draws without room-part culling (which separates "the geometry is missing" from "the cull lost it"), `-hudshots` uses a real visible window and reads *its* buffer, which is the only capture that includes the HUD, and `-size WxH` sets that window's shape -- the HUD is laid out in a 4:3 space and stretched, so how it looks is partly a question about the window. Under WSL a HUD capture needs the X11 backend: `WAYLAND_DISPLAY=` `DISPLAY=:0`, or every window read comes back black |
 | `MphRead -maptest "TEST ARENA" -players 8` | the harness's own room (`maps/arena/`): forty units square, eight spawns on a ring looking inward, nothing far from anything. Where damage, hit registration and the affliction states are actually measurable -- a real map's corridors mean most of the tour's shots land on a wall |
+| `MphRead -maptest "TEST PADS" -players 8` | the same room with four jump pads throwing hunters across the middle, in a box tall enough for the arc (`maps/pads/`). The one case hit registration is hardest in: a target crossing at 0.3 units a frame or more, against a headshot band 0.3 units tall. TEST ARENA is the control -- the two differ by the pads and the ceiling height and by nothing else |
 | `MphRead -rooms` | list every multiplayer room, one per line, for a shell loop. **27** is the whole cartridge and the right answer with no custom map source present; anything more is a custom map |
 | `MphRead -q3convert FILE.pk3 -map LEVEL -name ROOM [-noclip]` | a Quake 3 .pk3 to a custom map in one command: textures baked from the level's own art, scale and extents picked from its geometry, spawns from its entities. Places no weapons or powerups -- where those go decides how the map plays. `.claude/mapgen/MAP-PIPELINE.md` |
 | `MphRead -mapgen ["NAME"]` | generate the room binaries for the custom maps in `maps/` (recursively: a map may sit in a folder of its own with its level and textures beside it, or be a single `.fpmap` bundle), from the player's own textures. `-mapmaterials "ROOM"` prints what textures a room can lend. A map is a JSON file; the `.bin` it produces is never committed. `.claude/mapgen/MAP-PIPELINE.md` |
 | `MphRead -mapbundle ["NAME"] [-mapdir DIR]` | cook a map into the one file it ships and is handed out as: recipe, level and baked textures in a `.fpmap`, with the level trimmed to the lumps the importer reads (376 KB for de_dust2, against 2.8 MB for the folder). What the workflow runs before it publishes -- the bundle is not committed, and the `.pk3` it is cooked from never reaches a package. `-mapdir` is resolved against the directory the command was typed in |
 | `MphRead -gamepad [-seconds N]` | what a connected pad is doing, with no match in the way: its name, its axes, and which game action each button reaches. The only thing that tells "not connected" from "connected but GLFW has no mapping for it" from "the dead zone is eating it" apart. `.claude/GAMEPAD.md` |
 | `MphRead -cel on\|off [-celbands N] [-celedge N]` / `-fog on\|off` / `-prohud on\|off` | render options for every path that never opens a launcher, which is every screenshot command. `.claude/render/CEL-SHADING.md` |
+| `MphRead -fov N` | how wide the view is, 60 to 120 degrees, default **78** -- the DS's own (`NormalFov` 39, doubled). A multiplier on whatever the camera asked for, so a weapon's zoom and every scripted shot keep the proportions they had on the cartridge. For the paths that never open a launcher, like `-cel` and `-fog`: a session that does opens one takes the number from the settings' **Field of view** row instead |
 | `MphRead -fpscap N\|display` | how fast the picture is drawn. The simulation is pinned at 60 Hz on every setting, so this does not touch what the game does. `.claude/render/FRAME-PACING.md` |
 | `MphRead -crosshair STYLE` / `-crosshairsize Small\|Medium\|Big` | which crosshair the pro HUD draws, for the screenshot commands that open no launcher. Styles are Cross, Dot, CrossDot, Circle, Brackets |
 | `MphRead -weaponstyle static\|dynamic` | where the gun and the crosshair sit -- Quake's welded pair or the DS game's drifting one, which is the settings screen's Weapon row. For the same paths, and a sharper reason: the two answers differ mainly in what the middle of the picture is doing, so a screenshot is how the difference is checked at all. `quake` and `metroid` are accepted as the same two answers |
+| `MphRead -tapcheck` | the rule that tells a tap from the start of a scroll, against gestures written down rather than performed: does a finger that goes down on a settings row and then drags the page still answer that row. It must not -- acting on the *press* is what made scrolling the settings on a phone toggle, cycle and re-slide every row the drag passed over. Needs no display, no toolkit and no touchscreen (`Mods/Launcher/Gui/Tap.cs`) |
 | `MphRead -frametimingcheck` | the fixed-step accumulator on its own, against frame times chosen rather than measured: does the game still run at 60.000 Hz when the screen runs at 144, at 165, at a jitter, or at 40. Needs no game files and no display |
 | `MphRead -maptest "ROOM" -drawrate N` | draw each simulation step N times, which is what a 144 Hz screen does to a 60 Hz game. Asserts that drawing did not advance the world. How the decoupled loop is checked from a box with no monitor |
+| `MphRead -shellshot DIR` | the same screens photographed **in the game window**, walking the whole loop: front screen, a key, a click, a match loaded into that window, the pause menu over it, and the front screen again after leaving. What `-uishot` cannot answer -- it renders layouts, not the composite. Needs a display (Xvfb is one) |
+| `MphRead -uidesign DIR` | everything **behind** the front screen -- Play with maps, Play with servers, settings, the pause menu -- laid out **six** different ways and photographed, for choosing between them by looking rather than by describing. The front screen is deliberately not in it. The six differ in information architecture rather than in where a menu is pinned, since moving anchors around produces six pictures of one design; the photograph, the real content at its real density and `GuiTheme`'s palette are held constant. Nothing it draws ships (`Mods/Launcher/Gui/UiDesigns.cs`) |
 | `MphRead -uishot DIR` | pictures of the launcher's own screens -- home, settings, the map picker, the pause menu -- rendered without anyone looking at a display. The one part of the program that could not otherwise be checked from a headless box |
 | `MphRead -demoinfo FILE [-replay]` | what a recorded match contains -- records, frames, a packet-type histogram, and how well it compressed. `-replay` then runs the file through the real player with no room or window and reports how the packets landed per frame, which is the measurement "the replay stutters" is about. Needs no game files. `.claude/multiplayer/NETWORK-DEMOS.md` |
 | `MphRead -netcheck ... -recorddemo` | the harness client, recording a demo as it plays |
@@ -137,24 +149,231 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `FruityPrime -noupdate` | do none of that, on any command that would have |
 | `FruityPrime -server ... -noautoupdate` | keep a dedicated server on the build it was started with. It updates itself otherwise -- see Updating |
 | `FruityPrime -credits` | who this is built on and who forked it, from `Mods/Credits.cs` -- which also holds the ko-fi address the settings' Credits page offers |
+| `MphRead -uinativeres` | rasterise the launcher's screens at the window's own resolution however big it is, rather than capping them at 1080p and magnifying. Sharper type above 1080p, and a much slower redraw -- which only shows while something is moving, so it is a straight choice between crisper menus and menus that scroll |
 | `MphRead -fullscreen` / `-windowed` / `-nohelmet` | display choices for the paths that never open a launcher |
+| `MphRead -windowcheck` | the window's memory, both halves, without anybody watching a window: it opens the shell at a saved size nothing else would produce, then proves that closing it would keep the size it has now. The save half runs *as the window closes*, so a scripted run has no way to reach it otherwise -- and the whole feature fails silently, since a window that opens at the default looks exactly like one that was never resized. Writes nothing; the preference is put back before it returns |
 
 ## The launcher
 
-**One launcher, in Avalonia, on Windows, Linux, macOS and Android** — one
-thread, one toolkit setup per process
-(`GuiLauncher.EnsureSetup`), each visit a nested dispatcher loop. `-launcher`
-opens a front screen, not a settings dialog: a map picture on the left, the
-things you can do on the right.
+**One window, for the whole program.** The front screen, the settings, the
+pause menu and the match are all drawn into the game window: the launcher is
+rendered by Avalonia's headless backend into a buffer and composited onto the
+frame (`Mods/Launcher/Gui/UiSurface.cs`, `Mods/Render/UiOverlay.cs`), and a
+match is a scene loaded into that same window and unloaded again
+(`Mods/Launcher/Gui/Shell.cs`). Starting a match no longer closes anything and
+the pause menu is no longer a second window chasing the first one's rectangle.
+`.claude/launcher/LAUNCHER-WINDOW.md` has the traps -- the engine names its own
+textures, and the fixed-function state belongs to whoever drew last.
 
-| Entry | What it does |
+**The launcher is redrawn when something changes, not when the game draws.**
+It used to be re-rendered every frame -- 3.5 ms of a 120 Hz frame, Skia
+re-rasterising the whole screen plus a full framebuffer upload, to produce the
+pixels already on screen. That is 43% of a frame spent proving a static menu
+had not changed, and it is why a 120 fps game could carry a launcher that felt
+like ten. `UiSurface.Invalidate` marks it dirty, every input path calls it, and
+a clean surface reuses the texture already on the GPU: **435 ms/s of CPU down
+to 14 ms/s at rest**. Redraws are capped at 60 Hz even when busy, with a
+backstop redraw every 50 ms for three seconds after anything happens and every
+250 ms once it has been still -- because a preview loading or a server
+answering arrives through a dispatcher job that announces nothing, and a
+backstop turns a missed invalidation from a frozen screen into one a quarter
+second late. Redraws are as fast as the window while something is
+moving, and the rows lay their text out once and keep it rather
+than re-shaping every string on every repaint. **The wheel is the
+`ScrollViewer`'s own and nothing animates it**: a notch moves the scroller and
+that is the end of it. There was a `SmoothScroll` that glided each notch over
+110 ms, on the reading that a jump per notch is about ten jumps a second and
+therefore indistinguishable from ten frames a second -- and it was **removed**
+on the report that the jump is what a launcher is supposed to feel like. It
+also cost what an animation costs here: a glide is a redraw a frame for a
+tenth of a second, and a redraw is the whole window (see below). Do not put it
+back without that number in front of you. `-debuglog` writes a `[ui]` line
+every second saying what the screens actually cost: frames, redraws, and the
+split between dispatcher jobs, rasterising and the GL upload. That line is how
+"the menus feel slow" gets answered at all, since the launcher's cost is spent
+inside the game's own frame and shows up as the game being slow.
+`.claude/launcher/LAUNCHER-WINDOW.md` has the trap that undoes it
+all in one line.
+
+**A redraw costs the whole window, so the whole window is what had to get
+cheaper.** The dirty flag answers "how often"; it says nothing about "how
+much", and the answer to that was: everything, every time. Skia rasterises on
+the CPU into a framebuffer the headless backend hands over *fresh* each frame,
+so the moment anything moves there is nothing in the previous frame to reuse
+and the entire window is drawn again -- which is free while a menu sits still
+and ruinous for the one thing in the launcher that moves a lot of pixels, a
+list under the wheel. Measured on an i5-10600K, one settings page being
+scrolled, milliseconds a redraw and the frame rate that implies:
+
+| window | four layers | baked | baked + capped |
+|---|---|---|---|
+| 1280x720 | 4.6 (217 fps) | 2.9 (344 fps) | same |
+| 1920x1080 | 24.2 (41 fps) | 13.0 (77 fps) | same |
+| 2560x1440 | 40.9 (24 fps) | 21.5 (46 fps) | 13.0 (77 fps) |
+| 3840x2160 | 91.7 (11 fps) | 60.6 (17 fps) | 13.0 (77 fps) |
+
+That table *is* "the menus scroll at five frames a second": a launcher that
+cost more than a frame to draw, redrawn on every frame for as long as anything
+moved. Three changes, and they are independent -- the third is that the wheel
+no longer animates at all, so a notch is one redraw instead of seven:
+
+- **The backdrop is baked** (`Mods/Launcher/Gui/BakedBackdrop.cs`). It was four
+  full-window layers -- the photograph stretched, a gradient, a corner vignette
+  and the wash -- rasterised together on every redraw. They are now rendered
+  once into one bitmap, at the device resolution, re-cut only when the window
+  changes size, and blitted. At 1:1 the result is **byte for byte the same
+  picture**, checked rather than assumed, and it is worth about 1.9x at every
+  size. The wash went into the bake with them, which is why `UiLayout.Page` no
+  longer lays one over the top and `Backdrop` takes a `BackdropWash` instead.
+- **The raster is capped at 1920x1080** and the result is stretched over the
+  window by the GL blit, which is linear and free (`UiSurface.Raster`). Nothing
+  at or below 1080p is touched at all. Above it the screens are drawn at 1080p
+  and magnified -- softer type, the way a 1080p picture looks on a larger
+  screen, in exchange for a menu that keeps up. The **layout box does not
+  move**: the curve is asked about the window and then scaled down with
+  everything else, so a capped 4K window lays its screens out in exactly the
+  box it always did and only the pixels are fewer. `-uinativeres` turns it off.
+
+The one thing to be careful of: above the cap the surface is smaller than the
+window, so **the pointer has to be converted** (`_raster`, applied in
+`PointerMoved` and nowhere else). Miss it and every click lands short by a
+quarter of the screen at 4K. `ClickOn` undoes the conversion on the way in
+rather than skipping it, so `-shellshot`'s click check still proves the real
+path.
+
+**Every screen is scaled from the window's height, by one rule, and capped by
+what the window can hold** (`UiSurface.Factor`): 720 pixels tall draws them as
+they were authored, and the curve is steeper than proportion -- a window twice
+as tall draws them about 2.8 times as large, since a bigger window is usually a
+bigger screen further off. The cap is the other half and was added after the
+curve: a window wider than it is tall is the ordinary case, and the height
+alone got it wrong there -- 1440p asked for 2.875, which leaves the screens 890
+by 500 points to lay themselves out in when they are authored for 960 by 600.
+That is what "the text goes abnormally large when the window is wider than it
+is tall" is, and in the same breath it is what pushed the column of settings
+past the bottom of its grid row and straight over the tick in the corner. So
+the layout box never goes below 960x600: the curve rounds to the nearest
+eighth, the cap rounds *down* to one, and the smaller of the two wins. About
+1.1 at 1280x768, 1.75 at 1080p, 2.375 at 1440p. The display's own scaling factor is
+deliberately not multiplied in (GLFW is DPI-aware and already hands this
+program more pixels there), and the in-game screens have no scale of their own
+-- both were tried and both produced the same complaint from the other side:
+text too big in the window the program opens in and too small in fullscreen,
+then a front screen that "went small again" when a match ended. Every change
+writes one `[ui] screens at N×` line to the debug log.
+
+**The window comes back the size and in the corner it was left**
+(`Mods/WindowGeometry.cs`, `window_size`/`window_pos`/`window_maximized` in
+`launcher.txt`). Read before the window is shown, and **kept as it happens**:
+the resize, move and maximize callbacks update the preference in memory (free)
+and the file is written once the shape has held still for a second and a half.
+Saving only as the window closes was the first design and it is not enough --
+it loses the size to a crash, to a kill, to a machine that sleeps and does not
+come back, and to any exit path that never runs the close handler, which is
+exactly how it was reported as "ne s'enregistre pas". Closing still writes, as
+a backstop for the window that was never resized. Five things about it are
+deliberate:
+
+- **Only the shell window.** Every other `RenderWindow` this process opens is
+  a measuring instrument (`-maptest`, `-renderprobe`, the thumbnail runs, the
+  network harness) that was handed a size on purpose, so none of them reads
+  the preference or writes it. `-shellshot` uses the shell window and *also*
+  stands down (`WindowGeometry.Enabled`), because its script maximizes the
+  window half way through and photographing the launcher must not be how
+  somebody's window size changes.
+- **The position travels with the size**, because half of it is no feature: a
+  window that comes back the right shape in the middle of the screen has
+  still been moved.
+- **A saved rectangle is a claim about hardware that may be gone.** It is
+  checked against the displays that exist *now*; a corner on none of them is
+  given up and only the size is kept, since a window restored onto an
+  unplugged monitor cannot be dragged back. The size is clamped to the
+  display it lands on rather than refused, so a window saved on a bigger
+  screen comes back as large as this one allows.
+- **The per-frame cost is a bool.** `WindowGeometry.Flush` is called once a
+  frame from `Reveal` and returns immediately unless something moved; `Store`
+  also refuses a shape identical to the one already held, which is most calls,
+  since the move callback fires for a resize as well.
+- **Maximized is a state, not a size.** Restoring a maximized window by its
+  rectangle fills the screen without *being* maximized -- the caption button
+  offers to restore a window that is not, and it will not follow a change of
+  resolution -- so the flag is kept separately and the rectangle underneath it
+  is still saved, and un-maximizing lands where it used to. Fullscreen is
+  never what gets saved: `WindowMode.WindowedSize` is the geometry fullscreen
+  was entered *from*, or quitting from fullscreen would give the next session
+  a windowed screen-sized window with its title bar off the bottom.
+
+**One launcher, in Avalonia, on Windows, Linux, macOS and Android** — one
+thread, one toolkit setup per process (`GuiLauncher.EnsureSetup`). `-launcher`
+opens a front screen, not a settings dialog.
+
+**Every screen has the same layout, and it is one column down the middle.**
+A photograph, a soft wash over it, and a **well** of fixed width centred in the
+frame: what the screen is called at the top, a strip of pages or sources under
+it, the screen's own content under that, and — on anything that asks a
+question — the cross and the tick **side by side at the foot**, no on the left
+and yes on the right. No card, no panel, no box anywhere. `UiLayout.Page` is
+the whole of it and every screen is built from it, which is what stops nine
+screens inventing nine answers again.
+
+Two things about it are deliberate and easy to undo by accident:
+
+- **The well's width is fixed** (`WellPlay` 820, `WellSettings` 640,
+  `WellShort` 480) and does not follow the window. A layout that fills the
+  window puts a settings row's label against one edge and its control against
+  the other, so on a wide screen the two ends of one row are a foot apart —
+  and the wider the display, the worse it gets. Here a wider window gives the
+  *photograph* more room and the content exactly what it had. The numbers are
+  chosen against the smallest layout box the surface hands out, 960x600, so
+  there is a margin either side at every size the program allows.
+- **The marks are together, not in opposite corners.** A cross in one corner
+  and a tick in the other are two things to find; side by side under the
+  content they are one thing to read, in the order they are read in, directly
+  under where the eye already is. The pause menu has none, and that is not an
+  omission: every entry on it is an action, so there is no question for a yes
+  and a no to answer — and Resume as a tick *and* as the first word of the menu
+  is one action drawn twice.
+
+It was OpenQuake3/defrag's shape before — a column anchored in the bottom-left
+corner with the wordmark in the opposite one — which is still where the
+anchors in `UiLayout` come from. The front screen moved with the rest: a front
+screen laid out differently from everything it opens is the one screen that
+does not look like the program. It gets `LightWash()` rather than `Wash()`,
+since three words need almost no ground and the default is set by the densest
+screen there is.
+
+| Screen | What it does |
 |---|---|
-| Host | the story from a save slot, or a match: map, mode, hunter, and a `Where` row -- **Local** is an offline match with 0-7 bots and their skill, **Online** asks the directory to run it. The listen-host path (`NetHostSession`, the dedicated server in this process over the loopback) still exists and is still what `LaunchKind.Host` can do, but the card no longer offers it: the port, "let the directory run it" and "list it" rows are built and forced rather than shown, because every one of them is a question about the player's router. Running a server yourself is the dedicated server's job |
-| Join | name, hunter, `host` or `host:port`, and a live line saying what that server is running. **Find a server** opens the browser |
-| Demos | pick a `.fpdemo` and replay it -- on Android too, where the picker cannot filter by pattern and hands back a `content://` document that has to be copied in first |
-| Settings | display, audio, controls, match rules, and profile (name, hunter, server addresses, updates, game files, credits). Also reachable from the pause menu during a match. **Pro mode HUD** is the whole HUD question in one switch -- no helmet, plain fixed crosshair, weapon list at 170%, fixed weapon, and its own energy, ammo and score readouts in place of the game's; off is the game as the DS drew it. Two rows appear under it while it is on and nowhere else, because they are questions only it can answer: **Crosshair size** (Small / Medium / Big) and **Crosshair type** (Cross, Dot, Cross + dot, Circle, Brackets), the type row carrying a live picture of the answer at the chosen size. The six settings pro mode answers for have no rows at all, and the rows that remain have no explanations under them. Cheats, bugfixes, the leftover feature flags and the HUD-readout opacity likewise have **no UI** and no longer load from `settings.json` -- they sit at their code defaults |
-| Game files | where the .nds goes. Shown first, and everything else greyed out, when there is nothing set up yet |
-| Debugging logs | one line in the bottom right corner, under the version, on the front card only. Off; switched on it writes `logs/FruityPrime-<when>.log` beside the executable (the app's data directory on Android) with everything the program prints plus the machine, the driver, every model read and the stack of anything that kills it. What "it crashes when the map loads" is answered with. **Share logs** sits to its left, only when logs exist, and zips them into the phone's share sheet -- the app's own directory being one no file manager will browse. `.claude/DEBUG-LOGS.md` |
+| Start | the wordmark over Play, Settings, Quit, centred. No heading -- the wordmark is the heading. The build sits under the column, centred, and is the update button when there is one to take. Replaced entirely by the game-files screen while there is nothing to load -- a menu whose entries are all refused is a program that looks broken |
+| Play | one list, and a strip over it saying what the list is: the picture of what is selected sits at the top of the well with the settings about it to its right, and the list runs the full width underneath -- a centred well has no side to hang a column off without stopping being centred, and the picture is the answer to "which map is that", so it is the thing that gets the room. **Online** (the directory's servers, with name, hunter and an address box), **Offline** (maps, with match type, hunter, bots and skill -- and nothing else: the `Where` row that used to sit here, whose second answer had the directory run a *server*, is gone, because a server is not a variant of a match against bots and the one face of Play that is about not being online is the wrong place to make one), **Story** (save slots, hunter, continue or start over), **Clips** (this machine's recordings, plus the system picker last). Choosing is two presses: a click selects the row -- the picture of the map, the details and, for a server, the address box fill in -- and the tick at the foot (**JOIN**, **START**, **WATCH**, or a second click, or Enter) is what commits. Three words, not four: joining somebody else's server is its own act and keeps **JOIN**, while Offline and Story both start a game of your own and both say **START**. The picture is the map on every face that has one, the server browser included -- a server row says which map it is running, and the map is most of what decides whether to join. It was one press, which put players in matches they had only meant to read the ping of. This one screen replaced seven -- host, join, browser, adventure, demos, the map grid and the vote picker. The Online face carries a third mark, **CREATE SERVER**, between BACK and JOIN -- running a server is neither leaving the browser nor joining a row on it, and beside the act it is an alternative to is the one place on this screen it belongs |
+| Settings | three pages, not six. **Game** is display, audio and the match rules -- including **Field of view**, a slider from 60 to 120 degrees defaulting to the DS's own 78, applied as a multiplier on whatever the camera asked for so a zoom or a scripted shot keeps the proportions it had on the cartridge, and applied as it is dragged (cancel puts it back); **Controls** is mouse, pen, touch, pad and keys; **Player** is name, hunter, suit, server addresses, updates, game files, the debugging-log switch and the credits. Reachable from the pause menu during a match, where the backdrop is the scrim alone so the game shows through. **Pro mode HUD** is the whole HUD question in one switch -- no helmet, plain fixed crosshair, weapon list at 170%, fixed weapon, and its own energy, ammo and score readouts in place of the game's; off is the game as the DS drew it. Two rows appear under it while it is on and nowhere else: **Crosshair size** and **Crosshair type**, the type row carrying a live picture of the answer at the chosen size. Cheats, bugfixes, the leftover feature flags and the HUD-readout opacity have **no UI** and no longer load from `settings.json` |
+| Create server | six rows and a warning: **Server name**, **Game type**, **Your hunter**, **Map rotation** (a row that opens every map as a list where a press appends and a second press takes back, numbered `#1 #2 #3` in the order they were pressed -- a rotation is a sequence, which is why it is not a column of tick boxes), **Host on** and **Server type**. Two kinds, and the difference is whose machine runs it. **Hosted** is the default: a directory starts an ordinary `DedicatedServer` on its own box and answers with the port, so there is no router to configure -- and **Host on** opens a page of its own listing **every server the directory names**, each asked on the port the browser already pings it on -- with a ping against the ones that will open a game and a reason against the ones that will not. A server says so in a flags byte on its status reply, and it is the machine that would run the match, so there is nothing in between to ask. The first shape of this asked for a *directory* on each box, which meant deploying one per region that listed nothing and existed purely to be answered -- a component invented to satisfy a layering mistake. There is still exactly one directory in the world: it answers "who is up", and each server answers "can you open me a game". The directory is a candidate too, since it has a port range and will open one. **Dedicated server** runs it here **in its own console window, as its own process that outlives the client** -- quitting to the front screen or closing the game does not end the match anybody else is in. On Windows that means the console binary out of the server package, *not* the game's own exe: `FruityPrime.exe` accepts `-server` but is a GUI binary, so a server started from it has no window, logs nowhere and cannot be closed. Its absence is what the **install** mark at the foot is for, and it is the only case that mark appears in. The router and firewall have to let UDP 27888 in before anybody outside can reach it, which the row says before it is picked. Either way the player is joined without the launcher closing, and a dedicated one is dialled on **127.0.0.1** rather than on this machine's public address -- the loopback is the one address certain to reach a server on this box, and a router that hairpins badly would otherwise look exactly like a server that did not start. `Mods/Launcher/Gui/CreateServerScreen.cs`, `Mods/Network/LocalServer.cs` |
+| Confirm | one sentence, centred, with the two marks directly under it. Quitting, leaving a match, resetting every keybind and wiping a save slot are four consequences and one screen |
+| Pause | the same centred column, over the scrim **in the game window itself** (and the scrim alone -- no wash, or the match it exists to keep visible goes away), with the match still running behind it. No heading and no footer, unlike every other screen: "paused" says what the player has just done with the frozen match behind it saying the same thing, and the match's name names something they are looking straight at -- neither is what anybody pressed Escape to find out. It is and **longer than the rest on purpose**: Resume, Vote map, Spectate/Rejoin, Fullscreen, Record demo, Settings, Leave match, Quit. Voting on a map, going fullscreen, spectating and recording are things you can only want *during* a match, so this is the one screen they can live on -- everything else is short precisely so this can be long. **Vote map** opens Play with the strip taken away, because calling a vote is picking a map |
+
+The debugging-log switch left the front screen for Settings → Player. It is
+not something anybody came to the launcher for: it is what somebody is asked
+to turn on when they report a crash nobody else can reproduce. Switched on it
+writes `logs/FruityPrime-<when>.log` beside the executable (the app's data
+directory on Android) with everything the program prints plus the machine, the
+driver, every model read and the stack of anything that kills it. **Share
+logs** sits under it, only when logs exist, and zips them into the phone's
+share sheet -- the app's own directory being one no file manager will browse.
+`.claude/DEBUG-LOGS.md`
+
+`-uidesign DIR` is the other side of that: the two faces of Play, the settings
+and the pause menu drawn six ways at 1280x720 and written out as twenty-four
+pictures, so "what should this look like" can be answered by looking. The
+front screen is left out on purpose -- it is settled. Nothing in it ships.
+
+`-uishot DIR` photographs all of it with no display: `start`, the four faces
+of `play`, `play-vote`, `create-server`, `create-server-dedicated`,
+`create-server-maps`, `create-server-hosts`, `settings`, `settings-player`, `setup`, `confirm`,
+`pausemenu`, `pausemenu-small` and `serverbrowser`. `-shellshot DIR` is the
+other half -- it opens the real window and photographs the composite at each
+stop of the loop (front screen, a key, a click, a match, the pause menu over
+it, the front screen again), which is what `-uishot` cannot answer. That one
+needs a display; Xvfb is one.
 
 Gotchas worth keeping in view without opening another file:
 
@@ -212,7 +431,21 @@ Gotchas worth keeping in view without opening another file:
   model lands, since the model reaches the frame before the HUD does. The
   sprite portrait is still there as the fallback for a model that will not
   load. Arrow keys or the d-pad. The answer is
-  still `RespawnChoice`'s and is still cashed in at the next spawn.
+  still `RespawnChoice`'s and is still cashed in at the next spawn. **Under
+  it is the vote for the next map**, which is `callvote map` moved to the one
+  moment nobody is playing: **every** map, scrolled, with the launcher's own
+  preview beside each one. Picking proposes, picking what somebody else picked
+  validates, picking another proposes that instead, and **the map with the
+  most votes is the one loaded** -- no threshold, since an intermission
+  interrupts nobody and a bar to clear only produces the outcome nobody voted
+  for. Maps with votes are **pulled to the top of the list**, so the room can
+  see what it is choosing between without scrolling for it; the leader is
+  marked NEXT and the rotation's own map is what plays if nobody picks
+  anything. Mouse wheel or the arrows to scroll, click or Space to pick, click
+  again to take it back. `Mods/MapPick.cs`,
+  `.claude/multiplayer/NETWORK-MATCHEND.md`. The scoreboard is squeezed left
+  and the ping column and the radar go away while the screen is up -- both
+  live in the corner the pickers do.
   `GameState.MatchEndingSeconds` and `DedicatedServer.EndSequenceSeconds`
   are one number in two places and have to move together. The cursor is
   released for the length of the results screen (`Renderer.OnRenderFrame`
@@ -227,6 +460,24 @@ Gotchas worth keeping in view without opening another file:
   picker used to be drawn at on a phone was the whole button. The suit caption
   and the colour's name are one line now ("SUIT: ORANGE") rather than two on
   either side of the swatches, and `EndScale` is 1.3 on Android.
+- **Two additions to the directory's wire, both after the fixed block and
+  neither a protocol bump.** A `HostRequest` may carry the asker's whole map
+  cycle -- `[count][count x (40-byte room key + mode)]` appended past
+  `HostRequestPacket.Size` -- and a `MasterList` reply ends with a flags byte
+  saying whether that directory starts games at all. Both are invisible to the
+  other side's older build: a directory from before reads exactly `Size` bytes
+  and plays the single map it always did, and a launcher from before stops
+  reading once it has taken `count` entries. So `NetConfig.ProtocolVersion`
+  does **not** move -- but a directory has to be **redeployed** before a
+  rotation asked for is more than a rotation of one. **Silence is not a no.**
+  The flag has three states and the third is the one that matters: hosting is
+  on by default and has to be turned *off* with `-hostports none`, so every
+  directory deployed in the world hosts, and a launcher reading "did not say"
+  as "will not" offers nothing to anybody until every one of them is
+  redeployed -- which is what "Host on: nobody" against the live directory
+  was. Only an explicit no is a no (`MasterListResult.WillHost`); the cost of
+  being wrong is a clear refusal at the moment the button is pressed, against
+  a row that says nothing and explains less.
 - `PacketType.StatusQuery` answers "what map, what mode, how many players"
   without claiming a slot, which is what lets the browser poll idly. A server
   built before it falls back to a slot-taking Hello/Bye probe — redeploy the
@@ -302,6 +553,129 @@ and distinguishes "not connected" from "connected but unmapped". Layout, feel
 (radial dead zone, squared look curve, 3.5 degrees a frame at full stick), the
 four settings, and how to test one with a virtual pad on `uinput`:
 `.claude/GAMEPAD.md`.
+
+## Pen tablets, and the weapon wheel
+
+**Inside the pen zone the pointer is a pen, not a mouse**, and that is three
+rules rather than one (`Mods/Input/StylusZone.cs`). A touch is owned by
+whatever it went down on until it lifts, so a drag may wander anywhere without
+becoming something else. **Aiming is that drag on the map and nothing else** --
+not the pointer's raw movement, which for a tablet is the distance the hand
+travelled to reach the weapon it was going for, and which is why "I cannot aim
+with the pen" and "my aim jumps when I reach for a button" were the same bug.
+And **the tip never fires** while it is on the zone: the DS put the trigger on
+a shoulder button, this screen has no trigger, and here the tip arrives as the
+left mouse button, which is the fire bind. A touch that begins *outside* the
+zone is an ordinary click and is left alone, which is what a tablet player
+shoots with. The weapon select is **held**, not tapped -- the wheel has to
+still be up when the pen reaches it -- and **the wheel itself is drawn in the
+zone**, not across the window: it is the DS's bottom screen, so with a zone
+marked out the zone is where it belongs, and the arc is measured in the same
+rectangle it is drawn in (`ModPlaceWeaponSelect` and `UpdateWeaponArc` read the
+same four numbers). A pen that has left the zone has left the wheel and
+chooses nothing. Placing the zone keeps the corner the pen
+went down on where it was put (it used to slide upwards under the hand,
+because the height is derived from the width and the width was still growing),
+and the arrows, `[`/`]`, Shift and Enter place it exactly.
+
+**The weapon wheel is a drag on a mouse and the DS's arc on anything that
+points at a place** (`Mods/Input/WeaponWheel.cs`). The arc reads the cursor's
+position against five angle thresholds, which is right for a pen or a finger
+and useless for a mouse: it meant releasing the pointer mid-match and reaching
+for the top-right corner of the screen with it, through a wheel drawn over a
+fight, with the view unable to follow -- and the cursor had to appear
+somewhere, which on the arc is already a weapon chosen. So on a mouse: hold,
+move up or down, let go. The pointer stays grabbed, a tenth of the window's
+height is one weapon, unavailable and empty weapons are skipped, and nothing
+wraps. `Scene.ShowCursor` is what forks the two.
+
+## Boosting with a flick of the mouse
+
+**A whip of the mouse boosts Samus's ball, in the direction of the whip**
+(`Mods/Input/MouseFlick.cs`). The gesture already existed on the touch head --
+a flick on the aim side, the way a flick of the stylus did on the DS -- and
+the desktop had the same free hand without anybody noticing: the ball is
+steered with the roll binds against the camera's basis and the camera trails
+it by itself, so **nothing in `ProcessAlt` reads a mouse delta at all** for the
+four hunters that roll. It goes in through the plumbing the swipe already uses
+(`SwipeBoostRequested`/`SwipeBoostX`/`SwipeBoostY`), so it is one forced full
+charge into the release branch and not a second boost path, and it needs no
+protocol change -- a player's position is reported rather than re-simulated
+from their buttons, so the boost reaches every other machine as movement.
+
+**No setting, and the threshold is a turn rather than a distance.** A number
+of pixels describes the player's mouse (the same whip is 200 px on one desk
+and 2000 on the next) and a fraction of the window describes their monitor,
+which has less to do with it again; what a flick *is*, is the movement that
+would have spun them round on foot. So the delta is run through the game's own
+aim arithmetic -- `delta / 4 * sensitivity` degrees -- and a third of a turn
+inside five simulation frames is a flick, which self-calibrates to the
+sensitivity the player already chose. The gates are all "is the mouse saying
+something else": the weapon wheel is answered by dragging, the boost bind held
+is a charge being built on purpose, and a gap in the frame numbers (the ball
+just closed, the player was frozen or paused) throws the history away.
+`-debuglog` says so the first time one is read.
+
+**The direction is the whip's own, against the camera's basis** -- an aim,
+not a choice between four things. It *was* snapped to forward/back/left/right,
+the four the roll binds and the DS's d-pad offer, on the report that a
+sideways flick "went forward again" (*"gauche/droite, ça va quand même vers
+l'avant"*). That was the wrong cure for a real complaint. The direction being
+handed over was contaminated -- see the speed weighting below -- and snapping
+merely hid it on the two axes where rounding happened to land right, while
+turning the other two into a lie: *"quand je fais back, c'est toujours 100%
+back mais jamais dans la direction exact de ma souris"*. A flick back and to
+the left came out flat back every time, whatever the hand did. The measurement
+is fixed where it is taken instead, and what arrives is used as it is. The
+touch head's swipe goes through the same code and is now analogue too, which a
+thumb wants as much as a hand does.
+
+Four things were wrong with the first versions, and the first two were both
+reported as one sentence -- *"the mouse goes down and Samus still goes up"*:
+
+- **What is measured is a straight burst ending on this frame, not the
+  window's largest displacement.** Summing whichever run of recent frames came
+  out longest fires on a hand that merely wandered a long way, and hands back
+  the direction of the wandering rather than of the whip: flicking down while
+  the sum was still dominated by an earlier upward drift gave a boost upwards.
+  The burst is now grown backwards from the newest frame and stops at the
+  first sample that is slow or that points more than 30 degrees away from the
+  run already gathered, so what it adds up is one movement and the direction
+  it reports is that movement's. **The hand also has to come to rest between
+  flicks** -- a cooldown alone lets one long sweep fire once per cooldown for
+  as long as it goes on -- which doubles as the guard for a cursor that was
+  warped rather than moved (unpausing, regaining focus).
+- **An aimed boost redirects the ball rather than pushing it.** Upstream's
+  boost is an impulse added to whatever the ball is already doing, which is
+  right when it goes where the ball was already pointing and useless when it
+  does not: flicked backwards at speed it cancelled some of the roll and the
+  ball carried on forwards. So when -- and only when -- a flick aimed it, the
+  horizontal speed is projected onto the direction asked for first, dropping
+  the part going the other way and the part going sideways, and **nothing is
+  added**: the ball leaves along the flick with the momentum it already had in
+  that direction and no more. The DS's own boost is untouched.
+- **The direction is weighted by speed, and the run-up barely votes.** A whip
+  starts from rest, so its first frames are the hand breaking away -- slow,
+  and pointing wherever the wrist happened to be. Summing displacement gives
+  those frames a say in proportion to how far they went; each frame weighted
+  by its own speed gives them one in proportion to the square of it, so the
+  peak of the whip decides. That, with the coherence tightened from 45 degrees
+  to 30, is what makes the angle worth handing over at all -- and it is why
+  the four-way snap could go.
+- **What the roll binds put into the flick frame is dropped.** The traction
+  block runs earlier in the frame than the boost and only checks
+  `_boostAimLock`, which the boost sets *after* it -- so a player holding
+  forward as they flicked sideways got one frame of forward added on top of
+  the dash, and the aimed boost left at an angle nobody asked for. That is the
+  *"vers la diagonal en haut à gauche"* half. Only the horizontal part is
+  cleared, and only when a flick aimed the boost.
+
+`-debuglog` writes an `[input]` line for **every** flick, from both ends: the
+screen direction and its angle where the gesture is read, then what that is in
+forward/left against the ball's own basis and the world vector it was sent
+along. "It goes forward when I flick sideways" is three questions (did it
+fire, was it read as sideways, did the ball go there) and those lines are the
+only thing that separates them.
 
 ## Frame rate
 
@@ -513,12 +887,12 @@ MPH_SERVER_HOST=net.livetek.fr MPH_SERVER_USER=livetek \
 
 The exe is often locked by a running game: write `MphRead.new.exe`, then `mv`.
 
-**`NetConfig.ProtocolVersion` is 6.** Any protocol change means server **and**
-every client must be the same build — a mismatched client is refused outright
-at Hello with a line in the server log, which is the intended outcome and not
-a layout issue: the wire format doesn't move, an old client would read every
-byte correctly and then simulate a different game (frozen in place, shooting
-from its ankles) with nothing in the protocol to notice. Deploy the server
+**`NetConfig.ProtocolVersion` is 8.** Version 8 changes continuous-weapon
+phase timing without changing packet layout, so mixed builds must be refused.
+Server **and** every client must use the same protocol — a mismatched client is
+refused at Hello even though version 8's wire format is unchanged. An older
+build would read the packets but simulate different continuous-weapon events.
+Deploy the server
 before handing out a client built against a new protocol. Publish commands and
 the deploy script's env vars: `.claude/build-deploy/DEPLOY-SERVERS.md`.
 
@@ -660,6 +1034,45 @@ simulating server simply never sends it. Measured at **110 MB and 0.31 ms a
 step** for an 8-player room, against 337 MB for a full client, by dropping
 work whose only output was a picture. `.claude/multiplayer/NETWORK-SERVERAUTH.md`.
 
+**A shot the authority cannot find is declared, checked and arbitrated**
+(protocol 7, `Mods/Network/NetHitClaims.cs`). The rewind below and the
+prediction under it are the authority and the shooter running the *same* test
+on the *same* positions, which is why they agree -- and there are three cases
+where they cannot run the same test at all: the rewind hit its ceiling
+(measured at **89% of shots clamped** on a 320 ms jittery line under the old
+400 ms ceiling), the trigger pull arrived out of a press history, or **the
+shooter was killed during the round trip**, so the authority never ran the shot
+-- a dead player's presses do nothing. The third is the one a player calls
+unfair: you shoot, the body drops, and then it stands back up because the person
+you shot had already killed you on the machine keeping score. A `HitClaim`
+carries the victim, the weapon, the damage, the world-frame the shooter was
+looking at and **where the shooter's copy of the victim was standing**; the
+authority refuses it unless its own history puts that player within 2 units of
+that spot at that frame, so a claim can only rescue a hit the authority's own
+record says was there to be had. A validated claim waits 18 frames and is
+dropped the moment the authority resolves the same hit itself, which is what
+stops the damage landing twice. **The arbitration**: a shot counts even when its
+shooter is dead by the time it arrives, unless they were put down by a hit aimed
+at a *strictly earlier* world; two shots aimed at the same world both count, a
+trade. Claims are settled in fire-frame order so a mutual kill comes out the
+same way whichever datagram won the race. Predicted kills on other players came
+back on with it -- the authority no longer disagrees silently. Every weapon.
+`-noclaims`. `.claude/multiplayer/NETWORK-HITCLAIMS.md`.
+
+**Remote players are read off a playout clock, not snapped to the last snapshot
+that arrived** (`Mods/Network/NetSmoothing.cs`). The stutter on a bad line is
+not lost packets and not a slow machine -- it is a 60 Hz stream played back at
+the rate it arrived, so a puppet stands still for three frames and then jumps
+three frames' worth. Positions are buffered and read on a clock that ticks once
+a simulation frame, held two to eight frames behind the newest snapshot, and
+nothing is ever extrapolated (a guessed position puts a player through a wall
+and then snaps them out of it). It does not cost hit registration, which is the
+thing to be careful of: the read point is a *number*, so `IntentPacket.AckSubFrame`
+sends it and the authority interpolates its own history between the same two
+frames by the same fraction -- more exact than the integer ack it replaces. The
+smoothed position **is** the position: model, hitbox, shadow and shot.
+`-nointerp`. `.claude/multiplayer/NETWORK-SMOOTHING.md`.
+
 **Shots are resolved against the world the shooter was looking at**, not the
 one that exists by the time their trigger arrives -- backwards reconciliation,
 ported from Q-Zandronum's `unlagged.cpp`. The error it removes is one-sided and
@@ -724,6 +1137,93 @@ simulating server, where all three clients predict. Quote the range: the
 scripted tour does not fire the same shots twice. `-nohitprediction` is the
 control, `-deathprediction` turns the lethal half back on for measuring, and
 `-nohitmarker` turns off just the mark. No protocol change.
+
+**"The same calculation, run earlier" needs the same inputs, and five of them
+were not on the wire.** A prediction is sound because the authority rewinds to
+the world the shooter was looking at -- but that only makes the two machines
+agree while they are running the damage table over the same numbers, and the
+charge level, the double-damage powerup, the alt-form ram's strength, the
+damage level and the affinity-weapons rule were each either **re-derived** on
+the authority from the relayed buttons or read out of the player's **own
+settings file**. A partial-charge weapon's damage is a continuous function of
+the frames the trigger was held (the Power Beam runs 6 to 36 over 24 frames),
+double damage is a factor of two the authority's copy of a shooter can simply
+not have, and the damage level is x0.75/x1/x1.25 on *every hit of every
+weapon*. All five are settled: the first three travel in four bytes appended past
+`IntentPacket.Size`, and the last two in spare bits of
+`MatchStatePacket.Flags` where **zero means the server did not say** -- so
+neither is a protocol change, and the broadcast only takes effect once the
+server is redeployed. The **damage level is pinned to medium, x1**, and is
+published as such: it is not an option any more, since the only thing three
+answers bought was three ways for two machines to disagree
+(`GameState.DamageLevel`). `-affinityweapons` is the one that is still a
+choice. Weavel's halfturret health is
+the one left, and a hit split with a turret is therefore not allowed to predict
+a death.
+
+**But the error a player actually sees was in the health bar, not the damage.**
+Measured against the Japan server at 250 ms: the drawn bar sat a mean 26 and a
+worst **61** points *below* the authority's, and never above it -- the client
+always overestimated, never under. `lethal` is decided against that drawn
+number and `HealthFor` floors it at 1, so that is a client killing people the
+authority refuses to kill. Both causes were the `_shownHealth` floor: it
+refused a rise the *authority itself* was reporting (a health pickup, a
+respawn) and it is re-armed by every predicted hit, so on a fast or continuous
+weapon it never lifted; and a `Duplicate` verdict dropped the debit half a
+round trip before the snapshot carrying the lower health arrived, leaving the
+bar on the floor alone. The floor now lifts on any rise the authority reports,
+and a confirmed verdict settles the books while the **snapshot** settles the
+picture. Worst gap 61 -> 0/6/1 points across three clients, with `floor held`
+falling from 120/218/172 samples to 0/1/5. `DescribeHealth` prints the two bars
+side by side and is what found it.
+
+**And the arbitration is about when the trigger was pulled, not when the round
+landed.** A claim carries two frames -- `AckFrame`, the world the shooter's
+screen was showing when the hit *resolved*, and `LaunchFrame`, the world the
+shot was *fired* in -- and the rule "a shot counts unless its shooter had
+already been put down by a hit aimed at a strictly earlier world" was reading
+the first. For a Missile, which is in the air for the better part of a second,
+that asks whether you were dead when your rocket landed rather than when you
+fired it, and voids a shot that left the gun before the shot that killed you
+had even been aimed. It is invisible on a fast weapon, whose two frames are a
+frame apart -- which is the shape the complaint came in: kills undone with the
+Missile and the Magmaul, none with the Power Beam or the Imperialist.
+`void (dead shooter)` went **20 -> 0** against Japan at 250 ms. The authority's
+own side had the same error: a victim's death was stamped with the attacker's
+ack at *impact*, so a slow projectile's kill recorded the wrong world in the
+number every later claim on that player is judged against.
+
+**A shot that travelled does not decide a death.** The authority resolves a
+whole flight inside the frame the trigger was pulled (`NetUnlagged`'s
+catch-up); the shooter's own copy is a projectile crossing the room against
+puppets held a few frames behind. So for anything that travels the authority's
+answer arrives **first**, the client adopts a bar that already contains the hit,
+and its own copy of the same shot lands on top -- and the claim for it is then
+matched as a duplicate and answered "already resolved", so it counts as
+*confirmed* while the kill is undone. A client cannot tell its own
+already-resolved shot from its next one, because the snapshot carries a count
+of hits and no identity for the shot behind them; three heuristics were tried
+and the best of them still suppressed 46 good predictions out of 49 on
+loopback. What is exact is `BeamProjectileEntity.Age`: past three frames of
+flight the damage is clamped to leave the victim on one point and the authority
+does the killing. The hit stays instant -- flinch, knockback, mark and bar on
+the frame it is fired -- and only the body falling waits a round trip. A Power
+Beam or Imperialist round arrives in a frame and is untouched, which is the
+split the complaint came in: **7 predicted kills / 6 undone -> 0 / 0** on a
+Missile volley against Japan at 250 ms. `-hitrig missile` is the rig.
+
+**And a prediction is retired by name.** The snapshot carries a count of hits
+on a victim and the slot of only the *last* attacker, so a client's own hit
+followed inside one snapshot window by somebody else's was never matched: its
+debit stayed on the books while the authority's own health already had it, and
+a shot or two later the client predicted a kill on somebody comfortably alive.
+Three uncharged missiles are 96 damage against a hunter's 99, which is how
+*"my client thinks three missiles killed him"* is only three points of stale
+debit. Every hit claim's verdict now retires the exact prediction it was
+declared under. The authority measures the rest for free: a claim carries the
+shooter's own number for a shot and the authority already pairs it with its own
+hit for that shot, so `sim: predicted vs resolved damage` prints the agreement
+per weapon. `.claude/multiplayer/NETWORK-HITCLAIMS.md`.
 
 **Chat is T**, three lines bottom left in green on nothing, gone ten seconds
 after they arrive -- the frame counter sits in the right-hand corner, which is

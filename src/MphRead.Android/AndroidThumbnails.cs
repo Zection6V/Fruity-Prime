@@ -26,15 +26,14 @@ namespace MphRead.Droid
     /// </summary>
     internal sealed class AndroidThumbnailHost : IThumbnailHost
     {
-        private readonly MainActivity _activity;
-
-        public AndroidThumbnailHost(MainActivity activity) => _activity = activity;
-
         public Task<int> RenderAsync(IReadOnlyList<string> rooms, Action<string> report)
         {
             // A custom map has no picture until it has binaries to render.
             AndroidMaps.EnsureBuilt();
-            return _activity.RenderPreviews(rooms, report);
+            // Installed from MainApplication.CustomizeAppBuilder, before any
+            // activity exists, so the activity itself has to be looked up
+            // when this is actually asked to render rather than captured then.
+            return MainActivity.Instance!.RenderPreviews(rooms, report);
         }
     }
 
@@ -43,11 +42,20 @@ namespace MphRead.Droid
         /// <summary>
         /// How many to start.
         ///
-        /// Ten, the same as the desktop batch, unless the device says it
-        /// cannot: each worker is a runtime, a GL context and a room's
+        /// Ten at most, the same as the desktop batch, unless the device says
+        /// it cannot: each worker is a runtime, a GL context and a room's
         /// textures, and a phone that runs out kills them rather than slowing
         /// down. A killed worker costs its share of the rooms, which the
-        /// in-process pass afterwards picks up.
+        /// in-process pass afterwards picks up -- one room at a time, which is
+        /// the slowest path there is, so a worker killed is worse than a
+        /// worker never started.
+        ///
+        /// One per core, not two. The desktop measured the same batch at 5.2 s
+        /// on ten workers against 4.1 s on eight, on an eight-core box
+        /// (<see cref="ThumbnailBatch.DefaultParallelism"/>), and a phone has
+        /// every reason the desktop had and two of its own: one GPU that
+        /// serialises the drawing whatever the core count says, and half those
+        /// cores are little ones.
         /// </summary>
         public static int Count(Context context)
         {
@@ -57,7 +65,7 @@ namespace MphRead.Droid
             {
                 heapMb = Math.Max(32, manager.MemoryClass);
             }
-            return Math.Clamp(Math.Min(cores * 2, heapMb / 24), 1, PreviewWorkerTypes.All.Count);
+            return Math.Clamp(Math.Min(cores, heapMb / 24), 1, PreviewWorkerTypes.All.Count);
         }
 
         /// <summary>
@@ -119,18 +127,45 @@ namespace MphRead.Droid
         }
 
         /// <summary>
-        /// Wait for every worker's marker, reporting progress from the
-        /// directory. A worker the system kills for memory never writes one, so
-        /// this cannot wait forever.
+        /// How long the directory may stand still before the workers are given
+        /// up on.
+        ///
+        /// The limit used to be measured from the start -- 90 seconds plus 30 a
+        /// room -- and that is the wrong clock for the one case it exists for.
+        /// A worker the system kills for memory never writes its marker, so a
+        /// batch that lost one waited out the *whole* allowance, which for
+        /// twenty-seven rooms is a quarter of an hour of watching a directory
+        /// nothing is writing to, before the in-process pass could pick its
+        /// rooms up. A picture lands every second or two while anything is
+        /// alive; a minute of silence is every worker gone.
+        /// </summary>
+        private const double StallSeconds = 60;
+
+        /// <summary>
+        /// Watch the cache directory fill up, reporting as it does. Returns
+        /// when every picture is there, when every worker has said it is done,
+        /// or when nothing has arrived for <see cref="StallSeconds"/>.
         /// </summary>
         private static void Watch(IReadOnlyList<string> rooms, List<string> markers,
             Action<string> report)
         {
-            var clock = Stopwatch.StartNew();
-            TimeSpan limit = TimeSpan.FromSeconds(90 + 30 * rooms.Count);
+            var stall = Stopwatch.StartNew();
             int last = -1;
-            while (clock.Elapsed < limit)
+            while (true)
             {
+                int written = CountWritten(rooms);
+                if (written != last)
+                {
+                    last = written;
+                    stall.Restart();
+                    report($"[thumbnails] {written}/{rooms.Count}");
+                }
+                // Every picture asked for is on disk. Whether the workers have
+                // got round to saying so is not worth another second.
+                if (written >= rooms.Count)
+                {
+                    return;
+                }
                 bool allDone = true;
                 for (int i = 0; i < markers.Count; i++)
                 {
@@ -140,20 +175,18 @@ namespace MphRead.Droid
                         break;
                     }
                 }
-                int written = CountWritten(rooms);
-                if (written != last)
-                {
-                    last = written;
-                    report($"[thumbnails] {written}/{rooms.Count}");
-                }
                 if (allDone)
                 {
                     return;
                 }
+                if (stall.Elapsed.TotalSeconds >= StallSeconds)
+                {
+                    report("[thumbnails] the background workers stopped answering; "
+                        + "rendering the rest here");
+                    return;
+                }
                 Thread.Sleep(500);
             }
-            report("[thumbnails] the background workers ran out of time; "
-                + "the rest will be rendered on the next visit");
         }
 
         private static int CountWritten(IReadOnlyList<string> rooms)

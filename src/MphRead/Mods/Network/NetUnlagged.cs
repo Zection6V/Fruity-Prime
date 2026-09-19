@@ -58,13 +58,15 @@ namespace MphRead.Mods.Network
         /// How many frames of position history are kept.
         ///
         /// Zandronum keeps <c>UNLAGGEDTICS</c> 35, which is one second at its
-        /// 35 Hz. One second is the right amount of history for the same
-        /// reason there as here -- it is longer than any round trip worth
-        /// playing on and shorter than any interval over which a rewind would
-        /// be a lie -- so this is one second at 60, rounded up to a power of
-        /// two so the ring index is a mask.
+        /// 35 Hz. One second was the right amount of history there and is not
+        /// quite enough here: this ring has to cover the round trip *plus*
+        /// whatever a client is holding its puppets back by to smooth them
+        /// (<see cref="NetSmoothing"/>), and the ceiling below has to sit
+        /// comfortably inside it rather than against its edge. Two seconds at
+        /// 60, rounded to a power of two so the ring index is a mask. Eight
+        /// slots of position, form and liveness: about twelve kilobytes.
         /// </summary>
-        public const int HistoryFrames = 64;
+        public const int HistoryFrames = 128;
 
         /// <summary>
         /// The furthest back a shot may ever be resolved, whatever the packet
@@ -86,13 +88,38 @@ namespace MphRead.Mods.Network
         ///
         /// So it is a ceiling that can be moved rather than a constant: the
         /// one number an A/B run has to be able to change without changing
-        /// anything else. <c>-maxrewind N</c>, and the default is what every
-        /// build before this one did.
+        /// anything else. <c>-maxrewind N</c>.
+        ///
+        /// <b>And it moved, on this box, measured.</b> Two clients at a 320 ms
+        /// round trip with 80 ms of jitter and 2% loss, the sniper scenario
+        /// (<c>tools/hitrig</c>), under the old 24-frame ceiling:
+        ///
+        /// <code>
+        /// rewound 99   mean 399 ms   clamped 88 (88.9%)   3.2 frames refused each
+        /// depths asked: 23:4 24:7&lt;-ceiling 25:14 26:28 27:24 28:7 29:8 30:2 32:2 37:1 39:1 40:1
+        /// </code>
+        ///
+        /// Nine shots in ten resolved against a world their shooter never saw,
+        /// and the distribution's *mode* is two frames past the ceiling -- not
+        /// a tail touching it, the whole thing folded onto it. The shooter's
+        /// own machine resolved 16 of the 26 hits the authority credited it
+        /// with, so four shots in ten landed with nothing happening on the
+        /// screen that fired them, and two headshots in ten came back as body
+        /// shots. 45 frames is 750 ms: past that distribution with room for
+        /// the smoothing delay on top, still inside a history twice as deep,
+        /// and still under the one second Q-Zandronum allows by bounding the
+        /// rewind with its history and nothing else.
         /// </summary>
         public static int MaxRewindFrames { get; set; } = DefaultMaxRewindFrames;
 
-        /// <summary>The ceiling every build before this one had, and the baseline arm.</summary>
-        public const int DefaultMaxRewindFrames = 24;
+        /// <summary>
+        /// 750 ms. <see cref="LegacyMaxRewindFrames"/> is what every build up
+        /// to protocol 6 used, and is the baseline arm of any A/B.
+        /// </summary>
+        public const int DefaultMaxRewindFrames = 45;
+
+        /// <summary>The 400 ms ceiling every build before protocol 7 had.</summary>
+        public const int LegacyMaxRewindFrames = 24;
 
         /// <summary>
         /// The furthest the ceiling may be raised. The history is
@@ -386,6 +413,33 @@ namespace MphRead.Mods.Network
         }
 
         /// <summary>
+        /// Where the history says <paramref name="slot"/> stood at
+        /// <paramref name="frame"/>, or false if it does not hold that frame
+        /// or that player was not in play in it.
+        ///
+        /// The authority's own record, which is what makes a hit claim
+        /// checkable: <see cref="NetHitClaims"/> refuses a claim whose point
+        /// of impact is nowhere near the body this returns. Read-only -- it
+        /// moves nobody, unlike <see cref="Reconcile"/>.
+        /// </summary>
+        public static bool PositionAt(int slot, uint frame, out Vector3 position)
+        {
+            position = Vector3.Zero;
+            if (slot < 0 || slot >= Slots || frame == 0)
+            {
+                return false;
+            }
+            int index = (int)(frame % HistoryFrames);
+            if (_stamp[index] != frame || !_inPlay[slot, index])
+            {
+                return false;
+            }
+            position = _position[slot, index];
+            return Single.IsFinite(position.X) && Single.IsFinite(position.Y)
+                && Single.IsFinite(position.Z);
+        }
+
+        /// <summary>
         /// How far behind the simulation the owner of <paramref name="slot"/>
         /// is, in frames, clamped to what can honestly be served.
         ///
@@ -397,7 +451,7 @@ namespace MphRead.Mods.Network
         /// the ack is the exact frame the client is answering -- and having
         /// only one of them means there is only one thing to be wrong.
         /// </summary>
-        private static int RewindFor(int slot, out int requested)
+        private static double RewindFor(int slot, out int requested)
         {
             requested = 0;
             if (slot < 0 || slot >= Slots || slot == NetSession.LocalSlot)
@@ -420,7 +474,17 @@ namespace MphRead.Mods.Network
                 // the present is the only defensible guess for either.
                 return 0;
             }
-            long depth = now - ack;
+            double depth = now - ack;
+            // Less the fraction of a frame past that ack the shooter's world
+            // actually sat at. A client that interpolates its puppets is
+            // drawing a point between two snapshots, and it says which one and
+            // how far past it; rewinding to the whole frame would put every
+            // victim up to a frame of their own movement away from where they
+            // were being aimed at -- which on a headshot band 0.3 units tall
+            // is the whole band. Zero from a client that does not interpolate,
+            // which is what every build before protocol 7 was.
+            // IntentPacket.AckSubFrame.
+            depth -= NetSession.RemoteIntents[slot].AckSubFrame / 256.0;
             // Plus however long the trigger pull sat in a press history before
             // it reached here. The ack belongs to the packet that carried the
             // edge, not to the frame the edge happened on, and those are the
@@ -438,12 +502,12 @@ namespace MphRead.Mods.Network
             // Recorded before the clamp, because the clamp is the thing being
             // measured. A depth past the ring is filed in the last cell rather
             // than dropped: it is still a shot that asked for more than it got.
-            requested = (int)Math.Min(depth, HistoryFrames);
+            requested = (int)Math.Min(Math.Round(depth), HistoryFrames);
             if (depth > MaxRewindFrames)
             {
                 depth = MaxRewindFrames;
             }
-            return (int)depth;
+            return depth < 0 ? 0 : depth;
         }
 
         /// <summary>
@@ -476,12 +540,23 @@ namespace MphRead.Mods.Network
             }
             _shooter = null;
             _rewind = 0;
+            // Stamp every shot with the world it was aimed in, on every
+            // machine, whether or not this one rewinds anything.
+            //
+            // It is what lets a hit claim and the authority's own resolution
+            // of the *same* shot be paired later without guessing at a time
+            // window -- and a window cannot do it, because the gap between the
+            // two is a round trip *plus* however far the two copies of a
+            // projectile drift apart over a long flight. Both machines name
+            // the same instant here: the authority the frame it rewound to,
+            // the shooter the point its own playout clock was reading.
+            StampLaunch(shooter);
             if (!Enabled || !Simulating || shooter.IsBot)
             {
                 return;
             }
             int slot = shooter.SlotIndex;
-            int rewind = RewindFor(slot, out int requested);
+            double rewind = RewindFor(slot, out int requested);
             if (requested > 0 && requested < DepthHistogram.Length)
             {
                 DepthHistogram[requested]++;
@@ -490,32 +565,34 @@ namespace MphRead.Mods.Network
             {
                 WorstRequested = requested;
             }
-            if (requested > rewind)
+            int served = (int)Math.Round(rewind);
+            if (requested > served)
             {
                 // The shooter asked to be taken back further than the ceiling
                 // allows, so this shot is about to be resolved against a world
                 // it never saw -- by exactly this many frames.
                 ShotsClamped++;
-                FramesRefused += requested - rewind;
-                MeasureClampError(slot, requested, rewind);
+                FramesRefused += requested - served;
+                MeasureClampError(slot, requested, served);
             }
             if (rewind <= 0)
             {
                 return;
             }
-            uint target = NetSession.NetFrame - (uint)rewind;
+            // The exact point the shooter's screen was at, fraction and all.
+            double target = NetSession.NetFrame - rewind;
             if (!Reconcile(slot, target))
             {
                 HistoryMisses++;
                 return;
             }
             _shooter = shooter;
-            _rewind = rewind;
+            _rewind = (int)Math.Ceiling(rewind);
             ShotsCompensated++;
-            FramesRewound += rewind;
-            if (rewind > WorstRewind)
+            FramesRewound += served;
+            if (served > WorstRewind)
             {
-                WorstRewind = rewind;
+                WorstRewind = served;
             }
             // Remember what was already in flight, so the beams this shot is
             // about to create can be picked out of the pool afterwards.
@@ -529,6 +606,88 @@ namespace MphRead.Mods.Network
                 _beamsBefore[i] = beams[i].Lifespan > 0;
             }
             _inProgress = true;
+        }
+
+        /// <summary>
+        /// Which of the shooter's beam pool entries were alive before the shot,
+        /// so the ones it is about to spawn can be told apart. Separate from
+        /// <see cref="_beamsBefore"/>, which only exists while a rewind is in
+        /// progress; this one runs on every machine and every shot.
+        /// </summary>
+        private static bool[] _stampBefore = new bool[16];
+        private static PlayerEntity? _stampShooter;
+        private static uint _stampFrame;
+
+        /// <summary>
+        /// Note the pool and the world-frame this shot is aimed in.
+        /// <see cref="FinishLaunch"/> puts the number on whatever appeared.
+        /// </summary>
+        private static void StampLaunch(PlayerEntity shooter)
+        {
+            _stampShooter = shooter;
+            _stampFrame = LaunchFrameFor(shooter);
+            BeamProjectileEntity[] beams = shooter.EquipInfo.Beams;
+            if (_stampBefore.Length < beams.Length)
+            {
+                _stampBefore = new bool[beams.Length];
+            }
+            for (int i = 0; i < beams.Length; i++)
+            {
+                _stampBefore[i] = beams[i].Lifespan > 0;
+            }
+        }
+
+        /// <summary>
+        /// The world-frame this shot is aimed in.
+        ///
+        /// On the machine running the match, for somebody else's shot, that is
+        /// the frame the rewind is about to go to -- the world that shooter
+        /// was looking at. For this machine's own player it is the point its
+        /// playout clock is reading, which is the same quantity its intent
+        /// acks. A bot, or a shot with neither, gets the present.
+        /// </summary>
+        private static uint LaunchFrameFor(PlayerEntity shooter)
+        {
+            int slot = shooter.SlotIndex;
+            if (Simulating && slot != NetSession.LocalSlot && !shooter.IsBot
+                && slot >= 0 && slot < Slots && NetSession.RemoteIntentValid[slot])
+            {
+                uint ack = NetSession.RemoteIntents[slot].AckFrame;
+                if (ack != 0 && ack <= NetSession.NetFrame)
+                {
+                    return ack;
+                }
+            }
+            if (NetSmoothing.AckPoint(out uint read, out _))
+            {
+                return read;
+            }
+            return NetSession.AppliedSnapshotFrame != 0
+                ? NetSession.AppliedSnapshotFrame
+                : NetSession.NetFrame;
+        }
+
+        /// <summary>
+        /// Put the launch frame on every beam that appeared since
+        /// <see cref="StampLaunch"/>. Called from the same place
+        /// <see cref="EndShot"/> is, on every machine.
+        /// </summary>
+        public static void FinishLaunch(PlayerEntity shooter)
+        {
+            if (_stampShooter != shooter)
+            {
+                _stampShooter = null;
+                return;
+            }
+            _stampShooter = null;
+            BeamProjectileEntity[] beams = shooter.EquipInfo.Beams;
+            for (int i = 0; i < beams.Length && i < _stampBefore.Length; i++)
+            {
+                if (!_stampBefore[i] && beams[i].Lifespan > 0)
+                {
+                    beams[i].ModLaunchFrame = _stampFrame;
+                }
+            }
         }
 
         /// <summary>
@@ -591,16 +750,24 @@ namespace MphRead.Mods.Network
 
         /// <summary>
         /// Move every player but <paramref name="exceptSlot"/> to where they
-        /// stood at <paramref name="frame"/>. Returns whether the history
+        /// stood at <paramref name="targetFrame"/>. Returns whether the history
         /// still held it.
         /// </summary>
-        private static bool Reconcile(int exceptSlot, uint frame)
+        private static bool Reconcile(int exceptSlot, double targetFrame)
         {
+            uint frame = (uint)Math.Floor(targetFrame);
+            float fraction = (float)(targetFrame - frame);
             int index = (int)(frame % HistoryFrames);
             if (_stamp[index] != frame || frame == 0)
             {
                 return false;
             }
+            // The cell on the far side of the read point, if the ring still
+            // holds it. Its absence is ordinary rather than a fault: the
+            // newest cell has nothing after it, and a rewind of nearly zero
+            // lands there.
+            int next = (int)((frame + 1) % HistoryFrames);
+            bool haveNext = fraction > 0.0001f && _stamp[next] == frame + 1;
             Restore();
             for (int i = 0; i < Slots && i < PlayerEntity.Players.Count; i++)
             {
@@ -617,6 +784,23 @@ namespace MphRead.Mods.Network
                 if (!Single.IsFinite(was.X) || !Single.IsFinite(was.Y) || !Single.IsFinite(was.Z))
                 {
                     continue;
+                }
+                // Interpolated to the same point between the same two frames
+                // the shooter was drawing, by the same fraction. Only when
+                // both cells hold this player alive and in the same form, and
+                // only when the two are near enough to be one movement -- a
+                // respawn or a teleporter between them is a jump to blend
+                // across, not a step. NetSmoothing does the same three checks
+                // at the other end, which is what makes the two agree.
+                if (haveNext && _inPlay[i, next] && _altForm[i, next] == _altForm[i, index])
+                {
+                    Vector3 then = _position[i, next];
+                    Vector3 travel = then - was;
+                    if (Single.IsFinite(travel.X) && Single.IsFinite(travel.Y)
+                        && Single.IsFinite(travel.Z) && travel.LengthSquared <= 16f)
+                    {
+                        was += travel * fraction;
+                    }
                 }
                 // A position recorded in one form, applied to a body that has
                 // since changed into the other, is the same standing spot in
@@ -679,6 +863,10 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void EndShot(PlayerEntity shooter)
         {
+            // Before anything else, and whether or not this machine rewound:
+            // the stamp is what pairs this shot with the other machine's copy
+            // of it later.
+            FinishLaunch(shooter);
             if (_shooter != shooter || _rewind <= 0)
             {
                 Restore();

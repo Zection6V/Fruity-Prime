@@ -45,7 +45,7 @@ If you enjoy it: **[ko-fi.com/livetek](https://ko-fi.com/livetek)** ☕
 2. Run it:
    - **Windows** — double-click `FruityPrime.exe`
    - **Linux** — `./FruityPrime -launcher`
-   - **macOS** — `xattr -dr com.apple.quarantine .` once, then the same as Linux
+   - **macOS** — extract the matching `osx-arm64` (Apple Silicon) or `osx-x64` (Intel) archive and open **Fruity Prime.app**. Settings and game files live in `~/Library/Application Support/Fruity Prime/`. See [Mac installation and diagnostics](tools/macos-README.txt) for command-line launch and quarantine fallback.
 3. Click **Game files** and pick your `.nds`. It unpacks itself, once, with a progress bar.
 4. Play.
 

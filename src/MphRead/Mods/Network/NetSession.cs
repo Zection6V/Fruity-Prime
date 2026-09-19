@@ -102,6 +102,7 @@ namespace MphRead.Mods.Network
         /// <summary>Latest intent per slot, consumed by the host's input step.</summary>
         public static readonly IntentPacket[] RemoteIntents = new IntentPacket[PlayerEntity.SlotCapacity];
         public static readonly bool[] RemoteIntentValid = new bool[PlayerEntity.SlotCapacity];
+        internal static readonly ContinuousWeaponPhase ContinuousPhase = new ContinuousWeaponPhase(PlayerEntity.SlotCapacity);
 
         /// <summary>
         /// The local frame each slot's intent last arrived on, so a receiver
@@ -206,6 +207,20 @@ namespace MphRead.Mods.Network
             _snapshotSink = sink;
             _serverMatchEnded = matchEnded;
             IsAuthority = true;
+            // The machine running the match gets a net log too, when it has
+            // been asked for one.
+            //
+            // It is the only machine with the numbers that matter for "my shot
+            // went through him": the rewind depth it served, what the ceiling
+            // refused, and every hit claim it rescued or refused. Without this
+            // the per-rescue EVENT lines are written by a NetLog that was
+            // never opened, and the 30-second summary in the server's console
+            // is the whole of what anybody can read. Gated on -debuglog rather
+            // than always on, because a dedicated server runs for weeks.
+            if (Mods.DebugLog.Active)
+            {
+                NetLog.Open("server");
+            }
             // Not 0. Slot 0 is a player's slot like any other here, and a
             // server that called itself slot 0 would exempt that slot from
             // every "this one is somebody else's" test in the engine -- which
@@ -215,6 +230,8 @@ namespace MphRead.Mods.Network
             LastError = null;
             NetUnlagged.Reset();
             NetHitPrediction.Reset();
+            NetHitClaims.Reset();
+            NetSmoothing.Reset();
         }
 
         public static void StartHost(int port = NetConfig.DefaultPort)
@@ -227,6 +244,9 @@ namespace MphRead.Mods.Network
                 LocalSlot = 0;
                 NetFrame = 0;
                 LastError = null;
+                // This host arbitrates its clients' hit claims, so it needs a
+                // way to answer them. NetHitClaims.
+                NetHitClaims.VerdictSink = SendVerdicts;
                 Console.WriteLine($"[net] hosting on UDP {_transport.LocalPort}");
             }
             catch (Exception ex)
@@ -307,8 +327,11 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void RewindPlayback()
         {
+            ContinuousPhase.Reset();
             NetUnlagged.Reset();
             NetHitPrediction.Reset();
+            NetHitClaims.Reset();
+            NetSmoothing.Reset();
             _lastSnapshotFrame = 0;
             SnapshotArrived = 0;
             AppliedSnapshotFrame = 0;
@@ -390,6 +413,7 @@ namespace MphRead.Mods.Network
             Array.Clear(RemoteStateValid);
             Array.Clear(RemoteIntentValid);
             Array.Clear(RemoteIntentArrived);
+            ContinuousPhase.Reset();
             Array.Clear(SlotPing);
             Array.Clear(_lastSlotIntentFrame);
             _lastServerPacket = 0;
@@ -419,6 +443,8 @@ namespace MphRead.Mods.Network
             // a shot resolved against a room nobody is standing in.
             NetUnlagged.Reset();
             NetHitPrediction.Reset();
+            NetHitClaims.Reset();
+            NetSmoothing.Reset();
         }
 
         /// <summary>
@@ -827,6 +853,12 @@ namespace MphRead.Mods.Network
                 case PacketType.MapChange when Role == NetRole.Client:
                     HandleMatchState(packet, packet.Type == PacketType.MapChange);
                     break;
+                case PacketType.HitVerdict when Role == NetRole.Client:
+                    NetHitClaims.ApplyVerdicts(packet.Payload);
+                    break;
+                case PacketType.HitClaim when Role == NetRole.Host:
+                    HandleHitClaim(packet);
+                    break;
                 case PacketType.Chat:
                     HandleChat(packet, time);
                     break;
@@ -834,6 +866,12 @@ namespace MphRead.Mods.Network
                     if (packet.Payload.Length >= VoteStatePacket.Size)
                     {
                         MapVote.Apply(VoteStatePacket.Read(packet.Payload));
+                    }
+                    break;
+                case PacketType.MapChoices when Role == NetRole.Client:
+                    if (packet.Payload.Length >= MapChoicesPacket.Size)
+                    {
+                        Mods.MapPick.Apply(MapChoicesPacket.Read(packet.Payload));
                     }
                     break;
                 case PacketType.Bye:
@@ -852,6 +890,51 @@ namespace MphRead.Mods.Network
         /// (see <see cref="ChatPacket"/>), so nothing here re-checks it --
         /// but a *host* is the server for its peers, so it does.
         /// </summary>
+        /// <summary>
+        /// A peer host arbitrating the hits its clients say they landed.
+        ///
+        /// The same call the dedicated server makes, with the same peer lookup
+        /// every other client-to-host packet uses: the endpoint a datagram
+        /// arrived from is the only thing about a sender that cannot be typed
+        /// into it, so the slot is read from that and anything the payload
+        /// might claim about whose shot this was is ignored.
+        /// </summary>
+        private static void HandleHitClaim(ReceivedPacket packet)
+        {
+            RemotePeer? peer = FindPeer(packet.Sender);
+            if (peer == null || peer.SlotIndex < 0)
+            {
+                return;
+            }
+            NetHitClaims.Receive(peer.SlotIndex, packet.Payload);
+        }
+
+        /// <summary>
+        /// Answer one peer's claims, as a peer host. Hung off
+        /// <see cref="NetHitClaims.VerdictSink"/> so that the arbitration has
+        /// somewhere to send an answer without knowing anything about this
+        /// transport; the dedicated server hangs its own off the same hook.
+        /// </summary>
+        private static void SendVerdicts(int slot,
+            ReadOnlySpan<(ushort Id, byte Result)> verdicts)
+        {
+            if (verdicts.Length == 0 || _transport == null)
+            {
+                return;
+            }
+            for (int i = 0; i < _peers.Count; i++)
+            {
+                if (_peers[i].SlotIndex != slot)
+                {
+                    continue;
+                }
+                HitVerdictPacket.Write(_scratch, verdicts);
+                _transport.Send(_peers[i].EndPoint, PacketType.HitVerdict,
+                    _scratch.AsSpan(0, 1 + verdicts.Length * HitVerdictPacket.EntrySize));
+                return;
+            }
+        }
+
         private static void HandleChat(ReceivedPacket packet, double time)
         {
             if (packet.Payload.Length < ChatPacket.Size)
@@ -951,6 +1034,22 @@ namespace MphRead.Mods.Network
                 _scratch.AsSpan(0, VotePacket.Size));
         }
 
+        /// <summary>
+        /// Which map off the intermission's ballot this player wants. Empty
+        /// takes the pick back. See <see cref="Mods.MapPick"/>.
+        /// </summary>
+        public static void SendMapPick(string roomKey)
+        {
+            if (_transport == null || _hostEndPoint == null || Role != NetRole.Client)
+            {
+                return;
+            }
+            var pick = new MapPickPacket { RoomKey = roomKey ?? "" };
+            pick.Write(_scratch);
+            _transport.Send(_hostEndPoint, PacketType.MapPick,
+                _scratch.AsSpan(0, MapPickPacket.Size));
+        }
+
         private static void HandleHello(ReceivedPacket packet, double time)
         {
             if (packet.Payload.Length < 1 || packet.Payload[0] != NetConfig.ProtocolVersion)
@@ -1023,6 +1122,7 @@ namespace MphRead.Mods.Network
             peer.LastSeenTime = time;
             RemoteIntents[peer.SlotIndex] = intent;
             RemoteIntentValid[peer.SlotIndex] = true;
+            RemoteIntentArrived[peer.SlotIndex] = Math.Max(NetFrame, 1);
         }
 
         /// <summary>
@@ -1124,9 +1224,11 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            ContinuousPhase.ResetSlot(slot);
             _lastSlotIntentFrame[slot] = 0;
             RemoteIntentValid[slot] = false;
             RemoteIntents[slot] = default;
+            RemoteIntentArrived[slot] = 0;
             RemoteStateValid[slot] = false;
             RemoteStates[slot] = default;
             for (int i = 0; i < _peers.Count; i++)
@@ -1344,6 +1446,7 @@ namespace MphRead.Mods.Network
             Rng.SetRng1(header.Rng1);
             Rng.SetRng2(header.Rng2);
             int offset = SnapshotHeader.Size;
+            int count = 0;
             Array.Clear(RemoteStateValid);
             for (int i = 0; i < header.PlayerCount; i++)
             {
@@ -1357,9 +1460,30 @@ namespace MphRead.Mods.Network
                 {
                     RemoteStates[state.SlotIndex] = state;
                     RemoteStateValid[state.SlotIndex] = true;
+                    if (count < _snapshotScratch.Length)
+                    {
+                        _snapshotScratch[count++] = state;
+                    }
                 }
             }
+            // File the lot under the frame it names, for the playout clock
+            // that draws puppets between snapshots rather than on them. Here
+            // rather than where the states are handed to the players, because
+            // what has to be buffered is what the authority *said* -- which is
+            // also what its own rewind history holds under this number, and
+            // the whole of why an interpolated position can still be shot at.
+            // NetSmoothing.
+            NetSmoothing.Record(header.Frame, _snapshotScratch.AsSpan(0, count));
         }
+
+        /// <summary>
+        /// The states of one snapshot, gathered so they can be handed to
+        /// <see cref="NetSmoothing"/> in one call. A field rather than a
+        /// stack array because this is on the receive path of every snapshot,
+        /// sixty times a second.
+        /// </summary>
+        private static readonly PlayerState[] _snapshotScratch =
+            new PlayerState[PlayerEntity.SlotCapacity];
 
         private static void HandleBye(ReceivedPacket packet)
         {
@@ -1436,7 +1560,7 @@ namespace MphRead.Mods.Network
             }
             intent.Frame = NetFrame;
             intent.Write(_scratch);
-            _transport.Send(_hostEndPoint, PacketType.Intent, _scratch.AsSpan(0, IntentPacket.Size));
+            _transport.Send(_hostEndPoint, PacketType.Intent, _scratch.AsSpan(0, IntentPacket.FullSize));
             // A demo only ever contains what this client *received* -- and
             // this client never receives its own SlotIntent back, since it
             // already knows what it pressed. Without this, playback shows
@@ -1445,7 +1569,19 @@ namespace MphRead.Mods.Network
             // and never this player's own, because nothing ever told it to.
             if (LocalSlot >= 0)
             {
-                DemoRecorder.RecordOwnIntent(LocalSlot, _scratch.AsSpan(0, IntentPacket.Size));
+                DemoRecorder.RecordOwnIntent(LocalSlot, _scratch.AsSpan(0, IntentPacket.FullSize));
+            }
+            // And whatever this machine has resolved for itself that the
+            // authority has not answered yet. Its own datagram rather than a
+            // tail on the intent: a claim is repeated until it is answered and
+            // an intent is not, so bolting one onto the other would either
+            // repeat the intent or drop the claim. Nothing is written on the
+            // frames there is nothing to say, which is every frame of a match
+            // where the authority is agreeing. NetHitClaims.
+            int claims = NetHitClaims.Compose(_scratch);
+            if (claims > 0)
+            {
+                _transport.Send(_hostEndPoint, PacketType.HitClaim, _scratch.AsSpan(0, claims));
             }
         }
 

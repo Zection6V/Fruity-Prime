@@ -14,6 +14,18 @@ namespace MphRead.Entities
     public class BeamProjectileEntity : EntityBase
     {
         public BeamFlags Flags { get; set; }
+        /// <summary>
+        /// The authority frame the shooter's world was at when this shot was
+        /// launched -- the one thing that identifies a shot across two
+        /// machines. Stamped by Mods.Network.NetUnlagged on every machine that
+        /// spawns it, and read back when it damages somebody so a hit claim
+        /// and the authority's own resolution of the *same* shot can be paired
+        /// without guessing at a time window. Zero for anything nobody aimed.
+        /// </summary>
+        public uint ModLaunchFrame { get; set; }
+        // Spawn's firing phase must survive until a Shock Coil beam tests an enemy.
+        public ulong ModContinuousPhase { get; set; }
+        public bool ModHasSharedContinuousPhase { get; set; }
         public BeamType Beam { get; set; }
         public BeamType BeamKind { get; set; }
 
@@ -652,7 +664,8 @@ namespace MphRead.Entities
                                 float pct = Vector3.Distance(Position, SpawnPosition) / MaxDistance;
                                 damage = GetInterpolatedValue(DamageInterpolation, Damage, 0, pct);
                             }
-                            if (damage > 0 && (Beam != BeamType.ShockCoil || _scene.FrameCount % 2 == 0)) // todo: FPS stuff
+                            if (damage > 0 && (Beam != BeamType.ShockCoil
+                                || (ModHasSharedContinuousPhase ? ModContinuousPhase : _scene.FrameCount) % 2 == 0)) // todo: FPS stuff
                             {
                                 enemy.TakeDamage((uint)damage, this);
                                 SpawnCollisionEffect(anyRes, noSplat: true);
@@ -1419,6 +1432,24 @@ namespace MphRead.Entities
                 return chargePct <= 0 ? unchargedAmt : minChargeAmt + ((fullChargeAmt - minChargeAmt) * chargePct);
             }
             int cost = (int)GetAmount(weapon.AmmoCost, weapon.MinChargeCost, weapon.ChargeCost);
+            ulong phase = scene.FrameCount;
+            bool sharedPhase = false;
+            if (weapon.Flags.TestFlag(WeaponFlags.Continuous) && owner is PlayerEntity firingPlayer)
+            {
+                int slot = firingPlayer.SlotIndex;
+                bool remoteSlot = slot >= 0 && slot < NetSession.RemoteIntents.Length;
+                // NetFrame advances before input and Spawn. The owner's intent is
+                // captured on that same step; a remote intent supplies its own
+                // frame plus the number of local steps since it arrived.
+                phase = NetSession.ContinuousPhase.Resolve(slot, scene.FrameCount,
+                    NetSession.Active && !firingPlayer.IsBot,
+                    NetSession.LocalSlot >= 0 && slot == NetSession.LocalSlot,
+                    NetSession.NetFrame,
+                    remoteSlot && NetSession.RemoteIntentValid[slot],
+                    remoteSlot ? NetSession.RemoteIntents[slot].Frame : 0,
+                    remoteSlot ? NetSession.RemoteIntentAge(slot) : uint.MaxValue,
+                    out sharedPhase);
+            }
             if (weapon.Flags.TestFlag(WeaponFlags.Continuous))
             {
                 // todo?: figure out what the intent behind this actually is
@@ -1427,11 +1458,11 @@ namespace MphRead.Entities
                 // game's cycle for green beam (15): 0 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 0
                 //    our cycle for green beam (15): 0 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0
                 //                                   0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 0 0
-                if (scene.FrameCount % 2 == 0)
+                if (phase % 2 == 0)
                 {
                     ulong bits = (ulong)(cost & 31);
                     cost /= 32;
-                    if (scene.FrameCount % 2 == 0 && bits != 0 && ((bits * (scene.FrameCount / 2)) & 31) > 32 - bits) // todo: FPS stuff
+                    if (bits != 0 && ((bits * (phase / 2)) & 31) > 32 - bits) // todo: FPS stuff
                     {
                         cost++;
                     }
@@ -1567,11 +1598,11 @@ namespace MphRead.Entities
                 // note: previously the frame count partiy check was part of the condition below, but that assumed the base value
                 // was zero after the division by 32, which is true for Shock Coil but not e.g. platform green energy beams,
                 // so we need those to hit every other frame to match the DPS from the game
-                if (scene.FrameCount % 2 == 0)
+                if (phase % 2 == 0)
                 {
                     ulong bits = (ulong)(damage & 31);
                     damage /= 32;
-                    if (bits != 0 && ((bits * (scene.FrameCount / 2)) & 31) >= 32 - bits) // todo: FPS stuff
+                    if (bits != 0 && ((bits * (phase / 2)) & 31) >= 32 - bits) // todo: FPS stuff
                     {
                         damage++;
                     }
@@ -1645,6 +1676,8 @@ namespace MphRead.Entities
                     }
                 }
                 beam.Owner = owner;
+                beam.ModContinuousPhase = phase;
+                beam.ModHasSharedContinuousPhase = sharedPhase;
                 beam.Beam = weapon.Beam;
                 beam.BeamKind = weapon.BeamKind;
                 beam.Flags = flags;
@@ -1758,7 +1791,7 @@ namespace MphRead.Entities
                     {
                         var ownerPlayer = (PlayerEntity)owner;
                         if ((GameState.Multiplayer || !ownerPlayer.IsBot) && ownerPlayer.ShockCoilTarget == beam.Target
-                            && scene.FrameCount % 2 == 0) // todo: FPS stuff
+                            && phase % 2 == 0) // todo: FPS stuff
                         {
                             // todo: FPS stuff
                             ushort timer = ownerPlayer.ShockCoilTimer;

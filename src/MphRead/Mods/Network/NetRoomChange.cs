@@ -201,6 +201,7 @@ namespace MphRead.Mods.Network
             NetPlayerSetup.Reset();
             NetDamage.ResetForRoomChange();
             NetHitPrediction.ForgetPending();
+            NetHitClaims.ForgetPending();
             ResetScores();
             Console.WriteLine($"[net] player slots rebuilt for the new room, main player = slot {localSlot}");
             return PlayerEntity.Players[localSlot];
@@ -217,6 +218,7 @@ namespace MphRead.Mods.Network
             // Everything the bridge remembered about where players were
             // standing was about the room that has just been left.
             NetPlayerBridge.NoteRoomChanged();
+            NetSmoothing.NoteRoomChanged();
             // A rotation is a fresh match: re-assert that nothing in the
             // cheat list is on, in case a long session had one restored.
             NetLaunch.DisableCheatsForMatch();

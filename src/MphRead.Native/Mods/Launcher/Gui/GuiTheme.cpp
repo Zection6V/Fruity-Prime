@@ -11,17 +11,15 @@ namespace
 
     [[nodiscard]] std::uint8_t DoubleToByteUnchecked(double value) noexcept
     {
-        if (!std::isfinite(value))
+        if (std::isnan(value) || value <= 0.0)
         {
             return 0;
         }
-
-        double wrapped = std::fmod(std::trunc(value), 256.0);
-        if (wrapped < 0.0)
+        if (value >= 255.0)
         {
-            wrapped += 256.0;
+            return 255;
         }
-        return static_cast<std::uint8_t>(wrapped);
+        return static_cast<std::uint8_t>(value);
     }
 }
 
@@ -38,24 +36,32 @@ namespace MphRead::Mods::Launcher::Gui
     const GuiColor GuiTheme::Good = GuiColor::FromRgb(110, 231, 135);
     const GuiColor GuiTheme::Bad = GuiColor::FromRgb(255, 107, 107);
 
-    const GuiBrush GuiTheme::InkBrush{Ink};
-    const GuiBrush GuiTheme::PanelBrush{Panel};
-    const GuiBrush GuiTheme::PanelLightBrush{PanelLight};
-    const GuiBrush GuiTheme::EdgeBrush{Edge};
-    const GuiBrush GuiTheme::TextBrush{Text};
-    const GuiBrush GuiTheme::TextDimBrush{TextDim};
-    const GuiBrush GuiTheme::AccentBrush{Accent};
-    const GuiBrush GuiTheme::WarmBrush{Warm};
-    const GuiBrush GuiTheme::GoodBrush{Good};
-    const GuiBrush GuiTheme::BadBrush{Bad};
+    GuiBrush GuiTheme::InkBrush{Ink};
+    GuiBrush GuiTheme::PanelBrush{Panel};
+    GuiBrush GuiTheme::PanelLightBrush{PanelLight};
+    GuiBrush GuiTheme::EdgeBrush{Edge};
+    GuiBrush GuiTheme::TextBrush{Text};
+    GuiBrush GuiTheme::TextDimBrush{TextDim};
+    GuiBrush GuiTheme::AccentBrush{Accent};
+    GuiBrush GuiTheme::WarmBrush{Warm};
+    GuiBrush GuiTheme::GoodBrush{Good};
+    GuiBrush GuiTheme::BadBrush{Bad};
 
-    const GuiBrush GuiTheme::ScrimBrush{
+    GuiBrush GuiTheme::ScrimBrush{
         GuiColor::FromArgb(196, Ink.R, Ink.G, Ink.B)};
 
     const GuiFontFamily GuiTheme::Display{
-        "avares://Avalonia.Fonts.Inter/Assets#Inter"};
+        "avares://Avalonia.Fonts.Inter/Assets#Inter",
+        "Inter",
+        "avares://Avalonia.Fonts.Inter/Assets"};
 
     const GuiLazyWindowIcon GuiTheme::AppIcon{};
+
+    bool GuiLazyWindowIcon::IsValueCreated() const
+    {
+        std::lock_guard lock(_mutex);
+        return _state == State::Completed;
+    }
 
     const std::optional<GuiWindowIcon>& GuiLazyWindowIcon::Value() const
     {
@@ -110,7 +116,7 @@ namespace MphRead::Mods::Launcher::Gui
     GuiTypeface GuiTheme::Face(bool bold) noexcept
     {
         return GuiTypeface{
-            Display,
+            &Display,
             GuiFontStyle::Normal,
             bold ? GuiFontWeight::SemiBold : GuiFontWeight::Normal,
             GuiFontStretch::Normal
@@ -130,6 +136,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     GuiRoundedRect GuiTheme::Round(GuiRect rect, double radius) noexcept
     {
-        return GuiRoundedRect{rect, radius};
+        const GuiVector radii{radius, radius};
+        return GuiRoundedRect{rect, radii, radii, radii, radii};
     }
 }

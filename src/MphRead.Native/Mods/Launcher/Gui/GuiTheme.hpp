@@ -33,46 +33,118 @@ namespace MphRead::Mods::Launcher::Gui
         friend constexpr bool operator==(const GuiColor&, const GuiColor&) noexcept = default;
     };
 
-    struct GuiBrush final
+    enum class GuiRelativeUnit : std::int32_t
     {
-        GuiColor Color;
+        Relative,
+        Absolute
+    };
 
-        friend constexpr bool operator==(const GuiBrush&, const GuiBrush&) noexcept = default;
+    struct GuiPoint final
+    {
+        double X;
+        double Y;
+
+        friend constexpr bool operator==(const GuiPoint&, const GuiPoint&) noexcept = default;
+    };
+
+    struct GuiRelativePoint final
+    {
+        GuiPoint Point;
+        GuiRelativeUnit Unit;
+
+        friend constexpr bool operator==(
+            const GuiRelativePoint&, const GuiRelativePoint&) noexcept = default;
+    };
+
+    class GuiBrush final
+    {
+    public:
+        explicit GuiBrush(GuiColor color) noexcept
+            : Color(color)
+        {
+        }
+
+        GuiBrush(const GuiBrush&) = delete;
+        GuiBrush& operator=(const GuiBrush&) = delete;
+        GuiBrush(GuiBrush&&) = delete;
+        GuiBrush& operator=(GuiBrush&&) = delete;
+
+        GuiColor Color;
+        double Opacity = 1.0;
+        std::shared_ptr<void> Transform;
+        GuiRelativePoint TransformOrigin{{0.0, 0.0}, GuiRelativeUnit::Relative};
     };
 
     struct GuiFontFamily final
     {
         std::string_view Source;
+        std::string_view Name;
+        std::string_view KeySource;
 
         friend constexpr bool operator==(
             const GuiFontFamily&, const GuiFontFamily&) noexcept = default;
     };
 
-    enum class GuiFontStyle : std::uint8_t
+    enum class GuiFontStyle : std::int32_t
     {
-        Normal
+        Normal,
+        Italic,
+        Oblique
     };
 
-    enum class GuiFontWeight : std::uint16_t
+    enum class GuiFontWeight : std::int32_t
     {
+        Thin = 100,
+        ExtraLight = 200,
+        UltraLight = ExtraLight,
+        Light = 300,
+        SemiLight = 350,
         Normal = 400,
-        SemiBold = 600
+        Regular = Normal,
+        Medium = 500,
+        SemiBold = 600,
+        DemiBold = SemiBold,
+        Bold = 700,
+        ExtraBold = 800,
+        UltraBold = ExtraBold,
+        Black = 900,
+        Heavy = Black,
+        Solid = Black,
+        ExtraBlack = 950,
+        UltraBlack = ExtraBlack
     };
 
-    enum class GuiFontStretch : std::uint8_t
+    enum class GuiFontStretch : std::int32_t
     {
-        Normal
+        UltraCondensed = 1,
+        ExtraCondensed = 2,
+        Condensed = 3,
+        SemiCondensed = 4,
+        Normal = 5,
+        SemiExpanded = 6,
+        Expanded = 7,
+        ExtraExpanded = 8,
+        UltraExpanded = 9
     };
 
     struct GuiTypeface final
     {
-        GuiFontFamily FontFamily;
+        const GuiFontFamily* FontFamily;
         GuiFontStyle Style;
         GuiFontWeight Weight;
         GuiFontStretch Stretch;
 
         friend constexpr bool operator==(
-            const GuiTypeface&, const GuiTypeface&) noexcept = default;
+            const GuiTypeface& left, const GuiTypeface& right) noexcept
+        {
+            const bool familiesEqual = left.FontFamily == right.FontFamily
+                || (left.FontFamily != nullptr && right.FontFamily != nullptr
+                    && *left.FontFamily == *right.FontFamily);
+            return familiesEqual
+                && left.Style == right.Style
+                && left.Weight == right.Weight
+                && left.Stretch == right.Stretch;
+        }
     };
 
     struct GuiWindowIcon final
@@ -90,10 +162,21 @@ namespace MphRead::Mods::Launcher::Gui
         friend constexpr bool operator==(const GuiRect&, const GuiRect&) noexcept = default;
     };
 
+    struct GuiVector final
+    {
+        double X;
+        double Y;
+
+        friend constexpr bool operator==(const GuiVector&, const GuiVector&) noexcept = default;
+    };
+
     struct GuiRoundedRect final
     {
         GuiRect Rect;
-        double Radius;
+        GuiVector RadiiTopLeft;
+        GuiVector RadiiTopRight;
+        GuiVector RadiiBottomLeft;
+        GuiVector RadiiBottomRight;
 
         friend constexpr bool operator==(
             const GuiRoundedRect&, const GuiRoundedRect&) noexcept = default;
@@ -102,7 +185,9 @@ namespace MphRead::Mods::Launcher::Gui
     namespace Detail
     {
         // Platform boundary for Avalonia's AssetLoader.Open + WindowIcon construction.
-        // Return nullopt when opening or decoding the resource cannot produce an icon.
+        // The implementation must open this exact URI, synchronously construct an owning
+        // icon from the stream, release the stream before returning, and either return
+        // that icon or signal failure by throwing/returning nullopt.
         [[nodiscard]] std::optional<GuiWindowIcon> GuiThemeLoadWindowIcon(
             std::string_view uri);
     }
@@ -117,6 +202,7 @@ namespace MphRead::Mods::Launcher::Gui
         GuiLazyWindowIcon(GuiLazyWindowIcon&&) = delete;
         GuiLazyWindowIcon& operator=(GuiLazyWindowIcon&&) = delete;
 
+        [[nodiscard]] bool IsValueCreated() const;
         [[nodiscard]] const std::optional<GuiWindowIcon>& Value() const;
 
     private:
@@ -150,18 +236,18 @@ namespace MphRead::Mods::Launcher::Gui
         static const GuiColor Good;
         static const GuiColor Bad;
 
-        static const GuiBrush InkBrush;
-        static const GuiBrush PanelBrush;
-        static const GuiBrush PanelLightBrush;
-        static const GuiBrush EdgeBrush;
-        static const GuiBrush TextBrush;
-        static const GuiBrush TextDimBrush;
-        static const GuiBrush AccentBrush;
-        static const GuiBrush WarmBrush;
-        static const GuiBrush GoodBrush;
-        static const GuiBrush BadBrush;
+        static GuiBrush InkBrush;
+        static GuiBrush PanelBrush;
+        static GuiBrush PanelLightBrush;
+        static GuiBrush EdgeBrush;
+        static GuiBrush TextBrush;
+        static GuiBrush TextDimBrush;
+        static GuiBrush AccentBrush;
+        static GuiBrush WarmBrush;
+        static GuiBrush GoodBrush;
+        static GuiBrush BadBrush;
 
-        static const GuiBrush ScrimBrush;
+        static GuiBrush ScrimBrush;
         static const GuiFontFamily Display;
         static const GuiLazyWindowIcon AppIcon;
 

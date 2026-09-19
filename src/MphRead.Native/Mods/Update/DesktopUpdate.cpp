@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -35,14 +36,17 @@
 #endif
 #include <windows.h>
 #elif defined(__APPLE__)
+#include <fcntl.h>
 #include <mach-o/dyld.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #else
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -372,40 +376,375 @@ namespace MphRead::Mods::Update
             throw ArchiveException(message == nullptr ? "archive extraction failed" : message);
         }
 
-        [[nodiscard]] bool IsUnsafeArchivePath(std::string_view name)
+        [[nodiscard]] bool PathComponentEquals(
+            const fs::path& left, const fs::path& right)
         {
-            if (name.empty())
+#if defined(_WIN32)
+            const std::wstring a = left.native();
+            const std::wstring b = right.native();
+            if (a.size() != b.size())
             {
                 return false;
             }
-            if (name.front() == '/' || name.front() == '\\')
+            if (a.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
             {
-                return true;
+                return false;
             }
-            if (name.size() >= 2
-                && ((name[0] >= 'A' && name[0] <= 'Z')
-                    || (name[0] >= 'a' && name[0] <= 'z'))
-                && name[1] == ':')
+            return ::CompareStringOrdinal(a.data(), static_cast<int>(a.size()),
+                b.data(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL;
+#else
+            return left == right;
+#endif
+        }
+
+        [[nodiscard]] bool IsWithinDirectory(
+            const fs::path& directory, const fs::path& candidate)
+        {
+            const fs::path root = fs::absolute(directory).lexically_normal();
+            const fs::path value = fs::absolute(candidate).lexically_normal();
+            auto rootIt = root.begin();
+            auto valueIt = value.begin();
+            for (; rootIt != root.end(); ++rootIt, ++valueIt)
             {
-                return true;
-            }
-            std::size_t start = 0;
-            while (start <= name.size())
-            {
-                const std::size_t end = name.find_first_of("/\\", start);
-                const std::string_view part = name.substr(start,
-                    end == std::string_view::npos ? name.size() - start : end - start);
-                if (part == "..")
+                if (valueIt == value.end() || !PathComponentEquals(*rootIt, *valueIt))
                 {
-                    return true;
+                    return false;
                 }
-                if (end == std::string_view::npos)
-                {
-                    break;
-                }
-                start = end + 1;
             }
-            return false;
+            return true;
+        }
+
+        [[nodiscard]] std::string SanitizeArchivePath(
+            std::string value, bool preserveDriveRoot)
+        {
+#if defined(_WIN32)
+            std::size_t offset = 0;
+            if (preserveDriveRoot && value.size() >= 3U
+                && ((value[0] >= 'A' && value[0] <= 'Z')
+                    || (value[0] >= 'a' && value[0] <= 'z'))
+                && value[1] == ':' && (value[2] == '/' || value[2] == '\\'))
+            {
+                offset = 3U;
+            }
+            for (std::size_t i = offset; i < value.size(); ++i)
+            {
+                const unsigned char ch = static_cast<unsigned char>(value[i]);
+                if (ch <= 0x1FU || value[i] == '"' || value[i] == '*'
+                    || value[i] == ':' || value[i] == '<' || value[i] == '>'
+                    || value[i] == '?' || value[i] == '|')
+                {
+                    value[i] = '_';
+                }
+            }
+#else
+            (void)preserveDriveRoot;
+            std::replace(value.begin(), value.end(), '\0', '_');
+#endif
+            return value;
+        }
+
+        [[nodiscard]] fs::path ResolveArchivePath(
+            const std::string& destination, const std::string& rawName, bool zip)
+        {
+            const std::string name = SanitizeArchivePath(rawName, !zip);
+            const fs::path root = fs::absolute(NativePath(destination)).lexically_normal();
+            fs::path entry = NativePath(name);
+            fs::path output = entry.is_absolute() ? entry : root / entry;
+            output = output.lexically_normal();
+            if (!IsWithinDirectory(root, output))
+            {
+                if (zip)
+                {
+                    throw IOException("Extracting the Zip entry would have resulted in a file outside the specified destination directory.");
+                }
+                std::string directory = PathText(root);
+                if (directory.empty()
+                    || (directory.back() != '/' && directory.back() != '\\'))
+                {
+                    directory.push_back(static_cast<char>(fs::path::preferred_separator));
+                }
+                throw IOException("Extracting the Tar entry '" + name
+                    + "' would have resulted in a file outside the specified destination directory: '"
+                    + directory + "'");
+            }
+            return output;
+        }
+
+        void ValidateTarLink(
+            const std::string& destination, const fs::path& output,
+            struct archive_entry* entry)
+        {
+            const char* symbolic = archive_entry_symlink(entry);
+            const char* hard = archive_entry_hardlink(entry);
+            if (symbolic == nullptr && hard == nullptr)
+            {
+                return;
+            }
+
+            const std::string linkName = SanitizeArchivePath(
+                symbolic != nullptr ? symbolic : hard, symbolic != nullptr);
+            const fs::path root = fs::absolute(NativePath(destination)).lexically_normal();
+            const fs::path link = NativePath(linkName);
+            fs::path resolved;
+            if (symbolic != nullptr)
+            {
+                resolved = link.is_absolute() ? link : output.parent_path() / link;
+            }
+            else
+            {
+                resolved = link.is_absolute() ? link : root / link;
+            }
+            resolved = resolved.lexically_normal();
+            if (!IsWithinDirectory(root, resolved))
+            {
+                std::string directory = PathText(root);
+                if (directory.empty()
+                    || (directory.back() != '/' && directory.back() != '\\'))
+                {
+                    directory.push_back(static_cast<char>(fs::path::preferred_separator));
+                }
+                throw IOException("Extracting the Tar entry '" + linkName
+                    + "' would have resulted in a link target outside the specified destination directory: '"
+                    + directory + "'");
+            }
+            if (symbolic != nullptr)
+            {
+                archive_entry_set_symlink(entry, linkName.c_str());
+            }
+            else
+            {
+                const std::string target = PathText(resolved);
+                archive_entry_set_hardlink(entry, target.c_str());
+            }
+        }
+
+        void SetArchiveFileLastWriteTime(
+            const std::string& path, struct archive_entry* entry) noexcept
+        {
+            if (archive_entry_mtime_is_set(entry) == 0)
+            {
+                return;
+            }
+#if defined(_WIN32)
+            try
+            {
+                constexpr std::int64_t EpochOffsetSeconds = 11644473600LL;
+                const std::int64_t seconds = archive_entry_mtime(entry);
+                const long nanoseconds = archive_entry_mtime_nsec(entry);
+                if (seconds < -EpochOffsetSeconds)
+                {
+                    return;
+                }
+                const std::uint64_t ticks = static_cast<std::uint64_t>(
+                    seconds + EpochOffsetSeconds) * 10000000ULL
+                    + static_cast<std::uint64_t>(nanoseconds / 100L);
+                FILETIME writeTime{
+                    static_cast<DWORD>(ticks & 0xFFFFFFFFULL),
+                    static_cast<DWORD>(ticks >> 32U)};
+                const std::wstring native = Utf8ToWide(path);
+                HANDLE handle = ::CreateFileW(native.c_str(), FILE_WRITE_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (handle != INVALID_HANDLE_VALUE)
+                {
+                    (void)::SetFileTime(handle, nullptr, nullptr, &writeTime);
+                    (void)::CloseHandle(handle);
+                }
+            }
+            catch (...)
+            {
+            }
+#else
+            struct timespec times[2]{};
+            times[0].tv_nsec = UTIME_OMIT;
+            times[1].tv_sec = static_cast<time_t>(archive_entry_mtime(entry));
+            times[1].tv_nsec = archive_entry_mtime_nsec(entry);
+            (void)::utimensat(AT_FDCWD, NativePath(path).c_str(), times, 0);
+#endif
+        }
+
+        void ExtractZipFile(struct archive* reader, struct archive_entry* entry,
+            const std::string& output, const std::optional<std::string>& linkText)
+        {
+            const fs::path parent = NativePath(output).parent_path();
+            if (!parent.empty())
+            {
+                CreateDirectory(PathText(parent));
+            }
+
+#if defined(_WIN32)
+            const std::wstring native = Utf8ToWide(output);
+            HANDLE handle = ::CreateFileW(native.c_str(), GENERIC_WRITE, 0, nullptr,
+                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (handle == INVALID_HANDLE_VALUE)
+            {
+                ThrowFileError(output, std::error_code(
+                    static_cast<int>(::GetLastError()), std::system_category()));
+            }
+            auto closeHandle = [&]()
+            {
+                if (handle != INVALID_HANDLE_VALUE)
+                {
+                    const HANDLE current = handle;
+                    handle = INVALID_HANDLE_VALUE;
+                    if (!::CloseHandle(current))
+                    {
+                        ThrowFileError(output, std::error_code(
+                            static_cast<int>(::GetLastError()), std::system_category()));
+                    }
+                }
+            };
+            try
+            {
+                auto write = [&](const void* data, std::size_t size, la_int64_t offset)
+                {
+                    LARGE_INTEGER position{};
+                    position.QuadPart = offset;
+                    if (!::SetFilePointerEx(handle, position, nullptr, FILE_BEGIN))
+                    {
+                        ThrowFileError(output, std::error_code(
+                            static_cast<int>(::GetLastError()), std::system_category()));
+                    }
+                    const char* bytes = static_cast<const char*>(data);
+                    while (size > 0)
+                    {
+                        const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(
+                            size, static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
+                        DWORD written = 0;
+                        if (!::WriteFile(handle, bytes, chunk, &written, nullptr)
+                            || written == 0)
+                        {
+                            ThrowFileError(output, std::error_code(
+                                static_cast<int>(::GetLastError()), std::system_category()));
+                        }
+                        bytes += written;
+                        size -= written;
+                    }
+                };
+                if (linkText.has_value())
+                {
+                    write(linkText->data(), linkText->size(), 0);
+                }
+                else
+                {
+                    for (;;)
+                    {
+                        const void* block = nullptr;
+                        std::size_t size = 0;
+                        la_int64_t offset = 0;
+                        const int result = archive_read_data_block(
+                            reader, &block, &size, &offset);
+                        if (result == ARCHIVE_EOF)
+                        {
+                            break;
+                        }
+                        if (result != ARCHIVE_OK)
+                        {
+                            ThrowArchive(reader);
+                        }
+                        write(block, size, offset);
+                    }
+                }
+                closeHandle();
+            }
+            catch (...)
+            {
+                if (handle != INVALID_HANDLE_VALUE)
+                {
+                    (void)::CloseHandle(handle);
+                }
+                throw;
+            }
+#else
+            int flags = O_WRONLY | O_CREAT | O_TRUNC;
+#ifdef O_CLOEXEC
+            flags |= O_CLOEXEC;
+#endif
+            const mode_t archiveMode = static_cast<mode_t>(archive_entry_perm(entry) & 0777);
+            const mode_t createMode = archiveMode == 0 ? 0666 : archiveMode;
+            int fd = ::open(NativePath(output).c_str(), flags, createMode);
+            if (fd < 0)
+            {
+                ThrowFileError(output, std::error_code(errno, std::generic_category()));
+            }
+            auto closeFd = [&]()
+            {
+                if (fd >= 0)
+                {
+                    const int current = fd;
+                    fd = -1;
+                    if (::close(current) != 0)
+                    {
+                        ThrowFileError(output,
+                            std::error_code(errno, std::generic_category()));
+                    }
+                }
+            };
+            try
+            {
+                auto write = [&](const void* data, std::size_t size, la_int64_t offset)
+                {
+                    if (::lseek(fd, static_cast<off_t>(offset), SEEK_SET) < 0)
+                    {
+                        ThrowFileError(output,
+                            std::error_code(errno, std::generic_category()));
+                    }
+                    const char* bytes = static_cast<const char*>(data);
+                    while (size > 0)
+                    {
+                        const ssize_t written = ::write(fd, bytes, size);
+                        if (written > 0)
+                        {
+                            bytes += written;
+                            size -= static_cast<std::size_t>(written);
+                        }
+                        else if (written < 0 && errno == EINTR)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            ThrowFileError(output,
+                                std::error_code(errno, std::generic_category()));
+                        }
+                    }
+                };
+                if (linkText.has_value())
+                {
+                    write(linkText->data(), linkText->size(), 0);
+                }
+                else
+                {
+                    for (;;)
+                    {
+                        const void* block = nullptr;
+                        std::size_t size = 0;
+                        la_int64_t offset = 0;
+                        const int result = archive_read_data_block(
+                            reader, &block, &size, &offset);
+                        if (result == ARCHIVE_EOF)
+                        {
+                            break;
+                        }
+                        if (result != ARCHIVE_OK)
+                        {
+                            ThrowArchive(reader);
+                        }
+                        write(block, size, offset);
+                    }
+                }
+                closeFd();
+            }
+            catch (...)
+            {
+                if (fd >= 0)
+                {
+                    (void)::close(fd);
+                }
+                throw;
+            }
+#endif
+            SetArchiveFileLastWriteTime(output, entry);
         }
 
         void ExtractArchive(const std::string& archivePath,
@@ -465,20 +804,18 @@ namespace MphRead::Mods::Update
                 ThrowArchive(reader.get());
             }
 
-            std::unique_ptr<struct archive, ArchiveWriterDeleter> writer(
-                archive_write_disk_new());
-            if (!writer)
-            {
-                throw std::bad_alloc();
-            }
-            int flags = ARCHIVE_EXTRACT_TIME
-                | ARCHIVE_EXTRACT_SECURE_SYMLINKS;
+            std::unique_ptr<struct archive, ArchiveWriterDeleter> writer;
             if (!zip)
             {
-                flags |= ARCHIVE_EXTRACT_PERM;
+                writer.reset(archive_write_disk_new());
+                if (!writer)
+                {
+                    throw std::bad_alloc();
+                }
+                archive_write_disk_set_options(writer.get(),
+                    ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_UNLINK);
+                archive_write_disk_set_standard_lookup(writer.get());
             }
-            archive_write_disk_set_options(writer.get(), flags);
-            archive_write_disk_set_standard_lookup(writer.get());
 
             struct archive_entry* entry = nullptr;
             for (;;)
@@ -503,12 +840,53 @@ namespace MphRead::Mods::Update
                     throw ArchiveException("archive entry has no path");
                 }
                 const std::string name(rawName);
-                if (IsUnsafeArchivePath(name))
+                const fs::path outputPath = ResolveArchivePath(destination, name, zip);
+                const std::string output = PathText(outputPath);
+
+                if (zip)
                 {
-                    throw IOException("Extracting the Zip entry would have resulted in a file outside the specified destination directory.");
+                    const bool directoryEntry = !name.empty()
+                        && (name.back() == '/'
+#if defined(_WIN32)
+                            || name.back() == '\\'
+#endif
+                        );
+                    if (directoryEntry)
+                    {
+                        if (archive_entry_size(entry) != 0)
+                        {
+                            throw IOException("Zip entry name ends in directory separator character but contains data.");
+                        }
+                        CreateDirectory(output);
+                        continue;
+                    }
+
+                    std::optional<std::string> linkText;
+                    if (const char* link = archive_entry_symlink(entry); link != nullptr)
+                    {
+                        linkText = std::string(link);
+                    }
+                    ExtractZipFile(reader.get(), entry, output, linkText);
+                    continue;
                 }
 
-                const std::string output = Combine(destination, name);
+                ValidateTarLink(destination, outputPath, entry);
+                archive_entry_unset_atime(entry);
+                archive_entry_unset_ctime(entry);
+                archive_entry_unset_birthtime(entry);
+                const bool symbolicEntry = archive_entry_symlink(entry) != nullptr;
+                const bool hardLinkEntry = archive_entry_hardlink(entry) != nullptr;
+                const auto fileType = archive_entry_filetype(entry);
+                if (symbolicEntry || hardLinkEntry
+                    || (fileType != AE_IFREG && fileType != AE_IFDIR))
+                {
+                    archive_entry_unset_mtime(entry);
+                }
+                if (fileType == AE_IFREG && !hardLinkEntry)
+                {
+                    archive_entry_set_perm(entry, archive_entry_perm(entry) & 0777);
+                }
+
 #if defined(_WIN32)
                 const std::wstring outputWide = Utf8ToWide(output);
                 archive_entry_copy_pathname_w(entry, outputWide.c_str());
@@ -1062,7 +1440,8 @@ namespace MphRead::Mods::Update
     {
         const fs::path sourcePath = NativePath(source);
         std::error_code error;
-        fs::recursive_directory_iterator iterator(sourcePath, error);
+        fs::recursive_directory_iterator iterator(sourcePath,
+            fs::directory_options::follow_directory_symlink, error);
         if (error)
         {
             ThrowFileError(source, error);

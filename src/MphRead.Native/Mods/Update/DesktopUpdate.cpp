@@ -269,9 +269,36 @@ namespace MphRead::Mods::Update
 
         [[nodiscard]] bool FileExists(const std::string& path) noexcept
         {
-            std::error_code error;
-            const fs::file_status status = fs::status(NativePath(path), error);
-            return !error && fs::exists(status) && !fs::is_directory(status);
+#if defined(_WIN32)
+            try
+            {
+                WIN32_FILE_ATTRIBUTE_DATA data{};
+                const std::wstring native = Utf8ToWide(path);
+                if (!::GetFileAttributesExW(native.c_str(), GetFileExInfoStandard, &data))
+                {
+                    return false;
+                }
+                return (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+            }
+            catch (...)
+            {
+                return false;
+            }
+#else
+            struct stat info{};
+            if (::lstat(NativePath(path).c_str(), &info) != 0)
+            {
+                return false;
+            }
+            if (S_ISLNK(info.st_mode))
+            {
+                if (::stat(NativePath(path).c_str(), &info) != 0)
+                {
+                    return true;
+                }
+            }
+            return !S_ISDIR(info.st_mode);
+#endif
         }
 
         [[nodiscard]] bool DirectoryExists(const std::string& path) noexcept
@@ -445,7 +472,77 @@ namespace MphRead::Mods::Update
                     return false;
                 }
             }
-            return true;
+            return valueIt != value.end();
+        }
+
+        [[nodiscard]] bool IsDotNetDirectorySeparator(char ch) noexcept
+        {
+#if defined(_WIN32)
+            return ch == '/' || ch == '\\';
+#else
+            return ch == '/';
+#endif
+        }
+
+        [[nodiscard]] bool IsDotNetDriveChar(char ch) noexcept
+        {
+            return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+        }
+
+        [[nodiscard]] bool IsDotNetPathRooted(std::string_view path) noexcept
+        {
+#if defined(_WIN32)
+            return (!path.empty() && IsDotNetDirectorySeparator(path[0]))
+                || (path.size() >= 2U && IsDotNetDriveChar(path[0]) && path[1] == ':');
+#else
+            return !path.empty() && path[0] == '/';
+#endif
+        }
+
+        [[nodiscard]] bool IsDotNetPathFullyQualified(std::string_view path) noexcept
+        {
+#if defined(_WIN32)
+            if (path.size() < 2U)
+            {
+                return false;
+            }
+            if (IsDotNetDirectorySeparator(path[0]))
+            {
+                return path[1] == '?' || IsDotNetDirectorySeparator(path[1]);
+            }
+            return path.size() >= 3U
+                && IsDotNetDriveChar(path[0])
+                && path[1] == ':'
+                && IsDotNetDirectorySeparator(path[2]);
+#else
+            return !path.empty() && path[0] == '/';
+#endif
+        }
+
+        [[nodiscard]] std::string DotNetJoin(
+            const std::string& left, const std::string& right)
+        {
+            if (left.empty())
+            {
+                return right;
+            }
+            if (right.empty())
+            {
+                return left;
+            }
+            std::string result = left;
+            if (!IsDotNetDirectorySeparator(result.back())
+                && !IsDotNetDirectorySeparator(right.front()))
+            {
+                result.push_back(static_cast<char>(fs::path::preferred_separator));
+            }
+            result += right;
+            return result;
+        }
+
+        [[nodiscard]] fs::path FullNormalizedPath(const std::string& value)
+        {
+            return fs::absolute(NativePath(value)).lexically_normal();
         }
 
         [[nodiscard]] std::string SanitizeArchivePath(
@@ -481,10 +578,23 @@ namespace MphRead::Mods::Update
             const std::string& destination, const std::string& rawName, bool zip)
         {
             const std::string name = SanitizeArchivePath(rawName, !zip);
-            const fs::path root = fs::absolute(NativePath(destination)).lexically_normal();
-            fs::path entry = NativePath(name);
-            fs::path output = entry.is_absolute() ? entry : root / entry;
-            output = output.lexically_normal();
+            const fs::path root = FullNormalizedPath(destination);
+
+            std::string combined;
+            if (zip)
+            {
+                combined = IsDotNetPathRooted(name)
+                    ? name
+                    : DotNetJoin(destination, name);
+            }
+            else
+            {
+                combined = IsDotNetPathFullyQualified(name)
+                    ? name
+                    : DotNetJoin(destination, name);
+            }
+
+            const fs::path output = FullNormalizedPath(combined);
             if (!IsWithinDirectory(root, output))
             {
                 if (zip)
@@ -517,18 +627,21 @@ namespace MphRead::Mods::Update
 
             const std::string linkName = SanitizeArchivePath(
                 symbolic != nullptr ? symbolic : hard, symbolic != nullptr);
-            const fs::path root = fs::absolute(NativePath(destination)).lexically_normal();
-            const fs::path link = NativePath(linkName);
-            fs::path resolved;
+            const fs::path root = FullNormalizedPath(destination);
+
+            std::string combined;
             if (symbolic != nullptr)
             {
-                resolved = link.is_absolute() ? link : output.parent_path() / link;
+                combined = IsDotNetPathFullyQualified(linkName)
+                    ? linkName
+                    : DotNetJoin(PathText(output.parent_path()), linkName);
             }
             else
             {
-                resolved = link.is_absolute() ? link : root / link;
+                combined = DotNetJoin(destination, linkName);
             }
-            resolved = resolved.lexically_normal();
+
+            const fs::path resolved = FullNormalizedPath(combined);
             if (!IsWithinDirectory(root, resolved))
             {
                 std::string directory = PathText(root);

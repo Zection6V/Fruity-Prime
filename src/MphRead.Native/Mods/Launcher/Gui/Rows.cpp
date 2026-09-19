@@ -12,6 +12,8 @@ namespace
 {
     using namespace MphRead::Mods::Launcher::Gui;
 
+    const int TransparentBrushIdentity = 0;
+
     [[nodiscard]] double MathMax(double val1, double val2) noexcept
     {
         if (val1 != val2)
@@ -63,6 +65,19 @@ namespace
         return std::bit_cast<std::int32_t>(sum);
     }
 
+    [[nodiscard]] std::int32_t RemainderInt32(std::int32_t left, std::int32_t right)
+    {
+        if (right == 0)
+        {
+            throw RowsDivideByZeroException();
+        }
+        if (left == std::numeric_limits<std::int32_t>::min() && right == -1)
+        {
+            throw RowsOverflowException();
+        }
+        return left % right;
+    }
+
     [[nodiscard]] bool Contains(GuiRect rect, RowsPoint point) noexcept
     {
         return point.X >= rect.X && point.X <= rect.X + rect.Width
@@ -87,30 +102,347 @@ namespace MphRead::Mods::Launcher::Gui
     {
     }
 
-    const RowsEventArgs RowsEventArgs::Empty{};
-
-    void RowsEvent::Add(RowsEventHandler handler)
+    RowsOverflowException::RowsOverflowException()
+        : std::overflow_error("Arithmetic operation resulted in an overflow.")
     {
-        if (handler.Function == nullptr)
-        {
-            return;
-        }
-        std::lock_guard lock(_mutex);
-        _handlers.push_back(handler);
     }
 
-    void RowsEvent::Remove(RowsEventHandler handler)
+    RowsBrush::RowsBrush(
+        RowsBrushKind kind, GuiBrush* shared, std::shared_ptr<GuiBrush> owned) noexcept
+        : _kind(kind), _shared(shared), _owned(std::move(owned))
     {
-        if (handler.Function == nullptr)
+    }
+
+    RowsBrush RowsBrush::Transparent() noexcept
+    {
+        return RowsBrush(RowsBrushKind::Transparent, nullptr, {});
+    }
+
+    RowsBrush RowsBrush::PanelLight() noexcept
+    {
+        return RowsBrush(RowsBrushKind::PanelLightBrush, &GuiTheme::PanelLightBrush, {});
+    }
+
+    RowsBrush RowsBrush::Edge() noexcept
+    {
+        return RowsBrush(RowsBrushKind::EdgeBrush, &GuiTheme::EdgeBrush, {});
+    }
+
+    RowsBrush RowsBrush::Text() noexcept
+    {
+        return RowsBrush(RowsBrushKind::TextBrush, &GuiTheme::TextBrush, {});
+    }
+
+    RowsBrush RowsBrush::TextDim() noexcept
+    {
+        return RowsBrush(RowsBrushKind::TextDimBrush, &GuiTheme::TextDimBrush, {});
+    }
+
+    RowsBrush RowsBrush::Accent() noexcept
+    {
+        return RowsBrush(RowsBrushKind::AccentBrush, &GuiTheme::AccentBrush, {});
+    }
+
+    RowsBrush RowsBrush::Warm() noexcept
+    {
+        return RowsBrush(RowsBrushKind::WarmBrush, &GuiTheme::WarmBrush, {});
+    }
+
+    RowsBrush RowsBrush::Good() noexcept
+    {
+        return RowsBrush(RowsBrushKind::GoodBrush, &GuiTheme::GoodBrush, {});
+    }
+
+    RowsBrush RowsBrush::Bad() noexcept
+    {
+        return RowsBrush(RowsBrushKind::BadBrush, &GuiTheme::BadBrush, {});
+    }
+
+    RowsBrush RowsBrush::Reference(GuiBrush& brush) noexcept
+    {
+        return RowsBrush(RowsBrushKind::MutableBrush, &brush, {});
+    }
+
+    RowsBrush RowsBrush::Solid(GuiColor color)
+    {
+        return RowsBrush(RowsBrushKind::SolidColor, nullptr,
+            std::make_shared<GuiBrush>(color));
+    }
+
+    RowsBrushKind RowsBrush::Kind() const noexcept
+    {
+        return _kind;
+    }
+
+    GuiBrush* RowsBrush::MutableBrush() const noexcept
+    {
+        return _owned ? _owned.get() : _shared;
+    }
+
+    const void* RowsBrush::Identity() const noexcept
+    {
+        if (_kind == RowsBrushKind::Transparent)
+        {
+            return &TransparentBrushIdentity;
+        }
+        if (_owned)
+        {
+            return _owned.get();
+        }
+        return _shared;
+    }
+
+    std::optional<GuiColor> RowsBrush::CurrentColor() const noexcept
+    {
+        if (GuiBrush* brush = MutableBrush())
+        {
+            return brush->Color;
+        }
+        if (_kind == RowsBrushKind::Transparent)
+        {
+            return GuiColor::FromArgb(0, 255, 255, 255);
+        }
+        return std::nullopt;
+    }
+
+    RowsPen::RowsPen(std::optional<RowsBrush> brush, double thickness)
+        : _state(std::make_shared<State>(State{std::move(brush), thickness, {}, RowsPenLineCap::Flat, RowsPenLineJoin::Miter, 10.0}))
+    {
+    }
+
+    RowsPen::RowsPen(RowsBrush brush, double thickness)
+        : RowsPen(std::optional<RowsBrush>(std::move(brush)), thickness)
+    {
+    }
+
+    std::optional<RowsBrush> RowsPen::Brush() const
+    {
+        return _state->Brush;
+    }
+
+    void RowsPen::Brush(std::optional<RowsBrush> value)
+    {
+        _state->Brush = std::move(value);
+    }
+
+    double RowsPen::Thickness() const noexcept
+    {
+        return _state->Thickness;
+    }
+
+    void RowsPen::Thickness(double value) noexcept
+    {
+        _state->Thickness = value;
+    }
+
+    std::shared_ptr<void> RowsPen::DashStyle() const noexcept
+    {
+        return _state->DashStyle;
+    }
+
+    void RowsPen::DashStyle(std::shared_ptr<void> value) noexcept
+    {
+        _state->DashStyle = std::move(value);
+    }
+
+    RowsPenLineCap RowsPen::LineCap() const noexcept
+    {
+        return _state->LineCap;
+    }
+
+    void RowsPen::LineCap(RowsPenLineCap value) noexcept
+    {
+        _state->LineCap = value;
+    }
+
+    RowsPenLineJoin RowsPen::LineJoin() const noexcept
+    {
+        return _state->LineJoin;
+    }
+
+    void RowsPen::LineJoin(RowsPenLineJoin value) noexcept
+    {
+        _state->LineJoin = value;
+    }
+
+    double RowsPen::MiterLimit() const noexcept
+    {
+        return _state->MiterLimit;
+    }
+
+    void RowsPen::MiterLimit(double value) noexcept
+    {
+        _state->MiterLimit = value;
+    }
+
+    const void* RowsPen::Identity() const noexcept
+    {
+        return _state.get();
+    }
+
+    RowsTriangleGeometry::RowsTriangleGeometry(
+        std::array<RowsPoint, 3> points, bool isFilled, bool isClosed)
+        : _state(std::make_shared<State>(State{std::move(points), isFilled, isClosed}))
+    {
+    }
+
+    const std::array<RowsPoint, 3>& RowsTriangleGeometry::Points() const noexcept
+    {
+        return _state->Points;
+    }
+
+    bool RowsTriangleGeometry::IsFilled() const noexcept
+    {
+        return _state->IsFilled;
+    }
+
+    bool RowsTriangleGeometry::IsClosed() const noexcept
+    {
+        return _state->IsClosed;
+    }
+
+    const void* RowsTriangleGeometry::Identity() const noexcept
+    {
+        return _state.get();
+    }
+
+    const RowsEventArgs RowsEventArgs::Empty{};
+
+    RowsEventHandler::RowsEventHandler(
+        void* context, Callback function, std::shared_ptr<void> keepAlive)
+    {
+        if (function != nullptr)
+        {
+            auto list = std::make_shared<std::vector<Invocation>>();
+            list->push_back(Invocation{context, function, std::move(keepAlive)});
+            _invocations = std::move(list);
+        }
+    }
+
+    RowsEventHandler::RowsEventHandler(
+        std::shared_ptr<const std::vector<Invocation>> invocations) noexcept
+        : _invocations(std::move(invocations))
+    {
+    }
+
+    RowsEventHandler RowsEventHandler::Static(Callback function)
+    {
+        return RowsEventHandler(nullptr, function, {});
+    }
+
+    RowsEventHandler RowsEventHandler::Instance(
+        std::shared_ptr<void> target, Callback function)
+    {
+        void* context = target.get();
+        return RowsEventHandler(context, function, std::move(target));
+    }
+
+    RowsEventHandler RowsEventHandler::Combine(
+        const RowsEventHandler& left, const RowsEventHandler& right)
+    {
+        if (left.IsNull())
+        {
+            return right;
+        }
+        if (right.IsNull())
+        {
+            return left;
+        }
+
+        auto list = std::make_shared<std::vector<Invocation>>();
+        list->reserve(left._invocations->size() + right._invocations->size());
+        list->insert(list->end(), left._invocations->begin(), left._invocations->end());
+        list->insert(list->end(), right._invocations->begin(), right._invocations->end());
+        return RowsEventHandler(std::move(list));
+    }
+
+    bool RowsEventHandler::IsNull() const noexcept
+    {
+        return !_invocations || _invocations->empty();
+    }
+
+    bool operator==(const RowsEventHandler& left, const RowsEventHandler& right) noexcept
+    {
+        if (left.IsNull() || right.IsNull())
+        {
+            return left.IsNull() == right.IsNull();
+        }
+        const auto& a = *left._invocations;
+        const auto& b = *right._invocations;
+        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
+    }
+
+    void RowsEvent::Add(const RowsEventHandler& handler)
+    {
+        if (handler.IsNull())
         {
             return;
         }
-        std::lock_guard lock(_mutex);
-        for (auto it = _handlers.rbegin(); it != _handlers.rend(); ++it)
+
+        std::shared_ptr<const InvocationList> current = _handlers.load();
+        for (;;)
         {
-            if (*it == handler)
+            auto next = std::make_shared<InvocationList>();
+            next->reserve((current ? current->size() : 0) + handler._invocations->size());
+            if (current)
             {
-                _handlers.erase(std::next(it).base());
+                next->insert(next->end(), current->begin(), current->end());
+            }
+            next->insert(next->end(), handler._invocations->begin(), handler._invocations->end());
+            std::shared_ptr<const InvocationList> desired = std::move(next);
+            if (_handlers.compare_exchange_weak(current, desired))
+            {
+                return;
+            }
+        }
+    }
+
+    void RowsEvent::Remove(const RowsEventHandler& handler)
+    {
+        if (handler.IsNull())
+        {
+            return;
+        }
+
+        std::shared_ptr<const InvocationList> current = _handlers.load();
+        for (;;)
+        {
+            if (!current || current->size() < handler._invocations->size())
+            {
+                return;
+            }
+
+            const std::size_t removeCount = handler._invocations->size();
+            std::optional<std::size_t> match;
+            for (std::size_t start = current->size() - removeCount + 1; start-- > 0;)
+            {
+                if (std::equal(handler._invocations->begin(), handler._invocations->end(),
+                    current->begin() + static_cast<std::ptrdiff_t>(start)))
+                {
+                    match = start;
+                    break;
+                }
+            }
+            if (!match.has_value())
+            {
+                return;
+            }
+
+            std::shared_ptr<const InvocationList> desired;
+            if (removeCount != current->size())
+            {
+                auto next = std::make_shared<InvocationList>();
+                next->reserve(current->size() - removeCount);
+                next->insert(next->end(), current->begin(),
+                    current->begin() + static_cast<std::ptrdiff_t>(*match));
+                next->insert(next->end(),
+                    current->begin() + static_cast<std::ptrdiff_t>(*match + removeCount),
+                    current->end());
+                desired = std::move(next);
+            }
+
+            if (_handlers.compare_exchange_weak(current, desired))
+            {
                 return;
             }
         }
@@ -118,51 +450,24 @@ namespace MphRead::Mods::Launcher::Gui
 
     void RowsEvent::Invoke(void* sender, const RowsEventArgs& args) const
     {
-        std::vector<RowsEventHandler> handlers;
+        const std::shared_ptr<const InvocationList> handlers = _handlers.load();
+        if (!handlers)
         {
-            std::lock_guard lock(_mutex);
-            handlers = _handlers;
+            return;
         }
-        for (const RowsEventHandler& handler : handlers)
+        for (const Invocation& handler : *handlers)
         {
             handler.Function(handler.Context, sender, args);
         }
     }
 
-    RowsControl::RowsControl(RowsControlAdapter& control) noexcept
-        : _control(control)
-    {
-    }
-
-    double RowsControl::Height() const
-    {
-        return _control.GetHeight();
-    }
-
-    void RowsControl::Height(double value)
-    {
-        _control.SetHeight(value);
-    }
-
-    bool RowsControl::IsVisible() const
-    {
-        return _control.GetIsVisible();
-    }
-
-    void RowsControl::IsVisible(bool value)
-    {
-        _control.SetIsVisible(value);
-    }
-
-    void RowsControl::Margin(RowsThickness value)
-    {
-        _control.SetMargin(value);
-    }
-
-    void RowsControl::InvalidateVisual()
-    {
-        _control.InvalidateVisual();
-    }
+    RowsControl::RowsControl(RowsControlAdapter& control) noexcept : _control(control) {}
+    double RowsControl::Height() const { return _control.GetHeight(); }
+    void RowsControl::Height(double value) { _control.SetHeight(value); }
+    bool RowsControl::IsVisible() const { return _control.GetIsVisible(); }
+    void RowsControl::IsVisible(bool value) { _control.SetIsVisible(value); }
+    void RowsControl::Margin(RowsThickness value) { _control.SetMargin(value); }
+    void RowsControl::InvalidateVisual() { _control.InvalidateVisual(); }
 
     Caption::Caption(RowsTextControlAdapter& control, std::optional<std::u16string> text)
         : RowsControl(control), _textControl(control), _text(std::move(text))
@@ -178,8 +483,7 @@ namespace MphRead::Mods::Launcher::Gui
         }
         const std::u16string upper = _textControl.ToUpperInvariant(*_text);
         return _textControl.CreateFormattedText(upper, RowsCulture::Invariant,
-            RowsFlowDirection::LeftToRight, GuiTheme::Face(true), 11.0,
-            RowsBrush::TextDim());
+            RowsFlowDirection::LeftToRight, GuiTheme::Face(true), 11.0, RowsBrush::TextDim());
     }
 
     RowsSize Caption::MeasureOverride(RowsSize availableSize)
@@ -192,16 +496,16 @@ namespace MphRead::Mods::Launcher::Gui
     void Caption::Render(RowsDrawingContext& context)
     {
         RowsFormattedText text = Label();
-        context.DrawText(text, RowsPoint{0.0,
-            _textControl.Bounds().Height - text.Height - 4.0});
+        context.DrawText(text, RowsPoint{0.0, _textControl.Bounds().Height - text.Height - 4.0});
         const double y = _textControl.Bounds().Height - 2.0;
-        context.DrawLine(RowsPen{RowsBrush::Edge(), 1.0},
-            RowsPoint{0.0, y}, RowsPoint{_textControl.Bounds().Width, y});
+        RowsPen pen(RowsBrush::Edge(), 1.0);
+        const RowsPoint start{0.0, y};
+        const RowsPoint end{_textControl.Bounds().Width, y};
+        context.DrawLine(std::move(pen), start, end);
     }
 
     ChoiceRow::ChoiceRow(RowsInteractiveControlAdapter& control,
-        std::optional<std::u16string> label, RowsStringListRef options,
-        std::int32_t index)
+        std::optional<std::u16string> label, RowsStringListRef options, std::int32_t index)
         : RowsControl(control), _interactive(control), _label(std::move(label)),
           _options(std::move(options)), _index(0)
     {
@@ -222,10 +526,7 @@ namespace MphRead::Mods::Launcher::Gui
         return *_options;
     }
 
-    std::int32_t ChoiceRow::Index() const noexcept
-    {
-        return _index;
-    }
+    std::int32_t ChoiceRow::Index() const noexcept { return _index; }
 
     void ChoiceRow::Index(std::int32_t value)
     {
@@ -259,10 +560,7 @@ namespace MphRead::Mods::Launcher::Gui
         _control.InvalidateVisual();
     }
 
-    const ChoiceRow::PreviewHandler& ChoiceRow::Preview() const noexcept
-    {
-        return _preview;
-    }
+    const ChoiceRow::PreviewHandler& ChoiceRow::Preview() const noexcept { return _preview; }
 
     void ChoiceRow::Preview(PreviewHandler value)
     {
@@ -271,37 +569,17 @@ namespace MphRead::Mods::Launcher::Gui
         _control.InvalidateVisual();
     }
 
-    RowsEvent& ChoiceRow::Changed() noexcept
-    {
-        return _changed;
-    }
-
-    const RowsEvent& ChoiceRow::Changed() const noexcept
-    {
-        return _changed;
-    }
-
-    void ChoiceRow::AddChanged(RowsEventHandler handler)
-    {
-        _changed.Add(handler);
-    }
-
-    void ChoiceRow::RemoveChanged(RowsEventHandler handler)
-    {
-        _changed.Remove(handler);
-    }
-
-    double ChoiceRow::PreviewRoom() const noexcept
-    {
-        return _preview ? PreviewWidth : 0.0;
-    }
+    RowsEvent& ChoiceRow::Changed() noexcept { return _changed; }
+    const RowsEvent& ChoiceRow::Changed() const noexcept { return _changed; }
+    void ChoiceRow::AddChanged(const RowsEventHandler& handler) { _changed.Add(handler); }
+    void ChoiceRow::RemoveChanged(const RowsEventHandler& handler) { _changed.Remove(handler); }
+    double ChoiceRow::PreviewRoom() const noexcept { return _preview ? PreviewWidth : 0.0; }
 
     GuiRect ChoiceRow::LeftArrow() const
     {
         const double x = _interactive.Bounds().Width - PreviewRoom()
             - ArrowWidth - ValueColumn - ArrowWidth;
-        return GuiRect{MathMax(110.0, x), 0.0, ArrowWidth,
-            _interactive.Bounds().Height};
+        return GuiRect{MathMax(110.0, x), 0.0, ArrowWidth, _interactive.Bounds().Height};
     }
 
     GuiRect ChoiceRow::RightArrow() const
@@ -337,13 +615,9 @@ namespace MphRead::Mods::Launcher::Gui
         _interactive.Focus();
         const RowsPoint p = _interactive.GetPosition(e);
         if (Contains(LeftArrow(), p))
-        {
             Step(-1);
-        }
         else
-        {
             Step(1);
-        }
         _interactive.BaseOnPointerPressed(e);
     }
 
@@ -367,17 +641,11 @@ namespace MphRead::Mods::Launcher::Gui
     void ChoiceRow::Step(std::int32_t direction)
     {
         if (Options().Count() == 0)
-        {
             return;
-        }
         const std::int32_t numerator = AddUnchecked(
             AddUnchecked(_index, direction), Options().Count());
         const std::int32_t divisor = Options().Count();
-        if (divisor == 0)
-        {
-            throw RowsDivideByZeroException();
-        }
-        _index = numerator % divisor;
+        _index = RemainderInt32(numerator, divisor);
         _control.InvalidateVisual();
         _changed.Invoke(this, RowsEventArgs::Empty);
     }
@@ -395,8 +663,7 @@ namespace MphRead::Mods::Launcher::Gui
         RowsFormattedText label = _interactive.CreateFormattedText(_label,
             RowsCulture::Invariant, RowsFlowDirection::LeftToRight,
             GuiTheme::Face(false), 13.0, RowsBrush::TextDim());
-        context.DrawText(label, RowsPoint{4.0,
-            (_interactive.Bounds().Height - label.Height) / 2.0});
+        context.DrawText(label, RowsPoint{4.0, (_interactive.Bounds().Height - label.Height) / 2.0});
 
         const std::optional<std::u16string> current = Value();
         RowsFormattedText value = _interactive.CreateFormattedText(
@@ -428,35 +695,23 @@ namespace MphRead::Mods::Launcher::Gui
         }
     }
 
-    void ChoiceRow::Arrow(RowsDrawingContext& context, GuiRect area,
-        bool pointsLeft, bool hot)
+    void ChoiceRow::Arrow(RowsDrawingContext& context, GuiRect area, bool pointsLeft, bool hot)
     {
         const double cx = area.X + area.Width / 2.0;
         const double cy = area.Y + area.Height / 2.0;
         constexpr double w = 4.5;
         constexpr double h = 6.0;
-
-        RowsTriangleGeometry geometry{};
-        geometry.IsFilled = true;
-        geometry.IsClosed = true;
+        std::array<RowsPoint, 3> points;
         if (pointsLeft)
         {
-            geometry.Points = {
-                RowsPoint{cx + w, cy - h},
-                RowsPoint{cx - w, cy},
-                RowsPoint{cx + w, cy + h}
-            };
+            points = {RowsPoint{cx + w, cy - h}, RowsPoint{cx - w, cy}, RowsPoint{cx + w, cy + h}};
         }
         else
         {
-            geometry.Points = {
-                RowsPoint{cx - w, cy - h},
-                RowsPoint{cx + w, cy},
-                RowsPoint{cx - w, cy + h}
-            };
+            points = {RowsPoint{cx - w, cy - h}, RowsPoint{cx + w, cy}, RowsPoint{cx - w, cy + h}};
         }
-        context.DrawGeometry(hot ? RowsBrush::Accent() : RowsBrush::TextDim(),
-            std::nullopt, geometry);
+        RowsTriangleGeometry geometry(points, true, true);
+        context.DrawGeometry(hot ? RowsBrush::Accent() : RowsBrush::TextDim(), std::nullopt, geometry);
     }
 
     ToggleRow::ToggleRow(RowsInteractiveControlAdapter& control,
@@ -468,10 +723,7 @@ namespace MphRead::Mods::Launcher::Gui
         _interactive.SetHandCursor();
     }
 
-    bool ToggleRow::On() const noexcept
-    {
-        return _on;
-    }
+    bool ToggleRow::On() const noexcept { return _on; }
 
     void ToggleRow::On(bool value)
     {
@@ -483,25 +735,10 @@ namespace MphRead::Mods::Launcher::Gui
         }
     }
 
-    RowsEvent& ToggleRow::Changed() noexcept
-    {
-        return _changed;
-    }
-
-    const RowsEvent& ToggleRow::Changed() const noexcept
-    {
-        return _changed;
-    }
-
-    void ToggleRow::AddChanged(RowsEventHandler handler)
-    {
-        _changed.Add(handler);
-    }
-
-    void ToggleRow::RemoveChanged(RowsEventHandler handler)
-    {
-        _changed.Remove(handler);
-    }
+    RowsEvent& ToggleRow::Changed() noexcept { return _changed; }
+    const RowsEvent& ToggleRow::Changed() const noexcept { return _changed; }
+    void ToggleRow::AddChanged(const RowsEventHandler& handler) { _changed.Add(handler); }
+    void ToggleRow::RemoveChanged(const RowsEventHandler& handler) { _changed.Remove(handler); }
 
     void ToggleRow::OnPointerPressed(RowsPointerEventArgs& e)
     {
@@ -531,73 +768,39 @@ namespace MphRead::Mods::Launcher::Gui
             context.FillRectangle(RowsBrush::PanelLight(),
                 GuiRect{0.0, 0.0, _interactive.Bounds().Width, _interactive.Bounds().Height}, 4.0);
         }
-
         RowsFormattedText label = _interactive.CreateFormattedText(_label,
             RowsCulture::Invariant, RowsFlowDirection::LeftToRight,
             GuiTheme::Face(false), 13.0, RowsBrush::TextDim());
-        context.DrawText(label, RowsPoint{4.0,
-            (_interactive.Bounds().Height - label.Height) / 2.0});
+        context.DrawText(label, RowsPoint{4.0, (_interactive.Bounds().Height - label.Height) / 2.0});
 
         constexpr double w = 40.0;
         constexpr double h = 20.0;
-        const GuiRect track{
-            _interactive.Bounds().Width - w - 4.0,
-            (_interactive.Bounds().Height - h) / 2.0,
-            w,
-            h
-        };
-        context.DrawRectangle(RowsBrush::Solid(_on ? GuiTheme::Accent : GuiTheme::Edge),
-            std::nullopt, RowsRoundedRect{track, h / 2.0});
+        const GuiRect track{_interactive.Bounds().Width - w - 4.0,
+            (_interactive.Bounds().Height - h) / 2.0, w, h};
+        RowsBrush trackBrush = RowsBrush::Solid(_on ? GuiTheme::Accent : GuiTheme::Edge);
+        context.DrawRectangle(std::move(trackBrush), std::nullopt, RowsRoundedRect{track, h / 2.0});
         const double knob = _on ? track.X + track.Width - h / 2.0 : track.X + h / 2.0;
-        context.DrawEllipse(RowsBrush::Solid(_on ? GuiTheme::Ink : GuiTheme::TextDim),
-            std::nullopt, RowsPoint{knob, track.Y + h / 2.0}, h / 2.0 - 3.0, h / 2.0 - 3.0);
+        RowsBrush knobBrush = RowsBrush::Solid(_on ? GuiTheme::Ink : GuiTheme::TextDim);
+        context.DrawEllipse(std::move(knobBrush), std::nullopt,
+            RowsPoint{knob, track.Y + h / 2.0}, h / 2.0 - 3.0, h / 2.0 - 3.0);
     }
 
-    FieldRowTextBox::FieldRowTextBox(
-        FieldRowAdapter& adapter, FieldRowAdapter::ElementHandle handle) noexcept
-        : _adapter(adapter), _handle(handle)
-    {
-    }
-
-    FieldRowAdapter::ElementHandle FieldRowTextBox::Native() const noexcept
-    {
-        return _handle;
-    }
-
-    std::optional<std::u16string> FieldRowTextBox::Text() const
-    {
-        return _adapter.GetTextBoxText(_handle);
-    }
-
-    void FieldRowTextBox::Text(std::optional<std::u16string_view> value)
-    {
-        _adapter.SetTextBoxText(_handle, value);
-    }
-
-    void FieldRowTextBox::Watermark(std::optional<std::u16string_view> value)
-    {
-        _adapter.SetTextBoxWatermark(_handle, value);
-    }
-
-    void FieldRowTextBox::AddLostFocus(RowsEventHandler handler)
-    {
-        _adapter.AddTextBoxLostFocus(_handle, handler);
-    }
-
-    void FieldRowTextBox::RemoveLostFocus(RowsEventHandler handler)
-    {
-        _adapter.RemoveTextBoxLostFocus(_handle, handler);
-    }
+    FieldRowTextBox::FieldRowTextBox(FieldRowAdapter& adapter, FieldRowAdapter::ElementHandle handle) noexcept
+        : _adapter(adapter), _handle(handle) {}
+    FieldRowAdapter::ElementHandle FieldRowTextBox::Native() const noexcept { return _handle; }
+    std::optional<std::u16string> FieldRowTextBox::Text() const { return _adapter.GetTextBoxText(_handle); }
+    void FieldRowTextBox::Text(std::optional<std::u16string_view> value) { _adapter.SetTextBoxText(_handle, value); }
+    void FieldRowTextBox::Watermark(std::optional<std::u16string_view> value) { _adapter.SetTextBoxWatermark(_handle, value); }
+    void FieldRowTextBox::AddLostFocus(const RowsEventHandler& handler) { _adapter.AddTextBoxLostFocus(_handle, handler); }
+    void FieldRowTextBox::RemoveLostFocus(const RowsEventHandler& handler) { _adapter.RemoveTextBoxLostFocus(_handle, handler); }
 
     FieldRow::FieldRow(FieldRowAdapter& adapter, std::optional<std::u16string> label,
         std::optional<std::u16string> value, double boxWidth)
-        : RowsControl(adapter), _fieldAdapter(adapter), _box(nullptr)
+        : RowsControl(adapter), _fieldAdapter(adapter)
     {
         _control.SetHeight(36.0);
-
         const FieldRowAdapter::ElementHandle caption = _fieldAdapter.CreateTextBlock();
-        _fieldAdapter.SetTextBlockText(caption,
-            label ? std::optional<std::u16string_view>(*label) : std::nullopt);
+        _fieldAdapter.SetTextBlockText(caption, label ? std::optional<std::u16string_view>(*label) : std::nullopt);
         _fieldAdapter.SetTextBlockFontFamily(caption, GuiTheme::Display);
         _fieldAdapter.SetTextBlockFontSize(caption, 13.0);
         _fieldAdapter.SetTextBlockForeground(caption, RowsBrush::TextDim());
@@ -606,8 +809,7 @@ namespace MphRead::Mods::Launcher::Gui
         _fieldAdapter.SetTextBlockMargin(caption, RowsThickness{4.0, 0.0, 0.0, 0.0});
 
         const FieldRowAdapter::ElementHandle box = _fieldAdapter.CreateTextBox();
-        _fieldAdapter.SetTextBoxText(box,
-            value ? std::optional<std::u16string_view>(*value) : std::nullopt);
+        _fieldAdapter.SetTextBoxText(box, value ? std::optional<std::u16string_view>(*value) : std::nullopt);
         _fieldAdapter.SetTextBoxWidth(box, boxWidth);
         _fieldAdapter.SetTextBoxFontFamily(box, GuiTheme::Display);
         _fieldAdapter.SetTextBoxFontSize(box, 13.0);
@@ -615,27 +817,20 @@ namespace MphRead::Mods::Launcher::Gui
         _fieldAdapter.SetTextBoxPadding(box, RowsThickness{8.0, 4.0, 8.0, 4.0});
         _fieldAdapter.SetTextBoxVerticalAlignment(box, RowsVerticalAlignment::Center);
         _fieldAdapter.SetTextBoxHorizontalAlignment(box, RowsHorizontalAlignment::Right);
-        _box = box;
+        _box.emplace(_fieldAdapter, box);
 
         _fieldAdapter.AddChild(caption);
-        _fieldAdapter.AddChild(_box);
+        _fieldAdapter.AddChild(box);
     }
 
-    FieldRowTextBox FieldRow::Box() noexcept
-    {
-        return FieldRowTextBox(_fieldAdapter, _box);
-    }
-
+    FieldRowTextBox& FieldRow::Box() noexcept { return *_box; }
+    const FieldRowTextBox& FieldRow::Box() const noexcept { return *_box; }
     std::u16string FieldRow::Value() const
     {
-        std::optional<std::u16string> text = _fieldAdapter.GetTextBoxText(_box);
+        std::optional<std::u16string> text = _box->Text();
         return text.has_value() ? std::move(*text) : std::u16string{};
     }
-
-    void FieldRow::Value(std::optional<std::u16string_view> value)
-    {
-        _fieldAdapter.SetTextBoxText(_box, value);
-    }
+    void FieldRow::Value(std::optional<std::u16string_view> value) { _box->Text(value); }
 
     Note::Note(NoteAdapter& adapter, std::optional<std::u16string> text,
         std::optional<GuiColor> color)
@@ -649,23 +844,9 @@ namespace MphRead::Mods::Launcher::Gui
         _control.SetMargin(RowsThickness{4.0, 4.0, 4.0, 4.0});
     }
 
-    std::optional<std::u16string> Note::Text() const
-    {
-        return _noteAdapter.GetText();
-    }
-
-    void Note::Text(std::optional<std::u16string_view> value)
-    {
-        _noteAdapter.SetText(value);
-    }
-
-    RowsBrush Note::Foreground() const
-    {
-        return _noteAdapter.GetForeground();
-    }
-
-    void Note::Foreground(RowsBrush value)
-    {
-        _noteAdapter.SetForeground(value);
-    }
+    std::optional<std::u16string> Note::Text() const { return _noteAdapter.GetText(); }
+    void Note::Text(std::optional<std::u16string_view> value) { _noteAdapter.SetText(value); }
+    std::optional<RowsBrush> Note::Foreground() const { return _noteAdapter.GetForeground(); }
+    void Note::Foreground(std::optional<RowsBrush> value) { _noteAdapter.SetForeground(std::move(value)); }
+    void Note::Foreground(RowsBrush value) { Foreground(std::optional<RowsBrush>(std::move(value))); }
 }

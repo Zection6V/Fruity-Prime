@@ -3,22 +3,84 @@
 #include "BuildVersion.hpp"
 #include "SyncHttp.hpp"
 
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace MphRead::Mods::Update
 {
+    class ArgumentNullException final : public std::invalid_argument
+    {
+    public:
+        explicit ArgumentNullException(std::string parameterName);
+        [[nodiscard]] const std::string& ParameterName() const noexcept;
+
+    private:
+        std::string _parameterName;
+    };
+
+    class InvalidOperationException final : public std::runtime_error
+    {
+    public:
+        explicit InvalidOperationException(std::string message);
+    };
+
+    struct UpdateInfo;
+
+    namespace Detail
+    {
+        template <typename T>
+        class InitOnlyProperty final
+        {
+        public:
+            InitOnlyProperty() = default;
+
+            template <typename U>
+                requires std::constructible_from<T, U&&>
+            InitOnlyProperty(U&& value)
+                : _value(std::forward<U>(value))
+            {
+            }
+
+            InitOnlyProperty(const InitOnlyProperty&) = default;
+            InitOnlyProperty(InitOnlyProperty&&) noexcept(
+                std::is_nothrow_move_constructible_v<T>) = default;
+
+            [[nodiscard]] const T& Get() const noexcept
+            {
+                return _value;
+            }
+
+            [[nodiscard]] operator const T&() const noexcept
+            {
+                return _value;
+            }
+
+        private:
+            InitOnlyProperty& operator=(const InitOnlyProperty&) = default;
+            InitOnlyProperty& operator=(InitOnlyProperty&&) noexcept(
+                std::is_nothrow_move_assignable_v<T>) = default;
+
+            T _value{};
+            friend struct ::MphRead::Mods::Update::UpdateInfo;
+        };
+    }
+
     struct UpdateInfo
     {
-        std::string Tag;
-        MphRead::Mods::Update::Version Version;
-        std::string AssetName;
-        std::string AssetUrl;
-        std::int64_t AssetSize = 0;
-        std::string PageUrl;
-        std::string Notes;
+        Detail::InitOnlyProperty<std::optional<std::string>> Tag;
+        Detail::InitOnlyProperty<std::optional<MphRead::Mods::Update::Version>> Version;
+        Detail::InitOnlyProperty<std::optional<std::string>> AssetName;
+        Detail::InitOnlyProperty<std::optional<std::string>> AssetUrl;
+        Detail::InitOnlyProperty<std::int64_t> AssetSize;
+        Detail::InitOnlyProperty<std::optional<std::string>> PageUrl;
+        Detail::InitOnlyProperty<std::optional<std::string>> Notes;
     };
 
     class UpdateCheck final
@@ -31,6 +93,10 @@ namespace MphRead::Mods::Update
 
         [[nodiscard]] static std::optional<UpdateInfo> Parse(
             std::string_view json,
+            std::optional<Version> installed = std::nullopt);
+
+        [[nodiscard]] static std::optional<UpdateInfo> Parse(
+            std::nullptr_t json,
             std::optional<Version> installed = std::nullopt);
 
         inline static constexpr std::string_view ReleasesPage =

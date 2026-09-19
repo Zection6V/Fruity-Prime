@@ -5,6 +5,7 @@
 #include <curl/curl.h>
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <charconv>
 #include <chrono>
@@ -22,6 +23,23 @@
 
 namespace MphRead::Mods::Update
 {
+    ArgumentNullException::ArgumentNullException(std::string parameterName)
+        : std::invalid_argument("Value cannot be null. (Parameter '"
+            + parameterName + "')"),
+          _parameterName(std::move(parameterName))
+    {
+    }
+
+    const std::string& ArgumentNullException::ParameterName() const noexcept
+    {
+        return _parameterName;
+    }
+
+    InvalidOperationException::InvalidOperationException(std::string message)
+        : std::runtime_error(std::move(message))
+    {
+    }
+
     namespace
     {
         constexpr std::chrono::seconds Timeout(20);
@@ -33,8 +51,7 @@ namespace MphRead::Mods::Update
                 + "/releases/latest";
         }
 
-        std::mutex LastReasonMutex;
-        std::optional<std::string> LastReasonValue;
+        std::atomic<std::shared_ptr<const std::string>> LastReasonValue{nullptr};
 
         class NamedException : public std::runtime_error
         {
@@ -58,11 +75,6 @@ namespace MphRead::Mods::Update
             throw NamedException("JsonException", std::string(message));
         }
 
-        [[noreturn]] void ThrowInvalidOperation(std::string_view message)
-        {
-            throw NamedException("InvalidOperationException", std::string(message));
-        }
-
         enum class JsonKind
         {
             Null,
@@ -73,13 +85,20 @@ namespace MphRead::Mods::Update
             Object
         };
 
+        struct JsonString
+        {
+            std::string Text;
+            bool Escaped = false;
+        };
+
         struct JsonValue
         {
             JsonKind Kind = JsonKind::Null;
             bool Boolean = false;
             std::string Text;
+            bool Escaped = false;
             std::vector<JsonValue> Array;
-            std::vector<std::pair<std::string, JsonValue>> Object;
+            std::vector<std::pair<JsonString, JsonValue>> Object;
         };
 
         [[nodiscard]] bool IsJsonWhitespace(char value) noexcept
@@ -172,6 +191,159 @@ namespace MphRead::Mods::Update
             }
         }
 
+        [[nodiscard]] int HexDigit(char value) noexcept
+        {
+            if (value >= '0' && value <= '9')
+            {
+                return value - '0';
+            }
+            if (value >= 'a' && value <= 'f')
+            {
+                return value - 'a' + 10;
+            }
+            if (value >= 'A' && value <= 'F')
+            {
+                return value - 'A' + 10;
+            }
+            return -1;
+        }
+
+        [[nodiscard]] char32_t ReadHex4(std::string_view text,
+            std::size_t offset) noexcept
+        {
+            char32_t value = 0;
+            for (std::size_t index = 0; index < 4; ++index)
+            {
+                value = (value << 4)
+                    | static_cast<char32_t>(HexDigit(text[offset + index]));
+            }
+            return value;
+        }
+
+        [[nodiscard]] std::string FormatHex(char32_t value)
+        {
+            char buffer[8]{};
+            auto [last, error] = std::to_chars(buffer, buffer + sizeof(buffer),
+                static_cast<std::uint32_t>(value), 16);
+            if (error != std::errc{})
+            {
+                throw std::runtime_error("hex formatting failed");
+            }
+            std::string result(buffer, last);
+            for (char& character : result)
+            {
+                if (character >= 'a' && character <= 'f')
+                {
+                    character = static_cast<char>(character - ('a' - 'A'));
+                }
+            }
+            if (result.size() < 2)
+            {
+                result.insert(result.begin(), 2 - result.size(), '0');
+            }
+            return "0x" + result;
+        }
+
+        [[noreturn]] void ThrowInvalidUtf16(char32_t value)
+        {
+            throw InvalidOperationException(
+                "Cannot read invalid UTF-16 JSON text as string. Invalid surrogate value: '"
+                + FormatHex(value) + "'.");
+        }
+
+        [[noreturn]] void ThrowIncompleteUtf16()
+        {
+            throw InvalidOperationException(
+                "Cannot read incomplete UTF-16 JSON text as string with missing low surrogate.");
+        }
+
+        [[nodiscard]] std::string UnescapeJsonString(std::string_view text)
+        {
+            std::string result;
+            result.reserve(text.size());
+            std::size_t offset = 0;
+            while (offset < text.size())
+            {
+                if (text[offset] != '\\')
+                {
+                    const std::size_t length = Utf8SequenceLength(text, offset);
+                    result.append(text.substr(offset, length));
+                    offset += length;
+                    continue;
+                }
+
+                const char escape = text[offset + 1];
+                offset += 2;
+                switch (escape)
+                {
+                case '"': result.push_back('"'); break;
+                case '\\': result.push_back('\\'); break;
+                case '/': result.push_back('/'); break;
+                case 'b': result.push_back('\b'); break;
+                case 'f': result.push_back('\f'); break;
+                case 'n': result.push_back('\n'); break;
+                case 'r': result.push_back('\r'); break;
+                case 't': result.push_back('\t'); break;
+                case 'u':
+                {
+                    char32_t scalar = ReadHex4(text, offset);
+                    offset += 4;
+                    if (scalar >= 0xD800U && scalar <= 0xDBFFU)
+                    {
+                        if (offset + 6 > text.size()
+                            || text[offset] != '\\'
+                            || text[offset + 1] != 'u')
+                        {
+                            ThrowIncompleteUtf16();
+                        }
+                        const char32_t low = ReadHex4(text, offset + 2);
+                        offset += 6;
+                        if (low < 0xDC00U || low > 0xDFFFU)
+                        {
+                            ThrowInvalidUtf16(low);
+                        }
+                        scalar = 0x10000U
+                            + ((scalar - 0xD800U) << 10)
+                            + (low - 0xDC00U);
+                    }
+                    else if (scalar >= 0xDC00U && scalar <= 0xDFFFU)
+                    {
+                        ThrowInvalidUtf16(scalar);
+                    }
+                    AppendUtf8(result, scalar);
+                    break;
+                }
+                default:
+                    throw std::logic_error("unvalidated JSON escape");
+                }
+            }
+            return result;
+        }
+
+        [[nodiscard]] std::string JsonKindName(const JsonValue& value)
+        {
+            switch (value.Kind)
+            {
+            case JsonKind::Null: return "Null";
+            case JsonKind::Boolean: return value.Boolean ? "True" : "False";
+            case JsonKind::Number: return "Number";
+            case JsonKind::String: return "String";
+            case JsonKind::Array: return "Array";
+            case JsonKind::Object: return "Object";
+            }
+            return "Undefined";
+        }
+
+        [[noreturn]] void ThrowWrongType(std::string_view expected,
+            const JsonValue& actual)
+        {
+            throw InvalidOperationException(
+                "The requested operation requires an element of type '"
+                + std::string(expected)
+                + "', but the target element has type '"
+                + JsonKindName(actual) + "'.");
+        }
+
         class JsonParser final
         {
         public:
@@ -182,17 +354,20 @@ namespace MphRead::Mods::Update
             [[nodiscard]] JsonValue ParseDocument()
             {
                 SkipWhitespace();
-                JsonValue value = ParseValue();
+                JsonValue value = ParseValue(0);
                 SkipWhitespace();
                 if (_offset != _input.size())
                 {
-                    ThrowJsonException("Additional text encountered after finished reading JSON content.");
+                    ThrowJsonException(
+                        "Additional text encountered after finished reading JSON content.");
                 }
                 return value;
             }
 
         private:
-            [[nodiscard]] JsonValue ParseValue()
+            static constexpr std::size_t DefaultMaxDepth = 64;
+
+            [[nodiscard]] JsonValue ParseValue(std::size_t depth)
             {
                 if (_offset >= _input.size())
                 {
@@ -225,17 +400,28 @@ namespace MphRead::Mods::Update
                 }
                 case '"':
                 {
+                    JsonString parsed = ParseString();
                     JsonValue value;
                     value.Kind = JsonKind::String;
-                    value.Text = ParseString();
+                    value.Text = std::move(parsed.Text);
+                    value.Escaped = parsed.Escaped;
                     return value;
                 }
                 case '[':
-                    return ParseArray();
+                    if (depth >= DefaultMaxDepth)
+                    {
+                        ThrowJsonException("The maximum configured depth has been exceeded.");
+                    }
+                    return ParseArray(depth + 1);
                 case '{':
-                    return ParseObject();
+                    if (depth >= DefaultMaxDepth)
+                    {
+                        ThrowJsonException("The maximum configured depth has been exceeded.");
+                    }
+                    return ParseObject(depth + 1);
                 default:
-                    if (_input[_offset] == '-' || (_input[_offset] >= '0' && _input[_offset] <= '9'))
+                    if (_input[_offset] == '-'
+                        || (_input[_offset] >= '0' && _input[_offset] <= '9'))
                     {
                         JsonValue value;
                         value.Kind = JsonKind::Number;
@@ -246,7 +432,7 @@ namespace MphRead::Mods::Update
                 }
             }
 
-            [[nodiscard]] JsonValue ParseArray()
+            [[nodiscard]] JsonValue ParseArray(std::size_t depth)
             {
                 JsonValue value;
                 value.Kind = JsonKind::Array;
@@ -258,7 +444,7 @@ namespace MphRead::Mods::Update
                 }
                 for (;;)
                 {
-                    value.Array.push_back(ParseValue());
+                    value.Array.push_back(ParseValue(depth));
                     SkipWhitespace();
                     if (Consume(']'))
                     {
@@ -276,7 +462,7 @@ namespace MphRead::Mods::Update
                 }
             }
 
-            [[nodiscard]] JsonValue ParseObject()
+            [[nodiscard]] JsonValue ParseObject(std::size_t depth)
             {
                 JsonValue value;
                 value.Kind = JsonKind::Object;
@@ -292,14 +478,14 @@ namespace MphRead::Mods::Update
                     {
                         ThrowJsonException("Expected a JSON property name.");
                     }
-                    std::string name = ParseString();
+                    JsonString name = ParseString();
                     SkipWhitespace();
                     if (!Consume(':'))
                     {
                         ThrowJsonException("Expected ':' after JSON property name.");
                     }
                     SkipWhitespace();
-                    value.Object.emplace_back(std::move(name), ParseValue());
+                    value.Object.emplace_back(std::move(name), ParseValue(depth));
                     SkipWhitespace();
                     if (Consume('}'))
                     {
@@ -317,20 +503,26 @@ namespace MphRead::Mods::Update
                 }
             }
 
-            [[nodiscard]] std::string ParseString()
+            [[nodiscard]] JsonString ParseString()
             {
                 ++_offset;
-                std::string result;
+                const std::size_t start = _offset;
+                bool escaped = false;
                 while (_offset < _input.size())
                 {
                     const auto byte = static_cast<unsigned char>(_input[_offset]);
                     if (byte == '"')
                     {
+                        JsonString value{
+                            std::string(_input.substr(start, _offset - start)),
+                            escaped
+                        };
                         ++_offset;
-                        return result;
+                        return value;
                     }
                     if (byte == '\\')
                     {
+                        escaped = true;
                         ++_offset;
                         if (_offset >= _input.size())
                         {
@@ -339,40 +531,18 @@ namespace MphRead::Mods::Update
                         const char escape = _input[_offset++];
                         switch (escape)
                         {
-                        case '"': result.push_back('"'); break;
-                        case '\\': result.push_back('\\'); break;
-                        case '/': result.push_back('/'); break;
-                        case 'b': result.push_back('\b'); break;
-                        case 'f': result.push_back('\f'); break;
-                        case 'n': result.push_back('\n'); break;
-                        case 'r': result.push_back('\r'); break;
-                        case 't': result.push_back('\t'); break;
-                        case 'u':
-                        {
-                            char32_t code = ReadHex4();
-                            if (code >= 0xD800U && code <= 0xDBFFU)
-                            {
-                                if (_offset + 2 > _input.size()
-                                    || _input[_offset] != '\\'
-                                    || _input[_offset + 1] != 'u')
-                                {
-                                    ThrowJsonException("Incomplete UTF-16 surrogate pair in JSON string.");
-                                }
-                                _offset += 2;
-                                const char32_t low = ReadHex4();
-                                if (low < 0xDC00U || low > 0xDFFFU)
-                                {
-                                    ThrowJsonException("Invalid UTF-16 surrogate pair in JSON string.");
-                                }
-                                code = 0x10000U + ((code - 0xD800U) << 10) + (low - 0xDC00U);
-                            }
-                            else if (code >= 0xDC00U && code <= 0xDFFFU)
-                            {
-                                ThrowJsonException("Invalid UTF-16 surrogate in JSON string.");
-                            }
-                            AppendUtf8(result, code);
+                        case '"':
+                        case '\\':
+                        case '/':
+                        case 'b':
+                        case 'f':
+                        case 'n':
+                        case 'r':
+                        case 't':
                             break;
-                        }
+                        case 'u':
+                            ValidateHex4();
+                            break;
                         default:
                             ThrowJsonException("Invalid JSON escape sequence.");
                         }
@@ -382,42 +552,25 @@ namespace MphRead::Mods::Update
                     {
                         ThrowJsonException("Unescaped control character in JSON string.");
                     }
-                    const std::size_t length = Utf8SequenceLength(_input, _offset);
-                    result.append(_input.substr(_offset, length));
-                    _offset += length;
+                    _offset += Utf8SequenceLength(_input, _offset);
                 }
                 ThrowJsonException("Unterminated JSON string.");
             }
 
-            [[nodiscard]] char32_t ReadHex4()
+            void ValidateHex4()
             {
                 if (_offset + 4 > _input.size())
                 {
                     ThrowJsonException("Incomplete Unicode escape in JSON string.");
                 }
-                char32_t value = 0;
-                for (int i = 0; i < 4; ++i)
+                for (std::size_t index = 0; index < 4; ++index)
                 {
-                    const char ch = _input[_offset++];
-                    value <<= 4;
-                    if (ch >= '0' && ch <= '9')
-                    {
-                        value |= static_cast<char32_t>(ch - '0');
-                    }
-                    else if (ch >= 'a' && ch <= 'f')
-                    {
-                        value |= static_cast<char32_t>(ch - 'a' + 10);
-                    }
-                    else if (ch >= 'A' && ch <= 'F')
-                    {
-                        value |= static_cast<char32_t>(ch - 'A' + 10);
-                    }
-                    else
+                    if (HexDigit(_input[_offset + index]) < 0)
                     {
                         ThrowJsonException("Invalid Unicode escape in JSON string.");
                     }
                 }
-                return value;
+                _offset += 4;
             }
 
             [[nodiscard]] std::string ParseNumber()
@@ -430,9 +583,11 @@ namespace MphRead::Mods::Update
                 if (_input[_offset] == '0')
                 {
                     ++_offset;
-                    if (_offset < _input.size() && _input[_offset] >= '0' && _input[_offset] <= '9')
+                    if (_offset < _input.size()
+                        && _input[_offset] >= '0' && _input[_offset] <= '9')
                     {
-                        ThrowJsonException("Leading zeroes are not permitted in JSON numbers.");
+                        ThrowJsonException(
+                            "Leading zeroes are not permitted in JSON numbers.");
                     }
                 }
                 else
@@ -520,13 +675,39 @@ namespace MphRead::Mods::Update
         {
             if (value.Kind != JsonKind::Object)
             {
-                ThrowInvalidOperation("The requested operation requires an element of type 'Object'.");
+                ThrowWrongType("Object", value);
             }
-            for (auto it = value.Object.rbegin(); it != value.Object.rend(); ++it)
+
+            for (auto iterator = value.Object.rbegin();
+                iterator != value.Object.rend(); ++iterator)
             {
-                if (it->first == name)
+                const JsonString& current = iterator->first;
+                if (!current.Escaped)
                 {
-                    return &it->second;
+                    if (current.Text == name)
+                    {
+                        return &iterator->second;
+                    }
+                    continue;
+                }
+
+                if (current.Text.size() <= name.size())
+                {
+                    continue;
+                }
+                const std::size_t slash = current.Text.find('\\');
+                if (slash == std::string::npos
+                    || name.size() <= slash
+                    || current.Text.substr(0, slash) != name.substr(0, slash))
+                {
+                    continue;
+                }
+
+                const std::string remainder
+                    = UnescapeJsonString(std::string_view(current.Text).substr(slash));
+                if (remainder == name.substr(slash))
+                {
+                    return &iterator->second;
                 }
             }
             return nullptr;
@@ -540,16 +721,18 @@ namespace MphRead::Mods::Update
             }
             if (value.Kind != JsonKind::String)
             {
-                ThrowInvalidOperation("The requested operation requires an element of type 'String'.");
+                ThrowWrongType("String", value);
             }
-            return value.Text;
+            return value.Escaped
+                ? UnescapeJsonString(value.Text)
+                : value.Text;
         }
 
         [[nodiscard]] bool TryGetInt64(const JsonValue& value, std::int64_t& result)
         {
             if (value.Kind != JsonKind::Number)
             {
-                ThrowInvalidOperation("The requested operation requires an element of type 'Number'.");
+                ThrowWrongType("Number", value);
             }
             const char* first = value.Text.data();
             const char* last = first + value.Text.size();
@@ -825,6 +1008,14 @@ namespace MphRead::Mods::Update
             {
                 return "NullReferenceException";
             }
+            if (dynamic_cast<const ArgumentNullException*>(&ex) != nullptr)
+            {
+                return "ArgumentNullException";
+            }
+            if (dynamic_cast<const InvalidOperationException*>(&ex) != nullptr)
+            {
+                return "InvalidOperationException";
+            }
             if (dynamic_cast<const std::bad_alloc*>(&ex) != nullptr)
             {
                 return "OutOfMemoryException";
@@ -863,14 +1054,19 @@ namespace MphRead::Mods::Update
 
     std::optional<std::string> UpdateCheck::LastReason()
     {
-        std::lock_guard lock(LastReasonMutex);
-        return LastReasonValue;
+        const std::shared_ptr<const std::string> value
+            = LastReasonValue.load(std::memory_order_relaxed);
+        return value == nullptr
+            ? std::nullopt
+            : std::optional<std::string>(*value);
     }
 
     void UpdateCheck::SetLastReason(std::optional<std::string> reason)
     {
-        std::lock_guard lock(LastReasonMutex);
-        LastReasonValue = std::move(reason);
+        LastReasonValue.store(reason.has_value()
+            ? std::make_shared<const std::string>(std::move(*reason))
+            : std::shared_ptr<const std::string>(),
+            std::memory_order_relaxed);
     }
 
     std::optional<UpdateInfo> UpdateCheck::Latest(CancellationToken cancel)
@@ -964,7 +1160,7 @@ namespace MphRead::Mods::Update
             {
                 if (list->Kind != JsonKind::Array)
                 {
-                    ThrowInvalidOperation("The requested operation requires an element of type 'Array'.");
+                    ThrowWrongType("Array", *list);
                 }
                 for (const JsonValue& item : list->Array)
                 {
@@ -1018,15 +1214,31 @@ namespace MphRead::Mods::Update
         }
 
         const std::optional<Asset> package = PickAsset(assets);
-        UpdateInfo info;
-        info.Tag = std::move(tag);
-        info.Version = *published;
-        info.AssetName = package.has_value() ? package->Name : std::string();
-        info.AssetUrl = package.has_value() ? package->Url : std::string();
-        info.AssetSize = package.has_value() ? package->Size : 0;
-        info.PageUrl = !page.empty() ? std::move(page) : std::string(ReleasesPage);
-        info.Notes = std::move(notes);
-        return info;
+        return UpdateInfo{
+            .Tag = std::move(tag),
+            .Version = *published,
+            .AssetName = package.has_value() ? package->Name : std::string(),
+            .AssetUrl = package.has_value() ? package->Url : std::string(),
+            .AssetSize = package.has_value() ? package->Size : 0,
+            .PageUrl = !page.empty() ? std::move(page) : std::string(ReleasesPage),
+            .Notes = std::move(notes)
+        };
+    }
+
+    std::optional<UpdateInfo> UpdateCheck::Parse(std::nullptr_t,
+        std::optional<Version> installed)
+    {
+        SetLastReason(std::nullopt);
+        if (!installed.has_value())
+        {
+            installed = BuildVersion::Current();
+        }
+        if (!installed.has_value())
+        {
+            SetLastReason("this is a local build, so it is left alone");
+            return std::nullopt;
+        }
+        throw ArgumentNullException("json");
     }
 
     bool UpdateCheck::IsServerBuild() noexcept

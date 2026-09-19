@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <limits>
 #include <mutex>
+#include <new>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -42,8 +43,9 @@ namespace MphRead::Mods::Update
 
         [[nodiscard]] State& GetState()
         {
-            static State state;
-            return state;
+            alignas(State) static unsigned char storage[sizeof(State)];
+            static State* state = ::new (static_cast<void*>(storage)) State();
+            return *state;
         }
 
         [[nodiscard]] const std::string& RequireString(
@@ -94,7 +96,144 @@ namespace MphRead::Mods::Update
             return ticks + delta;
         }
 
-#ifndef _WIN32
+#ifdef _WIN32
+        using ShellExecuteExWFunction = BOOL (WINAPI*)(SHELLEXECUTEINFOW*);
+        using CoGetApartmentTypeFunction = HRESULT (WINAPI*)(int*, int*);
+        using CoInitializeExFunction = HRESULT (WINAPI*)(void*, DWORD);
+        using CoUninitializeFunction = void (WINAPI*)();
+
+        [[nodiscard]] FARPROC LoadProcedure(const wchar_t* moduleName, const char* procedureName)
+        {
+            HMODULE module = ::GetModuleHandleW(moduleName);
+            if (module == nullptr)
+            {
+                module = ::LoadLibraryW(moduleName);
+            }
+            return module == nullptr ? nullptr : ::GetProcAddress(module, procedureName);
+        }
+
+        [[nodiscard]] ShellExecuteExWFunction ShellExecuteExWApi()
+        {
+            static auto function = reinterpret_cast<ShellExecuteExWFunction>(
+                LoadProcedure(L"shell32.dll", "ShellExecuteExW"));
+            return function;
+        }
+
+        [[nodiscard]] CoGetApartmentTypeFunction CoGetApartmentTypeApi()
+        {
+            static auto function = reinterpret_cast<CoGetApartmentTypeFunction>(
+                LoadProcedure(L"ole32.dll", "CoGetApartmentType"));
+            return function;
+        }
+
+        [[nodiscard]] CoInitializeExFunction CoInitializeExApi()
+        {
+            static auto function = reinterpret_cast<CoInitializeExFunction>(
+                LoadProcedure(L"ole32.dll", "CoInitializeEx"));
+            return function;
+        }
+
+        [[nodiscard]] CoUninitializeFunction CoUninitializeApi()
+        {
+            static auto function = reinterpret_cast<CoUninitializeFunction>(
+                LoadProcedure(L"ole32.dll", "CoUninitialize"));
+            return function;
+        }
+
+        [[nodiscard]] bool CurrentThreadIsSta() noexcept
+        {
+            CoGetApartmentTypeFunction getApartmentType = CoGetApartmentTypeApi();
+            if (getApartmentType == nullptr)
+            {
+                return false;
+            }
+            int apartmentType = -1;
+            int qualifier = 0;
+            const HRESULT result = getApartmentType(&apartmentType, &qualifier);
+            return SUCCEEDED(result) && (apartmentType == 0 || apartmentType == 3);
+        }
+
+        [[nodiscard]] std::optional<std::wstring> Utf8ToWide(const std::string& text)
+        {
+            if (text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+            {
+                return std::nullopt;
+            }
+            const int byteCount = static_cast<int>(text.size());
+            const int length = ::MultiByteToWideChar(
+                CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), byteCount, nullptr, 0);
+            if (length <= 0)
+            {
+                return std::nullopt;
+            }
+            std::wstring result(static_cast<std::size_t>(length), L'\0');
+            if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                    text.data(), byteCount, result.data(), length) != length)
+            {
+                return std::nullopt;
+            }
+            return result;
+        }
+
+        [[nodiscard]] bool InvokeShellExecute(SHELLEXECUTEINFOW& info)
+        {
+            ShellExecuteExWFunction shellExecute = ShellExecuteExWApi();
+            return shellExecute != nullptr && shellExecute(&info) != FALSE;
+        }
+
+        [[nodiscard]] bool StartWindowsUrl(const std::string& url)
+        {
+            std::optional<std::wstring> wide = Utf8ToWide(url);
+            if (!wide.has_value())
+            {
+                return false;
+            }
+
+            SHELLEXECUTEINFOW info{};
+            info.cbSize = sizeof(info);
+            info.fMask = SEE_MASK_NOCLOSEPROCESS
+                | SEE_MASK_FLAG_DDEWAIT
+                | SEE_MASK_FLAG_NO_UI;
+            info.lpVerb = nullptr;
+            info.lpFile = wide->c_str();
+            info.lpParameters = nullptr;
+            info.lpDirectory = nullptr;
+            info.nShow = SW_SHOWNORMAL;
+
+            bool succeeded = false;
+            if (CurrentThreadIsSta())
+            {
+                succeeded = InvokeShellExecute(info);
+            }
+            else
+            {
+                std::thread executionThread([&]
+                {
+                    CoInitializeExFunction initialize = CoInitializeExApi();
+                    CoUninitializeFunction uninitialize = CoUninitializeApi();
+                    if (initialize == nullptr || uninitialize == nullptr)
+                    {
+                        return;
+                    }
+                    constexpr DWORD CoinitApartmentThreaded = 0x2;
+                    const HRESULT initialized = initialize(nullptr, CoinitApartmentThreaded);
+                    if (FAILED(initialized))
+                    {
+                        return;
+                    }
+                    succeeded = InvokeShellExecute(info);
+                    uninitialize();
+                });
+                executionThread.join();
+            }
+
+            if (info.hProcess != nullptr)
+            {
+                (void)::CloseHandle(info.hProcess);
+            }
+            return succeeded;
+        }
+#else
         void ReapChild(pid_t child) noexcept
         {
             int status = 0;
@@ -203,9 +342,9 @@ namespace MphRead::Mods::Update
             }
             catch (...)
             {
-                // Task.Run retains exceptions raised by the completion callback
+                // Task.Run retains exceptions thrown by the completion callback
                 // in its unobserved task. The native fire-and-forget equivalent
-                // must likewise keep them from escaping the worker thread.
+                // keeps them from escaping the worker thread.
             }
         }).detach();
     }
@@ -250,9 +389,7 @@ namespace MphRead::Mods::Update
         try
         {
 #ifdef _WIN32
-            const HINSTANCE result = ::ShellExecuteA(
-                nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            return reinterpret_cast<std::intptr_t>(result) > 32;
+            return StartWindowsUrl(url);
 #elif defined(__APPLE__)
             return StartDesktopCommand("open", url);
 #else

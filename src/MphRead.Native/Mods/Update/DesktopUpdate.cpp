@@ -1,0 +1,1198 @@
+#include "DesktopUpdate.hpp"
+
+#include "BuildVersion.hpp"
+#include "UpdateDownload.hpp"
+
+#include <archive.h>
+#include <archive_entry.h>
+
+#include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <thread>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#else
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
+namespace MphRead::Mods::Update
+{
+    namespace
+    {
+        namespace fs = std::filesystem;
+        using namespace std::chrono_literals;
+
+        std::atomic<std::shared_ptr<const std::string>> LastErrorValue{nullptr};
+
+        class IOException final : public std::runtime_error
+        {
+        public:
+            explicit IOException(std::string message)
+                : std::runtime_error(std::move(message))
+            {
+            }
+        };
+
+        class UnauthorizedAccessException final : public std::runtime_error
+        {
+        public:
+            explicit UnauthorizedAccessException(std::string message)
+                : std::runtime_error(std::move(message))
+            {
+            }
+        };
+
+        class ArchiveException final : public std::runtime_error
+        {
+        public:
+            explicit ArchiveException(std::string message)
+                : std::runtime_error(std::move(message))
+            {
+            }
+        };
+
+#if defined(_WIN32)
+        [[nodiscard]] std::wstring Utf8ToWide(std::string_view value)
+        {
+            if (value.empty())
+            {
+                return {};
+            }
+            const int count = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                value.data(), static_cast<int>(value.size()), nullptr, 0);
+            if (count <= 0)
+            {
+                throw std::system_error(
+                    static_cast<int>(::GetLastError()), std::system_category());
+            }
+            std::wstring result(static_cast<std::size_t>(count), L'\0');
+            if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                value.data(), static_cast<int>(value.size()), result.data(), count) != count)
+            {
+                throw std::system_error(
+                    static_cast<int>(::GetLastError()), std::system_category());
+            }
+            return result;
+        }
+
+        [[nodiscard]] std::string WideToUtf8(std::wstring_view value)
+        {
+            if (value.empty())
+            {
+                return {};
+            }
+            const int count = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+                value.data(), static_cast<int>(value.size()), nullptr, 0,
+                nullptr, nullptr);
+            if (count <= 0)
+            {
+                throw std::system_error(
+                    static_cast<int>(::GetLastError()), std::system_category());
+            }
+            std::string result(static_cast<std::size_t>(count), '\0');
+            if (::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+                value.data(), static_cast<int>(value.size()), result.data(), count,
+                nullptr, nullptr) != count)
+            {
+                throw std::system_error(
+                    static_cast<int>(::GetLastError()), std::system_category());
+            }
+            return result;
+        }
+#endif
+
+        [[nodiscard]] fs::path NativePath(const std::string& value)
+        {
+#if defined(_WIN32)
+            return fs::path(Utf8ToWide(value));
+#else
+            return fs::path(value);
+#endif
+        }
+
+        [[nodiscard]] std::string PathText(const fs::path& value)
+        {
+#if defined(_WIN32)
+            return WideToUtf8(value.native());
+#else
+            return value.string();
+#endif
+        }
+
+        [[nodiscard]] std::string CurrentExecutablePath()
+        {
+#if defined(_WIN32)
+            std::vector<wchar_t> buffer(260);
+            for (;;)
+            {
+                const DWORD capacity = static_cast<DWORD>(buffer.size());
+                ::SetLastError(ERROR_SUCCESS);
+                const DWORD length = ::GetModuleFileNameW(nullptr, buffer.data(), capacity);
+                if (length == 0)
+                {
+                    throw std::system_error(
+                        static_cast<int>(::GetLastError()), std::system_category());
+                }
+                if (length < capacity)
+                {
+                    return WideToUtf8(std::wstring_view(buffer.data(), length));
+                }
+                if (buffer.size() > 32768U)
+                {
+                    throw std::length_error("process path is too long");
+                }
+                buffer.resize(buffer.size() * 2U);
+            }
+#elif defined(__APPLE__)
+            std::uint32_t size = 0;
+            (void)::_NSGetExecutablePath(nullptr, &size);
+            if (size == 0)
+            {
+                throw std::runtime_error("could not locate the current executable");
+            }
+            std::vector<char> buffer(size);
+            if (::_NSGetExecutablePath(buffer.data(), &size) != 0)
+            {
+                throw std::runtime_error("could not locate the current executable");
+            }
+            std::unique_ptr<char, decltype(&std::free)> resolved(
+                ::realpath(buffer.data(), nullptr), &std::free);
+            if (!resolved)
+            {
+                throw std::system_error(errno, std::generic_category());
+            }
+            return std::string(resolved.get());
+#else
+            std::vector<char> buffer(256);
+            for (;;)
+            {
+                const ssize_t length = ::readlink(
+                    "/proc/self/exe", buffer.data(), buffer.size());
+                if (length < 0)
+                {
+                    throw std::system_error(errno, std::generic_category());
+                }
+                if (static_cast<std::size_t>(length) < buffer.size())
+                {
+                    return std::string(buffer.data(), static_cast<std::size_t>(length));
+                }
+                buffer.resize(buffer.size() * 2U);
+            }
+#endif
+        }
+
+        [[nodiscard]] const std::string& BaseDirectory()
+        {
+            static const std::string value = []
+            {
+                fs::path directory = NativePath(CurrentExecutablePath()).parent_path();
+                directory /= "";
+                std::string text = PathText(directory);
+                if (text.empty() || (text.back() != '/' && text.back() != '\\'))
+                {
+                    text.push_back(static_cast<char>(fs::path::preferred_separator));
+                }
+                return text;
+            }();
+            return value;
+        }
+
+        [[nodiscard]] std::string Combine(
+            const std::string& left, std::string_view right)
+        {
+            fs::path result = NativePath(left);
+#if defined(_WIN32)
+            result /= fs::path(Utf8ToWide(right));
+#else
+            result /= fs::path(right);
+#endif
+            return PathText(result);
+        }
+
+        [[nodiscard]] bool IsAndroid() noexcept
+        {
+#if defined(__ANDROID__)
+            return true;
+#else
+            return false;
+#endif
+        }
+
+        [[nodiscard]] bool IsWindows() noexcept
+        {
+#if defined(_WIN32)
+            return true;
+#else
+            return false;
+#endif
+        }
+
+        [[nodiscard]] bool FileExists(const std::string& path) noexcept
+        {
+            std::error_code error;
+            const fs::file_status status = fs::status(NativePath(path), error);
+            return !error && fs::exists(status) && !fs::is_directory(status);
+        }
+
+        [[nodiscard]] bool DirectoryExists(const std::string& path) noexcept
+        {
+            std::error_code error;
+            const fs::file_status status = fs::status(NativePath(path), error);
+            return !error && fs::is_directory(status);
+        }
+
+        [[noreturn]] void ThrowFileError(
+            const std::string& path, const std::error_code& error)
+        {
+            if (error == std::errc::permission_denied)
+            {
+                throw UnauthorizedAccessException(
+                    "Access to the path '" + path + "' is denied.");
+            }
+            throw IOException(error.message());
+        }
+
+        void CreateDirectory(const std::string& path)
+        {
+            std::error_code error;
+            fs::create_directories(NativePath(path), error);
+            if (error)
+            {
+                ThrowFileError(path, error);
+            }
+        }
+
+        void DeleteFile(const std::string& path)
+        {
+            std::error_code error;
+            fs::remove(NativePath(path), error);
+            if (error)
+            {
+                ThrowFileError(path, error);
+            }
+        }
+
+        void WriteEmptyFile(const std::string& path)
+        {
+#if defined(_WIN32)
+            const std::wstring native = Utf8ToWide(path);
+            HANDLE handle = ::CreateFileW(native.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (handle == INVALID_HANDLE_VALUE)
+            {
+                ThrowFileError(path, std::error_code(
+                    static_cast<int>(::GetLastError()), std::system_category()));
+            }
+            if (!::CloseHandle(handle))
+            {
+                ThrowFileError(path, std::error_code(
+                    static_cast<int>(::GetLastError()), std::system_category()));
+            }
+#else
+            int flags = O_WRONLY | O_CREAT | O_TRUNC;
+#ifdef O_CLOEXEC
+            flags |= O_CLOEXEC;
+#endif
+            const int fd = ::open(NativePath(path).c_str(), flags, 0666);
+            if (fd < 0)
+            {
+                ThrowFileError(path, std::error_code(errno, std::generic_category()));
+            }
+            if (::close(fd) != 0)
+            {
+                ThrowFileError(path, std::error_code(errno, std::generic_category()));
+            }
+#endif
+        }
+
+        [[nodiscard]] bool EndsWithOrdinalIgnoreCaseAscii(
+            std::string_view value, std::string_view suffix) noexcept
+        {
+            if (value.size() < suffix.size())
+            {
+                return false;
+            }
+            value.remove_prefix(value.size() - suffix.size());
+            for (std::size_t i = 0; i < suffix.size(); ++i)
+            {
+                unsigned char left = static_cast<unsigned char>(value[i]);
+                unsigned char right = static_cast<unsigned char>(suffix[i]);
+                if (left >= 'A' && left <= 'Z')
+                {
+                    left = static_cast<unsigned char>(left + ('a' - 'A'));
+                }
+                if (right >= 'A' && right <= 'Z')
+                {
+                    right = static_cast<unsigned char>(right + ('a' - 'A'));
+                }
+                if (left != right)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        [[noreturn]] void ThrowArchive(struct archive* reader)
+        {
+            const char* message = archive_error_string(reader);
+            throw ArchiveException(message == nullptr ? "archive extraction failed" : message);
+        }
+
+        [[nodiscard]] bool IsUnsafeArchivePath(std::string_view name)
+        {
+            if (name.empty())
+            {
+                return false;
+            }
+            if (name.front() == '/' || name.front() == '\\')
+            {
+                return true;
+            }
+            if (name.size() >= 2
+                && ((name[0] >= 'A' && name[0] <= 'Z')
+                    || (name[0] >= 'a' && name[0] <= 'z'))
+                && name[1] == ':')
+            {
+                return true;
+            }
+            std::size_t start = 0;
+            while (start <= name.size())
+            {
+                const std::size_t end = name.find_first_of("/\\", start);
+                const std::string_view part = name.substr(start,
+                    end == std::string_view::npos ? name.size() - start : end - start);
+                if (part == "..")
+                {
+                    return true;
+                }
+                if (end == std::string_view::npos)
+                {
+                    break;
+                }
+                start = end + 1;
+            }
+            return false;
+        }
+
+        void ExtractArchive(const std::string& archivePath,
+            const std::string& destination, bool zip)
+        {
+            struct ArchiveReaderDeleter
+            {
+                void operator()(struct archive* value) const noexcept
+                {
+                    if (value != nullptr)
+                    {
+                        archive_read_free(value);
+                    }
+                }
+            };
+            struct ArchiveWriterDeleter
+            {
+                void operator()(struct archive* value) const noexcept
+                {
+                    if (value != nullptr)
+                    {
+                        archive_write_free(value);
+                    }
+                }
+            };
+
+            std::unique_ptr<struct archive, ArchiveReaderDeleter> reader(archive_read_new());
+            if (!reader)
+            {
+                throw std::bad_alloc();
+            }
+            if (zip)
+            {
+                if (archive_read_support_format_zip(reader.get()) != ARCHIVE_OK)
+                {
+                    ThrowArchive(reader.get());
+                }
+            }
+            else
+            {
+                if (archive_read_support_filter_gzip(reader.get()) != ARCHIVE_OK
+                    || archive_read_support_format_tar(reader.get()) != ARCHIVE_OK)
+                {
+                    ThrowArchive(reader.get());
+                }
+            }
+
+#if defined(_WIN32)
+            const std::wstring archiveWide = Utf8ToWide(archivePath);
+            if (archive_read_open_filename_w(reader.get(), archiveWide.c_str(), 64U * 1024U)
+                != ARCHIVE_OK)
+#else
+            if (archive_read_open_filename(reader.get(), archivePath.c_str(), 64U * 1024U)
+                != ARCHIVE_OK)
+#endif
+            {
+                ThrowArchive(reader.get());
+            }
+
+            std::unique_ptr<struct archive, ArchiveWriterDeleter> writer(
+                archive_write_disk_new());
+            if (!writer)
+            {
+                throw std::bad_alloc();
+            }
+            int flags = ARCHIVE_EXTRACT_TIME
+                | ARCHIVE_EXTRACT_SECURE_SYMLINKS;
+            if (!zip)
+            {
+                flags |= ARCHIVE_EXTRACT_PERM;
+            }
+            archive_write_disk_set_options(writer.get(), flags);
+            archive_write_disk_set_standard_lookup(writer.get());
+
+            struct archive_entry* entry = nullptr;
+            for (;;)
+            {
+                const int next = archive_read_next_header(reader.get(), &entry);
+                if (next == ARCHIVE_EOF)
+                {
+                    break;
+                }
+                if (next != ARCHIVE_OK)
+                {
+                    ThrowArchive(reader.get());
+                }
+
+                const char* rawName = archive_entry_pathname_utf8(entry);
+                if (rawName == nullptr)
+                {
+                    rawName = archive_entry_pathname(entry);
+                }
+                if (rawName == nullptr)
+                {
+                    throw ArchiveException("archive entry has no path");
+                }
+                const std::string name(rawName);
+                if (IsUnsafeArchivePath(name))
+                {
+                    throw IOException("Extracting the Zip entry would have resulted in a file outside the specified destination directory.");
+                }
+
+                const std::string output = Combine(destination, name);
+#if defined(_WIN32)
+                const std::wstring outputWide = Utf8ToWide(output);
+                archive_entry_copy_pathname_w(entry, outputWide.c_str());
+#else
+                archive_entry_set_pathname(entry, output.c_str());
+#endif
+
+                const int headerResult = archive_write_header(writer.get(), entry);
+                if (headerResult < ARCHIVE_OK)
+                {
+                    const char* message = archive_error_string(writer.get());
+                    throw ArchiveException(message == nullptr
+                        ? "archive extraction failed" : message);
+                }
+                if (archive_entry_size(entry) > 0)
+                {
+                    for (;;)
+                    {
+                        const void* block = nullptr;
+                        std::size_t size = 0;
+                        la_int64_t offset = 0;
+                        const int dataResult = archive_read_data_block(
+                            reader.get(), &block, &size, &offset);
+                        if (dataResult == ARCHIVE_EOF)
+                        {
+                            break;
+                        }
+                        if (dataResult != ARCHIVE_OK)
+                        {
+                            ThrowArchive(reader.get());
+                        }
+                        const la_ssize_t writeResult = archive_write_data_block(
+                            writer.get(), block, size, offset);
+                        if (writeResult < ARCHIVE_OK)
+                        {
+                            const char* message = archive_error_string(writer.get());
+                            throw ArchiveException(message == nullptr
+                                ? "archive extraction failed" : message);
+                        }
+                    }
+                }
+                const int finishResult = archive_write_finish_entry(writer.get());
+                if (finishResult != ARCHIVE_OK)
+                {
+                    const char* message = archive_error_string(writer.get());
+                    throw ArchiveException(message == nullptr
+                        ? "archive extraction failed" : message);
+                }
+            }
+        }
+
+#if defined(_WIN32)
+        [[nodiscard]] std::wstring QuoteWindowsArgument(std::wstring_view value)
+        {
+            if (!value.empty()
+                && value.find_first_of(L" \t\n\v\"") == std::wstring_view::npos)
+            {
+                return std::wstring(value);
+            }
+            std::wstring result;
+            result.push_back(L'\"');
+            std::size_t slashes = 0;
+            for (const wchar_t ch : value)
+            {
+                if (ch == L'\\')
+                {
+                    ++slashes;
+                    continue;
+                }
+                if (ch == L'\"')
+                {
+                    result.append(slashes * 2U + 1U, L'\\');
+                    result.push_back(L'\"');
+                    slashes = 0;
+                    continue;
+                }
+                result.append(slashes, L'\\');
+                slashes = 0;
+                result.push_back(ch);
+            }
+            result.append(slashes * 2U, L'\\');
+            result.push_back(L'\"');
+            return result;
+        }
+#endif
+
+        void StartProcess(const std::string& executable,
+            const std::string& workingDirectory,
+            std::span<const std::string> arguments)
+        {
+#if defined(_WIN32)
+            const std::wstring exe = Utf8ToWide(executable);
+            const std::wstring cwd = Utf8ToWide(workingDirectory);
+            std::wstring command = QuoteWindowsArgument(exe);
+            for (const std::string& argument : arguments)
+            {
+                command.push_back(L' ');
+                command += QuoteWindowsArgument(Utf8ToWide(argument));
+            }
+            std::vector<wchar_t> mutableCommand(command.begin(), command.end());
+            mutableCommand.push_back(L'\0');
+
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            PROCESS_INFORMATION process{};
+            if (!::CreateProcessW(exe.c_str(), mutableCommand.data(), nullptr, nullptr,
+                FALSE, 0, nullptr, cwd.c_str(), &startup, &process))
+            {
+                throw std::system_error(
+                    static_cast<int>(::GetLastError()), std::system_category());
+            }
+            ::CloseHandle(process.hThread);
+            ::CloseHandle(process.hProcess);
+#else
+            int errorPipe[2] = {-1, -1};
+#if defined(O_CLOEXEC) && defined(__linux__)
+            if (::pipe2(errorPipe, O_CLOEXEC) != 0)
+            {
+                throw std::system_error(errno, std::generic_category());
+            }
+#else
+            if (::pipe(errorPipe) != 0)
+            {
+                throw std::system_error(errno, std::generic_category());
+            }
+            for (int fd : errorPipe)
+            {
+                const int oldFlags = ::fcntl(fd, F_GETFD);
+                if (oldFlags < 0 || ::fcntl(fd, F_SETFD, oldFlags | FD_CLOEXEC) != 0)
+                {
+                    const int error = errno;
+                    ::close(errorPipe[0]);
+                    ::close(errorPipe[1]);
+                    throw std::system_error(error, std::generic_category());
+                }
+            }
+#endif
+
+            std::vector<std::string> owned;
+            owned.reserve(arguments.size() + 1U);
+            owned.push_back(executable);
+            for (const std::string& argument : arguments)
+            {
+                owned.push_back(argument);
+            }
+            std::vector<char*> argv;
+            argv.reserve(owned.size() + 1U);
+            for (std::string& value : owned)
+            {
+                argv.push_back(value.data());
+            }
+            argv.push_back(nullptr);
+            const fs::path nativeWorkingDirectory = NativePath(workingDirectory);
+            const fs::path nativeExecutable = NativePath(executable);
+
+            const pid_t child = ::fork();
+            if (child < 0)
+            {
+                const int error = errno;
+                ::close(errorPipe[0]);
+                ::close(errorPipe[1]);
+                throw std::system_error(error, std::generic_category());
+            }
+            if (child == 0)
+            {
+                ::close(errorPipe[0]);
+                auto fail = [&](int error) noexcept
+                {
+                    const char* bytes = reinterpret_cast<const char*>(&error);
+                    std::size_t offset = 0;
+                    while (offset < sizeof(error))
+                    {
+                        const ssize_t written = ::write(errorPipe[1],
+                            bytes + offset, sizeof(error) - offset);
+                        if (written > 0)
+                        {
+                            offset += static_cast<std::size_t>(written);
+                        }
+                        else if (written < 0 && errno == EINTR)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    ::_exit(127);
+                };
+
+                if (::chdir(nativeWorkingDirectory.c_str()) != 0)
+                {
+                    fail(errno);
+                }
+                ::execv(nativeExecutable.c_str(), argv.data());
+                fail(errno);
+            }
+
+            ::close(errorPipe[1]);
+            int childError = 0;
+            std::size_t received = 0;
+            char* bytes = reinterpret_cast<char*>(&childError);
+            for (;;)
+            {
+                const ssize_t count = ::read(errorPipe[0],
+                    bytes + received, sizeof(childError) - received);
+                if (count > 0)
+                {
+                    received += static_cast<std::size_t>(count);
+                    if (received == sizeof(childError))
+                    {
+                        break;
+                    }
+                }
+                else if (count == 0)
+                {
+                    break;
+                }
+                else if (errno == EINTR)
+                {
+                    continue;
+                }
+                else
+                {
+                    const int error = errno;
+                    ::close(errorPipe[0]);
+                    throw std::system_error(error, std::generic_category());
+                }
+            }
+            ::close(errorPipe[0]);
+            if (received != 0)
+            {
+                int status = 0;
+                while (::waitpid(child, &status, 0) < 0 && errno == EINTR)
+                {
+                }
+                throw std::system_error(childError, std::generic_category());
+            }
+#endif
+        }
+
+        [[nodiscard]] std::int32_t CurrentProcessId() noexcept
+        {
+#if defined(_WIN32)
+            return static_cast<std::int32_t>(::GetCurrentProcessId());
+#else
+            return static_cast<std::int32_t>(::getpid());
+#endif
+        }
+
+        void Sleep(std::chrono::milliseconds duration)
+        {
+            std::this_thread::sleep_for(duration);
+        }
+
+        void AssignLastError(std::optional<std::string> value)
+        {
+            LastErrorValue.store(value.has_value()
+                ? std::make_shared<const std::string>(std::move(*value))
+                : std::shared_ptr<const std::string>(),
+                std::memory_order_relaxed);
+        }
+
+        [[nodiscard]] std::string MessageForUnknownException()
+        {
+            return "Exception";
+        }
+    }
+
+    std::string DesktopUpdate::Staging()
+    {
+        return Combine(BaseDirectory(), ".update");
+    }
+
+    std::string DesktopUpdate::StagedBuild()
+    {
+        return Combine(Staging(), "staged");
+    }
+
+    std::string DesktopUpdate::StagedBuildPath()
+    {
+        return StagedBuild();
+    }
+
+    std::optional<std::string> DesktopUpdate::LastError()
+    {
+        const std::shared_ptr<const std::string> value
+            = LastErrorValue.load(std::memory_order_relaxed);
+        return value == nullptr
+            ? std::nullopt
+            : std::optional<std::string>(*value);
+    }
+
+    void DesktopUpdate::SetLastError(std::optional<std::string> value)
+    {
+        AssignLastError(std::move(value));
+    }
+
+    bool DesktopUpdate::Supported()
+    {
+        if (IsAndroid() || !BuildVersion::IsRelease())
+        {
+            return false;
+        }
+        try
+        {
+            const std::string probe = Combine(BaseDirectory(), ".update-probe");
+            WriteEmptyFile(probe);
+            DeleteFile(probe);
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    bool DesktopUpdate::Stage(
+        UpdateInfo update,
+        const std::function<void(float)>& progress,
+        CancellationToken cancel)
+    {
+        SetLastError(std::nullopt);
+
+        const std::optional<std::string>& assetUrl = update.AssetUrl.Get();
+        if (!assetUrl.has_value())
+        {
+            throw NullReferenceException();
+        }
+        if (assetUrl->empty())
+        {
+            SetLastError("this release has no package for this platform");
+            return false;
+        }
+
+        try
+        {
+            Clean();
+            const std::string staging = Staging();
+            CreateDirectory(staging);
+
+            const std::optional<std::string>& assetName = update.AssetName.Get();
+            if (!assetName.has_value())
+            {
+                throw NullReferenceException();
+            }
+            const bool zip = EndsWithOrdinalIgnoreCaseAscii(*assetName, ".zip");
+            const std::string archive = Combine(staging,
+                zip ? "package.zip" : "package.tar.gz");
+
+            if (!UpdateDownload::Fetch(*assetUrl, archive,
+                update.AssetSize.Get(), progress, cancel))
+            {
+                std::optional<std::string> error = UpdateDownload::LastError();
+                SetLastError(error.has_value()
+                    ? std::move(error)
+                    : std::optional<std::string>("the download failed"));
+                return false;
+            }
+
+            const std::string stagedBuild = StagedBuild();
+            CreateDirectory(stagedBuild);
+            ExtractArchive(archive, stagedBuild, zip);
+            DeleteFile(archive);
+
+            const std::string binary = Combine(stagedBuild, UpdateCheck::BinaryName());
+            if (!FileExists(binary))
+            {
+                SetLastError("the package does not contain " + UpdateCheck::BinaryName());
+                return false;
+            }
+            MakeExecutable(binary);
+            return true;
+        }
+        catch (const std::exception& ex)
+        {
+            SetLastError(ex.what());
+            std::cout << "[update] could not stage the update: " << ex.what() << '\n';
+            return false;
+        }
+        catch (...)
+        {
+            const std::string message = MessageForUnknownException();
+            SetLastError(message);
+            std::cout << "[update] could not stage the update: " << message << '\n';
+            return false;
+        }
+    }
+
+    bool DesktopUpdate::Launch(
+        std::optional<std::span<const std::string>> relaunchArgs)
+    {
+        try
+        {
+            const std::string stagedBuild = StagedBuild();
+            const std::string binary = Combine(stagedBuild, UpdateCheck::BinaryName());
+            std::vector<std::string> arguments;
+            arguments.emplace_back("-" + std::string(ApplyFlag));
+            arguments.push_back(BaseDirectory());
+            arguments.push_back(std::to_string(CurrentProcessId()));
+            if (relaunchArgs.has_value())
+            {
+                arguments.emplace_back(RelaunchSeparator);
+                arguments.insert(arguments.end(), relaunchArgs->begin(), relaunchArgs->end());
+            }
+            StartProcess(binary, stagedBuild, arguments);
+            return true;
+        }
+        catch (const std::exception& ex)
+        {
+            SetLastError(ex.what());
+            std::cout << "[update] could not start the update: " << ex.what() << '\n';
+            return false;
+        }
+        catch (...)
+        {
+            const std::string message = MessageForUnknownException();
+            SetLastError(message);
+            std::cout << "[update] could not start the update: " << message << '\n';
+            return false;
+        }
+    }
+
+    std::int32_t DesktopUpdate::Apply(
+        const std::string& target,
+        std::int32_t waitFor,
+        std::optional<std::span<const std::string>> relaunchArgs)
+    {
+        std::cout << "[update] applying to " << target << '\n';
+        WaitForExit(waitFor);
+        const std::string source = BaseDirectory();
+        try
+        {
+            Copy(source, target);
+        }
+        catch (const std::exception& ex)
+        {
+            std::cout << "[update] the copy failed: " << ex.what() << '\n';
+            std::cout << "[update] the new build is in " << source
+                << " -- copy it over " << target << " by hand\n";
+            return 1;
+        }
+        catch (...)
+        {
+            std::cout << "[update] the copy failed: "
+                << MessageForUnknownException() << '\n';
+            std::cout << "[update] the new build is in " << source
+                << " -- copy it over " << target << " by hand\n";
+            return 1;
+        }
+
+        try
+        {
+            const std::string binary = Combine(target, UpdateCheck::BinaryName());
+            MakeExecutable(binary);
+            const std::span<const std::string> arguments = relaunchArgs.has_value()
+                ? *relaunchArgs : std::span<const std::string>{};
+            StartProcess(binary, target, arguments);
+        }
+        catch (const std::exception& ex)
+        {
+            std::cout << "[update] updated, but could not restart: "
+                << ex.what() << '\n';
+            return 1;
+        }
+        catch (...)
+        {
+            std::cout << "[update] updated, but could not restart: "
+                << MessageForUnknownException() << '\n';
+            return 1;
+        }
+        std::cout << "[update] done\n";
+        return 0;
+    }
+
+    void DesktopUpdate::WaitForExit(std::int32_t pid)
+    {
+#if defined(_WIN32)
+        if (pid > 0)
+        {
+            HANDLE process = ::OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(pid));
+            if (process == nullptr)
+            {
+                const DWORD error = ::GetLastError();
+                if (error != ERROR_INVALID_PARAMETER)
+                {
+                    throw std::system_error(
+                        static_cast<int>(error), std::system_category());
+                }
+            }
+            else
+            {
+                const DWORD waited = ::WaitForSingleObject(process, 30000U);
+                const DWORD error = waited == WAIT_FAILED ? ::GetLastError() : ERROR_SUCCESS;
+                ::CloseHandle(process);
+                if (waited == WAIT_TIMEOUT)
+                {
+                    std::cout << "[update] process " << pid
+                        << " is still running; carrying on\n";
+                }
+                else if (waited == WAIT_FAILED)
+                {
+                    throw std::system_error(
+                        static_cast<int>(error), std::system_category());
+                }
+            }
+        }
+#else
+        if (pid > 0)
+        {
+            bool exists = false;
+            if (::kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM)
+            {
+                exists = true;
+            }
+            else if (errno != ESRCH)
+            {
+                throw std::system_error(errno, std::generic_category());
+            }
+            if (exists)
+            {
+                const auto deadline = std::chrono::steady_clock::now() + 30s;
+                while (std::chrono::steady_clock::now() < deadline)
+                {
+                    if (::kill(static_cast<pid_t>(pid), 0) != 0)
+                    {
+                        if (errno == ESRCH)
+                        {
+                            exists = false;
+                            break;
+                        }
+                        if (errno != EPERM)
+                        {
+                            throw std::system_error(errno, std::generic_category());
+                        }
+                    }
+                    Sleep(50ms);
+                }
+                if (exists)
+                {
+                    std::cout << "[update] process " << pid
+                        << " is still running; carrying on\n";
+                }
+            }
+        }
+#endif
+        Sleep(400ms);
+    }
+
+    void DesktopUpdate::Copy(const std::string& source, const std::string& target)
+    {
+        const fs::path sourcePath = NativePath(source);
+        std::error_code error;
+        fs::recursive_directory_iterator iterator(sourcePath, error);
+        if (error)
+        {
+            ThrowFileError(source, error);
+        }
+        const fs::recursive_directory_iterator end;
+        for (; iterator != end; iterator.increment(error))
+        {
+            if (error)
+            {
+                ThrowFileError(source, error);
+            }
+            std::error_code typeError;
+            const bool directory = iterator->is_directory(typeError);
+            if (typeError)
+            {
+                ThrowFileError(PathText(iterator->path()), typeError);
+            }
+            if (directory)
+            {
+                continue;
+            }
+            const bool regular = iterator->is_regular_file(typeError);
+            if (typeError)
+            {
+                ThrowFileError(PathText(iterator->path()), typeError);
+            }
+            if (!regular)
+            {
+                continue;
+            }
+
+            const fs::path relative = iterator->path().lexically_relative(sourcePath);
+            const fs::path destinationPath = NativePath(target) / relative;
+            const fs::path directoryPath = destinationPath.parent_path();
+            if (!directoryPath.empty())
+            {
+                fs::create_directories(directoryPath, error);
+                if (error)
+                {
+                    ThrowFileError(PathText(directoryPath), error);
+                }
+            }
+            CopyWithRetries(PathText(iterator->path()), PathText(destinationPath));
+        }
+        if (error)
+        {
+            ThrowFileError(source, error);
+        }
+    }
+
+    void DesktopUpdate::CopyWithRetries(const std::string& from, const std::string& to)
+    {
+        for (std::int32_t attempt = 0; ; ++attempt)
+        {
+            try
+            {
+                std::error_code error;
+                fs::copy_file(NativePath(from), NativePath(to),
+                    fs::copy_options::overwrite_existing, error);
+                if (error)
+                {
+                    ThrowFileError(to, error);
+                }
+                return;
+            }
+            catch (const IOException&)
+            {
+                if (attempt >= 20)
+                {
+                    throw;
+                }
+                Sleep(250ms);
+            }
+            catch (const UnauthorizedAccessException&)
+            {
+                if (attempt >= 20)
+                {
+                    throw;
+                }
+                Sleep(250ms);
+            }
+        }
+    }
+
+    void DesktopUpdate::Clean()
+    {
+        try
+        {
+            const std::string staging = Staging();
+            if (DirectoryExists(staging))
+            {
+                std::error_code error;
+                fs::remove_all(NativePath(staging), error);
+                if (error)
+                {
+                    ThrowFileError(staging, error);
+                }
+            }
+        }
+        catch (...)
+        {
+        }
+    }
+
+    void DesktopUpdate::MakeExecutable(const std::string& path)
+    {
+        if (IsWindows())
+        {
+            return;
+        }
+        try
+        {
+            std::error_code error;
+            fs::permissions(NativePath(path),
+                fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                fs::perm_options::add, error);
+            if (error)
+            {
+                ThrowFileError(path, error);
+            }
+        }
+        catch (const std::exception& ex)
+        {
+            std::cout << "[update] could not make " << path
+                << " executable: " << ex.what() << '\n';
+        }
+        catch (...)
+        {
+            std::cout << "[update] could not make " << path
+                << " executable: " << MessageForUnknownException() << '\n';
+        }
+    }
+}

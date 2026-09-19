@@ -1249,23 +1249,29 @@ namespace
         std::uint64_t CompressedSize = 0;
         std::uint64_t UncompressedSize = 0;
         std::uint64_t LocalOffset = 0;
+        std::uint32_t DiskNumberStart = 0;
+        std::uint32_t ArchiveDiskNumber = 0;
     };
 
-    [[nodiscard]] std::uint64_t ReadZip64Value(
-        const ByteVector& extra, std::size_t& position)
+    [[nodiscard]] std::uint64_t ReadZip64SignedValue(
+        const ByteVector& field, std::size_t& position)
     {
-        if (position > extra.size() || extra.size() - position < 8)
+        if (position > field.size() || field.size() - position < 8)
         {
             throw std::runtime_error("Invalid ZIP64 extra field.");
         }
-        const std::uint64_t value = ReadU64(extra, position);
+        const std::uint64_t value = ReadU64(field, position);
         position += 8;
+        if (value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+        {
+            throw std::runtime_error("ZIP64 field is too large.");
+        }
         return value;
     }
 
     void ApplyZip64Extra(
         ZipEntry& entry, const ByteVector& extra,
-        bool needUncompressed, bool needCompressed, bool needOffset)
+        bool needUncompressed, bool needCompressed, bool needOffset, bool needDisk)
     {
         std::size_t cursor = 0;
         while (cursor + 4 <= extra.size())
@@ -1273,35 +1279,70 @@ namespace
             const std::uint16_t tag = ReadU16(extra, cursor);
             const std::uint16_t size = ReadU16(extra, cursor + 2);
             cursor += 4;
-            if (cursor > extra.size() || size > extra.size() - cursor)
+            if (size > extra.size() - cursor)
             {
-                throw std::runtime_error("Invalid ZIP extra field.");
-            }
-            if (tag == 0x0001U)
-            {
-                ByteVector field(
-                    extra.begin() + static_cast<std::ptrdiff_t>(cursor),
-                    extra.begin() + static_cast<std::ptrdiff_t>(cursor + size));
-                std::size_t position = 0;
-                if (needUncompressed)
-                {
-                    entry.UncompressedSize = ReadZip64Value(field, position);
-                }
-                if (needCompressed)
-                {
-                    entry.CompressedSize = ReadZip64Value(field, position);
-                }
-                if (needOffset)
-                {
-                    entry.LocalOffset = ReadZip64Value(field, position);
-                }
                 return;
             }
-            cursor += size;
-        }
-        if (needUncompressed || needCompressed || needOffset)
-        {
-            throw std::runtime_error("ZIP64 entry is missing its ZIP64 extra field.");
+            if (tag != 0x0001U)
+            {
+                cursor += size;
+                continue;
+            }
+
+            if (size < 8)
+            {
+                return;
+            }
+            ByteVector field(
+                extra.begin() + static_cast<std::ptrdiff_t>(cursor),
+                extra.begin() + static_cast<std::ptrdiff_t>(cursor + size));
+            const bool readAllFields = size >= 28;
+            std::size_t position = 0;
+
+            if (needUncompressed)
+            {
+                entry.UncompressedSize = ReadZip64SignedValue(field, position);
+            }
+            else if (readAllFields)
+            {
+                position += 8;
+            }
+
+            if (position > field.size() - 8)
+            {
+                return;
+            }
+            if (needCompressed)
+            {
+                entry.CompressedSize = ReadZip64SignedValue(field, position);
+            }
+            else if (readAllFields)
+            {
+                position += 8;
+            }
+
+            if (position > field.size() - 8)
+            {
+                return;
+            }
+            if (needOffset)
+            {
+                entry.LocalOffset = ReadZip64SignedValue(field, position);
+            }
+            else if (readAllFields)
+            {
+                position += 8;
+            }
+
+            if (position > field.size() - 4)
+            {
+                return;
+            }
+            if (needDisk)
+            {
+                entry.DiskNumberStart = ReadU32(field, position);
+            }
+            return;
         }
     }
 
@@ -1330,55 +1371,81 @@ namespace
         {
             throw std::runtime_error("End of Central Directory record could not be found.");
         }
-        if (ReadU16(archive, eocd + 4) != 0 || ReadU16(archive, eocd + 6) != 0)
+
+        const std::uint16_t eocdDisk = ReadU16(archive, eocd + 4);
+        const std::uint16_t eocdCentralDisk = ReadU16(archive, eocd + 6);
+        if (eocdDisk != eocdCentralDisk)
+        {
+            throw std::runtime_error("Split or spanned ZIP archives are not supported.");
+        }
+        const std::uint16_t entriesOnDisk = ReadU16(archive, eocd + 8);
+        const std::uint16_t totalEntries = ReadU16(archive, eocd + 10);
+        if (entriesOnDisk != totalEntries)
         {
             throw std::runtime_error("Split or spanned ZIP archives are not supported.");
         }
 
-        std::uint64_t entryCount = ReadU16(archive, eocd + 10);
-        std::uint64_t centralSize = ReadU32(archive, eocd + 12);
+        std::uint32_t archiveDiskNumber = eocdDisk;
+        std::uint64_t entryCount = totalEntries;
         std::uint64_t centralOffset = ReadU32(archive, eocd + 16);
-        if (entryCount == 0xFFFFU || centralSize == 0xFFFFFFFFULL
-            || centralOffset == 0xFFFFFFFFULL)
+
+        const bool suspectZip64 = eocdDisk == 0xFFFFU
+            || centralOffset == 0xFFFFFFFFULL || entryCount == 0xFFFFU;
+        if (suspectZip64 && eocd >= 20 && ReadU32(archive, eocd - 20) == 0x07064B50U)
         {
-            if (eocd < 20 || ReadU32(archive, eocd - 20) != 0x07064B50U)
-            {
-                throw std::runtime_error("ZIP64 locator could not be found.");
-            }
             const std::uint64_t zip64Offset = ReadU64(archive, eocd - 12);
+            if (zip64Offset > static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()))
+            {
+                throw std::runtime_error("ZIP64 End of Central Directory offset is too large.");
+            }
             if (zip64Offset > archive.size()
                 || archive.size() - static_cast<std::size_t>(zip64Offset) < 56
                 || ReadU32(archive, static_cast<std::size_t>(zip64Offset)) != 0x06064B50U)
             {
                 throw std::runtime_error("ZIP64 End of Central Directory record is invalid.");
             }
+
             const std::size_t offset = static_cast<std::size_t>(zip64Offset);
-            if (ReadU32(archive, offset + 16) != 0 || ReadU32(archive, offset + 20) != 0)
+            archiveDiskNumber = ReadU32(archive, offset + 16);
+            const std::uint64_t zip64EntriesOnDisk = ReadU64(archive, offset + 24);
+            const std::uint64_t zip64EntryCount = ReadU64(archive, offset + 32);
+            const std::uint64_t zip64CentralOffset = ReadU64(archive, offset + 48);
+            if (zip64EntryCount > static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()))
+            {
+                throw std::runtime_error("ZIP64 entry count is too large.");
+            }
+            if (zip64CentralOffset > static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()))
+            {
+                throw std::runtime_error("ZIP64 Central Directory offset is too large.");
+            }
+            if (zip64EntryCount != zip64EntriesOnDisk)
             {
                 throw std::runtime_error("Split or spanned ZIP archives are not supported.");
             }
-            entryCount = ReadU64(archive, offset + 32);
-            centralSize = ReadU64(archive, offset + 40);
-            centralOffset = ReadU64(archive, offset + 48);
+            entryCount = zip64EntryCount;
+            centralOffset = zip64CentralOffset;
         }
 
-        if (centralOffset > archive.size()
-            || centralSize > archive.size() - static_cast<std::size_t>(centralOffset))
+        if (centralOffset > archive.size())
         {
             throw std::runtime_error("Central Directory corrupt.");
         }
-        if (entryCount > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
+        if (entryCount > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
+            || entryCount > static_cast<std::uint64_t>(
+                std::numeric_limits<std::size_t>::max()))
         {
             throw std::length_error("Too many ZIP entries.");
         }
 
         std::vector<ZipEntry> entries;
-        entries.reserve(static_cast<std::size_t>(entryCount));
         std::size_t cursor = static_cast<std::size_t>(centralOffset);
-        for (std::uint64_t index = 0; index < entryCount; ++index)
+        while (cursor + 4 <= archive.size()
+            && ReadU32(archive, cursor) == 0x02014B50U)
         {
-            if (cursor > archive.size() || archive.size() - cursor < 46
-                || ReadU32(archive, cursor) != 0x02014B50U)
+            if (archive.size() - cursor < 46)
             {
                 throw std::runtime_error("Central Directory corrupt.");
             }
@@ -1391,6 +1458,7 @@ namespace
             const std::uint16_t nameLength = ReadU16(archive, cursor + 28);
             const std::uint16_t extraLength = ReadU16(archive, cursor + 30);
             const std::uint16_t commentLength = ReadU16(archive, cursor + 32);
+            const std::uint16_t diskNumberStart16 = ReadU16(archive, cursor + 34);
             const std::uint32_t offset32 = ReadU32(archive, cursor + 42);
             const std::size_t variable = static_cast<std::size_t>(nameLength)
                 + static_cast<std::size_t>(extraLength)
@@ -1404,6 +1472,8 @@ namespace
             entry.CompressedSize = compressed32;
             entry.UncompressedSize = uncompressed32;
             entry.LocalOffset = offset32;
+            entry.DiskNumberStart = diskNumberStart16;
+            entry.ArchiveDiskNumber = archiveDiskNumber;
 
             ByteVector extra(
                 archive.begin() + static_cast<std::ptrdiff_t>(cursor + 46 + nameLength),
@@ -1413,9 +1483,15 @@ namespace
                 entry, extra,
                 uncompressed32 == 0xFFFFFFFFU,
                 compressed32 == 0xFFFFFFFFU,
-                offset32 == 0xFFFFFFFFU);
+                offset32 == 0xFFFFFFFFU,
+                diskNumberStart16 == 0xFFFFU);
             entries.push_back(std::move(entry));
             cursor += 46 + variable;
+        }
+
+        if (entries.size() != static_cast<std::size_t>(entryCount))
+        {
+            throw std::runtime_error("Central Directory entry count is incorrect.");
         }
         return entries;
     }
@@ -1423,9 +1499,13 @@ namespace
     [[nodiscard]] ByteVector ReadZipEntry(
         const ByteVector& archive, const ZipEntry& entry)
     {
-        if ((entry.Flags & 1U) != 0)
+        if (entry.Method != 0 && entry.Method != 8 && entry.Method != 9)
         {
-            throw std::runtime_error("Encrypted ZIP entries are not supported.");
+            throw std::runtime_error("The ZIP entry uses an unsupported compression method.");
+        }
+        if (entry.DiskNumberStart != entry.ArchiveDiskNumber)
+        {
+            throw std::runtime_error("Split or spanned ZIP archives are not supported.");
         }
         if (entry.LocalOffset > archive.size()
             || archive.size() - static_cast<std::size_t>(entry.LocalOffset) < 30)

@@ -181,9 +181,18 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] virtual std::shared_ptr<MapPickerViewAdapter>
             CreateMapPickerViewAdapter() = 0;
 
+        void DispatchOpened(PauseMenuWindow& window, PauseMenuWindowEventArgs& e);
+        void DispatchKeyDown(PauseMenuWindow& window, PauseMenuWindowKeyEventArgs& e);
+        void DispatchClosed(PauseMenuWindow& window, PauseMenuWindowEventArgs& e);
+
         virtual void BaseOnOpened(PauseMenuWindowEventArgs& e) = 0;
         virtual void BaseOnKeyDown(PauseMenuWindowKeyEventArgs& e) = 0;
         virtual void BaseOnClosed(PauseMenuWindowEventArgs& e) = 0;
+
+        // AsyncVoidMethodBuilder.SetException posts an unhandled async-void
+        // exception back through the captured UI synchronization context rather
+        // than throwing it to the event invoker.
+        virtual void PostAsyncVoidException(std::exception_ptr error) noexcept = 0;
     };
 
     struct PauseMenuWindowEventTarget;
@@ -205,11 +214,14 @@ namespace MphRead::Mods::Launcher::Gui
 
         static void CoverGameWindow(PauseMenuWindowCoverTarget& window);
 
+    protected:
         void OnOpened(PauseMenuWindowEventArgs& e);
         void OnKeyDown(PauseMenuWindowKeyEventArgs& e);
         void OnClosed(PauseMenuWindowEventArgs& e);
 
     private:
+        friend class PauseMenuWindowAdapter;
+
         explicit PauseMenuWindow(std::shared_ptr<PauseMenuWindowAdapter> adapter);
         void FinishConstruction(const std::shared_ptr<PauseMenuWindow>& self);
 

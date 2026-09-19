@@ -79,6 +79,24 @@ namespace MphRead::Mods::Launcher::Gui
         PauseMenuWindow::CoverGameWindow(*this);
     }
 
+    void PauseMenuWindowAdapter::DispatchOpened(
+        PauseMenuWindow& window, PauseMenuWindowEventArgs& e)
+    {
+        window.OnOpened(e);
+    }
+
+    void PauseMenuWindowAdapter::DispatchKeyDown(
+        PauseMenuWindow& window, PauseMenuWindowKeyEventArgs& e)
+    {
+        window.OnKeyDown(e);
+    }
+
+    void PauseMenuWindowAdapter::DispatchClosed(
+        PauseMenuWindow& window, PauseMenuWindowEventArgs& e)
+    {
+        window.OnClosed(e);
+    }
+
     namespace
     {
         class VectorRoomEnumerator final : public MapPickerRoomEnumerator
@@ -364,17 +382,22 @@ namespace MphRead::Mods::Launcher::Gui
         {
             std::shared_ptr<MphRead::MenuSettings> settings
                 = MphRead::GameState::LoadSettings();
-            std::shared_ptr<PauseMenuWindowChildAdapter> child
-                = _adapter->CreateChildWindowAdapter();
             std::shared_ptr<SettingsViewAdapter> viewAdapter
                 = _adapter->CreateSettingsViewAdapter();
-            if (!child || !viewAdapter)
+            if (!viewAdapter)
             {
                 throw PauseMenuWindowNullReferenceException();
             }
+            auto view = std::make_shared<SettingsView>(
+                *viewAdapter, std::move(settings), true);
 
-            auto dialog = std::make_shared<SettingsWindow>(
-                *child, *viewAdapter, std::move(settings), true);
+            std::shared_ptr<PauseMenuWindowChildAdapter> child
+                = _adapter->CreateChildWindowAdapter();
+            if (!child)
+            {
+                throw PauseMenuWindowNullReferenceException();
+            }
+            auto dialog = std::make_shared<SettingsWindow>(*child, view);
             _openSettings = child;
 
             auto state = std::make_shared<PauseMenuWindowSettingsContinuation>();
@@ -412,11 +435,18 @@ namespace MphRead::Mods::Launcher::Gui
             return;
         }
 
-        CatchThenFinally(std::move(error), WriteSettingsError,
-            [self, wasTopmost = state.WasTopmost]
-            {
-                self->FinishSettings(wasTopmost);
-            });
+        try
+        {
+            CatchThenFinally(std::move(error), WriteSettingsError,
+                [self, wasTopmost = state.WasTopmost]
+                {
+                    self->FinishSettings(wasTopmost);
+                });
+        }
+        catch (...)
+        {
+            self->_adapter->PostAsyncVoidException(std::current_exception());
+        }
     }
 
     void PauseMenuWindow::FinishSettings(bool wasTopmost)
@@ -460,28 +490,30 @@ namespace MphRead::Mods::Launcher::Gui
             }
             else
             {
-                std::string current = rooms[0];
                 const std::optional<MphRead::Mods::Network::MatchStatePacket> serverMatch
                     = MphRead::Mods::Network::NetSession::ServerMatch();
-                if (serverMatch && serverMatch->RoomKey)
-                {
-                    current = *serverMatch->RoomKey;
-                }
+                std::string current = serverMatch && serverMatch->RoomKey
+                    ? *serverMatch->RoomKey
+                    : rooms[0];
 
                 std::shared_ptr<MapPickerViewAdapter> viewAdapter
                     = _adapter->CreateMapPickerViewAdapter();
-                std::shared_ptr<PauseMenuWindowChildAdapter> child
-                    = _adapter->CreateChildWindowAdapter();
-                if (!viewAdapter || !child)
+                if (!viewAdapter)
                 {
                     throw PauseMenuWindowNullReferenceException();
                 }
-
                 auto roomList = std::make_shared<VectorRoomList>(rooms);
                 MapPickerStringRef currentRef
                     = std::make_shared<const std::string>(std::move(current));
                 auto view = std::make_shared<MapPickerView>(
                     *viewAdapter, roomList, currentRef);
+
+                std::shared_ptr<PauseMenuWindowChildAdapter> child
+                    = _adapter->CreateChildWindowAdapter();
+                if (!child)
+                {
+                    throw PauseMenuWindowNullReferenceException();
+                }
                 auto dialog = std::make_shared<MapPickerWindow>(
                     std::static_pointer_cast<MapPickerWindowAdapter>(child), view);
 
@@ -551,11 +583,18 @@ namespace MphRead::Mods::Launcher::Gui
             }
         }
 
-        CatchThenFinally(std::move(bodyError), WriteMapVoteError,
-            [self, wasTopmost = state.WasTopmost]
-            {
-                self->FinishMapVote(wasTopmost);
-            });
+        try
+        {
+            CatchThenFinally(std::move(bodyError), WriteMapVoteError,
+                [self, wasTopmost = state.WasTopmost]
+                {
+                    self->FinishMapVote(wasTopmost);
+                });
+        }
+        catch (...)
+        {
+            self->_adapter->PostAsyncVoidException(std::current_exception());
+        }
     }
 
     void PauseMenuWindow::OnMapPickerClosed(
@@ -607,7 +646,14 @@ namespace MphRead::Mods::Launcher::Gui
     {
         if (std::shared_ptr<PauseMenuWindow> self = LockEventTarget(context))
         {
-            self->OpenSettings();
+            try
+            {
+                self->OpenSettings();
+            }
+            catch (...)
+            {
+                self->_adapter->PostAsyncVoidException(std::current_exception());
+            }
         }
     }
 
@@ -616,7 +662,14 @@ namespace MphRead::Mods::Launcher::Gui
     {
         if (std::shared_ptr<PauseMenuWindow> self = LockEventTarget(context))
         {
-            self->OpenMapVote();
+            try
+            {
+                self->OpenMapVote();
+            }
+            catch (...)
+            {
+                self->_adapter->PostAsyncVoidException(std::current_exception());
+            }
         }
     }
 
@@ -706,9 +759,14 @@ namespace MphRead::Mods::Launcher::Gui
 
     void PauseMenuWindow::OnClosed(PauseMenuWindowEventArgs& e)
     {
-        if (_open.get() == this)
+        std::shared_ptr<PauseMenuWindow> keepAlive = _open;
+        if (keepAlive.get() == this)
         {
             _open.reset();
+        }
+        else
+        {
+            keepAlive.reset();
         }
         MphRead::Mods::PauseMenu::MarkClosed();
         _adapter->BaseOnClosed(e);

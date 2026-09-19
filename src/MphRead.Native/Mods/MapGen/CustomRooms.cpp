@@ -1182,6 +1182,29 @@ namespace
         return !error && exists;
     }
 
+    [[nodiscard]] std::filesystem::file_time_type GetLastWriteTimeUtc(
+        const std::string& path)
+    {
+        const std::filesystem::path nativePath = PathFromUtf8(path);
+        std::error_code error;
+        const std::filesystem::file_time_type value =
+            std::filesystem::last_write_time(nativePath, error);
+        if (!error)
+        {
+            return value;
+        }
+        if (error == std::errc::no_such_file_or_directory
+            || error == std::errc::not_a_directory)
+        {
+            // File.GetLastWriteTimeUtc returns its 1601 sentinel when the
+            // file has disappeared. file_time_type::min() is an ordering-only
+            // native sentinel with the same effect in the comparison below.
+            return std::filesystem::file_time_type::min();
+        }
+        throw std::filesystem::filesystem_error(
+            "last_write_time", nativePath, error);
+    }
+
     [[nodiscard]] std::string CombinePath(
         const std::string& left, const std::string& right)
     {
@@ -1340,7 +1363,6 @@ namespace MphRead::Mods::MapGen
 
         std::unordered_set<
             std::string, OrdinalIgnoreCaseHash, OrdinalIgnoreCaseEqual> names;
-        names.reserve(bundles.size());
         for (const std::string& path : bundles)
         {
             names.insert(GetFileNameWithoutExtension(path));
@@ -1408,11 +1430,12 @@ namespace MphRead::Mods::MapGen
                         ? *baseDirectory
                         : MapDirectory();
 
-                    std::cout
-                        << "Leaving out map " << name
-                        << ": its source level " << source
-                        << " is not here. Put it in " << directory
-                        << " to have this map." << std::endl;
+                    const std::string message =
+                        "Leaving out map " + name
+                        + ": its source level " + source
+                        + " is not here. Put it in " + directory
+                        + " to have this map.";
+                    std::cout << message << std::endl;
                     continue;
                 }
                 results->push_back(std::move(definition));
@@ -1420,21 +1443,21 @@ namespace MphRead::Mods::MapGen
             catch (const std::exception& ex)
             {
                 const std::string fileName = GetFileName(path);
-                std::cout << "Ignoring map " << fileName
-                    << ": " << ex.what() << std::endl;
+                const std::string message =
+                    "Ignoring map " + fileName + ": " + ex.what();
+                std::cout << message << std::endl;
             }
         }
         return results;
     }
 
-    std::vector<std::string> CustomRooms::AppendIds(
-        std::vector<std::string> ids)
+    const std::vector<std::string>& CustomRooms::AppendIds(
+        std::vector<std::string>& ids)
     {
         CustomRoomsState& state = State();
         state.FirstId = static_cast<std::int32_t>(ids.size());
 
         const DefinitionList& definitions = Definitions();
-        ids.reserve(ids.size() + definitions.size());
         for (const std::shared_ptr<MapDefinition>& definition : definitions)
         {
             ids.push_back(definition->Name());
@@ -1442,18 +1465,42 @@ namespace MphRead::Mods::MapGen
         return ids;
     }
 
-    std::vector<std::shared_ptr<MphRead::RoomMetadata>>
-        CustomRooms::AppendRooms(
-            std::vector<std::shared_ptr<MphRead::RoomMetadata>> rooms)
+    std::vector<std::string> CustomRooms::AppendIds(
+        std::vector<std::string>&& ids)
     {
-        const DefinitionList& definitions = Definitions();
-        for (std::size_t i = 0; i < definitions.size(); ++i)
+        (void)AppendIds(ids);
+        return std::move(ids);
+    }
+
+    const std::vector<std::shared_ptr<MphRead::RoomMetadata>>&
+        CustomRooms::AppendRooms(
+            std::vector<std::shared_ptr<MphRead::RoomMetadata>>& rooms)
+    {
+        std::int32_t i = 0;
+        for (;;)
         {
-            const std::int32_t id = WrapAddInt32(
-                State().FirstId, static_cast<std::int32_t>(i));
-            rooms.push_back(MakeMetadata(definitions[i].get(), id));
+            const DefinitionList& countDefinitions = Definitions();
+            if (static_cast<std::size_t>(i) >= countDefinitions.size())
+            {
+                break;
+            }
+
+            const DefinitionList& indexDefinitions = Definitions();
+            MapDefinition* definition =
+                indexDefinitions[static_cast<std::size_t>(i)].get();
+            const std::int32_t id = WrapAddInt32(State().FirstId, i);
+            rooms.push_back(MakeMetadata(definition, id));
+            i = WrapAddInt32(i, 1);
         }
         return rooms;
+    }
+
+    std::vector<std::shared_ptr<MphRead::RoomMetadata>>
+        CustomRooms::AppendRooms(
+            std::vector<std::shared_ptr<MphRead::RoomMetadata>>&& rooms)
+    {
+        (void)AppendRooms(rooms);
+        return std::move(rooms);
     }
 
     std::shared_ptr<MphRead::RoomMetadata> CustomRooms::MakeMetadata(
@@ -1539,12 +1586,12 @@ namespace MphRead::Mods::MapGen
 
     std::string CustomRooms::ArchiveDirectory(MapDefinition* def)
     {
+        const std::string& fileSystem = Paths::FileSystem();
         if (def == nullptr)
         {
             throw System::NullReferenceException();
         }
 
-        const std::string fileSystem = Paths::FileSystem();
         const std::string prefix =
             ToLowerInvariantString(def->Name());
         return Paths::Combine(fileSystem, "_archives", prefix);
@@ -1552,13 +1599,13 @@ namespace MphRead::Mods::MapGen
 
     std::string CustomRooms::EntityDirectory()
     {
-        const std::string fileSystem = Paths::FileSystem();
+        const std::string& fileSystem = Paths::FileSystem();
         return Paths::Combine(fileSystem, R"(levels\entities)");
     }
 
     std::string CustomRooms::NodeDirectory()
     {
-        const std::string fileSystem = Paths::FileSystem();
+        const std::string& fileSystem = Paths::FileSystem();
         return Paths::Combine(fileSystem, R"(levels\nodeData)");
     }
 
@@ -1609,8 +1656,9 @@ namespace MphRead::Mods::MapGen
                     continue;
                 }
 
-                std::cout << "[mapgen] building "
-                    << def->Name() << std::endl;
+                const std::string buildingMessage =
+                    "[mapgen] building " + def->Name();
+                std::cout << buildingMessage << std::endl;
 
                 const std::string archiveDirectory =
                     ArchiveDirectory(def.get());
@@ -1628,9 +1676,10 @@ namespace MphRead::Mods::MapGen
             }
             catch (const std::exception& ex)
             {
-                std::cout << "[mapgen] " << def->Name()
-                    << " could not be built: "
-                    << ex.what() << std::endl;
+                const std::string name = def->Name();
+                const std::string failureMessage =
+                    "[mapgen] " + name + " could not be built: " + ex.what();
+                std::cout << failureMessage << std::endl;
             }
         }
     }
@@ -1676,14 +1725,27 @@ namespace MphRead::Mods::MapGen
 
         const std::string prefix =
             ToLowerInvariantString(def->Name());
-        const std::string model = CombinePath(
-            ArchiveDirectory(def), prefix + "_Model.bin");
 
-        if (!FileExists(model)
-            || !FileExists(CombinePath(
-                EntityDirectory(), prefix + "_Ent.bin"))
-            || !FileExists(CombinePath(
-                NodeDirectory(), prefix + "_Node.bin")))
+        const std::string archiveDirectory = ArchiveDirectory(def);
+        const std::string modelName = prefix + "_Model.bin";
+        const std::string model = CombinePath(archiveDirectory, modelName);
+        if (!FileExists(model))
+        {
+            return true;
+        }
+
+        const std::string entityDirectory = EntityDirectory();
+        const std::string entityName = prefix + "_Ent.bin";
+        const std::string entity = CombinePath(entityDirectory, entityName);
+        if (!FileExists(entity))
+        {
+            return true;
+        }
+
+        const std::string nodeDirectory = NodeDirectory();
+        const std::string nodeName = prefix + "_Node.bin";
+        const std::string node = CombinePath(nodeDirectory, nodeName);
+        if (!FileExists(node))
         {
             return true;
         }
@@ -1695,9 +1757,9 @@ namespace MphRead::Mods::MapGen
         }
 
         const std::filesystem::file_time_type sourceTime =
-            std::filesystem::last_write_time(PathFromUtf8(*source));
+            GetLastWriteTimeUtc(*source);
         const std::filesystem::file_time_type modelTime =
-            std::filesystem::last_write_time(PathFromUtf8(model));
+            GetLastWriteTimeUtc(model);
         return sourceTime > modelTime;
     }
 }

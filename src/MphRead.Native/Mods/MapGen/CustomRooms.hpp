@@ -25,10 +25,14 @@ namespace MphRead::Mods::MapGen
 
         [[nodiscard]] static const DefinitionList& Definitions();
 
+        [[nodiscard]] static const std::vector<std::string>& AppendIds(
+            std::vector<std::string>& ids);
         [[nodiscard]] static std::vector<std::string> AppendIds(
-            std::vector<std::string> ids);
+            std::vector<std::string>&& ids);
+        [[nodiscard]] static const std::vector<std::shared_ptr<MphRead::RoomMetadata>>& AppendRooms(
+            std::vector<std::shared_ptr<MphRead::RoomMetadata>>& rooms);
         [[nodiscard]] static std::vector<std::shared_ptr<MphRead::RoomMetadata>> AppendRooms(
-            std::vector<std::shared_ptr<MphRead::RoomMetadata>> rooms);
+            std::vector<std::shared_ptr<MphRead::RoomMetadata>>&& rooms);
 
         [[nodiscard]] static std::string ArchiveDirectory(MapDefinition* def);
         [[nodiscard]] static std::string EntityDirectory();

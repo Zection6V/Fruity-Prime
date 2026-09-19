@@ -1761,8 +1761,14 @@ namespace
     [[nodiscard]] WrittenEntry WriteZipEntry(
         std::ofstream& stream, const std::string& name, const ByteVector& bytes)
     {
-        // ZipArchive.CreateEntry encodes and validates the entry name before
-        // entry.Open() can begin compressing any payload.
+        // ZipArchive.CreateEntry first rejects an empty name, then the entry
+        // constructor captures DateTimeOffset.Now before FullName encodes and
+        // validates the complete entry name.
+        if (name.empty())
+        {
+            throw std::invalid_argument("The entry name cannot be empty.");
+        }
+        const DosTimestamp timestamp = CurrentDosTimestamp();
         EncodedZipName encodedName = EncodeZipName(name);
 
         WrittenEntry result;
@@ -1772,7 +1778,7 @@ namespace
         result.Flags = static_cast<std::uint16_t>(
             0x0002U | (encodedName.Utf8 ? 0x0800U : 0U));
         result.Method = bytes.empty() ? 0U : 8U;
-        result.Timestamp = CurrentDosTimestamp();
+        result.Timestamp = timestamp;
 
         const ByteVector compressed = bytes.empty() ? ByteVector{} : DeflateRaw(bytes);
         result.Crc = Crc32(bytes);
@@ -2057,19 +2063,44 @@ namespace MphRead::Mods::MapGen
 
             std::vector<WrittenEntry> entries;
             entries.reserve(texturePath ? 3U : 2U);
-
-            const std::string serialized = inside->Serialize();
-            entries.push_back(WriteZipEntry(
-                file, recipeName,
-                ByteVector(serialized.begin(), serialized.end())));
-            entries.push_back(WriteZipEntry(
-                file, std::string(LevelDirectory) + mapName + ".bsp", trimmed));
-            if (texturePath)
+            bool finalizationStarted = false;
+            try
             {
+                const std::string serialized = inside->Serialize();
                 entries.push_back(WriteZipEntry(
-                    file, textureName, ReadAllBytes(*texturePath)));
+                    file, recipeName,
+                    ByteVector(serialized.begin(), serialized.end())));
+                entries.push_back(WriteZipEntry(
+                    file, std::string(LevelDirectory) + mapName + ".bsp", trimmed));
+                if (texturePath)
+                {
+                    entries.push_back(WriteZipEntry(
+                        file, textureName, ReadAllBytes(*texturePath)));
+                }
+
+                finalizationStarted = true;
+                FinishZip(file, entries);
             }
-            FinishZip(file, entries);
+            catch (...)
+            {
+                // The C# using scope disposes ZipArchive before FileStream even
+                // while propagating an exception. If archive finalization has
+                // not already started, finish the successfully-created entries
+                // before rethrowing; a finalization failure replaces the prior
+                // exception just as an exception from a finally block does.
+                if (!finalizationStarted)
+                {
+                    finalizationStarted = true;
+                    FinishZip(file, entries);
+                }
+                file.close();
+                if (!file)
+                {
+                    throw std::runtime_error("Could not close file: " + temporary);
+                }
+                throw;
+            }
+
             file.close();
             if (!file)
             {

@@ -497,12 +497,13 @@ namespace MphRead::Mods::Launcher::Gui
 
         if (Require(_subtitle).length() > 0)
         {
+            const std::u16string& subtitle = Require(_subtitle);
             const GuiColor subColor = _control.GetIsEnabled()
                 ? SubtitleColor()
                 : GuiTheme::TextDim;
             GuiBrush subtitleBrush{subColor};
             const TrackedTextFormattedText sub = TrackedText::Make(
-                context, Require(_subtitle), 12.0, false,
+                context, subtitle, 12.0, false,
                 TrackedTextBrush{&subtitleBrush});
             context.DrawText(sub, TrackedTextPoint{
                 textLeft - 1.0,

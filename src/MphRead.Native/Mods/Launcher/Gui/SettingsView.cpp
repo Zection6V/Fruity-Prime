@@ -768,13 +768,12 @@ namespace MphRead::Mods::Launcher::Gui
 
     struct SettingsViewSectionClickTarget final
     {
-        std::shared_ptr<SettingsViewState> View;
+        SettingsViewState* View = nullptr;
         SettingsViewControlHandle Page;
     };
 
     struct SettingsViewSupportClickTarget final
     {
-        std::shared_ptr<SettingsViewState> View;
         std::shared_ptr<MenuEntry> Entry;
     };
 
@@ -943,7 +942,7 @@ namespace MphRead::Mods::Launcher::Gui
         ApplyLayout(false);
         _adapter.SetContent(_state->Grid);
         _adapter.AddSizeChanged(SettingsViewSizeChangedHandler{
-            _state, &SettingsView::OnSizeChanged});
+            _state.get(), &SettingsView::OnSizeChanged});
 
         _state->Heading = _adapter.ConstructCaption(std::u16string(u"Settings"));
         Require(_state->Heading.Value).Height(34.0);
@@ -1088,7 +1087,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
         _adapter.BaseOnAttachedToVisualTree(e);
         _adapter.PostUiThread(SettingsViewAction{
-            _state, &SettingsView::OnFocusPosted},
+            _state.get(), &SettingsView::OnFocusPosted, _state},
             SettingsViewDispatcherPriority::Background);
     }
 
@@ -1125,9 +1124,9 @@ namespace MphRead::Mods::Launcher::Gui
             _adapter.ConstructMenuEntry(std::move(name), std::u16string{}, 15.0);
         Require(button.Value).Height(32.0);
         auto target = std::make_shared<SettingsViewSectionClickTarget>(
-            SettingsViewSectionClickTarget{_state, scroll});
+            SettingsViewSectionClickTarget{_state.get(), scroll});
         _adapter.AddMenuEntryClick(button.Control,
-            SettingsViewAction{std::move(target), &SettingsView::OnSectionClick});
+            SettingsViewAction{target.get(), &SettingsView::OnSectionClick, std::move(target)});
 
         _adapter.AddPanelChild(_state->Rail, button.Control);
         _adapter.AddPanelChild(_state->Pages, scroll);
@@ -1208,9 +1207,9 @@ namespace MphRead::Mods::Launcher::Gui
             _adapter.ConstructMenuEntry(std::u16string(u"\u2615 Support this project"),
                 std::u16string{}, 15.0);
         auto target = std::make_shared<SettingsViewSupportClickTarget>(
-            SettingsViewSupportClickTarget{_state, support.Value});
+            SettingsViewSupportClickTarget{support.Value});
         _adapter.AddMenuEntryClick(support.Control,
-            SettingsViewAction{std::move(target), &SettingsView::OnSupportClick});
+            SettingsViewAction{target.get(), &SettingsView::OnSupportClick, std::move(target)});
         _adapter.AddPanelChild(page, support.Control);
 
         (void)Heading(page, u"Built on");
@@ -1507,7 +1506,7 @@ namespace MphRead::Mods::Launcher::Gui
         _adapter.SetControlMargin(reset.Control,
             SettingsViewThickness{0.0, 8.0, 0.0, 0.0});
         _adapter.AddMenuEntryClick(reset.Control,
-            SettingsViewAction{_state, &SettingsView::OnResetClick});
+            SettingsViewAction{_state.get(), &SettingsView::OnResetClick});
         _adapter.AddPanelChild(page, reset.Control);
     }
 
@@ -1537,7 +1536,7 @@ namespace MphRead::Mods::Launcher::Gui
         _adapter.SetControlMargin(place.Control,
             SettingsViewThickness{0.0, 6.0, 0.0, 0.0});
         _adapter.AddMenuEntryClick(place.Control,
-            SettingsViewAction{_state, &SettingsView::OnPlaceStylusClick});
+            SettingsViewAction{_state.get(), &SettingsView::OnPlaceStylusClick});
         _adapter.AddPanelChild(page, place.Control);
 
         SettingsViewControlRef<Note> note = _adapter.ConstructNote(std::u16string(
@@ -1666,7 +1665,7 @@ namespace MphRead::Mods::Launcher::Gui
             std::u16string(u"Game files"), ToUtf16(GameFiles::Describe()), 15.0);
         Require(files.Value).SubtitleColor(GameFiles::Ready() ? GuiTheme::Good : GuiTheme::Warm);
         _adapter.AddMenuEntryClick(files.Control,
-            SettingsViewAction{_state, &SettingsView::OnGameFilesClick});
+            SettingsViewAction{_state.get(), &SettingsView::OnGameFilesClick});
         _adapter.AddPanelChild(page, files.Control);
     }
 
@@ -1678,14 +1677,14 @@ namespace MphRead::Mods::Launcher::Gui
         Require(save.Value).Primary(true);
         Require(save.Value).Height(40.0);
         _adapter.AddMenuEntryClick(save.Control,
-            SettingsViewAction{_state, &SettingsView::OnSaveClick});
+            SettingsViewAction{_state.get(), &SettingsView::OnSaveClick});
 
         SettingsViewControlRef<MenuEntry> cancel = _adapter.ConstructMenuEntry(
             std::u16string(u"Cancel"), std::u16string{}, 13.0);
         Require(cancel.Value).Height(26.0);
         Require(cancel.Value).Accent(GuiTheme::TextDim);
         _adapter.AddMenuEntryClick(cancel.Control,
-            SettingsViewAction{_state, &SettingsView::OnCancelClick});
+            SettingsViewAction{_state.get(), &SettingsView::OnCancelClick});
 
         _state->SaveError = _adapter.ConstructNote(std::u16string{}, GuiTheme::Warm);
         Require(_state->SaveError.Value).IsVisible(false);

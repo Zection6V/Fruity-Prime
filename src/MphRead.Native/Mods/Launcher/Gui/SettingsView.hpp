@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace MphRead
@@ -153,16 +154,48 @@ namespace MphRead::Mods::Launcher::Gui
     {
         using Callback = void (*)(void* target);
 
-        std::shared_ptr<void> Target;
+        void* Context = nullptr;
         Callback Function = nullptr;
+        std::shared_ptr<void> KeepAlive{};
+
+        SettingsViewAction() = default;
+        SettingsViewAction(void* context, Callback function,
+            std::shared_ptr<void> keepAlive = {})
+            : Context(context), Function(function), KeepAlive(std::move(keepAlive))
+        {
+        }
+
+        void Invoke() const
+        {
+            if (Function != nullptr)
+            {
+                Function(Context);
+            }
+        }
     };
 
     struct SettingsViewSizeChangedHandler final
     {
         using Callback = void (*)(void* target, double newWidth);
 
-        std::shared_ptr<void> Target;
+        void* Context = nullptr;
         Callback Function = nullptr;
+        std::shared_ptr<void> KeepAlive{};
+
+        SettingsViewSizeChangedHandler() = default;
+        SettingsViewSizeChangedHandler(void* context, Callback function,
+            std::shared_ptr<void> keepAlive = {})
+            : Context(context), Function(function), KeepAlive(std::move(keepAlive))
+        {
+        }
+
+        void Invoke(double newWidth) const
+        {
+            if (Function != nullptr)
+            {
+                Function(Context, newWidth);
+            }
+        }
     };
 
     class SettingsViewAdapter

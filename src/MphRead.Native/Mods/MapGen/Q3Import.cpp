@@ -295,61 +295,41 @@ namespace
         return value;
     }
 
-    [[nodiscard]] bool TryParseSingleInvariant(
-        std::string_view text, float& result) noexcept
+    [[nodiscard]] bool EqualsIgnoreCaseAscii(
+        std::string_view left, std::string_view right) noexcept
     {
-        result = 0.0F;
-        text = TrimFloatWhitespace(text);
-        if (text.empty())
+        if (left.size() != right.size())
         {
             return false;
         }
-
-        bool positiveSign = false;
-        if (text.front() == '+')
+        for (std::size_t i = 0; i < left.size(); ++i)
         {
-            positiveSign = true;
-            text.remove_prefix(1);
-            if (text.empty())
+            unsigned char a = static_cast<unsigned char>(left[i]);
+            unsigned char b = static_cast<unsigned char>(right[i]);
+            if (a >= 'a' && a <= 'z')
+            {
+                a = static_cast<unsigned char>(a - ('a' - 'A'));
+            }
+            if (b >= 'a' && b <= 'z')
+            {
+                b = static_cast<unsigned char>(b - ('a' - 'A'));
+            }
+            if (a != b)
             {
                 return false;
             }
         }
-
-        float parsed = 0.0F;
-        const char* first = text.data();
-        const char* last = first + text.size();
-        const auto conversion = std::from_chars(
-            first, last, parsed, std::chars_format::general);
-        if (conversion.ptr == last && conversion.ec == std::errc{})
-        {
-            result = positiveSign && parsed == 0.0F ? std::fabs(parsed) : parsed;
-            return true;
-        }
-
-        if (conversion.ptr == last
-            && conversion.ec == std::errc::result_out_of_range)
-        {
-            const bool negative = !text.empty() && text.front() == '-';
-            result = negative
-                ? -std::numeric_limits<float>::infinity()
-                : std::numeric_limits<float>::infinity();
-            return true;
-        }
-
-        return false;
+        return true;
     }
 
-    [[nodiscard]] bool TryParseInt32(std::string_view text, std::int32_t& result) noexcept
+    [[nodiscard]] bool IsFloatNumber(
+        std::string_view text, bool& negative) noexcept
     {
-        result = 0;
-        text = TrimFloatWhitespace(text);
+        negative = false;
         if (text.empty())
         {
             return false;
         }
-
-        bool negative = false;
         std::size_t position = 0;
         if (text[position] == '+' || text[position] == '-')
         {
@@ -361,23 +341,248 @@ namespace
             return false;
         }
 
+        bool digits = false;
+        while (position < text.size()
+            && text[position] >= '0' && text[position] <= '9')
+        {
+            digits = true;
+            ++position;
+        }
+        if (position < text.size() && text[position] == '.')
+        {
+            ++position;
+            while (position < text.size()
+                && text[position] >= '0' && text[position] <= '9')
+            {
+                digits = true;
+                ++position;
+            }
+        }
+        if (!digits)
+        {
+            return false;
+        }
+        if (position < text.size()
+            && (text[position] == 'e' || text[position] == 'E'))
+        {
+            ++position;
+            if (position < text.size()
+                && (text[position] == '+' || text[position] == '-'))
+            {
+                ++position;
+            }
+            const std::size_t exponentStart = position;
+            while (position < text.size()
+                && text[position] >= '0' && text[position] <= '9')
+            {
+                ++position;
+            }
+            if (position == exponentStart)
+            {
+                return false;
+            }
+        }
+        return position == text.size();
+    }
+
+    [[nodiscard]] bool DecimalIsBelowOne(std::string_view text) noexcept
+    {
+        std::size_t position = 0;
+        if (!text.empty() && (text.front() == '+' || text.front() == '-'))
+        {
+            position = 1;
+        }
+
+        std::int64_t digitsBeforeDecimal = 0;
+        std::int64_t digitIndex = 0;
+        std::int64_t firstNonzero = -1;
+        bool beforeDecimal = true;
+        while (position < text.size()
+            && text[position] != 'e' && text[position] != 'E')
+        {
+            const char ch = text[position++];
+            if (ch == '.')
+            {
+                beforeDecimal = false;
+                continue;
+            }
+            if (beforeDecimal)
+            {
+                ++digitsBeforeDecimal;
+            }
+            if (firstNonzero < 0 && ch != '0')
+            {
+                firstNonzero = digitIndex;
+            }
+            ++digitIndex;
+        }
+        if (firstNonzero < 0)
+        {
+            return true;
+        }
+
+        std::int64_t exponent = 0;
+        if (position < text.size())
+        {
+            ++position;
+            bool exponentNegative = false;
+            if (position < text.size()
+                && (text[position] == '+' || text[position] == '-'))
+            {
+                exponentNegative = text[position] == '-';
+                ++position;
+            }
+            constexpr std::int64_t Limit = 1'000'000;
+            while (position < text.size())
+            {
+                const std::int64_t digit = text[position++] - '0';
+                exponent = std::min(Limit, exponent * 10 + digit);
+            }
+            if (exponentNegative)
+            {
+                exponent = -exponent;
+            }
+        }
+
+        const std::int64_t scientificExponent
+            = digitsBeforeDecimal - firstNonzero - 1 + exponent;
+        return scientificExponent < 0;
+    }
+
+    [[nodiscard]] bool TryParseSingleInvariant(
+        std::string_view text, float& result) noexcept
+    {
+        result = 0.0F;
+        text = TrimFloatWhitespace(text);
+        if (text.empty())
+        {
+            return false;
+        }
+
+        if (EqualsIgnoreCaseAscii(text, "NaN"))
+        {
+            result = std::numeric_limits<float>::quiet_NaN();
+            return true;
+        }
+        if (EqualsIgnoreCaseAscii(text, "Infinity"))
+        {
+            result = std::numeric_limits<float>::infinity();
+            return true;
+        }
+        if (EqualsIgnoreCaseAscii(text, "-Infinity"))
+        {
+            result = -std::numeric_limits<float>::infinity();
+            return true;
+        }
+
+        bool negative = false;
+        if (!IsFloatNumber(text, negative))
+        {
+            return false;
+        }
+        std::string_view magnitude = text;
+        if (magnitude.front() == '+' || magnitude.front() == '-')
+        {
+            magnitude.remove_prefix(1);
+        }
+
+        float parsed = 0.0F;
+        const char* first = magnitude.data();
+        const char* last = first + magnitude.size();
+        const auto conversion = std::from_chars(
+            first, last, parsed, std::chars_format::general);
+        if (conversion.ptr == last && conversion.ec == std::errc{})
+        {
+            result = negative ? -parsed : parsed;
+            return true;
+        }
+        if (conversion.ptr != last
+            || conversion.ec != std::errc::result_out_of_range)
+        {
+            return false;
+        }
+
+        long double wide = 0.0L;
+        const auto wideConversion = std::from_chars(
+            first, last, wide, std::chars_format::general);
+        if (wideConversion.ptr == last && wideConversion.ec == std::errc{})
+        {
+            parsed = static_cast<float>(wide);
+            result = negative ? -parsed : parsed;
+            return true;
+        }
+        if (wideConversion.ptr != last
+            || wideConversion.ec != std::errc::result_out_of_range)
+        {
+            return false;
+        }
+
+        if (DecimalIsBelowOne(text))
+        {
+            result = negative ? -0.0F : 0.0F;
+        }
+        else
+        {
+            result = negative
+                ? -std::numeric_limits<float>::infinity()
+                : std::numeric_limits<float>::infinity();
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool TryParseInt32(std::string_view text, std::int32_t& result) noexcept
+    {
+        result = 0;
+        std::size_t position = 0;
+        while (position < text.size()
+            && IsAsciiWhitespace(static_cast<unsigned char>(text[position])))
+        {
+            ++position;
+        }
+        if (position == text.size())
+        {
+            return false;
+        }
+
+        bool negative = false;
+        if (text[position] == '+' || text[position] == '-')
+        {
+            negative = text[position] == '-';
+            ++position;
+        }
+        const std::size_t digitsStart = position;
         const std::uint64_t limit = negative
             ? static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()) + 1U
             : static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
         std::uint64_t magnitude = 0;
-        for (; position < text.size(); ++position)
+        while (position < text.size()
+            && text[position] >= '0' && text[position] <= '9')
         {
-            const char ch = text[position];
-            if (ch < '0' || ch > '9')
-            {
-                return false;
-            }
-            const std::uint64_t digit = static_cast<std::uint64_t>(ch - '0');
+            const std::uint64_t digit
+                = static_cast<std::uint64_t>(text[position] - '0');
             if (magnitude > (limit - digit) / 10U)
             {
                 return false;
             }
             magnitude = magnitude * 10U + digit;
+            ++position;
+        }
+        if (position == digitsStart)
+        {
+            return false;
+        }
+        while (position < text.size()
+            && IsAsciiWhitespace(static_cast<unsigned char>(text[position])))
+        {
+            ++position;
+        }
+        while (position < text.size() && text[position] == '\0')
+        {
+            ++position;
+        }
+        if (position != text.size())
+        {
+            return false;
         }
 
         if (negative)
@@ -1273,16 +1478,19 @@ namespace MphRead::Mods::MapGen
         std::int32_t material,
         float shade)
     {
-        if (points.size() < 3 || uvs.size() < 3)
-        {
-            ArrayBounds();
-        }
-
+        const Vector3 point1 = ArrayAt(&points, 1);
+        const Vector3 point0a = ArrayAt(&points, 0);
+        const Vector3 point2 = ArrayAt(&points, 2);
+        const Vector3 point0b = ArrayAt(&points, 0);
         const Vector3 wound = Vector3::Cross(
-            Subtract(points[1], points[0]),
-            Subtract(points[2], points[0]));
+            Subtract(point1, point0a),
+            Subtract(point2, point0b));
         if (Vector3::Dot(wound, normal) < 0.0F)
         {
+            (void)ArrayAt(&points, 1);
+            (void)ArrayAt(&points, 2);
+            (void)ArrayAt(&uvs, 1);
+            (void)ArrayAt(&uvs, 2);
             std::swap(points[1], points[2]);
             std::swap(uvs[1], uvs[2]);
         }
@@ -1467,18 +1675,26 @@ namespace MphRead::Mods::MapGen
         float minU = uvs.front().X;
         for (std::size_t i = 1; i < uvs.size(); ++i)
         {
-            if (uvs[i].X < minU)
+            if (std::isnan(uvs[i].X) || uvs[i].X < minU)
             {
                 minU = uvs[i].X;
+                if (std::isnan(minU))
+                {
+                    break;
+                }
             }
         }
 
         float minV = uvs.front().Y;
         for (std::size_t i = 1; i < uvs.size(); ++i)
         {
-            if (uvs[i].Y < minV)
+            if (std::isnan(uvs[i].Y) || uvs[i].Y < minV)
             {
                 minV = uvs[i].Y;
+                if (std::isnan(minV))
+                {
+                    break;
+                }
             }
         }
 

@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <cwctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -34,6 +35,7 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <locale.h>
 #include <sys/types.h>
 #endif
 
@@ -240,7 +242,7 @@ namespace
         return Utf8Status::Done;
     }
 
-    [[nodiscard]] std::vector<std::uint32_t> DecodeUtf8Folded(const std::string& value)
+    [[nodiscard]] std::vector<std::uint32_t> DecodeUtf8(const std::string& value)
     {
         std::vector<std::uint32_t> result;
         result.reserve(value.size());
@@ -250,63 +252,203 @@ namespace
             std::uint32_t scalar = 0;
             (void)DecodeUtf8Scalar(
                 reinterpret_cast<const std::uint8_t*>(value.data()), value.size(), position, scalar);
-            if (scalar >= 'a' && scalar <= 'z')
-            {
-                scalar -= static_cast<std::uint32_t>('a' - 'A');
-            }
-            else if (scalar == 0x00FFU)
-            {
-                scalar = 0x0178U;
-            }
-            else if (scalar >= 0x00E0U && scalar <= 0x00F6U)
-            {
-                scalar -= 0x20U;
-            }
-            else if (scalar >= 0x00F8U && scalar <= 0x00FEU)
-            {
-                scalar -= 0x20U;
-            }
-            else if (scalar >= 0x03B1U && scalar <= 0x03C1U)
-            {
-                scalar -= 0x20U;
-            }
-            else if (scalar >= 0x03C3U && scalar <= 0x03CBU)
-            {
-                scalar -= 0x20U;
-            }
-            else if (scalar >= 0x0430U && scalar <= 0x044FU)
-            {
-                scalar -= 0x20U;
-            }
-            // .NET OrdinalIgnoreCase intentionally leaves dotless-i and long-s
-            // distinct in ordinal comparisons.
             result.push_back(scalar);
         }
         return result;
     }
 
-    [[nodiscard]] bool OrdinalIgnoreCaseEquals(
-        const std::string& left, const std::string& right)
+#if !defined(_WIN32)
+    [[nodiscard]] void* FindVersionedIcuSymbol(void* library, const char* base) noexcept
     {
-        if (left == right)
+        if (library == nullptr)
         {
-            return true;
+            return nullptr;
         }
-        return DecodeUtf8Folded(left) == DecodeUtf8Folded(right);
+        if (void* symbol = dlsym(library, base); symbol != nullptr)
+        {
+            return symbol;
+        }
+        char name[96]{};
+        for (int version = 99; version >= 50; --version)
+        {
+            const int count = std::snprintf(name, sizeof(name), "%s_%d", base, version);
+            if (count <= 0 || static_cast<std::size_t>(count) >= sizeof(name))
+            {
+                continue;
+            }
+            if (void* symbol = dlsym(library, name); symbol != nullptr)
+            {
+                return symbol;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] std::uint32_t IcuUpper(std::uint32_t scalar) noexcept
+    {
+        using UpperFunction = std::int32_t (*)(std::int32_t);
+        static UpperFunction upper = []() noexcept -> UpperFunction
+        {
+            void* library = dlopen("libicuuc.so", RTLD_LAZY | RTLD_LOCAL);
+#if defined(__APPLE__)
+            if (library == nullptr)
+            {
+                library = dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY | RTLD_LOCAL);
+            }
+#endif
+            return reinterpret_cast<UpperFunction>(FindVersionedIcuSymbol(library, "u_toupper"));
+        }();
+        if (upper == nullptr || scalar > 0x10FFFFU)
+        {
+            return scalar;
+        }
+        const std::int32_t mapped = upper(static_cast<std::int32_t>(scalar));
+        return mapped < 0 ? scalar : static_cast<std::uint32_t>(mapped);
+    }
+#endif
+
+    [[nodiscard]] std::uint32_t InvariantUpper(std::uint32_t scalar) noexcept
+    {
+        // .NET OrdinalIgnoreCase deliberately keeps these two code points
+        // distinct from their ordinary Latin uppercase counterparts.
+        if (scalar == 0x0131U || scalar == 0x017FU)
+        {
+            return scalar;
+        }
+        if (scalar >= 'a' && scalar <= 'z')
+        {
+            return scalar - static_cast<std::uint32_t>('a' - 'A');
+        }
+#if defined(_WIN32)
+        if (scalar <= 0xFFFFU)
+        {
+            const wchar_t source = static_cast<wchar_t>(scalar);
+            wchar_t target = source;
+            if (LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE,
+                    &source, 1, &target, 1, nullptr, nullptr, 0) == 1)
+            {
+                return static_cast<std::uint32_t>(target);
+            }
+        }
+#else
+        const std::uint32_t icuMapped = IcuUpper(scalar);
+        if (icuMapped != scalar)
+        {
+            return icuMapped;
+        }
+        static locale_t locale = []() noexcept
+        {
+            locale_t value = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
+            if (value == nullptr)
+            {
+                value = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
+            }
+            return value;
+        }();
+        if (locale != nullptr && scalar <= static_cast<std::uint32_t>(WCHAR_MAX))
+        {
+            const wint_t mapped = towupper_l(static_cast<wint_t>(scalar), locale);
+            if (mapped != WEOF)
+            {
+                return static_cast<std::uint32_t>(mapped);
+            }
+        }
+#endif
+        if (scalar >= 0x00E0U && scalar <= 0x00F6U) return scalar - 0x20U;
+        if (scalar >= 0x00F8U && scalar <= 0x00FEU) return scalar - 0x20U;
+        if (scalar == 0x00FFU) return 0x0178U;
+        if (scalar >= 0x03B1U && scalar <= 0x03C1U) return scalar - 0x20U;
+        if (scalar >= 0x03C3U && scalar <= 0x03CBU) return scalar - 0x20U;
+        if (scalar >= 0x0430U && scalar <= 0x044FU) return scalar - 0x20U;
+        return scalar;
+    }
+
+    [[nodiscard]] std::vector<std::uint32_t> FoldOrdinalIgnoreCase(const std::string& value)
+    {
+        std::vector<std::uint32_t> result = DecodeUtf8(value);
+        for (std::uint32_t& scalar : result)
+        {
+            scalar = InvariantUpper(scalar);
+        }
+        return result;
+    }
+
+    [[nodiscard]] bool OrdinalIgnoreCaseEquals(
+        const std::string& left, const std::string& right) noexcept
+    {
+        try
+        {
+            return FoldOrdinalIgnoreCase(left) == FoldOrdinalIgnoreCase(right);
+        }
+        catch (...)
+        {
+            return left == right;
+        }
     }
 
     [[nodiscard]] bool OrdinalIgnoreCaseEndsWith(
-        const std::string& value, const std::string& suffix)
+        const std::string& value, const std::string& suffix) noexcept
     {
-        const std::vector<std::uint32_t> foldedValue = DecodeUtf8Folded(value);
-        const std::vector<std::uint32_t> foldedSuffix = DecodeUtf8Folded(suffix);
-        if (foldedSuffix.size() > foldedValue.size())
+        try
+        {
+            const std::vector<std::uint32_t> foldedValue = FoldOrdinalIgnoreCase(value);
+            const std::vector<std::uint32_t> foldedSuffix = FoldOrdinalIgnoreCase(suffix);
+            if (foldedSuffix.size() > foldedValue.size())
+            {
+                return false;
+            }
+            return std::equal(
+                foldedSuffix.begin(), foldedSuffix.end(),
+                foldedValue.end() - static_cast<std::ptrdiff_t>(foldedSuffix.size()));
+        }
+        catch (...)
         {
             return false;
         }
-        return std::equal(
-            foldedSuffix.begin(), foldedSuffix.end(),
-            foldedValue.end() - static_cast<std::ptrdiff_t>(foldedSuffix.size()));
+    }
+
+    [[nodiscard]] std::string DecodeZipName(
+        const std::uint8_t* data, std::size_t size)
+    {
+        std::string result;
+        std::size_t position = 0;
+        while (position < size)
+        {
+            std::uint32_t scalar = 0;
+            (void)DecodeUtf8Scalar(data, size, position, scalar);
+            AppendUtf8(result, scalar);
+        }
+        return result;
+    }
+
+    struct EncodedZipName final
+    {
+        std::string Bytes;
+        bool Utf8 = false;
+    };
+
+    [[nodiscard]] EncodedZipName EncodeZipName(const std::string& value)
+    {
+        if (value.empty())
+        {
+            throw std::invalid_argument("The entry name cannot be empty.");
+        }
+
+        EncodedZipName result;
+        result.Bytes.reserve(value.size());
+        for (std::uint32_t scalar : DecodeUtf8(value))
+        {
+            if (scalar < 0x20U || scalar > 0x7EU)
+            {
+                result.Utf8 = true;
+            }
+            AppendUtf8(result.Bytes, scalar);
+        }
+        if (result.Bytes.size() > std::numeric_limits<std::uint16_t>::max())
+        {
+            throw std::invalid_argument("Entry names cannot require more than 65535 bytes.");
+        }
+        return result;
     }
 
     [[nodiscard]] std::uint16_t ReadU16(const ByteVector& bytes, std::size_t offset)
@@ -746,6 +888,359 @@ namespace
         return output;
     }
 
+    struct Deflate64HuffmanNode final
+    {
+        std::int32_t Child[2] = {-1, -1};
+        std::int32_t Symbol = -1;
+    };
+
+    class Deflate64BitReader final
+    {
+    public:
+        explicit Deflate64BitReader(const ByteVector& bytes) noexcept : _bytes(bytes) {}
+
+        [[nodiscard]] std::uint32_t ReadBits(std::int32_t count)
+        {
+            std::uint32_t value = 0;
+            for (std::int32_t i = 0; i < count; ++i)
+            {
+                if (_bitPosition >= _bytes.size() * 8ULL)
+                {
+                    throw std::runtime_error("Invalid deflate stream.");
+                }
+                const std::size_t byteIndex = _bitPosition >> 3;
+                const std::size_t bitIndex = _bitPosition & 7U;
+                value |= static_cast<std::uint32_t>(
+                    (_bytes[byteIndex] >> bitIndex) & 1U) << i;
+                ++_bitPosition;
+            }
+            return value;
+        }
+
+        void AlignByte() noexcept
+        {
+            _bitPosition = (_bitPosition + 7U) & ~std::size_t(7U);
+        }
+
+        [[nodiscard]] std::size_t BytePosition() const noexcept
+        {
+            return _bitPosition >> 3;
+        }
+
+        void BytePosition(std::size_t value) noexcept
+        {
+            _bitPosition = value << 3;
+        }
+
+    private:
+        const ByteVector& _bytes;
+        std::size_t _bitPosition = 0;
+    };
+
+    [[nodiscard]] std::vector<Deflate64HuffmanNode> BuildDeflate64Huffman(
+        const std::vector<std::uint8_t>& lengths)
+    {
+        constexpr std::int32_t MaxBits = 15;
+        std::array<std::int32_t, MaxBits + 1> counts{};
+        for (std::uint8_t length : lengths)
+        {
+            if (length > MaxBits)
+            {
+                throw std::runtime_error("Invalid deflate Huffman code length.");
+            }
+            if (length != 0)
+            {
+                ++counts[length];
+            }
+        }
+
+        std::array<std::int32_t, MaxBits + 1> next{};
+        std::int32_t code = 0;
+        for (std::int32_t bits = 1; bits <= MaxBits; ++bits)
+        {
+            code = (code + counts[bits - 1]) << 1;
+            next[bits] = code;
+        }
+
+        std::vector<Deflate64HuffmanNode> nodes(1);
+        for (std::size_t symbol = 0; symbol < lengths.size(); ++symbol)
+        {
+            const std::int32_t length = lengths[symbol];
+            if (length == 0)
+            {
+                continue;
+            }
+            const std::int32_t assigned = next[length]++;
+            std::int32_t node = 0;
+            for (std::int32_t bitIndex = length - 1; bitIndex >= 0; --bitIndex)
+            {
+                const std::int32_t bit = (assigned >> bitIndex) & 1;
+                if (nodes[node].Child[bit] < 0)
+                {
+                    nodes[node].Child[bit] = static_cast<std::int32_t>(nodes.size());
+                    nodes.emplace_back();
+                }
+                node = nodes[node].Child[bit];
+            }
+            if (nodes[node].Symbol >= 0)
+            {
+                throw std::runtime_error("Invalid deflate Huffman tree.");
+            }
+            nodes[node].Symbol = static_cast<std::int32_t>(symbol);
+        }
+        return nodes;
+    }
+
+    [[nodiscard]] std::int32_t DecodeDeflate64Symbol(
+        Deflate64BitReader& reader,
+        const std::vector<Deflate64HuffmanNode>& tree)
+    {
+        std::int32_t node = 0;
+        for (std::int32_t depth = 0; depth <= 15; ++depth)
+        {
+            if (tree[node].Symbol >= 0)
+            {
+                return tree[node].Symbol;
+            }
+            const std::int32_t bit = static_cast<std::int32_t>(reader.ReadBits(1));
+            node = tree[node].Child[bit];
+            if (node < 0)
+            {
+                throw std::runtime_error("Invalid deflate Huffman code.");
+            }
+        }
+        throw std::runtime_error("Invalid deflate Huffman code.");
+    }
+
+    [[nodiscard]] bool InflateDeflate64Codes(
+        Deflate64BitReader& reader,
+        ByteVector& output,
+        const std::vector<Deflate64HuffmanNode>& literalTree,
+        const std::vector<Deflate64HuffmanNode>& distanceTree,
+        std::size_t outputLimit)
+    {
+        static constexpr std::array<std::int32_t, 29> LengthBase{
+            3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,
+            131,163,195,227,258};
+        static constexpr std::array<std::int32_t, 29> LengthExtra{
+            0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
+        static constexpr std::array<std::int32_t, 32> DistanceBase{
+            1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,
+            1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,32769,49153};
+        static constexpr std::array<std::int32_t, 32> DistanceExtra{
+            0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,
+            13,13,14,14};
+
+        while (true)
+        {
+            const std::int32_t symbol = DecodeDeflate64Symbol(reader, literalTree);
+            if (symbol < 256)
+            {
+                output.push_back(static_cast<std::uint8_t>(symbol));
+                if (output.size() >= outputLimit)
+                {
+                    return true;
+                }
+                continue;
+            }
+            if (symbol == 256)
+            {
+                return false;
+            }
+            if (symbol < 257 || symbol > 285)
+            {
+                throw std::runtime_error("Invalid deflate length code.");
+            }
+
+            const std::size_t lengthIndex = static_cast<std::size_t>(symbol - 257);
+            std::int32_t length = LengthBase[lengthIndex];
+            std::int32_t lengthExtra = LengthExtra[lengthIndex];
+            if (symbol == 285)
+            {
+                length = 3;
+                lengthExtra = 16;
+            }
+            if (lengthExtra != 0)
+            {
+                length += static_cast<std::int32_t>(reader.ReadBits(lengthExtra));
+            }
+
+            const std::int32_t distanceSymbol = DecodeDeflate64Symbol(reader, distanceTree);
+            if (distanceSymbol < 0 || distanceSymbol >= 32)
+            {
+                throw std::runtime_error("Invalid deflate distance code.");
+            }
+            std::int32_t distance = DistanceBase[distanceSymbol];
+            if (DistanceExtra[distanceSymbol] != 0)
+            {
+                distance += static_cast<std::int32_t>(
+                    reader.ReadBits(DistanceExtra[distanceSymbol]));
+            }
+            if (distance <= 0 || static_cast<std::size_t>(distance) > output.size())
+            {
+                throw std::runtime_error("Invalid deflate distance.");
+            }
+            for (std::int32_t i = 0; i < length; ++i)
+            {
+                output.push_back(output[output.size() - static_cast<std::size_t>(distance)]);
+                if (output.size() >= outputLimit)
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    [[nodiscard]] ByteVector InflateDeflate64Raw(
+        const ByteVector& input, std::size_t outputLimit)
+    {
+        ByteVector output;
+        if (outputLimit == 0)
+        {
+            return output;
+        }
+
+        Deflate64BitReader reader(input);
+        bool finalBlock = false;
+        while (!finalBlock)
+        {
+            finalBlock = reader.ReadBits(1) != 0;
+            const std::uint32_t type = reader.ReadBits(2);
+            if (type == 0)
+            {
+                reader.AlignByte();
+                std::size_t position = reader.BytePosition();
+                if (position > input.size() || input.size() - position < 4)
+                {
+                    throw std::runtime_error("Invalid stored deflate block.");
+                }
+                const std::uint16_t length = ReadU16(input, position);
+                const std::uint16_t complement = ReadU16(input, position + 2);
+                position += 4;
+                if (static_cast<std::uint16_t>(~length) != complement)
+                {
+                    throw std::runtime_error("Invalid stored deflate block.");
+                }
+                const std::size_t remaining = outputLimit - output.size();
+                const std::size_t copyCount = std::min<std::size_t>(length, remaining);
+                if (position > input.size() || copyCount > input.size() - position)
+                {
+                    throw std::runtime_error("Invalid stored deflate block.");
+                }
+                output.insert(output.end(),
+                    input.begin() + static_cast<std::ptrdiff_t>(position),
+                    input.begin() + static_cast<std::ptrdiff_t>(position + copyCount));
+                if (copyCount < length || output.size() >= outputLimit)
+                {
+                    return output;
+                }
+                reader.BytePosition(position + length);
+            }
+            else if (type == 1)
+            {
+                std::vector<std::uint8_t> literalLengths(288);
+                for (std::int32_t i = 0; i <= 143; ++i) literalLengths[i] = 8;
+                for (std::int32_t i = 144; i <= 255; ++i) literalLengths[i] = 9;
+                for (std::int32_t i = 256; i <= 279; ++i) literalLengths[i] = 7;
+                for (std::int32_t i = 280; i <= 287; ++i) literalLengths[i] = 8;
+                std::vector<std::uint8_t> distanceLengths(32, 5);
+                if (InflateDeflate64Codes(
+                        reader, output,
+                        BuildDeflate64Huffman(literalLengths),
+                        BuildDeflate64Huffman(distanceLengths), outputLimit))
+                {
+                    return output;
+                }
+            }
+            else if (type == 2)
+            {
+                const std::int32_t literalCount
+                    = static_cast<std::int32_t>(reader.ReadBits(5)) + 257;
+                const std::int32_t distanceCount
+                    = static_cast<std::int32_t>(reader.ReadBits(5)) + 1;
+                const std::int32_t codeCount
+                    = static_cast<std::int32_t>(reader.ReadBits(4)) + 4;
+                static constexpr std::array<std::int32_t, 19> Order{
+                    16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15};
+                std::vector<std::uint8_t> codeLengths(19, 0);
+                for (std::int32_t i = 0; i < codeCount; ++i)
+                {
+                    codeLengths[Order[i]] = static_cast<std::uint8_t>(reader.ReadBits(3));
+                }
+                const std::vector<Deflate64HuffmanNode> codeTree
+                    = BuildDeflate64Huffman(codeLengths);
+                std::vector<std::uint8_t> lengths;
+                lengths.reserve(static_cast<std::size_t>(literalCount + distanceCount));
+                while (static_cast<std::int32_t>(lengths.size())
+                    < literalCount + distanceCount)
+                {
+                    const std::int32_t symbol = DecodeDeflate64Symbol(reader, codeTree);
+                    if (symbol <= 15)
+                    {
+                        lengths.push_back(static_cast<std::uint8_t>(symbol));
+                    }
+                    else if (symbol == 16)
+                    {
+                        if (lengths.empty())
+                        {
+                            throw std::runtime_error("Invalid deflate repeat code.");
+                        }
+                        const std::int32_t repeat
+                            = static_cast<std::int32_t>(reader.ReadBits(2)) + 3;
+                        const std::uint8_t value = lengths.back();
+                        for (std::int32_t i = 0; i < repeat; ++i)
+                        {
+                            lengths.push_back(value);
+                        }
+                    }
+                    else if (symbol == 17)
+                    {
+                        const std::int32_t repeat
+                            = static_cast<std::int32_t>(reader.ReadBits(3)) + 3;
+                        for (std::int32_t i = 0; i < repeat; ++i)
+                        {
+                            lengths.push_back(0);
+                        }
+                    }
+                    else if (symbol == 18)
+                    {
+                        const std::int32_t repeat
+                            = static_cast<std::int32_t>(reader.ReadBits(7)) + 11;
+                        for (std::int32_t i = 0; i < repeat; ++i)
+                        {
+                            lengths.push_back(0);
+                        }
+                    }
+                    else
+                    {
+                        throw std::runtime_error("Invalid deflate code-length symbol.");
+                    }
+                    if (static_cast<std::int32_t>(lengths.size())
+                        > literalCount + distanceCount)
+                    {
+                        throw std::runtime_error("Invalid deflate code lengths.");
+                    }
+                }
+                std::vector<std::uint8_t> literalLengths(
+                    lengths.begin(), lengths.begin() + literalCount);
+                std::vector<std::uint8_t> distanceLengths(
+                    lengths.begin() + literalCount, lengths.end());
+                if (InflateDeflate64Codes(
+                        reader, output,
+                        BuildDeflate64Huffman(literalLengths),
+                        BuildDeflate64Huffman(distanceLengths), outputLimit))
+                {
+                    return output;
+                }
+            }
+            else
+            {
+                throw std::runtime_error("Invalid deflate block type.");
+            }
+        }
+        return output;
+    }
+
     struct ZipEntry
     {
         std::string Name;
@@ -905,8 +1400,7 @@ namespace
                 throw std::runtime_error("Central Directory corrupt.");
             }
 
-            const char* name = reinterpret_cast<const char*>(archive.data() + cursor + 46);
-            entry.Name.assign(name, name + nameLength);
+            entry.Name = DecodeZipName(archive.data() + cursor + 46, nameLength);
             entry.CompressedSize = compressed32;
             entry.UncompressedSize = uncompressed32;
             entry.LocalOffset = offset32;
@@ -972,6 +1466,11 @@ namespace
         if (entry.Method == 8)
         {
             return InflateRaw(compressed, static_cast<std::size_t>(entry.UncompressedSize));
+        }
+        if (entry.Method == 9)
+        {
+            return InflateDeflate64Raw(
+                compressed, static_cast<std::size_t>(entry.UncompressedSize));
         }
         throw std::runtime_error("The ZIP entry uses an unsupported compression method.");
     }
@@ -1148,6 +1647,8 @@ namespace
     struct WrittenEntry
     {
         std::string Name;
+        std::uint16_t Flags = 0;
+        std::uint16_t Method = 8;
         std::uint32_t Crc = 0;
         std::uint64_t CompressedSize = 0;
         std::uint64_t UncompressedSize = 0;
@@ -1180,17 +1681,28 @@ namespace
     [[nodiscard]] WrittenEntry WriteZipEntry(
         std::ofstream& stream, const std::string& name, const ByteVector& bytes)
     {
-        const ByteVector compressed = DeflateRaw(bytes);
+        // ZipArchive.CreateEntry encodes and validates the entry name before
+        // entry.Open() can begin compressing any payload.
+        EncodedZipName encodedName = EncodeZipName(name);
+
         WrittenEntry result;
-        result.Name = name;
+        result.Name = std::move(encodedName.Bytes);
+        // CompressionLevel.SmallestSize maps to deflate-option value 2.
+        // .NET retains those bits even when an empty entry is switched to Stored.
+        result.Flags = static_cast<std::uint16_t>(
+            0x0002U | (encodedName.Utf8 ? 0x0800U : 0U));
+        result.Method = bytes.empty() ? 0U : 8U;
+        result.Timestamp = CurrentDosTimestamp();
+
+        const ByteVector compressed = bytes.empty() ? ByteVector{} : DeflateRaw(bytes);
         result.Crc = Crc32(bytes);
         result.CompressedSize = compressed.size();
         result.UncompressedSize = bytes.size();
         result.LocalOffset = StreamPosition(stream);
-        result.Timestamp = CurrentDosTimestamp();
 
-        const bool zip64Size = result.CompressedSize >= 0xFFFFFFFFULL
-            || result.UncompressedSize >= 0xFFFFFFFFULL;
+        // ZipArchiveEntry.AreSizesTooLarge uses a strict > uint.MaxValue test.
+        const bool zip64Size = result.CompressedSize > 0xFFFFFFFFULL
+            || result.UncompressedSize > 0xFFFFFFFFULL;
         ByteVector extra;
         if (zip64Size)
         {
@@ -1203,8 +1715,8 @@ namespace
         ByteVector header;
         PushU32(header, 0x04034B50U);
         PushU16(header, zip64Size ? 45U : 20U);
-        PushU16(header, 0x0800U);
-        PushU16(header, 8U);
+        PushU16(header, result.Flags);
+        PushU16(header, result.Method);
         PushU16(header, result.Timestamp.Time);
         PushU16(header, result.Timestamp.Date);
         PushU32(header, result.Crc);
@@ -1212,16 +1724,11 @@ namespace
             : static_cast<std::uint32_t>(result.CompressedSize));
         PushU32(header, zip64Size ? 0xFFFFFFFFU
             : static_cast<std::uint32_t>(result.UncompressedSize));
-        if (name.size() > std::numeric_limits<std::uint16_t>::max()
-            || extra.size() > std::numeric_limits<std::uint16_t>::max())
-        {
-            throw std::length_error("ZIP entry name or extra field is too long.");
-        }
-        PushU16(header, static_cast<std::uint16_t>(name.size()));
+        PushU16(header, static_cast<std::uint16_t>(result.Name.size()));
         PushU16(header, static_cast<std::uint16_t>(extra.size()));
 
         WriteBytes(stream, header);
-        WriteRaw(stream, name.data(), name.size());
+        WriteRaw(stream, result.Name.data(), result.Name.size());
         WriteBytes(stream, extra);
         WriteBytes(stream, compressed);
         return result;
@@ -1232,9 +1739,9 @@ namespace
         const std::uint64_t centralOffset = StreamPosition(stream);
         for (const WrittenEntry& entry : entries)
         {
-            const bool zip64Uncompressed = entry.UncompressedSize >= 0xFFFFFFFFULL;
-            const bool zip64Compressed = entry.CompressedSize >= 0xFFFFFFFFULL;
-            const bool zip64Offset = entry.LocalOffset >= 0xFFFFFFFFULL;
+            const bool zip64Uncompressed = entry.UncompressedSize > 0xFFFFFFFFULL;
+            const bool zip64Compressed = entry.CompressedSize > 0xFFFFFFFFULL;
+            const bool zip64Offset = entry.LocalOffset > 0xFFFFFFFFULL;
             ByteVector extra;
             if (zip64Uncompressed || zip64Compressed || zip64Offset)
             {
@@ -1265,8 +1772,8 @@ namespace
             PushU16(header, static_cast<std::uint16_t>(0x0300U | (zip64 ? 45U : 20U)));
 #endif
             PushU16(header, zip64 ? 45U : 20U);
-            PushU16(header, 0x0800U);
-            PushU16(header, 8U);
+            PushU16(header, entry.Flags);
+            PushU16(header, entry.Method);
             PushU16(header, entry.Timestamp.Time);
             PushU16(header, entry.Timestamp.Date);
             PushU32(header, entry.Crc);
@@ -1279,7 +1786,13 @@ namespace
             PushU16(header, 0U);
             PushU16(header, 0U);
             PushU16(header, 0U);
+#if defined(_WIN32)
             PushU32(header, 0U);
+#else
+            // ZipArchiveEntryConstants.Unix.DefaultFileExternalAttributes:
+            // regular file type plus 0644, shifted into the upper 16 bits.
+            PushU32(header, 0x81A40000U);
+#endif
             PushU32(header, zip64Offset ? 0xFFFFFFFFU
                 : static_cast<std::uint32_t>(entry.LocalOffset));
             WriteBytes(stream, header);
@@ -1338,7 +1851,7 @@ namespace
         const std::filesystem::path destinationPath = PathFromUtf8(destination);
         if (!MoveFileExW(
                 sourcePath.c_str(), destinationPath.c_str(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING))
         {
             throw std::system_error(
                 static_cast<int>(GetLastError()), std::system_category(),
@@ -1363,6 +1876,13 @@ namespace
             throw std::overflow_error("File length is too large.");
         }
         return static_cast<std::int64_t>(size);
+    }
+
+    [[nodiscard]] std::int64_t WrapAddInt64(
+        std::int64_t left, std::int64_t right) noexcept
+    {
+        return std::bit_cast<std::int64_t>(
+            std::bit_cast<std::uint64_t>(left) + std::bit_cast<std::uint64_t>(right));
     }
 }
 
@@ -1400,8 +1920,10 @@ namespace MphRead::Mods::MapGen
                 + " is not here, so there is nothing to cook.");
         }
 
-        const std::string mapName = import->MapName().value_or(
-            GetFileNameWithoutExtension(*level));
+        const std::optional<std::string>& requestedMapName = import->MapName();
+        const std::string mapName = requestedMapName
+            ? *requestedMapName
+            : GetFileNameWithoutExtension(*level);
         const ByteVector trimmed = Q3Bsp::Trim(
             Q3Bsp::ReadLevel(*level, import->MapName()));
 
@@ -1421,10 +1943,11 @@ namespace MphRead::Mods::MapGen
             }
         }
 
-        const std::string path = outputPath.value_or(
-            CombinePath(
+        const std::string path = outputPath
+            ? *outputPath
+            : CombinePath(
                 CustomRooms::MapDirectory(),
-                GetFileNameWithoutExtension(recipePath) + Extension));
+                GetFileNameWithoutExtension(recipePath) + Extension);
         const std::string recipeName = GetFileName(recipePath);
         const std::string textureName = texturePath
             ? GetFileName(*texturePath) : std::string{};
@@ -1473,8 +1996,8 @@ namespace MphRead::Mods::MapGen
 
         if (verbose)
         {
-            const std::int64_t before = FileLength(*level)
-                + (texturePath ? FileLength(*texturePath) : 0);
+            const std::int64_t before = WrapAddInt64(
+                FileLength(*level), texturePath ? FileLength(*texturePath) : 0);
             std::cout << "[mapbundle] " << definition->Name() << " -> " << path
                 << " (" << FileLength(path) / 1024 << " KiB, from "
                 << before / 1024 << " KiB)" << std::endl;

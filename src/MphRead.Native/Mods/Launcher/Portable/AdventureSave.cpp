@@ -1,12 +1,13 @@
 #include "AdventureSave.hpp"
 
+#include "../../../Formats/Types.hpp"
 #include "../../../GameState.hpp"
 #include "../../../Menu.hpp"
 #include "../../../Metadata/Metadata.hpp"
 #include "../../../Metadata/Rooms.hpp"
 
+#include <new>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace MphRead::Mods::Launcher
@@ -18,13 +19,29 @@ namespace MphRead::Mods::Launcher
         "Arcterra", "Arcterra", "Oubliette"
     };
 
+    AdventureSave::SlotInfo::SlotInfo(const Init& init)
+        : Slot(init.Slot), Used(init.Used), Area(init.Area), Octoliths(init.Octoliths),
+          Health(init.Health), HealthMax(init.HealthMax)
+    {
+    }
+
+    AdventureSave::SlotInfo& AdventureSave::SlotInfo::operator=(const SlotInfo& other)
+    {
+        if (std::addressof(*this) != std::addressof(other))
+        {
+            this->~SlotInfo();
+            ::new (static_cast<void*>(this)) SlotInfo(other);
+        }
+        return *this;
+    }
+
     std::string AdventureSave::SlotInfo::Describe() const
     {
         if (!Used)
         {
             return "Empty";
         }
-        return Area.value_or("") + " — " + std::to_string(Octoliths) + "/8 octoliths";
+        return Area.value_or("") + " — " + MphRead::Fixed(Octoliths).ToString() + "/8 octoliths";
     }
 
     AdventureSave::SlotInfo AdventureSave::Read(std::uint8_t slot)
@@ -32,14 +49,14 @@ namespace MphRead::Mods::Launcher
         std::shared_ptr<MphRead::StorySave> save = MphRead::GameState::PeekSave(slot);
         if (save == nullptr)
         {
-            return SlotInfo
+            return SlotInfo(SlotInfo::Init
             {
                 .Slot = slot,
                 .Used = false,
                 .Area = std::string()
-            };
+            });
         }
-        return SlotInfo
+        return SlotInfo(SlotInfo::Init
         {
             .Slot = slot,
             .Used = true,
@@ -47,7 +64,7 @@ namespace MphRead::Mods::Launcher
             .Octoliths = save->CountFoundOctoliths(),
             .Health = save->Health,
             .HealthMax = save->HealthMax
-        };
+        });
     }
 
     std::vector<AdventureSave::SlotInfo> AdventureSave::ReadAll()

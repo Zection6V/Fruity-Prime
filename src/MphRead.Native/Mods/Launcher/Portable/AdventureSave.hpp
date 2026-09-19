@@ -24,12 +24,27 @@ namespace MphRead::Mods::Launcher
 
         struct SlotInfo
         {
-            std::uint8_t Slot = 0;
-            bool Used = false;
-            std::optional<std::string> Area{};
-            std::int32_t Octoliths = 0;
-            std::int32_t Health = 0;
-            std::int32_t HealthMax = 0;
+            struct Init
+            {
+                std::uint8_t Slot = 0;
+                bool Used = false;
+                std::optional<std::string> Area{};
+                std::int32_t Octoliths = 0;
+                std::int32_t Health = 0;
+                std::int32_t HealthMax = 0;
+            };
+
+            const std::uint8_t Slot = 0;
+            const bool Used = false;
+            const std::optional<std::string> Area{};
+            const std::int32_t Octoliths = 0;
+            const std::int32_t Health = 0;
+            const std::int32_t HealthMax = 0;
+
+            SlotInfo() = default;
+            explicit SlotInfo(const Init& init);
+            SlotInfo(const SlotInfo&) = default;
+            SlotInfo& operator=(const SlotInfo& other);
 
             [[nodiscard]] std::string Describe() const;
         };

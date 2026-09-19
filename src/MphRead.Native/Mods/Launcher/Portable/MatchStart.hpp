@@ -18,16 +18,16 @@ namespace MphRead::Mods::Launcher
         MatchStart() = delete;
 
         static void Launch(
-            const std::shared_ptr<MphRead::MenuSettings>& settings,
-            const LaunchPlan& plan);
+            std::shared_ptr<MphRead::MenuSettings> settings,
+            LaunchPlan plan);
         static void CommitAdventureSave();
 
     private:
-        static void LaunchAdventure(const LaunchPlan& plan);
-        static void LaunchDemo(const LaunchPlan& plan);
+        static void LaunchAdventure(LaunchPlan plan);
+        static void LaunchDemo(LaunchPlan plan);
         static void AddLocalPlayers(
             MphRead::RenderWindow& renderer,
-            const LaunchPlan& plan,
+            LaunchPlan plan,
             bool teamPlay);
     };
 }

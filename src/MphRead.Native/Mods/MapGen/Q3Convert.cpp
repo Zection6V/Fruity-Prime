@@ -838,6 +838,14 @@ namespace
             return scalar + ('a' - 'A');
         }
 
+        // .NET's invariant ICU casing deliberately keeps the two Turkish-I
+        // scalars unchanged so that it matches Windows invariant casing.
+        if ((upper && scalar == 0x0131U)
+            || (!upper && scalar == 0x0130U))
+        {
+            return scalar;
+        }
+
 #if defined(_WIN32)
         wchar_t source[2]{};
         int sourceLength = 0;

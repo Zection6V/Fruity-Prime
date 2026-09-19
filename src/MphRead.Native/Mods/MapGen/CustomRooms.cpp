@@ -1364,7 +1364,8 @@ namespace MphRead::Mods::MapGen
         std::vector<std::string> bundles;
         for (const std::filesystem::directory_entry& entry :
             std::filesystem::recursive_directory_iterator(
-                PathFromUtf8(MapDirectory())))
+                PathFromUtf8(MapDirectory()),
+                std::filesystem::directory_options::follow_directory_symlink))
         {
             if (entry.is_regular_file()
                 && ExtensionMatches(entry.path(), MapBundle::Extension))
@@ -1383,7 +1384,8 @@ namespace MphRead::Mods::MapGen
         std::vector<std::string> results = bundles;
         for (const std::filesystem::directory_entry& entry :
             std::filesystem::recursive_directory_iterator(
-                PathFromUtf8(MapDirectory())))
+                PathFromUtf8(MapDirectory()),
+                std::filesystem::directory_options::follow_directory_symlink))
         {
             if (!entry.is_regular_file()
                 || !ExtensionMatches(entry.path(), ".json"))

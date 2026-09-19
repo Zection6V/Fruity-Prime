@@ -1,31 +1,12 @@
 #pragma once
 
+#include "../Render/PlayerEntityVoteHud.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
-
-namespace MphRead::Mods
-{
-    // Direct type seam for EndScreen.Hit, whose owning C# file follows MapVote
-    // in the Native implementation order. EndScreen can expose this exact
-    // value type as its Hit alias when its pair is added.
-    struct EndScreenHit final
-    {
-        const float Left = 0.0F;
-        const float Top = 0.0F;
-        const float Right = 0.0F;
-        const float Bottom = 0.0F;
-
-        EndScreenHit() = default;
-        EndScreenHit(float left, float top, float right, float bottom) noexcept;
-        EndScreenHit(const EndScreenHit&) = default;
-        EndScreenHit& operator=(const EndScreenHit& other) noexcept;
-
-        [[nodiscard]] bool Contains(float x, float y) const noexcept;
-    };
-}
 
 namespace MphRead::Mods::Network
 {
@@ -41,11 +22,11 @@ namespace MphRead::Mods::Network
         MapVote& operator=(MapVote&&) = delete;
 
         [[nodiscard]] static bool Active() noexcept { return _active; }
-        [[nodiscard]] static std::optional<std::string> RoomKey()
+        [[nodiscard]] static const std::optional<std::string>& RoomKey() noexcept
         {
             return _roomKey;
         }
-        [[nodiscard]] static std::optional<std::string> Proposer()
+        [[nodiscard]] static const std::optional<std::string>& Proposer() noexcept
         {
             return _proposer;
         }
@@ -66,8 +47,8 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::string WhyNotProposing();
 
         static void NoteLayout(
-            MphRead::Mods::EndScreenHit accept,
-            MphRead::Mods::EndScreenHit deny) noexcept;
+            MphRead::Mods::EndScreen::Hit accept,
+            MphRead::Mods::EndScreen::Hit deny) noexcept;
 
         [[nodiscard]] static bool HandleClick();
         [[nodiscard]] static std::shared_ptr<std::vector<float>> TouchTargets();
@@ -93,7 +74,7 @@ namespace MphRead::Mods::Network
         static bool _supported;
         static bool _disabled;
 
-        static MphRead::Mods::EndScreenHit _hitAccept;
-        static MphRead::Mods::EndScreenHit _hitDeny;
+        static MphRead::Mods::EndScreen::Hit _hitAccept;
+        static MphRead::Mods::EndScreen::Hit _hitDeny;
     };
 }

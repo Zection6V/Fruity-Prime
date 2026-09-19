@@ -28,42 +28,25 @@
 #include <wctype.h>
 #endif
 
-namespace MphRead::Mods
-{
-    EndScreenHit::EndScreenHit(
-        float left, float top, float right, float bottom) noexcept
-        : Left(left), Top(top), Right(right), Bottom(bottom)
-    {
-    }
-
-    EndScreenHit& EndScreenHit::operator=(const EndScreenHit& other) noexcept
-    {
-        if (std::addressof(*this) != std::addressof(other))
-        {
-            this->~EndScreenHit();
-            ::new (static_cast<void*>(this)) EndScreenHit(other);
-        }
-        return *this;
-    }
-
-    bool EndScreenHit::Contains(float x, float y) const noexcept
-    {
-        return Right > Left && Bottom > Top
-            && x >= Left && x < Right && y >= Top && y < Bottom;
-    }
-}
-
-namespace MphRead::Mods::Network::Detail
-{
-    // EndScreen owns these values. Its C# file follows this one in the Native
-    // implementation order, so the owner supplies these two exact reads when
-    // its pair is added rather than MapVote inventing duplicate pointer state.
-    [[nodiscard]] float MapVoteEndScreenPointerX() noexcept;
-    [[nodiscard]] float MapVoteEndScreenPointerY() noexcept;
-}
-
 namespace
 {
+    void ReplaceHit(
+        MphRead::Mods::EndScreen::Hit& target,
+        const MphRead::Mods::EndScreen::Hit& source) noexcept
+    {
+        target.~Hit();
+        ::new (static_cast<void*>(std::addressof(target)))
+            MphRead::Mods::EndScreen::Hit(source);
+    }
+
+    [[nodiscard]] bool HitContains(
+        const MphRead::Mods::EndScreen::Hit& hit,
+        float x, float y) noexcept
+    {
+        return hit.Right > hit.Left && hit.Bottom > hit.Top
+            && x >= hit.Left && x < hit.Right && y >= hit.Top && y < hit.Bottom;
+    }
+
     struct Utf8Unit final
     {
         std::uint32_t Scalar = 0xFFFDU;
@@ -389,8 +372,7 @@ namespace
     {
         if (!value.has_value())
         {
-            throw std::runtime_error(
-                "Object reference not set to an instance of an object.");
+            throw System::NullReferenceException();
         }
         return *value;
     }
@@ -416,8 +398,8 @@ namespace MphRead::Mods::Network
     bool MapVote::_answered = false;
     bool MapVote::_supported = false;
     bool MapVote::_disabled = false;
-    MphRead::Mods::EndScreenHit MapVote::_hitAccept{};
-    MphRead::Mods::EndScreenHit MapVote::_hitDeny{};
+    MphRead::Mods::EndScreen::Hit MapVote::_hitAccept{};
+    MphRead::Mods::EndScreen::Hit MapVote::_hitDeny{};
 
     std::string MapVote::WhyNotProposing()
     {
@@ -445,11 +427,11 @@ namespace MphRead::Mods::Network
     }
 
     void MapVote::NoteLayout(
-        MphRead::Mods::EndScreenHit accept,
-        MphRead::Mods::EndScreenHit deny) noexcept
+        MphRead::Mods::EndScreen::Hit accept,
+        MphRead::Mods::EndScreen::Hit deny) noexcept
     {
-        _hitAccept = accept;
-        _hitDeny = deny;
+        ReplaceHit(_hitAccept, accept);
+        ReplaceHit(_hitDeny, deny);
     }
 
     bool MapVote::HandleClick()
@@ -458,14 +440,14 @@ namespace MphRead::Mods::Network
         {
             return false;
         }
-        const float x = Detail::MapVoteEndScreenPointerX();
-        const float y = Detail::MapVoteEndScreenPointerY();
-        if (_hitAccept.Contains(x, y))
+        const float x = MphRead::Mods::EndScreen::PointerX();
+        const float y = MphRead::Mods::EndScreen::PointerY();
+        if (HitContains(_hitAccept, x, y))
         {
             Cast(true);
             return true;
         }
-        if (_hitDeny.Contains(x, y))
+        if (HitContains(_hitDeny, x, y))
         {
             Cast(false);
             return true;
@@ -489,8 +471,8 @@ namespace MphRead::Mods::Network
 
     void MapVote::Reset()
     {
-        _hitAccept = MphRead::Mods::EndScreenHit{};
-        _hitDeny = MphRead::Mods::EndScreenHit{};
+        ReplaceHit(_hitAccept, MphRead::Mods::EndScreen::Hit{});
+        ReplaceHit(_hitDeny, MphRead::Mods::EndScreen::Hit{});
         _active = false;
         _roomKey = std::string();
         _proposer = std::string();

@@ -112,7 +112,15 @@ namespace
     {
         constexpr float Int32UpperExclusive = 2147483648.0F;
         constexpr float Int32LowerInclusive = -2147483648.0F;
-        if (!std::isfinite(value) || value >= Int32UpperExclusive || value < Int32LowerInclusive)
+        if (std::isnan(value))
+        {
+            return 0;
+        }
+        if (value >= Int32UpperExclusive)
+        {
+            return std::numeric_limits<std::int32_t>::max();
+        }
+        if (value < Int32LowerInclusive)
         {
             return std::numeric_limits<std::int32_t>::min();
         }

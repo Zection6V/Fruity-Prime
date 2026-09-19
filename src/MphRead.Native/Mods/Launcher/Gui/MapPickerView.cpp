@@ -485,7 +485,7 @@ namespace MphRead::Mods::Launcher::Gui
             const std::vector<std::uint8_t> bytes = ReadAllBytes(path);
             return _control.CreateBitmapFromMemory(bytes);
         }
-        catch (const std::exception&)
+        catch (...)
         {
             return {};
         }

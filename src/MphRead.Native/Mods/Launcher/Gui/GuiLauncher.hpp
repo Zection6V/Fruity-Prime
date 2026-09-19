@@ -122,18 +122,17 @@ namespace MphRead::Mods::Launcher::Gui
 
         [[nodiscard]] static bool TryRun();
 
-    private:
-        friend bool MphRead::Mods::Detail::PauseMenuGuiEnsureSetup();
-        friend void MphRead::Mods::Detail::PauseMenuGuiPump();
-
+        // C# internal: assembly-visible to PauseMenu and other native peers.
         [[nodiscard]] static bool EnsureSetup();
+        static void Pump();
+
+    private:
         static void SayWhyOnLinux();
         [[nodiscard]] static bool Probe();
         static void Run();
         [[nodiscard]] static LaunchPlan Ask(
             const std::shared_ptr<MphRead::MenuSettings>& settings,
             const std::vector<std::string>& rooms);
-        static void Pump();
 
         static std::atomic_bool _setUp;
         static std::atomic_bool _failed;

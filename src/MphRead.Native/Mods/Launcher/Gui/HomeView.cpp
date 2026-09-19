@@ -1321,8 +1321,10 @@ namespace MphRead::Mods::Launcher::Gui
     {
         return CaptureTask(_adapter, [this]() -> HomeViewTaskRef
         {
+            const auto demos = DemoLibrary::List();
+            const std::string directory = DemoLibrary::Directory();
             HomeViewElement view = _adapter.CreateDemoPickerView(
-                DemoLibrary::List(), DemoLibrary::Directory());
+                demos, directory);
             HomeViewTaskRef overlay = ShowOverlay(view,
                 [this, view](HomeViewAdapter::Action handler)
                 {
@@ -1949,9 +1951,17 @@ namespace MphRead::Mods::Launcher::Gui
 
     std::uint8_t HomeView::CurrentSlot() const
     {
+        std::int32_t index = _adapter.ChoiceIndex(_adventureSlot);
+        if (index == std::numeric_limits<std::int32_t>::max())
+        {
+            index = std::numeric_limits<std::int32_t>::min();
+        }
+        else
+        {
+            ++index;
+        }
         const std::int32_t value = std::clamp(
-            _adapter.ChoiceIndex(_adventureSlot) + 1,
-            1, AdventureSave::SlotCount);
+            index, 1, AdventureSave::SlotCount);
         return static_cast<std::uint8_t>(value);
     }
 

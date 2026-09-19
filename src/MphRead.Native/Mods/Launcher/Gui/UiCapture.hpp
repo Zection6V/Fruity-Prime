@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../Formats/Types.hpp"
 #include "../../Network/DemoLibrary.hpp"
 #include "../../Network/NetStatus.hpp"
 
@@ -15,15 +16,16 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class UiCaptureArgumentNullException final : public std::invalid_argument
+    namespace Detail
     {
-    public:
-        explicit UiCaptureArgumentNullException(std::string parameterName);
-        [[nodiscard]] const std::string& ParameterName() const noexcept;
-
-    private:
-        std::string _parameterName;
-    };
+        // Platform boundary for the exact .NET 9 System.IO.Path operations used
+        // by CaptureLogShare. Implementations must preserve Path.GetTempPath()
+        // and Path.Combine(string,string), including platform rooting,
+        // normalization, encoding, exceptions and messages.
+        [[nodiscard]] std::u16string UiCapturePathGetTempPath();
+        [[nodiscard]] std::u16string UiCapturePathCombine(
+            std::u16string_view left, std::u16string_view right);
+    }
 
     struct UiCaptureSize final
     {
@@ -183,10 +185,6 @@ namespace MphRead::Mods::Launcher::Gui
             std::string_view name, std::string_view endpoint) = 0;
         virtual void SetServerRowStatus(const UiCaptureControlHandle& row,
             Network::ServerStatus status) = 0;
-        [[nodiscard]] virtual GameMode BattleGameMode() const = 0;
-        [[nodiscard]] virtual GameMode PrimeHunterGameMode() const = 0;
-        [[nodiscard]] virtual GameMode BountyGameMode() const = 0;
-
         [[nodiscard]] virtual UiCaptureWindowHandle ConstructWindow() = 0;
         virtual void SetWindowWidth(const UiCaptureWindowHandle& window, double width) = 0;
         virtual void SetWindowHeight(const UiCaptureWindowHandle& window, double height) = 0;
@@ -232,7 +230,7 @@ namespace MphRead::Mods::Launcher::Gui
         UiCapture& operator=(const UiCapture&) = delete;
 
         [[nodiscard]] static std::int32_t Run(
-            UiCaptureAdapter& adapter, std::string_view directory);
+            UiCaptureAdapter& adapter, std::string directory);
         [[nodiscard]] static std::int32_t Run(
             UiCaptureAdapter& adapter, std::nullptr_t directory);
 

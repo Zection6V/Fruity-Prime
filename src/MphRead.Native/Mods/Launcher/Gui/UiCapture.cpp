@@ -3,17 +3,8 @@
 #include "../../LogShare.hpp"
 
 #include <array>
-#include <cstdlib>
-#include <limits>
 #include <stdexcept>
 #include <utility>
-
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
 
 namespace
 {
@@ -25,43 +16,22 @@ namespace
     constexpr UiCaptureSize WindowSize{940.0, 560.0};
     constexpr std::string_view Endpoint = "203.0.113.7:27888";
 
-    enum class SampleMode : std::uint8_t
-    {
-        Battle,
-        PrimeHunter,
-        Bounty
-    };
-
     struct SampleServer final
     {
         std::string_view Name;
         std::string_view Room;
-        SampleMode Mode;
+        std::int32_t Mode;
         std::int32_t Players;
         std::int32_t Ping;
     };
 
+    // Immutable values from the C# GameMode : byte declaration:
+    // Battle = 3, Bounty = 8, PrimeHunter = 14.
     constexpr std::array<SampleServer, 3> SampleServers{{
-        {"net.livetek.fr", "MP3 PROVING GROUND", SampleMode::Battle, 3, 41},
-        {"A very long server name indeed", "MP7 PROCESSOR CORE",
-            SampleMode::PrimeHunter, 8, 152},
-        {"lan", "MP2 HARVESTER", SampleMode::Bounty, 1, 2}
+        {"net.livetek.fr", "MP3 PROVING GROUND", 3, 3, 41},
+        {"A very long server name indeed", "MP7 PROCESSOR CORE", 14, 8, 152},
+        {"lan", "MP2 HARVESTER", 8, 1, 2}
     }};
-
-    [[nodiscard]] MphRead::GameMode ResolveMode(
-        UiCaptureAdapter& adapter, SampleMode mode)
-    {
-        switch (mode)
-        {
-        case SampleMode::Battle:
-            return adapter.BattleGameMode();
-        case SampleMode::PrimeHunter:
-            return adapter.PrimeHunterGameMode();
-        case SampleMode::Bounty:
-            return adapter.BountyGameMode();
-        }
-        throw std::logic_error("Unknown UiCapture sample game mode.");
-    }
 
     void DisposeEnumeratorLikeForeach(
         const std::shared_ptr<UiCaptureRoomMetadataEnumerator>& enumerator,
@@ -83,182 +53,15 @@ namespace
         }
     }
 
-    [[nodiscard]] std::u16string Utf8ToUtf16(std::string_view text)
-    {
-        std::u16string result;
-        result.reserve(text.size());
-        std::size_t index = 0;
-        while (index < text.size())
-        {
-            const auto first = static_cast<unsigned char>(text[index]);
-            char32_t value = 0xFFFDU;
-            std::size_t consumed = 1;
-
-            if (first <= 0x7FU)
-            {
-                value = first;
-            }
-            else if (first >= 0xC2U && first <= 0xDFU && index + 1 < text.size())
-            {
-                const auto second = static_cast<unsigned char>(text[index + 1]);
-                if ((second & 0xC0U) == 0x80U)
-                {
-                    value = static_cast<char32_t>(((first & 0x1FU) << 6)
-                        | (second & 0x3FU));
-                    consumed = 2;
-                }
-            }
-            else if (first >= 0xE0U && first <= 0xEFU && index + 2 < text.size())
-            {
-                const auto second = static_cast<unsigned char>(text[index + 1]);
-                const auto third = static_cast<unsigned char>(text[index + 2]);
-                const bool secondValid = (second & 0xC0U) == 0x80U
-                    && !(first == 0xE0U && second < 0xA0U)
-                    && !(first == 0xEDU && second >= 0xA0U);
-                if (secondValid && (third & 0xC0U) == 0x80U)
-                {
-                    value = static_cast<char32_t>(((first & 0x0FU) << 12)
-                        | ((second & 0x3FU) << 6) | (third & 0x3FU));
-                    consumed = 3;
-                }
-            }
-            else if (first >= 0xF0U && first <= 0xF4U && index + 3 < text.size())
-            {
-                const auto second = static_cast<unsigned char>(text[index + 1]);
-                const auto third = static_cast<unsigned char>(text[index + 2]);
-                const auto fourth = static_cast<unsigned char>(text[index + 3]);
-                const bool secondValid = (second & 0xC0U) == 0x80U
-                    && !(first == 0xF0U && second < 0x90U)
-                    && !(first == 0xF4U && second > 0x8FU);
-                if (secondValid && (third & 0xC0U) == 0x80U
-                    && (fourth & 0xC0U) == 0x80U)
-                {
-                    value = static_cast<char32_t>(((first & 0x07U) << 18)
-                        | ((second & 0x3FU) << 12)
-                        | ((third & 0x3FU) << 6) | (fourth & 0x3FU));
-                    consumed = 4;
-                }
-            }
-
-            if (value <= 0xFFFFU)
-            {
-                result.push_back(static_cast<char16_t>(value));
-            }
-            else
-            {
-                value -= 0x10000U;
-                result.push_back(static_cast<char16_t>(0xD800U + (value >> 10)));
-                result.push_back(static_cast<char16_t>(0xDC00U + (value & 0x3FFU)));
-            }
-            index += consumed;
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::u16string ManagedTempPath()
-    {
-#ifdef _WIN32
-        using GetTempPathFunction = DWORD (WINAPI*)(DWORD, LPWSTR);
-        GetTempPathFunction getTempPath = &::GetTempPathW;
-        if (HMODULE kernel32 = ::GetModuleHandleW(L"kernel32.dll"); kernel32 != nullptr)
-        {
-            if (FARPROC procedure = ::GetProcAddress(kernel32, "GetTempPath2W"); procedure != nullptr)
-            {
-                getTempPath = reinterpret_cast<GetTempPathFunction>(procedure);
-            }
-        }
-
-        DWORD capacity = MAX_PATH + 1U;
-        for (;;)
-        {
-            std::wstring buffer(static_cast<std::size_t>(capacity), L'\0');
-            const DWORD length = getTempPath(capacity, buffer.data());
-            if (length == 0U)
-            {
-                throw std::runtime_error("The temporary path could not be determined.");
-            }
-            if (length < capacity)
-            {
-                buffer.resize(static_cast<std::size_t>(length));
-                static_assert(sizeof(wchar_t) == sizeof(char16_t));
-                return std::u16string(
-                    reinterpret_cast<const char16_t*>(buffer.data()), buffer.size());
-            }
-            if (length == std::numeric_limits<DWORD>::max())
-            {
-                throw std::length_error("The temporary path is too long.");
-            }
-            capacity = length + 1U;
-        }
-#else
-        const char* environment = std::getenv("TMPDIR");
-        std::string path = environment != nullptr && *environment != '\0'
-            ? std::string(environment)
-            : std::string("/tmp");
-        if (path.empty() || path.back() != '/')
-        {
-            path.push_back('/');
-        }
-        return Utf8ToUtf16(path);
-#endif
-    }
-
-    [[nodiscard]] bool IsManagedPathRooted(std::u16string_view path) noexcept
-    {
-        if (path.empty())
-        {
-            return false;
-        }
-#ifdef _WIN32
-        if (path[0] == u'\\' || path[0] == u'/')
-        {
-            return true;
-        }
-        return path.size() >= 2 && path[1] == u':';
-#else
-        return path[0] == u'/';
-#endif
-    }
-
-    [[nodiscard]] std::u16string ManagedPathCombine(
-        std::u16string_view left, std::u16string_view right)
-    {
-        if (left.empty())
-        {
-            return std::u16string(right);
-        }
-        if (right.empty())
-        {
-            return std::u16string(left);
-        }
-        if (IsManagedPathRooted(right))
-        {
-            return std::u16string(right);
-        }
-
-        std::u16string result(left);
-        const char16_t last = result.back();
-#ifdef _WIN32
-        if (last != u'\\' && last != u'/' && last != u':')
-        {
-            result.push_back(u'\\');
-        }
-#else
-        if (last != u'/')
-        {
-            result.push_back(u'/');
-        }
-#endif
-        result.append(right);
-        return result;
-    }
-
     class CaptureLogShare final : public MphRead::Mods::ILogShare
     {
     public:
         [[nodiscard]] std::u16string StagingPath(std::u16string_view fileName) override
         {
-            return ManagedPathCombine(ManagedTempPath(), fileName);
+            const std::u16string temp
+                = MphRead::Mods::Launcher::Gui::Detail::UiCapturePathGetTempPath();
+            return MphRead::Mods::Launcher::Gui::Detail::UiCapturePathCombine(
+                temp, fileName);
         }
 
         [[nodiscard]] bool Share(std::u16string_view path,
@@ -297,18 +100,6 @@ namespace
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    UiCaptureArgumentNullException::UiCaptureArgumentNullException(std::string parameterName)
-        : std::invalid_argument(
-            "Value cannot be null. (Parameter '" + parameterName + "')"),
-          _parameterName(std::move(parameterName))
-    {
-    }
-
-    const std::string& UiCaptureArgumentNullException::ParameterName() const noexcept
-    {
-        return _parameterName;
-    }
-
     std::int32_t UiCapture::Run(UiCaptureAdapter& adapter, std::nullptr_t)
     {
         if (!adapter.EnsureSetup())
@@ -320,10 +111,10 @@ namespace MphRead::Mods::Launcher::Gui
 
         // Directory.CreateDirectory(directory) is the first use of the C#
         // parameter after setup and throws ArgumentNullException("path") for null.
-        throw UiCaptureArgumentNullException("path");
+        throw System::ArgumentNullException("path");
     }
 
-    std::int32_t UiCapture::Run(UiCaptureAdapter& adapter, std::string_view directory)
+    std::int32_t UiCapture::Run(UiCaptureAdapter& adapter, std::string directory)
     {
         if (!adapter.EnsureSetup())
         {
@@ -344,12 +135,17 @@ namespace MphRead::Mods::Launcher::Gui
             const UiCaptureMenuSettingsHandle settings = adapter.ConstructMenuSettings();
             const UiCaptureRoomListRef rooms = RoomList(adapter);
 
+            UiCaptureControlHandle iteratorCurrent;
             const auto capture = [&](std::string_view name,
                 UiCaptureControlHandle view, UiCaptureSize size)
             {
+                // Screens() is a C# iterator. Its state-machine Current keeps
+                // the previous yielded Control alive while the next Control is
+                // constructed, then replaces it before the foreach body runs.
+                iteratorCurrent = std::move(view);
                 const std::string path = adapter.PathCombine(
                     directory, std::string(name) + ".png");
-                if (Capture(adapter, view, path, size))
+                if (Capture(adapter, iteratorCurrent, path, size))
                 {
                     ++written;
                     adapter.ConsoleWriteLine("[uishot] " + path);
@@ -393,7 +189,7 @@ namespace MphRead::Mods::Launcher::Gui
         });
 
         adapter.ConsoleWriteLine("[uishot] " + adapter.FormatCurrentInt32(written)
-            + " screen(s) written to " + std::string(directory));
+            + " screen(s) written to " + directory);
         return written > 0 ? 0 : 1;
     }
 
@@ -479,7 +275,7 @@ namespace MphRead::Mods::Launcher::Gui
                 Network::ServerStatus status;
                 status.Online = true;
                 status.RoomKey = sample.Room;
-                status.Mode = ResolveMode(adapter, sample.Mode);
+                status.Mode = static_cast<GameMode>(sample.Mode);
                 status.Players = sample.Players;
                 status.MaxPlayers = 8;
                 status.Latency = sample.Ping;

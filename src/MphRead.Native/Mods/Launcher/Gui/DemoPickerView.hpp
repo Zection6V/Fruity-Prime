@@ -145,6 +145,25 @@ namespace MphRead::Mods::Launcher::Gui
         std::atomic<std::shared_ptr<const InvocationList>> _handlers{};
     };
 
+    class DemoPickerViewDemoEnumerator
+    {
+    public:
+        virtual ~DemoPickerViewDemoEnumerator() = default;
+
+        [[nodiscard]] virtual bool MoveNext() = 0;
+        [[nodiscard]] virtual Mods::Network::DemoRecording Current() = 0;
+        virtual void Dispose() = 0;
+    };
+
+    class DemoPickerViewDemoList
+    {
+    public:
+        virtual ~DemoPickerViewDemoList() = default;
+
+        [[nodiscard]] virtual std::shared_ptr<DemoPickerViewDemoEnumerator> GetEnumerator() = 0;
+        [[nodiscard]] virtual std::int32_t Count() = 0;
+    };
+
     struct DemoPickerViewAction final
     {
         using Callback = void (*)(void* target);
@@ -240,7 +259,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
     public:
         DemoPickerView(DemoPickerViewAdapter& adapter,
-            std::shared_ptr<const std::vector<Mods::Network::DemoRecording>> demos,
+            std::shared_ptr<DemoPickerViewDemoList> demos,
             std::optional<std::string> directory);
 
         DemoPickerView(const DemoPickerView&) = delete;
@@ -248,7 +267,7 @@ namespace MphRead::Mods::Launcher::Gui
         DemoPickerView(DemoPickerView&&) = delete;
         DemoPickerView& operator=(DemoPickerView&&) = delete;
 
-        [[nodiscard]] std::optional<std::string> Path() const;
+        [[nodiscard]] std::shared_ptr<const std::string> Path() const noexcept;
         [[nodiscard]] bool ImportRequested() const noexcept;
 
         void AddClosed(const DemoPickerViewEventHandler& handler);

@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <exception>
 #include <utility>
 
 namespace MphRead::Mods::Launcher::Gui
@@ -11,8 +10,8 @@ namespace MphRead::Mods::Launcher::Gui
     {
         DemoPickerViewAdapter* Adapter = nullptr;
         DemoPickerView* Sender = nullptr;
-        std::optional<std::string> Path;
-        bool ImportRequested = false;
+        std::atomic<std::shared_ptr<const std::string>> Path{};
+        std::atomic<bool> ImportRequested{false};
         DemoPickerViewAdapter::ControlHandle First;
         DemoPickerViewEvent Closed;
     };
@@ -20,7 +19,7 @@ namespace MphRead::Mods::Launcher::Gui
     struct DemoPickerViewDemoClickTarget final
     {
         std::shared_ptr<DemoPickerViewState> View;
-        std::string Path;
+        std::shared_ptr<const std::string> Path;
     };
 
     const DemoPickerViewEventArgs DemoPickerViewEventArgs::Empty{};
@@ -182,7 +181,7 @@ namespace MphRead::Mods::Launcher::Gui
     }
 
     DemoPickerView::DemoPickerView(DemoPickerViewAdapter& adapter,
-        std::shared_ptr<const std::vector<Mods::Network::DemoRecording>> demos,
+        std::shared_ptr<DemoPickerViewDemoList> demos,
         std::optional<std::string> directory)
         : _adapter(adapter),
           _state(std::make_shared<DemoPickerViewState>())
@@ -201,37 +200,62 @@ namespace MphRead::Mods::Launcher::Gui
             throw DemoPickerViewNullReferenceException();
         }
 
-        for (const Mods::Network::DemoRecording& source : *demos)
+        const std::shared_ptr<DemoPickerViewDemoEnumerator> enumerator = demos->GetEnumerator();
+        try
         {
-            const Mods::Network::DemoRecording demo = source;
-
-            std::string title;
-            if (!demo.Room().empty())
+            for (;;)
             {
-                title = demo.Room();
-            }
-            else
-            {
-                title = demo.FileName();
-            }
-            std::string subtitle = Mods::Network::DemoLibrary::Describe(demo);
-            const DemoPickerViewAdapter::ControlHandle entry =
-                _adapter.ConstructMenuEntry(std::move(title), std::move(subtitle), 15.0);
+                if (!enumerator)
+                {
+                    throw DemoPickerViewNullReferenceException();
+                }
+                if (!enumerator->MoveNext())
+                {
+                    break;
+                }
 
-            std::string path = demo.Path();
-            auto clickTarget = std::make_shared<DemoPickerViewDemoClickTarget>(
-                DemoPickerViewDemoClickTarget{_state, std::move(path)});
-            _adapter.AddMenuEntryClick(entry,
-                DemoPickerViewAction{std::move(clickTarget), &DemoPickerView::OnDemoClick});
+                const Mods::Network::DemoRecording demo = enumerator->Current();
 
-            if (!_state->First)
-            {
-                _state->First = entry;
+                std::string title;
+                if (!demo.Room().empty())
+                {
+                    title = demo.Room();
+                }
+                else
+                {
+                    title = demo.FileName();
+                }
+                std::string subtitle = Mods::Network::DemoLibrary::Describe(demo);
+                const DemoPickerViewAdapter::ControlHandle entry =
+                    _adapter.ConstructMenuEntry(std::move(title), std::move(subtitle), 15.0);
+
+                auto path = std::make_shared<const std::string>(demo.Path());
+                auto clickTarget = std::make_shared<DemoPickerViewDemoClickTarget>(
+                    DemoPickerViewDemoClickTarget{_state, std::move(path)});
+                _adapter.AddMenuEntryClick(entry,
+                    DemoPickerViewAction{std::move(clickTarget), &DemoPickerView::OnDemoClick});
+
+                if (!_state->First)
+                {
+                    _state->First = entry;
+                }
+                _adapter.AddPanelChild(list, entry);
             }
-            _adapter.AddPanelChild(list, entry);
+        }
+        catch (...)
+        {
+            if (enumerator)
+            {
+                enumerator->Dispose();
+            }
+            throw;
+        }
+        if (enumerator)
+        {
+            enumerator->Dispose();
         }
 
-        if (demos->empty())
+        if (demos->Count() == 0)
         {
             const DemoPickerViewAdapter::ControlHandle empty = _adapter.ConstructTextBlock();
             std::string message =
@@ -309,14 +333,14 @@ namespace MphRead::Mods::Launcher::Gui
         _adapter.SetContent(dock);
     }
 
-    std::optional<std::string> DemoPickerView::Path() const
+    std::shared_ptr<const std::string> DemoPickerView::Path() const noexcept
     {
-        return _state->Path;
+        return _state->Path.load(std::memory_order_relaxed);
     }
 
     bool DemoPickerView::ImportRequested() const noexcept
     {
-        return _state->ImportRequested;
+        return _state->ImportRequested.load(std::memory_order_relaxed);
     }
 
     void DemoPickerView::AddClosed(const DemoPickerViewEventHandler& handler)
@@ -352,14 +376,14 @@ namespace MphRead::Mods::Launcher::Gui
     void DemoPickerView::OnDemoClick(void* target)
     {
         auto& click = *static_cast<DemoPickerViewDemoClickTarget*>(target);
-        click.View->Path = click.Path;
+        click.View->Path.store(click.Path, std::memory_order_relaxed);
         click.View->Closed.Invoke(click.View->Sender, DemoPickerViewEventArgs::Empty);
     }
 
     void DemoPickerView::OnImportClick(void* target)
     {
         auto& state = *static_cast<DemoPickerViewState*>(target);
-        state.ImportRequested = true;
+        state.ImportRequested.store(true, std::memory_order_relaxed);
         state.Closed.Invoke(state.Sender, DemoPickerViewEventArgs::Empty);
     }
 

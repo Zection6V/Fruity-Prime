@@ -324,16 +324,6 @@ namespace MphRead::Mods::Launcher::Gui
         InvalidateForProperty(MenuEntryProperty::IsEnabled);
     }
 
-    MenuEntryEvent& MenuEntry::Click() noexcept
-    {
-        return _click;
-    }
-
-    const MenuEntryEvent& MenuEntry::Click() const noexcept
-    {
-        return _click;
-    }
-
     void MenuEntry::AddClick(MenuEntryEventHandler handler)
     {
         _click.Add(handler);

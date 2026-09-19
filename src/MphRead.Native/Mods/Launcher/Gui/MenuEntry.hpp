@@ -135,9 +135,10 @@ namespace MphRead::Mods::Launcher::Gui
     public:
         void Add(MenuEntryEventHandler handler);
         void Remove(MenuEntryEventHandler handler);
-        void Invoke(void* sender, const MenuEntryEventArgs& args) const;
 
     private:
+        friend class MenuEntry;
+        void Invoke(void* sender, const MenuEntryEventArgs& args) const;
         mutable std::mutex _mutex;
         std::vector<MenuEntryEventHandler> _handlers;
     };
@@ -243,8 +244,6 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] bool IsEnabled() const;
         void IsEnabled(bool value);
 
-        MenuEntryEvent& Click() noexcept;
-        const MenuEntryEvent& Click() const noexcept;
         void AddClick(MenuEntryEventHandler handler);
         void RemoveClick(MenuEntryEventHandler handler);
 

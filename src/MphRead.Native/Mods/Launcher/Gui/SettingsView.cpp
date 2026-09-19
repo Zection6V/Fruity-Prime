@@ -214,6 +214,10 @@ namespace
             ++first;
         }
         std::size_t last = text.size();
+        while (last > first && text[last - 1] == '\0')
+        {
+            --last;
+        }
         while (last > first && isWhite(static_cast<unsigned char>(text[last - 1])))
         {
             --last;
@@ -370,6 +374,10 @@ namespace
 
     [[nodiscard]] bool TryParseInt32Invariant(std::u16string_view source, std::int32_t& result) noexcept
     {
+        while (!source.empty() && source.back() == u'\0')
+        {
+            source.remove_suffix(1);
+        }
         const std::u16string trimmed = Trim(source);
         if (trimmed.empty())
         {
@@ -1307,7 +1315,7 @@ namespace MphRead::Mods::Launcher::Gui
                         static_cast<CrosshairSize>(Require(state->CrosshairSizeRow.Value).Index()));
                 }));
         Require(_state->CrosshairSizeRow.Value).AddChanged(
-            RowsEventHandler::Instance(_state, &SettingsView::OnCrosshairSizeChanged));
+            RowsEventHandler(_state.get(), &SettingsView::OnCrosshairSizeChanged));
 
         _state->WeaponStyleRow = _adapter.ConstructChoiceRow(
             std::u16string(u"Weapon"),
@@ -1316,7 +1324,7 @@ namespace MphRead::Mods::Launcher::Gui
         _adapter.AddPanelChild(page, _state->WeaponStyleRow.Control);
 
         Require(_state->ProHud.Value).AddChanged(
-            RowsEventHandler::Instance(_state, &SettingsView::OnProHudChanged));
+            RowsEventHandler(_state.get(), &SettingsView::OnProHudChanged));
         ShowCrosshairRows();
     }
 
@@ -1564,7 +1572,7 @@ namespace MphRead::Mods::Launcher::Gui
         }
 
         Require(_state->TouchButtonsRow.Value).AddChanged(
-            RowsEventHandler::Instance(_state, &SettingsView::OnTouchButtonsChanged));
+            RowsEventHandler(_state.get(), &SettingsView::OnTouchButtonsChanged));
         OnTouchButtonsChanged(_state.get(), nullptr, RowsEventArgs::Empty);
     }
 

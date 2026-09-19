@@ -299,6 +299,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         [[nodiscard]] MapPickerStringRef RoomKey() const noexcept;
         [[nodiscard]] bool Selected() const noexcept;
+        void Selected(bool value) noexcept;
 
         void AddClicked(const MapPickerEventHandler& handler);
         void RemoveClicked(const MapPickerEventHandler& handler);
@@ -317,7 +318,6 @@ namespace MphRead::Mods::Launcher::Gui
 
         static constexpr double CaptionHeight = 26.0;
 
-        void InitializeSelected(bool selected) noexcept;
         [[nodiscard]] std::shared_ptr<MapPickerBitmap> LoadPreview(
             const MapPickerStringRef& roomKey);
 
@@ -463,7 +463,8 @@ namespace MphRead::Mods::Launcher::Gui
     class MapPickerWindow final
     {
     public:
-        MapPickerWindow(MapPickerWindowAdapter& adapter, MapPickerView* view);
+        MapPickerWindow(std::shared_ptr<MapPickerWindowAdapter> adapter,
+            std::shared_ptr<MapPickerView> view);
 
         MapPickerWindow(const MapPickerWindow&) = delete;
         MapPickerWindow& operator=(const MapPickerWindow&) = delete;
@@ -474,6 +475,7 @@ namespace MphRead::Mods::Launcher::Gui
         static void OnViewClosed(
             void* context, void* sender, const MapPickerEventArgs& args);
 
-        MapPickerWindowAdapter& _adapter;
+        std::shared_ptr<MapPickerWindowAdapter> _adapter;
+        std::shared_ptr<MapPickerView> _view;
     };
 }

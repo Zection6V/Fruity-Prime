@@ -451,9 +451,9 @@ namespace MphRead::Mods::Launcher::Gui
         return _selected;
     }
 
-    void MapTile::InitializeSelected(bool selected) noexcept
+    void MapTile::Selected(bool value) noexcept
     {
-        _selected = selected;
+        _selected = value;
     }
 
     void MapTile::AddClicked(const MapPickerEventHandler& handler)
@@ -624,7 +624,7 @@ namespace MphRead::Mods::Launcher::Gui
                     }
 
                     auto tile = std::make_shared<MapTile>(*tileControl, room);
-                    tile->InitializeSelected(StringEquals(room, current));
+                    tile->Selected(StringEquals(room, current));
                     if (!_first)
                     {
                         _first = tile;
@@ -785,26 +785,27 @@ namespace MphRead::Mods::Launcher::Gui
     }
 
     MapPickerWindow::MapPickerWindow(
-        MapPickerWindowAdapter& adapter, MapPickerView* view)
-        : _adapter(adapter)
+        std::shared_ptr<MapPickerWindowAdapter> adapter,
+        std::shared_ptr<MapPickerView> view)
+        : _adapter(std::move(adapter)), _view(std::move(view))
     {
-        if (view == nullptr)
+        if (!_adapter || !_view)
         {
             throw MapPickerNullReferenceException();
         }
 
-        view->AddClosed(MapPickerEventHandler(
-            &_adapter, &MapPickerWindow::OnViewClosed));
-        _adapter.SetTitle(u"Choose a map");
-        _adapter.SetIcon(GuiTheme::AppIcon.Value());
-        _adapter.SetWidth(1120.0);
-        _adapter.SetHeight(720.0);
-        _adapter.SetMinWidth(560.0);
-        _adapter.SetMinHeight(420.0);
-        _adapter.SetBackground(GuiTheme::InkBrush);
-        _adapter.SetRequestedThemeVariant(MapPickerThemeVariant::Dark);
-        _adapter.SetWindowStartupLocation(MapPickerWindowStartupLocation::CenterOwner);
-        _adapter.SetContent(*view);
+        _view->AddClosed(MapPickerEventHandler::Instance(
+            _adapter, &MapPickerWindow::OnViewClosed));
+        _adapter->SetTitle(u"Choose a map");
+        _adapter->SetIcon(GuiTheme::AppIcon.Value());
+        _adapter->SetWidth(1120.0);
+        _adapter->SetHeight(720.0);
+        _adapter->SetMinWidth(560.0);
+        _adapter->SetMinHeight(420.0);
+        _adapter->SetBackground(GuiTheme::InkBrush);
+        _adapter->SetRequestedThemeVariant(MapPickerThemeVariant::Dark);
+        _adapter->SetWindowStartupLocation(MapPickerWindowStartupLocation::CenterOwner);
+        _adapter->SetContent(*_view);
     }
 
     void MapPickerWindow::OnViewClosed(

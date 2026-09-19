@@ -14,18 +14,6 @@ namespace MphRead::Memory
 
 namespace MphRead::Testing
 {
-    class TestLogicDivideByZeroException final : public std::runtime_error
-    {
-    public:
-        TestLogicDivideByZeroException();
-    };
-
-    class TestLogicOverflowException final : public std::overflow_error
-    {
-    public:
-        TestLogicOverflowException();
-    };
-
     class TestLogic final
     {
     private:

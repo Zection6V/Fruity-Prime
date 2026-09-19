@@ -13,8 +13,23 @@
 
 namespace
 {
-    using MphRead::Testing::TestLogicDivideByZeroException;
-    using MphRead::Testing::TestLogicOverflowException;
+    class TestLogicDivideByZeroException final : public std::runtime_error
+    {
+    public:
+        TestLogicDivideByZeroException()
+            : std::runtime_error("Attempted to divide by zero.")
+        {
+        }
+    };
+
+    class TestLogicOverflowException final : public std::overflow_error
+    {
+    public:
+        TestLogicOverflowException()
+            : std::overflow_error("Arithmetic operation resulted in an overflow.")
+        {
+        }
+    };
 
     [[nodiscard]] std::int32_t UncheckedAdd(
         std::int32_t left, std::int32_t right) noexcept
@@ -102,16 +117,6 @@ namespace
 
 namespace MphRead::Testing
 {
-    TestLogicDivideByZeroException::TestLogicDivideByZeroException()
-        : std::runtime_error("Attempted to divide by zero.")
-    {
-    }
-
-    TestLogicOverflowException::TestLogicOverflowException()
-        : std::overflow_error("Arithmetic operation resulted in an overflow.")
-    {
-    }
-
     const std::shared_ptr<TestLogic::MModel> TestLogic::_mdl200D960{};
     const std::shared_ptr<TestLogic::MModel> TestLogic::_mdl200D938{};
     const std::shared_ptr<TestLogic::MModel> TestLogic::_mdl200E490{};
@@ -586,8 +591,10 @@ namespace MphRead::Testing
                     }
                     else
                     {
+                        const OpenTK::Mathematics::Vector3 field64 = value.Field64();
+                        const OpenTK::Mathematics::Vector3 fieldB4 = value.FieldB4();
                         const OpenTK::Mathematics::Matrix3 transform =
-                            Matrix::GetTransform3(value.Field64(), value.FieldB4());
+                            Matrix::GetTransform3(field64, fieldB4);
                         const OpenTK::Mathematics::Matrix4x3 matrix(
                             transform.Row0(),
                             transform.Row1(),

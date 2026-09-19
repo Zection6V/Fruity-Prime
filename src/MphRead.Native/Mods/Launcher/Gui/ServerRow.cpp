@@ -161,9 +161,9 @@ namespace
     }
 
     [[nodiscard]] std::optional<std::u16string_view> ViewOf(
-        const std::optional<std::u16string>& text) noexcept
+        const ServerRowStringRef& text) noexcept
     {
-        if (!text.has_value())
+        if (!text)
         {
             return std::nullopt;
         }
@@ -366,24 +366,72 @@ namespace MphRead::Mods::Launcher::Gui
     {
     }
 
-    ServerRow::Columns::Columns(double width) noexcept
+    ServerRow::Columns::Columns() noexcept
+        : NameX(0.0), NameWidth(0.0),
+          MapX(0.0), MapWidth(0.0),
+          ModeX(0.0), ModeWidth(0.0),
+          PlayersRight(0.0), PlayersWidth(0.0),
+          PingRight(0.0), PingWidth(0.0)
     {
-        PingRight = width - Margin;
-        PingWidth = MaxPing;
-        PlayersRight = PingRight - MaxPing - Gutter;
-        PlayersWidth = MaxPlayers;
-        ModeWidth = MathMin(MaxMode, MathMax(0.0, (width - 200.0) * 0.4));
-        ModeX = PlayersRight - MaxPlayers - Gutter - ModeWidth;
-        NameX = Margin;
-        const double rest = MathMax(0.0, ModeX - Gutter - Margin);
-        NameWidth = rest * NameShare;
-        MapX = NameX + NameWidth + Gutter;
-        MapWidth = MathMax(0.0, rest - NameWidth - Gutter);
+    }
+
+    ServerRow::Columns::Columns(const Values& values) noexcept
+        : NameX(values[0]), NameWidth(values[1]),
+          MapX(values[2]), MapWidth(values[3]),
+          ModeX(values[4]), ModeWidth(values[5]),
+          PlayersRight(values[6]), PlayersWidth(values[7]),
+          PingRight(values[8]), PingWidth(values[9])
+    {
+    }
+
+    ServerRow::Columns::Values ServerRow::Columns::Compute(double width) noexcept
+    {
+        const double pingRight = width - Margin;
+        const double pingWidth = MaxPing;
+        const double playersRight = pingRight - MaxPing - Gutter;
+        const double playersWidth = MaxPlayers;
+        const double modeWidth = MathMin(
+            MaxMode, MathMax(0.0, (width - 200.0) * 0.4));
+        const double modeX = playersRight - MaxPlayers - Gutter - modeWidth;
+        const double nameX = Margin;
+        const double rest = MathMax(0.0, modeX - Gutter - Margin);
+        const double nameWidth = rest * NameShare;
+        const double mapX = nameX + nameWidth + Gutter;
+        const double mapWidth = MathMax(0.0, rest - nameWidth - Gutter);
+        return Values{
+            nameX, nameWidth,
+            mapX, mapWidth,
+            modeX, modeWidth,
+            playersRight, playersWidth,
+            pingRight, pingWidth
+        };
+    }
+
+    ServerRow::Columns::Columns(double width) noexcept
+        : Columns(Compute(width))
+    {
+    }
+
+    ServerRow::Columns& ServerRow::Columns::operator=(
+        const Columns& other) noexcept
+    {
+        if (this != &other)
+        {
+            std::destroy_at(this);
+            std::construct_at(this, other);
+        }
+        return *this;
+    }
+
+    ServerRow::Columns& ServerRow::Columns::operator=(
+        Columns&& other) noexcept
+    {
+        return *this = other;
     }
 
     ServerRow::ServerRow(ServerRowControlAdapter& control,
-        std::optional<std::u16string> name,
-        std::optional<std::u16string> endpoint)
+        ServerRowStringRef name,
+        ServerRowStringRef endpoint)
         : _control(control)
     {
         _name = std::move(name);
@@ -563,7 +611,7 @@ namespace MphRead::Mods::Launcher::Gui
             });
     }
 
-    const std::optional<std::u16string>& ServerRow::Endpoint() const noexcept
+    ServerRowStringRef ServerRow::Endpoint() const noexcept
     {
         return _endpoint;
     }

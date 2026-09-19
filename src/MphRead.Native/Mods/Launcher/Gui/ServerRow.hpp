@@ -4,6 +4,7 @@
 #include "TrackedText.hpp"
 #include "../../Network/NetStatus.hpp"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -15,6 +16,8 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
+    using ServerRowStringRef = std::shared_ptr<const std::u16string>;
+
     class ServerRowNullReferenceException final : public std::runtime_error
     {
     public:
@@ -194,23 +197,40 @@ namespace MphRead::Mods::Launcher::Gui
     public:
         struct Columns final
         {
-            double NameX;
-            double NameWidth;
-            double MapX;
-            double MapWidth;
-            double ModeX;
-            double ModeWidth;
-            double PlayersRight;
-            double PlayersWidth;
-            double PingRight;
-            double PingWidth;
+            const double NameX;
+            const double NameWidth;
+            const double MapX;
+            const double MapWidth;
+            const double ModeX;
+            const double ModeWidth;
+            const double PlayersRight;
+            const double PlayersWidth;
+            const double PingRight;
+            const double PingWidth;
 
+            Columns() noexcept;
             explicit Columns(double width) noexcept;
+            Columns(const Columns&) noexcept = default;
+            Columns(Columns&&) noexcept = default;
+            Columns& operator=(const Columns& other) noexcept;
+            Columns& operator=(Columns&& other) noexcept;
+
+        private:
+            static constexpr double Margin = 8.0;
+            static constexpr double Gutter = 10.0;
+            static constexpr double MaxPing = 34.0;
+            static constexpr double MaxPlayers = 52.0;
+            static constexpr double MaxMode = 66.0;
+            static constexpr double NameShare = 0.44;
+
+            using Values = std::array<double, 10>;
+            explicit Columns(const Values& values) noexcept;
+            [[nodiscard]] static Values Compute(double width) noexcept;
         };
 
         ServerRow(ServerRowControlAdapter& control,
-            std::optional<std::u16string> name,
-            std::optional<std::u16string> endpoint);
+            ServerRowStringRef name,
+            ServerRowStringRef endpoint);
 
         ServerRow(const ServerRow&) = delete;
         ServerRow& operator=(const ServerRow&) = delete;
@@ -236,19 +256,12 @@ namespace MphRead::Mods::Launcher::Gui
             std::optional<std::u16string_view> text, double x, double width,
             GuiBrush* brush, bool bold, bool rightAlign, double size = 13.0);
 
-        [[nodiscard]] const std::optional<std::u16string>& Endpoint() const noexcept;
+        [[nodiscard]] ServerRowStringRef Endpoint() const noexcept;
 
     private:
-        static constexpr double Margin = 8.0;
-        static constexpr double Gutter = 10.0;
-        static constexpr double MaxPing = 34.0;
-        static constexpr double MaxPlayers = 52.0;
-        static constexpr double MaxMode = 66.0;
-        static constexpr double NameShare = 0.44;
-
         ServerRowControlAdapter& _control;
-        std::optional<std::u16string> _name;
-        std::optional<std::u16string> _endpoint;
+        ServerRowStringRef _name;
+        ServerRowStringRef _endpoint;
         std::u16string _map;
         std::u16string _mode;
         std::u16string _players;

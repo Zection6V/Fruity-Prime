@@ -1852,8 +1852,10 @@ namespace
             }
         }
 
-        if (negative && !zero)
+        if (negative)
         {
+            // .NET 9's single-section custom formatter preserves the sign
+            // even when the value is negative zero or rounds to zero.
             result.insert(0, symbols.NegativeSign);
         }
         return result;

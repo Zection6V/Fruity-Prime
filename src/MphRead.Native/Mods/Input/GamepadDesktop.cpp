@@ -8,10 +8,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -20,6 +22,12 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#elif defined(__linux__) && !defined(__ANDROID__)
+#include <dlfcn.h>
+#include <unistd.h>
 #endif
 
 struct MphReadGlfwGamepadState
@@ -27,30 +35,6 @@ struct MphReadGlfwGamepadState
     std::uint8_t buttons[15];
     float axes[6];
 };
-
-#if !defined(_WIN32)
-#if defined(__APPLE__)
-#define MPHREAD_GLFW_WEAK __attribute__((weak_import))
-#elif defined(__GNUC__) || defined(__clang__)
-#define MPHREAD_GLFW_WEAK __attribute__((weak))
-#else
-#define MPHREAD_GLFW_WEAK
-#endif
-extern "C"
-{
-    MPHREAD_GLFW_WEAK int glfwInit();
-    MPHREAD_GLFW_WEAK void glfwPollEvents();
-    MPHREAD_GLFW_WEAK int glfwJoystickIsGamepad(int);
-    MPHREAD_GLFW_WEAK int glfwGetGamepadState(int, MphReadGlfwGamepadState*);
-    MPHREAD_GLFW_WEAK const char* glfwGetGamepadName(int);
-    MPHREAD_GLFW_WEAK int glfwJoystickPresent(int);
-    MPHREAD_GLFW_WEAK const float* glfwGetJoystickAxes(int, int*);
-    MPHREAD_GLFW_WEAK const unsigned char* glfwGetJoystickButtons(int, int*);
-    MPHREAD_GLFW_WEAK const unsigned char* glfwGetJoystickHats(int, int*);
-    MPHREAD_GLFW_WEAK const char* glfwGetJoystickName(int);
-}
-#undef MPHREAD_GLFW_WEAK
-#endif
 
 namespace
 {
@@ -62,6 +46,100 @@ namespace
         {
         }
     };
+
+    void AppendUtf8(std::string& output, std::uint32_t value)
+    {
+        if (value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
+        {
+            value = 0xFFFDU;
+        }
+        if (value <= 0x7FU)
+        {
+            output.push_back(static_cast<char>(value));
+        }
+        else if (value <= 0x7FFU)
+        {
+            output.push_back(static_cast<char>(0xC0U | (value >> 6)));
+            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
+        }
+        else if (value <= 0xFFFFU)
+        {
+            output.push_back(static_cast<char>(0xE0U | (value >> 12)));
+            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
+            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
+        }
+        else
+        {
+            output.push_back(static_cast<char>(0xF0U | (value >> 18)));
+            output.push_back(static_cast<char>(0x80U | ((value >> 12) & 0x3FU)));
+            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
+            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
+        }
+    }
+
+    [[nodiscard]] std::string DecodeUtf8(std::string_view input)
+    {
+        std::string output;
+        output.reserve(input.size());
+        for (std::size_t index = 0; index < input.size();)
+        {
+            const auto first = static_cast<unsigned char>(input[index]);
+            if (first <= 0x7FU)
+            {
+                output.push_back(static_cast<char>(first));
+                ++index;
+                continue;
+            }
+
+            std::size_t length = 0;
+            if (first >= 0xC2U && first <= 0xDFU)
+            {
+                length = 2;
+            }
+            else if (first >= 0xE0U && first <= 0xEFU)
+            {
+                length = 3;
+            }
+            else if (first >= 0xF0U && first <= 0xF4U)
+            {
+                length = 4;
+            }
+            else
+            {
+                AppendUtf8(output, 0xFFFDU);
+                ++index;
+                continue;
+            }
+
+            std::size_t available = 1;
+            while (available < length && index + available < input.size()
+                && (static_cast<unsigned char>(input[index + available]) & 0xC0U) == 0x80U)
+            {
+                ++available;
+            }
+            if (available < length)
+            {
+                AppendUtf8(output, 0xFFFDU);
+                index += available;
+                continue;
+            }
+
+            const auto second = static_cast<unsigned char>(input[index + 1]);
+            if ((first == 0xE0U && second < 0xA0U)
+                || (first == 0xEDU && second >= 0xA0U)
+                || (first == 0xF0U && second < 0x90U)
+                || (first == 0xF4U && second > 0x8FU))
+            {
+                AppendUtf8(output, 0xFFFDU);
+                ++index;
+                continue;
+            }
+
+            output.append(input.substr(index, length));
+            index += length;
+        }
+        return output;
+    }
 
     using Init = int (*)();
     using PollEvents = void (*)();
@@ -76,7 +154,7 @@ namespace
     {
         static HMODULE module = []() noexcept -> HMODULE
         {
-            for (const wchar_t* name : {L"glfw3.dll", L"glfw.dll"})
+            for (const wchar_t* name : {L"glfw3.3.dll", L"glfw3.dll", L"glfw.dll"})
             {
                 if (HMODULE handle = GetModuleHandleW(name))
                 {
@@ -100,6 +178,109 @@ namespace
             ? nullptr
             : reinterpret_cast<T>(GetProcAddress(module, name));
     }
+#elif defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
+    [[nodiscard]] std::optional<std::filesystem::path> ExecutableDirectory() noexcept
+    {
+        try
+        {
+#if defined(__APPLE__)
+            std::uint32_t size = 1;
+            char probe = 0;
+            if (_NSGetExecutablePath(&probe, &size) == 0 || size == 0)
+            {
+                return std::nullopt;
+            }
+            std::vector<char> buffer(size);
+            if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+            {
+                return std::nullopt;
+            }
+            return std::filesystem::path(buffer.data()).parent_path();
+#else
+            std::vector<char> buffer(256);
+            for (;;)
+            {
+                const ssize_t length = readlink(
+                    "/proc/self/exe", buffer.data(), buffer.size());
+                if (length < 0)
+                {
+                    return std::nullopt;
+                }
+                if (static_cast<std::size_t>(length) < buffer.size())
+                {
+                    return std::filesystem::path(std::string(
+                        buffer.data(), static_cast<std::size_t>(length))).parent_path();
+                }
+                buffer.resize(buffer.size() * 2U);
+            }
+#endif
+        }
+        catch (...)
+        {
+            return std::nullopt;
+        }
+    }
+
+    [[nodiscard]] void* GlfwModule() noexcept
+    {
+        static void* module = []() noexcept -> void*
+        {
+#if defined(__APPLE__)
+            constexpr const char* names[] = {
+                "glfw.3.3.dylib", "libglfw.3.3.dylib",
+                "glfw.3.dylib", "libglfw.3.dylib",
+                "glfw.dylib", "libglfw.dylib", "glfw"};
+#else
+            constexpr const char* names[] = {
+                "glfw.so.3.3", "libglfw.so.3.3",
+                "glfw.so.3", "libglfw.so.3",
+                "glfw.so", "libglfw.so", "glfw"};
+#endif
+            if (const auto directory = ExecutableDirectory())
+            {
+                for (const char* name : names)
+                {
+                    try
+                    {
+                        const std::string local = (*directory / name).string();
+                        if (void* handle = dlopen(
+                            local.c_str(), RTLD_LAZY | RTLD_LOCAL))
+                        {
+                            return handle;
+                        }
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            }
+            for (const char* name : names)
+            {
+                if (void* handle = dlopen(name, RTLD_LAZY | RTLD_LOCAL))
+                {
+                    return handle;
+                }
+            }
+            return nullptr;
+        }();
+        return module;
+    }
+
+    template <typename T>
+    [[nodiscard]] T GlfwProc(const char* name) noexcept
+    {
+        void* module = GlfwModule();
+        return module == nullptr
+            ? nullptr
+            : reinterpret_cast<T>(dlsym(module, name));
+    }
+#else
+    template <typename T>
+    [[nodiscard]] T GlfwProc(const char*) noexcept
+    {
+        return nullptr;
+    }
+#endif
 
 #define MPHREAD_GLFW_API(name, type, symbol) \
     [[nodiscard]] type name() noexcept \
@@ -119,57 +300,6 @@ namespace
     MPHREAD_GLFW_API(JoystickHatsApi, JoystickBytes, "glfwGetJoystickHats")
     MPHREAD_GLFW_API(JoystickNameApi, JoystickString, "glfwGetJoystickName")
 #undef MPHREAD_GLFW_API
-#else
-    [[nodiscard]] Init InitApi() noexcept
-    {
-        return glfwInit == nullptr ? nullptr : &glfwInit;
-    }
-
-    [[nodiscard]] PollEvents PollEventsApi() noexcept
-    {
-        return glfwPollEvents == nullptr ? nullptr : &glfwPollEvents;
-    }
-
-    [[nodiscard]] JoystickBool IsGamepadApi() noexcept
-    {
-        return glfwJoystickIsGamepad == nullptr ? nullptr : &glfwJoystickIsGamepad;
-    }
-
-    [[nodiscard]] GetGamepadState GamepadStateApi() noexcept
-    {
-        return glfwGetGamepadState == nullptr ? nullptr : &glfwGetGamepadState;
-    }
-
-    [[nodiscard]] JoystickString GamepadNameApi() noexcept
-    {
-        return glfwGetGamepadName == nullptr ? nullptr : &glfwGetGamepadName;
-    }
-
-    [[nodiscard]] JoystickBool JoystickPresentApi() noexcept
-    {
-        return glfwJoystickPresent == nullptr ? nullptr : &glfwJoystickPresent;
-    }
-
-    [[nodiscard]] JoystickFloats JoystickAxesApi() noexcept
-    {
-        return glfwGetJoystickAxes == nullptr ? nullptr : &glfwGetJoystickAxes;
-    }
-
-    [[nodiscard]] JoystickBytes JoystickButtonsApi() noexcept
-    {
-        return glfwGetJoystickButtons == nullptr ? nullptr : &glfwGetJoystickButtons;
-    }
-
-    [[nodiscard]] JoystickBytes JoystickHatsApi() noexcept
-    {
-        return glfwGetJoystickHats == nullptr ? nullptr : &glfwGetJoystickHats;
-    }
-
-    [[nodiscard]] JoystickString JoystickNameApi() noexcept
-    {
-        return glfwGetJoystickName == nullptr ? nullptr : &glfwGetJoystickName;
-    }
-#endif
 
     template <typename T>
     [[nodiscard]] T Require(T function, const char* procedure)
@@ -183,18 +313,18 @@ namespace
 
     [[nodiscard]] bool JoystickIsGamepad(std::int32_t slot)
     {
-        return Require(IsGamepadApi(), "glfwJoystickIsGamepad")(slot) != 0;
+        return Require(IsGamepadApi(), "glfwJoystickIsGamepad")(slot) == 1;
     }
 
     [[nodiscard]] bool ReadGamepadState(
         std::int32_t slot, MphReadGlfwGamepadState& state)
     {
-        return Require(GamepadStateApi(), "glfwGetGamepadState")(slot, &state) != 0;
+        return Require(GamepadStateApi(), "glfwGetGamepadState")(slot, &state) == 1;
     }
 
     [[nodiscard]] bool JoystickPresent(std::int32_t slot)
     {
-        return Require(JoystickPresentApi(), "glfwJoystickPresent")(slot) != 0;
+        return Require(JoystickPresentApi(), "glfwJoystickPresent")(slot) == 1;
     }
 
     [[nodiscard]] std::optional<std::string> ReadJoystickString(
@@ -203,7 +333,7 @@ namespace
         const char* value = Require(function, procedure)(slot);
         return value == nullptr
             ? std::nullopt
-            : std::optional<std::string>{value};
+            : std::optional<std::string>{DecodeUtf8(value)};
     }
 
     [[nodiscard]] std::vector<float> ReadJoystickAxes(std::int32_t slot)
@@ -211,9 +341,13 @@ namespace
         int count = 0;
         const float* values = Require(
             JoystickAxesApi(), "glfwGetJoystickAxes")(slot, &count);
-        if (count <= 0 || values == nullptr)
+        if (values == nullptr)
         {
             return {};
+        }
+        if (count < 0)
+        {
+            throw std::out_of_range("GLFW joystick axis count was negative.");
         }
         return std::vector<float>(values, values + count);
     }
@@ -223,9 +357,13 @@ namespace
     {
         int count = 0;
         const unsigned char* values = Require(function, procedure)(slot, &count);
-        if (count <= 0 || values == nullptr)
+        if (values == nullptr)
         {
             return {};
+        }
+        if (count < 0)
+        {
+            throw std::out_of_range("GLFW joystick item count was negative.");
         }
         return std::vector<std::uint8_t>(values, values + count);
     }

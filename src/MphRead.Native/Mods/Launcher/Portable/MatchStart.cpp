@@ -79,7 +79,7 @@ namespace MphRead::Mods::Launcher
             }
         }
 
-        const std::string* roomKey = nullptr;
+        std::string roomKey;
         if (plan.Kind() == LaunchKind::Offline)
         {
             if (!plan.RoomKey().has_value())

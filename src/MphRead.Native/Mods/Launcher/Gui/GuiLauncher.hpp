@@ -2,6 +2,7 @@
 
 #include "HomeWindow.hpp"
 
+#include <atomic>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -134,8 +135,8 @@ namespace MphRead::Mods::Launcher::Gui
             const std::vector<std::string>& rooms);
         static void Pump();
 
-        static bool _setUp;
-        static bool _failed;
+        static std::atomic_bool _setUp;
+        static std::atomic_bool _failed;
     };
 
     class LauncherApp final

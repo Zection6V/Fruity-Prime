@@ -23,10 +23,14 @@
 #include <utility>
 #include <vector>
 
+#if defined(__APPLE__) && defined(__MACH__)
+#include <TargetConditionals.h>
+#endif
+
 namespace MphRead::Mods::Launcher::Gui
 {
-    bool GuiLauncher::_setUp = false;
-    bool GuiLauncher::_failed = false;
+    std::atomic_bool GuiLauncher::_setUp{false};
+    std::atomic_bool GuiLauncher::_failed{false};
 
     GuiLauncherNullReferenceException::GuiLauncherNullReferenceException()
         : std::runtime_error("Object reference not set to an instance of an object.")
@@ -87,7 +91,11 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] constexpr bool IsMacOS() noexcept
         {
 #if defined(__APPLE__) && defined(__MACH__)
-            return true;
+#if defined(TARGET_OS_OSX)
+            return TARGET_OS_OSX != 0;
+#else
+            return TARGET_OS_MAC != 0 && TARGET_OS_IPHONE == 0;
+#endif
 #else
             return false;
 #endif
@@ -164,7 +172,7 @@ namespace MphRead::Mods::Launcher::Gui
             Run();
             return true;
         }
-        catch (...)
+        catch (const std::exception&)
         {
             WriteLauncherOpenFailure(std::current_exception());
             return false;
@@ -173,18 +181,18 @@ namespace MphRead::Mods::Launcher::Gui
 
     bool GuiLauncher::EnsureSetup()
     {
-        if (_setUp)
+        if (_setUp.load(std::memory_order_relaxed))
         {
             return true;
         }
-        if (_failed || !Probe())
+        if (_failed.load(std::memory_order_relaxed) || !Probe())
         {
             return false;
         }
         try
         {
 #if defined(ANDROID) || defined(__ANDROID__)
-            _setUp = false;
+            _setUp.store(false, std::memory_order_relaxed);
             return false;
 #else
             std::shared_ptr<GuiLauncherAppBuilder> builder
@@ -194,13 +202,13 @@ namespace MphRead::Mods::Launcher::Gui
                 throw GuiLauncherNullReferenceException();
             }
             builder->UsePlatformDetect().WithInterFont().SetupWithoutStarting();
-            _setUp = true;
+            _setUp.store(true, std::memory_order_relaxed);
             return true;
 #endif
         }
-        catch (...)
+        catch (const std::exception&)
         {
-            _failed = true;
+            _failed.store(true, std::memory_order_relaxed);
             WriteToolkitFailure(std::current_exception());
             SayWhyOnLinux();
             return false;
@@ -276,7 +284,7 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 MatchStart::Launch(settings, plan);
             }
-            catch (...)
+            catch (const std::exception&)
             {
                 launchFailed = true;
                 try
@@ -287,6 +295,10 @@ namespace MphRead::Mods::Launcher::Gui
                 {
                     pending = std::current_exception();
                 }
+            }
+            catch (...)
+            {
+                pending = std::current_exception();
             }
 
             try
@@ -340,7 +352,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     void GuiLauncher::Pump()
     {
-        if (!_setUp)
+        if (!_setUp.load(std::memory_order_relaxed))
         {
             return;
         }

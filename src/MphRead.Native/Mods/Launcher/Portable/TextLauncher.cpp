@@ -55,6 +55,7 @@
 #else
 #include <dlfcn.h>
 #include <wctype.h>
+#include <sys/stat.h>
 #if !defined(__ANDROID__)
 #include <execinfo.h>
 #endif
@@ -161,8 +162,7 @@ namespace
             }
             scalar = (scalar << 6U) | (next & 0x3FU);
         }
-        if (scalar < minimum || scalar > 0x10FFFFU
-            || (scalar >= 0xD800U && scalar <= 0xDFFFU))
+        if (scalar < minimum || scalar > 0x10FFFFU)
         {
             return {};
         }
@@ -410,6 +410,42 @@ namespace
         return scalar;
     }
 
+#if defined(_WIN32)
+    [[nodiscard]] std::wstring WideFromWtf8(std::string_view value)
+    {
+        std::wstring result;
+        result.reserve(value.size());
+        for (std::size_t position = 0; position < value.size();)
+        {
+            const Utf8Unit unit = DecodeUtf8(value, position);
+            const std::size_t length = unit.Length == 0 ? 1 : unit.Length;
+            std::uint32_t scalar = unit.Scalar;
+            if (scalar <= 0xFFFFU)
+            {
+                result.push_back(static_cast<wchar_t>(scalar));
+            }
+            else
+            {
+                scalar -= 0x10000U;
+                result.push_back(static_cast<wchar_t>(0xD800U + (scalar >> 10)));
+                result.push_back(static_cast<wchar_t>(0xDC00U + (scalar & 0x3FFU)));
+            }
+            position += length;
+        }
+        return result;
+    }
+
+    [[nodiscard]] std::filesystem::path PathFromManagedString(std::string_view value)
+    {
+        return std::filesystem::path(WideFromWtf8(value));
+    }
+#else
+    [[nodiscard]] std::filesystem::path PathFromManagedString(std::string_view value)
+    {
+        return std::filesystem::path(value);
+    }
+#endif
+
     [[nodiscard]] std::string LowerInvariantForCommand(const std::string& value)
     {
         std::string result;
@@ -452,6 +488,12 @@ namespace
 
     [[nodiscard]] bool TryParseInt32Invariant(std::string_view text, std::int32_t& value) noexcept
     {
+        // System.Int32 parsing ignores terminating U+0000 characters before
+        // applying NumberStyles.Integer whitespace/sign handling.
+        while (!text.empty() && text.back() == '\0')
+        {
+            text.remove_suffix(1);
+        }
         text = TrimNumberWhitespace(text);
         if (text.empty())
         {
@@ -566,9 +608,41 @@ namespace
 
     [[nodiscard]] bool FileExists(const std::string& path) noexcept
     {
-        std::error_code error;
-        const std::filesystem::file_status status = std::filesystem::status(path, error);
-        return !error && std::filesystem::exists(status) && !std::filesystem::is_directory(status);
+        if (path.empty() || path.find('\0') != std::string::npos)
+        {
+            return false;
+        }
+
+        try
+        {
+            const std::filesystem::path nativePath
+                = std::filesystem::absolute(PathFromManagedString(path)).lexically_normal();
+#if defined(_WIN32)
+            const DWORD attributes = ::GetFileAttributesW(nativePath.c_str());
+            return attributes != INVALID_FILE_ATTRIBUTES
+                && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+#else
+            struct stat info{};
+            if (::lstat(nativePath.c_str(), &info) != 0)
+            {
+                return false;
+            }
+            if (S_ISLNK(info.st_mode))
+            {
+                struct stat target{};
+                if (::stat(nativePath.c_str(), &target) != 0)
+                {
+                    return true;
+                }
+                return !S_ISDIR(target.st_mode);
+            }
+            return !S_ISDIR(info.st_mode);
+#endif
+        }
+        catch (...)
+        {
+            return false;
+        }
     }
 
     [[nodiscard]] std::optional<std::string> NativeStackTrace()
@@ -648,6 +722,51 @@ namespace
         return *result.Servers;
     }
 
+    [[nodiscard]] std::optional<std::string> ReadLineManaged()
+    {
+        std::string line;
+        while (true)
+        {
+            const int value = std::cin.get();
+            if (value == std::char_traits<char>::eof())
+            {
+                if (std::cin.bad())
+                {
+                    throw std::ios_base::failure("Could not read from standard input.");
+                }
+                if (line.empty())
+                {
+                    return std::nullopt;
+                }
+                return line;
+            }
+
+            const char ch = static_cast<char>(value);
+            if (ch == '\n')
+            {
+                return line;
+            }
+            if (ch == '\r')
+            {
+                const int next = std::cin.peek();
+                if (std::cin.bad())
+                {
+                    throw std::ios_base::failure("Could not read from standard input.");
+                }
+                if (next == '\n')
+                {
+                    (void)std::cin.get();
+                    if (std::cin.bad())
+                    {
+                        throw std::ios_base::failure("Could not read from standard input.");
+                    }
+                }
+                return line;
+            }
+            line.push_back(ch);
+        }
+    }
+
     [[nodiscard]] std::string Ask(const std::string& prompt, const std::string& fallback)
     {
         if (!fallback.empty())
@@ -658,14 +777,15 @@ namespace
         {
             std::cout << prompt << ": ";
         }
-        std::string line;
-        if (!std::getline(std::cin, line))
+        std::cout.flush();
+        const std::optional<std::string> line = ReadLineManaged();
+        if (!line.has_value())
         {
             std::cout << '\n';
             return fallback;
         }
-        line = Trim(line);
-        return line.empty() ? fallback : line;
+        const std::string trimmed = Trim(*line);
+        return trimmed.empty() ? fallback : trimmed;
     }
 
     [[nodiscard]] bool ParseEndpoint(std::string text, std::string& host, std::int32_t& port)
@@ -737,7 +857,7 @@ namespace
         const Hunter hunter = TryParseInt32Invariant(answer, index)
                 && index >= 1 && index <= static_cast<std::int32_t>(hunters.size())
             ? hunters[static_cast<std::size_t>(index - 1)]
-            : remembered;
+            : LauncherPrefs::LastHunter();
         LauncherPrefs::LastHunter(hunter);
         return hunter;
     }
@@ -854,7 +974,7 @@ namespace
             {
                 if (redraw)
                 {
-                    std::cout << "\r  " << PadRight(line, 70);
+                    std::cout << "\r  " << PadRight(line, 70) << std::flush;
                 }
                 else
                 {
@@ -901,7 +1021,7 @@ namespace
                 if (redraw)
                 {
                     std::cout << "\r  " << progress.Bar() << "  "
-                        << PadRight(progress.Stage(), 22);
+                        << PadRight(progress.Stage(), 22) << std::flush;
                 }
                 else
                 {
@@ -913,7 +1033,7 @@ namespace
         if (redraw)
         {
             std::cout << "\r  " << progress.Bar() << "  "
-                << PadRight(progress.Stage(), 22);
+                << PadRight(progress.Stage(), 22) << std::flush;
         }
         std::cout << '\n';
         std::cout << '\n';

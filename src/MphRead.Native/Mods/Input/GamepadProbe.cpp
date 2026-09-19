@@ -6,51 +6,36 @@
 #include "PadBindings.hpp"
 #include "../InputSettings.hpp"
 
+#include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <iomanip>
+#include <filesystem>
 #include <iostream>
 #include <iterator>
-#include <locale>
 #include <limits>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <type_traits>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#endif
-
-#if !defined(_WIN32)
-#if defined(__APPLE__)
-#define MPHREAD_GLFW_WEAK __attribute__((weak_import))
-#elif defined(__GNUC__) || defined(__clang__)
-#define MPHREAD_GLFW_WEAK __attribute__((weak))
-#else
-#define MPHREAD_GLFW_WEAK
-#endif
-extern "C"
-{
-    MPHREAD_GLFW_WEAK int glfwInit();
-    MPHREAD_GLFW_WEAK void glfwTerminate();
-    MPHREAD_GLFW_WEAK void glfwPollEvents();
-    MPHREAD_GLFW_WEAK int glfwJoystickPresent(int);
-    MPHREAD_GLFW_WEAK const char* glfwGetJoystickName(int);
-    MPHREAD_GLFW_WEAK int glfwJoystickIsGamepad(int);
-    MPHREAD_GLFW_WEAK const float* glfwGetJoystickAxes(int, int*);
-    MPHREAD_GLFW_WEAK const unsigned char* glfwGetJoystickButtons(int, int*);
-    MPHREAD_GLFW_WEAK const unsigned char* glfwGetJoystickHats(int, int*);
-}
-#undef MPHREAD_GLFW_WEAK
+#elif defined(__APPLE__)
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#elif defined(__linux__) && !defined(__ANDROID__)
+#include <dlfcn.h>
+#include <unistd.h>
 #endif
 
 namespace
@@ -77,7 +62,7 @@ namespace
     {
         static HMODULE module = []() noexcept -> HMODULE
         {
-            for (const wchar_t* name : {L"glfw3.dll", L"glfw.dll"})
+            for (const wchar_t* name : {L"glfw3.3.dll", L"glfw3.dll", L"glfw.dll"})
             {
                 if (HMODULE handle = GetModuleHandleW(name))
                 {
@@ -101,6 +86,109 @@ namespace
             ? nullptr
             : reinterpret_cast<T>(GetProcAddress(module, name));
     }
+#elif defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
+    [[nodiscard]] std::optional<std::filesystem::path> ExecutableDirectory() noexcept
+    {
+        try
+        {
+#if defined(__APPLE__)
+            std::uint32_t size = 1;
+            char probe = 0;
+            if (_NSGetExecutablePath(&probe, &size) == 0 || size == 0)
+            {
+                return std::nullopt;
+            }
+            std::vector<char> buffer(size);
+            if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+            {
+                return std::nullopt;
+            }
+            return std::filesystem::path(buffer.data()).parent_path();
+#else
+            std::vector<char> buffer(256);
+            for (;;)
+            {
+                const ssize_t length = readlink(
+                    "/proc/self/exe", buffer.data(), buffer.size());
+                if (length < 0)
+                {
+                    return std::nullopt;
+                }
+                if (static_cast<std::size_t>(length) < buffer.size())
+                {
+                    return std::filesystem::path(std::string(
+                        buffer.data(), static_cast<std::size_t>(length))).parent_path();
+                }
+                buffer.resize(buffer.size() * 2U);
+            }
+#endif
+        }
+        catch (...)
+        {
+            return std::nullopt;
+        }
+    }
+
+    [[nodiscard]] void* GlfwModule() noexcept
+    {
+        static void* module = []() noexcept -> void*
+        {
+#if defined(__APPLE__)
+            constexpr const char* names[] = {
+                "glfw.3.3.dylib", "libglfw.3.3.dylib",
+                "glfw.3.dylib", "libglfw.3.dylib",
+                "glfw.dylib", "libglfw.dylib", "glfw"};
+#else
+            constexpr const char* names[] = {
+                "glfw.so.3.3", "libglfw.so.3.3",
+                "glfw.so.3", "libglfw.so.3",
+                "glfw.so", "libglfw.so", "glfw"};
+#endif
+            if (const auto directory = ExecutableDirectory())
+            {
+                for (const char* name : names)
+                {
+                    try
+                    {
+                        const std::string local = (*directory / name).string();
+                        if (void* handle = dlopen(
+                            local.c_str(), RTLD_LAZY | RTLD_LOCAL))
+                        {
+                            return handle;
+                        }
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            }
+            for (const char* name : names)
+            {
+                if (void* handle = dlopen(name, RTLD_LAZY | RTLD_LOCAL))
+                {
+                    return handle;
+                }
+            }
+            return nullptr;
+        }();
+        return module;
+    }
+
+    template <typename T>
+    [[nodiscard]] T GlfwProc(const char* name) noexcept
+    {
+        void* module = GlfwModule();
+        return module == nullptr
+            ? nullptr
+            : reinterpret_cast<T>(dlsym(module, name));
+    }
+#else
+    template <typename T>
+    [[nodiscard]] T GlfwProc(const char*) noexcept
+    {
+        return nullptr;
+    }
+#endif
 
 #define MPHREAD_GLFW_API(name, type, symbol) \
     [[nodiscard]] type name() noexcept \
@@ -119,52 +207,6 @@ namespace
     MPHREAD_GLFW_API(JoystickButtonsApi, JoystickBytes, "glfwGetJoystickButtons")
     MPHREAD_GLFW_API(JoystickHatsApi, JoystickBytes, "glfwGetJoystickHats")
 #undef MPHREAD_GLFW_API
-#else
-    [[nodiscard]] Init InitApi() noexcept
-    {
-        return glfwInit == nullptr ? nullptr : &glfwInit;
-    }
-
-    [[nodiscard]] Terminate TerminateApi() noexcept
-    {
-        return glfwTerminate == nullptr ? nullptr : &glfwTerminate;
-    }
-
-    [[nodiscard]] PollEvents PollEventsApi() noexcept
-    {
-        return glfwPollEvents == nullptr ? nullptr : &glfwPollEvents;
-    }
-
-    [[nodiscard]] JoystickBool JoystickPresentApi() noexcept
-    {
-        return glfwJoystickPresent == nullptr ? nullptr : &glfwJoystickPresent;
-    }
-
-    [[nodiscard]] JoystickString JoystickNameApi() noexcept
-    {
-        return glfwGetJoystickName == nullptr ? nullptr : &glfwGetJoystickName;
-    }
-
-    [[nodiscard]] JoystickBool IsGamepadApi() noexcept
-    {
-        return glfwJoystickIsGamepad == nullptr ? nullptr : &glfwJoystickIsGamepad;
-    }
-
-    [[nodiscard]] JoystickFloats JoystickAxesApi() noexcept
-    {
-        return glfwGetJoystickAxes == nullptr ? nullptr : &glfwGetJoystickAxes;
-    }
-
-    [[nodiscard]] JoystickBytes JoystickButtonsApi() noexcept
-    {
-        return glfwGetJoystickButtons == nullptr ? nullptr : &glfwGetJoystickButtons;
-    }
-
-    [[nodiscard]] JoystickBytes JoystickHatsApi() noexcept
-    {
-        return glfwGetJoystickHats == nullptr ? nullptr : &glfwGetJoystickHats;
-    }
-#endif
 
     template <typename T>
     [[nodiscard]] T Require(T function, const char* procedure)
@@ -272,7 +314,7 @@ namespace
 
     [[nodiscard]] bool GlfwInit()
     {
-        return Require(InitApi(), "glfwInit")() != 0;
+        return Require(InitApi(), "glfwInit")() == 1;
     }
 
     void GlfwTerminate()
@@ -287,7 +329,7 @@ namespace
 
     [[nodiscard]] bool JoystickPresent(std::int32_t slot)
     {
-        return Require(JoystickPresentApi(), "glfwJoystickPresent")(slot) != 0;
+        return Require(JoystickPresentApi(), "glfwJoystickPresent")(slot) == 1;
     }
 
     [[nodiscard]] std::optional<std::string> JoystickName(std::int32_t slot)
@@ -301,7 +343,7 @@ namespace
 
     [[nodiscard]] bool JoystickIsGamepad(std::int32_t slot)
     {
-        return Require(IsGamepadApi(), "glfwJoystickIsGamepad")(slot) != 0;
+        return Require(IsGamepadApi(), "glfwJoystickIsGamepad")(slot) == 1;
     }
 
     template <typename T>
@@ -309,12 +351,22 @@ namespace
         T function, std::int32_t slot, const char* procedure)
     {
         int count = 0;
-        (void)Require(function, procedure)(slot, &count);
+        const auto* values = Require(function, procedure)(slot, &count);
+        if (values == nullptr)
+        {
+            return 0;
+        }
+        if (count < 0)
+        {
+            throw std::out_of_range("GLFW joystick item count was negative.");
+        }
         return static_cast<std::int32_t>(count);
     }
 
-    [[nodiscard]] std::string FormatFixed(double value, std::int32_t decimals)
+    template <typename T>
+    [[nodiscard]] std::string FormatFixed(T value, std::int32_t decimals)
     {
+        static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>);
         if (std::isnan(value))
         {
             return "NaN";
@@ -323,10 +375,166 @@ namespace
         {
             return std::signbit(value) ? "-Infinity" : "Infinity";
         }
-        std::ostringstream stream;
-        stream.imbue(std::locale::classic());
-        stream << std::fixed << std::setprecision(decimals) << value;
-        return stream.str();
+
+        const auto zero = [decimals]()
+        {
+            std::string result = "0";
+            if (decimals > 0)
+            {
+                result.push_back('.');
+                result.append(static_cast<std::size_t>(decimals), '0');
+            }
+            return result;
+        };
+
+        const bool negative = std::signbit(value);
+        if (value == static_cast<T>(0))
+        {
+            return zero();
+        }
+
+        const T magnitude = negative ? -value : value;
+        constexpr int significant = std::is_same_v<T, float> ? 7 : 15;
+        char buffer[64];
+        const auto converted = std::to_chars(
+            buffer, buffer + sizeof(buffer), magnitude,
+            std::chars_format::scientific, significant - 1);
+        if (converted.ec != std::errc{})
+        {
+            throw std::runtime_error("Floating-point formatting failed.");
+        }
+
+        const std::string_view scientific(
+            buffer, static_cast<std::size_t>(converted.ptr - buffer));
+        const std::size_t exponentAt = scientific.find('e');
+        if (exponentAt == std::string_view::npos)
+        {
+            throw std::runtime_error("Floating-point formatting omitted the exponent.");
+        }
+
+        std::string digits;
+        digits.reserve(significant);
+        for (std::size_t index = 0; index < exponentAt; ++index)
+        {
+            if (scientific[index] != '.')
+            {
+                digits.push_back(scientific[index]);
+            }
+        }
+
+        const char* exponentFirst = scientific.data() + exponentAt + 1;
+        const char* exponentLast = scientific.data() + scientific.size();
+        bool exponentNegative = false;
+        if (exponentFirst != exponentLast
+            && (*exponentFirst == '+' || *exponentFirst == '-'))
+        {
+            exponentNegative = *exponentFirst == '-';
+            ++exponentFirst;
+        }
+        std::int32_t exponent = 0;
+        const auto parsed = std::from_chars(
+            exponentFirst, exponentLast, exponent);
+        if (parsed.ec != std::errc{} || parsed.ptr != exponentLast)
+        {
+            throw std::runtime_error("Floating-point exponent parsing failed.");
+        }
+        if (exponentNegative)
+        {
+            exponent = -exponent;
+        }
+
+        std::int32_t scale = exponent + 1;
+        const std::int32_t roundAt = scale + decimals;
+        std::size_t kept = roundAt > 0
+            ? std::min<std::size_t>(
+                static_cast<std::size_t>(roundAt), digits.size())
+            : 0;
+
+        if (roundAt >= 0
+            && static_cast<std::size_t>(roundAt) < digits.size()
+            && digits[static_cast<std::size_t>(roundAt)] >= '5')
+        {
+            std::size_t index = static_cast<std::size_t>(roundAt);
+            while (index > 0 && digits[index - 1] == '9')
+            {
+                --index;
+            }
+            if (index > 0)
+            {
+                ++digits[index - 1];
+                kept = index;
+            }
+            else
+            {
+                digits.assign("1");
+                kept = 1;
+                ++scale;
+            }
+        }
+        else
+        {
+            while (kept > 0 && digits[kept - 1] == '0')
+            {
+                --kept;
+            }
+        }
+
+        if (kept == 0)
+        {
+            return zero();
+        }
+        digits.resize(kept);
+
+        std::string result;
+        if (negative)
+        {
+            result.push_back('-');
+        }
+        if (scale <= 0)
+        {
+            result.push_back('0');
+            if (decimals > 0)
+            {
+                result.push_back('.');
+                const std::int32_t leading = std::min(-scale, decimals);
+                result.append(static_cast<std::size_t>(leading), '0');
+                const std::int32_t remaining = decimals - leading;
+                if (remaining > 0)
+                {
+                    const std::size_t take = std::min<std::size_t>(
+                        digits.size(), static_cast<std::size_t>(remaining));
+                    result.append(digits.data(), take);
+                    result.append(
+                        static_cast<std::size_t>(remaining) - take, '0');
+                }
+            }
+        }
+        else
+        {
+            const std::size_t integerDigits = static_cast<std::size_t>(scale);
+            const std::size_t takeInteger
+                = std::min(integerDigits, digits.size());
+            result.append(digits.data(), takeInteger);
+            if (integerDigits > takeInteger)
+            {
+                result.append(integerDigits - takeInteger, '0');
+            }
+            if (decimals > 0)
+            {
+                result.push_back('.');
+                const std::size_t available = takeInteger < digits.size()
+                    ? digits.size() - takeInteger
+                    : 0;
+                const std::size_t take = std::min<std::size_t>(
+                    available, static_cast<std::size_t>(decimals));
+                if (take > 0)
+                {
+                    result.append(digits.data() + takeInteger, take);
+                }
+                result.append(static_cast<std::size_t>(decimals) - take, '0');
+            }
+        }
+        return result;
     }
 
     [[nodiscard]] std::string AlignRight(std::string value, std::size_t width)

@@ -296,14 +296,18 @@ namespace MphRead::Mods::Launcher::Gui
         const std::u16string upper = _control.ToUpperInvariant(_title);
         const double title = TrackedText::Measure(metrics, upper, TitleSize, Tracking);
 
-        const std::u16string& subtitleText = RequireSubtitle();
-        const double subtitle = !subtitleText.empty()
-            ? TrackedText::Make(metrics, subtitleText, SubtitleSize, false,
-                TrackedTextBrush{&GuiTheme::TextBrush}).Width
-            : 0.0;
+        double subtitle = 0.0;
+        if (!RequireSubtitle().empty())
+        {
+            const std::u16string subtitleArgument = RequireSubtitle();
+            subtitle = TrackedText::Make(metrics, subtitleArgument, SubtitleSize, false,
+                TrackedTextBrush{&GuiTheme::TextBrush}).Width;
+        }
         const double width = MathMax(title, subtitle) + PadX * 2.0;
-        const double height = TrackedText::LineHeight(metrics, TitleSize) + PadY * 2.0
-            + (!subtitleText.empty() ? SubtitleSize + 5.0 : 0.0);
+        const double lineHeight = TrackedText::LineHeight(metrics, TitleSize);
+        const bool hasSubtitleForHeight = !RequireSubtitle().empty();
+        const double height = lineHeight + PadY * 2.0
+            + (hasSubtitleForHeight ? SubtitleSize + 5.0 : 0.0);
         return UpdateBadgeSize{MathMin(width, available.Width), height};
     }
 
@@ -384,12 +388,12 @@ namespace MphRead::Mods::Launcher::Gui
         TrackedText::Draw(context, upper, TitleSize, TrackedTextBrush{&ink},
             PadX, PadY, Tracking);
 
-        const std::u16string& subtitleText = RequireSubtitle();
-        if (!subtitleText.empty())
+        if (!RequireSubtitle().empty())
         {
+            const std::u16string subtitleArgument = RequireSubtitle();
             const GuiBrush subtitleInk{GuiColor::FromArgb(200, 26, 18, 4)};
             const TrackedTextFormattedText sub = TrackedText::Make(
-                context, subtitleText, SubtitleSize, false,
+                context, subtitleArgument, SubtitleSize, false,
                 TrackedTextBrush{&subtitleInk});
             context.DrawText(sub, TrackedTextPoint{
                 PadX,

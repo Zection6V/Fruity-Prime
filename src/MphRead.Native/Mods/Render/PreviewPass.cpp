@@ -6,8 +6,8 @@
 #include <cmath>
 #include <cstdint>
 #include <exception>
-#include <iostream>
 #include <limits>
+#include <string>
 #include <memory>
 
 namespace MphRead::Mods::Render::PreviewPassInterop
@@ -25,6 +25,8 @@ namespace MphRead::Mods::Render::PreviewPassInterop
     void DepthMask(bool enabled);
     void BlendFunc(std::int32_t source, std::int32_t destination);
     void PolygonMode(std::int32_t face, std::int32_t mode);
+    [[nodiscard]] std::string ExceptionMessage(std::exception_ptr exception);
+    void ConsoleWriteLine(const std::string& value);
 }
 
 namespace
@@ -56,21 +58,28 @@ namespace
     [[nodiscard]] Matrix4 CreatePerspectiveFieldOfView(
         float fov, float aspect, float nearClip, float farClip)
     {
-        const float yScale = 1.0F / std::tan(fov * 0.5F);
-        const float xScale = yScale / aspect;
-        const float range = nearClip - farClip;
+        const float maxY = nearClip * std::tan(0.5F * fov);
+        const float minY = -maxY;
+        const float minX = minY * aspect;
+        const float maxX = maxY * aspect;
+        const float x = 2.0F * nearClip / (maxX - minX);
+        const float y = 2.0F * nearClip / (maxY - minY);
+        const float a = (maxX + minX) / (maxX - minX);
+        const float b = (maxY + minY) / (maxY - minY);
+        const float z = -(farClip + nearClip) / (farClip - nearClip);
+        const float d = -(2.0F * farClip * nearClip) / (farClip - nearClip);
         return Matrix4(
-            Vector4(xScale, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, yScale, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, (farClip + nearClip) / range, -1.0F),
-            Vector4(0.0F, 0.0F, (2.0F * farClip * nearClip) / range, 0.0F));
+            Vector4(x, 0.0F, 0.0F, 0.0F),
+            Vector4(0.0F, y, 0.0F, 0.0F),
+            Vector4(a, b, z, -1.0F),
+            Vector4(0.0F, 0.0F, d, 0.0F));
     }
 
     [[nodiscard]] Matrix4 LookAt(Vector3 eye, Vector3 target, Vector3 up)
     {
         const Vector3 z = Vector3(eye.X - target.X, eye.Y - target.Y, eye.Z - target.Z).Normalized();
         const Vector3 x = Vector3::Cross(up, z).Normalized();
-        const Vector3 y = Vector3::Cross(z, x);
+        const Vector3 y = Vector3::Cross(z, x).Normalized();
         return Matrix4(
             Vector4(x.X, y.X, z.X, 0.0F),
             Vector4(x.Y, y.Y, z.Y, 0.0F),
@@ -214,7 +223,10 @@ namespace MphRead
         {
             _preview = std::make_shared<Mods::Render::HunterPreviewEntity>(this);
         }
-        _preview->SetUp(Mods::EndScreen::Hunter(), Mods::EndScreen::Suit());
+        const std::shared_ptr<Mods::Render::HunterPreviewEntity> preview = _preview;
+        const MphRead::Hunter hunter = Mods::EndScreen::Hunter();
+        const std::int32_t suit = Mods::EndScreen::Suit();
+        preview->SetUp(hunter, suit);
         _preview->Step();
     }
 
@@ -231,9 +243,12 @@ namespace MphRead
         {
             _preview->GetDrawInfo();
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
-            std::cout << "[endscreen] preview draw failed: " << ex.what() << '\n';
+            const std::exception_ptr exception = std::current_exception();
+            Mods::Render::PreviewPassInterop::ConsoleWriteLine(
+                "[endscreen] preview draw failed: "
+                + Mods::Render::PreviewPassInterop::ExceptionMessage(exception));
             _previewItems.clear();
         }
     }

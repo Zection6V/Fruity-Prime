@@ -33,6 +33,7 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -244,11 +245,52 @@ namespace
         return base;
     }
 
+#if defined(_WIN32)
     [[nodiscard]] std::int64_t LastWriteTicks(std::filesystem::file_time_type value)
     {
         const auto systemValue = std::chrono::file_clock::to_sys(value);
         return std::chrono::duration_cast<TickDuration>(systemValue.time_since_epoch()).count();
     }
+#else
+    [[nodiscard]] std::int64_t LastWriteTicks(const struct stat& value)
+    {
+#if defined(__APPLE__)
+        const std::int64_t seconds = static_cast<std::int64_t>(value.st_mtimespec.tv_sec);
+        const std::int64_t nanoseconds = static_cast<std::int64_t>(value.st_mtimespec.tv_nsec);
+#else
+        const std::int64_t seconds = static_cast<std::int64_t>(value.st_mtim.tv_sec);
+        const std::int64_t nanoseconds = static_cast<std::int64_t>(value.st_mtim.tv_nsec);
+#endif
+        if (seconds < -62135596800LL || seconds > 253402300799LL)
+        {
+            throw std::out_of_range("The file timestamp is outside the DateTime range.");
+        }
+        return seconds * 10000000LL + nanoseconds / 100LL;
+    }
+
+    [[nodiscard]] bool TryFileShareLock(int fd, int operation)
+    {
+        if (::flock(fd, operation | LOCK_NB) == 0)
+        {
+            return true;
+        }
+        const int code = errno;
+        if (code == EWOULDBLOCK || code == EAGAIN)
+        {
+            throw std::system_error(code, std::generic_category());
+        }
+        return false;
+    }
+
+    void UnlockFileShare(int fd, bool& locked) noexcept
+    {
+        if (locked)
+        {
+            ::flock(fd, LOCK_UN);
+            locked = false;
+        }
+    }
+#endif
 
     [[nodiscard]] std::chrono::system_clock::time_point SystemTimeFromTicks(std::int64_t ticks)
     {
@@ -500,10 +542,29 @@ namespace
                 throw std::system_error(static_cast<int>(GetLastError()), std::system_category());
             }
 #else
-            _fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+            _fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
             if (_fd < 0)
             {
                 throw std::system_error(errno, std::generic_category());
+            }
+            try
+            {
+                _locked = TryFileShareLock(_fd, LOCK_EX);
+                if (::ftruncate(_fd, 0) != 0)
+                {
+                    const int code = errno;
+                    if (code != EBADF && code != EINVAL)
+                    {
+                        throw std::system_error(code, std::generic_category());
+                    }
+                }
+            }
+            catch (...)
+            {
+                UnlockFileShare(_fd, _locked);
+                ::close(_fd);
+                _fd = -1;
+                throw;
             }
 #endif
         }
@@ -604,6 +665,7 @@ namespace
             if (_fd >= 0)
             {
                 const int fd = _fd;
+                UnlockFileShare(fd, _locked);
                 _fd = -1;
                 if (::close(fd) != 0)
                 {
@@ -625,6 +687,7 @@ namespace
 #else
             if (_fd >= 0)
             {
+                UnlockFileShare(_fd, _locked);
                 ::close(_fd);
                 _fd = -1;
             }
@@ -635,6 +698,7 @@ namespace
         HANDLE _handle = INVALID_HANDLE_VALUE;
 #else
         int _fd = -1;
+        bool _locked = false;
 #endif
         std::uint64_t _offset = 0;
     };
@@ -658,6 +722,26 @@ namespace
             {
                 throw std::system_error(errno, std::generic_category());
             }
+            try
+            {
+                struct stat status{};
+                if (::fstat(_fd, &status) != 0)
+                {
+                    throw std::system_error(errno, std::generic_category());
+                }
+                if (S_ISDIR(status.st_mode))
+                {
+                    throw std::system_error(EACCES, std::generic_category());
+                }
+                _locked = TryFileShareLock(_fd, LOCK_SH);
+            }
+            catch (...)
+            {
+                UnlockFileShare(_fd, _locked);
+                ::close(_fd);
+                _fd = -1;
+                throw;
+            }
 #endif
         }
 
@@ -671,6 +755,7 @@ namespace
 #else
             if (_fd >= 0)
             {
+                UnlockFileShare(_fd, _locked);
                 ::close(_fd);
             }
 #endif
@@ -711,6 +796,7 @@ namespace
         HANDLE _handle = INVALID_HANDLE_VALUE;
 #else
         int _fd = -1;
+        bool _locked = false;
 #endif
     };
 
@@ -1444,6 +1530,7 @@ namespace
 
     [[nodiscard]] bool FileExistsLikeDotNet(const std::filesystem::path& path) noexcept
     {
+#if defined(_WIN32)
         std::error_code error;
         const std::filesystem::file_status status = std::filesystem::status(path, error);
         if (error || status.type() == std::filesystem::file_type::not_found)
@@ -1451,6 +1538,23 @@ namespace
             return false;
         }
         return status.type() != std::filesystem::file_type::directory;
+#else
+        struct stat status{};
+        if (::lstat(path.c_str(), &status) != 0)
+        {
+            return false;
+        }
+        if (S_ISLNK(status.st_mode))
+        {
+            struct stat target{};
+            if (::stat(path.c_str(), &target) == 0)
+            {
+                return !S_ISDIR(target.st_mode);
+            }
+            return true;
+        }
+        return !S_ISDIR(status.st_mode);
+#endif
     }
 }
 
@@ -1499,10 +1603,18 @@ namespace MphRead::Mods
             {
                 return files;
             }
-            directory = std::filesystem::absolute(directory);
+            directory = std::filesystem::absolute(directory).lexically_normal();
             for (const std::filesystem::directory_entry& entry
                 : std::filesystem::directory_iterator(directory))
             {
+                const std::u16string name = ManagedPath(entry.path().filename());
+                if (!MatchesLogName(name))
+                {
+                    continue;
+                }
+
+                std::int64_t ticks = 0;
+#if defined(_WIN32)
                 std::error_code typeError;
                 if (entry.is_directory(typeError) || typeError)
                 {
@@ -1513,12 +1625,26 @@ namespace MphRead::Mods
                     }
                     continue;
                 }
-                const std::u16string name = ManagedPath(entry.path().filename());
-                if (!MatchesLogName(name))
+                ticks = LastWriteTicks(entry.last_write_time());
+#else
+                struct stat status{};
+                if (::lstat(entry.path().c_str(), &status) != 0)
+                {
+                    throw std::system_error(errno, std::generic_category());
+                }
+                bool isDirectory = S_ISDIR(status.st_mode);
+                if (S_ISLNK(status.st_mode))
+                {
+                    struct stat target{};
+                    isDirectory = ::stat(entry.path().c_str(), &target) == 0
+                        && S_ISDIR(target.st_mode);
+                }
+                if (isDirectory)
                 {
                     continue;
                 }
-                const std::int64_t ticks = LastWriteTicks(entry.last_write_time());
+                ticks = LastWriteTicks(status);
+#endif
                 files.push_back(LogFileInfo(
                     entry.path(), ManagedPath(entry.path()), name, ticks));
             }
@@ -1586,49 +1712,79 @@ namespace MphRead::Mods
 
             OutputFile stream(archivePath);
             ZipWriter zip(stream);
-            int written = 0;
-            std::array<std::uint8_t, 81920> buffer{};
-            for (const LogFileInfo& file : files)
+            bool noReadableLogs = false;
+            std::exception_ptr pending;
+            try
             {
-                try
+                int written = 0;
+                std::array<std::uint8_t, 81920> buffer{};
+                for (const LogFileInfo& file : files)
                 {
-                    InputFile source(file._path);
-                    const std::size_t entryIndex = zip.CreateEntry(file._name);
-                    zip.LastWriteTime(entryIndex, file.LastWriteTimeUtc());
-                    std::unique_ptr<ZipEntryStream> target = zip.Open(entryIndex);
                     try
                     {
-                        for (;;)
+                        InputFile source(file._path);
+                        const std::size_t entryIndex = zip.CreateEntry(file._name);
+                        zip.LastWriteTime(entryIndex, file.LastWriteTimeUtc());
+                        std::unique_ptr<ZipEntryStream> target = zip.Open(entryIndex);
+                        try
                         {
-                            const std::size_t read = source.Read(buffer.data(), buffer.size());
-                            if (read == 0)
+                            for (;;)
                             {
-                                break;
+                                const std::size_t read = source.Read(buffer.data(), buffer.size());
+                                if (read == 0)
+                                {
+                                    break;
+                                }
+                                target->Write(buffer.data(), read);
                             }
-                            target->Write(buffer.data(), read);
+                            ++written;
                         }
-                        ++written;
+                        catch (...)
+                        {
+                            target->Close();
+                            throw;
+                        }
+                        target->Close();
                     }
                     catch (...)
                     {
-                        target->Close();
-                        throw;
                     }
-                    target->Close();
                 }
-                catch (...)
+                if (written == 0)
                 {
+                    error = u"none of the logs could be read";
+                    noReadableLogs = true;
                 }
             }
-            if (written == 0)
+            catch (...)
             {
-                error = u"none of the logs could be read";
+                pending = std::current_exception();
+            }
+
+            try
+            {
                 zip.Close();
+            }
+            catch (...)
+            {
+                pending = std::current_exception();
+            }
+            try
+            {
                 stream.Close();
+            }
+            catch (...)
+            {
+                pending = std::current_exception();
+            }
+            if (pending)
+            {
+                std::rethrow_exception(pending);
+            }
+            if (noReadableLogs)
+            {
                 return false;
             }
-            zip.Close();
-            stream.Close();
         }
         catch (const std::exception& ex)
         {

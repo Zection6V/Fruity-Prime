@@ -1230,7 +1230,19 @@ namespace
     [[nodiscard]] bool ExtensionMatches(
         const std::filesystem::path& path, std::string_view extension)
     {
-        const std::string actual = PathToUtf8(path.extension());
+        // Directory.EnumerateFiles(root, "*<extension>", ...) applies the
+        // wildcard to the whole file name. In particular, "*" may match zero
+        // characters, so a file named exactly ".fpmap" or ".json" matches.
+        // std::filesystem::path::extension() treats such a dotfile as having
+        // no extension, so compare the filename suffix instead.
+        const std::string fileName = PathToUtf8(path.filename());
+        if (fileName.size() < extension.size())
+        {
+            return false;
+        }
+        const std::string_view actual(
+            fileName.data() + fileName.size() - extension.size(),
+            extension.size());
 #if defined(_WIN32)
         return CompareOrdinalIgnoreCase(actual, extension) == 0;
 #else

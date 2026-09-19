@@ -27,6 +27,8 @@
 #elif defined(__APPLE__)
 #include <TargetConditionals.h>
 #include <mach-o/dyld.h>
+#elif defined(__linux__)
+#include <sys/auxv.h>
 #endif
 
 #if !defined(_WIN32)
@@ -373,9 +375,9 @@ namespace
             buffer.resize(buffer.size() * 2U);
         }
 #elif defined(__APPLE__)
-        std::uint32_t size = 0;
-        (void)_NSGetExecutablePath(nullptr, &size);
-        if (size == 0)
+        std::uint32_t size = 1;
+        char probe = 0;
+        if (_NSGetExecutablePath(&probe, &size) == 0 || size == 0)
         {
             return std::nullopt;
         }
@@ -391,10 +393,27 @@ namespace
             : std::optional<std::filesystem::path>{canonical};
 #elif defined(__linux__)
         std::error_code error;
-        const std::filesystem::path path
+        const std::filesystem::path procPath
             = std::filesystem::canonical("/proc/self/exe", error);
-        return error ? std::optional<std::filesystem::path>{}
-            : std::optional<std::filesystem::path>{path};
+        if (!error)
+        {
+            return procPath;
+        }
+#if defined(AT_EXECFN)
+        const auto executable
+            = reinterpret_cast<const char*>(getauxval(AT_EXECFN));
+        if (executable != nullptr)
+        {
+            error.clear();
+            const std::filesystem::path execPath
+                = std::filesystem::canonical(FromUtf8(executable), error);
+            if (!error)
+            {
+                return execPath;
+            }
+        }
+#endif
+        return std::nullopt;
 #else
         return std::nullopt;
 #endif
@@ -511,36 +530,48 @@ namespace
 #if defined(_WIN32)
         constexpr wchar_t Name[] = L"SDL_GAMECONTROLLERCONFIG";
         SetLastError(ERROR_SUCCESS);
-        const DWORD required = GetEnvironmentVariableW(Name, nullptr, 0);
+        DWORD required = GetEnvironmentVariableW(Name, nullptr, 0);
         if (required == 0)
         {
             return GetLastError() == ERROR_ENVVAR_NOT_FOUND
                 ? std::nullopt
                 : std::optional<std::string>{""};
         }
-        std::vector<wchar_t> buffer(required);
-        const DWORD length = GetEnvironmentVariableW(
-            Name, buffer.data(), required);
-        if (length == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND)
+
+        for (;;)
         {
-            return std::nullopt;
+            std::vector<wchar_t> buffer(required);
+            SetLastError(ERROR_SUCCESS);
+            const DWORD length = GetEnvironmentVariableW(
+                Name, buffer.data(), required);
+            if (length == 0)
+            {
+                return GetLastError() == ERROR_ENVVAR_NOT_FOUND
+                    ? std::nullopt
+                    : std::optional<std::string>{""};
+            }
+            if (length >= required)
+            {
+                required = length;
+                continue;
+            }
+            if (length > static_cast<DWORD>(std::numeric_limits<int>::max()))
+            {
+                throw std::length_error("Environment variable is too long.");
+            }
+            const int bytes = WideCharToMultiByte(
+                CP_UTF8, 0, buffer.data(), static_cast<int>(length),
+                nullptr, 0, nullptr, nullptr);
+            if (bytes <= 0)
+            {
+                return std::string{};
+            }
+            std::string result(static_cast<std::size_t>(bytes), '\0');
+            (void)WideCharToMultiByte(
+                CP_UTF8, 0, buffer.data(), static_cast<int>(length),
+                result.data(), bytes, nullptr, nullptr);
+            return result;
         }
-        if (length > static_cast<DWORD>(std::numeric_limits<int>::max()))
-        {
-            throw std::length_error("Environment variable is too long.");
-        }
-        const int bytes = WideCharToMultiByte(
-            CP_UTF8, 0, buffer.data(), static_cast<int>(length),
-            nullptr, 0, nullptr, nullptr);
-        if (bytes <= 0)
-        {
-            return std::string{};
-        }
-        std::string result(static_cast<std::size_t>(bytes), '\0');
-        (void)WideCharToMultiByte(
-            CP_UTF8, 0, buffer.data(), static_cast<int>(length),
-            result.data(), bytes, nullptr, nullptr);
-        return result;
 #else
         const char* value = std::getenv("SDL_GAMECONTROLLERCONFIG");
         return value == nullptr
@@ -557,7 +588,7 @@ namespace
     {
         static HMODULE module = []() noexcept -> HMODULE
         {
-            for (const wchar_t* name : {L"glfw3.dll", L"glfw.dll"})
+            for (const wchar_t* name : {L"glfw3.3.dll", L"glfw3.dll", L"glfw.dll"})
             {
                 if (HMODULE handle = GetModuleHandleW(name))
                 {
@@ -734,7 +765,7 @@ namespace MphRead::Mods::Input
     bool GamepadMappings::Apply(const std::string& text)
     {
         const UpdateMappings function = UpdateMappingsApi();
-        return function != nullptr && function(text.c_str()) != 0;
+        return function != nullptr && function(text.c_str()) == 1;
     }
 
     std::int32_t GamepadMappings::Count(std::string_view text)

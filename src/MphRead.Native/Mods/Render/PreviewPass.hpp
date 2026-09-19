@@ -22,6 +22,13 @@ namespace MphRead
     class Scene
     {
     public:
+        Scene() = delete;
+        Scene(const Scene&) = delete;
+        Scene& operator=(const Scene&) = delete;
+        Scene(Scene&&) = delete;
+        Scene& operator=(Scene&&) = delete;
+        ~Scene() = default;
+
         [[nodiscard]] static float PreviewLeft() noexcept;
         static void PreviewLeft(float value) noexcept;
         [[nodiscard]] static float PreviewTop() noexcept;

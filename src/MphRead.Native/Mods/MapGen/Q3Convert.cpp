@@ -22,6 +22,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <locale>
 #include <locale.h>
 #include <memory>
 #include <numbers>
@@ -206,18 +207,100 @@ namespace
         return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
     }
 
-    [[nodiscard]] std::string_view TrimFloatWhitespace(
+    [[nodiscard]] std::size_t LeadingUnicodeWhitespaceBytes(
         std::string_view value) noexcept
     {
-        while (!value.empty()
-            && IsAsciiWhitespace(static_cast<unsigned char>(value.front())))
+        if (value.empty())
         {
-            value.remove_prefix(1);
+            return 0;
         }
-        while (!value.empty()
-            && IsAsciiWhitespace(static_cast<unsigned char>(value.back())))
+        const auto b0 = static_cast<unsigned char>(value[0]);
+        if (IsAsciiWhitespace(b0))
         {
-            value.remove_suffix(1);
+            return 1;
+        }
+        if (value.size() >= 2)
+        {
+            const auto b1 = static_cast<unsigned char>(value[1]);
+            if (b0 == 0xC2U && (b1 == 0x85U || b1 == 0xA0U))
+            {
+                return 2;
+            }
+        }
+        if (value.size() >= 3)
+        {
+            const auto b1 = static_cast<unsigned char>(value[1]);
+            const auto b2 = static_cast<unsigned char>(value[2]);
+            if ((b0 == 0xE1U && b1 == 0x9AU && b2 == 0x80U)
+                || (b0 == 0xE2U && b1 == 0x80U
+                    && ((b2 >= 0x80U && b2 <= 0x8AU)
+                        || b2 == 0xA8U || b2 == 0xA9U || b2 == 0xAFU))
+                || (b0 == 0xE2U && b1 == 0x81U && b2 == 0x9FU)
+                || (b0 == 0xE3U && b1 == 0x80U && b2 == 0x80U))
+            {
+                return 3;
+            }
+        }
+        return 0;
+    }
+
+    [[nodiscard]] std::size_t TrailingUnicodeWhitespaceBytes(
+        std::string_view value) noexcept
+    {
+        if (value.empty())
+        {
+            return 0;
+        }
+        const auto last = static_cast<unsigned char>(value.back());
+        if (IsAsciiWhitespace(last))
+        {
+            return 1;
+        }
+        if (value.size() >= 2)
+        {
+            const auto b0 = static_cast<unsigned char>(value[value.size() - 2]);
+            if (b0 == 0xC2U && (last == 0x85U || last == 0xA0U))
+            {
+                return 2;
+            }
+        }
+        if (value.size() >= 3)
+        {
+            const auto b0 = static_cast<unsigned char>(value[value.size() - 3]);
+            const auto b1 = static_cast<unsigned char>(value[value.size() - 2]);
+            if ((b0 == 0xE1U && b1 == 0x9AU && last == 0x80U)
+                || (b0 == 0xE2U && b1 == 0x80U
+                    && ((last >= 0x80U && last <= 0x8AU)
+                        || last == 0xA8U || last == 0xA9U || last == 0xAFU))
+                || (b0 == 0xE2U && b1 == 0x81U && last == 0x9FU)
+                || (b0 == 0xE3U && b1 == 0x80U && last == 0x80U))
+            {
+                return 3;
+            }
+        }
+        return 0;
+    }
+
+    [[nodiscard]] std::string_view TrimUnicodeWhitespace(
+        std::string_view value) noexcept
+    {
+        for (;;)
+        {
+            const std::size_t count = LeadingUnicodeWhitespaceBytes(value);
+            if (count == 0)
+            {
+                break;
+            }
+            value.remove_prefix(count);
+        }
+        for (;;)
+        {
+            const std::size_t count = TrailingUnicodeWhitespaceBytes(value);
+            if (count == 0)
+            {
+                break;
+            }
+            value.remove_suffix(count);
         }
         return value;
     }
@@ -257,7 +340,6 @@ namespace
         {
             return false;
         }
-
         std::size_t position = 0;
         if (text[position] == '+' || text[position] == '-')
         {
@@ -377,40 +459,88 @@ namespace
         return scientificExponent < 0;
     }
 
-    [[nodiscard]] bool TryParseSingleInvariant(
+    [[nodiscard]] bool TryParseNumericSingleInvariant(
         std::string_view text, float& result) noexcept
     {
         result = 0.0F;
-        text = TrimFloatWhitespace(text);
-        if (text.empty())
+        std::size_t start = 0;
+        while (start < text.size()
+            && IsAsciiWhitespace(static_cast<unsigned char>(text[start])))
+        {
+            ++start;
+        }
+        if (start == text.size())
         {
             return false;
         }
 
-        if (EqualsIgnoreCaseAscii(text, "NaN"))
+        std::size_t end = start;
+        if (text[end] == '+' || text[end] == '-')
         {
-            result = std::numeric_limits<float>::quiet_NaN();
-            return true;
+            ++end;
         }
-        if (EqualsIgnoreCaseAscii(text, "Infinity")
-            || EqualsIgnoreCaseAscii(text, "+Infinity"))
+        const std::size_t digitsStart = end;
+        bool digits = false;
+        while (end < text.size() && text[end] >= '0' && text[end] <= '9')
         {
-            result = std::numeric_limits<float>::infinity();
-            return true;
+            digits = true;
+            ++end;
         }
-        if (EqualsIgnoreCaseAscii(text, "-Infinity"))
+        if (end < text.size() && text[end] == '.')
         {
-            result = -std::numeric_limits<float>::infinity();
-            return true;
+            ++end;
+            while (end < text.size() && text[end] >= '0' && text[end] <= '9')
+            {
+                digits = true;
+                ++end;
+            }
+        }
+        if (!digits || end == digitsStart)
+        {
+            return false;
+        }
+        if (end < text.size() && (text[end] == 'e' || text[end] == 'E'))
+        {
+            const std::size_t exponentMarker = end++;
+            if (end < text.size() && (text[end] == '+' || text[end] == '-'))
+            {
+                ++end;
+            }
+            const std::size_t exponentStart = end;
+            while (end < text.size() && text[end] >= '0' && text[end] <= '9')
+            {
+                ++end;
+            }
+            if (end == exponentStart)
+            {
+                end = exponentMarker;
+            }
         }
 
+        const std::size_t numericEnd = end;
+        while (end < text.size()
+            && IsAsciiWhitespace(static_cast<unsigned char>(text[end])))
+        {
+            ++end;
+        }
+        while (end < text.size() && text[end] == '\0')
+        {
+            ++end;
+        }
+        if (end != text.size())
+        {
+            return false;
+        }
+
+        const std::string_view numeric = text.substr(
+            start, numericEnd - start);
         bool negative = false;
-        if (!IsFloatNumber(text, negative))
+        if (!IsFloatNumber(numeric, negative))
         {
             return false;
         }
 
-        std::string_view magnitude = text;
+        std::string_view magnitude = numeric;
         if (magnitude.front() == '+' || magnitude.front() == '-')
         {
             magnitude.remove_prefix(1);
@@ -447,7 +577,7 @@ namespace
             return false;
         }
 
-        if (DecimalIsBelowOne(text))
+        if (DecimalIsBelowOne(numeric))
         {
             result = negative ? -0.0F : 0.0F;
         }
@@ -458,6 +588,43 @@ namespace
                 : std::numeric_limits<float>::infinity();
         }
         return true;
+    }
+
+    [[nodiscard]] float ManagedNaN() noexcept
+    {
+        return std::bit_cast<float>(0xFFC00000U);
+    }
+
+    [[nodiscard]] bool TryParseSingleInvariant(
+        std::string_view text, float& result) noexcept
+    {
+        if (TryParseNumericSingleInvariant(text, result))
+        {
+            return true;
+        }
+
+        const std::string_view value = TrimUnicodeWhitespace(text);
+        if (EqualsIgnoreCaseAscii(value, "Infinity")
+            || EqualsIgnoreCaseAscii(value, "+Infinity"))
+        {
+            result = std::numeric_limits<float>::infinity();
+            return true;
+        }
+        if (EqualsIgnoreCaseAscii(value, "-Infinity"))
+        {
+            result = -std::numeric_limits<float>::infinity();
+            return true;
+        }
+        if (EqualsIgnoreCaseAscii(value, "NaN")
+            || EqualsIgnoreCaseAscii(value, "+NaN")
+            || EqualsIgnoreCaseAscii(value, "-NaN"))
+        {
+            result = ManagedNaN();
+            return true;
+        }
+
+        result = 0.0F;
+        return false;
     }
 
     [[nodiscard]] Utf8DecodeStatus DecodeUtf8Scalar(
@@ -672,23 +839,49 @@ namespace
         }
 
 #if defined(_WIN32)
+        wchar_t source[2]{};
+        int sourceLength = 0;
         if (scalar <= 0xFFFFU)
         {
-            const wchar_t source = static_cast<wchar_t>(scalar);
-            wchar_t target = source;
+            source[0] = static_cast<wchar_t>(scalar);
+            sourceLength = 1;
+        }
+        else if (scalar <= 0x10FFFFU)
+        {
+            const std::uint32_t value = scalar - 0x10000U;
+            source[0] = static_cast<wchar_t>(
+                0xD800U + (value >> 10));
+            source[1] = static_cast<wchar_t>(
+                0xDC00U + (value & 0x3FFU));
+            sourceLength = 2;
+        }
+        if (sourceLength != 0)
+        {
+            wchar_t target[2]{};
             const DWORD flag = upper ? LCMAP_UPPERCASE : LCMAP_LOWERCASE;
-            if (LCMapStringEx(
-                    LOCALE_NAME_INVARIANT,
-                    flag,
-                    &source,
-                    1,
-                    &target,
-                    1,
-                    nullptr,
-                    nullptr,
-                    0) == 1)
+            const int mapped = LCMapStringEx(
+                LOCALE_NAME_INVARIANT,
+                flag,
+                source,
+                sourceLength,
+                target,
+                2,
+                nullptr,
+                nullptr,
+                0);
+            if (mapped == 1)
             {
-                return static_cast<std::uint32_t>(target);
+                return static_cast<std::uint32_t>(target[0]);
+            }
+            if (mapped == 2
+                && target[0] >= 0xD800
+                && target[0] <= 0xDBFF
+                && target[1] >= 0xDC00
+                && target[1] <= 0xDFFF)
+            {
+                return 0x10000U
+                    + ((static_cast<std::uint32_t>(target[0]) - 0xD800U) << 10)
+                    + (static_cast<std::uint32_t>(target[1]) - 0xDC00U);
             }
         }
 #else
@@ -855,6 +1048,29 @@ namespace
         return PathToUtf8(PathFromUtf8(path).filename());
     }
 
+    void ValidatePathText(const std::string& path)
+    {
+        if (path.find('\0') != std::string::npos)
+        {
+            throw std::invalid_argument(
+                "Null character in path. (Parameter 'path')");
+        }
+    }
+
+    [[nodiscard]] bool WindowsEffectivelyEmpty(
+        const std::string& path) noexcept
+    {
+#if defined(_WIN32)
+        return !path.empty()
+            && std::all_of(
+                path.begin(), path.end(),
+                [](char ch) noexcept { return ch == ' '; });
+#else
+        (void)path;
+        return false;
+#endif
+    }
+
     [[nodiscard]] std::string FullPath(
         const std::string& path)
     {
@@ -863,6 +1079,12 @@ namespace
             throw std::invalid_argument(
                 "The value cannot be an empty string. (Parameter 'path')");
         }
+        if (WindowsEffectivelyEmpty(path))
+        {
+            throw std::invalid_argument(
+                "The path is empty. (Parameter 'path')");
+        }
+        ValidatePathText(path);
         return PathToUtf8(
             std::filesystem::absolute(
                 PathFromUtf8(path)).lexically_normal());
@@ -895,6 +1117,12 @@ namespace
             throw std::invalid_argument(
                 "The value cannot be an empty string. (Parameter 'path')");
         }
+        if (WindowsEffectivelyEmpty(path))
+        {
+            throw std::invalid_argument(
+                "The path is empty. (Parameter 'path')");
+        }
+        ValidatePathText(path);
         (void)std::filesystem::create_directories(
             PathFromUtf8(path));
     }
@@ -909,6 +1137,33 @@ namespace
             std::filesystem::copy_options::overwrite_existing);
     }
 
+    [[nodiscard]] bool EqualsAsciiKeyOrdinalIgnoreCase(
+        std::string_view value, std::string_view key) noexcept
+    {
+        if (value.size() != key.size())
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < key.size(); ++i)
+        {
+            unsigned char left = static_cast<unsigned char>(value[i]);
+            unsigned char right = static_cast<unsigned char>(key[i]);
+            if (left >= 'a' && left <= 'z')
+            {
+                left = static_cast<unsigned char>(left - ('a' - 'A'));
+            }
+            if (right >= 'a' && right <= 'z')
+            {
+                right = static_cast<unsigned char>(right - ('a' - 'A'));
+            }
+            if (left != right)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     [[nodiscard]] const std::string* EntityValue(
         const Q3Entity* entity,
         std::string_view key)
@@ -919,7 +1174,7 @@ namespace
         }
         for (const auto& pair : *entity)
         {
-            if (pair.first == key)
+            if (EqualsAsciiKeyOrdinalIgnoreCase(pair.first, key))
             {
                 return std::addressof(pair.second);
             }
@@ -973,106 +1228,607 @@ namespace
         return sum / static_cast<double>(count);
     }
 
-    [[nodiscard]] std::string FormatN0(std::int64_t value)
+    struct NumberSymbols final
     {
-        std::string result = std::to_string(value);
-        const std::size_t start = !result.empty()
-            && result.front() == '-'
-            ? 1U
-            : 0U;
-        for (std::size_t position = result.size();
-            position > start + 3U;)
+        std::string DecimalSeparator = ".";
+        std::string GroupSeparator = ",";
+        std::string NegativeSign = "-";
+        std::string NaN = "NaN";
+        std::string PositiveInfinity = "Infinity";
+        std::string NegativeInfinity = "-Infinity";
+        std::vector<std::int32_t> GroupSizes{3};
+    };
+
+#if defined(_WIN32)
+    [[nodiscard]] std::string Utf16ToUtf8(
+        const std::uint16_t* data, std::size_t length)
+    {
+        std::string result;
+        for (std::size_t i = 0; i < length; ++i)
         {
-            position -= 3U;
-            result.insert(position, 1, ',');
+            std::uint32_t scalar = data[i];
+            if (scalar >= 0xD800U && scalar <= 0xDBFFU
+                && i + 1 < length
+                && data[i + 1] >= 0xDC00U
+                && data[i + 1] <= 0xDFFFU)
+            {
+                scalar = 0x10000U
+                    + ((scalar - 0xD800U) << 10)
+                    + (data[++i] - 0xDC00U);
+            }
+            else if (scalar >= 0xD800U && scalar <= 0xDFFFU)
+            {
+                scalar = 0xFFFDU;
+            }
+            AppendUtf8(result, scalar);
         }
         return result;
     }
 
-    [[nodiscard]] std::string SpecialFloat(float value)
+    [[nodiscard]] std::string WindowsLocaleString(
+        LCTYPE type, const std::string& fallback)
     {
+        wchar_t buffer[128]{};
+        const int count = GetLocaleInfoEx(
+            LOCALE_NAME_USER_DEFAULT,
+            type,
+            buffer,
+            static_cast<int>(std::size(buffer)));
+        if (count <= 1)
+        {
+            return fallback;
+        }
+
+        std::vector<std::uint16_t> utf16;
+        utf16.reserve(static_cast<std::size_t>(count - 1));
+        for (int i = 0; i < count - 1; ++i)
+        {
+            utf16.push_back(
+                static_cast<std::uint16_t>(buffer[i]));
+        }
+        return Utf16ToUtf8(utf16.data(), utf16.size());
+    }
+
+    [[nodiscard]] std::vector<std::int32_t> WindowsGroupingSizes(
+        const std::string& text)
+    {
+        if (text.empty())
+        {
+            return {3};
+        }
+        if (text.front() == '0')
+        {
+            return {0};
+        }
+
+        std::vector<std::int32_t> result;
+        std::size_t position = 0;
+        while (position < text.size())
+        {
+            if (text[position] < '1' || text[position] > '9')
+            {
+                return {3};
+            }
+            result.push_back(text[position] - '0');
+            ++position;
+            if (position == text.size())
+            {
+                result.push_back(0);
+                return result;
+            }
+            if (text[position] != ';')
+            {
+                return {3};
+            }
+            ++position;
+            if (position == text.size())
+            {
+                return {3};
+            }
+            if (text[position] == '0')
+            {
+                return position + 1 == text.size()
+                    ? result
+                    : std::vector<std::int32_t>{3};
+            }
+        }
+        return result.empty()
+            ? std::vector<std::int32_t>{3}
+            : result;
+    }
+#endif
+
+    [[nodiscard]] NumberSymbols CurrentNumberSymbols() noexcept
+    {
+        NumberSymbols symbols;
+        try
+        {
+#if defined(_WIN32)
+            symbols.DecimalSeparator = WindowsLocaleString(
+                LOCALE_SDECIMAL, symbols.DecimalSeparator);
+            symbols.GroupSeparator = WindowsLocaleString(
+                LOCALE_STHOUSAND, symbols.GroupSeparator);
+            symbols.NegativeSign = WindowsLocaleString(
+                LOCALE_SNEGATIVESIGN, symbols.NegativeSign);
+#if defined(LOCALE_SNAN)
+            symbols.NaN = WindowsLocaleString(
+                LOCALE_SNAN, symbols.NaN);
+#endif
+#if defined(LOCALE_SPOSINFINITY)
+            symbols.PositiveInfinity = WindowsLocaleString(
+                LOCALE_SPOSINFINITY, symbols.PositiveInfinity);
+#endif
+#if defined(LOCALE_SNEGINFINITY)
+            symbols.NegativeInfinity = WindowsLocaleString(
+                LOCALE_SNEGINFINITY,
+                symbols.NegativeSign + symbols.PositiveInfinity);
+#else
+            symbols.NegativeInfinity
+                = symbols.NegativeSign + symbols.PositiveInfinity;
+#endif
+            symbols.GroupSizes = WindowsGroupingSizes(
+                WindowsLocaleString(LOCALE_SGROUPING, "3;0"));
+#else
+            struct IcuNumbers final
+            {
+                using Open = void* (*)(
+                    std::int32_t,
+                    const std::uint16_t*,
+                    std::int32_t,
+                    const char*,
+                    void*,
+                    std::int32_t*);
+                using GetSymbol = std::int32_t (*)(
+                    const void*,
+                    std::int32_t,
+                    std::uint16_t*,
+                    std::int32_t,
+                    std::int32_t*);
+                using GetAttribute = std::int32_t (*)(
+                    const void*, std::int32_t);
+                using Close = void (*)(void*);
+
+                void* Library = nullptr;
+                Open OpenFormatter = nullptr;
+                GetSymbol Symbol = nullptr;
+                GetAttribute Attribute = nullptr;
+                Close CloseFormatter = nullptr;
+
+                IcuNumbers() noexcept
+                {
+                    Library = dlopen(
+                        "libicui18n.so",
+                        RTLD_LAZY | RTLD_LOCAL);
+#if defined(__APPLE__)
+                    if (Library == nullptr)
+                    {
+                        Library = dlopen(
+                            "/usr/lib/libicucore.A.dylib",
+                            RTLD_LAZY | RTLD_LOCAL);
+                    }
+#endif
+                    OpenFormatter = reinterpret_cast<Open>(
+                        FindVersionedIcuSymbol(Library, "unum_open"));
+                    Symbol = reinterpret_cast<GetSymbol>(
+                        FindVersionedIcuSymbol(Library, "unum_getSymbol"));
+                    Attribute = reinterpret_cast<GetAttribute>(
+                        FindVersionedIcuSymbol(Library, "unum_getAttribute"));
+                    CloseFormatter = reinterpret_cast<Close>(
+                        FindVersionedIcuSymbol(Library, "unum_close"));
+                }
+            };
+            static const IcuNumbers icu{};
+            if (icu.OpenFormatter != nullptr
+                && icu.Symbol != nullptr
+                && icu.Attribute != nullptr
+                && icu.CloseFormatter != nullptr)
+            {
+                std::int32_t status = 0;
+                void* formatter = icu.OpenFormatter(
+                    1,
+                    nullptr,
+                    0,
+                    nullptr,
+                    nullptr,
+                    &status);
+                if (formatter != nullptr && status <= 0)
+                {
+                    const auto readSymbol = [&](
+                        std::int32_t symbol,
+                        const std::string& fallback)
+                    {
+                        std::uint16_t buffer[128]{};
+                        std::int32_t localStatus = 0;
+                        const std::int32_t length = icu.Symbol(
+                            formatter,
+                            symbol,
+                            buffer,
+                            static_cast<std::int32_t>(
+                                std::size(buffer)),
+                            &localStatus);
+                        if (localStatus > 0
+                            || length < 0
+                            || length
+                                > static_cast<std::int32_t>(
+                                    std::size(buffer)))
+                        {
+                            return fallback;
+                        }
+                        std::string result;
+                        for (std::int32_t i = 0; i < length; ++i)
+                        {
+                            std::uint32_t scalar = buffer[i];
+                            if (scalar >= 0xD800U
+                                && scalar <= 0xDBFFU
+                                && i + 1 < length
+                                && buffer[i + 1] >= 0xDC00U
+                                && buffer[i + 1] <= 0xDFFFU)
+                            {
+                                scalar = 0x10000U
+                                    + ((scalar - 0xD800U) << 10)
+                                    + (buffer[++i] - 0xDC00U);
+                            }
+                            else if (scalar >= 0xD800U
+                                && scalar <= 0xDFFFU)
+                            {
+                                scalar = 0xFFFDU;
+                            }
+                            AppendUtf8(result, scalar);
+                        }
+                        return result;
+                    };
+
+                    symbols.DecimalSeparator = readSymbol(
+                        0, symbols.DecimalSeparator);
+                    symbols.GroupSeparator = readSymbol(
+                        1, symbols.GroupSeparator);
+                    symbols.NegativeSign = readSymbol(
+                        6, symbols.NegativeSign);
+                    symbols.PositiveInfinity = readSymbol(
+                        14, symbols.PositiveInfinity);
+                    symbols.NaN = readSymbol(
+                        15, symbols.NaN);
+                    symbols.NegativeInfinity
+                        = symbols.NegativeSign
+                        + symbols.PositiveInfinity;
+
+                    const std::int32_t primary
+                        = icu.Attribute(formatter, 10);
+                    const std::int32_t secondary
+                        = icu.Attribute(formatter, 15);
+                    symbols.GroupSizes = secondary == 0
+                        ? std::vector<std::int32_t>{primary}
+                        : std::vector<std::int32_t>{
+                            primary, secondary};
+                    icu.CloseFormatter(formatter);
+                    return symbols;
+                }
+                if (formatter != nullptr)
+                {
+                    icu.CloseFormatter(formatter);
+                }
+            }
+
+            const std::locale locale("");
+            const auto& punctuation
+                = std::use_facet<std::numpunct<char>>(locale);
+            symbols.DecimalSeparator.assign(
+                1, punctuation.decimal_point());
+            symbols.GroupSeparator.assign(
+                1, punctuation.thousands_sep());
+            const std::string grouping = punctuation.grouping();
+            if (grouping.empty())
+            {
+                symbols.GroupSizes = {0};
+            }
+            else
+            {
+                symbols.GroupSizes.clear();
+                for (unsigned char size : grouping)
+                {
+                    if (size == static_cast<unsigned char>(CHAR_MAX))
+                    {
+                        symbols.GroupSizes.push_back(0);
+                        break;
+                    }
+                    if (size == 0)
+                    {
+                        break;
+                    }
+                    symbols.GroupSizes.push_back(
+                        static_cast<std::int32_t>(size));
+                }
+                if (symbols.GroupSizes.empty())
+                {
+                    symbols.GroupSizes = {0};
+                }
+            }
+#endif
+        }
+        catch (...)
+        {
+        }
+        return symbols;
+    }
+
+    [[nodiscard]] std::string GroupDigits(
+        std::string digits,
+        const NumberSymbols& symbols)
+    {
+        if (digits.empty()
+            || symbols.GroupSeparator.empty()
+            || symbols.GroupSizes.empty()
+            || symbols.GroupSizes.front() <= 0)
+        {
+            return digits;
+        }
+
+        std::size_t remaining = digits.size();
+        std::size_t groupIndex = 0;
+        std::int32_t groupSize = symbols.GroupSizes.front();
+        while (groupSize > 0
+            && remaining > static_cast<std::size_t>(groupSize))
+        {
+            remaining -= static_cast<std::size_t>(groupSize);
+            digits.insert(remaining, symbols.GroupSeparator);
+            if (groupIndex + 1 < symbols.GroupSizes.size())
+            {
+                ++groupIndex;
+                groupSize = symbols.GroupSizes[groupIndex];
+            }
+        }
+        return digits;
+    }
+
+    [[nodiscard]] std::string FormatN0(std::int64_t value)
+    {
+        const NumberSymbols symbols = CurrentNumberSymbols();
+        std::string digits = std::to_string(value);
+        bool negative = !digits.empty() && digits.front() == '-';
+        if (negative)
+        {
+            digits.erase(digits.begin());
+        }
+        digits = GroupDigits(std::move(digits), symbols);
+        return negative
+            ? symbols.NegativeSign + digits
+            : digits;
+    }
+
+    struct DecimalDigits final
+    {
+        std::string Digits;
+        std::int32_t Scale = 0;
+    };
+
+    [[nodiscard]] DecimalDigits SevenSignificantDigits(
+        float value)
+    {
+        char buffer[64]{};
+        const auto conversion = std::to_chars(
+            buffer,
+            buffer + sizeof(buffer),
+            std::fabs(value),
+            std::chars_format::general,
+            7);
+        if (conversion.ec != std::errc{})
+        {
+            throw std::runtime_error(
+                "Could not format Single value.");
+        }
+
+        std::string text(buffer, conversion.ptr);
+        std::int32_t exponent = 0;
+        const std::size_t exponentAt = text.find_first_of("eE");
+        if (exponentAt != std::string::npos)
+        {
+            const std::string_view exponentText(
+                text.data() + exponentAt + 1,
+                text.size() - exponentAt - 1);
+            const char* first = exponentText.data();
+            const char* last = first + exponentText.size();
+            const auto parsed = std::from_chars(
+                first, last, exponent);
+            if (parsed.ptr != last || parsed.ec != std::errc{})
+            {
+                throw std::runtime_error(
+                    "Could not format Single value.");
+            }
+            text.resize(exponentAt);
+        }
+
+        const std::size_t decimalAt = text.find('.');
+        const std::int32_t integerDigits = decimalAt
+            == std::string::npos
+            ? static_cast<std::int32_t>(text.size())
+            : static_cast<std::int32_t>(decimalAt);
+        if (decimalAt != std::string::npos)
+        {
+            text.erase(decimalAt, 1);
+        }
+
+        std::size_t firstNonzero = 0;
+        while (firstNonzero < text.size()
+            && text[firstNonzero] == '0')
+        {
+            ++firstNonzero;
+        }
+        if (firstNonzero == text.size())
+        {
+            return {};
+        }
+
+        DecimalDigits result;
+        result.Scale = integerDigits
+            + exponent
+            - static_cast<std::int32_t>(firstNonzero);
+        result.Digits = text.substr(firstNonzero);
+        while (!result.Digits.empty()
+            && result.Digits.back() == '0')
+        {
+            result.Digits.pop_back();
+        }
+        return result;
+    }
+
+    void RoundDecimalDigits(
+        DecimalDigits& number, std::int32_t position)
+    {
+        std::int32_t i = 0;
+        while (i < position
+            && static_cast<std::size_t>(i)
+                < number.Digits.size())
+        {
+            ++i;
+        }
+
+        if (i == position
+            && i >= 0
+            && static_cast<std::size_t>(i)
+                < number.Digits.size()
+            && number.Digits[static_cast<std::size_t>(i)] >= '5')
+        {
+            while (i > 0
+                && number.Digits[
+                    static_cast<std::size_t>(i - 1)] == '9')
+            {
+                --i;
+            }
+            if (i > 0)
+            {
+                ++number.Digits[
+                    static_cast<std::size_t>(i - 1)];
+                number.Digits.resize(
+                    static_cast<std::size_t>(i));
+            }
+            else
+            {
+                ++number.Scale;
+                number.Digits.assign(1, '1');
+                i = 1;
+            }
+        }
+        else
+        {
+            while (i > 0
+                && number.Digits[
+                    static_cast<std::size_t>(i - 1)] == '0')
+            {
+                --i;
+            }
+            if (i <= 0)
+            {
+                number.Digits.clear();
+            }
+            else
+            {
+                number.Digits.resize(
+                    static_cast<std::size_t>(i));
+            }
+        }
+
+        if (number.Digits.empty())
+        {
+            number.Scale = 0;
+        }
+    }
+
+    [[nodiscard]] std::string FormatCustomFloat(
+        float value,
+        std::int32_t fractionalDigits,
+        bool optionalFraction)
+    {
+        const NumberSymbols symbols = CurrentNumberSymbols();
         if (std::isnan(value))
         {
-            return "NaN";
+            return symbols.NaN;
         }
         if (std::isinf(value))
         {
             return std::signbit(value)
-                ? "-Infinity"
-                : "Infinity";
-        }
-        return {};
-    }
-
-    [[nodiscard]] bool IsFormattedZero(
-        std::string_view value) noexcept
-    {
-        std::size_t position = 0;
-        if (position < value.size()
-            && (value[position] == '+' || value[position] == '-'))
-        {
-            ++position;
-        }
-        bool digit = false;
-        for (; position < value.size(); ++position)
-        {
-            const char ch = value[position];
-            if (ch == '.')
-            {
-                continue;
-            }
-            if (ch < '0' || ch > '9')
-            {
-                return false;
-            }
-            digit = true;
-            if (ch != '0')
-            {
-                return false;
-            }
-        }
-        return digit;
-    }
-
-    [[nodiscard]] std::string FormatFixed(
-        float value, std::int32_t decimals)
-    {
-        if (const std::string special = SpecialFloat(value);
-            !special.empty())
-        {
-            return special;
+                ? symbols.NegativeInfinity
+                : symbols.PositiveInfinity;
         }
 
-        std::ostringstream stream;
-        stream.imbue(std::locale::classic());
-        stream << std::fixed
-            << std::setprecision(decimals)
-            << value;
-        std::string result = stream.str();
-        if (result.size() > 1U
-            && result.front() == '-'
-            && IsFormattedZero(result))
+        const bool negative = std::signbit(value);
+        DecimalDigits number = SevenSignificantDigits(value);
+        RoundDecimalDigits(
+            number,
+            number.Scale + fractionalDigits);
+
+        const bool zero = number.Digits.empty();
+        std::string result;
+        if (number.Scale > 0)
         {
-            result.erase(result.begin());
+            result.reserve(
+                static_cast<std::size_t>(number.Scale)
+                + (fractionalDigits > 0 ? 4U : 0U));
+            for (std::int32_t i = 0; i < number.Scale; ++i)
+            {
+                const std::size_t index
+                    = static_cast<std::size_t>(i);
+                result.push_back(
+                    index < number.Digits.size()
+                        ? number.Digits[index]
+                        : '0');
+            }
+        }
+        else
+        {
+            result = "0";
+        }
+
+        if (fractionalDigits > 0)
+        {
+            std::string fraction;
+            fraction.reserve(
+                static_cast<std::size_t>(fractionalDigits));
+            for (std::int32_t place = 1;
+                place <= fractionalDigits;
+                ++place)
+            {
+                const std::int32_t digitIndex
+                    = number.Scale + place - 1;
+                char digit = '0';
+                if (digitIndex >= 0
+                    && static_cast<std::size_t>(digitIndex)
+                        < number.Digits.size())
+                {
+                    digit = number.Digits[
+                        static_cast<std::size_t>(digitIndex)];
+                }
+                fraction.push_back(digit);
+            }
+            if (optionalFraction)
+            {
+                while (!fraction.empty()
+                    && fraction.back() == '0')
+                {
+                    fraction.pop_back();
+                }
+            }
+            if (!fraction.empty())
+            {
+                result += symbols.DecimalSeparator;
+                result += fraction;
+            }
+        }
+
+        if (negative && !zero)
+        {
+            result.insert(0, symbols.NegativeSign);
         }
         return result;
     }
 
     [[nodiscard]] std::string FormatZero(float value)
     {
-        return FormatFixed(value, 0);
+        return FormatCustomFloat(value, 0, false);
     }
 
     [[nodiscard]] std::string FormatZeroOptionalOne(float value)
     {
-        std::string result = FormatFixed(value, 1);
-        if (result.size() >= 2U
-            && result[result.size() - 2U] == '.'
-            && result.back() == '0')
-        {
-            result.resize(result.size() - 2U);
-        }
-        return result;
+        return FormatCustomFloat(value, 1, true);
     }
 
     [[nodiscard]] std::string ItemTypeToString(ItemType value)

@@ -642,8 +642,8 @@ namespace MphRead::Mods::Launcher::Gui
     {
         if (Options().Count() == 0)
             return;
-        const std::int32_t numerator = AddUnchecked(
-            AddUnchecked(_index, direction), Options().Count());
+        const std::int32_t partial = AddUnchecked(_index, direction);
+        const std::int32_t numerator = AddUnchecked(partial, Options().Count());
         const std::int32_t divisor = Options().Count();
         _index = RemainderInt32(numerator, divisor);
         _control.InvalidateVisual();

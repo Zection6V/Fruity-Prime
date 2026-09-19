@@ -24,7 +24,7 @@ namespace MphRead::Mods::Launcher::Gui
     class RowsArgumentException final : public std::invalid_argument
     {
     public:
-        RowsArgumentException();
+        RowsArgumentException(std::int32_t min, std::int32_t max);
     };
 
     class RowsDivideByZeroException final : public std::runtime_error
@@ -325,6 +325,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
     public:
         using PreviewHandler = std::function<void(RowsDrawingContext& context, GuiRect area)>;
+        using PreviewRef = std::shared_ptr<const PreviewHandler>;
         ChoiceRow(RowsInteractiveControlAdapter& control,
             std::optional<std::u16string> label, RowsStringListRef options,
             std::int32_t index = 0);
@@ -336,10 +337,8 @@ namespace MphRead::Mods::Launcher::Gui
         void Index(std::int32_t value);
         [[nodiscard]] std::optional<std::u16string> Value() const;
         void SetItems(RowsStringListRef options, std::int32_t index = 0);
-        [[nodiscard]] const PreviewHandler& Preview() const noexcept;
-        void Preview(PreviewHandler value);
-        RowsEvent& Changed() noexcept;
-        const RowsEvent& Changed() const noexcept;
+        [[nodiscard]] PreviewRef Preview() const noexcept;
+        void Preview(PreviewRef value);
         void AddChanged(const RowsEventHandler& handler);
         void RemoveChanged(const RowsEventHandler& handler);
         void OnPointerMoved(RowsPointerEventArgs& e);
@@ -364,7 +363,7 @@ namespace MphRead::Mods::Launcher::Gui
         bool _leftHot = false;
         bool _rightHot = false;
         RowsEvent _changed;
-        PreviewHandler _preview;
+        PreviewRef _preview;
     };
 
     class ToggleRow final : public RowsControl
@@ -377,8 +376,6 @@ namespace MphRead::Mods::Launcher::Gui
         ToggleRow& operator=(ToggleRow&&) = delete;
         [[nodiscard]] bool On() const noexcept;
         void On(bool value);
-        RowsEvent& Changed() noexcept;
-        const RowsEvent& Changed() const noexcept;
         void AddChanged(const RowsEventHandler& handler);
         void RemoveChanged(const RowsEventHandler& handler);
         void OnPointerPressed(RowsPointerEventArgs& e);
@@ -447,13 +444,12 @@ namespace MphRead::Mods::Launcher::Gui
         FieldRow& operator=(const FieldRow&) = delete;
         FieldRow(FieldRow&&) = delete;
         FieldRow& operator=(FieldRow&&) = delete;
-        [[nodiscard]] FieldRowTextBox& Box() noexcept;
-        [[nodiscard]] const FieldRowTextBox& Box() const noexcept;
+        [[nodiscard]] std::shared_ptr<FieldRowTextBox> Box() const noexcept;
         [[nodiscard]] std::u16string Value() const;
         void Value(std::optional<std::u16string_view> value);
     private:
         FieldRowAdapter& _fieldAdapter;
-        std::optional<FieldRowTextBox> _box;
+        std::shared_ptr<FieldRowTextBox> _box;
     };
 
     class NoteAdapter : public RowsControlAdapter

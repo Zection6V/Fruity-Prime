@@ -45,7 +45,7 @@ namespace
     {
         if (min > max)
         {
-            throw RowsArgumentException();
+            throw RowsArgumentException(min, max);
         }
         if (value < min)
         {
@@ -92,8 +92,9 @@ namespace MphRead::Mods::Launcher::Gui
     {
     }
 
-    RowsArgumentException::RowsArgumentException()
-        : std::invalid_argument("'min' cannot be greater than max.")
+    RowsArgumentException::RowsArgumentException(std::int32_t min, std::int32_t max)
+        : std::invalid_argument("'" + std::to_string(min) + "' cannot be greater than "
+            + std::to_string(max) + ".")
     {
     }
 
@@ -507,11 +508,15 @@ namespace MphRead::Mods::Launcher::Gui
     ChoiceRow::ChoiceRow(RowsInteractiveControlAdapter& control,
         std::optional<std::u16string> label, RowsStringListRef options, std::int32_t index)
         : RowsControl(control), _interactive(control), _label(std::move(label)),
-          _options(std::move(options)), _index(0)
+          _options(options), _index(0)
     {
-        _index = Options().Count() == 0
+        if (!options)
+        {
+            throw RowsNullReferenceException();
+        }
+        _index = options->Count() == 0
             ? 0
-            : ClampInt32(index, 0, AddUnchecked(Options().Count(), -1));
+            : ClampInt32(index, 0, AddUnchecked(options->Count(), -1));
         _control.SetHeight(34.0);
         _interactive.SetFocusable(true);
         _interactive.SetHandCursor();
@@ -552,40 +557,49 @@ namespace MphRead::Mods::Launcher::Gui
 
     void ChoiceRow::SetItems(RowsStringListRef options, std::int32_t index)
     {
-        _options = std::move(options);
-        const std::int32_t replacement = Options().Count() == 0
+        _options = options;
+        if (!options)
+        {
+            throw RowsNullReferenceException();
+        }
+        const std::int32_t replacement = options->Count() == 0
             ? 0
-            : ClampInt32(index, 0, AddUnchecked(Options().Count(), -1));
+            : ClampInt32(index, 0, AddUnchecked(options->Count(), -1));
         _index = replacement;
         _control.InvalidateVisual();
     }
 
-    const ChoiceRow::PreviewHandler& ChoiceRow::Preview() const noexcept { return _preview; }
+    ChoiceRow::PreviewRef ChoiceRow::Preview() const noexcept { return _preview; }
 
-    void ChoiceRow::Preview(PreviewHandler value)
+    void ChoiceRow::Preview(PreviewRef value)
     {
-        _preview = std::move(value);
-        _control.SetHeight(_preview ? 48.0 : 34.0);
+        _preview = value;
+        const bool hasValue = static_cast<bool>(value);
+        _control.SetHeight(hasValue ? 48.0 : 34.0);
         _control.InvalidateVisual();
     }
 
-    RowsEvent& ChoiceRow::Changed() noexcept { return _changed; }
-    const RowsEvent& ChoiceRow::Changed() const noexcept { return _changed; }
     void ChoiceRow::AddChanged(const RowsEventHandler& handler) { _changed.Add(handler); }
     void ChoiceRow::RemoveChanged(const RowsEventHandler& handler) { _changed.Remove(handler); }
     double ChoiceRow::PreviewRoom() const noexcept { return _preview ? PreviewWidth : 0.0; }
 
     GuiRect ChoiceRow::LeftArrow() const
     {
-        const double x = _interactive.Bounds().Width - PreviewRoom()
-            - ArrowWidth - ValueColumn - ArrowWidth;
-        return GuiRect{MathMax(110.0, x), 0.0, ArrowWidth, _interactive.Bounds().Height};
+        const double boundsWidth = _interactive.Bounds().Width;
+        const double previewRoom = PreviewRoom();
+        const double x = boundsWidth - previewRoom - ArrowWidth - ValueColumn - ArrowWidth;
+        const double resultX = MathMax(110.0, x);
+        const double boundsHeight = _interactive.Bounds().Height;
+        return GuiRect{resultX, 0.0, ArrowWidth, boundsHeight};
     }
 
     GuiRect ChoiceRow::RightArrow() const
     {
-        return GuiRect{_interactive.Bounds().Width - PreviewRoom() - ArrowWidth,
-            0.0, ArrowWidth, _interactive.Bounds().Height};
+        const double boundsWidth = _interactive.Bounds().Width;
+        const double previewRoom = PreviewRoom();
+        const double x = boundsWidth - previewRoom - ArrowWidth;
+        const double boundsHeight = _interactive.Bounds().Height;
+        return GuiRect{x, 0.0, ArrowWidth, boundsHeight};
     }
 
     void ChoiceRow::OnPointerMoved(RowsPointerEventArgs& e)
@@ -685,8 +699,9 @@ namespace MphRead::Mods::Launcher::Gui
         Arrow(context, RightArrow(), false, _rightHot);
         if (_preview)
         {
+            const PreviewRef preview = _preview;
             constexpr double inset = 3.0;
-            _preview(context, GuiRect{
+            (*preview)(context, GuiRect{
                 _interactive.Bounds().Width - PreviewWidth + inset,
                 inset,
                 PreviewWidth - inset * 2.0,
@@ -735,8 +750,6 @@ namespace MphRead::Mods::Launcher::Gui
         }
     }
 
-    RowsEvent& ToggleRow::Changed() noexcept { return _changed; }
-    const RowsEvent& ToggleRow::Changed() const noexcept { return _changed; }
     void ToggleRow::AddChanged(const RowsEventHandler& handler) { _changed.Add(handler); }
     void ToggleRow::RemoveChanged(const RowsEventHandler& handler) { _changed.Remove(handler); }
 
@@ -817,14 +830,13 @@ namespace MphRead::Mods::Launcher::Gui
         _fieldAdapter.SetTextBoxPadding(box, RowsThickness{8.0, 4.0, 8.0, 4.0});
         _fieldAdapter.SetTextBoxVerticalAlignment(box, RowsVerticalAlignment::Center);
         _fieldAdapter.SetTextBoxHorizontalAlignment(box, RowsHorizontalAlignment::Right);
-        _box.emplace(_fieldAdapter, box);
+        _box = std::make_shared<FieldRowTextBox>(_fieldAdapter, box);
 
         _fieldAdapter.AddChild(caption);
         _fieldAdapter.AddChild(box);
     }
 
-    FieldRowTextBox& FieldRow::Box() noexcept { return *_box; }
-    const FieldRowTextBox& FieldRow::Box() const noexcept { return *_box; }
+    std::shared_ptr<FieldRowTextBox> FieldRow::Box() const noexcept { return _box; }
     std::u16string FieldRow::Value() const
     {
         std::optional<std::u16string> text = _box->Text();

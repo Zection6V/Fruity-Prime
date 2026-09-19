@@ -6,15 +6,21 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -29,14 +35,22 @@
 #elif defined(__APPLE__)
 #include <fcntl.h>
 #include <mach-o/dyld.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #else
 #include <fcntl.h>
+#include <signal.h>
+#include <sched.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/auxv.h>
+#include <sys/syscall.h>
+#include <sys/vfs.h>
+#endif
 #endif
 
 namespace
@@ -671,15 +685,50 @@ namespace
         return result;
     }
 
+    bool IsDotNetWhiteSpace(wchar_t value) noexcept
+    {
+        if (value >= L'\t' && value <= L'\r')
+        {
+            return true;
+        }
+        switch (value)
+        {
+        case 0x0020:
+        case 0x0085:
+        case 0x00A0:
+        case 0x1680:
+        case 0x2028:
+        case 0x2029:
+        case 0x202F:
+        case 0x205F:
+        case 0x3000:
+            return true;
+        default:
+            return value >= 0x2000 && value <= 0x200A;
+        }
+    }
+
     std::wstring QuoteWindowsArgument(std::wstring_view value)
     {
-        if (!value.empty() && value.find_first_of(L" \t\n\v\"") == std::wstring_view::npos)
+        bool simple = !value.empty();
+        if (simple)
+        {
+            for (wchar_t ch : value)
+            {
+                if (IsDotNetWhiteSpace(ch) || ch == L'"')
+                {
+                    simple = false;
+                    break;
+                }
+            }
+        }
+        if (simple)
         {
             return std::wstring(value);
         }
 
         std::wstring result;
-        result.push_back(L'\"');
+        result.push_back(L'"');
         std::size_t slashes = 0;
         for (wchar_t ch : value)
         {
@@ -688,10 +737,10 @@ namespace
                 ++slashes;
                 continue;
             }
-            if (ch == L'\"')
+            if (ch == L'"')
             {
                 result.append(slashes * 2 + 1, L'\\');
-                result.push_back(L'\"');
+                result.push_back(L'"');
                 slashes = 0;
                 continue;
             }
@@ -700,75 +749,744 @@ namespace
             result.push_back(ch);
         }
         result.append(slashes * 2, L'\\');
-        result.push_back(L'\"');
+        result.push_back(L'"');
         return result;
+    }
+
+    std::string WindowsErrorMessage(DWORD error)
+    {
+        if (error == ERROR_BAD_EXE_FORMAT
+            || error == ERROR_EXE_MACHINE_TYPE_MISMATCH)
+        {
+            return "The specified executable is not a valid application for this OS platform.";
+        }
+
+        LPWSTR buffer = nullptr;
+        const DWORD length = ::FormatMessageW(
+            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
+                | FORMAT_MESSAGE_IGNORE_INSERTS,
+            nullptr, error, 0, reinterpret_cast<LPWSTR>(&buffer), 0, nullptr);
+        if (length == 0 || buffer == nullptr)
+        {
+            return std::system_category().message(static_cast<int>(error));
+        }
+
+        std::wstring_view message(buffer, length);
+        while (!message.empty()
+            && (message.back() == L'\r' || message.back() == L'\n'))
+        {
+            message.remove_suffix(1);
+        }
+        std::string result = WideToUtf8(message);
+        ::LocalFree(buffer);
+        return result;
+    }
+
+    std::mutex WindowsProcessStartMutex;
+    std::atomic_uint64_t WindowsPipeSequence{0};
+
+    struct WindowsPipe
+    {
+        HANDLE Read = nullptr;
+        HANDLE Write = nullptr;
+    };
+
+    WindowsPipe CreateRedirectPipe()
+    {
+        const std::uint64_t sequence =
+            WindowsPipeSequence.fetch_add(1, std::memory_order_relaxed);
+        const std::wstring pipeName =
+            L"\\\\.\\pipe\\LOCAL\\dotnet_"
+            + std::to_wstring(::GetCurrentProcessId()) + L"_"
+            + std::to_wstring(sequence);
+
+        HANDLE read = ::CreateNamedPipeW(
+            pipeName.c_str(),
+            PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE,
+            1,
+            0,
+            4 * 4096,
+            120000,
+            nullptr);
+        if (read == INVALID_HANDLE_VALUE)
+        {
+            throw std::system_error(
+                static_cast<int>(::GetLastError()), std::system_category());
+        }
+
+        HANDLE write = ::CreateFileW(
+            pipeName.c_str(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ,
+            nullptr,
+            OPEN_EXISTING,
+            SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+            nullptr);
+        if (write == INVALID_HANDLE_VALUE)
+        {
+            const DWORD error = ::GetLastError();
+            ::CloseHandle(read);
+            throw std::system_error(static_cast<int>(error), std::system_category());
+        }
+        return {read, write};
+    }
+
+    HANDLE DuplicateAsInheritable(HANDLE source, bool& duplicate)
+    {
+        duplicate = false;
+        if (source == nullptr || source == INVALID_HANDLE_VALUE)
+        {
+            return source;
+        }
+
+        DWORD flags = 0;
+        if (::GetHandleInformation(source, &flags)
+            && (flags & HANDLE_FLAG_INHERIT) != 0)
+        {
+            return source;
+        }
+
+        HANDLE inherited = nullptr;
+        if (!::DuplicateHandle(
+            ::GetCurrentProcess(), source,
+            ::GetCurrentProcess(), &inherited,
+            0, TRUE, DUPLICATE_SAME_ACCESS))
+        {
+            throw std::system_error(
+                static_cast<int>(::GetLastError()), std::system_category());
+        }
+        duplicate = true;
+        return inherited;
     }
 #endif
 
-    std::optional<std::string> CurrentProcessPath()
+    std::string PathToUtf8(const std::filesystem::path& path)
     {
-#ifdef __ANDROID__
+        const auto value = path.u8string();
+        return std::string(reinterpret_cast<const char*>(value.data()), value.size());
+    }
+
+    std::runtime_error ProcessStartFailure(
+        const std::string& exePath,
+        const std::filesystem::path& workingDirectory,
+        const std::string& errorMessage)
+    {
+        return std::runtime_error(
+            "An error occurred trying to start process '" + exePath
+            + "' with working directory '" + PathToUtf8(workingDirectory)
+            + "'. " + errorMessage);
+    }
+
+    const char* DotNetConfigValue(
+        const char* dotnetName, const char* complusName) noexcept
+    {
+        const char* value = std::getenv(dotnetName);
+        if (value == nullptr || *value == '\0')
+        {
+            value = std::getenv(complusName);
+        }
+        return value;
+    }
+
+    std::optional<std::uint32_t> ConfiguredProcessorCount() noexcept
+    {
+        const char* text =
+            DotNetConfigValue("DOTNET_PROCESSOR_COUNT", "COMPlus_PROCESSOR_COUNT");
+        if (text == nullptr)
+        {
+            return std::nullopt;
+        }
+
+        errno = 0;
+        char* end = nullptr;
+        const unsigned long value = std::strtoul(text, &end, 10);
+        if (end == text || errno == ERANGE || value == 0 || value > 0xFFFFUL)
+        {
+            return std::nullopt;
+        }
+        return static_cast<std::uint32_t>(value);
+    }
+
+#ifdef _WIN32
+    std::optional<bool> WindowsBooleanConfig(
+        const char* dotnetName, const char* complusName) noexcept
+    {
+        const char* text = DotNetConfigValue(dotnetName, complusName);
+        if (text == nullptr)
+        {
+            return std::nullopt;
+        }
+
+        errno = 0;
+        char* end = nullptr;
+        const unsigned long value = std::strtoul(text, &end, 16);
+        if (end == text || errno == ERANGE)
+        {
+            return std::nullopt;
+        }
+        return value != 0;
+    }
+
+    struct WindowsCpuGroupSettings
+    {
+        bool GcCpuGroups = false;
+        bool ThreadUseAllCpuGroups = false;
+        std::uint32_t AllActiveProcessors = 0;
+    };
+
+    WindowsCpuGroupSettings GetWindowsCpuGroupSettings() noexcept
+    {
+        USHORT groupCount = 0;
+        if (::GetProcessGroupAffinity(
+                ::GetCurrentProcess(), &groupCount, nullptr)
+            || ::GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+        {
+            groupCount = 1;
+        }
+
+        const bool multiGroup = groupCount > 1;
+        const bool gcCpuGroups = WindowsBooleanConfig(
+            "DOTNET_GCCpuGroup", "COMPlus_GCCpuGroup").value_or(multiGroup);
+        const bool useAll = gcCpuGroups && WindowsBooleanConfig(
+            "DOTNET_Thread_UseAllCpuGroups",
+            "COMPlus_Thread_UseAllCpuGroups").value_or(multiGroup);
+
+        std::uint32_t active = 0;
+        if (gcCpuGroups && multiGroup)
+        {
+            active = ::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+        }
+        return {gcCpuGroups && multiGroup, useAll && multiGroup, active};
+    }
+#endif
+
+#ifndef _WIN32
+    std::uint32_t TotalOnlineProcessorCount() noexcept
+    {
+#if defined(__arm__) || defined(__aarch64__) || defined(__loongarch64) \
+    || defined(__riscv)
+        const long count = ::sysconf(_SC_NPROCESSORS_CONF);
+#else
+        const long count = ::sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+        return count > 0 ? static_cast<std::uint32_t>(count) : 1U;
+    }
+
+#if defined(__linux__)
+    std::uint32_t AffinityProcessorCount() noexcept
+    {
+        std::size_t bytes = 128;
+        while (bytes <= 1024 * 1024)
+        {
+            std::vector<unsigned long> words(
+                (bytes + sizeof(unsigned long) - 1) / sizeof(unsigned long));
+            bytes = words.size() * sizeof(unsigned long);
+            if (::sched_getaffinity(
+                0, bytes, reinterpret_cast<cpu_set_t*>(words.data())) == 0)
+            {
+                std::uint32_t count = 0;
+                for (unsigned long word : words)
+                {
+                    while (word != 0)
+                    {
+                        word &= word - 1;
+                        ++count;
+                    }
+                }
+                return count == 0 ? 1U : count;
+            }
+            if (errno != EINVAL)
+            {
+                break;
+            }
+            bytes *= 2;
+        }
+        return TotalOnlineProcessorCount();
+    }
+
+    std::string UnescapeProcPath(std::string_view value)
+    {
+        std::string result;
+        result.reserve(value.size());
+        for (std::size_t i = 0; i < value.size(); ++i)
+        {
+            if (value[i] == '\\' && i + 3 < value.size()
+                && value[i + 1] >= '0' && value[i + 1] <= '7'
+                && value[i + 2] >= '0' && value[i + 2] <= '7'
+                && value[i + 3] >= '0' && value[i + 3] <= '7')
+            {
+                const int decoded =
+                    (value[i + 1] - '0') * 64
+                    + (value[i + 2] - '0') * 8
+                    + (value[i + 3] - '0');
+                result.push_back(static_cast<char>(decoded));
+                i += 3;
+            }
+            else
+            {
+                result.push_back(value[i]);
+            }
+        }
+        return result;
+    }
+
+    bool ContainsCsvToken(std::string_view list, std::string_view token)
+    {
+        std::size_t start = 0;
+        while (start <= list.size())
+        {
+            const std::size_t end = list.find(',', start);
+            const std::string_view part = list.substr(
+                start, end == std::string_view::npos ? list.size() - start : end - start);
+            if (part == token)
+            {
+                return true;
+            }
+            if (end == std::string_view::npos)
+            {
+                break;
+            }
+            start = end + 1;
+        }
+        return false;
+    }
+
+    std::optional<std::pair<std::string, std::string>>
+        FindCgroupMount(bool version2)
+    {
+        std::ifstream file("/proc/self/mountinfo");
+        std::string line;
+        while (std::getline(file, line))
+        {
+            const std::size_t separator = line.find(" - ");
+            if (separator == std::string::npos)
+            {
+                continue;
+            }
+
+            std::istringstream left(line.substr(0, separator));
+            std::vector<std::string> fields;
+            std::string field;
+            while (left >> field)
+            {
+                fields.push_back(field);
+            }
+            if (fields.size() < 5)
+            {
+                continue;
+            }
+
+            std::istringstream right(line.substr(separator + 3));
+            std::string fsType;
+            std::string source;
+            std::string options;
+            right >> fsType >> source >> options;
+            if (version2)
+            {
+                if (fsType != "cgroup2")
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                if (fsType != "cgroup" || !ContainsCsvToken(options, "cpu"))
+                {
+                    continue;
+                }
+            }
+            return std::pair<std::string, std::string>(
+                UnescapeProcPath(fields[4]), UnescapeProcPath(fields[3]));
+        }
         return std::nullopt;
-#elif defined(_WIN32)
+    }
+
+    std::optional<std::string> FindCgroupProcessPath(bool version2)
+    {
+        std::ifstream file("/proc/self/cgroup");
+        std::string line;
+        while (std::getline(file, line))
+        {
+            const std::size_t first = line.find(':');
+            const std::size_t second =
+                first == std::string::npos ? std::string::npos : line.find(':', first + 1);
+            if (first == std::string::npos || second == std::string::npos)
+            {
+                continue;
+            }
+            const std::string controllers = line.substr(first + 1, second - first - 1);
+            if ((version2 && line.substr(0, first) == "0" && controllers.empty())
+                || (!version2 && ContainsCsvToken(controllers, "cpu")))
+            {
+                return line.substr(second + 1);
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<std::filesystem::path> CpuCgroupDirectory(bool version2)
+    {
+        const auto mount = FindCgroupMount(version2);
+        const auto process = FindCgroupProcessPath(version2);
+        if (!mount || !process)
+        {
+            return std::nullopt;
+        }
+
+        const std::string& mountPath = mount->first;
+        const std::string& mountRoot = mount->second;
+        const std::string& processPath = *process;
+
+        std::string relative = processPath;
+        if (mountRoot != "/" && processPath.compare(0, mountRoot.size(), mountRoot) == 0
+            && (processPath.size() == mountRoot.size()
+                || processPath[mountRoot.size()] == '/'))
+        {
+            relative = processPath.substr(mountRoot.size());
+        }
+
+        std::filesystem::path result(mountPath);
+        if (!relative.empty() && relative != "/")
+        {
+            result /= relative.front() == '/' ? relative.substr(1) : relative;
+        }
+        return result;
+    }
+
+    std::optional<long long> ReadLongLong(const std::filesystem::path& path)
+    {
+        std::ifstream file(path);
+        std::string token;
+        if (!(file >> token))
+        {
+            return std::nullopt;
+        }
+        errno = 0;
+        char* end = nullptr;
+        const long long value = std::strtoll(token.c_str(), &end, 10);
+        if (end == token.c_str() || errno == ERANGE)
+        {
+            return std::nullopt;
+        }
+        return value;
+    }
+
+    std::optional<std::uint32_t> LinuxCpuLimit()
+    {
+        struct statfs stats{};
+        if (::statfs("/sys/fs/cgroup", &stats) != 0)
+        {
+            return std::nullopt;
+        }
+        constexpr long Cgroup2SuperMagic = 0x63677270;
+        const bool version2 = stats.f_type == Cgroup2SuperMagic;
+        const auto directory = CpuCgroupDirectory(version2);
+        if (!directory)
+        {
+            return std::nullopt;
+        }
+
+        long long quota = 0;
+        long long period = 0;
+        if (version2)
+        {
+            std::ifstream file(*directory / "cpu.max");
+            std::string quotaText;
+            if (!(file >> quotaText >> period) || quotaText == "max" || period <= 0)
+            {
+                return std::nullopt;
+            }
+            errno = 0;
+            char* end = nullptr;
+            quota = std::strtoll(quotaText.c_str(), &end, 10);
+            if (end == quotaText.c_str() || errno == ERANGE)
+            {
+                return std::nullopt;
+            }
+        }
+        else
+        {
+            const auto quotaValue = ReadLongLong(*directory / "cpu.cfs_quota_us");
+            const auto periodValue = ReadLongLong(*directory / "cpu.cfs_period_us");
+            if (!quotaValue || !periodValue)
+            {
+                return std::nullopt;
+            }
+            quota = *quotaValue;
+            period = *periodValue;
+        }
+
+        if (quota <= 0 || period <= 0)
+        {
+            return std::nullopt;
+        }
+        if (quota <= period)
+        {
+            return 1U;
+        }
+
+        const unsigned long long unsignedQuota =
+            static_cast<unsigned long long>(quota);
+        const unsigned long long unsignedPeriod =
+            static_cast<unsigned long long>(period);
+        const unsigned long long value =
+            unsignedQuota / unsignedPeriod
+            + (unsignedQuota % unsignedPeriod == 0 ? 0ULL : 1ULL);
+        return value > std::numeric_limits<std::uint32_t>::max()
+            ? std::numeric_limits<std::uint32_t>::max()
+            : static_cast<std::uint32_t>(value);
+    }
+
+#ifdef __ANDROID__
+    std::optional<std::uint32_t> AndroidPresentProcessorCount()
+    {
+        std::ifstream file("/sys/devices/system/cpu/present");
+        std::string text;
+        if (!(file >> text))
+        {
+            return std::nullopt;
+        }
+
+        std::uint64_t total = 0;
+        std::size_t start = 0;
+        while (start < text.size())
+        {
+            const std::size_t comma = text.find(',', start);
+            const std::string part = text.substr(
+                start, comma == std::string::npos ? text.size() - start : comma - start);
+            const std::size_t dash = part.find('-');
+            try
+            {
+                const unsigned long first = std::stoul(
+                    dash == std::string::npos ? part : part.substr(0, dash));
+                const unsigned long last = dash == std::string::npos
+                    ? first
+                    : std::stoul(part.substr(dash + 1));
+                if (last < first)
+                {
+                    return std::nullopt;
+                }
+                total += static_cast<std::uint64_t>(last - first) + 1;
+            }
+            catch (...)
+            {
+                return std::nullopt;
+            }
+            if (comma == std::string::npos)
+            {
+                break;
+            }
+            start = comma + 1;
+        }
+        if (total == 0)
+        {
+            return std::nullopt;
+        }
+        return total > std::numeric_limits<std::uint32_t>::max()
+            ? std::numeric_limits<std::uint32_t>::max()
+            : static_cast<std::uint32_t>(total);
+    }
+#endif
+#endif
+#endif
+
+    std::int32_t ComputeProcessorCount() noexcept
+    {
+        if (const auto configured = ConfiguredProcessorCount())
+        {
+            return static_cast<std::int32_t>(*configured);
+        }
+
+#ifdef _WIN32
+        const WindowsCpuGroupSettings groups = GetWindowsCpuGroupSettings();
+
+        std::uint32_t count = 1;
+        if (groups.ThreadUseAllCpuGroups && groups.AllActiveProcessors > 0)
+        {
+            count = groups.AllActiveProcessors;
+        }
+        else
+        {
+            DWORD_PTR processMask = 0;
+            DWORD_PTR systemMask = 0;
+            if (::GetProcessAffinityMask(
+                    ::GetCurrentProcess(), &processMask, &systemMask))
+            {
+                count = 0;
+                while (processMask != 0)
+                {
+                    processMask &= processMask - 1;
+                    ++count;
+                }
+                if (count == 0)
+                {
+                    count = 64;
+                }
+            }
+        }
+
+        JOBOBJECT_CPU_RATE_CONTROL_INFORMATION rate{};
+        if (::QueryInformationJobObject(
+                nullptr,
+                JobObjectCpuRateControlInformation,
+                &rate,
+                sizeof(rate),
+                nullptr))
+        {
+            constexpr DWORD HardCap =
+                JOB_OBJECT_CPU_RATE_CONTROL_ENABLE
+                | JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP;
+            constexpr DWORD MinMax =
+                JOB_OBJECT_CPU_RATE_CONTROL_ENABLE
+                | JOB_OBJECT_CPU_RATE_CONTROL_MIN_MAX_RATE;
+            DWORD maxRate = 0;
+            if ((rate.ControlFlags & HardCap) == HardCap)
+            {
+                maxRate = rate.CpuRate;
+            }
+            else if ((rate.ControlFlags & MinMax) == MinMax)
+            {
+                maxRate = rate.MaxRate;
+            }
+
+            constexpr DWORD MaxCpuRate = 10000;
+            if (maxRate > 0 && maxRate < MaxCpuRate)
+            {
+                std::uint32_t total = groups.GcCpuGroups
+                    && groups.AllActiveProcessors > 0
+                    ? groups.AllActiveProcessors
+                    : 1U;
+                if (!groups.GcCpuGroups || groups.AllActiveProcessors == 0)
+                {
+                    SYSTEM_INFO info{};
+                    ::GetSystemInfo(&info);
+                    total = info.dwNumberOfProcessors;
+                }
+
+                const std::uint64_t limited =
+                    (static_cast<std::uint64_t>(maxRate) * total
+                        + MaxCpuRate - 1) / MaxCpuRate;
+                if (limited < count)
+                {
+                    count = static_cast<std::uint32_t>(limited);
+                }
+            }
+        }
+        return static_cast<std::int32_t>(std::max<std::uint32_t>(count, 1U));
+#else
+        std::uint32_t count = 1;
+#if defined(__linux__)
+#ifdef __ANDROID__
+        if (const auto present = AndroidPresentProcessorCount())
+        {
+            count = *present;
+        }
+        else
+#endif
+        {
+            count = AffinityProcessorCount();
+        }
+        if (const auto limit = LinuxCpuLimit(); limit && *limit < count)
+        {
+            count = *limit;
+        }
+#else
+        count = TotalOnlineProcessorCount();
+#endif
+        return static_cast<std::int32_t>(
+            std::min<std::uint32_t>(
+                std::max<std::uint32_t>(count, 1U),
+                static_cast<std::uint32_t>(
+                    std::numeric_limits<std::int32_t>::max())));
+#endif
+    }
+
+    std::int32_t ProcessorCount()
+    {
+        static const std::int32_t count = ComputeProcessorCount();
+        return count;
+    }
+
+    std::optional<std::string> QueryCurrentProcessPath()
+    {
+#ifdef _WIN32
         std::vector<wchar_t> buffer(260);
         while (true)
         {
-            const DWORD length = ::GetModuleFileNameW(
-                nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+            const DWORD capacity = static_cast<DWORD>(
+                std::min<std::size_t>(
+                    buffer.size(), std::numeric_limits<DWORD>::max()));
+            const DWORD length =
+                ::GetModuleFileNameW(nullptr, buffer.data(), capacity);
             if (length == 0)
             {
-                return std::nullopt;
+                const DWORD error = ::GetLastError();
+                throw std::system_error(
+                    static_cast<int>(error), std::system_category());
             }
-            if (length < buffer.size() - 1)
+            if (length < capacity)
             {
                 return WideToUtf8(std::wstring_view(buffer.data(), length));
             }
-            if (buffer.size() >= 32768)
+            if (buffer.size() > std::numeric_limits<std::size_t>::max() / 2
+                || buffer.size() * 2 > std::numeric_limits<DWORD>::max())
             {
-                return std::nullopt;
-            }
-            buffer.resize(std::min<std::size_t>(buffer.size() * 2, 32768));
-        }
-#elif defined(__APPLE__)
-        std::uint32_t size = 0;
-        (void)::_NSGetExecutablePath(nullptr, &size);
-        if (size == 0)
-        {
-            return std::nullopt;
-        }
-        std::vector<char> buffer(size);
-        if (::_NSGetExecutablePath(buffer.data(), &size) != 0)
-        {
-            return std::nullopt;
-        }
-        std::error_code error;
-        const std::filesystem::path canonical = std::filesystem::canonical(buffer.data(), error);
-        if (error)
-        {
-            return std::string(buffer.data());
-        }
-        const auto utf8 = canonical.u8string();
-        return std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size());
-#else
-        std::vector<char> buffer(256);
-        while (true)
-        {
-            const ssize_t length = ::readlink("/proc/self/exe", buffer.data(), buffer.size());
-            if (length < 0)
-            {
-                return std::nullopt;
-            }
-            if (static_cast<std::size_t>(length) < buffer.size())
-            {
-                return std::string(buffer.data(), static_cast<std::size_t>(length));
-            }
-            if (buffer.size() > (std::numeric_limits<std::size_t>::max() / 2))
-            {
-                return std::nullopt;
+                throw std::length_error("process path is too long");
             }
             buffer.resize(buffer.size() * 2);
         }
+#elif defined(__APPLE__)
+        char buffer[PATH_MAX];
+        std::uint32_t size = static_cast<std::uint32_t>(sizeof(buffer));
+        if (::_NSGetExecutablePath(buffer, &size) != 0)
+        {
+            return std::nullopt;
+        }
+        char* resolved = ::realpath(buffer, nullptr);
+        if (resolved == nullptr)
+        {
+            return std::nullopt;
+        }
+        std::string result(resolved);
+        std::free(resolved);
+        return result;
+#else
+        const char* link =
+#if defined(__linux__)
+            "/proc/self/exe";
+#else
+            "/proc/curproc/exe";
 #endif
+        char* resolved = ::realpath(link, nullptr);
+        if (resolved != nullptr)
+        {
+            std::string result(resolved);
+            std::free(resolved);
+            return result;
+        }
+#if defined(__linux__) && defined(AT_EXECFN)
+        const auto raw = ::getauxval(AT_EXECFN);
+        if (raw != 0)
+        {
+            resolved = ::realpath(
+                reinterpret_cast<const char*>(raw), nullptr);
+            if (resolved != nullptr)
+            {
+                std::string result(resolved);
+                std::free(resolved);
+                return result;
+            }
+        }
+#endif
+        return std::nullopt;
+#endif
+    }
+
+    const std::optional<std::string>& CurrentProcessPath()
+    {
+        static const std::optional<std::string> path = QueryCurrentProcessPath();
+        return path;
     }
 
     class WorkerProcess final
@@ -777,26 +1495,9 @@ namespace
         WorkerProcess() = default;
         WorkerProcess(const WorkerProcess&) = delete;
         WorkerProcess& operator=(const WorkerProcess&) = delete;
-
-        WorkerProcess(WorkerProcess&& other) noexcept
-        {
-            MoveFrom(other);
-        }
-
-        WorkerProcess& operator=(WorkerProcess&& other) noexcept
-        {
-            if (this != &other)
-            {
-                Dispose();
-                MoveFrom(other);
-            }
-            return *this;
-        }
-
-        ~WorkerProcess()
-        {
-            Dispose();
-        }
+        WorkerProcess(WorkerProcess&&) = delete;
+        WorkerProcess& operator=(WorkerProcess&&) = delete;
+        ~WorkerProcess() = default;
 
         [[nodiscard]] bool HasExited()
         {
@@ -876,53 +1577,30 @@ namespace
 #endif
         }
 
-        static WorkerProcess Start(
+        static std::unique_ptr<WorkerProcess> Start(
             const std::string& exePath,
             const std::vector<std::string>& arguments,
             const std::filesystem::path& workingDirectory)
         {
+            // Process.Start allocates its Process object before it creates OS
+            // resources. Do the same so allocation failure cannot occur after
+            // a worker has already been launched.
+            auto result = std::make_unique<WorkerProcess>();
+
 #ifdef _WIN32
-            SECURITY_ATTRIBUTES security{};
-            security.nLength = sizeof(security);
-            security.bInheritHandle = TRUE;
-
-            HANDLE outputRead = nullptr;
-            HANDLE outputWrite = nullptr;
-            HANDLE errorRead = nullptr;
-            HANDLE errorWrite = nullptr;
-            if (!::CreatePipe(&outputRead, &outputWrite, &security, 0))
-            {
-                throw std::system_error(
-                    static_cast<int>(::GetLastError()), std::system_category());
-            }
-            if (!::SetHandleInformation(outputRead, HANDLE_FLAG_INHERIT, 0))
-            {
-                const DWORD error = ::GetLastError();
-                ::CloseHandle(outputRead);
-                ::CloseHandle(outputWrite);
-                throw std::system_error(static_cast<int>(error), std::system_category());
-            }
-            if (!::CreatePipe(&errorRead, &errorWrite, &security, 0))
-            {
-                const DWORD error = ::GetLastError();
-                ::CloseHandle(outputRead);
-                ::CloseHandle(outputWrite);
-                throw std::system_error(static_cast<int>(error), std::system_category());
-            }
-            if (!::SetHandleInformation(errorRead, HANDLE_FLAG_INHERIT, 0))
-            {
-                const DWORD error = ::GetLastError();
-                ::CloseHandle(outputRead);
-                ::CloseHandle(outputWrite);
-                ::CloseHandle(errorRead);
-                ::CloseHandle(errorWrite);
-                throw std::system_error(static_cast<int>(error), std::system_category());
-            }
-
+            WindowsPipe output{};
+            WindowsPipe error{};
             try
             {
+                output = CreateRedirectPipe();
+                error = CreateRedirectPipe();
+
                 const std::wstring exe = Utf8ToWide(exePath);
-                std::wstring command = QuoteWindowsArgument(exe);
+                std::wstring command;
+                command.reserve(exe.size() + 2 + arguments.size() * 8);
+                command.push_back(L'"');
+                command += exe;
+                command.push_back(L'"');
                 for (const std::string& argument : arguments)
                 {
                     command.push_back(L' ');
@@ -934,44 +1612,130 @@ namespace
                 STARTUPINFOW startup{};
                 startup.cb = sizeof(startup);
                 startup.dwFlags = STARTF_USESTDHANDLES;
-                startup.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
-                startup.hStdOutput = outputWrite;
-                startup.hStdError = errorWrite;
 
                 PROCESS_INFORMATION process{};
-                const std::wstring cwd = workingDirectory.native();
-                if (!::CreateProcessW(
-                    exe.c_str(), mutableCommand.data(), nullptr, nullptr, TRUE,
-                    0, nullptr, cwd.c_str(), &startup, &process))
+                HANDLE childOutput = nullptr;
+                HANDLE childError = nullptr;
+                HANDLE childInput = nullptr;
+                bool closeChildOutput = false;
+                bool closeChildError = false;
+                bool closeChildInput = false;
+                DWORD createError = ERROR_SUCCESS;
+
                 {
-                    throw std::system_error(
-                        static_cast<int>(::GetLastError()), std::system_category());
+                    const std::lock_guard<std::mutex> guard(WindowsProcessStartMutex);
+                    try
+                    {
+                        childOutput =
+                            DuplicateAsInheritable(output.Write, closeChildOutput);
+                        childError =
+                            DuplicateAsInheritable(error.Write, closeChildError);
+                        childInput = DuplicateAsInheritable(
+                            ::GetStdHandle(STD_INPUT_HANDLE), closeChildInput);
+
+                        startup.hStdInput = childInput;
+                        startup.hStdOutput = childOutput;
+                        startup.hStdError = childError;
+
+                        const std::wstring cwd = workingDirectory.native();
+                        if (!::CreateProcessW(
+                            nullptr,
+                            mutableCommand.data(),
+                            nullptr,
+                            nullptr,
+                            TRUE,
+                            0,
+                            nullptr,
+                            cwd.c_str(),
+                            &startup,
+                            &process))
+                        {
+                            createError = ::GetLastError();
+                        }
+                    }
+                    catch (...)
+                    {
+                        if (closeChildInput && childInput != nullptr
+                            && childInput != INVALID_HANDLE_VALUE)
+                        {
+                            ::CloseHandle(childInput);
+                        }
+                        if (closeChildOutput && childOutput != nullptr
+                            && childOutput != INVALID_HANDLE_VALUE)
+                        {
+                            ::CloseHandle(childOutput);
+                        }
+                        if (closeChildError && childError != nullptr
+                            && childError != INVALID_HANDLE_VALUE)
+                        {
+                            ::CloseHandle(childError);
+                        }
+                        throw;
+                    }
+
+                    if (closeChildInput && childInput != nullptr
+                        && childInput != INVALID_HANDLE_VALUE)
+                    {
+                        ::CloseHandle(childInput);
+                    }
+                    if (closeChildOutput && childOutput != nullptr
+                        && childOutput != INVALID_HANDLE_VALUE)
+                    {
+                        ::CloseHandle(childOutput);
+                    }
+                    if (closeChildError && childError != nullptr
+                        && childError != INVALID_HANDLE_VALUE)
+                    {
+                        ::CloseHandle(childError);
+                    }
+                }
+
+                // Process.CloseChildHandles closes the parent's copies of the
+                // child pipe handles immediately after CreateProcess returns.
+                ::CloseHandle(output.Write);
+                output.Write = nullptr;
+                ::CloseHandle(error.Write);
+                error.Write = nullptr;
+
+                if (createError != ERROR_SUCCESS)
+                {
+                    throw ProcessStartFailure(
+                        exePath, workingDirectory, WindowsErrorMessage(createError));
                 }
 
                 ::CloseHandle(process.hThread);
-                ::CloseHandle(outputWrite);
-                ::CloseHandle(errorWrite);
-                outputWrite = nullptr;
-                errorWrite = nullptr;
-
-                WorkerProcess result;
-                result._process = process.hProcess;
-                result._standardOutput = outputRead;
-                result._standardError = errorRead;
+                result->_process = process.hProcess;
+                result->_standardOutput = output.Read;
+                result->_standardError = error.Read;
+                output.Read = nullptr;
+                error.Read = nullptr;
                 return result;
             }
             catch (...)
             {
-                if (outputRead != nullptr) ::CloseHandle(outputRead);
-                if (outputWrite != nullptr) ::CloseHandle(outputWrite);
-                if (errorRead != nullptr) ::CloseHandle(errorRead);
-                if (errorWrite != nullptr) ::CloseHandle(errorWrite);
+                if (output.Read != nullptr && output.Read != INVALID_HANDLE_VALUE)
+                {
+                    ::CloseHandle(output.Read);
+                }
+                if (output.Write != nullptr && output.Write != INVALID_HANDLE_VALUE)
+                {
+                    ::CloseHandle(output.Write);
+                }
+                if (error.Read != nullptr && error.Read != INVALID_HANDLE_VALUE)
+                {
+                    ::CloseHandle(error.Read);
+                }
+                if (error.Write != nullptr && error.Write != INVALID_HANDLE_VALUE)
+                {
+                    ::CloseHandle(error.Write);
+                }
                 throw;
             }
 #else
             int outputPipe[2]{-1, -1};
             int errorPipe[2]{-1, -1};
             int launchPipe[2]{-1, -1};
+
             auto closePair = [](int (&fds)[2]) noexcept
             {
                 if (fds[0] >= 0) ::close(fds[0]);
@@ -980,84 +1744,170 @@ namespace
                 fds[1] = -1;
             };
 
-            if (::pipe(outputPipe) != 0)
+            auto createCloexecPipe = [&](int (&fds)[2])
             {
-                throw std::system_error(errno, std::generic_category());
-            }
-            if (::pipe(errorPipe) != 0)
-            {
-                const int error = errno;
-                closePair(outputPipe);
-                throw std::system_error(error, std::generic_category());
-            }
-            if (::pipe(launchPipe) != 0)
-            {
-                const int error = errno;
-                closePair(outputPipe);
-                closePair(errorPipe);
-                throw std::system_error(error, std::generic_category());
-            }
-
-            auto closeOnExec = [&](int descriptor)
-            {
-                const int flags = ::fcntl(descriptor, F_GETFD);
-                if (flags < 0 || ::fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) < 0)
+#if defined(__linux__) && defined(SYS_pipe2)
+                if (::syscall(SYS_pipe2, fds, O_CLOEXEC) == 0)
                 {
-                    const int error = errno;
-                    closePair(outputPipe);
-                    closePair(errorPipe);
-                    closePair(launchPipe);
-                    throw std::system_error(error, std::generic_category());
+                    return;
+                }
+                if (errno != ENOSYS && errno != EINVAL)
+                {
+                    throw std::system_error(errno, std::generic_category());
+                }
+#endif
+                if (::pipe(fds) != 0)
+                {
+                    throw std::system_error(errno, std::generic_category());
+                }
+                for (int fd : fds)
+                {
+                    const int flags = ::fcntl(fd, F_GETFD);
+                    if (flags < 0 || ::fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0)
+                    {
+                        const int failure = errno;
+                        closePair(fds);
+                        throw std::system_error(failure, std::generic_category());
+                    }
                 }
             };
-            closeOnExec(outputPipe[0]);
-            closeOnExec(errorPipe[0]);
-            closeOnExec(launchPipe[0]);
-            closeOnExec(launchPipe[1]);
 
-            std::vector<char*> argv;
-            argv.reserve(arguments.size() + 2);
-            argv.push_back(const_cast<char*>(exePath.c_str()));
-            for (const std::string& argument : arguments)
+            try
             {
-                argv.push_back(const_cast<char*>(argument.c_str()));
+                createCloexecPipe(outputPipe);
+                createCloexecPipe(errorPipe);
             }
-            argv.push_back(nullptr);
-            const std::string cwd = workingDirectory.string();
-
-            const pid_t pid = ::fork();
-            if (pid < 0)
+            catch (...)
             {
-                const int error = errno;
+                closePair(outputPipe);
+                closePair(errorPipe);
+                throw;
+            }
+
+            std::string cwd;
+            std::vector<char*> argv;
+            try
+            {
+                cwd = workingDirectory.string();
+                argv.reserve(arguments.size() + 2);
+                argv.push_back(const_cast<char*>(exePath.c_str()));
+                for (const std::string& argument : arguments)
+                {
+                    argv.push_back(const_cast<char*>(argument.c_str()));
+                }
+                argv.push_back(nullptr);
+
+                std::error_code directoryError;
+                if (std::filesystem::is_directory(exePath, directoryError)
+                    && !directoryError)
+                {
+                    throw std::runtime_error(
+                        "The FileName property should not be a directory unless UseShellExecute is set.");
+                }
+
+                createCloexecPipe(launchPipe);
+            }
+            catch (...)
+            {
                 closePair(outputPipe);
                 closePair(errorPipe);
                 closePair(launchPipe);
-                throw std::system_error(error, std::generic_category());
+                throw;
             }
+
+            sigset_t allSignals{};
+            sigset_t oldSignals{};
+            ::sigfillset(&allSignals);
+            const int maskResult =
+                ::pthread_sigmask(SIG_SETMASK, &allSignals, &oldSignals);
+            if (maskResult != 0)
+            {
+                closePair(outputPipe);
+                closePair(errorPipe);
+                closePair(launchPipe);
+                throw std::system_error(maskResult, std::generic_category());
+            }
+
+            const pid_t pid = ::fork();
+            const int forkError = errno;
+            if (pid != 0)
+            {
+                (void)::pthread_sigmask(SIG_SETMASK, &oldSignals, nullptr);
+            }
+            if (pid < 0)
+            {
+                closePair(outputPipe);
+                closePair(errorPipe);
+                closePair(launchPipe);
+                throw ProcessStartFailure(
+                    exePath, workingDirectory,
+                    std::error_code(forkError, std::generic_category()).message());
+            }
+
             if (pid == 0)
             {
                 ::close(outputPipe[0]);
                 ::close(errorPipe[0]);
                 ::close(launchPipe[0]);
 
-                auto launchFailure = [&](int error) noexcept
+                auto launchFailure = [&](int errorCode) noexcept
                 {
-                    const int saved = error;
-                    while (::write(launchPipe[1], &saved, sizeof(saved)) < 0 && errno == EINTR)
+                    const int saved = errorCode;
+                    const char* bytes = reinterpret_cast<const char*>(&saved);
+                    std::size_t written = 0;
+                    while (written < sizeof(saved))
                     {
+                        const ssize_t count =
+                            ::write(launchPipe[1], bytes + written, sizeof(saved) - written);
+                        if (count > 0)
+                        {
+                            written += static_cast<std::size_t>(count);
+                        }
+                        else if (count < 0 && errno == EINTR)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
                     ::_exit(127);
                 };
+
+                // Caught handlers become SIG_DFL across exec. Reset them before
+                // unblocking signals so no managed/native parent handler can run
+                // in the fork child during its pre-exec setup.
+                struct sigaction defaultAction{};
+                defaultAction.sa_handler = SIG_DFL;
+                ::sigemptyset(&defaultAction.sa_mask);
+                for (int signal = 1; signal < NSIG; ++signal)
+                {
+                    if (signal == SIGKILL || signal == SIGSTOP)
+                    {
+                        continue;
+                    }
+                    struct sigaction current{};
+                    if (::sigaction(signal, nullptr, &current) == 0
+                        && current.sa_handler != SIG_DFL
+                        && current.sa_handler != SIG_IGN)
+                    {
+                        (void)::sigaction(signal, &defaultAction, nullptr);
+                    }
+                }
+                (void)::pthread_sigmask(SIG_SETMASK, &oldSignals, nullptr);
 
                 if (::chdir(cwd.c_str()) != 0)
                 {
                     launchFailure(errno);
                 }
-                if (::dup2(outputPipe[1], STDOUT_FILENO) < 0)
+                if (outputPipe[1] != STDOUT_FILENO
+                    && ::dup2(outputPipe[1], STDOUT_FILENO) < 0)
                 {
                     launchFailure(errno);
                 }
-                if (::dup2(errorPipe[1], STDERR_FILENO) < 0)
+                if (errorPipe[1] != STDERR_FILENO
+                    && ::dup2(errorPipe[1], STDERR_FILENO) < 0)
                 {
                     launchFailure(errno);
                 }
@@ -1102,7 +1952,7 @@ namespace
             ::close(launchPipe[0]);
             launchPipe[0] = -1;
 
-            if (received != 0)
+            if (received == sizeof(launchError))
             {
                 int ignored = 0;
                 while (::waitpid(pid, &ignored, 0) < 0 && errno == EINTR)
@@ -1110,13 +1960,14 @@ namespace
                 }
                 closePair(outputPipe);
                 closePair(errorPipe);
-                throw std::system_error(launchError, std::generic_category());
+                throw ProcessStartFailure(
+                    exePath, workingDirectory,
+                    std::error_code(launchError, std::generic_category()).message());
             }
 
-            WorkerProcess result;
-            result._pid = pid;
-            result._standardOutput = outputPipe[0];
-            result._standardError = errorPipe[0];
+            result->_pid = pid;
+            result->_standardOutput = outputPipe[0];
+            result->_standardError = errorPipe[0];
             outputPipe[0] = -1;
             errorPipe[0] = -1;
             return result;
@@ -1124,20 +1975,6 @@ namespace
         }
 
     private:
-        void MoveFrom(WorkerProcess& other) noexcept
-        {
-#ifdef _WIN32
-            _process = std::exchange(other._process, nullptr);
-            _standardOutput = std::exchange(other._standardOutput, nullptr);
-            _standardError = std::exchange(other._standardError, nullptr);
-#else
-            _pid = std::exchange(other._pid, -1);
-            _standardOutput = std::exchange(other._standardOutput, -1);
-            _standardError = std::exchange(other._standardError, -1);
-            _exited = std::exchange(other._exited, false);
-#endif
-        }
-
 #ifdef _WIN32
         HANDLE _process = nullptr;
         HANDLE _standardOutput = nullptr;
@@ -1185,8 +2022,7 @@ namespace
 
         try
         {
-            return std::make_unique<WorkerProcess>(
-                WorkerProcess::Start(exePath, arguments, workingDirectory));
+            return WorkerProcess::Start(exePath, arguments, workingDirectory);
         }
         catch (const std::exception& ex)
         {
@@ -1316,14 +2152,7 @@ namespace MphRead::Mods
 {
     std::int32_t ThumbnailBatch::DefaultParallelism()
     {
-        const unsigned int detected = std::thread::hardware_concurrency();
-        const std::int32_t processors = detected == 0
-            ? 1
-            : detected > static_cast<unsigned int>(
-                std::numeric_limits<std::int32_t>::max())
-                ? std::numeric_limits<std::int32_t>::max()
-                : static_cast<std::int32_t>(detected);
-        return std::clamp(processors, 2, 10);
+        return std::clamp(ProcessorCount(), 2, 10);
     }
 
     bool ThumbnailBatch::CanRun()
@@ -1340,7 +2169,7 @@ namespace MphRead::Mods
         std::int32_t parallelism,
         std::int32_t width,
         std::int32_t height,
-        std::function<void(const std::string&)> report)
+        const std::function<void(const std::string&)>& report)
     {
         ThumbnailLog::Begin(static_cast<std::int32_t>(rooms.size()));
         if (rooms.empty())

@@ -21,6 +21,6 @@ namespace MphRead::Mods
             std::int32_t parallelism,
             std::int32_t width,
             std::int32_t height,
-            std::function<void(const std::string&)> report = {});
+            const std::function<void(const std::string&)>& report = {});
     };
 }

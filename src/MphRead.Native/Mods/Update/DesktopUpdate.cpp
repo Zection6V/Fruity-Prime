@@ -20,7 +20,9 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <queue>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -36,6 +38,7 @@
 #endif
 #include <windows.h>
 #elif defined(__APPLE__)
+#include <copyfile.h>
 #include <fcntl.h>
 #include <mach-o/dyld.h>
 #include <signal.h>
@@ -301,12 +304,43 @@ namespace MphRead::Mods::Update
 
         void DeleteFile(const std::string& path)
         {
-            std::error_code error;
-            fs::remove(NativePath(path), error);
-            if (error)
+#if defined(_WIN32)
+            const std::wstring native = Utf8ToWide(path);
+            if (!::DeleteFileW(native.c_str()))
             {
-                ThrowFileError(path, error);
+                const DWORD error = ::GetLastError();
+                if (error == ERROR_FILE_NOT_FOUND)
+                {
+                    return;
+                }
+                ThrowFileError(path,
+                    std::error_code(static_cast<int>(error), std::system_category()));
             }
+#else
+            if (::unlink(NativePath(path).c_str()) != 0)
+            {
+                const int error = errno;
+                if (error == ENOENT)
+                {
+                    const fs::path parent = NativePath(path).parent_path();
+                    if (parent.empty())
+                    {
+                        return;
+                    }
+                    std::error_code parentError;
+                    if (fs::is_directory(parent, parentError) && !parentError)
+                    {
+                        return;
+                    }
+                }
+                if (error == EISDIR)
+                {
+                    throw UnauthorizedAccessException(
+                        "Access to the path '" + path + "' is denied.");
+                }
+                ThrowFileError(path, std::error_code(error, std::generic_category()));
+            }
+#endif
         }
 
         void WriteEmptyFile(const std::string& path)
@@ -939,10 +973,48 @@ namespace MphRead::Mods::Update
         }
 
 #if defined(_WIN32)
+        [[nodiscard]] bool IsDotNetWhiteSpace(wchar_t ch) noexcept
+        {
+            return (ch >= L'\t' && ch <= L'\r')
+                || ch == L' '
+                || ch == static_cast<wchar_t>(0x0085)
+                || ch == static_cast<wchar_t>(0x00A0)
+                || ch == static_cast<wchar_t>(0x1680)
+                || (ch >= static_cast<wchar_t>(0x2000)
+                    && ch <= static_cast<wchar_t>(0x200A))
+                || ch == static_cast<wchar_t>(0x2028)
+                || ch == static_cast<wchar_t>(0x2029)
+                || ch == static_cast<wchar_t>(0x202F)
+                || ch == static_cast<wchar_t>(0x205F)
+                || ch == static_cast<wchar_t>(0x3000);
+        }
+
+        [[nodiscard]] std::wstring_view TrimDotNetWhiteSpace(
+            std::wstring_view value) noexcept
+        {
+            while (!value.empty() && IsDotNetWhiteSpace(value.front()))
+            {
+                value.remove_prefix(1);
+            }
+            while (!value.empty() && IsDotNetWhiteSpace(value.back()))
+            {
+                value.remove_suffix(1);
+            }
+            return value;
+        }
+
         [[nodiscard]] std::wstring QuoteWindowsArgument(std::wstring_view value)
         {
-            if (!value.empty()
-                && value.find_first_of(L" \t\n\v\"") == std::wstring_view::npos)
+            bool simple = !value.empty();
+            for (const wchar_t ch : value)
+            {
+                if (ch == L'\"' || IsDotNetWhiteSpace(ch))
+                {
+                    simple = false;
+                    break;
+                }
+            }
+            if (simple)
             {
                 return std::wstring(value);
             }
@@ -978,9 +1050,21 @@ namespace MphRead::Mods::Update
             std::span<const std::string> arguments)
         {
 #if defined(_WIN32)
-            const std::wstring exe = Utf8ToWide(executable);
+            const std::wstring rawExe = Utf8ToWide(executable);
+            const std::wstring_view exe = TrimDotNetWhiteSpace(rawExe);
             const std::wstring cwd = Utf8ToWide(workingDirectory);
-            std::wstring command = QuoteWindowsArgument(exe);
+            std::wstring command;
+            const bool fileNameIsQuoted = exe.size() >= 2U
+                && exe.front() == L'\"' && exe.back() == L'\"';
+            if (!fileNameIsQuoted)
+            {
+                command.push_back(L'\"');
+            }
+            command.append(exe);
+            if (!fileNameIsQuoted)
+            {
+                command.push_back(L'\"');
+            }
             for (const std::string& argument : arguments)
             {
                 command.push_back(L' ');
@@ -992,8 +1076,10 @@ namespace MphRead::Mods::Update
             STARTUPINFOW startup{};
             startup.cb = sizeof(startup);
             PROCESS_INFORMATION process{};
-            if (!::CreateProcessW(exe.c_str(), mutableCommand.data(), nullptr, nullptr,
-                FALSE, 0, nullptr, cwd.c_str(), &startup, &process))
+            static std::mutex processStartMutex;
+            std::lock_guard lock(processStartMutex);
+            if (!::CreateProcessW(nullptr, mutableCommand.data(), nullptr, nullptr,
+                TRUE, 0, nullptr, cwd.c_str(), &startup, &process))
             {
                 throw std::system_error(
                     static_cast<int>(::GetLastError()), std::system_category());
@@ -1125,6 +1211,21 @@ namespace MphRead::Mods::Update
                 }
                 throw std::system_error(childError, std::generic_category());
             }
+            try
+            {
+                std::thread([child]
+                {
+                    int status = 0;
+                    while (::waitpid(child, &status, 0) < 0 && errno == EINTR)
+                    {
+                    }
+                }).detach();
+            }
+            catch (...)
+            {
+                // Process.Start succeeded; inability to create a housekeeping
+                // waiter must not turn that success into a failed launch.
+            }
 #endif
         }
 
@@ -1140,6 +1241,149 @@ namespace MphRead::Mods::Update
         void Sleep(std::chrono::milliseconds duration)
         {
             std::this_thread::sleep_for(duration);
+        }
+
+        void CopyFileOnce(const std::string& from, const std::string& to)
+        {
+#if defined(_WIN32)
+            const std::wstring source = Utf8ToWide(from);
+            const std::wstring destination = Utf8ToWide(to);
+            if (!::CopyFileW(source.c_str(), destination.c_str(), FALSE))
+            {
+                ThrowFileError(to, std::error_code(
+                    static_cast<int>(::GetLastError()), std::system_category()));
+            }
+#else
+            int sourceFlags = O_RDONLY;
+#ifdef O_CLOEXEC
+            sourceFlags |= O_CLOEXEC;
+#endif
+            int sourceFd = ::open(NativePath(from).c_str(), sourceFlags);
+            if (sourceFd < 0)
+            {
+                ThrowFileError(from, std::error_code(errno, std::generic_category()));
+            }
+
+            struct stat initial{};
+            if (::fstat(sourceFd, &initial) != 0)
+            {
+                const int error = errno;
+                (void)::close(sourceFd);
+                ThrowFileError(from, std::error_code(error, std::generic_category()));
+            }
+
+            int destinationFlags = O_WRONLY | O_CREAT | O_TRUNC;
+#ifdef O_CLOEXEC
+            destinationFlags |= O_CLOEXEC;
+#endif
+            int destinationFd = ::open(NativePath(to).c_str(), destinationFlags,
+                static_cast<mode_t>(initial.st_mode & 0777));
+            if (destinationFd < 0)
+            {
+                const int error = errno;
+                (void)::close(sourceFd);
+                ThrowFileError(to, std::error_code(error, std::generic_category()));
+            }
+
+            auto closeBoth = [&]() noexcept
+            {
+                if (destinationFd >= 0)
+                {
+                    (void)::close(destinationFd);
+                    destinationFd = -1;
+                }
+                if (sourceFd >= 0)
+                {
+                    (void)::close(sourceFd);
+                    sourceFd = -1;
+                }
+            };
+
+            try
+            {
+#if defined(__APPLE__)
+                if (::fcopyfile(sourceFd, destinationFd, nullptr, COPYFILE_ALL) != 0)
+                {
+                    ThrowFileError(to,
+                        std::error_code(errno, std::generic_category()));
+                }
+#else
+                std::vector<char> buffer(64U * 1024U);
+                for (;;)
+                {
+                    ssize_t count = ::read(sourceFd, buffer.data(), buffer.size());
+                    if (count == 0)
+                    {
+                        break;
+                    }
+                    if (count < 0)
+                    {
+                        if (errno == EINTR)
+                        {
+                            continue;
+                        }
+                        ThrowFileError(from,
+                            std::error_code(errno, std::generic_category()));
+                    }
+
+                    std::size_t offset = 0;
+                    const std::size_t total = static_cast<std::size_t>(count);
+                    while (offset < total)
+                    {
+                        const ssize_t written = ::write(destinationFd,
+                            buffer.data() + offset, total - offset);
+                        if (written > 0)
+                        {
+                            offset += static_cast<std::size_t>(written);
+                        }
+                        else if (written < 0 && errno == EINTR)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            ThrowFileError(to,
+                                std::error_code(errno, std::generic_category()));
+                        }
+                    }
+                }
+
+                struct stat finalSource{};
+                if (::fstat(sourceFd, &finalSource) != 0)
+                {
+                    ThrowFileError(from,
+                        std::error_code(errno, std::generic_category()));
+                }
+
+                struct timespec times[2]{};
+#if defined(__APPLE__)
+                times[0] = finalSource.st_atimespec;
+                times[1] = finalSource.st_mtimespec;
+#else
+                times[0] = finalSource.st_atim;
+                times[1] = finalSource.st_mtim;
+#endif
+                if (::futimens(destinationFd, times) != 0 && errno != EPERM)
+                {
+                    ThrowFileError(to,
+                        std::error_code(errno, std::generic_category()));
+                }
+                if (::fchmod(destinationFd,
+                    static_cast<mode_t>(finalSource.st_mode & 0777)) != 0
+                    && errno != EPERM)
+                {
+                    ThrowFileError(to,
+                        std::error_code(errno, std::generic_category()));
+                }
+#endif
+                closeBoth();
+            }
+            catch (...)
+            {
+                closeBoth();
+                throw;
+            }
+#endif
         }
 
         void AssignLastError(std::optional<std::string> value)
@@ -1365,71 +1609,74 @@ namespace MphRead::Mods::Update
     void DesktopUpdate::WaitForExit(std::int32_t pid)
     {
 #if defined(_WIN32)
-        if (pid > 0)
+        HANDLE process = ::OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(pid));
+        if (process == nullptr)
         {
-            HANDLE process = ::OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(pid));
-            if (process == nullptr)
+            const DWORD error = ::GetLastError();
+            if (error != ERROR_INVALID_PARAMETER)
             {
-                const DWORD error = ::GetLastError();
-                if (error != ERROR_INVALID_PARAMETER)
-                {
-                    throw std::system_error(
-                        static_cast<int>(error), std::system_category());
-                }
+                throw std::system_error(
+                    static_cast<int>(error), std::system_category());
             }
-            else
+        }
+        else
+        {
+            const DWORD waited = ::WaitForSingleObject(process, 30000U);
+            const DWORD error = waited == WAIT_FAILED ? ::GetLastError() : ERROR_SUCCESS;
+            ::CloseHandle(process);
+            if (waited == WAIT_TIMEOUT)
             {
-                const DWORD waited = ::WaitForSingleObject(process, 30000U);
-                const DWORD error = waited == WAIT_FAILED ? ::GetLastError() : ERROR_SUCCESS;
-                ::CloseHandle(process);
-                if (waited == WAIT_TIMEOUT)
-                {
-                    std::cout << "[update] process " << pid
-                        << " is still running; carrying on\n";
-                }
-                else if (waited == WAIT_FAILED)
-                {
-                    throw std::system_error(
-                        static_cast<int>(error), std::system_category());
-                }
+                std::cout << "[update] process " << pid
+                    << " is still running; carrying on\n";
+            }
+            else if (waited == WAIT_FAILED)
+            {
+                throw std::system_error(
+                    static_cast<int>(error), std::system_category());
             }
         }
 #else
-        if (pid > 0)
+        bool exists = false;
+        if (::kill(static_cast<pid_t>(pid), 0) == 0)
         {
-            bool exists = false;
-            if (::kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM)
+            exists = true;
+        }
+        else
+        {
+            const int error = errno;
+            exists = error == EPERM;
+        }
+
+        if (exists)
+        {
+            const auto deadline = std::chrono::steady_clock::now() + 30s;
+            auto delay = 1ms;
+            while (std::chrono::steady_clock::now() < deadline)
             {
-                exists = true;
-            }
-            else if (errno != ESRCH)
-            {
-                throw std::system_error(errno, std::generic_category());
+                if (::kill(static_cast<pid_t>(pid), 0) != 0)
+                {
+                    const int error = errno;
+                    if (error != EPERM)
+                    {
+                        exists = false;
+                        break;
+                    }
+                }
+
+                const auto now = std::chrono::steady_clock::now();
+                if (now >= deadline)
+                {
+                    break;
+                }
+                const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    deadline - now);
+                Sleep(std::min(delay, remaining));
+                delay = std::min(delay * 2, 100ms);
             }
             if (exists)
             {
-                const auto deadline = std::chrono::steady_clock::now() + 30s;
-                while (std::chrono::steady_clock::now() < deadline)
-                {
-                    if (::kill(static_cast<pid_t>(pid), 0) != 0)
-                    {
-                        if (errno == ESRCH)
-                        {
-                            exists = false;
-                            break;
-                        }
-                        if (errno != EPERM)
-                        {
-                            throw std::system_error(errno, std::generic_category());
-                        }
-                    }
-                    Sleep(50ms);
-                }
-                if (exists)
-                {
-                    std::cout << "[update] process " << pid
-                        << " is still running; carrying on\n";
-                }
+                std::cout << "[update] process " << pid
+                    << " is still running; carrying on\n";
             }
         }
 #endif
@@ -1439,56 +1686,58 @@ namespace MphRead::Mods::Update
     void DesktopUpdate::Copy(const std::string& source, const std::string& target)
     {
         const fs::path sourcePath = NativePath(source);
-        std::error_code error;
-        fs::recursive_directory_iterator iterator(sourcePath,
-            fs::directory_options::follow_directory_symlink, error);
-        if (error)
+        std::queue<fs::path> pending;
+        pending.push(sourcePath);
+
+        while (!pending.empty())
         {
-            ThrowFileError(source, error);
-        }
-        const fs::recursive_directory_iterator end;
-        for (; iterator != end; iterator.increment(error))
-        {
+            const fs::path directory = std::move(pending.front());
+            pending.pop();
+
+            std::error_code error;
+            fs::directory_iterator iterator(directory, error);
             if (error)
             {
-                ThrowFileError(source, error);
+                ThrowFileError(PathText(directory), error);
             }
-            std::error_code typeError;
-            const bool directory = iterator->is_directory(typeError);
-            if (typeError)
+            const fs::directory_iterator end;
+            for (; iterator != end; iterator.increment(error))
             {
-                ThrowFileError(PathText(iterator->path()), typeError);
-            }
-            if (directory)
-            {
-                continue;
-            }
-            const bool regular = iterator->is_regular_file(typeError);
-            if (typeError)
-            {
-                ThrowFileError(PathText(iterator->path()), typeError);
-            }
-            if (!regular)
-            {
-                continue;
-            }
-
-            const fs::path relative = iterator->path().lexically_relative(sourcePath);
-            const fs::path destinationPath = NativePath(target) / relative;
-            const fs::path directoryPath = destinationPath.parent_path();
-            if (!directoryPath.empty())
-            {
-                fs::create_directories(directoryPath, error);
                 if (error)
                 {
-                    ThrowFileError(PathText(directoryPath), error);
+                    ThrowFileError(PathText(directory), error);
                 }
+
+                std::error_code typeError;
+                const bool isDirectory = iterator->is_directory(typeError);
+                if (isDirectory && !typeError)
+                {
+                    pending.push(iterator->path());
+                    continue;
+                }
+                // FileSystemEntry.Initialize(..., continueOnError: true) treats
+                // an unstatable symlink/unknown entry as a non-directory. It is
+                // still yielded by EnumerateFiles; File.Copy reports the error.
+                typeError.clear();
+
+                const fs::path relative = iterator->path().lexically_relative(sourcePath);
+                const fs::path destinationPath = NativePath(target) / relative;
+                const fs::path directoryPath = destinationPath.parent_path();
+                if (!directoryPath.empty())
+                {
+                    std::error_code createError;
+                    fs::create_directories(directoryPath, createError);
+                    if (createError)
+                    {
+                        ThrowFileError(PathText(directoryPath), createError);
+                    }
+                }
+                CopyWithRetries(PathText(iterator->path()), PathText(destinationPath));
             }
-            CopyWithRetries(PathText(iterator->path()), PathText(destinationPath));
-        }
-        if (error)
-        {
-            ThrowFileError(source, error);
+            if (error)
+            {
+                ThrowFileError(PathText(directory), error);
+            }
         }
     }
 
@@ -1498,13 +1747,7 @@ namespace MphRead::Mods::Update
         {
             try
             {
-                std::error_code error;
-                fs::copy_file(NativePath(from), NativePath(to),
-                    fs::copy_options::overwrite_existing, error);
-                if (error)
-                {
-                    ThrowFileError(to, error);
-                }
+                CopyFileOnce(from, to);
                 return;
             }
             catch (const IOException&)

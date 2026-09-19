@@ -20,6 +20,12 @@ namespace MphRead::Mods::Launcher::Gui
     {
     }
 
+    void SettingsWindowAdapter::DispatchOpened(
+        SettingsWindow& window, SettingsWindowOpenedEventArgs& e)
+    {
+        window.OnOpened(e);
+    }
+
     SettingsWindow::SettingsWindow(SettingsWindowAdapter& adapter,
         SettingsViewAdapter& viewAdapter,
         std::shared_ptr<MenuSettings> settings,

@@ -41,6 +41,8 @@ namespace MphRead::Mods::Launcher::Gui
         void* Native = nullptr;
     };
 
+    class SettingsWindow;
+
     class SettingsWindowAdapter
     {
     public:
@@ -68,6 +70,7 @@ namespace MphRead::Mods::Launcher::Gui
         virtual void SetWindowStartupLocation(SettingsWindowStartupLocation location) = 0;
         virtual void SetContent(const std::shared_ptr<SettingsView>& view) = 0;
 
+        void DispatchOpened(SettingsWindow& window, SettingsWindowOpenedEventArgs& e);
         virtual void BaseOnOpened(SettingsWindowOpenedEventArgs& e) = 0;
     };
 
@@ -90,9 +93,12 @@ namespace MphRead::Mods::Launcher::Gui
 
         [[nodiscard]] bool Saved() const noexcept;
 
+    protected:
         void OnOpened(SettingsWindowOpenedEventArgs& e);
 
     private:
+        friend class SettingsWindowAdapter;
+
         static void OnViewClosed(void* target, void* sender,
             const SettingsViewEventArgs& args);
         static void OnStylusPlacementRequested(void* target, void* sender,

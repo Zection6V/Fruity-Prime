@@ -269,6 +269,10 @@ namespace MphRead::Mods::Update
                 SetEasy(CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
                 SetEasy(CURLOPT_HTTPHEADER, _headers);
                 SetEasy(CURLOPT_USERAGENT, _userAgent.c_str());
+                // HttpClientHandler.UseCookies is true by default. Enable
+                // libcurl's in-memory cookie engine so redirect responses have
+                // the same opportunity to set cookies for the next request.
+                SetEasy(CURLOPT_COOKIEFILE, "");
                 SetEasy(CURLOPT_FOLLOWLOCATION, 1L);
                 SetEasy(CURLOPT_MAXREDIRS, 50L);
                 SetEasy(CURLOPT_PROTOCOLS_STR, "https");
@@ -356,7 +360,10 @@ namespace MphRead::Mods::Update
                 }
                 if (_done)
                 {
-                    if (_result != CURLE_OK)
+                    // HttpContent streams can report EOF and let Fetch compare
+                    // the received count. Do the same for libcurl's explicit
+                    // short-Content-Length result so the C# error text wins.
+                    if (_result != CURLE_OK && _result != CURLE_PARTIAL_FILE)
                     {
                         ThrowCurl(_result);
                     }
@@ -387,7 +394,7 @@ namespace MphRead::Mods::Update
                     }
                     if (_done)
                     {
-                        if (_result != CURLE_OK)
+                        if (_result != CURLE_OK && _result != CURLE_PARTIAL_FILE)
                         {
                             ThrowCurl(_result);
                         }
@@ -659,7 +666,34 @@ namespace MphRead::Mods::Update
                 return Transfer->Read(destination, length);
             }
 
+            void DisposeContent() noexcept
+            {
+                Transfer.reset();
+            }
+
             std::unique_ptr<CurlTransfer> Transfer;
+        };
+
+        class CurlContentStream final
+        {
+        public:
+            explicit CurlContentStream(CurlResponseMessage& response) noexcept
+                : _response(response)
+            {
+            }
+
+            [[nodiscard]] std::size_t Read(char* destination, std::size_t length)
+            {
+                return _response.Read(destination, length);
+            }
+
+            ~CurlContentStream()
+            {
+                _response.DisposeContent();
+            }
+
+        private:
+            CurlResponseMessage& _response;
         };
 
         class CurlAwaiter final : public HttpResponseAwaiter
@@ -1025,21 +1059,25 @@ namespace MphRead::Mods::Update
             const std::int64_t total
                 = concrete->ContentLength().value_or(expectedBytes);
             {
+                // ReadAsStreamAsync(...) is the outer using and FileStream is
+                // the inner using in C#: target therefore closes first, then
+                // the response content stream, before destination replacement.
+                CurlContentStream source(*concrete);
                 OutputFile target(partial);
                 std::vector<char> buffer(64U * 1024U);
                 std::int64_t done = 0;
                 for (;;)
                 {
-                    const std::size_t read = concrete->Read(
+                    const std::size_t read = source.Read(
                         buffer.data(), buffer.size());
                     if (read == 0)
                     {
                         break;
                     }
-                    // The native CancellationToken adapter is intentionally opaque;
-                    // the same value has already been forwarded through SyncHttp.
-                    // A concrete adapter can make the underlying read abort, which
-                    // arrives here as OperationCanceledException.
+                    // SyncHttp's canonical CancellationToken is intentionally
+                    // opaque. The value is forwarded to SendAsync above, but this
+                    // pair has no query operation corresponding to
+                    // CancellationToken.ThrowIfCancellationRequested().
                     (void)cancel;
                     target.Write(buffer.data(), read);
                     done = AddUnchecked(done, read);

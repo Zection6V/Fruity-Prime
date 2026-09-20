@@ -553,7 +553,7 @@ namespace
         return result;
     }
 
-    [[nodiscard]] const std::string* MapItemTypeText(
+    [[nodiscard]] std::optional<std::string> MapItemTypeText(
         MphRead::Mods::MapGen::MapItem* item)
     {
         if (item == nullptr)
@@ -562,14 +562,14 @@ namespace
         }
         try
         {
-            return std::addressof(item->Type());
+            return item->Type();
         }
         catch (const std::runtime_error& exception)
         {
             if (std::string_view(exception.what())
                 == "Object reference not set to an instance of an object.")
             {
-                return nullptr;
+                return std::nullopt;
             }
             throw;
         }
@@ -849,22 +849,29 @@ namespace MphRead::Mods::MapGen
         };
 
         float texScale = 16.0F;
-        const std::int32_t materialId = brush->Material();
-        if (materialId >= 0)
+        if (brush->Material() >= 0)
         {
+            const std::int32_t materialForCount = brush->Material();
             if (def == nullptr)
             {
                 NullReference();
             }
-            MapDefinition::MaterialList* materials = def->Materials();
-            if (materials == nullptr)
+            MapDefinition::MaterialList* materialsForCount = def->Materials();
+            if (materialsForCount == nullptr)
             {
                 NullReference();
             }
-            if (static_cast<std::size_t>(materialId) < materials->size())
+            if (static_cast<std::int64_t>(materialForCount)
+                < static_cast<std::int64_t>(materialsForCount->size()))
             {
+                MapDefinition::MaterialList* materialsForIndex = def->Materials();
+                const std::int32_t materialForIndex = brush->Material();
+                if (materialsForIndex == nullptr)
+                {
+                    NullReference();
+                }
                 MapMaterial* material = Require(
-                    materials->at(static_cast<std::size_t>(materialId)));
+                    materialsForIndex->at(static_cast<std::size_t>(materialForIndex)));
                 texScale = material->TexScale();
             }
         }
@@ -888,12 +895,14 @@ namespace MphRead::Mods::MapGen
                 (*texcoords)[j] = Project(sidePoints[i][j], normals[i], origin, texScale);
             }
 
+            const std::int32_t faceMaterial = brush->Material();
+            const float faceShade = _faceShades[i] * brush->Shade();
             auto* face = new BuiltFace(
                 BuiltPoints(points),
                 BuiltTexcoords(texcoords),
                 normals[i],
-                materialId,
-                _faceShades[i] * brush->Shade());
+                faceMaterial,
+                faceShade);
             face->Damaging(brush->Damaging());
             face->Terrain(terrain);
 
@@ -1008,17 +1017,20 @@ namespace MphRead::Mods::MapGen
         for (const std::shared_ptr<MapItem>& itemValue : *items)
         {
             MapItem* item = Require(itemValue);
-            const std::string* typeText = MapItemTypeText(item);
+            const std::optional<std::string> typeText = MapItemTypeText(item);
             ItemType itemType{};
-            if (!TryParseItemType(typeText, itemType))
+            if (!TryParseItemType(
+                    typeText ? std::addressof(*typeText) : nullptr, itemType))
             {
+                const std::optional<std::string> messageType = MapItemTypeText(item);
                 throw MphRead::ProgramException(
-                    "Unknown item type " + (typeText == nullptr ? std::string() : *typeText) + ".");
+                    "Unknown item type " + messageType.value_or(std::string()) + ".");
             }
             if (!MultiplayerItems.Contains(itemType))
             {
+                const std::optional<std::string> messageType = MapItemTypeText(item);
                 throw MphRead::ProgramException(
-                    (typeText == nullptr ? std::string() : *typeText)
+                    messageType.value_or(std::string())
                     + " does not belong in a multiplayer map. It is one of the story's permanent upgrades -- "
                     "an energy tank, a missile or UA expansion, an artifact -- which raise a hunter's capacity "
                     "for the rest of the game rather than topping it up for the rest of the match. Use one of: "
@@ -1060,8 +1072,9 @@ namespace MphRead::Mods::MapGen
 
         if (pad->Vector() != nullptr)
         {
-            return std::pair<Vector3, float>(
-                ToVector(pad->Vector()).Normalized(), pad->Speed());
+            const Vector3 beam = ToVector(pad->Vector()).Normalized();
+            const float speed = pad->Speed();
+            return std::pair<Vector3, float>(beam, speed);
         }
         if (pad->Target() == nullptr)
         {

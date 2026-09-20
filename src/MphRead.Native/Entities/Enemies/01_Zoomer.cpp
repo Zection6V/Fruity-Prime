@@ -85,13 +85,20 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
         {
-            if (!std::isfinite(value)
-                || value >= 2147483648.0F
-                || value < -2147483648.0F)
+            if (std::isnan(value))
+            {
+                return 0;
+            }
+            const double wide = static_cast<double>(value);
+            if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
             {
                 return std::numeric_limits<std::int32_t>::min();
             }
-            return static_cast<std::int32_t>(value);
+            if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
+            {
+                return std::numeric_limits<std::int32_t>::max();
+            }
+            return static_cast<std::int32_t>(std::trunc(wide));
         }
 
         [[nodiscard]] float CollisionCorrection(float value, std::int32_t rmd) noexcept
@@ -129,6 +136,10 @@ namespace MphRead::Entities::Enemies
 
     void Enemy01Entity::EnemyInitialize()
     {
+        if (_spawner == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
         const std::uint32_t facingX = Rng::GetRandomInt2(4096);
         const std::uint32_t facingZ = Rng::GetRandomInt2(4096);
         Vector3 facing(
@@ -150,9 +161,9 @@ namespace MphRead::Entities::Enemies
         _hurtVolumeInit = CollisionVolume(spawnFields.Volume0);
         SetUpModel(Metadata::EnemyModelNames.at(1));
         _field1A0 = _field1AC = up;
-        _angleInc = Fixed::ToFloat(static_cast<std::int32_t>(Rng::GetRandomInt2(0x3000))) + 3.0F;
+        _angleInc = Fixed::ToFloat(Rng::GetRandomInt2(0x3000)) + 3.0F;
         _angleInc /= 2.0F; // todo: FPS stuff
-        _maxAngle = Fixed::ToFloat(static_cast<std::int32_t>(Rng::GetRandomInt2(0))) + 40.0F;
+        _maxAngle = Fixed::ToFloat(Rng::GetRandomInt2(0)) + 40.0F;
         _angleCos = std::cos(DegreesToRadians(_angleInc));
         _homeVolume = CollisionVolume::Move(
             spawnFields.Volume1, _spawner->Data.Header.Position.ToFloatVector());

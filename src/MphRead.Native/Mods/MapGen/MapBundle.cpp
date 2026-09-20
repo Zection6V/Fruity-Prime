@@ -1960,8 +1960,36 @@ namespace
         const std::filesystem::path destinationPath = PathFromUtf8(destination);
         if (std::rename(sourcePath.c_str(), destinationPath.c_str()) != 0)
         {
-            throw std::system_error(
-                errno, std::generic_category(), "Could not move temporary bundle");
+            const int error = errno;
+            if (error != EXDEV)
+            {
+                throw std::system_error(
+                    error, std::generic_category(), "Could not move temporary bundle");
+            }
+
+            // File.Move(..., overwrite: true) on Unix falls back to copy+delete
+            // when rename crosses a device/mount boundary.
+            std::error_code copyError;
+            std::filesystem::copy_file(
+                sourcePath, destinationPath,
+                std::filesystem::copy_options::overwrite_existing, copyError);
+            if (copyError)
+            {
+                throw std::system_error(
+                    copyError, "Could not copy temporary bundle across devices");
+            }
+
+            std::error_code deleteError;
+            const bool removed = std::filesystem::remove(sourcePath, deleteError);
+            if (deleteError || !removed)
+            {
+                if (!deleteError)
+                {
+                    deleteError = std::make_error_code(std::errc::no_such_file_or_directory);
+                }
+                throw std::system_error(
+                    deleteError, "Could not delete temporary bundle after cross-device copy");
+            }
         }
 #endif
     }

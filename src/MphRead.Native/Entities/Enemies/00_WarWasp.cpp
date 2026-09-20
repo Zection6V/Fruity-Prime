@@ -45,7 +45,7 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
-            PlayerEntity* player = PlayerEntity::Main();
+            std::shared_ptr<PlayerEntity> player = PlayerEntity::Main();
             if (player == nullptr)
             {
                 throw System::NullReferenceException();

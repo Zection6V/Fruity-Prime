@@ -312,17 +312,30 @@ namespace
         return result;
     }
 
+    char16_t FoldOrdinalAscii(char16_t value) noexcept
+    {
+        if (value >= u'A' && value <= u'Z')
+        {
+            return static_cast<char16_t>(value + (u'a' - u'A'));
+        }
+        // .NET OrdinalIgnoreCase uppercases these two BMP code points to
+        // ASCII letters. They are the only non-ASCII simple uppercase
+        // mappings into Basic Latin and therefore matter when the suffix is
+        // ASCII, as every extension used here is.
+        if (value == u'\u0131')
+        {
+            return u'i';
+        }
+        if (value == u'\u017F')
+        {
+            return u's';
+        }
+        return value;
+    }
+
     bool EqualsAsciiIgnoreCase(char16_t left, char16_t right) noexcept
     {
-        if (left >= u'A' && left <= u'Z')
-        {
-            left = static_cast<char16_t>(left + (u'a' - u'A'));
-        }
-        if (right >= u'A' && right <= u'Z')
-        {
-            right = static_cast<char16_t>(right + (u'a' - u'A'));
-        }
-        return left == right;
+        return FoldOrdinalAscii(left) == FoldOrdinalAscii(right);
     }
 
     bool EndsWithOrdinalIgnoreCase(std::u16string_view value, std::u16string_view suffix) noexcept

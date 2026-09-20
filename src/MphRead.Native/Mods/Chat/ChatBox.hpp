@@ -20,6 +20,7 @@ namespace OpenTK::Windowing::Common
         bool Control = false;
         bool Alt = false;
         bool Command = false;
+        bool Shift = false;
     };
 }
 

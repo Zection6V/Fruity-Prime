@@ -2,6 +2,7 @@
 
 #include "Entities/EntityBase.hpp"
 #include "Formats/Model.hpp"
+#include "Mods/Chat/ChatBox.hpp"
 #include "Scene.hpp"
 
 #include <bit>
@@ -12,7 +13,9 @@
 #include <stdexcept>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #else
 #include <time.h>
@@ -20,26 +23,6 @@
 
 namespace MphRead
 {
-    namespace SelectionExternal
-    {
-        // OpenTK event storage and the Renderer-owned Scene surface are external
-        // owners. Selection declares only the operations it consumes and does not
-        // define substitute runtime/platform types here.
-        [[nodiscard]] ::OpenTK::Windowing::GraphicsLibraryFramework::Keys Key(
-            const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
-        [[nodiscard]] bool Shift(
-            const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
-        [[nodiscard]] bool Alt(
-            const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
-        [[nodiscard]] bool Control(
-            const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
-        [[nodiscard]] bool AllowCameraMovement(const Scene& scene);
-        [[nodiscard]] bool CameraModeIsPlayer(const Scene& scene);
-        [[nodiscard]] bool ShowAllEntities(const Scene& scene);
-        [[nodiscard]] bool ShowInvisibleEntities(const Scene& scene);
-        void LookAt(Scene& scene, ::OpenTK::Mathematics::Vector3 position);
-    }
-
     namespace
     {
         using Keys = ::OpenTK::Windowing::GraphicsLibraryFramework::Keys;
@@ -185,7 +168,12 @@ namespace MphRead
 
     bool Selection::CheckVolume(const std::shared_ptr<Entities::EntityBase>& entity)
     {
-        return !_hideUnselectedVolumes || Entity() == nullptr || entity == Entity();
+        return CheckVolume(entity.get());
+    }
+
+    bool Selection::CheckVolume(const Entities::EntityBase* entity)
+    {
+        return !_hideUnselectedVolumes || Entity() == nullptr || entity == Entity().get();
     }
 
     void Selection::Clear() noexcept
@@ -202,41 +190,60 @@ namespace MphRead
         const std::shared_ptr<::MphRead::Node>& node,
         const std::shared_ptr<::MphRead::Mesh>& mesh)
     {
+        return CheckSelectionIdentity(entity.get(), inst.get(), node.get(), mesh.get());
+    }
+
+    SelectionType Selection::CheckSelection(
+        const Entities::EntityBase* entity,
+        const ModelInstance& inst,
+        const ::MphRead::Node& node,
+        const ::MphRead::Mesh& mesh)
+    {
+        return CheckSelectionIdentity(entity, &inst, &node, &mesh);
+    }
+
+    SelectionType Selection::CheckSelectionIdentity(
+        const Entities::EntityBase* entity,
+        const ModelInstance* inst,
+        const ::MphRead::Node* node,
+        const ::MphRead::Mesh* mesh)
+    {
         if (_mesh != nullptr)
         {
-            if (mesh == _mesh && node == _node && inst == _instance && entity == Entity())
+            if (mesh == _mesh.get() && node == _node.get() && inst == _instance.get()
+                && entity == Entity().get())
             {
                 return SelectionType::Selected;
             }
         }
         else if (_node != nullptr)
         {
-            if (node == _node && inst == _instance && entity == Entity())
+            if (node == _node.get() && inst == _instance.get() && entity == Entity().get())
             {
                 return SelectionType::Selected;
             }
         }
         else if (_instance != nullptr)
         {
-            if (inst == _instance && entity == Entity())
+            if (inst == _instance.get() && entity == Entity().get())
             {
                 return SelectionType::Selected;
             }
         }
         else if (Entity() != nullptr)
         {
-            if (entity == Entity())
+            if (entity == Entity().get())
             {
                 return SelectionType::Selected;
             }
         }
         if (Entity() != nullptr)
         {
-            if (Entity()->GetParent() == entity.get())
+            if (Entity()->GetParent() == entity)
             {
                 return SelectionType::Parent;
             }
-            if (Entity()->GetChild() == entity.get())
+            if (Entity()->GetChild() == entity)
             {
                 return SelectionType::Child;
             }
@@ -294,47 +301,47 @@ namespace MphRead
         const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e,
         Scene& scene)
     {
-        if (SelectionExternal::Key(e) == Keys::M)
+        if (e.Key == Keys::M)
         {
-            UpdateSelection(SelectionExternal::Control(e), SelectionExternal::Shift(e), scene);
+            UpdateSelection(e.Control, e.Shift, scene);
             return true;
         }
         if (!Any())
         {
             return false;
         }
-        if (SelectionExternal::Key(e) == KeyEqual || SelectionExternal::Key(e) == KeyPadEqual)
+        if (e.Key == KeyEqual || e.Key == KeyPadEqual)
         {
-            if (SelectionExternal::Alt(e))
+            if (e.Alt)
             {
-                NextAnimation(SelectionExternal::Control(e));
+                NextAnimation(e.Control);
             }
             else
             {
-                SelectNext(scene, SelectionExternal::Control(e));
+                SelectNext(scene, e.Control);
             }
             return true;
         }
-        if (SelectionExternal::Key(e) == KeyMinus || SelectionExternal::Key(e) == KeyPadSubtract)
+        if (e.Key == KeyMinus || e.Key == KeyPadSubtract)
         {
-            if (SelectionExternal::Alt(e))
+            if (e.Alt)
             {
-                PrevAnimation(SelectionExternal::Control(e));
+                PrevAnimation(e.Control);
             }
             else
             {
-                SelectPrev(scene, SelectionExternal::Control(e));
+                SelectPrev(scene, e.Control);
             }
             return true;
         }
-        if (SelectionExternal::Key(e) == Keys::X
-            && SelectionExternal::AllowCameraMovement(scene)
-            && !SelectionExternal::CameraModeIsPlayer(scene))
+        if (e.Key == Keys::X
+            && scene.AllowCameraMovement()
+            && !(scene.CameraMode() == CameraMode::Player))
         {
-            LookAtSelection(scene, SelectionExternal::Control(e), SelectionExternal::Shift(e));
+            LookAtSelection(scene, e.Control, e.Shift);
             return true;
         }
-        if (SelectionExternal::Key(e) == Keys::D0 || SelectionExternal::Key(e) == KeyPad0)
+        if (e.Key == Keys::D0 || e.Key == KeyPad0)
         {
             if (_mesh != nullptr)
             {
@@ -350,9 +357,9 @@ namespace MphRead
             }
             else if (Entity() != nullptr)
             {
-                if (SelectionExternal::Control(e))
+                if (e.Control)
                 {
-                    Entity()->SetActive(!SelectionExternal::Shift(e));
+                    Entity()->SetActive(!e.Shift);
                 }
                 else
                 {
@@ -363,12 +370,12 @@ namespace MphRead
             }
             return true;
         }
-        if (SelectionExternal::Key(e) == Keys::D1 || SelectionExternal::Key(e) == KeyPad1)
+        if (e.Key == Keys::D1 || e.Key == KeyPad1)
         {
             PrevRecolor();
             return true;
         }
-        if (SelectionExternal::Key(e) == Keys::D2 || SelectionExternal::Key(e) == KeyPad2)
+        if (e.Key == Keys::D2 || e.Key == KeyPad2)
         {
             NextRecolor();
             return true;
@@ -893,7 +900,7 @@ namespace MphRead
             {
                 break;
             }
-            if (entity != nullptr && FilterEntity(entity->Value(), scene))
+            if (FilterEntity(Require(entity).Value(), scene))
             {
                 _entityNode = entity;
                 break;
@@ -912,9 +919,9 @@ namespace MphRead
         }
         for (const std::shared_ptr<ModelInstance>& model : value.GetModels())
         {
-            if ((SelectionExternal::ShowAllEntities(scene) || Require(model).Active)
-                && (SelectionExternal::ShowAllEntities(scene)
-                    || SelectionExternal::ShowInvisibleEntities(scene)
+            if ((scene.ShowAllEntities() || Require(model).Active)
+                && (scene.ShowAllEntities()
+                    || scene.ShowInvisibleEntities()
                     || !Require(model).IsPlaceholder))
             {
                 return true;
@@ -933,16 +940,16 @@ namespace MphRead
                 : (shift ? entity->GetChild() : entity->GetParent());
             if (target != nullptr)
             {
-                SelectionExternal::LookAt(scene, target->Position);
+                scene.LookAt(target->Position);
             }
         }
         else if (_node != nullptr)
         {
-            SelectionExternal::LookAt(scene, _node->Animation.Row3().Xyz());
+            scene.LookAt(_node->Animation.Row3().Xyz());
         }
         else if (Entity() != nullptr)
         {
-            SelectionExternal::LookAt(scene, Entity()->Position);
+            scene.LookAt(Entity()->Position);
         }
     }
 }

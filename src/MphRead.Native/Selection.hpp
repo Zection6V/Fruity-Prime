@@ -36,12 +36,18 @@ namespace MphRead
         [[nodiscard]] static std::shared_ptr<::MphRead::Mesh> Mesh() noexcept;
 
         [[nodiscard]] static bool CheckVolume(const std::shared_ptr<Entities::EntityBase>& entity);
+        [[nodiscard]] static bool CheckVolume(const Entities::EntityBase* entity);
         static void Clear() noexcept;
         [[nodiscard]] static SelectionType CheckSelection(
             const std::shared_ptr<Entities::EntityBase>& entity,
             const std::shared_ptr<ModelInstance>& inst,
             const std::shared_ptr<::MphRead::Node>& node,
             const std::shared_ptr<::MphRead::Mesh>& mesh);
+        [[nodiscard]] static SelectionType CheckSelection(
+            const Entities::EntityBase* entity,
+            const ModelInstance& inst,
+            const ::MphRead::Node& node,
+            const ::MphRead::Mesh& mesh);
 
         static void ToggleShowSelection() noexcept;
         static void ToggleUnselectedVolumes() noexcept;
@@ -58,6 +64,11 @@ namespace MphRead
         Selection() = delete;
 
         [[nodiscard]] static bool Any() noexcept;
+        [[nodiscard]] static SelectionType CheckSelectionIdentity(
+            const Entities::EntityBase* entity,
+            const ModelInstance* inst,
+            const ::MphRead::Node* node,
+            const ::MphRead::Mesh* mesh);
         static void UpdateSelection(bool control, bool shift, Scene& scene);
         static void NextAnimation(bool control);
         static void PrevAnimation(bool control);

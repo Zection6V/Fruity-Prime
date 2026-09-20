@@ -454,6 +454,16 @@ namespace MphRead::Testing
         -0x45FF, -0x2A00, -0xE00, 0xE00, 0x2A00,0x45FF, 0x61FF, -0x68FF, -0x4AFF, -0x2D00,
         -0xF00, 0xF00, 0x2D00, 0x4AFF, 0x68FF, -0x6FFF, -0x4FFF, -0x3000, -0x1000, 0x1000, 0x3000, 0x4FFF, 0x6FFF
     };
+    std::vector<double> TestMisc::_allDecodeTimes{};
+    std::vector<double> TestMisc::_individualDecodeAvgs{};
+    std::vector<double> TestMisc::_currentDecodeTimes{};
+    double TestMisc::_maxDecodeTime = 0;
+    double TestMisc::_totalDecodeTime = 0;
+    int TestMisc::_readBit = 0;
+    alignas(4) std::array<byte, 256 * 192 * 2> TestMisc::_outputBuf1{};
+    alignas(4) std::array<byte, 256 * 192 * 2> TestMisc::_outputBuf2{};
+    bool TestMisc::_outputBufferSwap = true;
+
     const std::vector<int> TestMisc::_dword206B2A0 =
     {
 -0x1010, -0x100E, -0x100C, -0x100A, -0x1008, -0x1006, -0x1004, -0x1002, -0x1000,
@@ -489,16 +499,6 @@ namespace MphRead::Testing
         20, 20, 20, 21, 21, 21, 22, 22, 22, 23, 23, 23, 24, 24, 24, 25, 25, 25, 26, 26, 26, 27, 27, 27, 28, 28, 28, 29, 29, 29,
         30, 30, 30, 31, 31, 0, 0
     };
-
-    std::vector<double> TestMisc::_allDecodeTimes{};
-    std::vector<double> TestMisc::_individualDecodeAvgs{};
-    std::vector<double> TestMisc::_currentDecodeTimes{};
-    double TestMisc::_maxDecodeTime = 0;
-    double TestMisc::_totalDecodeTime = 0;
-    int TestMisc::_readBit = 0;
-    alignas(4) std::array<byte, 256 * 192 * 2> TestMisc::_outputBuf1{};
-    alignas(4) std::array<byte, 256 * 192 * 2> TestMisc::_outputBuf2{};
-    bool TestMisc::_outputBufferSwap = true;
 
     void TestMisc::TestAllFV()
     {

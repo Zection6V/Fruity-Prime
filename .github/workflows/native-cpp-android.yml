@@ -46,10 +46,9 @@ jobs:
           rm -f "$contract_file"
           cmake -DOUTPUT_FILE="$contract_file" -P cmake/ExportAndroidConfig.cmake
           cat "$contract_file"
-          set -a
-          source "$contract_file"
-          set +a
-          abis_json="$(python3 -c 'import json, os; print(json.dumps(os.environ["FRUITY_ANDROID_ABIS"].split(), separators=(",", ":")))' )"
+          abis_text="$(sed -n 's/^FRUITY_ANDROID_ABIS=//p' "$contract_file")"
+          test -n "$abis_text"
+          abis_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1].split(), separators=(",", ":")))' "$abis_text")"
           test "$abis_json" != "[]"
           echo "abis=$abis_json" >> "$GITHUB_OUTPUT"
 

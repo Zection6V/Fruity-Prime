@@ -4,7 +4,7 @@
 
 #include <algorithm>
 #include <bit>
-#include <charconv>
+#include <cstdlib>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -15,9 +15,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
+
+#include <locale.h>
+#include <stdlib.h>
+#if defined(__APPLE__)
+#include <xlocale.h>
+#endif
 
 namespace
 {
@@ -91,6 +96,59 @@ namespace
         return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
     }
 
+    [[nodiscard]] char16_t NormalizeSpaceReplacingChar(char16_t value) noexcept
+    {
+        return value == u'\u00A0' || value == u'\u202F' ? u' ' : value;
+    }
+
+    [[nodiscard]] bool StartsWithCultureToken(
+        std::u16string_view value, std::u16string_view token) noexcept
+    {
+        if (token.empty() || value.size() < token.size())
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < token.size(); ++i)
+        {
+            if (NormalizeSpaceReplacingChar(value[i]) != NormalizeSpaceReplacingChar(token[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool AllowsAsciiHyphen(std::u16string_view negativeSign) noexcept
+    {
+        if (negativeSign.size() != 1)
+        {
+            return false;
+        }
+        switch (negativeSign.front())
+        {
+        case u'\u2012':
+        case u'\u207B':
+        case u'\u208B':
+        case u'\u2212':
+        case u'\u2796':
+        case u'\uFE63':
+        case u'\uFF0D':
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    [[nodiscard]] std::size_t MatchingNegativeSignLength(
+        std::u16string_view value, std::u16string_view negativeSign) noexcept
+    {
+        if (StartsWithCultureToken(value, negativeSign))
+        {
+            return negativeSign.size();
+        }
+        return AllowsAsciiHyphen(negativeSign) && !value.empty() && value.front() == u'-' ? 1U : 0U;
+    }
+
     [[nodiscard]] std::u16string GroupSeparator(std::u16string_view decimalSeparator)
     {
         try
@@ -108,65 +166,31 @@ namespace
         return decimalSeparator == u"," ? u"." : u",";
     }
 
-    [[nodiscard]] float OutOfRangeSingle(std::string_view canonical, bool negative)
+    [[nodiscard]] float ParseCanonicalSingle(std::string_view canonical)
     {
-        long double wide = 0.0L;
-        const char* first = canonical.data();
-        const char* last = first + canonical.size();
-        const auto result = std::from_chars(first, last, wide, std::chars_format::general);
-        if (result.ptr == last && result.ec == std::errc{})
+        const std::string input(canonical);
+        char* end = nullptr;
+#if defined(_WIN32)
+        static const _locale_t cLocale = _create_locale(LC_NUMERIC, "C");
+        if (cLocale == nullptr)
         {
-            return static_cast<float>(wide);
+            throw std::runtime_error("C numeric locale is unavailable.");
         }
-        if (result.ptr != last || result.ec != std::errc::result_out_of_range)
+        const float parsed = _strtof_l(input.c_str(), &end, cLocale);
+#else
+        static const locale_t cLocale = newlocale(
+            LC_NUMERIC_MASK, "C", static_cast<locale_t>(0));
+        if (cLocale == static_cast<locale_t>(0))
+        {
+            throw std::runtime_error("C numeric locale is unavailable.");
+        }
+        const float parsed = strtof_l(input.c_str(), &end, cLocale);
+#endif
+        if (end != input.c_str() + input.size())
         {
             throw std::invalid_argument("Input string was not in a correct format.");
         }
-
-        const std::size_t exponentPos = canonical.find_first_of("eE");
-        std::int64_t exponent = 0;
-        if (exponentPos != std::string_view::npos)
-        {
-            std::size_t i = exponentPos + 1;
-            bool exponentNegative = false;
-            if (i < canonical.size() && (canonical[i] == '+' || canonical[i] == '-'))
-            {
-                exponentNegative = canonical[i++] == '-';
-            }
-            for (; i < canonical.size(); ++i)
-            {
-                if (exponent < 1000000)
-                {
-                    exponent = exponent * 10 + canonical[i] - '0';
-                }
-            }
-            if (exponentNegative) exponent = -exponent;
-        }
-
-        const std::size_t mantissaEnd = exponentPos == std::string_view::npos ? canonical.size() : exponentPos;
-        const std::size_t signOffset = !canonical.empty() && canonical.front() == '-' ? 1U : 0U;
-        const std::size_t dot = canonical.find('.', signOffset);
-        const std::size_t decimalPos = dot != std::string_view::npos && dot < mantissaEnd ? dot : mantissaEnd;
-        std::size_t digit = 0;
-        std::size_t firstNonZero = std::string_view::npos;
-        std::size_t integerDigits = 0;
-        for (std::size_t i = signOffset; i < mantissaEnd; ++i)
-        {
-            if (canonical[i] == '.') continue;
-            if (i < decimalPos) ++integerDigits;
-            if (firstNonZero == std::string_view::npos && canonical[i] != '0') firstNonZero = digit;
-            ++digit;
-        }
-        if (firstNonZero == std::string_view::npos)
-        {
-            return negative ? -0.0F : 0.0F;
-        }
-        const std::int64_t effectiveExponent = exponent
-            + static_cast<std::int64_t>(integerDigits)
-            - static_cast<std::int64_t>(firstNonZero) - 1;
-        return effectiveExponent < 0
-            ? (negative ? -0.0F : 0.0F)
-            : (negative ? -std::numeric_limits<float>::infinity() : std::numeric_limits<float>::infinity());
+        return parsed;
     }
 
     [[nodiscard]] float ParseSingle(std::u16string_view value)
@@ -189,14 +213,15 @@ namespace
 
         std::size_t index = 0;
         bool negative = false;
-        if (!format.PositiveSign.empty() && StartsWith(value, format.PositiveSign))
+        if (!format.PositiveSign.empty() && StartsWithCultureToken(value, format.PositiveSign))
         {
             index = format.PositiveSign.size();
         }
-        else if (!format.NegativeSign.empty() && StartsWith(value, format.NegativeSign))
+        else if (const std::size_t signLength = MatchingNegativeSignLength(value, format.NegativeSign);
+            signLength != 0)
         {
             negative = true;
-            index = format.NegativeSign.size();
+            index = signLength;
         }
 
         const std::u16string groupSeparator = GroupSeparator(format.NumberDecimalSeparator);
@@ -220,15 +245,15 @@ namespace
                 ++index;
             }
             else if (!exponent && !decimal && !format.NumberDecimalSeparator.empty()
-                && StartsWith(value.substr(index), format.NumberDecimalSeparator))
+                && StartsWithCultureToken(value.substr(index), format.NumberDecimalSeparator))
             {
                 canonical.push_back('.');
                 decimal = true;
                 index += format.NumberDecimalSeparator.size();
             }
-            else if (!exponent && !decimal && !groupSeparator.empty()
+            else if (!exponent && !decimal && digit && !groupSeparator.empty()
                 && groupSeparator != format.NumberDecimalSeparator
-                && StartsWith(value.substr(index), groupSeparator))
+                && StartsWithCultureToken(value.substr(index), groupSeparator))
             {
                 index += groupSeparator.size();
             }
@@ -240,43 +265,47 @@ namespace
                 ++index;
             }
             else if (exponent && exponentSign && !format.PositiveSign.empty()
-                && StartsWith(value.substr(index), format.PositiveSign))
+                && StartsWithCultureToken(value.substr(index), format.PositiveSign))
             {
                 canonical.push_back('+');
                 index += format.PositiveSign.size();
                 exponentSign = false;
             }
-            else if (exponent && exponentSign && !format.NegativeSign.empty()
-                && StartsWith(value.substr(index), format.NegativeSign))
+            else if (exponent && exponentSign)
             {
+                const std::size_t signLength = MatchingNegativeSignLength(
+                    value.substr(index), format.NegativeSign);
+                if (signLength == 0)
+                {
+                    throw std::invalid_argument("Input string was not in a correct format.");
+                }
                 canonical.push_back('-');
-                index += format.NegativeSign.size();
+                index += signLength;
                 exponentSign = false;
+            }
+            else if (chr == u'\0')
+            {
+                break;
             }
             else
             {
                 throw std::invalid_argument("Input string was not in a correct format.");
             }
         }
+        while (index < value.size() && value[index] == u'\0')
+        {
+            ++index;
+        }
+        if (index != value.size())
+        {
+            throw std::invalid_argument("Input string was not in a correct format.");
+        }
         if (!digit || (exponent && !exponentDigit))
         {
             throw std::invalid_argument("Input string was not in a correct format.");
         }
 
-        float parsed = 0.0F;
-        const char* first = canonical.data();
-        const char* last = first + canonical.size();
-        const auto result = std::from_chars(first, last, parsed, std::chars_format::general);
-        if (result.ptr != last)
-        {
-            throw std::invalid_argument("Input string was not in a correct format.");
-        }
-        if (result.ec == std::errc{}) return parsed;
-        if (result.ec != std::errc::result_out_of_range)
-        {
-            throw std::invalid_argument("Input string was not in a correct format.");
-        }
-        return OutOfRangeSingle(canonical, negative);
+        return ParseCanonicalSingle(canonical);
     }
 
     [[nodiscard]] float SingleMin(float x, float y) noexcept

@@ -6,27 +6,16 @@
 
 #include <bit>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
-#include <iostream>
-#include <limits>
 #include <optional>
 #include <ostream>
-#include <sstream>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <typeinfo>
 #include <utility>
 #include <vector>
-
-#if defined(__GNUG__)
-#include <cxxabi.h>
-#include <cstdlib>
-#include <memory>
-#endif
 
 namespace MphRead::Export::ImagesInterop
 {
@@ -54,6 +43,13 @@ namespace MphRead::Mods::ScreenCaptureInterop
     [[nodiscard]] std::optional<std::string> GetString(std::int32_t name);
     [[nodiscard]] std::int32_t GetInteger(std::int32_t pname);
     [[nodiscard]] std::string PtrToStringAnsi(const char* message, std::int32_t length);
+
+    // CLR/runtime-owned behavior. ScreenCapture must not synthesize these from
+    // C++ locales, RTTI, or ostream state.
+    [[nodiscard]] std::string FormatFixedTwoCurrentCulture(double value);
+    [[nodiscard]] std::string ExceptionTypeName(const std::exception& exception);
+    [[nodiscard]] std::string ExceptionMessage(const std::exception& exception);
+    void ConsoleWriteLine(const std::string& value);
 }
 
 namespace
@@ -115,13 +111,6 @@ namespace
             static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
     }
 
-    [[nodiscard]] std::string FixedTwo(double value)
-    {
-        std::ostringstream stream;
-        stream << std::fixed << std::setprecision(2) << value;
-        return stream.str();
-    }
-
     [[nodiscard]] std::string DebugSourceName(std::int32_t value)
     {
         switch (value)
@@ -163,41 +152,6 @@ namespace
         case 0x826B: return "DebugSeverityNotification";
         default: return std::to_string(value);
         }
-    }
-
-    [[nodiscard]] std::string ExceptionTypeName(const std::exception& exception)
-    {
-        std::string name;
-#if defined(__GNUG__)
-        int status = 0;
-        std::unique_ptr<char, void(*)(void*)> demangled(
-            abi::__cxa_demangle(typeid(exception).name(), nullptr, nullptr, &status),
-            std::free);
-        name = status == 0 && demangled ? demangled.get() : typeid(exception).name();
-#else
-        name = typeid(exception).name();
-#endif
-        constexpr std::string_view classPrefix = "class ";
-        constexpr std::string_view structPrefix = "struct ";
-        if (name.starts_with(classPrefix))
-        {
-            name.erase(0, classPrefix.size());
-        }
-        else if (name.starts_with(structPrefix))
-        {
-            name.erase(0, structPrefix.size());
-        }
-        const std::size_t namespacePos = name.rfind("::");
-        if (namespacePos != std::string::npos)
-        {
-            name.erase(0, namespacePos + 2);
-        }
-        const std::size_t templatePos = name.find('<');
-        if (templatePos != std::string::npos)
-        {
-            name.erase(templatePos);
-        }
-        return name;
     }
 
     void InvokeReport(
@@ -276,7 +230,7 @@ namespace MphRead::Mods
                 first += " came out black ";
 
                 std::string second = "(";
-                second += FixedTwo(LitFraction(*pixels) * 100.0);
+                second += ScreenCaptureInterop::FormatFixedTwoCurrentCulture(\n                    LitFraction(*pixels) * 100.0);
                 second += "% lit, ";
                 second += std::to_string(width);
                 second += "x";
@@ -287,7 +241,7 @@ namespace MphRead::Mods
                 third += DescribeContext();
 
                 const std::string why = first + second + third;
-                std::cout << "[capture] " << why << std::endl;
+                ScreenCaptureInterop::ConsoleWriteLine("[capture] " + why);
                 ThumbnailLog::Write(why);
                 return false;
             }
@@ -333,8 +287,9 @@ namespace MphRead::Mods
         }
         catch (const std::exception& exception)
         {
-            std::cout << "[capture] could not save " << path
-                      << ": " << exception.what() << std::endl;
+            ScreenCaptureInterop::ConsoleWriteLine(
+                "[capture] could not save " + path + ": "
+                    + ScreenCaptureInterop::ExceptionMessage(exception));
             return false;
         }
     }
@@ -419,7 +374,8 @@ namespace MphRead::Mods
         {
             InvokeReport(
                 report,
-                "could not turn on GL debug output (" + ExceptionTypeName(exception)
+                "could not turn on GL debug output ("
+                    + ScreenCaptureInterop::ExceptionTypeName(exception)
                     + "); this driver may not have KHR_debug");
         }
     }
@@ -446,7 +402,8 @@ namespace MphRead::Mods
         }
         catch (const std::exception& exception)
         {
-            return "could not query the GL context: " + std::string(exception.what());
+            return "could not query the GL context: "
+                + ScreenCaptureInterop::ExceptionMessage(exception);
         }
     }
 

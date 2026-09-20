@@ -270,9 +270,6 @@ namespace
 
     [[nodiscard]] int OpenFile(const std::filesystem::path& path, int flags, mode_t mode = 0)
     {
-#ifdef O_NOCTTY
-        flags |= O_NOCTTY;
-#endif
         int fd = -1;
         do
         {

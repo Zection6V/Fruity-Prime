@@ -8,6 +8,7 @@
 #include <optional>
 #include <ratio>
 #include <string>
+#include <string_view>
 
 namespace MphRead::Mods::Update
 {
@@ -42,7 +43,7 @@ namespace MphRead::Mods::Update
         Updater& operator=(const Updater&) = delete;
 
     private:
-        [[nodiscard]] static bool OpenUrl(const std::string& url);
+        [[nodiscard]] static bool OpenUrl(std::string_view url);
         [[nodiscard]] static bool OpenUrl(std::nullptr_t url);
     };
 }

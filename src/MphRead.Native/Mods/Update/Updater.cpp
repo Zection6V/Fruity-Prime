@@ -157,7 +157,7 @@ namespace MphRead::Mods::Update
             return SUCCEEDED(result) && (apartmentType == 0 || apartmentType == 3);
         }
 
-        [[nodiscard]] std::optional<std::wstring> Utf8ToWide(const std::string& text)
+        [[nodiscard]] std::optional<std::wstring> Utf8ToWide(std::string_view text)
         {
             if (text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
             {
@@ -185,7 +185,7 @@ namespace MphRead::Mods::Update
             return shellExecute != nullptr && shellExecute(&info) != FALSE;
         }
 
-        [[nodiscard]] bool StartWindowsUrl(const std::string& url)
+        [[nodiscard]] bool StartWindowsUrl(std::string_view url)
         {
             std::optional<std::wstring> wide = Utf8ToWide(url);
             if (!wide.has_value())
@@ -246,7 +246,7 @@ namespace MphRead::Mods::Update
             }
         }
 
-        [[nodiscard]] bool StartDesktopCommand(const char* program, const std::string& url)
+        [[nodiscard]] bool StartDesktopCommand(const char* program, std::string_view url)
         {
             pid_t child = -1;
             char* const argv[] = {
@@ -370,7 +370,9 @@ namespace MphRead::Mods::Update
     bool Updater::OpenPage(UpdateInfo update)
     {
         const std::string& page = RequireString(update.PageUrl);
-        return OpenUrl(page.length() > 0 ? page : std::string(UpdateCheck::ReleasesPage));
+        return OpenUrl(page.length() > 0
+            ? std::string_view(page)
+            : UpdateCheck::ReleasesPage);
     }
 
     bool Updater::OpenLink(const std::string& url)
@@ -383,7 +385,7 @@ namespace MphRead::Mods::Update
         return OpenUrl(url);
     }
 
-    bool Updater::OpenUrl(const std::string& url)
+    bool Updater::OpenUrl(std::string_view url)
     {
         if (!url.starts_with("https://"))
         {

@@ -1,6 +1,9 @@
 #include "MapDefinition.hpp"
 
+#include "CustomRooms.hpp"
+#include "MapBundle.hpp"
 #include "MapTexturePack.hpp"
+#include "../../Formats/Types.hpp"
 #include "../Launcher/Portable/GameFiles.hpp"
 #include "../../Program.hpp"
 
@@ -24,26 +27,6 @@
 #include <utility>
 #include <vector>
 
-namespace MphRead::Mods::MapGen
-{
-    // Transitional dependency surfaces. MapBundle and CustomRooms are later
-    // dependency-order items; these declarations bind the exact members used
-    // by the C# source without inventing replacement behavior here.
-    class MapBundle final
-    {
-    public:
-        [[nodiscard]] static bool Is(const std::string& path);
-        [[nodiscard]] static std::optional<std::string> ReadRecipe(const std::string& bundlePath);
-        [[nodiscard]] static std::optional<std::vector<std::uint8_t>> ReadEntry(
-            const std::string& bundlePath, const std::string& name);
-    };
-
-    class CustomRooms final
-    {
-    public:
-        [[nodiscard]] static const std::string& MapDirectory();
-    };
-}
 
 namespace
 {
@@ -53,7 +36,7 @@ namespace
     {
         if (!value)
         {
-            throw std::runtime_error("Object reference not set to an instance of an object.");
+            throw System::NullReferenceException();
         }
         return *value;
     }

@@ -20,7 +20,7 @@ namespace MphRead::Mods::MapGen
     class MapJumpPad;
     class MapItem;
 
-    class MapDefinition final
+    class MapDefinition
     {
     public:
         using MaterialList = std::vector<std::shared_ptr<MapMaterial>>;
@@ -147,7 +147,7 @@ namespace MphRead::Mods::MapGen
         std::optional<std::string> _sourcePath{};
     };
 
-    class MapPreview final
+    class MapPreview
     {
     public:
         MapPreview();
@@ -170,7 +170,7 @@ namespace MphRead::Mods::MapGen
         std::shared_ptr<std::vector<float>> _target;
     };
 
-    class MapImport final
+    class MapImport
     {
     public:
         class ShaderMaterialDictionary final
@@ -251,7 +251,7 @@ namespace MphRead::Mods::MapGen
         bool _keepSpawns = true;
     };
 
-    class MapMaterial final
+    class MapMaterial
     {
     public:
         MapMaterial();
@@ -276,7 +276,7 @@ namespace MphRead::Mods::MapGen
         float _texScale = 16.0F;
     };
 
-    class MapBrush final
+    class MapBrush
     {
     public:
         MapBrush();
@@ -314,7 +314,7 @@ namespace MphRead::Mods::MapGen
         std::optional<std::string> _terrain{};
     };
 
-    class MapSpawn final
+    class MapSpawn
     {
     public:
         MapSpawn();
@@ -336,7 +336,7 @@ namespace MphRead::Mods::MapGen
         float _yaw = 0.0F;
     };
 
-    class MapJumpPad final
+    class MapJumpPad
     {
     public:
         MapJumpPad();
@@ -379,7 +379,7 @@ namespace MphRead::Mods::MapGen
         std::uint16_t _controlLockTime = 30;
     };
 
-    class MapItem final
+    class MapItem
     {
     public:
         MapItem();

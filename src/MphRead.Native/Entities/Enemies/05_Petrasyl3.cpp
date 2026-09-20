@@ -180,7 +180,7 @@ namespace MphRead::Entities::Enemies
             {
                 _field184 = _field184.Normalized();
             }
-            _speed = Divide(Scale(_field184, 0.05F), 2.0F);
+            _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
         }
     }
 
@@ -326,7 +326,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 currentUp = UpVector();
         const Vector3 transformPosition = static_cast<Vector3>(Position);
         SetTransform(newFacing, currentUp, transformPosition);
-        _speed = Divide(Scale(_field184, 0.05F), 2.0F);
+        _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
         _targetY += _speed.Y / 2.0F;
         _speed.Y += ySpeedInc / 2.0F;
     }

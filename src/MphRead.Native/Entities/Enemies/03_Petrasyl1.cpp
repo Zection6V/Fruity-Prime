@@ -41,8 +41,8 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
-            PlayerEntity* player = PlayerEntity::Main();
-            if (player == nullptr)
+            const std::shared_ptr<PlayerEntity> player = PlayerEntity::Main();
+            if (!player)
             {
                 throw System::NullReferenceException();
             }
@@ -54,7 +54,7 @@ namespace MphRead::Entities::Enemies
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
@@ -216,7 +216,7 @@ namespace MphRead::Entities::Enemies
             Flags &= ~EnemyFlags::NoHomingNc;
             Flags &= ~EnemyFlags::Invincible;
             _field18C = MultiplyInt32(FloatToInt32(_idleRangeZ / 0.7F), 2);
-            _speed = WithY(Scale(_field194, 0.7F), 0.0F);
+            _speed = WithY(ScaleVector(_field194, 0.7F), 0.0F);
             _speed.X /= 2.0F;
             _speed.Y /= 2.0F;
             _speed.Z /= 2.0F;

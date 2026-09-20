@@ -292,7 +292,11 @@ namespace MphRead::Mods
                 return false;
             }
 
-            const std::filesystem::path directory = PathFromUtf8(path).parent_path();
+            const std::filesystem::path pathValue = PathFromUtf8(path);
+            const std::filesystem::path directory
+                = pathValue == pathValue.root_path()
+                    ? std::filesystem::path{}
+                    : pathValue.parent_path();
             if (!directory.empty())
             {
                 std::filesystem::create_directories(directory);
@@ -306,9 +310,24 @@ namespace MphRead::Mods
             }
 
             std::ofstream stream = CreateFile(path);
-            Export::ImagesInterop::SetFlipVerticallyOnSave(true);
-            Export::ImagesInterop::WritePngRgb(
-                std::span<const std::uint8_t>(*pixels), width, height, stream);
+            try
+            {
+                Export::ImagesInterop::SetFlipVerticallyOnSave(true);
+                Export::ImagesInterop::WritePngRgb(
+                    std::span<const std::uint8_t>(*pixels), width, height, stream);
+            }
+            catch (...)
+            {
+                try
+                {
+                    stream.close();
+                }
+                catch (...)
+                {
+                    throw;
+                }
+                throw;
+            }
             stream.close();
             return true;
         }
@@ -322,11 +341,6 @@ namespace MphRead::Mods
 
     double ScreenCapture::LitFraction(const std::vector<std::uint8_t>& pixels)
     {
-        if (pixels.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
-        {
-            throw std::overflow_error("Array dimensions exceeded supported range.");
-        }
-
         const std::int32_t length = static_cast<std::int32_t>(pixels.size());
         const auto channel = [&](std::int32_t index) -> std::uint8_t
         {
@@ -450,11 +464,6 @@ namespace MphRead::Mods
         {
             return 0.0;
         }
-        if (pixels->size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
-        {
-            throw std::overflow_error("Array dimensions exceeded supported range.");
-        }
-
         const std::int32_t length = static_cast<std::int32_t>(pixels->size());
         const auto channel = [&](std::int32_t index) -> std::uint8_t
         {

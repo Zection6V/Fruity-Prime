@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include <span>
-#include <string_view>
+#include <string>
+#include <vector>
 
 namespace MphRead::Droid
 {
@@ -10,10 +10,10 @@ namespace MphRead::Droid
     {
     public:
         static void Write(
-            std::span<const std::uint8_t> rgb,
+            std::vector<std::uint8_t>& rgb,
             std::int32_t width,
             std::int32_t height,
-            std::u16string_view path
+            const std::string& path
         );
 
     private:

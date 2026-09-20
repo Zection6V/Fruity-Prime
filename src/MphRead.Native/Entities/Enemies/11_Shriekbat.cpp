@@ -163,7 +163,7 @@ namespace MphRead::Entities::Enemies
         _boundingRadius = 1.0F;
         _hurtVolumeInit = CollisionVolume(_spawner->Data.Fields.S02().Volume0);
         _rangeVolume = CollisionVolume::Move(
-            _spawner->Data.Fields.S02.Volume1, position);
+            _spawner->Data.Fields.S02().Volume1, position);
         _activeVolume = CollisionVolume::Move(
             _spawner->Data.Fields.S02.Volume2, position);
         _targetPos = position + _spawner->Data.Fields.S02.PathVector.ToFloatVector();

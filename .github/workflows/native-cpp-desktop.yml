@@ -1,0 +1,104 @@
+name: Native C++ Desktop
+
+on:
+  push:
+    branches:
+      - develop2
+    paths:
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - ".github/workflows/native-cpp-desktop.yml"
+  pull_request:
+    branches:
+      - develop2
+    paths:
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - ".github/workflows/native-cpp-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-native:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows / MSVC
+            toolchain: msvc
+          - os: macos-latest
+            label: macOS / Clang
+            toolchain: clang
+          - os: ubuntu-latest
+            label: Linux / GCC
+            toolchain: gcc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify MSVC toolchain
+        if: matrix.toolchain == 'msvc'
+        shell: pwsh
+        run: |
+          cmake --version
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            throw "Visual Studio Installer vswhere.exe was not found on the Windows runner."
+          }
+          $installation = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $installation) {
+            throw "A Visual Studio installation with the MSVC x86/x64 C++ toolchain was not found."
+          }
+          Write-Host "MSVC installation: $installation"
+
+      - name: Verify Clang toolchain
+        if: matrix.toolchain == 'clang'
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang++ --version
+          cmake --version
+
+      - name: Verify GCC toolchain
+        if: matrix.toolchain == 'gcc'
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ --version
+          cmake --version
+
+      - name: Require repository native build manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t manifests < <(
+            find . -type f \
+              \( -name CMakeLists.txt \
+                 -o -name Makefile \
+                 -o -name meson.build \
+                 -o -name premake5.lua \
+                 -o -name '*.vcxproj' \
+                 -o -name '*.pro' \
+                 -o -name vcpkg.json \
+                 -o -name conanfile.txt \
+                 -o -name conanfile.py \) \
+              -not -path './.git/*' \
+              -print | sort
+          )
+
+          if [ "${#manifests[@]}" -eq 0 ]; then
+            echo "::error title=Native build manifest missing::develop2 contains src/MphRead.Native and src/NcsfPlay.Native C++ sources, but no CMake, Make, Meson, Visual Studio C++, qmake, Premake, vcpkg, or Conan build manifest exists anywhere in the repository. Target source membership, compile definitions, include paths, link libraries, and platform-specific dependencies therefore cannot be derived truthfully."
+            exit 1
+          fi
+
+          printf 'Detected native build manifests:\n'
+          printf '  %s\n' "${manifests[@]}"
+          echo "::error title=Desktop native workflow requires manifest integration::A native build manifest now exists, but this workflow intentionally does not guess configure commands or target names. Update this workflow from the repository manifest before enabling compilation."
+          exit 1

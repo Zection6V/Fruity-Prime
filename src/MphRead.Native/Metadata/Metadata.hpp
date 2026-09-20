@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Formats/Enums.hpp"
+#include "../Formats/Formats.hpp"
 #include "../Formats/Types.hpp"
 
 #include <array>
@@ -16,8 +17,6 @@
 
 namespace MphRead
 {
-    enum class GameMode : std::int32_t;
-
     enum class MdlSuffix : std::int32_t
     {
         None,
@@ -51,14 +50,6 @@ namespace MphRead
         TouchToStart2,
         WifiCreate,
         WifiGames
-    };
-
-    struct PaletteData
-    {
-        std::uint16_t Data = 0;
-
-        constexpr PaletteData() noexcept = default;
-        constexpr explicit PaletteData(std::uint16_t data) noexcept : Data(data) {}
     };
 
     class RecolorMetadata

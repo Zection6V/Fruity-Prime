@@ -7,11 +7,6 @@
 
 namespace MphRead::Mods::Update
 {
-    NullReferenceException::NullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     std::shared_ptr<IUpdateInstaller> UpdateInstall::_current{};
 
     std::shared_ptr<IUpdateInstaller> UpdateInstall::Current()

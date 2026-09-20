@@ -4,17 +4,10 @@
 
 #include <functional>
 #include <memory>
-#include <stdexcept>
 #include <string>
 
 namespace MphRead::Mods::Update
 {
-    class NullReferenceException final : public std::runtime_error
-    {
-    public:
-        NullReferenceException();
-    };
-
     class IUpdateInstaller
     {
     public:

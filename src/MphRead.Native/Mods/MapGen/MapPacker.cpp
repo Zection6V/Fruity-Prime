@@ -1507,7 +1507,7 @@ namespace
             MapMaterial* mapMaterial = Require(mapMaterialValue);
             if (mapMaterial->SourceMaterial() < 0)
             {
-                const std::string textureSource = def->TextureSource();
+                const std::string& textureSource = def->TextureSource();
                 const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
                 throw ProgramException(
                     textureSource + " has no material "
@@ -1518,7 +1518,7 @@ namespace
             const auto* modelMaterialsForCount = Require(sourceValue->Materials);
             if (materialForUpperBound >= ListCount(modelMaterialsForCount->size()))
             {
-                const std::string textureSource = def->TextureSource();
+                const std::string& textureSource = def->TextureSource();
                 const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
                 throw ProgramException(
                     textureSource + " has no material "
@@ -1533,7 +1533,7 @@ namespace
             if (srcMaterial->TextureId < 0 || srcMaterial->PaletteId < 0)
             {
                 const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
-                const std::string textureSource = def->TextureSource();
+                const std::string& textureSource = def->TextureSource();
                 throw ProgramException(
                     "Material " + FormatInt32CurrentCulture(invalidMaterial)
                     + " of " + textureSource + " has no texture.");

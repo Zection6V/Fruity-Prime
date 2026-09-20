@@ -1112,6 +1112,7 @@ namespace MphRead::Entities
             CreateTranslation(point1),
             uvsAndVerts,
             _bindingId,
+            BillboardMode::None,
             count);
     }
 

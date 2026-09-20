@@ -32,6 +32,7 @@
 #include <sys/auxv.h>
 #if !defined(__ANDROID__)
 #include <dlfcn.h>
+#include <unistd.h>
 #endif
 #elif defined(__unix__)
 #if !defined(__ANDROID__)
@@ -614,6 +615,51 @@ namespace
             : reinterpret_cast<T>(GetProcAddress(module, name));
     }
 #elif defined(__APPLE__) || (defined(__unix__) && !defined(__ANDROID__))
+    [[nodiscard]] std::optional<std::filesystem::path>
+        GlfwExecutableDirectory() noexcept
+    {
+        try
+        {
+#if defined(__APPLE__)
+            std::uint32_t size = 1;
+            char probe = 0;
+            if (_NSGetExecutablePath(&probe, &size) == 0 || size == 0)
+            {
+                return std::nullopt;
+            }
+            std::vector<char> buffer(size);
+            if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+            {
+                return std::nullopt;
+            }
+            return std::filesystem::path(buffer.data()).parent_path();
+#elif defined(__linux__)
+            std::vector<char> buffer(256);
+            for (;;)
+            {
+                const ssize_t length = readlink(
+                    "/proc/self/exe", buffer.data(), buffer.size());
+                if (length < 0)
+                {
+                    return std::nullopt;
+                }
+                if (static_cast<std::size_t>(length) < buffer.size())
+                {
+                    return std::filesystem::path(std::string(
+                        buffer.data(), static_cast<std::size_t>(length))).parent_path();
+                }
+                buffer.resize(buffer.size() * 2U);
+            }
+#else
+            return std::nullopt;
+#endif
+        }
+        catch (...)
+        {
+            return std::nullopt;
+        }
+    }
+
     [[nodiscard]] void* GlfwModule() noexcept
     {
         static void* module = []() noexcept -> void*
@@ -629,14 +675,13 @@ namespace
                 "glfw.so.3", "libglfw.so.3",
                 "glfw.so", "libglfw.so", "glfw"};
 #endif
-            if (const std::optional<std::filesystem::path> process = ProcessPath())
+            if (const auto directory = GlfwExecutableDirectory())
             {
-                const std::filesystem::path directory = process->parent_path();
                 for (const char* name : names)
                 {
                     try
                     {
-                        const std::string local = (directory / name).string();
+                        const std::string local = (*directory / name).string();
                         if (void* handle = dlopen(
                             local.c_str(), RTLD_LAZY | RTLD_LOCAL))
                         {

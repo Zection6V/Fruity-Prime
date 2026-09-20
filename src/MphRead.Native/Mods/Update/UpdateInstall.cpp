@@ -47,7 +47,7 @@ namespace MphRead::Mods::Update
         }
     }
 
-    bool DesktopUpdateInstaller::Allowed() const
+    bool DesktopUpdateInstaller::Allowed()
     {
         return true;
     }
@@ -57,12 +57,12 @@ namespace MphRead::Mods::Update
         return true;
     }
 
-    bool DesktopUpdateInstaller::ExitAfterInstall() const
+    bool DesktopUpdateInstaller::ExitAfterInstall()
     {
         return true;
     }
 
-    std::function<void(bool, std::string)> DesktopUpdateInstaller::Finished() const
+    std::function<void(bool, std::string)> DesktopUpdateInstaller::Finished()
     {
         return _finished;
     }

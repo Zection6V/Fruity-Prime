@@ -297,7 +297,6 @@ namespace MphRead
         class EffectParticle;
         class SingleParticle;
     }
-    class BeamEffectEntityData;
     class LightInfo;
     class Node;
 
@@ -306,6 +305,7 @@ namespace MphRead
         class EntityBase;
         class PlayerEntity;
         class RoomEntity;
+        struct BeamEffectEntityData;
         class BeamEffectEntity;
         class BombEntity;
         class PlatformEntity;
@@ -689,8 +689,8 @@ public: \
     void StartCutscene(std::int32_t id); \
     void EndCutscene(bool resetFade = false); \
     void ResetFrameCount(); \
-    std::shared_ptr<MphRead::Entities::BeamEffectEntity> InitBeamEffect(const MphRead::BeamEffectEntityData& data); \
-    void UnlinkBeamEffect(const std::shared_ptr<MphRead::Entities::BeamEffectEntity>& entry); \
+    std::shared_ptr<MphRead::Entities::BeamEffectEntity> InitBeamEffect(const MphRead::Entities::BeamEffectEntityData& data); \
+    void UnlinkBeamEffect(MphRead::Entities::BeamEffectEntity* entry); \
     std::shared_ptr<MphRead::Entities::BombEntity> InitBomb(); \
     void UnlinkBomb(const std::shared_ptr<MphRead::Entities::BombEntity>& entry); \
     void AddSingleParticle(MphRead::SingleType type, OpenTK::Mathematics::Vector3 position, \

@@ -3945,7 +3945,8 @@ namespace MphRead
         }
     }
 
-    std::shared_ptr<Entities::BeamEffectEntity> Scene::InitBeamEffect(const BeamEffectEntityData& data)
+    std::shared_ptr<Entities::BeamEffectEntity> Scene::InitBeamEffect(
+        const Entities::BeamEffectEntityData& data)
     {
         if (_inactiveBeamEffects.empty())
         {
@@ -3957,10 +3958,24 @@ namespace MphRead
         return entry;
     }
 
-    void Scene::UnlinkBeamEffect(const std::shared_ptr<Entities::BeamEffectEntity>& entry)
+    void Scene::UnlinkBeamEffect(Entities::BeamEffectEntity* entry)
     {
-        RemoveFirst(_activeBeamEffects, entry);
-        _inactiveBeamEffects.push(entry);
+        std::shared_ptr<Entities::BeamEffectEntity> owner;
+        for (auto enumerator = GetBeamEffectEntities().GetEnumerator(); enumerator.MoveNext();)
+        {
+            auto current = enumerator.Current();
+            if (current.get() == entry)
+            {
+                owner = std::move(current);
+                break;
+            }
+        }
+        if (!owner)
+        {
+            throw System::NullReferenceException();
+        }
+        RemoveFirst(_activeBeamEffects, owner);
+        _inactiveBeamEffects.push(std::move(owner));
     }
 
     std::shared_ptr<Entities::BombEntity> Scene::InitBomb()

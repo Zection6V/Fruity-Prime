@@ -1,7 +1,7 @@
 #include "GameFiles.hpp"
 
 #include "../../../Program.hpp"
-#include "../../../Read.hpp"
+#include "../../../Formats/Formats.hpp"
 #include "../../../Utility/Extract.hpp"
 
 #include <array>
@@ -40,8 +40,8 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <tlhelp32.h>
 #include <windows.h>
+#include <tlhelp32.h>
 #elif defined(__APPLE__)
 #include <fcntl.h>
 #include <mach-o/dyld.h>
@@ -92,14 +92,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
-
-namespace MphRead::Paths
-{
-    void UpdatePaths();
-    void ChooseMphPath();
-    void ChooseFhPath();
-    [[nodiscard]] const std::string& MphKey();
-}
 
 namespace
 {
@@ -1884,7 +1876,7 @@ namespace MphRead::Mods::Launcher
         try
         {
             ApplyPaths();
-            const std::string& root = Paths::FileSystem();
+            const std::string root = Paths::FileSystem();
             if (IsNullOrWhiteSpace(root) || !DirectoryExists(root))
             {
                 return "The extracted files are missing -- set up again";
@@ -1906,7 +1898,7 @@ namespace MphRead::Mods::Launcher
         }
         try
         {
-            return "Ready -- " + Paths::MphKey();
+            return "Ready -- " + Paths::MphKey;
         }
         catch (...)
         {

@@ -27,13 +27,44 @@ permissions:
   contents: read
 
 jobs:
-  android-native:
-    name: Android NDK native libraries
+  android_contract:
+    name: Android native build contract
     runs-on: ubuntu-24.04
+    outputs:
+      abis: ${{ steps.contract.outputs.abis }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Export repository Android build contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          contract_file="$RUNNER_TEMP/fruity-native-android.env"
+          rm -f "$contract_file"
+          cmake -DOUTPUT_FILE="$contract_file" -P cmake/ExportAndroidConfig.cmake
+          cat "$contract_file"
+          set -a
+          source "$contract_file"
+          set +a
+          abis_json="$(python3 -c 'import json, os; print(json.dumps(os.environ["FRUITY_ANDROID_ABIS"].split(), separators=(",", ":")))' )"
+          test "$abis_json" != "[]"
+          echo "abis=$abis_json" >> "$GITHUB_OUTPUT"
+
+  android-native:
+    name: Android NDK / ${{ matrix.abi }}
+    needs: android_contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: ${{ fromJSON(needs.android_contract.outputs.abis) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
       - name: Load repository Android build contract
         shell: bash
@@ -58,7 +89,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
           sdkmanager \
             "platform-tools" \
             "platforms;android-${ANDROID_COMPILE_SDK}" \
@@ -101,25 +134,41 @@ jobs:
           printf 'compile SDK: android-%s\n' "$ANDROID_COMPILE_SDK"
           printf 'minimum API: %s\n' "$ANDROID_MIN_API"
           printf 'NDK: %s\n' "$ANDROID_NDK_VERSION"
-          printf 'ABIs: %s\n' "$FRUITY_ANDROID_ABIS"
+          printf 'repository ABIs: %s\n' "$FRUITY_ANDROID_ABIS"
+          printf 'matrix ABI: %s\n' "${{ matrix.abi }}"
 
-      - name: Configure and build every repository ABI
+      - name: Configure and build repository ABI
         shell: bash
         run: |
           set -euo pipefail
+          abi="${{ matrix.abi }}"
+          build_dir="build/native-android-${abi}"
+          mkdir -p "$build_dir"
 
-          for abi in $FRUITY_ANDROID_ABIS; do
-            build_dir="build/native-android-${abi}"
-            cmake -S . -B "$build_dir" \
-              -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
-              -DANDROID_ABI="$abi" \
-              -DANDROID_PLATFORM="android-${ANDROID_MIN_API}" \
-              -DANDROID_STL=c++_static \
-              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-              -DFRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR="$FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR"
+          cmake -S . -B "$build_dir" \
+            -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI="$abi" \
+            -DANDROID_PLATFORM="android-${ANDROID_MIN_API}" \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DFRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR="$FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR" 2>&1 | tee "$build_dir/configure.log"
 
-            cmake --build "$build_dir" \
-              --config RelWithDebInfo \
-              --parallel 2 \
-              --target fruity_mphread_native_android
-          done
+          cmake --build "$build_dir" \
+            --config RelWithDebInfo \
+            --parallel 2 \
+            --verbose \
+            --target fruity_mphread_native_android 2>&1 | tee "$build_dir/build.log"
+
+      - name: Upload Android native build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-cpp-android-${{ matrix.abi }}-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            build/native-android-${{ matrix.abi }}/CMakeCache.txt
+            build/native-android-${{ matrix.abi }}/CMakeFiles/CMakeConfigureLog.yaml
+            build/native-android-${{ matrix.abi }}/configure.log
+            build/native-android-${{ matrix.abi }}/build.log
+            build/native-android-${{ matrix.abi }}/**/*.a

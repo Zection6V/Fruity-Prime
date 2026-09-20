@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
 
 function(fruity_collect_owner owner_root out_sources out_headers)
     file(GLOB_RECURSE _sources CONFIGURE_DEPENDS "${owner_root}/*.cpp")
@@ -46,7 +47,7 @@ add_library(FruityPrime::NcsfPlay.Native ALIAS fruity_ncsfplay_native)
 target_sources(fruity_ncsfplay_native PRIVATE ${NCSFPLAY_NATIVE_SOURCES} ${NCSFPLAY_NATIVE_HEADERS})
 target_include_directories(fruity_ncsfplay_native PUBLIC "${FRUITY_NCSFPLAY_ROOT}")
 target_compile_features(fruity_ncsfplay_native PUBLIC cxx_std_20)
-target_link_libraries(fruity_ncsfplay_native PUBLIC Threads::Threads)
+target_link_libraries(fruity_ncsfplay_native PUBLIC Threads::Threads ZLIB::ZLIB)
 set_target_properties(fruity_ncsfplay_native PROPERTIES OUTPUT_NAME "NcsfPlay.Native")
 
 add_library(fruity_mphread_native STATIC)

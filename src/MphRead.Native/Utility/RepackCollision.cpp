@@ -1555,19 +1555,22 @@ namespace MphRead::Utility
             for (const auto& pair : Metadata::RoomMetadata)
             {
                 RoomMetadata& meta = Require(pair.second);
-                bool alreadyAdded = false;
-                for (const auto& collision : allCollision)
+                if (!meta.FirstHunt && !meta.Hybrid)
                 {
-                    if (collision.second == meta.CollisionPath)
+                    bool alreadyAdded = false;
+                    for (const auto& collision : allCollision)
                     {
-                        alreadyAdded = true;
-                        break;
+                        if (collision.second == meta.CollisionPath)
+                        {
+                            alreadyAdded = true;
+                            break;
+                        }
                     }
-                }
-                if (!meta.FirstHunt && !meta.Hybrid && !alreadyAdded)
-                {
-                    allCollision.emplace_back(
-                        Collision::GetCollision(std::addressof(meta), -1), meta.CollisionPath);
+                    if (!alreadyAdded)
+                    {
+                        allCollision.emplace_back(
+                            Collision::GetCollision(std::addressof(meta), -1), meta.CollisionPath);
+                    }
                 }
             }
             for (const auto& pair : Metadata::ModelMetadata)

@@ -103,7 +103,8 @@ namespace MphRead::Testing
                 {
                     throw System::ArgumentOutOfRangeException("start");
                 }
-                return Span(_data + narrowed, _length - static_cast<std::size_t>(narrowed));
+                T* const slicedData = narrowed == 0 ? _data : _data + narrowed;
+                return Span(slicedData, _length - static_cast<std::size_t>(narrowed));
             }
 
             [[nodiscard]] Span Slice(std::int64_t start, std::int64_t length) const
@@ -120,7 +121,8 @@ namespace MphRead::Testing
                 {
                     throw System::ArgumentOutOfRangeException("length");
                 }
-                return Span(_data + narrowedStart, static_cast<std::size_t>(narrowedLength));
+                T* const slicedData = narrowedStart == 0 ? _data : _data + narrowedStart;
+                return Span(slicedData, static_cast<std::size_t>(narrowedLength));
             }
 
             template <typename U>

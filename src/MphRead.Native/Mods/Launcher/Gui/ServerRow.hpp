@@ -24,11 +24,13 @@ namespace MphRead::Mods::Launcher::Gui
         ServerRowNullReferenceException();
     };
 
-    enum class ServerRowKey : std::uint8_t
+    // Keep the surrogate numerically identical to Avalonia 11.3.11 Key so
+    // adapters can pass raw Key values through without remapping or collision.
+    enum class ServerRowKey : std::int32_t
     {
-        Other,
-        Enter,
-        Space
+        Other = 0,
+        Enter = 6,
+        Space = 18
     };
 
     enum class ServerRowTextTrimming : std::uint8_t

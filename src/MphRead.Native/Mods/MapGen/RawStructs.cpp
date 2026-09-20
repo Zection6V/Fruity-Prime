@@ -4,7 +4,7 @@
 #include "../../Program.hpp"
 #include "../../Read.hpp"
 
-#include <cassert>
+#include <cstdlib>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -12,6 +12,12 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#if defined(DEBUG)
+#define RAW_STRUCTS_DEBUG_ASSERT(condition) do { if (!(condition)) { std::abort(); } } while (false)
+#else
+#define RAW_STRUCTS_DEBUG_ASSERT(condition) do { } while (false)
+#endif
 
 namespace
 {
@@ -87,7 +93,7 @@ namespace
         std::string_view typeName)
     {
         const std::size_t size = sizeof(T);
-        assert(bytes.size() == size);
+        RAW_STRUCTS_DEBUG_ASSERT(bytes.size() == size);
         if (bytes.size() != size)
         {
             throw MphRead::ProgramException(

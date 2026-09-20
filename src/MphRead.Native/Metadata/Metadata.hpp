@@ -188,6 +188,8 @@ namespace MphRead
         class BeamProjectileEntity;
     }
 
+    using BeamProjectileEntity = Entities::BeamProjectileEntity;
+
     class WeaponInfo;
 
     enum class EquipFlags : std::uint8_t

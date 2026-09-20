@@ -682,6 +682,7 @@ namespace MphRead::Entities
         void Reposition(::OpenTK::Mathematics::Vector3 offset,
             MphRead::Formats::Culling::NodeRef nodeRef);
         void BlockFormSwitch();
+        void ResetCombatVisor();
         void SetBipedStuck(bool stuck);
         [[nodiscard]] bool CheckHitByBomb(BombEntity* bomb, bool halfturret);
         void OnHalfturretDied();

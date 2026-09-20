@@ -1149,7 +1149,7 @@ namespace MphRead::Formats
             camInfo.NodeRef, camInfo.PrevPosition, camInfo.Position);
 
         Entities::PlayerEntity& player
-            = RequireReference(Entities::PlayerEntity::Main());
+            = RequireReference(Entities::PlayerEntity::Main().get());
         if ((ForceAlt() && player.IsAltForm())
             || (ForceBiped() && !player.IsAltForm()))
         {
@@ -1207,7 +1207,7 @@ namespace MphRead::Formats
 
         _current = shared_from_this();
         Entities::PlayerEntity& player
-            = RequireReference(Entities::PlayerEntity::Main());
+            = RequireReference(Entities::PlayerEntity::Main().get());
         if (_sequenceId > 3)
         {
             player.CloseDialogs();
@@ -1239,7 +1239,7 @@ namespace MphRead::Formats
         CalculateFrameValues();
 
         if (firstFrame.PositionEntity
-            && (!Bugfixes::BetterCamSeqNodeRef || _sequenceId == 98))
+            && (!Bugfixes::BetterCamSeqNodeRef() || _sequenceId == 98))
         {
             Culling::NodeRef nodeRef = firstFrame.PositionEntity->NodeRef;
             if (nodeRef != Culling::NodeRef::None)

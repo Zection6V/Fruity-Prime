@@ -85,6 +85,11 @@ namespace
                 "The array starting from the specified index is not long enough.")
         {
         }
+
+        explicit ArgumentException(std::string message)
+            : std::invalid_argument(std::move(message))
+        {
+        }
     };
 
     class OverflowException final : public std::overflow_error
@@ -687,6 +692,18 @@ namespace
         stream.imbue(CurrentLocale());
         stream << value;
         return stream.str();
+    }
+
+    [[nodiscard]] std::string FormatIntPtrForArgument(std::intptr_t value)
+    {
+        char buffer[32]{};
+        const auto [end, error] = std::to_chars(
+            std::begin(buffer), std::end(buffer), value);
+        if (error != std::errc{})
+        {
+            throw std::runtime_error("Failed to format IntPtr.");
+        }
+        return std::string(buffer, end);
     }
 
     [[nodiscard]] std::string FormatWeightLine(
@@ -1564,7 +1581,7 @@ namespace MphRead::Memory
                     processHandle,
                     baseAddr,
                     buffer.empty() ? nullptr : buffer.data(),
-                    static_cast<std::int32_t>(
+                    std::bit_cast<std::int32_t>(
                         static_cast<std::uint32_t>(memoryInfo.RegionSize)),
                     count);
                 assert(result);
@@ -1878,8 +1895,9 @@ namespace MphRead::Memory
             static_cast<void>(iterator);
             if (!inserted)
             {
-                throw std::invalid_argument(
-                    "An item with the same key has already been added.");
+                throw ArgumentException(
+                    "An item with the same key has already been added. Key: "
+                    + FormatIntPtrForArgument(address));
             }
         }
 

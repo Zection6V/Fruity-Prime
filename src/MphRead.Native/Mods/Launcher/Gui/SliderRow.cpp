@@ -54,7 +54,7 @@ namespace
     {
         if (min > max)
         {
-            throw SliderRowArgumentException();
+            throw SliderRowArgumentException(min, max);
         }
         if (value < min)
         {
@@ -107,11 +107,17 @@ namespace
 
     [[nodiscard]] std::int32_t DoubleToInt32Unchecked(double value) noexcept
     {
-        if (!std::isfinite(value)
-            || value < static_cast<double>(std::numeric_limits<std::int32_t>::min())
-            || value >= static_cast<double>(std::numeric_limits<std::int32_t>::max()) + 1.0)
+        if (std::isnan(value))
+        {
+            return 0;
+        }
+        if (value < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
         {
             return std::numeric_limits<std::int32_t>::min();
+        }
+        if (value > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
+        {
+            return std::numeric_limits<std::int32_t>::max();
         }
         return static_cast<std::int32_t>(value);
     }
@@ -126,6 +132,13 @@ namespace MphRead::Mods::Launcher::Gui
 
     SliderRowArgumentException::SliderRowArgumentException()
         : std::invalid_argument("'min' cannot be greater than max.")
+    {
+    }
+
+    SliderRowArgumentException::SliderRowArgumentException(
+        std::int32_t min, std::int32_t max)
+        : std::invalid_argument("'" + std::to_string(min)
+            + "' cannot be greater than " + std::to_string(max) + ".")
     {
     }
 

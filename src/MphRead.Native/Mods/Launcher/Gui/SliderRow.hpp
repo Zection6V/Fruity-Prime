@@ -25,6 +25,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
     public:
         SliderRowArgumentException();
+        SliderRowArgumentException(std::int32_t min, std::int32_t max);
     };
 
     enum class SliderRowKey : std::uint8_t

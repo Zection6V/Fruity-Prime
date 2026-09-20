@@ -17,8 +17,7 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <cuchar>
-#include <langinfo.h>
+#include <cwchar>
 #include <locale.h>
 #endif
 
@@ -73,11 +72,10 @@ namespace
 		std::size_t remaining = std::strlen(value);
 		while (remaining > 0)
 		{
-			char32_t scalar = U'\0';
-			const std::size_t length = std::mbrtoc32(&scalar, current, remaining, &state);
+			wchar_t wide = L'\0';
+			const std::size_t length = std::mbrtowc(&wide, current, remaining, &state);
 			if (length == static_cast<std::size_t>(-1)
-				|| length == static_cast<std::size_t>(-2)
-				|| length == static_cast<std::size_t>(-3))
+				|| length == static_cast<std::size_t>(-2))
 			{
 				return ToU16(value);
 			}
@@ -85,15 +83,16 @@ namespace
 			{
 				break;
 			}
+			const std::uint32_t scalar = static_cast<std::uint32_t>(wide);
 			if (scalar <= 0xFFFFU)
 			{
 				result.push_back(static_cast<char16_t>(scalar));
 			}
 			else if (scalar <= 0x10FFFFU)
 			{
-				scalar -= 0x10000U;
-				result.push_back(static_cast<char16_t>(0xD800U + (scalar >> 10U)));
-				result.push_back(static_cast<char16_t>(0xDC00U + (scalar & 0x3FFU)));
+				const std::uint32_t supplementary = scalar - 0x10000U;
+				result.push_back(static_cast<char16_t>(0xD800U + (supplementary >> 10U)));
+				result.push_back(static_cast<char16_t>(0xDC00U + (supplementary & 0x3FFU)));
 			}
 			current += length;
 			remaining -= length;
@@ -182,26 +181,7 @@ namespace
 #endif
 #else
 		const locale_t locale = uselocale(static_cast<locale_t>(0));
-		if (locale != static_cast<locale_t>(0) && locale != LC_GLOBAL_LOCALE)
-		{
-			if (std::u16string value = LocaleBytesToU16(nl_langinfo_l(RADIXCHAR, locale)); !value.empty())
-			{
-				result.NumberDecimalSeparator = std::move(value);
-			}
-#if defined(POSITIVE_SIGN)
-			if (std::u16string value = LocaleBytesToU16(nl_langinfo_l(POSITIVE_SIGN, locale)); !value.empty())
-			{
-				result.PositiveSign = std::move(value);
-			}
-#endif
-#if defined(NEGATIVE_SIGN)
-			if (std::u16string value = LocaleBytesToU16(nl_langinfo_l(NEGATIVE_SIGN, locale)); !value.empty())
-			{
-				result.NegativeSign = std::move(value);
-			}
-#endif
-		}
-		else if (locale == LC_GLOBAL_LOCALE)
+		if (locale != static_cast<locale_t>(0))
 		{
 			if (const lconv* info = localeconv(); info != nullptr)
 			{

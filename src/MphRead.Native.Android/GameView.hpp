@@ -45,7 +45,7 @@ namespace MphRead::Droid
         GameView(
             JNIEnv* env,
             jobject view,
-            TouchControls* controls,
+            TouchControls& controls,
             std::shared_ptr<AndroidInput> input,
             Build build,
             Action onEnd,

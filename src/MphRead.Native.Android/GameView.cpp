@@ -815,7 +815,7 @@ namespace MphRead::Droid
     public:
         static std::shared_ptr<RenderLoop> Create(
             JavaVM* vm,
-            TouchControls* controls,
+            TouchControls& controls,
             std::shared_ptr<AndroidInput> input,
             Build build,
             Action onEnd,
@@ -931,7 +931,7 @@ namespace MphRead::Droid
 
         RenderLoop(
             JavaVM* vm,
-            TouchControls* controls,
+            TouchControls& controls,
             std::shared_ptr<AndroidInput> input,
             Build build,
             Action onEnd,
@@ -941,7 +941,7 @@ namespace MphRead::Droid
             BoolAction onSoftKeyboard
         )
             : _vm(vm),
-              _controls(controls),
+              _controls(&controls),
               _input(std::move(input)),
               _build(std::move(build)),
               _onEnd(std::move(onEnd)),
@@ -950,18 +950,6 @@ namespace MphRead::Droid
               _onPauseMenu(std::move(onPauseMenu)),
               _onSoftKeyboard(std::move(onSoftKeyboard))
         {
-            if (_controls == nullptr)
-            {
-                throw std::invalid_argument(
-                    "Android TouchControls must not be null"
-                );
-            }
-            if (_input == nullptr)
-            {
-                throw std::invalid_argument(
-                    "AndroidInput must not be null"
-                );
-            }
         }
 
         void Start()
@@ -2081,13 +2069,7 @@ namespace MphRead::Droid
         _view->MakeFocusable(env);
     }
 
-    GameView::~GameView()
-    {
-        if (_loop)
-        {
-            _loop->RequestStop();
-        }
-    }
+    GameView::~GameView() = default;
 
     bool GameView::OnCheckIsTextEditor() const
     {

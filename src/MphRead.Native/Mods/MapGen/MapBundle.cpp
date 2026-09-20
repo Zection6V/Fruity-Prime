@@ -18,6 +18,7 @@
 #include <cstring>
 #include <ctime>
 #include <cwctype>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -2118,20 +2119,29 @@ namespace MphRead::Mods::MapGen
             {
                 // The C# using scope disposes ZipArchive before FileStream even
                 // while propagating an exception. If archive finalization has
-                // not already started, finish the successfully-created entries
-                // before rethrowing; a finalization failure replaces the prior
-                // exception just as an exception from a finally block does.
+                // not already started, finish the successfully-created entries.
+                // A finalization failure replaces the prior failure; the outer
+                // FileStream disposal still runs, and its failure replaces
+                // either one.
+                std::exception_ptr pending = std::current_exception();
                 if (!finalizationStarted)
                 {
                     finalizationStarted = true;
-                    FinishZip(file, entries);
+                    try
+                    {
+                        FinishZip(file, entries);
+                    }
+                    catch (...)
+                    {
+                        pending = std::current_exception();
+                    }
                 }
                 file.close();
                 if (!file)
                 {
                     throw std::runtime_error("Could not close file: " + temporary);
                 }
-                throw;
+                std::rethrow_exception(pending);
             }
 
             file.close();

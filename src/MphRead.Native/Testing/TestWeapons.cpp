@@ -1,10 +1,13 @@
 #include "TestWeapons.hpp"
 
 #include <array>
+#include <bit>
 #include <charconv>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <ios>
+#include <mutex>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -43,7 +46,7 @@ namespace
 
     [[nodiscard]] std::string FormatInt32(std::int32_t value)
     {
-        return Decimal(value);
+        return MphRead::Fixed(value).ToString();
     }
 
     [[nodiscard]] std::string FormatHexUInt32(std::uint32_t value)
@@ -65,16 +68,42 @@ namespace
         return result;
     }
 
+    [[nodiscard]] constexpr std::string_view EnvironmentNewLine() noexcept
+    {
+#if defined(_WIN32)
+        return "\r\n";
+#else
+        return "\n";
+#endif
+    }
+
+    void WriteConsoleLine(std::string_view value)
+    {
+        static std::recursive_mutex mutex;
+        const std::lock_guard<std::recursive_mutex> guard(mutex);
+
+        std::ostream& output = std::cout;
+        if (!value.empty())
+        {
+            output.write(value.data(), static_cast<std::streamsize>(value.size()));
+        }
+        const std::string_view newLine = EnvironmentNewLine();
+        output.write(newLine.data(), static_cast<std::streamsize>(newLine.size()));
+        output.flush();
+        if (!output)
+        {
+            throw std::ios_base::failure("Failed to write Console output.");
+        }
+    }
+
     void WriteLine(const std::string& value)
     {
-        std::string line = value;
-        line.push_back('\n');
-        std::cout << line;
+        WriteConsoleLine(value);
     }
 
     void WriteLine()
     {
-        std::cout << '\n';
+        WriteConsoleLine({});
     }
 
     [[nodiscard]] std::string BeamTypeToString(MphRead::BeamType value)
@@ -94,7 +123,7 @@ namespace
         case MphRead::BeamType::Platform: return "Platform";
         case MphRead::BeamType::Enemy: return "Enemy";
         }
-        return Decimal(static_cast<int>(static_cast<std::int8_t>(value)));
+        return FormatInt32(static_cast<std::int8_t>(value));
     }
 
     [[nodiscard]] std::string JoinFlagNames(
@@ -191,6 +220,29 @@ namespace
         }
         return typeName + "." + value;
     }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedMultiplyInt32(
+        std::int32_t left, std::int32_t right) noexcept
+    {
+        const std::uint32_t product
+            = static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right);
+        return std::bit_cast<std::int32_t>(product);
+    }
+
+#if defined(DEBUG)
+    [[noreturn]] void DebugAssertFailedFallback() noexcept
+    {
+        std::abort();
+    }
+
+    void DebugAssertFallback(bool condition) noexcept
+    {
+        if (!condition)
+        {
+            DebugAssertFailedFallback();
+        }
+    }
+#endif
 }
 
 namespace MphRead::Testing
@@ -505,18 +557,17 @@ namespace MphRead::Testing
         std::int32_t size, std::int32_t count, const std::vector<std::uint8_t>& array)
     {
 #if defined(DEBUG)
-        if (size != 0xF0
-            || static_cast<std::int64_t>(array.size())
-                != static_cast<std::int64_t>(count) * static_cast<std::int64_t>(size))
-        {
-            std::abort();
-        }
+        DebugAssertFallback(size == 0xF0);
+        const std::int32_t expectedLength = UncheckedMultiplyInt32(count, size);
+        DebugAssertFallback(
+            expectedLength >= 0
+            && array.size() == static_cast<std::size_t>(expectedLength));
 #endif
 
         auto results = std::make_shared<std::vector<RawWeaponInfo>>();
         for (std::int32_t i = 0; i < count; ++i)
         {
-            const std::int32_t start = i * size;
+            const std::int32_t start = UncheckedMultiplyInt32(i, size);
             const auto* begin = array.data() + static_cast<std::size_t>(start);
             std::span<const std::uint8_t, 0xF0> raw(begin, 0xF0);
             RawWeaponInfo value(raw);

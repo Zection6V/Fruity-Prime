@@ -15,7 +15,7 @@ namespace MphRead::Testing
     class TestWeapons final
     {
     public:
-        struct RawWeaponInfo
+        struct RawWeaponInfo final
         {
             const BeamType Beam{};
             const BeamType BeamKind{};

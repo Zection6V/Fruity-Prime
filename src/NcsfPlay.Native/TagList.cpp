@@ -263,7 +263,7 @@ namespace
             if (result == JNI_EDETACHED)
             {
                 if (_javaVm->AttachCurrentThread(
-                        reinterpret_cast<void**>(&_env),
+                        &_env,
                         nullptr) != JNI_OK)
                 {
                     throw std::runtime_error(

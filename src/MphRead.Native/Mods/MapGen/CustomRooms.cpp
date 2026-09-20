@@ -1246,7 +1246,7 @@ namespace
         const std::string_view actual(
             fileName.data() + fileName.size() - extension.size(),
             extension.size());
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__APPLE__)
         return CompareOrdinalIgnoreCase(actual, extension) == 0;
 #else
         return actual == extension;
@@ -1331,7 +1331,7 @@ namespace
     {
         std::shared_ptr<CustomRooms::DefinitionList> Definitions{};
         std::int32_t FirstId = -1;
-        std::mutex Lock;
+        std::recursive_mutex Lock;
         std::string MapDirectory;
 
         CustomRoomsState()
@@ -1414,7 +1414,7 @@ namespace MphRead::Mods::MapGen
     const CustomRooms::DefinitionList& CustomRooms::Definitions()
     {
         CustomRoomsState& state = State();
-        std::lock_guard<std::mutex> guard(state.Lock);
+        std::lock_guard<std::recursive_mutex> guard(state.Lock);
         if (!state.Definitions)
         {
             state.Definitions = LoadDefinitions();

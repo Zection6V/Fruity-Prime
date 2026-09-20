@@ -17,8 +17,8 @@ namespace MphRead
     class Scene;
 
     enum class AreaState : std::int32_t;
-    enum class BossFlags : std::uint32_t;
-    enum class GameMode : std::int32_t;
+    enum class BossFlags : std::int32_t;
+    enum class GameMode : std::uint8_t;
 
     enum class MatchState : std::int32_t
     {

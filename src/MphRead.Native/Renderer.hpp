@@ -735,6 +735,10 @@ public: \
     [[nodiscard]] MphRead::FadeType FadeType() const noexcept; \
     void SetFade(MphRead::FadeType type, float length, bool overwrite, \
         MphRead::AfterFade afterFade = MphRead::AfterFade::None, float delay = 0.0F); \
+    void StartMovie(MphRead::Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
+        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength); \
+    void StartMovie(MphRead::Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
+        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, MphRead::AfterMovie afterMovieAction); \
     void DoCleanup(); \
     [[nodiscard]] std::shared_ptr<MphRead::Hud::LayerInfo> Layer1Info() const noexcept; \
     [[nodiscard]] std::shared_ptr<MphRead::Hud::LayerInfo> Layer2Info() const noexcept; \

@@ -34,7 +34,7 @@ namespace
         return Vector3(value.X, value.Y + y, value.Z);
     }
 
-    [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
     }
@@ -189,30 +189,6 @@ namespace
         return value;
     }
 
-    template <typename T>
-    [[nodiscard]] T* RawPointer(T* value) noexcept
-    {
-        return value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T* RawPointer(std::shared_ptr<T>& value) noexcept
-    {
-        return value.get();
-    }
-
-    template <typename T>
-    [[nodiscard]] T* RawPointer(const std::shared_ptr<T>& value) noexcept
-    {
-        return value.get();
-    }
-
-    template <typename T>
-    [[nodiscard]] T* RawPointer(T& value) noexcept
-    {
-        return std::addressof(value);
-    }
-
     [[nodiscard]] MphRead::StorySave& StorySave()
     {
         if (MphRead::GameState::StorySave == nullptr)
@@ -228,7 +204,7 @@ namespace
         {
             throw System::NullReferenceException();
         }
-        return scene->RoomId;
+        return scene->RoomId();
     }
 }
 
@@ -273,7 +249,7 @@ namespace MphRead::Entities
         {
             SetUpModel("ArtifactBase");
         }
-        assert(GameState::Mode == GameMode::SinglePlayer);
+        assert(GameState::Mode() == GameMode::SinglePlayer);
         Active = StorySave().InitRoomState(
             RoomId(_scene), Id, _data.Active != 0, 2) != 0;
         if (data.ModelId < 8)
@@ -363,7 +339,7 @@ namespace MphRead::Entities
                 _scanId = GetChecked(_scanIds, index);
             }
 
-            auto current = Formats::CameraSequence::Current;
+            auto* current = Formats::CameraSequence::Current();
             if (current != nullptr && current->BlockInput())
             {
                 return EntityBase::Process();
@@ -375,7 +351,7 @@ namespace MphRead::Entities
             {
                 const Vector3 direction = AddY(
                     static_cast<Vector3>(player.Position) - static_cast<Vector3>(Position), 0.5F);
-                Position = static_cast<Vector3>(Position) + Scale(Scale(direction, 0.1F), 0.5F);
+                Position = static_cast<Vector3>(Position) + ScaleVector(ScaleVector(direction, 0.1F), 0.5F);
             }
 
             if (player.Health() == 0)
@@ -446,17 +422,17 @@ namespace MphRead::Entities
                 else
                 {
                     GameState::UpdateCleanSave(false);
-                    GameState::PausePrevented = true;
+                    GameState::PausePrevented(true);
                     _scene->StartMovie(
                         Movie::OctolithPickUp,
                         FadeType::FadeOutInWhite,
                         5.0F / 30.0F,
                         FadeType::FadeOutInWhite,
                         5.0F / 30.0F);
-                    GameState::UpdateBossFlags(_scene->AreaId);
+                    GameState::UpdateBossFlags(_scene->AreaId());
                     const std::int32_t collected = StorySave().CountFoundOctoliths();
-                    GameState::QueuedOctolithMessageId =
-                        GetChecked(_octolithMessageIds, collected - 1);
+                    GameState::QueuedOctolithMessageId(
+                        GetChecked(_octolithMessageIds, collected - 1));
                 }
             }
             else
@@ -539,9 +515,9 @@ namespace MphRead::Entities
                 auto* spawn = dynamic_cast<EnemySpawnEntity*>(info.Sender);
                 if (spawn == nullptr)
                 {
-                    throw System::InvalidCastException();
+                    throw SceneDetail::InvalidCastException();
                 }
-                if (spawn->Data().EnemyType == EnemyType::Hunter)
+                if (spawn->Data.EnemyType == EnemyType::Hunter)
                 {
                     auto enumerator = _scene->GetPlayerEntities().GetEnumerator();
                     while (enumerator.MoveNext())
@@ -552,8 +528,8 @@ namespace MphRead::Entities
                             throw System::NullReferenceException();
                         }
                         PlayerEntity& player = *playerValue;
-                        auto&& enemySpawner = player.EnemySpawner;
-                        if (RawPointer(enemySpawner) == info.Sender)
+                        const std::shared_ptr<EnemySpawnEntity> enemySpawner = player.EnemySpawner();
+                        if (enemySpawner.get() == info.Sender)
                         {
                             Vector3 position{};
                             player.GetPosition(position);
@@ -582,14 +558,15 @@ namespace MphRead::Entities
         if (_data.ModelId >= 8)
         {
             Vector3 player{};
-            if (_scene->CameraMode == CameraMode::Player)
+            if (_scene->CameraMode() == CameraMode::Player)
             {
                 auto&& mainValue = PlayerEntity::Main();
-                player = RequireReference(mainValue).CameraInfo().Position;
+                const std::shared_ptr<CameraInfo> cameraInfo = RequireReference(mainValue).CameraInfo();
+                player = RequireReference(cameraInfo).Position;
             }
             else
             {
-                player = _scene->CameraPosition;
+                player = _scene->CameraPosition();
             }
 
             const Vector3 vector1(0.0F, 1.0F, 0.0F);

@@ -136,16 +136,16 @@ namespace MphRead::Entities::Enemies
 
     void Enemy01Entity::EnemyInitialize()
     {
-        if (_spawner == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
         const std::uint32_t facingX = Rng::GetRandomInt2(4096);
         const std::uint32_t facingZ = Rng::GetRandomInt2(4096);
         Vector3 facing(
             static_cast<float>(facingX) / 4096.0F,
             0.0F,
             static_cast<float>(facingZ) / 4096.0F);
+        if (_spawner == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
         if (facing.X == 0.0F && facing.Z == 0.0F)
         {
             facing = _spawner->Transform.Row2().Xyz();

@@ -93,6 +93,12 @@ namespace
         return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
     }
 
+    [[nodiscard]] float ManagedAbs(float value) noexcept
+    {
+        const std::uint32_t bits = std::bit_cast<std::uint32_t>(value) & 0x7FFFFFFFU;
+        return std::bit_cast<float>(bits);
+    }
+
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
     {
         return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
@@ -594,6 +600,12 @@ namespace
         return value.get();
     }
 
+    [[nodiscard]] const std::shared_ptr<std::string>& RmMainString()
+    {
+        static const auto value = std::make_shared<std::string>("rmMain");
+        return value;
+    }
+
     [[nodiscard]] MphRead::Interop::ManagedArray<Vector3>* BuiltPoints(
         MphRead::ManagedArray<Vector3>* points) noexcept
     {
@@ -900,9 +912,9 @@ namespace MphRead::Mods::MapGen
     Vector2 MapBuilder::Project(
         Vector3 point, Vector3 normal, Vector3 origin, float texScale) noexcept
     {
-        const float ax = std::fabs(normal.X);
-        const float ay = std::fabs(normal.Y);
-        const float az = std::fabs(normal.Z);
+        const float ax = ManagedAbs(normal.X);
+        const float ay = ManagedAbs(normal.Y);
+        const float az = ManagedAbs(normal.Z);
         if (ay > ax && ay >= az)
         {
             return Vector2(
@@ -949,7 +961,7 @@ namespace MphRead::Mods::MapGen
             entity->Position = ToVector(spawn->Position());
             entity->Up = Vector3(0.0F, 1.0F, 0.0F);
             entity->Facing = Vector3(std::sin(yaw), 0.0F, std::cos(yaw)).Normalized();
-            entity->NodeName = std::make_shared<std::string>("rmMain");
+            entity->NodeName = RmMainString();
             entity->Active = true;
             entity->Availability = 0;
             entity->TeamIndex = -1;
@@ -972,7 +984,7 @@ namespace MphRead::Mods::MapGen
             entity->Position = ToVector(pad->Position());
             entity->Up = Vector3(0.0F, 1.0F, 0.0F);
             entity->Facing = Vector3(0.0F, 0.0F, 1.0F);
-            entity->NodeName = std::make_shared<std::string>("rmMain");
+            entity->NodeName = RmMainString();
             entity->ParentId = -1;
             entity->Volume = MakeBox(pad->Size());
             entity->BeamVector = beam;
@@ -1019,7 +1031,7 @@ namespace MphRead::Mods::MapGen
             entity->Position = ToVector(item->Position());
             entity->Up = Vector3(0.0F, 1.0F, 0.0F);
             entity->Facing = Vector3(0.0F, 0.0F, 1.0F);
-            entity->NodeName = std::make_shared<std::string>("rmMain");
+            entity->NodeName = RmMainString();
             entity->ParentId = -1;
             entity->ItemType = itemType;
             entity->Enabled = true;

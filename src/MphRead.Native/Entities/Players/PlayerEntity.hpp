@@ -7,6 +7,7 @@
 #include "PlayerDraw.hpp"
 #include "PlayerHud.hpp"
 #include "PlayerInput.hpp"
+#include "PlayerSound.hpp"
 #include "../../Mods/Chat/PlayerEntityChatHud.hpp"
 #include "../EnemyInstanceEntity.hpp"
 #include "../../Formats/Culling.hpp"
@@ -714,6 +715,7 @@ namespace MphRead::Entities
         MPHREAD_PLAYER_DRAW_MEMBERS
         MPHREAD_PLAYER_HUD_MEMBERS
         MPHREAD_PLAYER_INPUT_MEMBERS
+        MPHREAD_PLAYER_SOUND_MEMBERS
         MPHREAD_PLAYER_ENTITY_CHAT_HUD_MEMBERS
 
     private:

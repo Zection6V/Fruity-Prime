@@ -4,6 +4,7 @@
 #include "Formats/Enums.hpp"
 #include "Formats/Types.hpp"
 #include "Messaging.hpp"
+#include "Renderer.hpp"
 
 #include <array>
 #include <cstddef>
@@ -903,10 +904,7 @@ namespace MphRead
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::FhJumpPadEntity> GetFhJumpPadEntities() const;
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::FhMorphCameraEntity> GetFhMorphCameraEntities() const;
 
-        // Declared here because Scene.hpp is the canonical partial-class owner.
-        // Implementations belong to the corresponding C# partials, not Scene.cs.
-        void InitEntity(const std::shared_ptr<Entities::EntityBase>& entity);
-        [[nodiscard]] static MphRead::Language Language();
+        MPHREAD_SCENE_RENDERER_MEMBERS
 
         MPHREAD_SCENE_MESSAGING_MEMBERS
 
@@ -924,7 +922,5 @@ namespace MphRead
         std::optional<ImmutableArray<::MphRead::NavMapRoomSymbols>> _navMapRoomSymbols{};
         EntityNodeMap _entityNodesByType = MakeEntityNodeMap();
 
-        // Owned by Renderer.cs, but required by the accepted Messaging.cpp partial.
-        std::uint64_t _frameCount = 0;
     };
 }

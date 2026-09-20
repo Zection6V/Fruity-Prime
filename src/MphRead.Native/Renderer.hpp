@@ -442,6 +442,7 @@ public: \
     void RoomId(std::int32_t value) noexcept; \
     [[nodiscard]] std::int32_t AreaId() const noexcept; \
     void AreaId(std::int32_t value) noexcept; \
+    [[nodiscard]] static MphRead::Language Language(); \
     static void Language(MphRead::Language value); \
     [[nodiscard]] OpenTK::Mathematics::Matrix4 ViewMatrix() const noexcept; \
     [[nodiscard]] OpenTK::Mathematics::Matrix4 ViewInvRotMatrix() const noexcept; \
@@ -488,6 +489,7 @@ public: \
     [[nodiscard]] bool IsNodeRefVisible(MphRead::Formats::Culling::NodeRef nodeRef); \
     [[nodiscard]] bool IsNodeRefAudible(MphRead::Formats::Culling::NodeRef nodeRef); \
     void OnLoad(); \
+    void InitEntity(const std::shared_ptr<MphRead::Entities::EntityBase>& entity); \
     [[nodiscard]] OpenTK::Mathematics::Vector2i RenderSize() const; \
     void OnResize(); \
     void LoadModel(std::string name, bool firstHunt = false); \

@@ -249,9 +249,10 @@ namespace MphRead::Mods::Update
         [[nodiscard]] bool StartDesktopCommand(const char* program, std::string_view url)
         {
             pid_t child = -1;
+            std::string urlArgument(url);
             char* const argv[] = {
                 const_cast<char*>(program),
-                const_cast<char*>(url.c_str()),
+                urlArgument.data(),
                 nullptr
             };
             const int error = ::posix_spawnp(&child, program, nullptr, nullptr, argv, environ);

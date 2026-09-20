@@ -12,7 +12,7 @@
 #include "../Mods/Network/NetDamage.hpp"
 #include "DoorEntity.hpp"
 #include "Enemies/02_Temroid.hpp"
-#include "Enemies/EnemyInstanceEntity.hpp"
+#include "EnemyInstanceEntity.hpp"
 #include "HalfturretEntity.hpp"
 #include "Players/PlayerEntity.hpp"
 

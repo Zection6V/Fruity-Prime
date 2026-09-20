@@ -456,7 +456,7 @@ namespace MphRead
                     player.LoadFlags |= LoadFlags.Initial;
                     if (team != -1)
                     {
-                        Debug.Assert(team == 0 || team == 1);
+                        Debug.Assert((uint)team < 4);
                         player.TeamIndex = team;
                     }
                     player.IsBot = PlayerEntity.PlayerCount >= 1;
@@ -561,16 +561,27 @@ namespace MphRead
                 }
             }
             // todo: probably revisit this
-            foreach (PlayerEntity player in PlayerEntity.Players)
+            //
+            // Not on a side scene: that one has no room and no world, and the
+            // roster it would be initialising against is *static*. On a head
+            // that renders map previews in the game's own process there is a
+            // slot-active player left over from the last one, so standing the
+            // launcher's preview scene up ran PlayerEntity.Initialize with no
+            // sound loaded under it and took the thread down.
+            if (!SideScene)
             {
-                if (player.LoadFlags.TestFlag(LoadFlags.SlotActive))
+                foreach (PlayerEntity player in PlayerEntity.Players)
                 {
-                    player.Initialize();
-                    InitEntity(player);
-                    InitEntity(player.Halfturret);
+                    if (player.LoadFlags.TestFlag(LoadFlags.SlotActive))
+                    {
+                        player.Initialize();
+                        InitEntity(player);
+                        InitEntity(player.Halfturret);
+                    }
                 }
             }
-            if (!Mods.Headless.Active && !SideScene)
+            if (!Mods.Headless.Active && !SideScene && !Mods.ThumbnailMode.Active
+                && !Console.IsOutputRedirected && !Console.IsInputRedirected)
             {
                 // The console prompt, which is a question put to a person.
                 //
@@ -581,6 +592,12 @@ namespace MphRead
                 // nobody is awaiting, and the finalizer rethrows it. There is
                 // also nobody to prompt: the scene has no room to load into
                 // and no camera to move.
+                //
+                // Nor on a thumbnail worker, and nor when the streams are
+                // pipes: a capture is a child process whose output the parent
+                // reads, so ConsoleWindow.Show stands down and there is no
+                // console buffer for Console.Clear to find -- the same
+                // exception, from the same line, with nobody to prompt again.
                 OutputStart();
             }
             GC.Collect(generation: 2, GCCollectionMode.Forced, blocking: true, compacting: true);
@@ -1508,6 +1525,12 @@ namespace MphRead
         /// </summary>
         public void OnSimulationFrame()
         {
+            if (Mods.Network.NetSession.FreezeGameplay)
+            {
+                if (Mods.Network.NetSession.IsStarting) Mods.Network.NetSession.MarkMatchLoaded();
+                Mods.Network.NetSession.Pump();
+                return;
+            }
             // The effect clock, before anything can spawn an effect. See
             // _effectFrame: it has to be the same value for the spawn and for
             // the ProcessEffects call that belongs to this step, and the
@@ -1543,6 +1566,7 @@ namespace MphRead
                 }
                 Mods.Network.DemoPlayback.PumpFrame();
                 Mods.Network.NetSession.Update(_globalElapsedTime);
+                if (Mods.Network.NetSession.FreezeGameplay) return;
                 if (Mods.Network.DemoPlayback.IsActive && !Mods.SpectatorMode.IsSpectating)
                 {
                     // No local player to spawn as during playback -- watch
@@ -1569,7 +1593,25 @@ namespace MphRead
                 // the things that suppress a keyboard, and by spectating,
                 // where PlayerEntity.Main is somebody else's hunter.
                 Mods.Input.GamepadDesktop.Poll();
+                Mods.Input.GamepadContexts.Current = Mods.Input.GamepadContexts.Resolve(
+                    Mods.Chat.ChatBox.Composing, Mods.EndScreen.Available);
                 Mods.Input.GamepadInput.BeginFrame();
+                if (Mods.SpectatorMode.IsSpectating && !Mods.PauseMenu.Open)
+                {
+                    var spectator = Mods.Input.SpectatorInput.ReadController();
+                    spectator.ApplyView();
+                    Mods.SpectatorMode.NoteScoreboard(
+                        _keyboardState.IsKeyDown(Keys.Tab) || spectator.Scoreboard);
+                    if (_freeCam)
+                    {
+                        _cameraPosition += _cameraFacing * spectator.MoveY * .15f
+                            + _cameraRight * spectator.MoveX * .15f;
+                        _cameraPosition.Y += (spectator.Ascend - spectator.Descend) * .15f;
+                        UpdateCameraRotation(
+                            MathHelper.DegreesToRadians(spectator.LookX),
+                            MathHelper.DegreesToRadians(spectator.LookY));
+                    }
+                }
                 // Straight after the edges are worked out and before anything
                 // consumes them. A pad has no key events to hook, so the
                 // results screen's picker has to be polled, and it takes the
@@ -2603,6 +2645,7 @@ namespace MphRead
                 // the camera is not a player's.
                 PlayerEntity.Main.DrawHudObjects();
             }
+            Mods.Input.AimAssist.AimAssistDebug.Draw(this);
             if (_movieFrameIndex != -1)
             {
                 DrawMovieFrame();
@@ -6230,32 +6273,41 @@ namespace MphRead
 
         private async Task OutputUpdate(CancellationToken token)
         {
-            while (!token.IsCancellationRequested)
+            try
             {
-                if (_promptState == PromptState.Load)
+                while (!token.IsCancellationRequested)
                 {
-                    OutputLoadPrompt();
-                    _promptState = PromptState.None;
-                    _currentOutput = "";
+                    if (_promptState == PromptState.Load)
+                    {
+                        OutputLoadPrompt();
+                        _promptState = PromptState.None;
+                        _currentOutput = "";
+                    }
+                    else if (_promptState == PromptState.CameraPos)
+                    {
+                        OutputCameraPrompt();
+                        _promptState = PromptState.None;
+                        _currentOutput = "";
+                    }
+                    string output = OutputGetAll();
+                    if (output != _currentOutput)
+                    {
+                        Console.Clear(); // todo: this causes flickering
+                        Console.WriteLine(output);
+                        _currentOutput = output;
+                    }
+                    try
+                    {
+                        await Task.Delay(100, token);
+                    }
+                    catch (TaskCanceledException) { }
                 }
-                else if (_promptState == PromptState.CameraPos)
-                {
-                    OutputCameraPrompt();
-                    _promptState = PromptState.None;
-                    _currentOutput = "";
-                }
-                string output = OutputGetAll();
-                if (output != _currentOutput)
-                {
-                    Console.Clear(); // todo: this causes flickering
-                    Console.WriteLine(output);
-                    _currentOutput = output;
-                }
-                try
-                {
-                    await Task.Delay(100, token);
-                }
-                catch (TaskCanceledException) { }
+            }
+            catch (System.IO.IOException)
+            {
+                // No console buffer, so there is nothing to clear and nobody
+                // reading. Nothing awaits this task, so throwing here reaches
+                // the finalizer instead of anything that could act on it.
             }
         }
 
@@ -7193,6 +7245,7 @@ namespace MphRead
 
         protected override void OnLoad()
         {
+            Mods.Input.WindowsPenInput.Attach(this);
             // Not in the shell, which opens with no match in it: the scene is
             // loaded by LoadScene when one is started. The guard also covers
             // the ordinary path twice over, since a caller that has already
@@ -7241,6 +7294,13 @@ namespace MphRead
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             ApplyFrameRateSettings();
+            if (Mods.Network.NetLaunch.TickTerminalLobby(this))
+            {
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                SwapBuffers();
+                base.OnRenderFrame(args);
+                return;
+            }
 #if MPHREAD_SHELL
             // The launcher and the in-game menus, which are screens in this
             // window rather than windows of their own: the shell starts and
@@ -7259,6 +7319,7 @@ namespace MphRead
                 // The launcher, with no match behind it. The pointer is the
                 // system's -- there is nobody to aim.
                 CursorState = CursorState.Normal;
+                Mods.Input.PointerDevice.Reset();
                 Mods.Render.UiOverlay.DrawAlone(this, FramebufferSize.X, FramebufferSize.Y);
                 // Before the swap: the back buffer holds this frame and
                 // nothing else does. Only -shellshot asks.
@@ -7287,7 +7348,7 @@ namespace MphRead
             // the same reason the results screen is.
             CursorState = (Scene.CameraMode == CameraMode.Player || Scene.IsFreeCam) && !Scene.FrameAdvance
                 && !Mods.PauseMenu.Open && !Mods.EndScreen.Available
-                && !Mods.Input.StylusZone.Enabled && !Mods.Input.StylusZone.Placing
+                && !Mods.Input.PointerInput.StylusMode && !Mods.Input.StylusZone.Placing
                 && !Scene.ShowCursor && !GameState.DialogPause && !GameState.MenuPause
                 ? CursorState.Grabbed
                 : CursorState.Normal;
@@ -7302,10 +7363,11 @@ namespace MphRead
             // The DS bottom screen, if the player has marked one out. The
             // window's shape goes with it: the zone is given as a fraction of
             // the width and has to come out the DS's shape on screen.
-            Mods.Input.StylusZone.AspectCorrection = ClientSize.Y > 0
-                ? ClientSize.X / (float)ClientSize.Y : 16f / 9f;
-            Mods.Input.StylusZone.Update(pointerX, pointerY,
-                MouseState.IsButtonDown(MouseButton.Left));
+            var pointer = Mods.Input.WindowsPenInput.Read(MouseState, ClientSize.X, ClientSize.Y,
+                out bool independentPrimary);
+            Mods.Input.PointerDevice.Update(pointer, ClientSize.X, ClientSize.Y, independentPrimary,
+                acceptsInput: IsFocused && !Mods.PauseMenu.Open && !Mods.Chat.ChatBox.Composing
+                    && !GameState.MenuPause && !GameState.DialogPause && !Mods.EndScreen.Available);
             if (Mods.Input.StylusZone.Placing)
             {
                 Mods.Input.StylusZone.PlacementDrag(pointerX, pointerY);
@@ -7339,6 +7401,9 @@ namespace MphRead
             // scene because opening the menu is a window operation and the
             // window is this class -- the same reason the keyboard's Escape
             // is handled in OnKeyDown and not in the entity.
+            if (Mods.Chat.ChatBox.Composing && Mods.Input.GamepadInput.TakePress(
+                Mods.Input.GamepadButtons.B | Mods.Input.GamepadButtons.Start))
+                Mods.Chat.ChatBox.Cancel();
             if (Mods.Input.GamepadInput.TakeMenuPress()
                 && (Scene.CameraMode == CameraMode.Player || Scene.IsFreeCam))
             {
@@ -7499,8 +7564,26 @@ namespace MphRead
             }
         }
 
+        protected override void OnJoystickConnected(JoystickEventArgs e)
+        {
+            Mods.Input.GamepadDesktop.DeviceChanged(e.JoystickId);
+            base.OnJoystickConnected(e);
+        }
+
+        protected override void OnFocusedChanged(FocusedChangedEventArgs e)
+        {
+            Mods.Input.GamepadContexts.Focused = e.IsFocused;
+            if (!e.IsFocused)
+            {
+                Mods.Input.GamepadManager.ClearAll();
+                Mods.Input.GamepadHaptics.Stop();
+            }
+            base.OnFocusedChanged(e);
+        }
+
         protected override void OnMouseDown(MouseButtonEventArgs e)
         {
+            Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
 #if MPHREAD_SHELL
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
@@ -7588,6 +7671,8 @@ namespace MphRead
 
         protected override void OnMouseMove(MouseMoveEventArgs e)
         {
+            if (Math.Abs(e.DeltaX) + Math.Abs(e.DeltaY) > 2)
+                Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
 #if MPHREAD_SHELL
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
@@ -7603,8 +7688,9 @@ namespace MphRead
 #endif
             // Filtered for the same reason the player's aim is: the free
             // camera is reached from a match, with the same pointer.
-            Scene.OnMouseMove(Mods.Input.PointerInput.Filter(e.DeltaX),
-                Mods.Input.PointerInput.Filter(e.DeltaY));
+            (float deltaX, float deltaY) = Scene.IsFreeCam
+                ? Mods.Input.PointerInput.Filter(e.DeltaX, e.DeltaY) : (e.DeltaX, e.DeltaY);
+            Scene.OnMouseMove(deltaX, deltaY);
             base.OnMouseMove(e);
         }
 
@@ -7690,6 +7776,7 @@ namespace MphRead
 
         protected override void OnKeyDown(KeyboardKeyEventArgs e)
         {
+            Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
 #if MPHREAD_SHELL
             // F11 and Alt+Enter first, screen or no screen.
             //

@@ -82,6 +82,11 @@ namespace MphRead
         /// </summary>
         public static bool PreviewDrawnLastFrame { get; private set; }
 
+        /// <summary>Who that frame actually had in it. See HunterPreviewEntity.Shown.</summary>
+        public static Hunter PreviewDrawnHunter { get; private set; } = Hunter.Random;
+
+        public static int PreviewDrawnSuit { get; private set; } = -1;
+
         /// <summary>
         /// Turn the model, once a simulation step. Called from the step rather
         /// than the draw for the reason everything else here is: a picture with
@@ -254,17 +259,17 @@ namespace MphRead
                 PreviewDrawnLastFrame = false;
                 return;
             }
-#if MPHREAD_SHELL
             // Not from inside the world's render while the deck panel is up.
             // That draws the model *under* the screens, and the panel it goes
             // in is opaque -- so it would be a hunter behind a card, drawn for
-            // nothing. UiOverlay draws it over the screens instead, once the
-            // texture is down. See LauncherHunter.
-            if (Mods.Launcher.Gui.Shell.EndPanelUp && !LauncherPreview)
+            // nothing. The desktop's UiOverlay draws it over the screens
+            // instead, once the texture is down (see LauncherHunter); the head
+            // with no window under its screens has the picture inside the
+            // panel already (see HunterShot).
+            if (Mods.EndScreen.PanelUp && !LauncherPreview)
             {
                 return;
             }
-#endif
             Vector2i target = _targetSize;
             // The rectangle, in the render target's pixels rather than the
             // window's: the scene may be rendered smaller than the window and
@@ -318,6 +323,8 @@ namespace MphRead
             GL.Uniform1(_shaderLocations.UseFog, _hasFog && FogOn ? 1 : 0);
             GL.PolygonMode(TriangleFace.FrontAndBack, OpenTK.Graphics.OpenGL.PolygonMode.Fill);
             PreviewDrawnLastFrame = true;
+            PreviewDrawnHunter = _preview?.Shown ?? Hunter.Random;
+            PreviewDrawnSuit = _preview?.ShownSuit ?? -1;
         }
     }
 }

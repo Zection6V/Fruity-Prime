@@ -99,18 +99,16 @@ namespace MphRead.Entities
             {
                 return;
             }
-#if MPHREAD_SHELL
             // The deck panel is up over this: it asks the same two questions
             // -- where next, and who you are coming back as -- with the rest
             // of the program's own controls rather than with arrows and
             // swatches beside a 32x32 sprite. The scoreboard to the left of
             // here is untouched either way; it is the engine's screen and a
             // scoreboard is not a place to put a theme.
-            if (Mods.Launcher.Gui.Shell.EndPanelUp)
+            if (EndScreen.PanelUp)
             {
                 return;
             }
-#endif
             float aspect = HudAspectFix;
             float scale = EndScale;
             float right = 254;
@@ -272,7 +270,8 @@ namespace MphRead.Entities
             // characters and at the larger size it ran out of both ends of its
             // own box.
             DrawText2D(centre, top + 3.5f * EndScale, Align.Center, palette: 0,
-                on ? "WAITING FOR OTHERS" : "READY",
+                on ? "WAITING FOR OTHERS" : Mods.Input.InputSourceTracker.Current == Mods.Input.InputSource.Gamepad
+                    ? Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.A).ToUpperInvariant() + " READY" : "READY",
                 color: on ? _endReadyInk : _endArrow, fontSpacing: 8, scale: 0.42f * EndScale);
             return ModHudHit(left, top, right, bottom);
         }

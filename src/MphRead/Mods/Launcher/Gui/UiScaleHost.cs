@@ -51,6 +51,23 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private const double DipsPerPoint = 160.0 / 96.0;
 
+        /// <summary>
+        /// The factor for a view of this many Android layout points, for
+        /// whoever is not this control -- the surface that draws the screens
+        /// into the game's own frame asks the same question about the same
+        /// curve, and two answers to it is two sizes of type in one program.
+        /// </summary>
+        public static double FactorFor(double widthDips, double heightDips)
+        {
+            if (Double.IsInfinity(widthDips) || Double.IsInfinity(heightDips)
+                || widthDips <= 0 || heightDips <= 0)
+            {
+                return 1;
+            }
+            return UiLayout.Factor(widthDips / DipsPerPoint, heightDips / DipsPerPoint)
+                * DipsPerPoint;
+        }
+
         private readonly LayoutTransformControl _host;
         private double _factor = -1;
 
@@ -121,8 +138,7 @@ namespace MphRead.Mods.Launcher.Gui
             // here as exactly 1.0 -- the size the screens were drawn at, and
             // what the last release put on screen. A tablet has more of them
             // and climbs above it, as a bigger window does on the desktop.
-            double factor = UiLayout.Factor(size.Width / DipsPerPoint,
-                size.Height / DipsPerPoint) * DipsPerPoint;
+            double factor = UiScaleHost.FactorFor(size.Width, size.Height);
             // Device pixels per layout point, for the one control that cuts
             // its own bitmap. Two multiplications here, not one: the view's
             // points are already the display's pixels divided by its density,

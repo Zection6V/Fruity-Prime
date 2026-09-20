@@ -51,6 +51,30 @@ namespace MphRead.Mods
         }
 
         /// <summary>
+        /// Whether the deck panel is drawn over the results, so the HUD's own
+        /// picker knows to leave the right-hand side alone.
+        ///
+        /// Set by whichever head is showing it -- the desktop shell through
+        /// its surface, Android through its own -- because the two put the
+        /// same panel on the screen by different routes and the engine must
+        /// not have to know which. The scoreboard beside it is untouched
+        /// either way: that is the engine's screen and a scoreboard is not a
+        /// place to put a theme.
+        /// </summary>
+        public static bool PanelUp
+        {
+            // A field, because it is written on the toolkit's thread and read
+            // inside the render loop: an auto-property there is one the JIT
+            // may hoist out of the loop, and a results HUD that goes on
+            // drawing its own picker under an opaque panel publishes a preview
+            // slot the panel's own model is then painted into.
+            get => _panelUp;
+            set => _panelUp = value;
+        }
+
+        private static volatile bool _panelUp;
+
+        /// <summary>
         /// Whether this player has said they are ready for the next match.
         ///
         /// Read straight off the results screen by the intent packet each
@@ -355,37 +379,30 @@ namespace MphRead.Mods
         /// The same from a pad's d-pad, taken once a frame rather than from an
         /// event: GLFW reports a pad by polling, so there is no press to hook.
         /// </summary>
+        private static readonly Input.GamepadUiRouter ResultPad = CreateResultPad();
+        private static Input.GamepadUiRouter CreateResultPad()
+        {
+            var router = new Input.GamepadUiRouter();
+            router.Action += action =>
+            {
+                switch (action)
+                {
+                    case Input.UiAction.Left: Step(-1, 0); break;
+                    case Input.UiAction.Right: Step(1, 0); break;
+                    case Input.UiAction.Up: StepList(-1); break;
+                    case Input.UiAction.Down: StepList(1); break;
+                    case Input.UiAction.Accept: ToggleReady(); break;
+                    case Input.UiAction.NextTab: if (MapPick.Available) MapPick.ChooseCursor(); break;
+                }
+            };
+            return router;
+        }
         public static void PollGamepad()
         {
-            if (!Available)
-            {
-                return;
-            }
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.DpadLeft))
-            {
-                Step(-1, 0);
-            }
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.DpadRight))
-            {
-                Step(1, 0);
-            }
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.DpadUp))
-            {
-                StepList(-1);
-            }
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.X) && MapPick.Available)
-            {
-                MapPick.ChooseCursor();
-            }
-            // A is the results screen's confirm, which is what Ready is.
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.A))
-            {
-                ToggleReady();
-            }
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.DpadDown))
-            {
-                StepList(1);
-            }
+            ResultPad.Update(Input.GamepadManager.Snapshot, Available && Input.GamepadContexts.Focused
+                && Input.GamepadContexts.Current == Input.GamepadContext.Results
+                ? Input.GamepadContext.Results : Input.GamepadContext.Gameplay,
+                Environment.TickCount64);
         }
 
         /// <summary>

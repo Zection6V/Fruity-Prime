@@ -147,7 +147,26 @@ namespace MphRead.Mods.Launcher.Gui
         /// the render pass"). The resting pose is also the one worth
         /// photographing.
         /// </summary>
-        public static bool Still { get; set; }
+        public static bool Still
+        {
+            get => _still || Asleep;
+            set => _still = value;
+        }
+
+        private static bool _still;
+
+        /// <summary>
+        /// The screens are not on the glass, so nothing on them need move.
+        ///
+        /// Unlike <see cref="Still"/>, which a capture sets once for the life
+        /// of the process, this goes on and off: on Android a match hides the
+        /// launcher's Android view, and a view going <c>Gone</c> is not a
+        /// detach, so every animation on the front screen carried on asking
+        /// the compositor for frames -- on the UI thread of the process
+        /// running the match, for the whole match. Read through
+        /// <see cref="Still"/>, which every animation here already checks.
+        /// </summary>
+        public static bool Asleep { get; set; }
 
         /// <summary>
         /// The reference's three clamps, verbatim.

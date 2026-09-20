@@ -76,8 +76,13 @@ namespace MphRead.Mods
                 string directory = System.IO.Path.Combine(LauncherPrefs.Directory, "logs");
                 System.IO.Directory.CreateDirectory(directory);
                 Prune(directory);
+                // The process id is not decoration: a thumbnail batch starts
+                // several workers inside one second, and a name good only to
+                // the second had all of them truncating and writing over one
+                // file at once -- which reads as a corrupted log rather than
+                // as several.
                 string name = $"{Branding.Name.Replace(" ", "")}-"
-                    + $"{DateTime.Now:yyyyMMdd-HHmmss}.log";
+                    + $"{DateTime.Now:yyyyMMdd-HHmmss}-{Environment.ProcessId}.log";
                 Path = System.IO.Path.Combine(directory, name);
                 // Shared, so the file can be read while the game is still
                 // running -- which is the only way to read the tail of one

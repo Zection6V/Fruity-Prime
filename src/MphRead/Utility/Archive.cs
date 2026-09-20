@@ -84,7 +84,11 @@ namespace MphRead.Archive
             {
                 destination = Path.GetDirectoryName(path);
             }
-            var bytes = new ReadOnlySpan<byte>(File.ReadAllBytes(path));
+            return Extract(File.ReadAllBytes(path), destination!);
+        }
+
+        public static int Extract(ReadOnlySpan<byte> bytes, string destination)
+        {
             if (bytes.Length < ArchiveSizes.ArchiveHeader)
             {
                 ThrowRead();
@@ -122,7 +126,7 @@ namespace MphRead.Archive
                 string filename = file.Filename.MarshalString();
                 int start = (int)file.Offset;
                 int end = start + (int)file.TargetFileSize;
-                string output = Paths.Combine(destination!, filename);
+                string output = Paths.Combine(destination, filename);
                 File.WriteAllBytes(output, bytes[start..end].ToArray());
                 filesWritten++;
             }

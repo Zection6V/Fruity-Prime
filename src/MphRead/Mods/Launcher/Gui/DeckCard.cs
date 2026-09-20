@@ -84,15 +84,23 @@ namespace MphRead.Mods.Launcher.Gui
         {
             double em = Em;
             double pad = em * PadEms;
-            double cap = Math.Min(availableSize.Width, em * MaxWidthEms);
+            double limit = em * MaxWidthEms;
             // As a real MaxWidth, not merely as the size returned. A stretched
             // control is arranged at its whole slot whatever it measured, so
             // returning the cap from here caps nothing: the panel came out the
             // width of the frame and the `min(44em, 100%)` was a comment.
-            if (Math.Abs(MaxWidth - cap) > 0.01)
+            //
+            // The em width alone, never the box this method is handed -- that
+            // box is the one MaxWidth has just clamped, so the property fed
+            // itself and any narrow pass latched the panel there with no way
+            // back. Avalonia measures the Android view at 1x1 before the
+            // surface has a size, which is one such pass on every launch.
+            // Stretch is what does the `100%` half.
+            if (Math.Abs(MaxWidth - limit) > 0.01)
             {
-                MaxWidth = cap;
+                MaxWidth = limit;
             }
+            double cap = Math.Min(availableSize.Width, limit);
             var inner = new Size(
                 Math.Max(0, cap - pad * 2),
                 Math.Max(0, availableSize.Height - pad * 2));

@@ -60,6 +60,16 @@
          built with the Android workload installed and the warning does not
          come back. -->
     <NoWarn>$(NoWarn);XA0141</NoWarn>
+    <!-- The results panel is drawn into the game's own frame through an
+         ITopLevelImpl of ours (Mods/Launcher/Gui/UiTopLevel.cs, shared with
+         the desktop), because a second Avalonia surface z-ordered over the GL
+         one costs the frame rate. Avalonia's reference assemblies hide the
+         platform interfaces, so implementing one needs this switch, which is
+         Avalonia's own, and it pins this project to the exact Avalonia
+         version above for the reason the desktop project gives. AVA3001 is
+         the notice it prints on every build. -->
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <NoWarn>$(NoWarn);AVA3001</NoWarn>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <!-- There is no XAML in this project: every screen here is written in C#.
          The compiler still runs when AvaloniaResource items are present, and on
@@ -82,9 +92,16 @@
          over the GL surface, which is the same arrangement for free, and
          those files would pull in Avalonia.Headless, the desktop's
          RenderWindow and its fixed-function GL for nothing. MPHREAD_SHELL is the define that gates
-         every call into them. -->
+         every call into them.
+
+         UiTopLevel.cs is the exception and is compiled: it is the offscreen
+         top level itself, which is toolkit-level and knows nothing about
+         either window. AndroidUiSurface.cs uses it to do exactly what the
+         desktop does for the results panel (render the screens into a buffer
+         and draw that buffer in the game's own frame), because an Avalonia
+         surface z-ordered over the game's costs the frame rate. -->
     <Compile Include="..\MphRead\**\*.cs"
-             Exclude="..\MphRead\bin\**;..\MphRead\obj\**;..\MphRead\Mods\Launcher\Gui\Shell.cs;..\MphRead\Mods\Launcher\Gui\UiSurface.cs;..\MphRead\Mods\Launcher\Gui\UiTopLevel.cs;..\MphRead\Mods\Launcher\Gui\UiBench.cs;..\MphRead\Mods\Render\UiOverlay.cs;..\MphRead\Mods\Render\LauncherPhoto.cs;..\MphRead\Mods\Render\LauncherNoise.cs;..\MphRead\Mods\Render\LauncherHunter.cs" />
+             Exclude="..\MphRead\bin\**;..\MphRead\obj\**;..\MphRead\Mods\Launcher\Gui\Shell.cs;..\MphRead\Mods\Launcher\Gui\UiSurface.cs;..\MphRead\Mods\Launcher\Gui\UiBench.cs;..\MphRead\Mods\Render\UiOverlay.cs;..\MphRead\Mods\Render\LauncherPhoto.cs;..\MphRead\Mods\Render\LauncherNoise.cs;..\MphRead\Mods\Render\LauncherHunter.cs" />
     <AndroidResource Include="Resources\**\*.xml" />
     <!-- The launcher icon: the cherry mark out of src/MphRead/Assets, scaled
          to the five densities plus an adaptive foreground. Committed rather

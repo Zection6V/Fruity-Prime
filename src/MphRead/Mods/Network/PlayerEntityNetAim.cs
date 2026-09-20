@@ -25,6 +25,11 @@ namespace MphRead.Entities
         private readonly uint[] _networkPositionFrames = new uint[NetworkHistoryLength];
         private int _networkPositionHistoryCount;
 
+        /// <summary>Where this player's next beam will be born. Diagnostics only.</summary>
+        internal OpenTK.Mathematics.Vector3 ModMuzzlePos => _muzzlePos;
+
+        internal void ModResetNetworkHistory() => _networkPositionHistoryCount = 0;
+
         internal void ModRecordNetworkPosition(uint frame)
         {
             int count = Math.Min(_networkPositionHistoryCount, NetworkHistoryLength - 1);
@@ -59,7 +64,8 @@ namespace MphRead.Entities
         internal void ModRefreshNetworkAim()
         {
             if (NetSession.Active && SlotIndex != NetHooks.LocalSlot
-                && NetSession.RemoteIntentValid[SlotIndex])
+                && NetSession.RemoteIntentValid[SlotIndex]
+                && NetPlayerBridge.AimTrusted(SlotIndex))
             {
                 ModSetAim(NetSession.RemoteIntents[SlotIndex].Aim);
             }
@@ -1320,7 +1326,7 @@ namespace MphRead.Entities
         /// </summary>
         internal void ModNetDie()
         {
-            TakeDamage(1, DamageFlags.Death | DamageFlags.NoDmgInvuln, null, null);
+            NetDamage.ReplayDeath(this);
         }
 
         /// <summary>
@@ -1380,7 +1386,8 @@ namespace MphRead.Entities
                 }
                 return;
             }
-            if (!NetSession.RemoteIntentValid[SlotIndex])
+            if (!NetSession.RemoteIntentValid[SlotIndex]
+                || !NetPlayerBridge.AimTrusted(SlotIndex))
             {
                 return;
             }
@@ -1408,10 +1415,13 @@ namespace MphRead.Entities
                 || Mods.SpectatorMode.IsSpectating
                 || Flags1.TestFlag(PlayerFlags1.NoAimInput))
             {
+                _controllerAssist.Reset();
                 return;
             }
-            float x = Mods.Input.GamepadInput.AimDeltaX;
-            float y = Mods.Input.GamepadInput.AimDeltaY;
+            float x = Mods.Input.GamepadInput.AimDeltaX * (EquipInfo.Zoomed ? Mods.Input.GamepadOptions.ScopedX : 1);
+            float y = Mods.Input.GamepadInput.AimDeltaY * (EquipInfo.Zoomed ? Mods.Input.GamepadOptions.ScopedY : 1);
+            var assisted = ApplyControllerAssist(x, y);
+            x = assisted.X; y = assisted.Y;
             if (x == 0 && y == 0)
             {
                 return;

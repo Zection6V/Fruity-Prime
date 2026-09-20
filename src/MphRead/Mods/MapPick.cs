@@ -262,7 +262,7 @@ namespace MphRead.Mods
                 }
             }
             Cursor = Math.Clamp(Cursor, 0, Math.Max(0, _order.Count - 1));
-            ScrollToCursor();
+            ClampScroll();
         }
 
         /// <summary>Take the server's tally.</summary>
@@ -304,7 +304,6 @@ namespace MphRead.Mods
                 if (at >= 0)
                 {
                     Cursor = at;
-                    ScrollToCursor();
                 }
             }
         }
@@ -425,6 +424,17 @@ namespace MphRead.Mods
                 return;
             }
             Scroll = Math.Clamp(Scroll + by, 0, Math.Max(0, _order.Count - Window));
+        }
+
+        /// <summary>
+        /// Keep the view inside the list without moving it. Only something
+        /// the player did may move it: the wheel scrolls without touching the
+        /// cursor, so snapping to the cursor when the server's tally arrives
+        /// threw the list back to the top once a second.
+        /// </summary>
+        private static void ClampScroll()
+        {
+            Scroll = Math.Clamp(Scroll, 0, Math.Max(0, _order.Count - Math.Max(1, Window)));
         }
 
         private static void ScrollToCursor()

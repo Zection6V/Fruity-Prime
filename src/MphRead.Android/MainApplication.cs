@@ -85,6 +85,16 @@ namespace MphRead.Droid
             // one can take the application context directly: nothing it does
             // needs an activity.
             MphRead.Mods.LogShare.Current = new AndroidLogShare(this);
+            // And the third of the same shape: there is no browser to start as
+            // a process here and no display variable to prove there is a
+            // desktop, so without this the support mark and the credits page's
+            // ko-fi link both did nothing. See Mods/Platform/WebLink.cs.
+            MphRead.Mods.Platform.WebLink.Current = new AndroidWebLink(this);
+            // The hunter the launcher asks about, as the real model rather
+            // than as the silhouette in boxes HunterStand falls back to. The
+            // desktop draws it into the game window under its screens, which
+            // is a window this head does not have. See AndroidHunterShot.
+            MphRead.Mods.Render.HunterShot.Current = new AndroidHunterShot();
             ScreenCapture.PngWriter = AndroidPng.Write;
             return base.CustomizeAppBuilder(builder).WithInterFont();
         }

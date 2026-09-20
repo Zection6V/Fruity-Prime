@@ -50,6 +50,7 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Panel _root;
         private readonly Control[] _ground;
         private readonly Border _dark;
+        private string _controllerPrompt = "";
 
         private bool _finished;
         private bool _updatable;
@@ -61,6 +62,10 @@ namespace MphRead.Mods.Launcher.Gui
 
         /// <summary>Raised once, when the screen is done with.</summary>
         public event EventHandler<LaunchPlan>? Done;
+        public event EventHandler<LaunchPlan>? MatchRequested;
+        private LobbyScreen? _lobby;
+        public void ResumeLobby() => _lobby?.Resume();
+        public void SuspendLobby() => _lobby?.Suspend();
 
         public StartScreen(MenuSettings settings, IReadOnlyList<string> rooms)
         {
@@ -220,6 +225,12 @@ namespace MphRead.Mods.Launcher.Gui
                 Margin = new Thickness(0, 18, 24, 0),
                 Child = _version
             };
+            _versionBox.Focusable = true;
+            _versionBox.KeyDown += (_, e) =>
+            {
+                if ((e.Key == Key.Enter || e.Key == Key.Space) && _updatable)
+                { e.Handled = true; UpdateNow(); }
+            };
             _versionBox.PointerPressed += (_, e) =>
             {
                 if (_updatable)
@@ -229,10 +240,33 @@ namespace MphRead.Mods.Launcher.Gui
                 }
             };
             root.Children.Add(_versionBox);
+            var help = new TextBlock { Foreground = GuiTheme.TextDimBrush, FontSize = 12,
+                Margin = new Thickness(20, 0, 0, 3), VerticalAlignment = VerticalAlignment.Bottom,
+                HorizontalAlignment = HorizontalAlignment.Left, IsHitTestVisible = false };
+
+            var hints = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) =>
+            {
+                string prompt = Mods.Input.InputSourceTracker.Current == Mods.Input.InputSource.Gamepad
+                    ? $"{Mods.Input.InputPrompt.For(Mods.Input.UiAction.Accept).Glyph} Select   "
+                        + $"{Mods.Input.InputPrompt.For(Mods.Input.UiAction.Back).Glyph} Back   "
+                        + $"{Mods.Input.InputPrompt.For(Mods.Input.UiAction.PreviousTab).Glyph}/{Mods.Input.InputPrompt.For(Mods.Input.UiAction.NextTab).Glyph} Tabs"
+                    : "Enter Select   Esc Back";
+                if (prompt != _controllerPrompt) { help.Text = prompt; _controllerPrompt = prompt; }
+            });
+            AttachedToVisualTree += (_, _) => hints.Start();
+            DetachedFromVisualTree += (_, _) => hints.Stop();
 
             _overlay = new Panel { Background = Brushes.Transparent, IsVisible = false };
             root.Children.Add(_overlay);
+            root.Children.Add(help);
             Content = root;
+#if ANDROID
+            var navigation = new GamepadNavigation();
+            var timer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Input,
+                (_, _) => { if (Mods.Input.GamepadContexts.MenuVisible) navigation.Update(this); });
+            AttachedToVisualTree += (_, _) => timer.Start();
+            DetachedFromVisualTree += (_, _) => timer.Stop();
+#endif
 
             if (LauncherPrefs.AutoUpdate)
             {
@@ -388,26 +422,36 @@ namespace MphRead.Mods.Launcher.Gui
             // A fresh install has nothing to play, so the one thing it needs is
             // the whole screen rather than one refused entry among three.
             //
-            // **After the attachment, not during it.** Pushing a screen from
-            // inside this method builds its tree while this one is still being
-            // attached, and a control added then never inherits
-            // <see cref="Deck.EmProperty"/> from the <see cref="DeckStage"/>
-            // above it: it is laid out on the property's own default -- 10.81,
-            // which happens to be the capture's em and is why nothing on the
-            // desktop showed it -- and the panel comes out a column of text a
-            // dozen characters wide with no card behind it. That is exactly
-            // what a fresh install on a phone opened onto, while the same
-            // screen reached from PLAY a second later was correct, because by
-            // then the tree was up. One dispatcher turn is the whole fix.
+            // **After the first frame, not during the attachment.** Two things
+            // go wrong when a screen is pushed from inside this method, and
+            // the second is worse than the first.
+            //
+            // A control added to the tree while an ancestor is still being
+            // attached never inherits <see cref="Deck.EmProperty"/> from the
+            // <see cref="DeckStage"/> above it: it is laid out on the
+            // property's own default -- 10.81, which happens to be the
+            // capture's em and is why nothing on the desktop showed it -- and
+            // the panel comes out a column of text a dozen characters wide
+            // with no card behind it.
+            //
+            // And on Android the tree is swapped before the toolkit has put
+            // anything on the glass at all, which leaves a window that never
+            // draws: the compositor does not come back to a control whose
+            // first render drew nothing, so the app sits on the activity's
+            // background colour until some input forces a pass. That is what
+            // "black screen on the first launch, and back gets past it" was,
+            // and a dispatcher turn is not enough for it -- <see
+            // cref="Deck.NextFrame"/> is, because it is the one hook here that
+            // waits for a *frame* rather than for the queue to drain.
             if (!GameFiles.Ready && _stack.Count == 0)
             {
-                Dispatcher.UIThread.Post(() =>
+                Deck.NextFrame(this, () =>
                 {
                     if (!GameFiles.Ready && _stack.Count == 0)
                     {
                         OpenSetup();
                     }
-                }, DispatcherPriority.Loaded);
+                });
             }
         }
 
@@ -429,6 +473,8 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public void Reset()
         {
+            _lobby?.Suspend();
+            _lobby = null;
             _finished = false;
             Plan = default;
             while (_stack.Count > 0)
@@ -459,7 +505,8 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return false;
             }
-            Pop();
+            if (_stack[^1] is LobbyScreen lobby) lobby.Leave("");
+            else Pop();
             return true;
         }
 
@@ -570,7 +617,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             var view = new PlayScreen(_settings, _rooms);
             view.Closed += (_, _) => Pop();
-            view.Launched += (_, plan) => Finish(plan);
+            view.Launched += (_, plan) => ConnectedOrFinished(plan);
             view.CreateRequested += (_, _) => OpenCreateServer();
             Push(view);
             return Task.CompletedTask;
@@ -585,8 +632,24 @@ namespace MphRead.Mods.Launcher.Gui
         {
             var view = new CreateServerScreen(_rooms, _settings.RoomKey);
             view.Closed += (_, _) => Pop();
-            view.Launched += (_, plan) => Finish(plan);
+            view.Launched += (_, plan) => { Pop(); ConnectedOrFinished(plan); };
             Push(view);
+        }
+
+        private void ConnectedOrFinished(LaunchPlan plan)
+        {
+            if (NetSession.Active && NetSession.PersistentLobby)
+            {
+                _lobby = new LobbyScreen(_rooms, plan.Lobby);
+                _lobby.MatchRequested += (_, match) => MatchRequested?.Invoke(this, match);
+                _lobby.Closed += (_, reason) =>
+                {
+                    _lobby = null; Pop();
+                    if (_stack.Count > 0 && _stack[^1] is PlayScreen play) play.SessionEnded(reason);
+                };
+                Push(_lobby);
+            }
+            else Finish(plan);
         }
 
         private Task OpenSettings()
@@ -685,6 +748,15 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>
         /// Pick a map and put it to the room -- the same screen a match is
         /// chosen from, with the strip of sources taken away.
+        ///
+        /// The list is read again here rather than taken from the one this
+        /// screen was built with. On the head that shows the pause menu on
+        /// this stack the front screen is built once, before the game files
+        /// have necessarily been found, and it is still that same object
+        /// during every match afterwards -- so a launch that started with no
+        /// rooms opened a ballot with nothing on it, which is what "there is
+        /// no map vote on Android" was. <see cref="InGameMenu.OpenVote"/> does
+        /// the same and this is the other half of it.
         /// </summary>
         private void OpenVote()
         {
@@ -695,9 +767,29 @@ namespace MphRead.Mods.Launcher.Gui
                 // one sentence, the player is about to go back to the match,
                 // and a dialog for it is a second thing to dismiss.
                 Chat.ChatBox.System(why);
+                Pop();
                 return;
             }
-            var view = new PlayScreen(_settings, _rooms, PlayScreen.Face.Vote,
+            IReadOnlyList<string> rooms = _rooms;
+            if (rooms.Count == 0)
+            {
+                try
+                {
+                    rooms = ThumbnailGenerator.MultiplayerRooms();
+                }
+                catch (Exception ex)
+                {
+                    Mods.DebugLog.Exception("pause", ex);
+                    rooms = Array.Empty<string>();
+                }
+            }
+            if (rooms.Count == 0)
+            {
+                Chat.ChatBox.System("no maps to vote for");
+                Pop();
+                return;
+            }
+            var view = new PlayScreen(_settings, rooms, PlayScreen.Face.Vote,
                 overGame: true);
             view.Closed += (_, _) => Pop();
             view.Voted += (_, room) =>

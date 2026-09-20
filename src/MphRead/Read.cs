@@ -1346,27 +1346,36 @@ namespace MphRead
                 }
                 else if (bytes[0] == LZ10.MagicByte)
                 {
-                    string temp = Paths.Combine(Paths.Export, "__temp");
-                    try
-                    {
-                        Directory.Delete(temp, recursive: true);
-                    }
-                    catch { }
-                    Directory.CreateDirectory(temp);
-                    string destination = Paths.Combine(temp, $"{name}.arc");
+                    // In memory, not through a scratch directory every archive
+                    // shares: on Android's FUSE-backed storage the delete and
+                    // recreate of that directory is not ordered against the
+                    // write into it, so the .arc was read back short and
+                    // Archiver.Extract refused it -- silently, leaving an
+                    // empty _archives folder that only shows up as a missing
+                    // collision file when the room is loaded. 16 of 104 on an
+                    // S21; none of them on the desktop, same ROM.
                     Console.Write(" Decompressing...");
-                    LZ10.Decompress(path, destination);
+                    using var decompressed = new MemoryStream();
+                    using (var compressed = new MemoryStream(bytes.ToArray()))
+                    {
+                        LZ10.Decompress(compressed, compressed.Length, decompressed);
+                    }
                     Console.Write(" Extracting archive...");
-                    filesWritten = Archiver.Extract(destination, output);
-                    Directory.Delete(temp, recursive: true);
+                    filesWritten = Archiver.Extract(decompressed.GetBuffer()
+                        .AsSpan(0, (int)decompressed.Length), output);
                 }
                 Console.WriteLine();
                 Console.WriteLine($"Extracted {filesWritten} file{(filesWritten == 1 ? "" : "s")}.");
+                if (filesWritten == 0)
+                {
+                    throw new ProgramException($"{name} yielded no files.");
+                }
             }
-            catch
+            catch (Exception ex)
             {
                 Console.WriteLine();
-                Console.WriteLine($"Failed to extract archive. Verify an archive exists at {path}.");
+                Console.WriteLine($"Failed to extract archive {name}: {ex.Message}");
+                Console.WriteLine($"Verify an archive exists at {path}.");
             }
         }
 

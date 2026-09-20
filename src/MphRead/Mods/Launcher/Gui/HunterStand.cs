@@ -1,6 +1,7 @@
 #if MPHREAD_AVALONIA
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -270,6 +271,33 @@ namespace MphRead.Mods.Launcher.Gui
 
         private string _who = "Samus";
 
+        private MphRead.Hunter Asked => Enum.TryParse(_who, ignoreCase: true,
+            out MphRead.Hunter which) ? which : MphRead.Hunter.Samus;
+
+        /// <summary>
+        /// Whether the engine has *this* hunter in the box, rather than one
+        /// it has not managed to swap yet. Turning the picker faster than a
+        /// model loads, or onto a hunter whose model is missing, leaves the
+        /// previous one standing -- and a hole cut for it shows the wrong
+        /// character with no sign that anything went wrong.
+        ///
+        /// A disagreement has to last to count. The engine publishes what it
+        /// drew from the GL thread and this is read from the toolkit's, so
+        /// they are a frame out of step routinely; falling back on the first
+        /// one flickers the picker between the model and the portrait every
+        /// time it is turned. Half a second of it is a model that is not
+        /// coming.
+        /// </summary>
+        private bool EnginePainting => Scene.PreviewDrawnLastFrame
+            && (_swapping < SwapGrace
+                || (Scene.PreviewDrawnHunter == Asked
+                    && Scene.PreviewDrawnSuit == _suit));
+
+        /// <summary>Beats of disagreement before the portrait takes over.</summary>
+        private const int SwapGrace = 15;
+
+        private int _swapping;
+
         /// <summary>Turns on its own until somebody takes hold of it.</summary>
         private double _spin;
         private bool _dragging;
@@ -299,6 +327,102 @@ namespace MphRead.Mods.Launcher.Gui
             _turn.Start();
         }
 
+        // ------------------------------------------------- the real model
+        //
+        // The head with a game window under its screens draws the model into
+        // that window and this control leaves a hole for it; see Publish. The
+        // head with no window under them gets it as a picture instead, cut
+        // offscreen once per hunter and suit -- see Mods/Render/HunterShot.cs
+        // -- and everything below is the second arrangement. Where neither is
+        // installed, the boxes are still what this draws, which is also what
+        // every failure falls back to.
+
+        private Avalonia.Media.Imaging.Bitmap? _shot;
+        private string _shotIs = "";
+        private string _shotAsked = "";
+
+        /// <summary>
+        /// The longest edge a shot is cut at.
+        ///
+        /// The stand is a band a couple of hundred points tall and the picture
+        /// in it is one model against a flat ground, so there is nothing above
+        /// this for it to resolve -- and every pixel is fill rate, a
+        /// glReadPixels stall and a managed copy, on a phone, for a picture
+        /// nobody is looking at closely. PreviewRun's note is the same one.
+        /// </summary>
+        private const int ShotEdge = 512;
+
+        /// <summary>
+        /// Ask for the picture this stand wants, if it has not already.
+        ///
+        /// Keyed on the hunter, the suit and the size, so turning the picker
+        /// does not re-render what is already in hand -- and the size is
+        /// rounded, so a drawer sliding open does not ask for one a frame.
+        /// </summary>
+        private void AskForShot()
+        {
+            if (Mods.Render.HunterShot.Current is not Mods.Render.IHunterShot host)
+            {
+                return;
+            }
+            double w = Bounds.Width, h = Bounds.Height;
+            if (w <= 8 || h <= 8)
+            {
+                return;
+            }
+            double scale = Math.Min(1, ShotEdge / Math.Max(w, h));
+            int width = Grain((int)Math.Round(w * scale));
+            int height = Grain((int)Math.Round(h * scale));
+            string want = $"{_who}/{_suit}/{width}x{height}";
+            if (want == _shotAsked)
+            {
+                return;
+            }
+            _shotAsked = want;
+            if (!Enum.TryParse(_who, ignoreCase: true, out MphRead.Hunter which))
+            {
+                return;
+            }
+            Task<byte[]?> work = host.RenderAsync(which, _suit, width, height);
+            work.ContinueWith(done => Dispatcher.UIThread.Post(() =>
+            {
+                if (done.Result is not byte[] pixels || want != _shotAsked)
+                {
+                    return;
+                }
+                Take(pixels, width, height, want);
+            }), TaskScheduler.Default);
+        }
+
+        private static int Grain(int pixels) =>
+            Math.Max(32, (pixels + 31) / 32 * 32);
+
+        private void Take(byte[] pixels, int width, int height, string key)
+        {
+            try
+            {
+                var bitmap = new Avalonia.Media.Imaging.WriteableBitmap(
+                    new PixelSize(width, height), new Vector(96, 96),
+                    Avalonia.Platform.PixelFormat.Bgra8888,
+                    Avalonia.Platform.AlphaFormat.Opaque);
+                using (Avalonia.Platform.ILockedFramebuffer buffer = bitmap.Lock())
+                {
+                    System.Runtime.InteropServices.Marshal.Copy(pixels, 0,
+                        buffer.Address, Math.Min(pixels.Length, buffer.RowBytes * height));
+                }
+                _shot?.Dispose();
+                _shot = bitmap;
+                _shotIs = key;
+                InvalidateVisual();
+            }
+            catch (Exception ex)
+            {
+                // The boxes again, which is what every failure on this path
+                // comes to. Said once per stand rather than per frame.
+                Mods.DebugLog.Line("ui", $"the hunter picture could not be taken: {ex.Message}");
+            }
+        }
+
         /// <summary>
         /// Once every thirty-three milliseconds while this is in the tree:
         /// tell the engine where the box is, and redraw the boxes if the
@@ -313,6 +437,8 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private void Beat()
         {
+            _swapping = Scene.PreviewDrawnHunter == Asked
+                && Scene.PreviewDrawnSuit == _suit ? 0 : _swapping + 1;
 #if MPHREAD_SHELL
             if (!IsEffectivelyVisible)
             {
@@ -320,8 +446,86 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             Publish();
+            // Render draws nothing at all while the engine is painting this
+            // box, so asking for it again is a whole-window raster thirty
+            // times a second for an identical picture. The desktop pays it
+            // too: its own Render has the same early return.
+            if (EnginePainting)
+            {
+                return;
+            }
+#else
+            if (Mods.Render.HunterShot.InFrame)
+            {
+                // The engine is right there and is already stepping a hunter
+                // preview for the results screen: say where it goes and let
+                // it draw, rather than cutting a picture of a model that is
+                // being drawn anyway.
+                PublishInFrame();
+            }
+            else
+            {
+                AskForShot();
+            }
+            // Render draws nothing at all while the engine is painting this
+            // box, so asking for it again is a whole-window raster and a
+            // whole-window upload, thirty times a second, for an identical
+            // picture -- which is half the frame rate while the panel is up.
+            if (Mods.Render.HunterShot.InFrame && EnginePainting)
+            {
+                return;
+            }
 #endif
             InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Where this box is, as a fraction of the frame the screens are
+        /// composited into.
+        ///
+        /// The same two coordinate systems the shell's own <c>Publish</c>
+        /// crosses, and the same answer: both corners are translated into the
+        /// top level rather than one corner and a scale, because the transform
+        /// that scales the screens lives *inside* it and a point translated
+        /// there has already been scaled.
+        /// </summary>
+        private void PublishInFrame()
+        {
+            TopLevel? top = TopLevel.GetTopLevel(this);
+            if (!IsEffectivelyVisible || top == null)
+            {
+                Mods.Render.HunterShot.HoleWanted = false;
+                return;
+            }
+            double width = Mods.Render.HunterShot.FrameWidth > 0
+                ? Mods.Render.HunterShot.FrameWidth : top.ClientSize.Width;
+            double height = Mods.Render.HunterShot.FrameHeight > 0
+                ? Mods.Render.HunterShot.FrameHeight : top.ClientSize.Height;
+            double scale = Mods.Render.HunterShot.FrameScale > 0
+                ? Mods.Render.HunterShot.FrameScale : 1;
+            Point origin = this.TranslatePoint(new Point(0, 0), top) ?? new Point(0, 0);
+            Point far = this.TranslatePoint(new Point(Bounds.Width, Bounds.Height), top)
+                ?? origin;
+            if (width <= 0 || height <= 0 || far.X <= origin.X || far.Y <= origin.Y
+                || origin.X < 0 || origin.Y < 0 || far.X > width || far.Y > height)
+            {
+                // Off the frame is a rectangle from a layout that has moved
+                // on, and what the engine paints into one is a black box over
+                // whatever is really there.
+                Mods.Render.HunterShot.HoleWanted = false;
+                Mods.DebugLog.Line("ui", $"hunter hole refused: "
+                    + $"({origin.X:0},{origin.Y:0})-({far.X:0},{far.Y:0}) "
+                    + $"in {width:0}x{height:0} at {scale:0.###}x");
+                return;
+            }
+            Mods.Render.HunterShot.HoleHunter = Enum.TryParse(_who, ignoreCase: true,
+                out MphRead.Hunter which) ? which : MphRead.Hunter.Samus;
+            Mods.Render.HunterShot.HoleSuit = _suit;
+            Mods.Render.HunterShot.HoleLeft = (float)(origin.X / width);
+            Mods.Render.HunterShot.HoleTop = (float)(origin.Y / height);
+            Mods.Render.HunterShot.HoleRight = (float)(far.X / width);
+            Mods.Render.HunterShot.HoleBottom = (float)(far.Y / height);
+            Mods.Render.HunterShot.HoleWanted = true;
         }
 
 #if MPHREAD_SHELL
@@ -392,7 +596,13 @@ namespace MphRead.Mods.Launcher.Gui
 #if MPHREAD_SHELL
             // The stand has gone; nothing should be drawn under where it was.
             Mods.Render.LauncherHunter.Reset();
+#else
+            Mods.Render.HunterShot.HoleWanted = false;
 #endif
+            _shot?.Dispose();
+            _shot = null;
+            _shotIs = "";
+            _shotAsked = "";
             base.OnDetachedFromVisualTree(e);
         }
 
@@ -451,11 +661,35 @@ namespace MphRead.Mods.Launcher.Gui
             // the screens afterwards, by LauncherHunter. A model that will
             // not load, or the frames before it has, fall through to the
             // boxes below.
-            if (Scene.PreviewDrawnLastFrame)
+            if (EnginePainting)
+            {
+                return;
+            }
+#else
+            // The same rule on the head whose screens are composited into the
+            // frame: what goes in this box is painted after the texture is
+            // down, so leaving it empty is leaving the hole for it.
+            if (Mods.Render.HunterShot.InFrame && EnginePainting)
             {
                 return;
             }
 #endif
+            // The picture, where a platform cut one. It carries its own dark
+            // ground -- the same colour the engine clears the preview window
+            // to on the desktop -- so it fills the well rather than sitting in
+            // it, and it is only used while it is the *current* hunter's: a
+            // shot from before the picker was turned falls through to the
+            // boxes for the frame or two it takes the next one to arrive.
+            if (_shot != null && _shotIs == _shotAsked)
+            {
+                var well = new Rect(0, 0, w, h);
+                using (context.PushGeometryClip(
+                    new RectangleGeometry(well) { RadiusX = 7, RadiusY = 7 }))
+                {
+                    context.DrawImage(_shot, well);
+                }
+                return;
+            }
             Hunter hunter = _hunters.TryGetValue(_who, out Hunter found)
                 ? found : _hunters["Samus"];
 

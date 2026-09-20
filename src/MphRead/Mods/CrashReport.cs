@@ -116,7 +116,7 @@ namespace MphRead.Mods
             // Named .log because LogArchive gathers "*.log", and this has to
             // travel with the rest of them.
             string name = $"{Branding.Name.Replace(" ", "")}-crash-"
-                + $"{DateTime.Now:yyyyMMdd-HHmmss}.log";
+                + $"{DateTime.Now:yyyyMMdd-HHmmss}-{Environment.ProcessId}.log";
             // The logs folder first, and not because it is tidy: that is the
             // one directory LogArchive gathers and the share sheet hands out,
             // so a crash written anywhere else is a crash a player on a phone

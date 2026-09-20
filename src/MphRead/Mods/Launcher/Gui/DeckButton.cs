@@ -234,6 +234,10 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public void Wear(Deck.Face face, bool selected)
         {
+            if (_face == face && _selected == selected)
+            {
+                return;
+            }
             _face = face;
             _selected = selected;
             InvalidateVisual();
@@ -726,8 +730,8 @@ namespace MphRead.Mods.Launcher.Gui
                     Glyph(context, new Rect(Math.Round((w - gw) / 2),
                         Math.Round((h - gh) / 2), gw, gh), paint);
                     DrawTip(context, w, size,
-                        IsPointerOver || (IsFocused && _ringVisible));
-                    bool glyphBusy = moving || _hop.IsRunning || _tipShow > 0.001;
+                        IsPointerOver || (IsFocused && _ringVisible) || Deck.Phone);
+                    bool glyphBusy = moving || _hop.IsRunning || _tipMoving;
                     if ((glyphBusy || Idle) && !Deck.Still)
                     {
                         RequestAnotherFrame(idling: !glyphBusy);
@@ -753,7 +757,7 @@ namespace MphRead.Mods.Launcher.Gui
             // Not while the screen is being photographed: a control that asks
             // for another frame from inside a render pass is one a
             // RenderTargetBitmap refuses to finish. See Deck.Still.
-            bool busy = moving || _hop.IsRunning || _tipShow > 0.001;
+            bool busy = moving || _hop.IsRunning || _tipMoving;
             if ((busy || Idle) && !Deck.Still)
             {
                 RequestAnotherFrame(idling: !busy);
@@ -764,6 +768,14 @@ namespace MphRead.Mods.Launcher.Gui
         private double _tipShow;
 
         /// <summary>
+        /// Whether it is still on its way. Not "is it showing": on a
+        /// touchscreen the tip is up for as long as the mark is, and a control
+        /// that asks for another frame while anything is visible would redraw
+        /// the whole launcher for ever.
+        /// </summary>
+        private bool _tipMoving;
+
+        /// <summary>
         /// Step the tip and draw it. Outside the button's own transform, so a
         /// hovered button's lean does not tip the label above it over with it.
         /// </summary>
@@ -771,6 +783,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (Tip.Length == 0)
             {
+                _tipMoving = false;
                 return;
             }
             double target = hot ? 1 : 0;
@@ -788,6 +801,7 @@ namespace MphRead.Mods.Launcher.Gui
                     _tipShow = target;
                 }
             }
+            _tipMoving = !Deck.Still && Math.Abs(target - _tipShow) > 0.0001;
             DeckHeart.DrawTip(context, Tip, w, size, _tipShow, _tipShow);
         }
     }

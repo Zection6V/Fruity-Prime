@@ -1,4 +1,4 @@
-#if MPHREAD_SHELL
+#if MPHREAD_AVALONIA
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -145,6 +145,7 @@ namespace MphRead.Mods.Launcher.Gui
     {
         private readonly IKeyboardDevice _keyboard;
         private readonly MouseDevice _mouse;
+        private readonly TouchDevice _touch = new();
         private readonly Surface _surface;
         private readonly System.Diagnostics.Stopwatch _clock =
             System.Diagnostics.Stopwatch.StartNew();
@@ -152,13 +153,30 @@ namespace MphRead.Mods.Launcher.Gui
         public UiTopLevelImpl(Compositor compositor)
         {
             Compositor = compositor;
-            _keyboard = AvaloniaLocator.Current.GetRequiredService<IKeyboardDevice>();
+            // Not GetRequiredService: which devices a platform registers is
+            // the platform's business, and the Android backend does not put a
+            // keyboard in the locator. Nothing below needs it to be the
+            // platform's -- it is the device a raw key event is stamped with.
+            _keyboard = AvaloniaLocator.Current.GetService<IKeyboardDevice>()
+                ?? new KeyboardDevice();
             _mouse = new MouseDevice(new Pointer(Pointer.GetNextFreeId(),
                 PointerType.Mouse, isPrimary: true));
             _surface = new Surface(this);
             Surfaces = [_surface];
             ClientSize = new Size(1280, 768);
         }
+
+        /// <summary>
+        /// A pass has just finished into <see cref="Pixels"/>.
+        ///
+        /// For the head that has to get the frame across a thread: the game
+        /// draws on its own GL thread there and this buffer belongs to
+        /// whoever the compositor renders on, so the copy has to be taken
+        /// while the pass is the thing that just happened. The desktop leaves
+        /// it null -- it reads <see cref="Drawn"/> from its own frame, on the
+        /// one thread that does everything.
+        /// </summary>
+        public Action? Painted { get; set; }
 
         /// <summary>
         /// Stand one up, or say why not.
@@ -267,6 +285,34 @@ namespace MphRead.Mods.Launcher.Gui
         {
             Raise(new RawMouseWheelEventArgs(_mouse, Timestamp, InputRoot!,
                 point, delta, modifiers));
+        }
+
+        // A finger, not the mouse. Avalonia's ScrollGestureRecognizer only
+        // engages for a touch pointer, so a drag delivered as a mouse button
+        // scrolls nothing and a list can only be moved by its scrollbar.
+
+        public void TouchBegin(Point point, long id)
+        {
+            // Settle the layout first. Hit-testing reads the composition tree,
+            // which is only brought up to date by a tick -- so a press that
+            // arrives between two of them is resolved against the layout as it
+            // stood before the last change, and lands on whatever used to be
+            // under the finger. One removed row is one row of error.
+            UiRenderTimer.Pump();
+            Raise(new RawTouchEventArgs(_touch, Timestamp, InputRoot!,
+                RawPointerEventType.TouchBegin, point, RawInputModifiers.None, id));
+        }
+
+        public void TouchUpdate(Point point, long id)
+        {
+            Raise(new RawTouchEventArgs(_touch, Timestamp, InputRoot!,
+                RawPointerEventType.TouchUpdate, point, RawInputModifiers.None, id));
+        }
+
+        public void TouchEnd(Point point, long id)
+        {
+            Raise(new RawTouchEventArgs(_touch, Timestamp, InputRoot!,
+                RawPointerEventType.TouchEnd, point, RawInputModifiers.None, id));
         }
 
         public void KeyPress(Key key, RawInputModifiers modifiers,
@@ -412,7 +458,11 @@ namespace MphRead.Mods.Launcher.Gui
                 public PixelFormat Format => PixelFormat.Rgba8888;
                 public AlphaFormat AlphaFormat => AlphaFormat.Premul;
 
-                public void Dispose() => _surface.Drawn++;
+                public void Dispose()
+                {
+                    _surface.Drawn++;
+                    _surface._owner.Painted?.Invoke();
+                }
             }
         }
 

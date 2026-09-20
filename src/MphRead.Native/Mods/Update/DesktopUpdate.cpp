@@ -579,19 +579,26 @@ namespace MphRead::Mods::Update
         {
             const std::string name = SanitizeArchivePath(rawName, !zip);
             const fs::path root = FullNormalizedPath(destination);
+            std::string extractionRoot = PathText(root);
+            if (extractionRoot.empty()
+                || !IsDotNetDirectorySeparator(extractionRoot.back()))
+            {
+                extractionRoot.push_back(
+                    static_cast<char>(fs::path::preferred_separator));
+            }
 
             std::string combined;
             if (zip)
             {
                 combined = IsDotNetPathRooted(name)
                     ? name
-                    : DotNetJoin(destination, name);
+                    : DotNetJoin(extractionRoot, name);
             }
             else
             {
                 combined = IsDotNetPathFullyQualified(name)
                     ? name
-                    : DotNetJoin(destination, name);
+                    : DotNetJoin(extractionRoot, name);
             }
 
             const fs::path output = FullNormalizedPath(combined);
@@ -992,12 +999,12 @@ namespace MphRead::Mods::Update
 
                 if (zip)
                 {
-                    const bool directoryEntry = !name.empty()
-                        && (name.back() == '/'
+                    const bool directoryEntry = name.empty()
+                        || name.back() == '/'
 #if defined(_WIN32)
-                            || name.back() == '\\'
+                        || name.back() == '\\'
 #endif
-                        );
+                        ;
                     if (directoryEntry)
                     {
                         if (archive_entry_size(entry) != 0)

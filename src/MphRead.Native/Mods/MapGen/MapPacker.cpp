@@ -1284,6 +1284,10 @@ namespace
         const std::shared_ptr<std::vector<std::shared_ptr<Repack::TextureInfo>>>& textures,
         const std::shared_ptr<std::vector<std::shared_ptr<Repack::PaletteInfo>>>& palettes)
     {
+        if (def == nullptr)
+        {
+            NullReference();
+        }
         const float scale = std::pow(2.0F, static_cast<float>(def->ScaleFactor()));
         auto renders = std::make_shared<std::vector<
             std::shared_ptr<const std::vector<std::shared_ptr<RenderInstruction>>>>>();
@@ -1404,19 +1408,19 @@ namespace
         BuiltMap* map,
         MapTexturePack* pack)
     {
-        if (map == nullptr || pack == nullptr)
+        if (map == nullptr)
         {
             NullReference();
         }
         MapDefinition* def = map->Definition();
-        if (def == nullptr)
-        {
-            NullReference();
-        }
 
         auto textures = std::make_shared<std::vector<std::shared_ptr<Repack::TextureInfo>>>();
         auto palettes = std::make_shared<std::vector<std::shared_ptr<Repack::PaletteInfo>>>();
         auto materials = std::make_shared<std::vector<std::shared_ptr<Material>>>();
+        if (pack == nullptr)
+        {
+            NullReference();
+        }
         for (const MapTexturePack::Entry& entry : pack->Entries())
         {
             auto pixels = std::shared_ptr<const std::vector<std::uint8_t>>(
@@ -1485,7 +1489,7 @@ namespace
         const auto* recolors = Require(sourceValue->Recolors);
         const std::shared_ptr<MphRead::Recolor>& recolorValue
             = ListAt(*recolors, 0);
-        MphRead::Recolor* recolor = Require(recolorValue);
+        MphRead::Recolor* recolor = recolorValue.get();
 
         auto textures = std::make_shared<std::vector<std::shared_ptr<Repack::TextureInfo>>>();
         auto palettes = std::make_shared<std::vector<std::shared_ptr<Repack::PaletteInfo>>>();
@@ -1501,28 +1505,38 @@ namespace
         for (const std::shared_ptr<MapMaterial>& mapMaterialValue : *sourceMaterials)
         {
             MapMaterial* mapMaterial = Require(mapMaterialValue);
-            const std::int32_t sourceMaterial = mapMaterial->SourceMaterial();
-            if (sourceMaterial < 0)
+            if (mapMaterial->SourceMaterial() < 0)
             {
+                const std::string textureSource = def->TextureSource();
+                const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
                 throw ProgramException(
-                    def->TextureSource() + " has no material "
-                    + FormatInt32CurrentCulture(sourceMaterial) + ".");
+                    textureSource + " has no material "
+                    + FormatInt32CurrentCulture(invalidMaterial) + ".");
             }
-            const auto* modelMaterials = Require(sourceValue->Materials);
-            if (static_cast<std::size_t>(sourceMaterial) >= modelMaterials->size())
+
+            const std::int32_t materialForUpperBound = mapMaterial->SourceMaterial();
+            const auto* modelMaterialsForCount = Require(sourceValue->Materials);
+            if (materialForUpperBound >= ListCount(modelMaterialsForCount->size()))
             {
+                const std::string textureSource = def->TextureSource();
+                const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
                 throw ProgramException(
-                    def->TextureSource() + " has no material "
-                    + FormatInt32CurrentCulture(sourceMaterial) + ".");
+                    textureSource + " has no material "
+                    + FormatInt32CurrentCulture(invalidMaterial) + ".");
             }
+
+            const auto* modelMaterialsForIndex = Require(sourceValue->Materials);
+            const std::int32_t materialForIndex = mapMaterial->SourceMaterial();
             const std::shared_ptr<Material>& srcMaterialValue
-                = (*modelMaterials)[static_cast<std::size_t>(sourceMaterial)];
+                = ListAt(*modelMaterialsForIndex, materialForIndex);
             Material* srcMaterial = Require(srcMaterialValue);
             if (srcMaterial->TextureId < 0 || srcMaterial->PaletteId < 0)
             {
+                const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
+                const std::string textureSource = def->TextureSource();
                 throw ProgramException(
-                    "Material " + FormatInt32CurrentCulture(sourceMaterial)
-                    + " of " + def->TextureSource() + " has no texture.");
+                    "Material " + FormatInt32CurrentCulture(invalidMaterial)
+                    + " of " + textureSource + " has no texture.");
             }
 
             std::int32_t textureId = 0;
@@ -1530,6 +1544,10 @@ namespace
             if (textureFound == textureMap.end())
             {
                 textureId = ListCount(textures->size());
+                if (recolor == nullptr)
+                {
+                    NullReference();
+                }
                 const auto* recolorTextures = Require(recolor->Textures);
                 const MphRead::Texture& texture
                     = ListAt(*recolorTextures, srcMaterial->TextureId);
@@ -1549,6 +1567,10 @@ namespace
             if (paletteFound == paletteMap.end())
             {
                 paletteId = ListCount(palettes->size());
+                if (recolor == nullptr)
+                {
+                    NullReference();
+                }
                 const auto* paletteDataLists = Require(recolor->PaletteData);
                 const std::shared_ptr<const std::vector<MphRead::PaletteData>>& sourcePalette
                     = ListAt(*paletteDataLists, srcMaterial->PaletteId);
@@ -1591,12 +1613,12 @@ namespace
 
     [[nodiscard]] std::vector<std::uint8_t> BuildCollision(BuiltMap* map)
     {
+        auto editors = std::make_shared<
+            std::vector<std::shared_ptr<CollisionDataEditor>>>();
         if (map == nullptr)
         {
             NullReference();
         }
-        auto editors = std::make_shared<
-            std::vector<std::shared_ptr<CollisionDataEditor>>>();
         for (BuiltFace* face : map->Solid())
         {
             if (face == nullptr)

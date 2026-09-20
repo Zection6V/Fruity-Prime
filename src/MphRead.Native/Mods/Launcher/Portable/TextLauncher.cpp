@@ -6,6 +6,7 @@
 #include "LauncherPrefs.hpp"
 #include "MatchStart.hpp"
 #include "SetupProgress.hpp"
+#include "../../../Formats/Enums.hpp"
 #include "../../../Formats/Types.hpp"
 #include "../../../GameState.hpp"
 #include "../../../Menu.hpp"
@@ -20,6 +21,7 @@
 #include "../../Network/NetSession.hpp"
 #include "../../Network/NetStatus.hpp"
 #include "../../Update/Updater.hpp"
+#include "../../WindowMode.hpp"
 
 #include <algorithm>
 #include <array>
@@ -64,10 +66,31 @@
 
 namespace MphRead::Mods::Launcher::Detail
 {
-    // WindowMode.cs is the next Native implementation-order owner. Keep this
-    // call as a declaration-only seam so this pair does not invent that class's
-    // implementation or duplicate its state.
+    // These are direct owner seams, not TextLauncher policy. WindowMode already
+    // owns Startup; the remaining runtime/Console operations need their common
+    // Native owners rather than pair-local approximations.
     void TextLauncherSetWindowStartup(MphRead::Mods::WindowStartMode value);
+    [[nodiscard]] std::string TextLauncherExceptionMessage(const std::exception& exception);
+    [[nodiscard]] std::optional<std::string> TextLauncherExceptionStackTrace(
+        const std::exception& exception);
+    [[nodiscard]] std::optional<std::string> TextLauncherConsoleReadLine();
+    [[nodiscard]] bool TextLauncherConsoleIsOutputRedirected() noexcept;
+}
+
+namespace MphRead::GameStateDetail
+{
+    [[nodiscard]] GameMode GameModeBattle();
+    [[nodiscard]] GameMode GameModeBattleTeams();
+    [[nodiscard]] GameMode GameModeSurvival();
+    [[nodiscard]] GameMode GameModeSurvivalTeams();
+    [[nodiscard]] GameMode GameModeCapture();
+    [[nodiscard]] GameMode GameModeBounty();
+    [[nodiscard]] GameMode GameModeBountyTeams();
+    [[nodiscard]] GameMode GameModeNodes();
+    [[nodiscard]] GameMode GameModeNodesTeams();
+    [[nodiscard]] GameMode GameModeDefender();
+    [[nodiscard]] GameMode GameModeDefenderTeams();
+    [[nodiscard]] GameMode GameModePrimeHunter();
 }
 
 namespace
@@ -88,23 +111,18 @@ namespace
     constexpr std::int32_t PlayerSlotCapacity
         = MphRead::Entities::PlayerEntity::SlotCapacity;
 
-    [[nodiscard]] constexpr GameMode Mode(std::int32_t value) noexcept
-    {
-        return static_cast<GameMode>(value);
-    }
-
-    [[nodiscard]] constexpr GameMode Battle() noexcept { return Mode(1); }
-    [[nodiscard]] constexpr GameMode BattleTeams() noexcept { return Mode(2); }
-    [[nodiscard]] constexpr GameMode Survival() noexcept { return Mode(3); }
-    [[nodiscard]] constexpr GameMode SurvivalTeams() noexcept { return Mode(4); }
-    [[nodiscard]] constexpr GameMode Capture() noexcept { return Mode(5); }
-    [[nodiscard]] constexpr GameMode Bounty() noexcept { return Mode(6); }
-    [[nodiscard]] constexpr GameMode BountyTeams() noexcept { return Mode(7); }
-    [[nodiscard]] constexpr GameMode Nodes() noexcept { return Mode(8); }
-    [[nodiscard]] constexpr GameMode NodesTeams() noexcept { return Mode(9); }
-    [[nodiscard]] constexpr GameMode Defender() noexcept { return Mode(10); }
-    [[nodiscard]] constexpr GameMode DefenderTeams() noexcept { return Mode(11); }
-    [[nodiscard]] constexpr GameMode PrimeHunter() noexcept { return Mode(12); }
+    [[nodiscard]] GameMode Battle() { return MphRead::GameStateDetail::GameModeBattle(); }
+    [[nodiscard]] GameMode BattleTeams() { return MphRead::GameStateDetail::GameModeBattleTeams(); }
+    [[nodiscard]] GameMode Survival() { return MphRead::GameStateDetail::GameModeSurvival(); }
+    [[nodiscard]] GameMode SurvivalTeams() { return MphRead::GameStateDetail::GameModeSurvivalTeams(); }
+    [[nodiscard]] GameMode Capture() { return MphRead::GameStateDetail::GameModeCapture(); }
+    [[nodiscard]] GameMode Bounty() { return MphRead::GameStateDetail::GameModeBounty(); }
+    [[nodiscard]] GameMode BountyTeams() { return MphRead::GameStateDetail::GameModeBountyTeams(); }
+    [[nodiscard]] GameMode Nodes() { return MphRead::GameStateDetail::GameModeNodes(); }
+    [[nodiscard]] GameMode NodesTeams() { return MphRead::GameStateDetail::GameModeNodesTeams(); }
+    [[nodiscard]] GameMode Defender() { return MphRead::GameStateDetail::GameModeDefender(); }
+    [[nodiscard]] GameMode DefenderTeams() { return MphRead::GameStateDetail::GameModeDefenderTeams(); }
+    [[nodiscard]] GameMode PrimeHunter() { return MphRead::GameStateDetail::GameModePrimeHunter(); }
 
     struct Utf8Unit final
     {
@@ -582,28 +600,24 @@ namespace
 
     [[nodiscard]] std::string HunterName(Hunter hunter)
     {
-        switch (static_cast<std::uint8_t>(hunter))
+        switch (hunter)
         {
-        case 0: return "Samus";
-        case 1: return "Kanden";
-        case 2: return "Trace";
-        case 3: return "Sylux";
-        case 4: return "Noxus";
-        case 5: return "Spire";
-        case 6: return "Weavel";
-        case 7: return "Guardian";
-        case 8: return "Random";
+        case Hunter::Samus: return "Samus";
+        case Hunter::Kanden: return "Kanden";
+        case Hunter::Trace: return "Trace";
+        case Hunter::Sylux: return "Sylux";
+        case Hunter::Noxus: return "Noxus";
+        case Hunter::Spire: return "Spire";
+        case Hunter::Weavel: return "Weavel";
+        case Hunter::Guardian: return "Guardian";
+        case Hunter::Random: return "Random";
         default: return std::to_string(static_cast<unsigned int>(static_cast<std::uint8_t>(hunter)));
         }
     }
 
     [[nodiscard]] bool OutputRedirected() noexcept
     {
-#if defined(_WIN32)
-        return ::_isatty(::_fileno(stdout)) == 0;
-#else
-        return ::isatty(STDOUT_FILENO) == 0;
-#endif
+        return MphRead::Mods::Launcher::Detail::TextLauncherConsoleIsOutputRedirected();
     }
 
     [[nodiscard]] bool FileExists(const std::string& path) noexcept
@@ -645,61 +659,10 @@ namespace
         }
     }
 
-    [[nodiscard]] std::optional<std::string> NativeStackTrace()
+    void WriteExceptionStackTrace(const std::exception& exception)
     {
-#if defined(_WIN32)
-        std::array<void*, 64> frames{};
-        const USHORT count = ::CaptureStackBackTrace(0,
-            static_cast<DWORD>(frames.size()), frames.data(), nullptr);
-        if (count == 0)
-        {
-            return std::nullopt;
-        }
-        std::ostringstream result;
-        result.imbue(std::locale::classic());
-        for (USHORT index = 2; index < count; ++index)
-        {
-            if (index != 2)
-            {
-                result << '\n';
-            }
-            result << "   at 0x" << std::hex << std::uppercase
-                << reinterpret_cast<std::uintptr_t>(frames[index]);
-        }
-        std::string text = result.str();
-        return text.empty() ? std::nullopt : std::optional<std::string>(std::move(text));
-#elif defined(__ANDROID__)
-        return std::nullopt;
-#else
-        std::array<void*, 64> frames{};
-        const int count = ::backtrace(frames.data(), static_cast<int>(frames.size()));
-        if (count <= 0)
-        {
-            return std::nullopt;
-        }
-        char** symbols = ::backtrace_symbols(frames.data(), count);
-        if (symbols == nullptr)
-        {
-            return std::nullopt;
-        }
-        std::unique_ptr<char*, decltype(&std::free)> owned(symbols, &std::free);
-        std::string result;
-        for (int index = 2; index < count; ++index)
-        {
-            if (!result.empty())
-            {
-                result.push_back('\n');
-            }
-            result.append("   at ");
-            result.append(symbols[index] == nullptr ? "(unknown)" : symbols[index]);
-        }
-        return result.empty() ? std::nullopt : std::optional<std::string>(std::move(result));
-#endif
-    }
-
-    void WriteExceptionStackTrace()
-    {
-        const std::optional<std::string> stack = NativeStackTrace();
+        const std::optional<std::string> stack
+            = MphRead::Mods::Launcher::Detail::TextLauncherExceptionStackTrace(exception);
         std::cout << (stack.has_value() ? *stack : std::string()) << '\n';
     }
 
@@ -722,51 +685,6 @@ namespace
         return *result.Servers;
     }
 
-    [[nodiscard]] std::optional<std::string> ReadLineManaged()
-    {
-        std::string line;
-        while (true)
-        {
-            const int value = std::cin.get();
-            if (value == std::char_traits<char>::eof())
-            {
-                if (std::cin.bad())
-                {
-                    throw std::ios_base::failure("Could not read from standard input.");
-                }
-                if (line.empty())
-                {
-                    return std::nullopt;
-                }
-                return line;
-            }
-
-            const char ch = static_cast<char>(value);
-            if (ch == '\n')
-            {
-                return line;
-            }
-            if (ch == '\r')
-            {
-                const int next = std::cin.peek();
-                if (std::cin.bad())
-                {
-                    throw std::ios_base::failure("Could not read from standard input.");
-                }
-                if (next == '\n')
-                {
-                    (void)std::cin.get();
-                    if (std::cin.bad())
-                    {
-                        throw std::ios_base::failure("Could not read from standard input.");
-                    }
-                }
-                return line;
-            }
-            line.push_back(ch);
-        }
-    }
-
     [[nodiscard]] std::string Ask(const std::string& prompt, const std::string& fallback)
     {
         if (!fallback.empty())
@@ -778,7 +696,8 @@ namespace
             std::cout << prompt << ": ";
         }
         std::cout.flush();
-        const std::optional<std::string> line = ReadLineManaged();
+        const std::optional<std::string> line
+            = MphRead::Mods::Launcher::Detail::TextLauncherConsoleReadLine();
         if (!line.has_value())
         {
             std::cout << '\n';
@@ -827,13 +746,10 @@ namespace
 
     [[nodiscard]] Hunter AskHunter()
     {
-        std::vector<Hunter> hunters;
-        hunters.reserve(8);
-        for (std::int32_t index = 0; index < 7; ++index)
-        {
-            hunters.push_back(static_cast<Hunter>(index));
-        }
-        hunters.push_back(static_cast<Hunter>(8));
+        std::vector<Hunter> hunters{
+            Hunter::Samus, Hunter::Kanden, Hunter::Trace, Hunter::Sylux,
+            Hunter::Noxus, Hunter::Spire, Hunter::Weavel, Hunter::Random
+        };
 
         const Hunter remembered = LauncherPrefs::LastHunter();
         auto found = std::find(hunters.begin(), hunters.end(), remembered);
@@ -1049,9 +965,12 @@ namespace
         std::cout << '\n';
         LauncherPrefs::PlayerName(AskName());
         LauncherPrefs::LastHunter(AskHunter());
-        const bool fullscreen = static_cast<std::int32_t>(LauncherPrefs::WindowMode()) == 1;
-        LauncherPrefs::WindowMode(static_cast<MphRead::Mods::WindowStartMode>(
-            AskYesNo("  Start fullscreen", fullscreen) ? 1 : 0));
+        const bool fullscreen = LauncherPrefs::WindowMode()
+            == MphRead::Mods::WindowStartMode::BorderlessFullscreen;
+        LauncherPrefs::WindowMode(
+            AskYesNo("  Start fullscreen", fullscreen)
+                ? MphRead::Mods::WindowStartMode::BorderlessFullscreen
+                : MphRead::Mods::WindowStartMode::Windowed);
 
         const std::string endpoint = Ask("  Default server",
             LauncherPrefs::ServerAddress() + ":" + std::to_string(LauncherPrefs::ServerPort()));
@@ -1557,8 +1476,9 @@ namespace MphRead::Mods::Launcher
                 catch (const std::exception& ex)
                 {
                     std::cout << '\n';
-                    std::cout << "The game could not start: " << ex.what() << '\n';
-                    WriteExceptionStackTrace();
+                    std::cout << "The game could not start: "
+                        << Detail::TextLauncherExceptionMessage(ex) << '\n';
+                    WriteExceptionStackTrace(ex);
                     returnAfterFinally = true;
                 }
             }

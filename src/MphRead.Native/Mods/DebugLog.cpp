@@ -20,7 +20,6 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
-#include <functional>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -727,14 +726,14 @@ namespace
         }
     }
 
-    void Prune(const std::string& directory) noexcept
+    void Prune(const std::string& directory)
     {
         try
         {
             PrunePattern(directory, "*.log");
             PrunePattern(directory, "*-native.txt");
         }
-        catch (...)
+        catch (const std::exception&)
         {
             // A directory that cannot be tidied can still be writable.
         }
@@ -946,7 +945,7 @@ namespace
                     return static_cast<std::int32_t>(parsed);
                 }
             }
-            catch (...)
+            catch (const std::exception&)
             {
             }
         }
@@ -1217,48 +1216,9 @@ namespace
         return value == nullptr || *value == '\0';
     }
 
-    [[nodiscard]] std::int32_t GreatestVersionComponent(
-        const std::function<bool(std::int32_t)>& atLeast)
-    {
-        std::int64_t low = 0;
-        std::int64_t high = std::numeric_limits<std::int32_t>::max();
-        while (low < high)
-        {
-            const std::int64_t middle = low + (high - low + 1) / 2;
-            if (atLeast(static_cast<std::int32_t>(middle)))
-            {
-                low = middle;
-            }
-            else
-            {
-                high = middle - 1;
-            }
-        }
-        return static_cast<std::int32_t>(low);
-    }
-
     [[nodiscard]] std::string ProgramVersionText()
     {
-        const std::int32_t major = GreatestVersionComponent([](std::int32_t value)
-        {
-            return MphRead::Program::Version >= System::Version(value, 0, 0, 0);
-        });
-        const std::int32_t minor = GreatestVersionComponent([major](std::int32_t value)
-        {
-            return MphRead::Program::Version >= System::Version(major, value, 0, 0);
-        });
-        const std::int32_t build = GreatestVersionComponent([major, minor](std::int32_t value)
-        {
-            return MphRead::Program::Version >= System::Version(major, minor, value, 0);
-        });
-        const std::int32_t revision = GreatestVersionComponent(
-            [major, minor, build](std::int32_t value)
-        {
-            return MphRead::Program::Version >= System::Version(
-                major, minor, build, value);
-        });
-        return std::to_string(major) + "." + std::to_string(minor)
-            + "." + std::to_string(build) + "." + std::to_string(revision);
+        return MphRead::Program::Version.ToString();
     }
 
     [[nodiscard]] std::string ExceptionTypeName(const std::exception& exception)
@@ -1335,26 +1295,6 @@ namespace
         return result.empty() ? std::nullopt
             : std::optional<std::string>(std::move(result));
 #endif
-    }
-
-    [[nodiscard]] std::string CurrentExceptionMessage(std::exception_ptr exception)
-    {
-        if (!exception)
-        {
-            return {};
-        }
-        try
-        {
-            std::rethrow_exception(exception);
-        }
-        catch (const std::exception& ex)
-        {
-            return ex.what();
-        }
-        catch (...)
-        {
-            return "Unknown exception";
-        }
     }
 
     void FlushWriterNoThrow() noexcept
@@ -1482,11 +1422,10 @@ namespace
                     "DOTNET_DbgMiniDumpName=" + CombinePath(directory, "crash-%p.dmp"));
             }
         }
-        catch (...)
+        catch (const std::exception& ex)
         {
             MphRead::Mods::DebugLog::Line("crash",
-                "native stderr could not be captured: "
-                + CurrentExceptionMessage(std::current_exception()));
+                "native stderr could not be captured: " + std::string(ex.what()));
         }
     }
 
@@ -1531,10 +1470,10 @@ namespace
         {
             DebugLog::Line("paths", "game files ready=" + BooleanText(GameFiles::Ready()));
         }
-        catch (...)
+        catch (const std::exception& ex)
         {
             DebugLog::Line("paths", "game files could not be checked: "
-                + CurrentExceptionMessage(std::current_exception()));
+                + std::string(ex.what()));
         }
         DebugLog::Line("args", JoinCommandLineArgs());
         WriteDisplay();
@@ -1600,11 +1539,10 @@ namespace MphRead::Mods
             state.Path.store(std::make_shared<const std::string>(path));
             state.Writer.store(std::make_shared<Utf8Writer>(path));
         }
-        catch (...)
+        catch (const std::exception& ex)
         {
             state.Writer.store(nullptr);
-            std::cout << "[debug] could not open a log: "
-                << CurrentExceptionMessage(std::current_exception()) << std::endl;
+            std::cout << "[debug] could not open a log: " << ex.what() << std::endl;
             return;
         }
 
@@ -1705,20 +1643,9 @@ namespace MphRead::Mods
         }
         catch (...)
         {
-            Line(category, "unknown native exception: Unknown exception");
-            State& state = GetState();
-            std::lock_guard<std::recursive_mutex> guard(state.Lock);
-            if (std::shared_ptr<Utf8Writer> writer = state.Writer.load())
-            {
-                if (std::optional<std::string> stack = NativeStackTrace())
-                {
-                    writer->WriteLine(*stack);
-                }
-                else
-                {
-                    writer->WriteNullLine();
-                }
-            }
+            // C# accepts Exception?, so a non-std C++ throw has no managed
+            // Exception object to report here.
+            return;
         }
     }
 

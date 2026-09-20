@@ -639,13 +639,7 @@ namespace MphRead
 
             [[nodiscard]] value_type operator*() const
             {
-                const Argument& argument = (*_arguments)[_index];
-                std::int32_t valueTwo = 0;
-                if (argument.ValueTwo.has_value())
-                {
-                    (void)TryParseInt32(*argument.ValueTwo, valueTwo);
-                }
-                return std::make_pair(*argument.ValueOne, valueTwo);
+                return *_current;
             }
 
             Iterator& operator++()
@@ -674,6 +668,7 @@ namespace MphRead
         private:
             void AdvanceToMatch()
             {
+                _current.reset();
                 while (_arguments != nullptr && _index < _arguments->size())
                 {
                     const Argument& argument = (*_arguments)[_index];
@@ -681,6 +676,12 @@ namespace MphRead
                         && (*argument.Name == _fullName || *argument.Name == _shortName);
                     if (nameMatches && argument.ValueOne.has_value())
                     {
+                        std::int32_t valueTwo = 0;
+                        if (argument.ValueTwo.has_value())
+                        {
+                            (void)TryParseInt32(*argument.ValueTwo, valueTwo);
+                        }
+                        _current = std::make_pair(*argument.ValueOne, valueTwo);
                         return;
                     }
                     ++_index;
@@ -691,6 +692,7 @@ namespace MphRead
             std::string_view _fullName;
             std::string_view _shortName;
             std::size_t _index;
+            std::optional<value_type> _current;
         };
 
         PairRange(

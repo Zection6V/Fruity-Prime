@@ -458,11 +458,13 @@ namespace MphRead::Mods::Update
             struct PendingDirectory final
             {
                 FileSystemPath Path;
+                std::int32_t RemainingDepth;
                 bool Root;
             };
 
             std::queue<PendingDirectory> pending;
-            pending.push(PendingDirectory{root, true});
+            pending.push(PendingDirectory{
+                root, std::numeric_limits<std::int32_t>::max(), true});
             while (!pending.empty())
             {
                 PendingDirectory current = std::move(pending.front());
@@ -494,7 +496,16 @@ namespace MphRead::Mods::Update
                         // .NET's recursive enumerator queues directories and
                         // drains that queue after the current directory, so
                         // traversal is breadth-first rather than depth-first.
-                        pending.push(PendingDirectory{iterator->path(), false});
+                        // SearchOption.AllDirectories uses the compatible
+                        // int.MaxValue recursion budget and decrements it for
+                        // every queued level, including symbolic-link cycles.
+                        if (current.RemainingDepth > 0)
+                        {
+                            pending.push(PendingDirectory{
+                                iterator->path(),
+                                current.RemainingDepth - 1,
+                                false});
+                        }
                     }
                     else
                     {

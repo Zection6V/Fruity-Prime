@@ -33,9 +33,15 @@
 #elif defined(__APPLE__)
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
-#elif defined(__linux__) && !defined(__ANDROID__)
+#elif defined(__linux__)
+#if !defined(__ANDROID__)
 #include <dlfcn.h>
 #include <unistd.h>
+#endif
+#elif defined(__unix__)
+#if !defined(__ANDROID__)
+#include <dlfcn.h>
+#endif
 #endif
 
 namespace
@@ -86,7 +92,7 @@ namespace
             ? nullptr
             : reinterpret_cast<T>(GetProcAddress(module, name));
     }
-#elif defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
+#elif defined(__APPLE__) || (defined(__unix__) && !defined(__ANDROID__))
     [[nodiscard]] std::optional<std::filesystem::path> ExecutableDirectory() noexcept
     {
         try
@@ -104,7 +110,7 @@ namespace
                 return std::nullopt;
             }
             return std::filesystem::path(buffer.data()).parent_path();
-#else
+#elif defined(__linux__)
             std::vector<char> buffer(256);
             for (;;)
             {
@@ -121,6 +127,8 @@ namespace
                 }
                 buffer.resize(buffer.size() * 2U);
             }
+#else
+            return std::nullopt;
 #endif
         }
         catch (...)
@@ -630,17 +638,19 @@ namespace MphRead::Mods::Input
             std::cout << "[gamepad] GLFW would not start; no pads can be read here.\n";
             return 1;
         }
+
+        std::int32_t result = 0;
         try
         {
-            const std::int32_t result = Watch(seconds);
-            GlfwTerminate();
-            return result;
+            result = Watch(seconds);
         }
         catch (...)
         {
             GlfwTerminate();
             throw;
         }
+        GlfwTerminate();
+        return result;
     }
 
     std::int32_t GamepadProbe::Watch(double seconds)

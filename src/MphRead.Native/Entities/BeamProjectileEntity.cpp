@@ -2167,7 +2167,7 @@ namespace MphRead::Entities
                 SetRow3(transform, position);
                 beamRef.Transform = transform;
                 AnimationInfo& animInfo = RequireReference(RequireReference(model).AnimInfo);
-                const std::int32_t frameCount = (*animInfo.FrameCount())[0];
+                const std::int32_t frameCount = (*animInfo.FrameCount)[0];
                 (*animInfo.Frame)[0] = ManagedInt32FromUInt64(RequireReference(scene).FrameCount()) / 2 % frameCount;
             }
             else

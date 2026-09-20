@@ -18,7 +18,7 @@ namespace MphRead::Droid
         // Native peer for the Java Android.View subclass. The Java side is a
         // mechanical callback surface only; all TouchOverlayView policy stays
         // here exactly as in TouchOverlayView.cs.
-        TouchOverlayView(JNIEnv* env, jobject view, TouchControls& controls);
+        TouchOverlayView(JNIEnv* env, jobject view, TouchControls* controls);
         TouchOverlayView(const TouchOverlayView&) = delete;
         TouchOverlayView& operator=(const TouchOverlayView&) = delete;
         TouchOverlayView(TouchOverlayView&&) = delete;
@@ -45,7 +45,7 @@ namespace MphRead::Droid
         [[nodiscard]] jobject View() const noexcept;
 
         std::shared_ptr<ViewTarget> _view;
-        TouchControls& _controls;
+        TouchControls* _controls = nullptr;
 
         jobject _fill = nullptr;
         jobject _stroke = nullptr;

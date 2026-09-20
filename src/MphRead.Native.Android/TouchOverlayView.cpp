@@ -1,5 +1,7 @@
 #include "TouchOverlayView.hpp"
 
+#include "../MphRead.Native/Formats/Types.hpp"
+
 #include <android/input.h>
 
 #include <algorithm>
@@ -850,7 +852,7 @@ namespace MphRead::Droid
     TouchOverlayView::TouchOverlayView(
         JNIEnv* env,
         jobject view,
-        TouchControls& controls
+        TouchControls* controls
     )
         : _view(std::make_shared<ViewTarget>(env, view)),
           _controls(controls)
@@ -869,8 +871,13 @@ namespace MphRead::Droid
             _stroke = stroke;
             _text = text;
 
+            if (_controls == nullptr)
+            {
+                throw System::NullReferenceException();
+            }
+
             const std::shared_ptr<ViewTarget> invalidationTarget = _view;
-            _controls.Invalidated(
+            _controls->Invalidated(
                 [invalidationTarget]()
                 {
                     invalidationTarget->PostInvalidate();
@@ -944,7 +951,7 @@ namespace MphRead::Droid
                 GetViewInt(env, View(), "getHeight")
             );
             const float density = GetDensity(env, View());
-            _controls.Layout(width, height, density);
+            _controls->Layout(width, height, density);
         }
 
         CallViewVoid(env, View(), "requestLayout");
@@ -977,7 +984,7 @@ namespace MphRead::Droid
         );
         CheckJavaException(env);
 
-        _controls.Layout(
+        _controls->Layout(
             static_cast<float>(w),
             static_cast<float>(h),
             GetDensity(env, View())
@@ -1002,7 +1009,7 @@ namespace MphRead::Droid
         );
         CheckJavaException(env);
 
-        if (_controls.PadDriving())
+        if (_controls->PadDriving())
         {
             return;
         }
@@ -1018,14 +1025,14 @@ namespace MphRead::Droid
             std::max(2.0F, unit * 0.22F)
         );
 
-        for (const std::shared_ptr<TouchButton>& button : _controls.Buttons())
+        for (const std::shared_ptr<TouchButton>& button : _controls->Buttons())
         {
             if (!button->Visible())
             {
                 continue;
             }
 
-            const bool held = _controls.IsHeld(button->Action());
+            const bool held = _controls->IsHeld(button->Action());
             SetPaintColor(env, _fill, held ? AccentFill : Panel);
             SetPaintColor(env, _stroke, held ? Accent : Edge);
 
@@ -1062,13 +1069,13 @@ namespace MphRead::Droid
             );
         }
 
-        if (_controls.StickActive())
+        if (_controls->StickActive())
         {
             SetPaintColor(env, _stroke, Edge);
             SetPaintColor(env, _fill, Panel);
-            const float stickFillX = _controls.StickX();
-            const float stickFillY = _controls.StickY();
-            const float stickFillRadius = _controls.StickRadius();
+            const float stickFillX = _controls->StickX();
+            const float stickFillY = _controls->StickY();
+            const float stickFillRadius = _controls->StickRadius();
             DrawCircle(
                 env,
                 canvas,
@@ -1078,9 +1085,9 @@ namespace MphRead::Droid
                 _fill
             );
 
-            const float stickStrokeX = _controls.StickX();
-            const float stickStrokeY = _controls.StickY();
-            const float stickStrokeRadius = _controls.StickRadius();
+            const float stickStrokeX = _controls->StickX();
+            const float stickStrokeY = _controls->StickY();
+            const float stickStrokeRadius = _controls->StickRadius();
             DrawCircle(
                 env,
                 canvas,
@@ -1093,9 +1100,9 @@ namespace MphRead::Droid
             SetPaintColor(env, _fill, AccentFill);
             SetPaintColor(env, _stroke, Accent);
 
-            const float knobFillX = _controls.StickKnobX();
-            const float knobFillY = _controls.StickKnobY();
-            const float knobFillRadius = _controls.StickKnobRadius();
+            const float knobFillX = _controls->StickKnobX();
+            const float knobFillY = _controls->StickKnobY();
+            const float knobFillRadius = _controls->StickKnobRadius();
             DrawCircle(
                 env,
                 canvas,
@@ -1105,9 +1112,9 @@ namespace MphRead::Droid
                 _fill
             );
 
-            const float knobStrokeX = _controls.StickKnobX();
-            const float knobStrokeY = _controls.StickKnobY();
-            const float knobStrokeRadius = _controls.StickKnobRadius();
+            const float knobStrokeX = _controls->StickKnobX();
+            const float knobStrokeY = _controls->StickKnobY();
+            const float knobStrokeRadius = _controls->StickKnobRadius();
             DrawCircle(
                 env,
                 canvas,
@@ -1141,7 +1148,7 @@ namespace MphRead::Droid
                 );
                 const jfloat x = MotionFloatAt(env, event, "getX", index);
                 const jfloat y = MotionFloatAt(env, event, "getY", index);
-                _controls.PointerDown(pointerId, x, y);
+                _controls->PointerDown(pointerId, x, y);
             }
             break;
 
@@ -1160,7 +1167,7 @@ namespace MphRead::Droid
                 );
                 const jfloat x = MotionFloatAt(env, event, "getX", i);
                 const jfloat y = MotionFloatAt(env, event, "getY", i);
-                _controls.PointerMove(pointerId, x, y);
+                _controls->PointerMove(pointerId, x, y);
             }
             break;
 
@@ -1174,12 +1181,12 @@ namespace MphRead::Droid
                     "getPointerId",
                     index
                 );
-                _controls.PointerUp(pointerId);
+                _controls->PointerUp(pointerId);
             }
             break;
 
         case AMOTION_EVENT_ACTION_CANCEL:
-            _controls.ReleaseEverything();
+            _controls->ReleaseEverything();
             break;
 
         default:

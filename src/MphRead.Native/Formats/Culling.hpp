@@ -1,22 +1,13 @@
 #pragma once
 
+#include "Types.hpp"
+
 #include <any>
 #include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
-
-namespace OpenTK::Mathematics
-{
-    struct Vector4
-    {
-        float X = 0.0F;
-        float Y = 0.0F;
-        float Z = 0.0F;
-        float W = 0.0F;
-    };
-}
 
 namespace MphRead::Formats::Culling
 {

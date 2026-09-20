@@ -755,7 +755,7 @@ namespace MphRead::Hud
                         if (index != 0 && (paletteId == -1 || index != 6))
                         {
                             color = ColorRgba(paletteData.at(
-                                static_cast<std::size_t>(index + paletteOffset)));
+                                static_cast<std::size_t>(WrappedAdd(index, paletteOffset))));
                         }
                         character.push_back(color);
                     };
@@ -826,10 +826,10 @@ namespace MphRead::Hud
         std::vector<ColorRgba> texture(ArrayLength(WrappedProduct(width, height)));
         for (std::int32_t cy = 0; cy < tilesY; ++cy)
         {
-            const std::int32_t icy = cy + startY;
+            const std::int32_t icy = WrappedAdd(cy, startY);
             for (std::int32_t cx = 0; cx < tilesX; ++cx)
             {
-                const std::int32_t icx = cx + startX;
+                const std::int32_t icx = WrappedAdd(cx, startX);
                 const std::int32_t split = (icx / 32) == 1
                     ? WrappedAdd(0x400, WrappedSubtract(icx, 32)) : icx;
                 const std::int32_t index = WrappedAdd(
@@ -1383,8 +1383,12 @@ namespace MphRead::Hud
                 const std::uint32_t currentFlip = value & 0xC00;
                 const std::uint32_t currentPaletteId = (value & 0xF000) >> 12;
                 const std::uint32_t currentCharacterId = value & 0x3FF;
-                const std::int64_t newPaletteId = palSlot + currentPaletteId - minPalId;
-                const std::int64_t newCharacterId = charSlot + currentCharacterId - minCharId;
+                const std::int64_t newPaletteId = static_cast<std::int64_t>(palSlot)
+                    + static_cast<std::int64_t>(currentPaletteId)
+                    - static_cast<std::int64_t>(minPalId);
+                const std::int64_t newCharacterId = static_cast<std::int64_t>(charSlot)
+                    + static_cast<std::int64_t>(currentCharacterId)
+                    - static_cast<std::int64_t>(minCharId);
                 (void)newPaletteId;
                 (void)newCharacterId;
                 vramStuff.push_back(static_cast<std::uint16_t>(

@@ -619,7 +619,7 @@ namespace
     std::u16string GetDotNetTempPath()
     {
         const char* value = std::getenv("TMPDIR");
-        if (value == nullptr)
+        if (value == nullptr || value[0] == '\0')
         {
             return u"/tmp/";
         }
@@ -767,7 +767,7 @@ namespace MphRead::Droid
                 : std::filesystem::directory_iterator(std::filesystem::path(directory)))
             {
                 const std::u16string name = entry.path().filename().u16string();
-                if (!std::filesystem::is_directory(entry.symlink_status())
+                if (!entry.is_directory()
                     && name.size() >= 4
                     && name.compare(name.size() - 4, 4, u".zip") == 0)
                 {

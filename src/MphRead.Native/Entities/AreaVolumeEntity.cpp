@@ -86,13 +86,17 @@ namespace
     }
 
     [[nodiscard]] MphRead::Entities::BeamProjectileEntity* RequireBeam(
-        const std::shared_ptr<MphRead::Entities::BeamProjectileEntity>& entity)
+        const std::shared_ptr<MphRead::BeamProjectileEntity>& entity)
     {
         if (!entity)
         {
             throw MphRead::Memory::Detail::NullReferenceException();
         }
-        return entity.get();
+        // EquipInfo::Beams currently carries the root forward-declared beam type,
+        // while the concrete native entity lives in MphRead::Entities. Erase only
+        // the static pointer type here; ownership and object identity are unchanged.
+        return static_cast<MphRead::Entities::BeamProjectileEntity*>(
+            static_cast<void*>(entity.get()));
     }
 
     [[nodiscard]] MphRead::BeamProjectileArray& RequireBeams(

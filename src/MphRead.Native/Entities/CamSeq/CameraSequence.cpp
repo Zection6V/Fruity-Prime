@@ -34,6 +34,9 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#ifdef SendMessage
+#undef SendMessage
+#endif
 #else
 #include <fcntl.h>
 #include <sys/file.h>

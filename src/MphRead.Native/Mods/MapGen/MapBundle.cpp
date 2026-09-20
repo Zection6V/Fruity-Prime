@@ -3,6 +3,7 @@
 #include "MapDefinition.hpp"
 #include "Q3Bsp.hpp"
 #include "Q3Import.hpp"
+#include "../../Formats/Types.hpp"
 #include "../../Program.hpp"
 
 #include <algorithm>
@@ -513,13 +514,9 @@ namespace
         }
     }
 
-    [[nodiscard]] ByteVector ReadAllBytes(const std::string& path)
+    [[nodiscard]] ByteVector ReadAllBytes(
+        std::ifstream& stream, const std::string& path)
     {
-        std::ifstream stream(PathFromUtf8(path), std::ios::binary);
-        if (!stream)
-        {
-            throw std::runtime_error("Could not open file: " + path);
-        }
         stream.seekg(0, std::ios::end);
         const std::streamoff length = stream.tellg();
         if (length < 0)
@@ -537,6 +534,16 @@ namespace
             }
         }
         return bytes;
+    }
+
+    [[nodiscard]] ByteVector ReadAllBytes(const std::string& path)
+    {
+        std::ifstream stream(PathFromUtf8(path), std::ios::binary);
+        if (!stream)
+        {
+            throw std::runtime_error("Could not open file: " + path);
+        }
+        return ReadAllBytes(stream, path);
     }
 
     [[nodiscard]] std::uint32_t Crc32(const ByteVector& bytes) noexcept
@@ -1703,15 +1710,7 @@ namespace
             throw std::runtime_error("Could not get the local time.");
         }
 
-        int year = local.tm_year + 1900;
-        if (year < 1980)
-        {
-            year = 1980;
-        }
-        if (year > 2107)
-        {
-            year = 2107;
-        }
+        const int year = local.tm_year + 1900;
         DosTimestamp result;
         result.Time = static_cast<std::uint16_t>(
             ((local.tm_hour & 0x1F) << 11)
@@ -1991,7 +1990,7 @@ namespace MphRead::Mods::MapGen
     {
         if (definition == nullptr)
         {
-            throw std::runtime_error("Object reference not set to an instance of an object.");
+            throw System::NullReferenceException();
         }
 
         MapImport* import = definition->Import();
@@ -2125,7 +2124,12 @@ namespace MphRead::Mods::MapGen
 
     std::optional<std::string> MapBundle::ReadRecipe(const std::string& bundlePath)
     {
-        const ByteVector archive = ReadAllBytes(bundlePath);
+        std::ifstream file(PathFromUtf8(bundlePath), std::ios::binary);
+        if (!file)
+        {
+            throw std::runtime_error("Could not open file: " + bundlePath);
+        }
+        const ByteVector archive = ReadAllBytes(file, bundlePath);
         const std::vector<ZipEntry> entries = ReadZipEntries(archive);
         const auto found = std::find_if(entries.begin(), entries.end(),
             [](const ZipEntry& entry)
@@ -2147,7 +2151,12 @@ namespace MphRead::Mods::MapGen
             return std::nullopt;
         }
 
-        const ByteVector archive = ReadAllBytes(bundlePath);
+        std::ifstream file(PathFromUtf8(bundlePath), std::ios::binary);
+        if (!file)
+        {
+            throw std::runtime_error("Could not open file: " + bundlePath);
+        }
+        const ByteVector archive = ReadAllBytes(file, bundlePath);
         const std::vector<ZipEntry> entries = ReadZipEntries(archive);
         auto found = std::find_if(entries.begin(), entries.end(),
             [&](const ZipEntry& entry)

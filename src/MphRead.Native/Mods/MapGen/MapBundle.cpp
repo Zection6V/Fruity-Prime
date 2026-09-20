@@ -784,7 +784,7 @@ namespace
     }
 
     [[nodiscard]] ByteVector InflateRaw(
-        const ByteVector& input, std::size_t expectedSize)
+        const ByteVector& input, std::size_t outputLimit)
     {
         constexpr int ZNoFlush = 0;
         constexpr int ZOk = 0;
@@ -836,13 +836,12 @@ namespace
         }
 
         ByteVector output;
-        output.reserve(expectedSize);
         std::array<std::uint8_t, 65536> buffer{};
         std::size_t inputOffset = 0;
         try
         {
             int result = ZOk;
-            while (result != ZStreamEnd)
+            while (result != ZStreamEnd && output.size() < outputLimit)
             {
                 if (stream.avail_in == 0 && inputOffset < input.size())
                 {
@@ -854,14 +853,16 @@ namespace
                     inputOffset += count;
                 }
 
+                const std::size_t remaining = outputLimit - output.size();
+                const std::size_t capacity = std::min<std::size_t>(buffer.size(), remaining);
                 stream.next_out = buffer.data();
-                stream.avail_out = static_cast<ZUInt>(buffer.size());
+                stream.avail_out = static_cast<ZUInt>(capacity);
                 result = zlib.Inflate(&stream, ZNoFlush);
                 if (result != ZOk && result != ZStreamEnd)
                 {
                     throw std::runtime_error("DEFLATE decompression failed.");
                 }
-                const std::size_t produced = buffer.size() - stream.avail_out;
+                const std::size_t produced = capacity - stream.avail_out;
                 output.insert(output.end(), buffer.begin(),
                     buffer.begin() + static_cast<std::ptrdiff_t>(produced));
 

@@ -1744,6 +1744,10 @@ namespace MphRead::Utility
 
         void ThrowIfInvalid(const EditorPtr& entity, bool firstHunt)
         {
+            if (!entity)
+            {
+                throw System::NullReferenceException();
+            }
             if (entity->Id < 0)
             {
                 throw ProgramException("File entities must have a positive entity ID.");
@@ -1773,6 +1777,17 @@ namespace MphRead::Utility
                     "Cannot add entity type " + EntityTypeText(entity->Type)
                     + " to entity file.");
             }
+        }
+
+        template <typename TEditor>
+        [[nodiscard]] std::shared_ptr<TEditor> CastEditor(const EditorPtr& entity)
+        {
+            const auto typed = std::dynamic_pointer_cast<TEditor>(entity);
+            if (!typed)
+            {
+                throw std::bad_cast();
+            }
+            return typed;
         }
 
         void WriteMphPlatform(const std::shared_ptr<PlatformEntityEditor>& entity, BinaryWriter& writer)
@@ -2272,25 +2287,25 @@ namespace MphRead::Utility
             writer.WriteVector3(entity->Facing);
             switch (entity->Type)
             {
-            case EntityType::Platform: WriteMphPlatform(std::dynamic_pointer_cast<PlatformEntityEditor>(entity), writer); break;
-            case EntityType::Object: WriteMphObject(std::dynamic_pointer_cast<ObjectEntityEditor>(entity), writer); break;
-            case EntityType::PlayerSpawn: WritePlayerSpawn(std::dynamic_pointer_cast<PlayerSpawnEntityEditor>(entity), writer); break;
-            case EntityType::Door: WriteMphDoor(std::dynamic_pointer_cast<DoorEntityEditor>(entity), writer); break;
-            case EntityType::ItemSpawn: WriteMphItemSpawn(std::dynamic_pointer_cast<ItemSpawnEntityEditor>(entity), writer); break;
-            case EntityType::EnemySpawn: WriteMphEnemySpawn(std::dynamic_pointer_cast<EnemySpawnEntityEditor>(entity), writer); break;
-            case EntityType::TriggerVolume: WriteMphTriggerVolume(std::dynamic_pointer_cast<TriggerVolumeEntityEditor>(entity), writer); break;
-            case EntityType::AreaVolume: WriteMphAreaVolume(std::dynamic_pointer_cast<AreaVolumeEntityEditor>(entity), writer); break;
-            case EntityType::JumpPad: WriteMphJumpPad(std::dynamic_pointer_cast<JumpPadEntityEditor>(entity), writer); break;
-            case EntityType::PointModule: WritePointModule(std::dynamic_pointer_cast<PointModuleEntityEditor>(entity), writer); break;
-            case EntityType::MorphCamera: WriteMphMorphCamera(std::dynamic_pointer_cast<MorphCameraEntityEditor>(entity), writer); break;
-            case EntityType::OctolithFlag: WriteMphOctolithFlag(std::dynamic_pointer_cast<OctolithFlagEntityEditor>(entity), writer); break;
-            case EntityType::FlagBase: WriteMphFlagBase(std::dynamic_pointer_cast<FlagBaseEntityEditor>(entity), writer); break;
-            case EntityType::Teleporter: WriteMphTeleporter(std::dynamic_pointer_cast<TeleporterEntityEditor>(entity), writer); break;
-            case EntityType::NodeDefense: WriteMphNodeDefense(std::dynamic_pointer_cast<NodeDefenseEntityEditor>(entity), writer); break;
-            case EntityType::LightSource: WriteMphLightSource(std::dynamic_pointer_cast<LightSourceEntityEditor>(entity), writer); break;
-            case EntityType::Artifact: WriteMphArtifact(std::dynamic_pointer_cast<ArtifactEntityEditor>(entity), writer); break;
-            case EntityType::CameraSequence: WriteMphCameraSequence(std::dynamic_pointer_cast<CameraSequenceEntityEditor>(entity), writer); break;
-            case EntityType::ForceField: WriteMphForceField(std::dynamic_pointer_cast<ForceFieldEntityEditor>(entity), writer); break;
+            case EntityType::Platform: WriteMphPlatform(CastEditor<PlatformEntityEditor>(entity), writer); break;
+            case EntityType::Object: WriteMphObject(CastEditor<ObjectEntityEditor>(entity), writer); break;
+            case EntityType::PlayerSpawn: WritePlayerSpawn(CastEditor<PlayerSpawnEntityEditor>(entity), writer); break;
+            case EntityType::Door: WriteMphDoor(CastEditor<DoorEntityEditor>(entity), writer); break;
+            case EntityType::ItemSpawn: WriteMphItemSpawn(CastEditor<ItemSpawnEntityEditor>(entity), writer); break;
+            case EntityType::EnemySpawn: WriteMphEnemySpawn(CastEditor<EnemySpawnEntityEditor>(entity), writer); break;
+            case EntityType::TriggerVolume: WriteMphTriggerVolume(CastEditor<TriggerVolumeEntityEditor>(entity), writer); break;
+            case EntityType::AreaVolume: WriteMphAreaVolume(CastEditor<AreaVolumeEntityEditor>(entity), writer); break;
+            case EntityType::JumpPad: WriteMphJumpPad(CastEditor<JumpPadEntityEditor>(entity), writer); break;
+            case EntityType::PointModule: WritePointModule(CastEditor<PointModuleEntityEditor>(entity), writer); break;
+            case EntityType::MorphCamera: WriteMphMorphCamera(CastEditor<MorphCameraEntityEditor>(entity), writer); break;
+            case EntityType::OctolithFlag: WriteMphOctolithFlag(CastEditor<OctolithFlagEntityEditor>(entity), writer); break;
+            case EntityType::FlagBase: WriteMphFlagBase(CastEditor<FlagBaseEntityEditor>(entity), writer); break;
+            case EntityType::Teleporter: WriteMphTeleporter(CastEditor<TeleporterEntityEditor>(entity), writer); break;
+            case EntityType::NodeDefense: WriteMphNodeDefense(CastEditor<NodeDefenseEntityEditor>(entity), writer); break;
+            case EntityType::LightSource: WriteMphLightSource(CastEditor<LightSourceEntityEditor>(entity), writer); break;
+            case EntityType::Artifact: WriteMphArtifact(CastEditor<ArtifactEntityEditor>(entity), writer); break;
+            case EntityType::CameraSequence: WriteMphCameraSequence(CastEditor<CameraSequenceEntityEditor>(entity), writer); break;
+            case EntityType::ForceField: WriteMphForceField(CastEditor<ForceFieldEntityEditor>(entity), writer); break;
             default: break;
             }
             return static_cast<std::int32_t>(writer.Position() - position);
@@ -2487,16 +2502,16 @@ namespace MphRead::Utility
             writer.WriteVector3(entity->Facing);
             switch (entity->Type)
             {
-            case EntityType::FhPlatform: WriteFhPlatform(std::dynamic_pointer_cast<FhPlatformEntityEditor>(entity), writer); break;
-            case EntityType::FhPlayerSpawn: WritePlayerSpawn(std::dynamic_pointer_cast<PlayerSpawnEntityEditor>(entity), writer); break;
-            case EntityType::FhDoor: WriteFhDoor(std::dynamic_pointer_cast<FhDoorEntityEditor>(entity), writer); break;
-            case EntityType::FhItemSpawn: WriteFhItemSpawn(std::dynamic_pointer_cast<FhItemSpawnEntityEditor>(entity), writer); break;
-            case EntityType::FhEnemySpawn: WriteFhEnemySpawn(std::dynamic_pointer_cast<FhEnemySpawnEntityEditor>(entity), writer); break;
-            case EntityType::FhTriggerVolume: WriteFhTriggerVolume(std::dynamic_pointer_cast<FhTriggerVolumeEntityEditor>(entity), writer); break;
-            case EntityType::FhAreaVolume: WriteFhAreaVolume(std::dynamic_pointer_cast<FhAreaVolumeEntityEditor>(entity), writer); break;
-            case EntityType::FhJumpPad: WriteFhJumpPad(std::dynamic_pointer_cast<FhJumpPadEntityEditor>(entity), writer); break;
-            case EntityType::FhPointModule: WritePointModule(std::dynamic_pointer_cast<PointModuleEntityEditor>(entity), writer); break;
-            case EntityType::FhMorphCamera: WriteFhMorphCamera(std::dynamic_pointer_cast<MorphCameraEntityEditor>(entity), writer); break;
+            case EntityType::FhPlatform: WriteFhPlatform(CastEditor<FhPlatformEntityEditor>(entity), writer); break;
+            case EntityType::FhPlayerSpawn: WritePlayerSpawn(CastEditor<PlayerSpawnEntityEditor>(entity), writer); break;
+            case EntityType::FhDoor: WriteFhDoor(CastEditor<FhDoorEntityEditor>(entity), writer); break;
+            case EntityType::FhItemSpawn: WriteFhItemSpawn(CastEditor<FhItemSpawnEntityEditor>(entity), writer); break;
+            case EntityType::FhEnemySpawn: WriteFhEnemySpawn(CastEditor<FhEnemySpawnEntityEditor>(entity), writer); break;
+            case EntityType::FhTriggerVolume: WriteFhTriggerVolume(CastEditor<FhTriggerVolumeEntityEditor>(entity), writer); break;
+            case EntityType::FhAreaVolume: WriteFhAreaVolume(CastEditor<FhAreaVolumeEntityEditor>(entity), writer); break;
+            case EntityType::FhJumpPad: WriteFhJumpPad(CastEditor<FhJumpPadEntityEditor>(entity), writer); break;
+            case EntityType::FhPointModule: WritePointModule(CastEditor<PointModuleEntityEditor>(entity), writer); break;
+            case EntityType::FhMorphCamera: WriteFhMorphCamera(CastEditor<MorphCameraEntityEditor>(entity), writer); break;
             default: break;
             }
         }
@@ -2657,95 +2672,95 @@ namespace MphRead::Utility
             REPACK_DEBUG_ASSERT(packHeader.FacingVector.Y.Value == fileHeader.FacingVector.Y.Value);
             REPACK_DEBUG_ASSERT(packHeader.FacingVector.Z.Value == fileHeader.FacingVector.Z.Value);
 
-            const std::uint16_t type = static_cast<std::uint16_t>(packHeader.Type + 100U);
+            const std::int32_t type = static_cast<std::int32_t>(packHeader.Type) + 100;
             std::int32_t end = 0;
-            if (type == static_cast<std::uint16_t>(EntityType::FhPlatform))
+            if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhPlatform)))
             {
                 end = AddSize(offset, sizeof(FhPlatformEntityData));
             }
-            else if (type == static_cast<std::uint16_t>(EntityType::FhPlayerSpawn))
+            else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhPlayerSpawn)))
             {
                 end = AddSize(offset, sizeof(PlayerSpawnEntityData));
             }
-            else if (type == static_cast<std::uint16_t>(EntityType::FhDoor))
+            else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhDoor)))
             {
                 end = AddSize(offset, sizeof(FhDoorEntityData));
             }
-            else if (type == static_cast<std::uint16_t>(EntityType::FhItemSpawn))
+            else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhItemSpawn)))
             {
                 end = AddSize(offset, sizeof(FhItemSpawnEntityData));
             }
-            else if (type == static_cast<std::uint16_t>(EntityType::FhEnemySpawn))
+            else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhEnemySpawn)))
             {
                 end = AddSize(offset, sizeof(NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout));
             }
-            else if (type == static_cast<std::uint16_t>(EntityType::FhTriggerVolume))
+            else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhTriggerVolume)))
             {
                 end = AddSize(offset, sizeof(FhTriggerVolumeEntityData));
             }
-            else if (type == static_cast<std::uint16_t>(EntityType::FhAreaVolume))
+            else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhAreaVolume)))
             {
                 end = AddSize(offset, sizeof(FhAreaVolumeEntityData));
             }
-            else if (type == static_cast<std::uint16_t>(EntityType::FhJumpPad))
+            else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhJumpPad)))
             {
                 end = AddSize(offset, sizeof(FhJumpPadEntityData));
             }
-            else if (type == static_cast<std::uint16_t>(EntityType::FhPointModule))
+            else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhPointModule)))
             {
                 end = AddSize(offset, sizeof(PointModuleEntityData));
             }
-            else if (type == static_cast<std::uint16_t>(EntityType::FhMorphCamera))
+            else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhMorphCamera)))
             {
                 end = AddSize(offset, sizeof(FhMorphCameraEntityData));
             }
 
             if (!RangeEqual(pack, file, offset, end))
             {
-                if (type == static_cast<std::uint16_t>(EntityType::FhPlatform))
+                if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhPlatform)))
                 {
                     [[maybe_unused]] const FhPlatformEntityData packData = Read::DoOffset<FhPlatformEntityData>(Span(pack), offset);
                     [[maybe_unused]] const FhPlatformEntityData fileData = Read::DoOffset<FhPlatformEntityData>(Span(file), offset);
                     DebugBreak();
                 }
-                else if (type == static_cast<std::uint16_t>(EntityType::FhPlayerSpawn))
+                else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhPlayerSpawn)))
                 {
                     [[maybe_unused]] const PlayerSpawnEntityData packData = Read::DoOffset<PlayerSpawnEntityData>(Span(pack), offset);
                     [[maybe_unused]] const PlayerSpawnEntityData fileData = Read::DoOffset<PlayerSpawnEntityData>(Span(file), offset);
                     DebugBreak();
                 }
-                else if (type == static_cast<std::uint16_t>(EntityType::FhDoor))
+                else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhDoor)))
                 {
                     [[maybe_unused]] const FhDoorEntityData packData = Read::DoOffset<FhDoorEntityData>(Span(pack), offset);
                     [[maybe_unused]] const FhDoorEntityData fileData = Read::DoOffset<FhDoorEntityData>(Span(file), offset);
                     DebugBreak();
                 }
-                else if (type == static_cast<std::uint16_t>(EntityType::FhItemSpawn))
+                else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhItemSpawn)))
                 {
                     [[maybe_unused]] const FhItemSpawnEntityData packData = Read::DoOffset<FhItemSpawnEntityData>(Span(pack), offset);
                     [[maybe_unused]] const FhItemSpawnEntityData fileData = Read::DoOffset<FhItemSpawnEntityData>(Span(file), offset);
                     DebugBreak();
                 }
-                else if (type == static_cast<std::uint16_t>(EntityType::FhEnemySpawn))
+                else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhEnemySpawn)))
                 {
                     using RawFhEnemy = NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout;
                     [[maybe_unused]] const RawFhEnemy packData = Read::DoOffset<RawFhEnemy>(Span(pack), offset);
                     [[maybe_unused]] const RawFhEnemy fileData = Read::DoOffset<RawFhEnemy>(Span(file), offset);
                     DebugBreak();
                 }
-                else if (type == static_cast<std::uint16_t>(EntityType::FhTriggerVolume))
+                else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhTriggerVolume)))
                 {
                     [[maybe_unused]] const FhTriggerVolumeEntityData packData = Read::DoOffset<FhTriggerVolumeEntityData>(Span(pack), offset);
                     [[maybe_unused]] const FhTriggerVolumeEntityData fileData = Read::DoOffset<FhTriggerVolumeEntityData>(Span(file), offset);
                     DebugBreak();
                 }
-                else if (type == static_cast<std::uint16_t>(EntityType::FhAreaVolume))
+                else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhAreaVolume)))
                 {
                     [[maybe_unused]] const FhAreaVolumeEntityData packData = Read::DoOffset<FhAreaVolumeEntityData>(Span(pack), offset);
                     [[maybe_unused]] const FhAreaVolumeEntityData fileData = Read::DoOffset<FhAreaVolumeEntityData>(Span(file), offset);
                     DebugBreak();
                 }
-                else if (type == static_cast<std::uint16_t>(EntityType::FhJumpPad))
+                else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhJumpPad)))
                 {
                     const FhJumpPadEntityData packData = Read::DoOffset<FhJumpPadEntityData>(Span(pack), offset);
                     const FhJumpPadEntityData fileData = Read::DoOffset<FhJumpPadEntityData>(Span(file), offset);
@@ -2797,13 +2812,13 @@ namespace MphRead::Utility
                     REPACK_DEBUG_ASSERT(packData.Cylinder.BoxDot3.Value == fileData.Cylinder.BoxDot3.Value);
                     DebugBreak();
                 }
-                else if (type == static_cast<std::uint16_t>(EntityType::FhPointModule))
+                else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhPointModule)))
                 {
                     [[maybe_unused]] const PointModuleEntityData packData = Read::DoOffset<PointModuleEntityData>(Span(pack), offset);
                     [[maybe_unused]] const PointModuleEntityData fileData = Read::DoOffset<PointModuleEntityData>(Span(file), offset);
                     DebugBreak();
                 }
-                else if (type == static_cast<std::uint16_t>(EntityType::FhMorphCamera))
+                else if (type == static_cast<std::int32_t>(static_cast<std::uint16_t>(EntityType::FhMorphCamera)))
                 {
                     [[maybe_unused]] const FhMorphCameraEntityData packData = Read::DoOffset<FhMorphCameraEntityData>(Span(pack), offset);
                     [[maybe_unused]] const FhMorphCameraEntityData fileData = Read::DoOffset<FhMorphCameraEntityData>(Span(file), offset);

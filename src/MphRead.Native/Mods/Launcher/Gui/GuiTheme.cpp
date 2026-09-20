@@ -1,6 +1,7 @@
 #include "GuiTheme.hpp"
 
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -11,15 +12,29 @@ namespace
 
     [[nodiscard]] std::uint8_t DoubleToByteUnchecked(double value) noexcept
     {
-        if (std::isnan(value) || value <= 0.0)
+        // net9.0 lowers an unchecked double -> byte conversion through a
+        // saturating double -> Int32 conversion followed by unchecked
+        // Int32 -> byte truncation.
+        std::int32_t integer;
+        if (std::isnan(value))
         {
-            return 0;
+            integer = 0;
         }
-        if (value >= 255.0)
+        else if (value <= static_cast<double>(
+            std::numeric_limits<std::int32_t>::min()))
         {
-            return 255;
+            integer = std::numeric_limits<std::int32_t>::min();
         }
-        return static_cast<std::uint8_t>(value);
+        else if (value >= static_cast<double>(
+            std::numeric_limits<std::int32_t>::max()))
+        {
+            integer = std::numeric_limits<std::int32_t>::max();
+        }
+        else
+        {
+            integer = static_cast<std::int32_t>(value);
+        }
+        return static_cast<std::uint8_t>(integer);
     }
 }
 

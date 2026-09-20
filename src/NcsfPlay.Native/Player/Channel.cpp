@@ -270,8 +270,8 @@ namespace NCSFPlayer
                 if (i <= LanczosSamples)
                 {
                     LanczosLut[static_cast<std::size_t>(i)] =
-                        x < static_cast<float>(α)
-                            ? FloatMultiply(Sinc(x), Sinc(FloatDivide(x, static_cast<float>(α))))
+                        x < static_cast<float>(Alpha)
+                            ? FloatMultiply(Sinc(x), Sinc(FloatDivide(x, static_cast<float>(Alpha))))
                             : 0.0F;
                 }
             }
@@ -287,15 +287,15 @@ namespace NCSFPlayer
         if (!swavWrapper)
             ThrowNullReference();
 
-        const std::span<const float> data = swavWrapper->Slice(-α + 1, 2 * α);
+        const std::span<const float> data = swavWrapper->Slice(-Alpha + 1, 2 * Alpha);
         float sum = 0.0F;
-        for (std::int32_t i = -α + 1; i <= α; ++i)
+        for (std::int32_t i = -Alpha + 1; i <= Alpha; ++i)
         {
             const double distance = std::floor(
                 std::fabs(ratio - static_cast<double>(i)) * static_cast<double>(SincResolution));
             const std::int32_t lutIndex = TruncateToInt32(distance);
             const float product = FloatMultiply(
-                SpanAt(data, i + α - 1),
+                SpanAt(data, i + Alpha - 1),
                 ArrayAt(LanczosLut, lutIndex));
             sum = FloatAdd(sum, product);
         }

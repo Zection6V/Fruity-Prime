@@ -26,10 +26,10 @@ namespace NCSFPlayer
         void IncrementSample() override;
 
     private:
-        static constexpr std::int32_t α = 3;
+        static constexpr std::int32_t Alpha = 3;
         static constexpr std::int32_t SincResolution = 8192;
         static constexpr std::int32_t SincSamples = SincResolution * SincWidth;
-        static constexpr std::int32_t LanczosSamples = SincResolution * α;
+        static constexpr std::int32_t LanczosSamples = SincResolution * Alpha;
 
         static std::array<float, static_cast<std::size_t>(SincSamples) + 1U> SincLut;
         static std::array<float, static_cast<std::size_t>(SincSamples) + 1U> WindowLut;

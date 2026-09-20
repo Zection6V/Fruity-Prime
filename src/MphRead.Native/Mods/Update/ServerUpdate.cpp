@@ -14,6 +14,7 @@
 #include <mutex>
 #include <memory>
 #include <optional>
+#include <queue>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -45,10 +46,10 @@
 
 namespace MphRead::Mods::Update::Detail
 {
-    // Updater is item #31 and intentionally has no native pair yet. These
-    // pair-local dependency seams preserve the exact ServerUpdate -> Updater
-    // calls without substituting UpdateCheck and losing Updater's observable
-    // Available/Checked state. Updater.cpp supplies them when item #31 lands.
+    // Keep ServerUpdate dependent on Updater through this narrow seam.
+    // Updater.cpp owns Disabled/Check/Describe and supplies these definitions;
+    // substituting UpdateCheck here would bypass Updater's observable
+    // Available/Checked state.
     [[nodiscard]] bool ServerUpdateUpdaterDisabled();
     [[nodiscard]] std::optional<UpdateInfo> ServerUpdateUpdaterCheck();
     [[nodiscard]] std::string ServerUpdateUpdaterDescribe(UpdateInfo update);
@@ -283,9 +284,55 @@ namespace MphRead::Mods::Update
 
         bool FileExists(const FileSystemPath& path) noexcept
         {
-            std::error_code error;
-            const bool result = std::filesystem::is_regular_file(path, error);
-            return !error && result;
+#ifdef _WIN32
+            WIN32_FILE_ATTRIBUTE_DATA data{};
+            if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data))
+            {
+                return (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+            }
+
+            const DWORD error = ::GetLastError();
+            switch (error)
+            {
+            case ERROR_FILE_NOT_FOUND:
+            case ERROR_PATH_NOT_FOUND:
+            case ERROR_NOT_READY:
+            case ERROR_INVALID_NAME:
+            case ERROR_BAD_PATHNAME:
+            case ERROR_BAD_NETPATH:
+            case ERROR_BAD_NET_NAME:
+            case ERROR_INVALID_PARAMETER:
+            case ERROR_NETWORK_UNREACHABLE:
+            case ERROR_NETWORK_ACCESS_DENIED:
+            case ERROR_INVALID_HANDLE:
+            case ERROR_FILENAME_EXCED_RANGE:
+                return false;
+            default:
+                break;
+            }
+
+            WIN32_FIND_DATAW findData{};
+            HANDLE handle = ::FindFirstFileW(path.c_str(), &findData);
+            if (handle == INVALID_HANDLE_VALUE)
+            {
+                return false;
+            }
+            (void)::FindClose(handle);
+            return (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+#else
+            struct stat info{};
+            if (::lstat(path.c_str(), &info) != 0)
+            {
+                return false;
+            }
+            if (S_ISLNK(info.st_mode) && ::stat(path.c_str(), &info) != 0)
+            {
+                // File.Exists reports a dangling symbolic link as an existing
+                // non-directory entry.
+                return true;
+            }
+            return !S_ISDIR(info.st_mode);
+#endif
         }
 
         void DeleteFile(const FileSystemPath& path)
@@ -296,7 +343,7 @@ namespace MphRead::Mods::Update
                 return;
             }
             const DWORD error = ::GetLastError();
-            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+            if (error == ERROR_FILE_NOT_FOUND)
             {
                 return;
             }
@@ -310,10 +357,24 @@ namespace MphRead::Mods::Update
             const int error = errno;
             if (error == ENOENT)
             {
-                return;
+                const FileSystemPath parent = path.parent_path();
+                if (parent.empty() || DirectoryExists(parent))
+                {
+                    return;
+                }
             }
+            else if (error == EROFS)
+            {
+                struct stat info{};
+                if (::lstat(path.c_str(), &info) != 0 && errno == ENOENT)
+                {
+                    return;
+                }
+            }
+
+            const int reported = error == EISDIR ? EACCES : error;
             throw std::filesystem::filesystem_error("File.Delete", path,
-                std::error_code(error, std::generic_category()));
+                std::error_code(reported, std::generic_category()));
 #endif
         }
 
@@ -393,12 +454,53 @@ namespace MphRead::Mods::Update
         template <typename Action>
         void EnumerateFiles(const FileSystemPath& root, Action&& action)
         {
-            for (std::filesystem::recursive_directory_iterator iterator(root), end;
-                iterator != end; ++iterator)
+            struct PendingDirectory final
             {
-                if (!iterator->is_directory())
+                FileSystemPath Path;
+                bool Root;
+            };
+
+            std::queue<PendingDirectory> pending;
+            pending.push(PendingDirectory{root, true});
+            while (!pending.empty())
+            {
+                PendingDirectory current = std::move(pending.front());
+                pending.pop();
+
+                std::error_code openError;
+                std::filesystem::directory_iterator iterator(current.Path, openError);
+                if (openError)
                 {
-                    action(iterator->path());
+                    // SearchOption.AllDirectories silently skips a queued
+                    // subdirectory that disappeared before it was opened.
+                    if (!current.Root
+                        && (openError == std::errc::no_such_file_or_directory
+                            || openError == std::errc::not_a_directory))
+                    {
+                        continue;
+                    }
+                    throw std::filesystem::filesystem_error(
+                        "Directory.EnumerateFiles", current.Path, openError);
+                }
+
+                const std::filesystem::directory_iterator end;
+                for (; iterator != end; ++iterator)
+                {
+                    std::error_code statusError;
+                    const bool isDirectory = iterator->is_directory(statusError);
+                    if (!statusError && isDirectory)
+                    {
+                        // .NET's recursive enumerator queues directories and
+                        // drains that queue after the current directory, so
+                        // traversal is breadth-first rather than depth-first.
+                        pending.push(PendingDirectory{iterator->path(), false});
+                    }
+                    else
+                    {
+                        // Symlinks whose targets cannot be resolved are
+                        // non-directory entries for enumeration purposes.
+                        action(iterator->path());
+                    }
                 }
             }
         }

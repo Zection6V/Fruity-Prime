@@ -32,63 +32,74 @@ namespace MphRead::Mods::Launcher::Gui
         KeyRowNullReferenceException();
     };
 
-    enum class KeyRowKey : std::uint16_t
+    // Keep the surrogate numerically identical to Avalonia 11.3.11 Key.
+    // This preserves enum aliases (for example Return == Enter) and lets an
+    // adapter pass through unsupported/raw Key values without truncation.
+    enum class KeyRowKey : std::int32_t
     {
-        Other,
-        A, B, C, D, E, F, G, H, I, J, K, L, M,
-        N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-        D0, D1, D2, D3, D4, D5, D6, D7, D8, D9,
-        NumPad0, NumPad1, NumPad2, NumPad3, NumPad4,
-        NumPad5, NumPad6, NumPad7, NumPad8, NumPad9,
-        F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-        Space,
-        Tab,
-        Enter,
-        Escape,
-        Back,
-        Delete,
-        LeftShift,
-        RightShift,
-        LeftCtrl,
-        RightCtrl,
-        LeftAlt,
-        RightAlt,
-        Left,
-        Right,
-        Up,
-        Down,
-        Insert,
-        Home,
-        End,
-        PageUp,
-        PageDown,
-        CapsLock,
-        OemMinus,
-        OemPlus,
-        OemOpenBrackets,
-        OemCloseBrackets,
-        OemSemicolon,
-        OemQuotes,
-        OemComma,
-        OemPeriod,
-        OemQuestion,
-        OemBackslash,
-        OemPipe,
-        OemTilde,
-        Add,
-        Subtract,
-        Multiply,
-        Divide
+        Other = 0,
+        A = 44, B = 45, C = 46, D = 47, E = 48, F = 49, G = 50,
+        H = 51, I = 52, J = 53, K = 54, L = 55, M = 56,
+        N = 57, O = 58, P = 59, Q = 60, R = 61, S = 62, T = 63,
+        U = 64, V = 65, W = 66, X = 67, Y = 68, Z = 69,
+        D0 = 34, D1 = 35, D2 = 36, D3 = 37, D4 = 38,
+        D5 = 39, D6 = 40, D7 = 41, D8 = 42, D9 = 43,
+        NumPad0 = 74, NumPad1 = 75, NumPad2 = 76, NumPad3 = 77,
+        NumPad4 = 78, NumPad5 = 79, NumPad6 = 80, NumPad7 = 81,
+        NumPad8 = 82, NumPad9 = 83,
+        F1 = 90, F2 = 91, F3 = 92, F4 = 93, F5 = 94, F6 = 95,
+        F7 = 96, F8 = 97, F9 = 98, F10 = 99, F11 = 100, F12 = 101,
+        Space = 18,
+        Tab = 3,
+        Enter = 6,
+        Escape = 13,
+        Back = 2,
+        Delete = 32,
+        LeftShift = 116,
+        RightShift = 117,
+        LeftCtrl = 118,
+        RightCtrl = 119,
+        LeftAlt = 120,
+        RightAlt = 121,
+        Left = 23,
+        Right = 25,
+        Up = 24,
+        Down = 26,
+        Insert = 31,
+        Home = 22,
+        End = 21,
+        PageUp = 19,
+        PageDown = 20,
+        CapsLock = 8,
+        OemMinus = 143,
+        OemPlus = 141,
+        OemOpenBrackets = 149,
+        OemCloseBrackets = 151,
+        OemSemicolon = 140,
+        OemQuotes = 152,
+        OemComma = 142,
+        OemPeriod = 144,
+        OemQuestion = 145,
+        OemBackslash = 154,
+        OemPipe = 150,
+        OemTilde = 146,
+        Add = 85,
+        Subtract = 87,
+        Multiply = 84,
+        Divide = 89
     };
 
-    enum class KeyRowPointerUpdateKind : std::uint8_t
+    // Same numeric values as Avalonia 11.3.11 PointerUpdateKind. Released
+    // button values (5-9) can therefore pass through and correctly hit the
+    // switch default rather than being remapped to a press.
+    enum class KeyRowPointerUpdateKind : std::int32_t
     {
-        Other,
-        LeftButtonPressed,
-        RightButtonPressed,
-        MiddleButtonPressed,
-        XButton1Pressed,
-        XButton2Pressed
+        Other = 10,
+        LeftButtonPressed = 0,
+        RightButtonPressed = 2,
+        MiddleButtonPressed = 1,
+        XButton1Pressed = 3,
+        XButton2Pressed = 4
     };
 
     enum class KeyRowTextTrimming : std::uint8_t

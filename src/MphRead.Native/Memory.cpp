@@ -1500,7 +1500,7 @@ namespace MphRead::Memory
 
         auto memory = std::shared_ptr<Memory>(new Memory(
             foundProcess->Id, foundProcess->StartTimeMilliseconds, scene));
-        memory->Run(blocking);
+        memory->Run(blocking, memory);
         return memory;
     }
 
@@ -1620,7 +1620,7 @@ namespace MphRead::Memory
         throw ProgramException("Failed to find search sequence.");
     }
 
-    void Memory::Run(bool blocking)
+    void Memory::Run(bool blocking, std::shared_ptr<Memory> self)
     {
         std::shared_ptr<AddressInfo> addresses;
         for (const auto& item : AllAddresses)
@@ -1642,7 +1642,6 @@ namespace MphRead::Memory
         auto promise = std::make_shared<std::promise<void>>();
         _task = std::make_shared<std::shared_future<void>>(
             promise->get_future().share());
-        std::shared_ptr<Memory> self = shared_from_this();
         std::thread([self = std::move(self), promise = std::move(promise)]() mutable
         {
             try

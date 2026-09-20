@@ -48,10 +48,10 @@ namespace MphRead::Memory
     class CTeleporter;
     class CTriggerVolume;
 
-    class Memory : private std::enable_shared_from_this<Memory>
+    class Memory
     {
     public:
-        struct SystemInfo
+        struct SystemInfo final
         {
             std::uint16_t ProcessorArchitecture = 0;
             std::uint16_t Reserved = 0;
@@ -66,7 +66,7 @@ namespace MphRead::Memory
             std::uint16_t ProcessorRevision = 0;
         };
 
-        struct MemoryInfo64
+        struct MemoryInfo64 final
         {
             std::int64_t BaseAddress = 0;
             std::int64_t AllocationBase = 0;
@@ -181,7 +181,7 @@ namespace MphRead::Memory
         void DoProcess();
         void PrintAiContext();
         void SetBaseAddress();
-        void Run(bool blocking);
+        void Run(bool blocking, std::shared_ptr<Memory> self);
         void RunTaskBody();
         void RefreshMemory();
         void GetEntities();

@@ -1222,8 +1222,8 @@ namespace
         {
             return false;
         }
-        return Q3StringEqual{}(
-            value.substr(0, prefix.size()),
+        return EqualsAsciiKeyOrdinalIgnoreCase(
+            std::string_view(value.data(), prefix.size()),
             prefix);
     }
 
@@ -2033,7 +2033,9 @@ namespace MphRead::Mods::MapGen
         const std::string levelName = FileName(sourceValue);
         const std::string beside
             = CombinePath(directory, levelName);
-        if (FullPath(beside) != FullPath(sourceValue))
+        const std::string besideFullPath = FullPath(beside);
+        const std::string sourceFullPath = FullPath(sourceValue);
+        if (besideFullPath != sourceFullPath)
         {
             CopyFile(sourceValue, beside);
         }
@@ -2322,9 +2324,13 @@ namespace MphRead::Mods::MapGen
             const Q3Entity* entity = Require(entityRef);
             const std::string* classname
                 = EntityValue(entity, "classname");
+            if (classname == nullptr)
+            {
+                continue;
+            }
             const std::string* origin
                 = EntityValue(entity, "origin");
-            if (classname == nullptr || origin == nullptr)
+            if (origin == nullptr)
             {
                 continue;
             }

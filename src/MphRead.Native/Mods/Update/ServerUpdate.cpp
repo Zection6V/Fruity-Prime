@@ -273,6 +273,7 @@ namespace MphRead::Mods::Update
         {
             line.push_back('\n');
             std::cout << line;
+            std::cout.flush();
         }
 
         bool DirectoryExists(const FileSystemPath& path) noexcept
@@ -439,7 +440,7 @@ namespace MphRead::Mods::Update
             {
                 unsigned char left = static_cast<unsigned char>(value[offset + i]);
                 unsigned char right = static_cast<unsigned char>(suffix[i]);
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
                 if (left >= 'A' && left <= 'Z') left = static_cast<unsigned char>(left + ('a' - 'A'));
                 if (right >= 'A' && right <= 'Z') right = static_cast<unsigned char>(right + ('a' - 'A'));
 #endif

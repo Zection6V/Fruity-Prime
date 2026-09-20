@@ -876,6 +876,35 @@ namespace MphRead.Mods
                 return true;
             }
 
+            // One hunter, one spot, jump then morph: does the floor stop
+            // working? A report from a real match that no sweep reproduces,
+            // because it needs the two inputs in one order at one place.
+            string? altProbe = ValueAfter(args, "altprobe");
+            if (altProbe != null)
+            {
+                string[] at = (ValueAfter(args, "at") ?? "").Split(',');
+                if (at.Length != 3
+                    || !Single.TryParse(at[0], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float atX)
+                    || !Single.TryParse(at[1], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float atY)
+                    || !Single.TryParse(at[2], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float atZ))
+                {
+                    Console.WriteLine("-altprobe needs -at X,Y,Z");
+                    Environment.ExitCode = 1;
+                    return true;
+                }
+                string? traceDelay = ValueAfter(args, "delay");
+                MapGen.AltFormProbe.TraceDelay = traceDelay != null
+                    && Int32.TryParse(traceDelay, out int parsedDelay) && parsedDelay >= 0
+                    ? parsedDelay
+                    : null;
+                Environment.ExitCode = MapGen.AltFormProbe.Run(altProbe,
+                    new OpenTK.Mathematics.Vector3(atX, atY, atZ), ParseHunter(args));
+                return true;
+            }
+
             // What pickups a level already holds, as the "items" block a
             // recipe would carry. The level's own were always imported
             // silently; this is what lets an author write them down, turn

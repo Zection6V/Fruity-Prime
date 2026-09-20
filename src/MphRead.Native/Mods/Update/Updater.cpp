@@ -82,7 +82,9 @@ namespace MphRead::Mods::Update
             {
                 if (ticks > MaxDateTimeTicks - delta)
                 {
-                    throw std::out_of_range("value");
+                    throw std::out_of_range(
+                        "The added or subtracted value results in an un-representable "
+                        "DateTime. (Parameter 't')");
                 }
             }
             else if (delta < 0)
@@ -90,7 +92,9 @@ namespace MphRead::Mods::Update
                 if (delta == std::numeric_limits<std::int64_t>::min()
                     || ticks < -delta)
                 {
-                    throw std::out_of_range("value");
+                    throw std::out_of_range(
+                        "The added or subtracted value results in an un-representable "
+                        "DateTime. (Parameter 't')");
                 }
             }
             return ticks + delta;

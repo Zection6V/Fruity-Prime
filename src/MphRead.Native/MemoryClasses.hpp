@@ -10,6 +10,25 @@
 #include <vector>
 #include <utility>
 
+namespace MphRead
+{
+enum class EquipFlags : std::uint8_t;
+
+namespace Entities
+{
+enum class PlatformFlags : std::uint32_t;
+enum class PlatStateFlags : std::uint32_t;
+enum class PlatAnimFlags : std::uint16_t;
+enum class PlatformState : std::uint8_t;
+enum class SpawnerFlags : std::uint8_t;
+enum class TriggerFlags : std::uint32_t;
+enum class AiFlags2 : std::uint32_t;
+enum class AiFlags3 : std::uint32_t;
+enum class AiFlags4 : std::uint8_t;
+enum class BeamFlags : std::uint16_t;
+}
+}
+
 namespace MphRead::Memory
 {
 class Memory;
@@ -452,7 +471,7 @@ public:
     MPH_MEM_I32(MovementType, 0x24);
     MPH_MEM_I32(ForCutscene, 0x28);
     MPH_MEM_I32(ReverseType, 0x2C);
-    MPH_MEM_ENUMI32(PlatformFlags, Flags, 0x30);
+    MPH_MEM_ENUMI32(Entities::PlatformFlags, Flags, 0x30);
     MPH_MEM_U16(CollisionDamage, 0x34);
     MPH_MEM_U16(Padding36, 0x36);
     MPH_MEM_VEC3(BeamSpawnDir, 0x38);
@@ -466,17 +485,17 @@ public:
     MPH_MEM_I32(DeadEffId, 0x5C);
     MPH_MEM_I32(Unused60, 0x60);
     MPH_MEM_I32(Unused64, 0x64);
-    MPH_MEM_ENUM32(PlatStateFlags, StateFlags, 0x68);
+    MPH_MEM_ENUM32(Entities::PlatStateFlags, StateFlags, 0x68);
     MPH_MEM_I32(CollisionBits, 0x6C);
     MPH_MEM_U16(TimeSincePlayerCol, 0x70);
-    MPH_MEM_ENUM16(PlatAnimFlags, AnimFlags, 0x72);
+    MPH_MEM_ENUM16(Entities::PlatAnimFlags, AnimFlags, 0x72);
     MPH_MEM_I32(CurrentAnimId, 0x74);
     MPH_MEM_I32(CurrentAnim, 0x78);
     MPH_MEM_U8(FromIndex, 0x7C);
     MPH_MEM_U8(ToIndex, 0x7D);
     MPH_MEM_U8(State, 0x7E);
-    MPH_MEM_ENUM8(PlatformState, PrevState, 0x7F);
-    MPH_MEM_ENUM8(PlatformState, PosCount, 0x80);
+    MPH_MEM_ENUM8(Entities::PlatformState, PrevState, 0x7F);
+    MPH_MEM_ENUM8(Entities::PlatformState, PosCount, 0x80);
     MPH_MEM_U8(Padding81, 0x81);
     MPH_MEM_U16(MoveTimer, 0x82);
     MPH_MEM_U16(RecoilTimer, 0x84);
@@ -710,7 +729,7 @@ public:
     MPH_MEM_VEC3(Pos, 0x4C);
     MPH_MEM_VEC3(Vec2, 0x58);
     MPH_MEM_VEC3(Vec1, 0x64);
-    MPH_MEM_ENUM8(SpawnerFlags, Flags, 0x70);
+    MPH_MEM_ENUM8(Entities::SpawnerFlags, Flags, 0x70);
     MPH_MEM_U8(SpawnedCount, 0x71);
     MPH_MEM_U8(ActiveCount, 0x72);
     MPH_MEM_U8(Padding73, 0x73);
@@ -735,7 +754,7 @@ public:
     MPH_MEM_U16(Field1E, 0x1E);
     MPH_MEM_I32(TriggerThreshold, 0x20);
     MPH_MEM_I32(TriggersNeeded, 0x24);
-    MPH_MEM_ENUM32(TriggerFlags, TriggerFlags, 0x28);
+    MPH_MEM_ENUM32(Entities::TriggerFlags, TriggerFlags, 0x28);
     MPH_MEM_PTR(Data, 0x2C);
     MPH_MEM_PTR(Parent, 0x30);
     MPH_MEM_PTR(Child, 0x34);
@@ -760,7 +779,7 @@ public:
     MPH_MEM_ENUM32(Message, ExitEventId, 0x54);
     MPH_MEM_I32(ExitEventParam1, 0x58);
     MPH_MEM_I32(ExitEventParam2, 0x5C);
-    MPH_MEM_ENUM32(TriggerFlags, TriggerFlags, 0x60);
+    MPH_MEM_ENUM32(Entities::TriggerFlags, TriggerFlags, 0x60);
     MPH_MEM_U16(Priority, 0x64);
     MPH_MEM_U16(Cooldown, 0x66);
     MPH_MEM_PTR(Parent, 0x70);
@@ -797,7 +816,7 @@ public:
     MPH_MEM_U8(UsedState, 0xCC);
     MPH_MEM_U8(Flags1, 0xCD);
     MPH_MEM_U16(FieldCE, 0xCE);
-    MPH_MEM_ENUM32(TriggerFlags, TriggerFlags, 0xD0);
+    MPH_MEM_ENUM32(Entities::TriggerFlags, TriggerFlags, 0xD0);
     MPH_MEM_U16(FieldD4, 0xD4);
     MPH_MEM_U16(Timer, 0xD6);
     MPH_MEM_VEC3(BeamVec, 0xD8);
@@ -1784,7 +1803,7 @@ public:
     MPH_MEM_PTR(FlagBaseE0, 0xE0);
     MPH_MEM_PTR(TargetDefense, 0xE4);
     MPH_MEM_PTR(TargetDoor, 0xE8);
-    MPH_MEM_ENUM32(AiFlags2, Flags2, 0xEC);
+    MPH_MEM_ENUM32(Entities::AiFlags2, Flags2, 0xEC);
     MPH_MEM_I32(HalfturretDmg, 0x110);
     MPH_MEM_U8(SlotIndex, 0x114);
     MPH_MEM_U8(QueuedFindEntAction, 0x115);
@@ -1801,7 +1820,7 @@ public:
     MPH_MEM_U8(NodedataSelOff, 0x2F4);
     MPH_MEM_U8(NodedataSelOn, 0x2F5);
     MPH_MEM_U16(Padding2F6, 0x2F6);
-    MPH_MEM_ENUM32(AiFlags3, Flags3, 0x2F8);
+    MPH_MEM_ENUM32(Entities::AiFlags3, Flags3, 0x2F8);
     MPH_MEM_PTR(Personality, 0x101C);
     MPH_MEM_I32(Field1020, 0x1020);
     MPH_MEM_U16(Weapon1, 0x1024);
@@ -1815,7 +1834,7 @@ public:
     MPH_MEM_U16(Field1034, 0x1034);
     MPH_MEM_U16(Padding1036, 0x1036);
     MPH_MEM_VEC3(Field1038, 0x1038);
-    MPH_MEM_ENUM8(AiFlags4, Flags4, 0x1044);
+    MPH_MEM_ENUM8(Entities::AiFlags4, Flags4, 0x1044);
     MPH_MEM_U8(Padding1045, 0x1045);
     MPH_MEM_U16(Padding1046, 0x1046);
     MPH_MEM_VEC3(Field1048, 0x1048);
@@ -1956,7 +1975,7 @@ public:
     MPH_MEM_U8(SpeedInterpolation, 0x1F);
     MPH_MEM_U8(Afflictions, 0x20);
     MPH_MEM_U8(ListCount, 0x21);
-    MPH_MEM_ENUM16(BeamFlags, Flags, 0x22);
+    MPH_MEM_ENUM16(Entities::BeamFlags, Flags, 0x22);
     MPH_MEM_U16(Color, 0x24);
     MPH_MEM_U16(Damage, 0x26);
     MPH_MEM_U16(HeadshotDamage, 0x28);

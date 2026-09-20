@@ -6,7 +6,7 @@
 
 namespace OpenTK::Windowing::Common
 {
-    class KeyboardKeyEventArgs;
+    struct KeyboardKeyEventArgs;
 }
 
 namespace MphRead

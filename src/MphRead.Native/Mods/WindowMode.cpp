@@ -1,37 +1,18 @@
 #include "WindowMode.hpp"
 
-#include "../Selection.hpp"
+#include "Chat/ChatBox.hpp"
 
 #include <bit>
 #include <cstddef>
-#include <climits>
 #include <cstdint>
-#include <cstdio>
-#include <cwchar>
-#include <cwctype>
-#include <locale.h>
 #include <optional>
-#include <string>
 #include <string_view>
 #include <utility>
 
-#if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
-
 namespace MphRead::Mods::Detail
 {
-    // Narrow platform boundary for the NativeWindow members observed by WindowMode.cs.
-    // The renderer/window provider owns these operations; this migration owns only the
-    // C# policy and ordering around them.
+    // Renderer/RenderWindow own the native window. WindowMode owns only the
+    // C# policy and ordering around these exact NativeWindow observations.
     struct WindowModeVector2i final
     {
         std::int32_t X = 0;
@@ -60,7 +41,7 @@ namespace MphRead::Mods::Detail
     void WindowModeSetFloating(MphRead::RenderWindow& window, bool floating);
     [[nodiscard]] bool WindowModeIsFocused(MphRead::RenderWindow& window);
 
-    // PauseMenu.cs is later in the dependency-first migration order.
+    // PauseMenu owns its Open state and publishes only this narrow observation.
     [[nodiscard]] bool WindowModePauseMenuOpen();
 }
 
@@ -239,333 +220,29 @@ namespace
         return value.substr(first, last - first);
     }
 
-    enum class Utf8DecodeStatus
+    [[nodiscard]] bool EqualsAsciiIgnoreCase(
+        std::string_view value, std::string_view expected) noexcept
     {
-        Done,
-        NeedMoreData,
-        InvalidData
-    };
-
-    [[nodiscard]] Utf8DecodeStatus DecodeUtf8Scalar(
-        const std::uint8_t* data,
-        std::size_t size,
-        std::size_t& index,
-        std::uint32_t& scalar) noexcept
-    {
-        const std::size_t start = index;
-        if (start >= size)
+        if (value.size() != expected.size())
         {
-            scalar = 0xFFFDU;
-            return Utf8DecodeStatus::NeedMoreData;
+            return false;
         }
 
-        const std::uint32_t first = data[start];
-        if (first <= 0x7FU)
+        for (std::size_t index = 0; index < value.size(); ++index)
         {
-            scalar = first;
-            index = start + 1;
-            return Utf8DecodeStatus::Done;
-        }
-        if (first < 0xC2U || first > 0xF4U)
-        {
-            scalar = 0xFFFDU;
-            index = start + 1;
-            return Utf8DecodeStatus::InvalidData;
-        }
-        if (start + 1 >= size)
-        {
-            scalar = 0xFFFDU;
-            index = size;
-            return Utf8DecodeStatus::NeedMoreData;
-        }
-
-        const std::uint32_t second = data[start + 1];
-        if ((second & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            index = start + 1;
-            return Utf8DecodeStatus::InvalidData;
-        }
-        if (first <= 0xDFU)
-        {
-            scalar = ((first & 0x1FU) << 6) | (second & 0x3FU);
-            index = start + 2;
-            return Utf8DecodeStatus::Done;
-        }
-        if ((first == 0xE0U && second < 0xA0U)
-            || (first == 0xEDU && second >= 0xA0U)
-            || (first == 0xF0U && second < 0x90U)
-            || (first == 0xF4U && second >= 0x90U))
-        {
-            scalar = 0xFFFDU;
-            index = start + 1;
-            return Utf8DecodeStatus::InvalidData;
-        }
-        if (start + 2 >= size)
-        {
-            scalar = 0xFFFDU;
-            index = size;
-            return Utf8DecodeStatus::NeedMoreData;
-        }
-
-        const std::uint32_t third = data[start + 2];
-        if ((third & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            index = start + 2;
-            return Utf8DecodeStatus::InvalidData;
-        }
-        if (first <= 0xEFU)
-        {
-            scalar = ((first & 0x0FU) << 12)
-                | ((second & 0x3FU) << 6)
-                | (third & 0x3FU);
-            index = start + 3;
-            return Utf8DecodeStatus::Done;
-        }
-        if (start + 3 >= size)
-        {
-            scalar = 0xFFFDU;
-            index = size;
-            return Utf8DecodeStatus::NeedMoreData;
-        }
-
-        const std::uint32_t fourth = data[start + 3];
-        if ((fourth & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            index = start + 3;
-            return Utf8DecodeStatus::InvalidData;
-        }
-
-        scalar = ((first & 0x07U) << 18)
-            | ((second & 0x3FU) << 12)
-            | ((third & 0x3FU) << 6)
-            | (fourth & 0x3FU);
-        index = start + 4;
-        return Utf8DecodeStatus::Done;
-    }
-
-    void AppendUtf8(std::string& output, std::uint32_t scalar)
-    {
-        if (scalar <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(scalar));
-        }
-        else if (scalar <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (scalar >> 6)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else if (scalar <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (scalar >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (scalar >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-    }
-
-#if !defined(_WIN32)
-    [[nodiscard]] void* FindVersionedIcuSymbol(
-        void* library, const char* base) noexcept
-    {
-        if (library == nullptr)
-        {
-            return nullptr;
-        }
-        if (void* symbol = dlsym(library, base); symbol != nullptr)
-        {
-            return symbol;
-        }
-        char name[96]{};
-        for (int version = 99; version >= 50; --version)
-        {
-            const int count = std::snprintf(
-                name, sizeof(name), "%s_%d", base, version);
-            if (count <= 0
-                || static_cast<std::size_t>(count) >= sizeof(name))
+            auto current = static_cast<unsigned char>(value[index]);
+            if (current >= static_cast<unsigned char>('A')
+                && current <= static_cast<unsigned char>('Z'))
             {
-                continue;
+                current = static_cast<unsigned char>(
+                    current + ('a' - 'A'));
             }
-            if (void* symbol = dlsym(library, name); symbol != nullptr)
+            if (current != static_cast<unsigned char>(expected[index]))
             {
-                return symbol;
+                return false;
             }
         }
-        return nullptr;
-    }
-
-    [[nodiscard]] std::uint32_t IcuLower(
-        std::uint32_t scalar) noexcept
-    {
-        using CaseFunction = std::int32_t (*)(std::int32_t);
-        static const CaseFunction function = []() noexcept
-        {
-            void* library = dlopen("libicuuc.so", RTLD_LAZY | RTLD_LOCAL);
-#if defined(__APPLE__)
-            if (library == nullptr)
-            {
-                library = dlopen(
-                    "/usr/lib/libicucore.A.dylib",
-                    RTLD_LAZY | RTLD_LOCAL);
-            }
-#endif
-            return reinterpret_cast<CaseFunction>(
-                FindVersionedIcuSymbol(library, "u_tolower"));
-        }();
-
-        if (function == nullptr || scalar > 0x10FFFFU)
-        {
-            return scalar;
-        }
-        const std::int32_t mapped = function(
-            static_cast<std::int32_t>(scalar));
-        return mapped < 0
-            ? scalar
-            : static_cast<std::uint32_t>(mapped);
-    }
-#endif
-
-    [[nodiscard]] std::uint32_t InvariantLowerScalar(
-        std::uint32_t scalar) noexcept
-    {
-        if (scalar >= 'A' && scalar <= 'Z')
-        {
-            return scalar + ('a' - 'A');
-        }
-
-        // Match the invariant casing behavior used by .NET on all platforms.
-        if (scalar == 0x0130U)
-        {
-            return scalar;
-        }
-
-#if defined(_WIN32)
-        wchar_t source[2]{};
-        int sourceLength = 0;
-        if (scalar <= 0xFFFFU)
-        {
-            source[0] = static_cast<wchar_t>(scalar);
-            sourceLength = 1;
-        }
-        else if (scalar <= 0x10FFFFU)
-        {
-            const std::uint32_t value = scalar - 0x10000U;
-            source[0] = static_cast<wchar_t>(
-                0xD800U + (value >> 10));
-            source[1] = static_cast<wchar_t>(
-                0xDC00U + (value & 0x3FFU));
-            sourceLength = 2;
-        }
-        if (sourceLength != 0)
-        {
-            wchar_t target[2]{};
-            const int mapped = LCMapStringEx(
-                LOCALE_NAME_INVARIANT,
-                LCMAP_LOWERCASE,
-                source,
-                sourceLength,
-                target,
-                2,
-                nullptr,
-                nullptr,
-                0);
-            if (mapped == 1)
-            {
-                return static_cast<std::uint32_t>(target[0]);
-            }
-            if (mapped == 2
-                && target[0] >= 0xD800
-                && target[0] <= 0xDBFF
-                && target[1] >= 0xDC00
-                && target[1] <= 0xDFFF)
-            {
-                return 0x10000U
-                    + ((static_cast<std::uint32_t>(target[0]) - 0xD800U) << 10)
-                    + (static_cast<std::uint32_t>(target[1]) - 0xDC00U);
-            }
-        }
-#else
-        const std::uint32_t mapped = IcuLower(scalar);
-        if (mapped != scalar)
-        {
-            return mapped;
-        }
-
-        static locale_t locale = []() noexcept
-        {
-            locale_t value = newlocale(
-                LC_CTYPE_MASK, "C.UTF-8", nullptr);
-            if (value == nullptr)
-            {
-                value = newlocale(
-                    LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
-            }
-            return value;
-        }();
-        if (locale != nullptr
-            && scalar <= static_cast<std::uint32_t>(WCHAR_MAX))
-        {
-            const wint_t mappedWide
-                = towlower_l(static_cast<wint_t>(scalar), locale);
-            if (mappedWide != WEOF)
-            {
-                return static_cast<std::uint32_t>(mappedWide);
-            }
-        }
-#endif
-
-        if (scalar >= 0x00C0U && scalar <= 0x00D6U)
-        {
-            return scalar + 0x20U;
-        }
-        if (scalar >= 0x00D8U && scalar <= 0x00DEU)
-        {
-            return scalar + 0x20U;
-        }
-        if (scalar == 0x0178U)
-        {
-            return 0x00FFU;
-        }
-        if (scalar >= 0x0391U && scalar <= 0x03A1U)
-        {
-            return scalar + 0x20U;
-        }
-        if (scalar >= 0x03A3U && scalar <= 0x03ABU)
-        {
-            return scalar + 0x20U;
-        }
-        if (scalar >= 0x0410U && scalar <= 0x042FU)
-        {
-            return scalar + 0x20U;
-        }
-        return scalar;
-    }
-
-    [[nodiscard]] std::string InvariantLower(
-        std::string_view value)
-    {
-        std::string result;
-        result.reserve(value.size());
-        std::size_t index = 0;
-        while (index < value.size())
-        {
-            std::uint32_t scalar = 0;
-            (void)DecodeUtf8Scalar(
-                reinterpret_cast<const std::uint8_t*>(value.data()),
-                value.size(),
-                index,
-                scalar);
-            AppendUtf8(result, InvariantLowerScalar(scalar));
-        }
-        return result;
+        return true;
     }
 
     [[nodiscard]] std::int32_t SubtractOneUnchecked(
@@ -707,11 +384,11 @@ namespace MphRead::Mods
 
     void WindowMode::SyncTopmost(MphRead::RenderWindow& window)
     {
-        const bool topmost
-            = fullscreenState
-            && !Detail::WindowModePauseMenuOpen()
-            && Detail::WindowModeIsFocused(window);
-        SetTopmost(window, topmost);
+        SetTopmost(
+            window,
+            fullscreenState
+                && !Detail::WindowModePauseMenuOpen()
+                && Detail::WindowModeIsFocused(window));
     }
 
     WindowStartMode WindowMode::Parse(
@@ -723,21 +400,19 @@ namespace MphRead::Mods
             return fallback;
         }
 
-        const std::string text
-            = InvariantLower(TrimDotNetWhitespace(*value));
-
-        if (text == "borderless"
-            || text == "fullscreen"
-            || text == "borderless fullscreen"
+        const std::string_view text = TrimDotNetWhitespace(*value);
+        if (EqualsAsciiIgnoreCase(text, "borderless")
+            || EqualsAsciiIgnoreCase(text, "fullscreen")
+            || EqualsAsciiIgnoreCase(text, "borderless fullscreen")
             || text == "1"
-            || text == "true")
+            || EqualsAsciiIgnoreCase(text, "true"))
         {
             return WindowStartMode::BorderlessFullscreen;
         }
-        if (text == "windowed"
-            || text == "window"
+        if (EqualsAsciiIgnoreCase(text, "windowed")
+            || EqualsAsciiIgnoreCase(text, "window")
             || text == "0"
-            || text == "false")
+            || EqualsAsciiIgnoreCase(text, "false"))
         {
             return WindowStartMode::Windowed;
         }
@@ -750,14 +425,5 @@ namespace MphRead::Mods::Launcher::Detail
     void TextLauncherSetWindowStartup(MphRead::Mods::WindowStartMode value)
     {
         MphRead::Mods::WindowMode::Startup(value);
-    }
-
-    MphRead::Mods::WindowStartMode LauncherPrefsWindowModeParse(
-        std::string_view value,
-        MphRead::Mods::WindowStartMode fallback)
-    {
-        return MphRead::Mods::WindowMode::Parse(
-            std::optional<std::string_view>{value},
-            fallback);
     }
 }

@@ -5,10 +5,13 @@
 #endif
 
 #include <android/log.h>
+
+#include <cstdint>
 #include <iostream>
 #include <memory>
+#include <streambuf>
 #include <string>
-#include <utility>
+#include <string_view>
 
 namespace
 {
@@ -47,6 +50,151 @@ namespace
         }
         return output;
     }
+
+    class ConsoleStreamBuffer final : public std::streambuf
+    {
+    public:
+        explicit ConsoleStreamBuffer(MphRead::Droid::AndroidConsole& writer) noexcept
+            : _writer(writer)
+        {
+        }
+
+    private:
+        MphRead::Droid::AndroidConsole& _writer;
+        std::uint32_t _codePoint = 0;
+        std::uint32_t _minimum = 0;
+        unsigned int _remaining = 0;
+
+        void AppendCodePoint(std::uint32_t value)
+        {
+            if (value <= 0xFFFFU)
+            {
+                _writer.Write(static_cast<char16_t>(value));
+                return;
+            }
+
+            value -= 0x10000U;
+            _writer.Write(static_cast<char16_t>(0xD800U + (value >> 10)));
+            _writer.Write(static_cast<char16_t>(0xDC00U + (value & 0x3FFU)));
+        }
+
+        void FinishIncompleteCharacter()
+        {
+            if (_remaining != 0)
+            {
+                _writer.Write(u'\uFFFD');
+                _codePoint = 0;
+                _minimum = 0;
+                _remaining = 0;
+            }
+        }
+
+        void WriteByte(unsigned char value)
+        {
+            for (;;)
+            {
+                if (_remaining != 0)
+                {
+                    if ((value & 0xC0U) == 0x80U)
+                    {
+                        _codePoint = (_codePoint << 6) | (value & 0x3FU);
+                        --_remaining;
+                        if (_remaining == 0)
+                        {
+                            const std::uint32_t codePoint = _codePoint;
+                            const std::uint32_t minimum = _minimum;
+                            _codePoint = 0;
+                            _minimum = 0;
+                            if (codePoint < minimum || codePoint > 0x10FFFFU
+                                || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
+                            {
+                                _writer.Write(u'\uFFFD');
+                            }
+                            else
+                            {
+                                AppendCodePoint(codePoint);
+                            }
+                        }
+                        return;
+                    }
+
+                    FinishIncompleteCharacter();
+                    continue;
+                }
+
+                if (value <= 0x7FU)
+                {
+                    _writer.Write(static_cast<char16_t>(value));
+                    return;
+                }
+                if ((value & 0xE0U) == 0xC0U)
+                {
+                    _codePoint = value & 0x1FU;
+                    _minimum = 0x80U;
+                    _remaining = 1;
+                    return;
+                }
+                if ((value & 0xF0U) == 0xE0U)
+                {
+                    _codePoint = value & 0x0FU;
+                    _minimum = 0x800U;
+                    _remaining = 2;
+                    return;
+                }
+                if ((value & 0xF8U) == 0xF0U)
+                {
+                    _codePoint = value & 0x07U;
+                    _minimum = 0x10000U;
+                    _remaining = 3;
+                    return;
+                }
+
+                _writer.Write(u'\uFFFD');
+                return;
+            }
+        }
+
+        int_type overflow(int_type value) override
+        {
+            if (traits_type::eq_int_type(value, traits_type::eof()))
+            {
+                return traits_type::not_eof(value);
+            }
+            WriteByte(static_cast<unsigned char>(traits_type::to_char_type(value)));
+            return value;
+        }
+
+        std::streamsize xsputn(const char* data, std::streamsize count) override
+        {
+            if (count <= 0)
+            {
+                return 0;
+            }
+            for (std::streamsize index = 0; index < count; ++index)
+            {
+                WriteByte(static_cast<unsigned char>(data[index]));
+            }
+            return count;
+        }
+
+        int sync() override
+        {
+            FinishIncompleteCharacter();
+            _writer.Flush();
+            return 0;
+        }
+    };
+
+    struct InstalledConsole final
+    {
+        MphRead::Droid::AndroidConsole Writer;
+        ConsoleStreamBuffer Buffer;
+
+        InstalledConsole()
+            : Buffer(Writer)
+        {
+        }
+    };
 }
 
 namespace MphRead::Droid
@@ -60,24 +208,24 @@ namespace MphRead::Droid
     {
         try
         {
-            auto writer = std::make_unique<AndroidConsole>();
+            auto installed = std::make_unique<InstalledConsole>();
             bool outInstalled = false;
             try
             {
-                std::cout.rdbuf(writer.get());
+                std::cout.rdbuf(&installed->Buffer);
                 outInstalled = true;
 
+                std::cerr.rdbuf(&installed->Buffer);
                 std::cerr.tie(nullptr);
                 std::cerr.unsetf(std::ios_base::unitbuf);
-                std::cerr.rdbuf(writer.get());
 
-                writer.release();
+                installed.release();
             }
             catch (...)
             {
                 if (outInstalled)
                 {
-                    writer.release();
+                    installed.release();
                 }
                 throw;
             }
@@ -120,139 +268,13 @@ namespace MphRead::Droid
 
     void AndroidConsole::Flush()
     {
-        FinishIncompleteStreamCharacter();
         if (_line.empty())
         {
             return;
         }
+
         const std::string message = ToModifiedUtf8(_line);
         __android_log_write(ANDROID_LOG_INFO, Tag.data(), message.c_str());
         _line.clear();
-    }
-
-    void AndroidConsole::AppendStreamCodePoint(std::uint32_t value)
-    {
-        if (value <= 0xFFFFU)
-        {
-            _line.push_back(static_cast<char16_t>(value));
-            return;
-        }
-        value -= 0x10000U;
-        _line.push_back(static_cast<char16_t>(0xD800U + (value >> 10)));
-        _line.push_back(static_cast<char16_t>(0xDC00U + (value & 0x3FFU)));
-    }
-
-    void AndroidConsole::FinishIncompleteStreamCharacter()
-    {
-        if (_streamRemaining != 0)
-        {
-            _line.push_back(u'\uFFFD');
-            _streamCodePoint = 0;
-            _streamMinimum = 0;
-            _streamRemaining = 0;
-        }
-    }
-
-    void AndroidConsole::WriteStreamByte(unsigned char value)
-    {
-        for (;;)
-        {
-            if (_streamRemaining != 0)
-            {
-                if ((value & 0xC0U) == 0x80U)
-                {
-                    _streamCodePoint = (_streamCodePoint << 6) | (value & 0x3FU);
-                    --_streamRemaining;
-                    if (_streamRemaining == 0)
-                    {
-                        const std::uint32_t codePoint = _streamCodePoint;
-                        const std::uint32_t minimum = _streamMinimum;
-                        _streamCodePoint = 0;
-                        _streamMinimum = 0;
-                        if (codePoint < minimum || codePoint > 0x10FFFFU
-                            || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
-                        {
-                            _line.push_back(u'\uFFFD');
-                        }
-                        else
-                        {
-                            AppendStreamCodePoint(codePoint);
-                        }
-                    }
-                    return;
-                }
-
-                FinishIncompleteStreamCharacter();
-                continue;
-            }
-
-            if (value == static_cast<unsigned char>('\n'))
-            {
-                Flush();
-                return;
-            }
-            if (value == static_cast<unsigned char>('\r'))
-            {
-                return;
-            }
-            if (value <= 0x7FU)
-            {
-                _line.push_back(static_cast<char16_t>(value));
-                return;
-            }
-            if ((value & 0xE0U) == 0xC0U)
-            {
-                _streamCodePoint = value & 0x1FU;
-                _streamMinimum = 0x80U;
-                _streamRemaining = 1;
-                return;
-            }
-            if ((value & 0xF0U) == 0xE0U)
-            {
-                _streamCodePoint = value & 0x0FU;
-                _streamMinimum = 0x800U;
-                _streamRemaining = 2;
-                return;
-            }
-            if ((value & 0xF8U) == 0xF0U)
-            {
-                _streamCodePoint = value & 0x07U;
-                _streamMinimum = 0x10000U;
-                _streamRemaining = 3;
-                return;
-            }
-
-            _line.push_back(u'\uFFFD');
-            return;
-        }
-    }
-
-    AndroidConsole::int_type AndroidConsole::overflow(int_type value)
-    {
-        if (traits_type::eq_int_type(value, traits_type::eof()))
-        {
-            return traits_type::not_eof(value);
-        }
-        WriteStreamByte(static_cast<unsigned char>(traits_type::to_char_type(value)));
-        return value;
-    }
-
-    std::streamsize AndroidConsole::xsputn(const char* data, std::streamsize count)
-    {
-        if (count <= 0)
-        {
-            return 0;
-        }
-        for (std::streamsize index = 0; index < count; ++index)
-        {
-            WriteStreamByte(static_cast<unsigned char>(data[index]));
-        }
-        return count;
-    }
-
-    int AndroidConsole::sync()
-    {
-        Flush();
-        return 0;
     }
 }

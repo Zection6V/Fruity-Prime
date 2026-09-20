@@ -1,20 +1,20 @@
 #pragma once
 
-#include <cstdint>
 #include <optional>
-#include <streambuf>
 #include <string>
 #include <string_view>
 
 namespace MphRead::Droid
 {
-    class AndroidConsole final : private std::streambuf
+    class AndroidConsole final
     {
     public:
         AndroidConsole() = default;
         AndroidConsole(const AndroidConsole&) = delete;
         AndroidConsole& operator=(const AndroidConsole&) = delete;
-        ~AndroidConsole() override = default;
+        AndroidConsole(AndroidConsole&&) = delete;
+        AndroidConsole& operator=(AndroidConsole&&) = delete;
+        ~AndroidConsole() = default;
 
         [[nodiscard]] std::string_view Encoding() const noexcept;
 
@@ -29,16 +29,5 @@ namespace MphRead::Droid
         static constexpr std::string_view Tag = "FruityPrime";
 
         std::u16string _line;
-        std::uint32_t _streamCodePoint = 0;
-        std::uint32_t _streamMinimum = 0;
-        unsigned int _streamRemaining = 0;
-
-        void WriteStreamByte(unsigned char value);
-        void FinishIncompleteStreamCharacter();
-        void AppendStreamCodePoint(std::uint32_t value);
-
-        int_type overflow(int_type value) override;
-        std::streamsize xsputn(const char* data, std::streamsize count) override;
-        int sync() override;
     };
 }

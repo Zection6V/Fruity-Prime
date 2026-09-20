@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iterator>
+#include <cstddef>
 #include <utility>
 
 namespace
@@ -102,28 +102,131 @@ namespace MphRead::Mods::Launcher::Gui
     {
     }
 
-    void MenuEntryEvent::Add(MenuEntryEventHandler handler)
+    MenuEntryEventHandler::MenuEntryEventHandler(
+        void* context, Callback function, std::shared_ptr<void> keepAlive)
     {
-        if (handler.Function == nullptr)
+        if (function != nullptr)
         {
-            return;
+            auto list = std::make_shared<std::vector<Invocation>>();
+            list->push_back(Invocation{context, function, std::move(keepAlive)});
+            _invocations = std::move(list);
         }
-        std::lock_guard lock(_mutex);
-        _handlers.push_back(handler);
     }
 
-    void MenuEntryEvent::Remove(MenuEntryEventHandler handler)
+    MenuEntryEventHandler::MenuEntryEventHandler(
+        std::shared_ptr<const std::vector<Invocation>> invocations) noexcept
+        : _invocations(std::move(invocations))
     {
-        if (handler.Function == nullptr)
+    }
+
+    MenuEntryEventHandler MenuEntryEventHandler::Combine(
+        const MenuEntryEventHandler& left, const MenuEntryEventHandler& right)
+    {
+        if (left.IsNull())
+        {
+            return right;
+        }
+        if (right.IsNull())
+        {
+            return left;
+        }
+
+        auto list = std::make_shared<std::vector<Invocation>>();
+        list->reserve(left._invocations->size() + right._invocations->size());
+        list->insert(list->end(), left._invocations->begin(), left._invocations->end());
+        list->insert(list->end(), right._invocations->begin(), right._invocations->end());
+        return MenuEntryEventHandler(std::move(list));
+    }
+
+    bool MenuEntryEventHandler::IsNull() const noexcept
+    {
+        return !_invocations || _invocations->empty();
+    }
+
+    bool operator==(
+        const MenuEntryEventHandler& left,
+        const MenuEntryEventHandler& right) noexcept
+    {
+        if (left.IsNull() || right.IsNull())
+        {
+            return left.IsNull() == right.IsNull();
+        }
+        const auto& a = *left._invocations;
+        const auto& b = *right._invocations;
+        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
+    }
+
+    void MenuEntryEvent::Add(const MenuEntryEventHandler& handler)
+    {
+        if (handler.IsNull())
         {
             return;
         }
-        std::lock_guard lock(_mutex);
-        for (auto it = _handlers.rbegin(); it != _handlers.rend(); ++it)
+
+        std::shared_ptr<const InvocationList> current = _handlers.load();
+        for (;;)
         {
-            if (*it == handler)
+            auto next = std::make_shared<InvocationList>();
+            next->reserve((current ? current->size() : 0) + handler._invocations->size());
+            if (current)
             {
-                _handlers.erase(std::next(it).base());
+                next->insert(next->end(), current->begin(), current->end());
+            }
+            next->insert(next->end(), handler._invocations->begin(), handler._invocations->end());
+            std::shared_ptr<const InvocationList> desired = std::move(next);
+            if (_handlers.compare_exchange_weak(current, desired))
+            {
+                return;
+            }
+        }
+    }
+
+    void MenuEntryEvent::Remove(const MenuEntryEventHandler& handler)
+    {
+        if (handler.IsNull())
+        {
+            return;
+        }
+
+        std::shared_ptr<const InvocationList> current = _handlers.load();
+        for (;;)
+        {
+            if (!current || current->size() < handler._invocations->size())
+            {
+                return;
+            }
+
+            const std::size_t removeCount = handler._invocations->size();
+            std::optional<std::size_t> match;
+            for (std::size_t start = current->size() - removeCount + 1; start-- > 0;)
+            {
+                if (std::equal(handler._invocations->begin(), handler._invocations->end(),
+                    current->begin() + static_cast<std::ptrdiff_t>(start)))
+                {
+                    match = start;
+                    break;
+                }
+            }
+            if (!match.has_value())
+            {
+                return;
+            }
+
+            std::shared_ptr<const InvocationList> desired;
+            if (removeCount != current->size())
+            {
+                auto next = std::make_shared<InvocationList>();
+                next->reserve(current->size() - removeCount);
+                next->insert(next->end(), current->begin(),
+                    current->begin() + static_cast<std::ptrdiff_t>(*match));
+                next->insert(next->end(),
+                    current->begin() + static_cast<std::ptrdiff_t>(*match + removeCount),
+                    current->end());
+                desired = std::move(next);
+            }
+
+            if (_handlers.compare_exchange_weak(current, desired))
+            {
                 return;
             }
         }
@@ -131,12 +234,12 @@ namespace MphRead::Mods::Launcher::Gui
 
     void MenuEntryEvent::Invoke(void* sender, const MenuEntryEventArgs& args) const
     {
-        std::vector<MenuEntryEventHandler> handlers;
+        const std::shared_ptr<const InvocationList> handlers = _handlers.load();
+        if (!handlers)
         {
-            std::lock_guard lock(_mutex);
-            handlers = _handlers;
+            return;
         }
-        for (const MenuEntryEventHandler& handler : handlers)
+        for (const Invocation& handler : *handlers)
         {
             handler.Function(handler.Context, sender, args);
         }
@@ -324,12 +427,12 @@ namespace MphRead::Mods::Launcher::Gui
         InvalidateForProperty(MenuEntryProperty::IsEnabled);
     }
 
-    void MenuEntry::AddClick(MenuEntryEventHandler handler)
+    void MenuEntry::AddClick(const MenuEntryEventHandler& handler)
     {
         _click.Add(handler);
     }
 
-    void MenuEntry::RemoveClick(MenuEntryEventHandler handler)
+    void MenuEntry::RemoveClick(const MenuEntryEventHandler& handler)
     {
         _click.Remove(handler);
     }

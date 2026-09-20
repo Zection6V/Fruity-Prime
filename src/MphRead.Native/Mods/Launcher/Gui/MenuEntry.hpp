@@ -3,8 +3,9 @@
 #include "GuiTheme.hpp"
 #include "TrackedText.hpp"
 
+#include <atomic>
 #include <cstdint>
-#include <mutex>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -119,28 +120,59 @@ namespace MphRead::Mods::Launcher::Gui
         static const MenuEntryEventArgs Empty;
     };
 
-    struct MenuEntryEventHandler final
+    class MenuEntryEventHandler final
     {
+    public:
         using Callback = void (*)(void* context, void* sender, const MenuEntryEventArgs& args);
 
-        void* Context = nullptr;
-        Callback Function = nullptr;
+        MenuEntryEventHandler() = default;
+        MenuEntryEventHandler(void* context, Callback function,
+            std::shared_ptr<void> keepAlive = {});
 
-        friend constexpr bool operator==(
-            const MenuEntryEventHandler&, const MenuEntryEventHandler&) noexcept = default;
+        [[nodiscard]] static MenuEntryEventHandler Combine(
+            const MenuEntryEventHandler& left, const MenuEntryEventHandler& right);
+
+        [[nodiscard]] bool IsNull() const noexcept;
+
+        friend bool operator==(
+            const MenuEntryEventHandler& left,
+            const MenuEntryEventHandler& right) noexcept;
+
+    private:
+        struct Invocation final
+        {
+            void* Context;
+            Callback Function;
+            std::shared_ptr<void> KeepAlive;
+
+            friend bool operator==(
+                const Invocation& left, const Invocation& right) noexcept
+            {
+                return left.Context == right.Context
+                    && left.Function == right.Function;
+            }
+        };
+
+        explicit MenuEntryEventHandler(
+            std::shared_ptr<const std::vector<Invocation>> invocations) noexcept;
+
+        std::shared_ptr<const std::vector<Invocation>> _invocations;
+        friend class MenuEntryEvent;
     };
 
     class MenuEntryEvent final
     {
     public:
-        void Add(MenuEntryEventHandler handler);
-        void Remove(MenuEntryEventHandler handler);
+        void Add(const MenuEntryEventHandler& handler);
+        void Remove(const MenuEntryEventHandler& handler);
 
     private:
         friend class MenuEntry;
         void Invoke(void* sender, const MenuEntryEventArgs& args) const;
-        mutable std::mutex _mutex;
-        std::vector<MenuEntryEventHandler> _handlers;
+
+        using Invocation = MenuEntryEventHandler::Invocation;
+        using InvocationList = std::vector<Invocation>;
+        std::atomic<std::shared_ptr<const InvocationList>> _handlers{};
     };
 
     class MenuEntryControlAdapter
@@ -244,8 +276,8 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] bool IsEnabled() const;
         void IsEnabled(bool value);
 
-        void AddClick(MenuEntryEventHandler handler);
-        void RemoveClick(MenuEntryEventHandler handler);
+        void AddClick(const MenuEntryEventHandler& handler);
+        void RemoveClick(const MenuEntryEventHandler& handler);
 
         [[nodiscard]] MenuEntrySize MeasureOverride(MenuEntrySize availableSize);
 

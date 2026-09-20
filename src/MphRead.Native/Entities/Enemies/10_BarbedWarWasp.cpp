@@ -303,7 +303,7 @@ namespace MphRead::Entities::Enemies
         }
 
         const std::int32_t version = UInt32ToInt32(
-            static_cast<std::uint32_t>(_spawner->Data.Fields.S08.EnemyVersion));
+            static_cast<std::uint32_t>(_spawner->Data.Fields.S08().EnemyVersion));
         if (version < 0 || static_cast<std::size_t>(version) >= _recolors.size())
         {
             throw SceneDetail::IndexOutOfRangeException();
@@ -314,38 +314,32 @@ namespace MphRead::Entities::Enemies
         const Vector3 up = FixParallelVectors(facing, Vector3(0.0F, 1.0F, 0.0F));
         SetTransform(facing, up, static_cast<Vector3>(_spawner->Position));
 
-        _movementType = _spawner->Data.Fields.S08.WarWasp.MovementType;
+        _movementType = _spawner->Data.Fields.S08().WarWasp.MovementType;
         Flags |= EnemyFlags::Visible;
         Flags |= EnemyFlags::OnRadar;
         _boundingRadius = 1.0F;
         _hurtVolumeInit = CollisionVolume(Vector3(0.0F, -0.45F, 0.0F), 1.4F);
 
         const std::int32_t subtype = UInt32ToInt32(
-            static_cast<std::uint32_t>(_spawner->Data.Fields.S08.EnemySubtype));
+            static_cast<std::uint32_t>(_spawner->Data.Fields.S08().EnemySubtype));
         _values = VectorAt(Metadata::Enemy10Values, subtype);
         _health = _healthMax = _values.HealthMax;
         Metadata::LoadEffectiveness(_values.Effectiveness, BeamEffectiveness);
         _scanId = _values.ScanId;
 
         _homeVolume = CollisionVolume::Move(
-            _spawner->Data.Fields.S08.WarWasp.Volume2, Position);
+            _spawner->Data.Fields.S08().WarWasp.Volume2, Position);
         _movementVolume = CollisionVolume::Move(
-            _spawner->Data.Fields.S08.WarWasp.Volume1, Position);
+            _spawner->Data.Fields.S08().WarWasp.Volume1, Position);
 
-        if (version < 0
-            || static_cast<std::size_t>(version) >= Weapons::EnemyWeapons.size())
-        {
-            throw SceneDetail::IndexOutOfRangeException();
-        }
-        const std::shared_ptr<WeaponInfo> weapon
-            = Weapons::EnemyWeapons[static_cast<std::size_t>(version)];
-        _equipInfo = std::make_shared<EquipInfo>();
-        _equipInfo->SetWeapon(weapon);
-        _equipInfo->SetBeams(RequireReference(_beams));
-        _equipInfo->SetGetAmmo([this]() { return _ammo; });
-        _equipInfo->SetSetAmmo([this](std::int32_t newAmmo) { _ammo = newAmmo; });
-        _equipInfo->SetUnchargedDamage(_values.BeamDamage);
-        _equipInfo->SetSplashDamage(_values.SplashDamage);
+        const std::vector<std::shared_ptr<WeaponInfo>>& enemyWeapons
+            = RequireReference(Weapons::EnemyWeapons);
+        const std::shared_ptr<WeaponInfo> weapon = VectorAt(enemyWeapons, version);
+        _equipInfo = std::make_shared<EquipInfo>(weapon, _beams);
+        _equipInfo->GetAmmo = [this]() { return _ammo; };
+        _equipInfo->SetAmmo = [this](std::int32_t newAmmo) { _ammo = newAmmo; };
+        _equipInfo->UnchargedDamage(_values.BeamDamage);
+        _equipInfo->SplashDamage(_values.SplashDamage);
 
         _shotCount = GetShotCount(_values);
         _shotTimer = 30 * 2; // todo: FPS stuff
@@ -385,12 +379,12 @@ namespace MphRead::Entities::Enemies
         {
             _maxMoveIndex = static_cast<std::uint8_t>(
                 static_cast<std::int32_t>(
-                    _spawner->Data.Fields.S08.WarWasp.PositionCount) - 1);
+                    _spawner->Data.Fields.S08().WarWasp.PositionCount) - 1);
             _finalMoveIndex = _maxMoveIndex;
             for (std::int32_t i = 0; i < 16; ++i)
             {
                 _movePositions[static_cast<std::size_t>(i)]
-                    = _spawner->Data.Fields.S08.WarWasp.MovementVectors[i].ToFloatVector()
+                    = _spawner->Data.Fields.S08().WarWasp.MovementVectors[i].ToFloatVector()
                     + static_cast<Vector3>(Position);
             }
         }
@@ -412,7 +406,8 @@ namespace MphRead::Entities::Enemies
         }
         else
         {
-            _speed = Scale(travel, _stepDistance / distance);
+            _speed = MphRead::Entities::Enemies::Scale(
+                travel, _stepDistance / distance);
             // todo: FPS stuff
             _speed.X /= 2.0F;
             _speed.Y /= 2.0F;
@@ -511,9 +506,9 @@ namespace MphRead::Entities::Enemies
         if (_shotCount > 0 && _shotTimer == 10 * 2)
         {
             EquipInfo& equip = RequireReference(_equipInfo);
-            equip.SetUnchargedDamage(_values.BeamDamage);
-            equip.SetSplashDamage(_values.SplashDamage);
-            equip.SetHeadshotDamage(_values.BeamDamage);
+            equip.UnchargedDamage(_values.BeamDamage);
+            equip.SplashDamage(_values.SplashDamage);
+            equip.HeadshotDamage(_values.BeamDamage);
             const Vector3 spawnPos = AddY(static_cast<Vector3>(Position), -0.5F);
             (void)BeamProjectileEntity::Spawn(
                 SharedEntity(_scene, this),
@@ -541,13 +536,13 @@ namespace MphRead::Entities::Enemies
     void Enemy10Entity::PlayBeamShotSfx()
     {
         EquipInfo& equip = RequireReference(_equipInfo);
-        const std::shared_ptr<WeaponInfo> weapon = equip.Weapon();
+        const std::shared_ptr<WeaponInfo> weapon = equip.Weapon;
         WeaponInfo& weaponRef = RequireReference(weapon);
 
         const std::shared_ptr<std::vector<std::vector<std::int32_t>>> beamSfx
             = Metadata::BeamSfx();
         std::vector<std::vector<std::int32_t>>& sfxRows = RequireReference(beamSfx);
-        const std::int32_t beamIndex = static_cast<std::int32_t>(weaponRef.Beam());
+        const std::int32_t beamIndex = static_cast<std::int32_t>(weaponRef.Beam);
         std::vector<std::int32_t>& sfxRow = VectorAt(sfxRows, beamIndex);
         const std::int32_t sfx = VectorAt(
             sfxRow, static_cast<std::int32_t>(BeamSfx::Shot));

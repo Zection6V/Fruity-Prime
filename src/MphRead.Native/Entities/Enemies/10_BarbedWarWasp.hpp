@@ -96,10 +96,11 @@ namespace MphRead::Entities::Enemies
         void State1();
         void State2();
         void State3();
-        void State4();
-        void State5();
 
         void PlayBeamShotSfx();
+
+        void State4();
+        void State5();
 
         [[nodiscard]] bool Behavior00();
         [[nodiscard]] bool Behavior01();

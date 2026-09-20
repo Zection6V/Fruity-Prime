@@ -26,18 +26,6 @@ namespace MphRead
     class RoomMetadata;
     class RecolorMetadata;
 
-    namespace Paths
-    {
-        [[nodiscard]] const std::string& FileSystem();
-        [[nodiscard]] const std::string& FhFileSystem();
-        [[nodiscard]] const std::string& Export();
-        [[nodiscard]] std::string Combine(const std::string& first, const std::string& second);
-        [[nodiscard]] std::string Combine(const std::string& first, const std::string& second,
-            const std::string& third);
-        [[nodiscard]] std::string Combine(const std::string& first, const std::string& second,
-            const std::string& third, const std::string& fourth);
-    }
-
     class AnimationResults
     {
     public:

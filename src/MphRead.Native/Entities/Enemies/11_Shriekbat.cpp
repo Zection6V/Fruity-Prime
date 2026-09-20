@@ -14,6 +14,7 @@
 #include <limits>
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace MphRead::Entities::Enemies
 {
@@ -46,7 +47,12 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
-            return RequireReference(PlayerEntity::Main());
+            const std::shared_ptr<PlayerEntity> player = PlayerEntity::Main();
+            if (!player)
+            {
+                throw System::NullReferenceException();
+            }
+            return *player;
         }
 
         [[nodiscard]] float Length(Vector3 value)
@@ -55,7 +61,7 @@ namespace MphRead::Entities::Enemies
                 value.X * value.X + value.Y * value.Y + value.Z * value.Z);
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
@@ -90,6 +96,40 @@ namespace MphRead::Entities::Enemies
             return static_cast<std::int32_t>(value);
         }
     }
+}
+
+namespace MphRead::Metadata
+{
+    namespace
+    {
+        using Entities::EnemyBehavior;
+        using Entities::EnemySubroutine;
+        using Entities::Enemies::Enemy11Entity;
+
+        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State0{
+            {1, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior04)}
+        };
+        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State1{
+            {2, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior03)}
+        };
+        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State2{
+            {3, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior02)}
+        };
+        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State3{
+            {4, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior01)}
+        };
+        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State4{
+            {0, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior00)}
+        };
+    }
+
+    std::vector<EnemySubroutine<Enemy11Entity>> Enemy11Subroutines{
+        EnemySubroutine<Enemy11Entity>(Enemy11State0),
+        EnemySubroutine<Enemy11Entity>(Enemy11State1),
+        EnemySubroutine<Enemy11Entity>(Enemy11State2),
+        EnemySubroutine<Enemy11Entity>(Enemy11State3),
+        EnemySubroutine<Enemy11Entity>(Enemy11State4)
+    };
 }
 
 namespace MphRead::Entities::Enemies
@@ -217,7 +257,7 @@ namespace MphRead::Entities::Enemies
         const float mag = Length(_speed);
         _moveTimer = AddInt32(FloatToInt32(mag / 0.6F), 1);
         _moveTimer = MultiplyInt32(_moveTimer, 2);
-        _speed = Scale(_speed, 0.6F / mag);
+        _speed = ScaleVector(_speed, 0.6F / mag);
         _speed.X /= 2.0F;
         _speed.Y /= 2.0F;
         _speed.Z /= 2.0F;
@@ -258,7 +298,7 @@ namespace MphRead::Entities::Enemies
         const float mag = Length(_speed);
         _moveTimer = AddInt32(FloatToInt32(mag / 0.3F), 1);
         _moveTimer = MultiplyInt32(_moveTimer, 2);
-        _speed = Scale(_speed, 0.3F / mag);
+        _speed = ScaleVector(_speed, 0.3F / mag);
         _speed.X /= 2.0F;
         _speed.Y /= 2.0F;
         _speed.Z /= 2.0F;

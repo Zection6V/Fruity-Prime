@@ -3171,7 +3171,8 @@ namespace MphRead::Testing
         {
             ushort word0 = wordBuf[0];
             ushort word1 = wordBuf[1];
-            int prevInt23 = wordBuf[2] | (wordBuf[3] << 16);
+            int prevInt23 = ManagedInt32(static_cast<uint>(wordBuf[2])
+                | (static_cast<uint>(wordBuf[3]) << 16));
             int bits0A = (word0 >> 10) & 0x1F; // bits 10-14
             int bits1A = (word1 >> 10) & 0x1F;
             int bits0B = (word0 >> 5) & 0x1F; // bits 5-9
@@ -3181,7 +3182,7 @@ namespace MphRead::Testing
             wordBuf[2] = (ushort)(_byte2067320[2 * bits0C + bits1C] + 32 * (_byte2067320[2 * bits0B + bits1B] + 32 * _byte2067320[bits1A + 2 * bits0A]));
             wordBuf[3] = (ushort)(_byte2067320[2 * bits1C + bits0C] + 32 * (_byte2067320[2 * bits1B + bits0B] + 32 * _byte2067320[2 * bits1A + bits0A]));
             // todo: clean this up once it's confirmed the indices work this way and we don't need to un-align
-            int wordIdx0 = (prevInt23 << 1) & 6;
+            int wordIdx0 = ManagedInt32(ManagedUInt32(prevInt23) << 1) & 6;
             int wordIdx1 = (prevInt23 >> 1) & 6;
             int wordIdx2 = (prevInt23 >> 3) & 6;
             int wordIdx3 = (prevInt23 >> 5) & 6;
@@ -3253,7 +3254,8 @@ namespace MphRead::Testing
             // todo: this section is exactly the same as in Sub2067388
             ushort word0 = wordBuf[0];
             ushort word1 = wordBuf[1];
-            int prevInt23 = wordBuf[2] | (wordBuf[3] << 16);
+            int prevInt23 = ManagedInt32(static_cast<uint>(wordBuf[2])
+                | (static_cast<uint>(wordBuf[3]) << 16));
             int bits0A = (word0 >> 10) & 0x1F; // bits 10-14
             int bits1A = (word1 >> 10) & 0x1F;
             int bits0B = (word0 >> 5) & 0x1F; // bits 5-9
@@ -3265,7 +3267,7 @@ namespace MphRead::Testing
             // todo: ^
             Span<ushort> outputSpan2Slice = MemoryCast<byte, ushort>(outputSpan2.Slice(outputPos));
             // todo: clean this up once it's confirmed the indices work this way and we don't need to un-align
-            int wordIdx0 = (prevInt23 << 1) & 6;
+            int wordIdx0 = ManagedInt32(ManagedUInt32(prevInt23) << 1) & 6;
             int wordIdx1 = (prevInt23 >> 1) & 6;
             int wordIdx2 = (prevInt23 >> 3) & 6;
             int wordIdx3 = (prevInt23 >> 5) & 6;

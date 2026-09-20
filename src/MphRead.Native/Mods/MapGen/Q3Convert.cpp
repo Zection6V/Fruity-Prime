@@ -1111,20 +1111,25 @@ namespace
     }
 
     [[nodiscard]] bool FileExists(
-        const std::optional<std::string>& path) noexcept
+        const std::string& path)
     {
-        if (!path.has_value() || path->empty())
+        if (path.empty())
         {
             return false;
         }
         try
         {
+            const std::string fullPath = FullPath(path);
             std::error_code error;
             const bool exists = std::filesystem::is_regular_file(
-                PathFromUtf8(*path), error);
+                PathFromUtf8(fullPath), error);
             return !error && exists;
         }
-        catch (...)
+        catch (const std::invalid_argument&)
+        {
+            return false;
+        }
+        catch (const std::filesystem::filesystem_error&)
         {
             return false;
         }
@@ -1232,18 +1237,15 @@ namespace
                 "Sequence contains no elements");
         }
 
-        double sum = 0.0;
-        std::int64_t count = 0;
-        for (const std::shared_ptr<std::vector<float>>& value : values)
+        double sum = static_cast<double>(
+            ArrayAt(Require(values.front()), axis));
+        std::int64_t count = 1;
+        for (std::size_t i = 1; i < values.size(); ++i)
         {
             sum += static_cast<double>(
-                ArrayAt(Require(value), axis));
-            if (count == std::numeric_limits<std::int64_t>::max())
-            {
-                throw std::overflow_error(
-                    "Arithmetic operation resulted in an overflow.");
-            }
-            ++count;
+                ArrayAt(Require(values[i]), axis));
+            count = std::bit_cast<std::int64_t>(
+                static_cast<std::uint64_t>(count) + 1U);
         }
         return sum / static_cast<double>(count);
     }
@@ -1942,7 +1944,7 @@ namespace
 namespace MphRead::Mods::MapGen
 {
     std::int32_t Q3Convert::Run(
-        const std::optional<std::string>& source,
+        const std::string& source,
         const std::optional<std::string>& mapName,
         const std::optional<std::string>& roomName,
         const std::optional<std::string>& outputDir,
@@ -1954,12 +1956,12 @@ namespace MphRead::Mods::MapGen
         {
             std::cout
                 << "No such file: "
-                << (source.has_value() ? *source : std::string())
+                << source
                 << '\n';
             return 1;
         }
 
-        const std::string& sourceValue = *source;
+        const std::string& sourceValue = source;
         std::shared_ptr<Q3Bsp> bsp;
         try
         {
@@ -2048,8 +2050,6 @@ namespace MphRead::Mods::MapGen
                 std::optional<std::string>(texturePath),
                 textureSize);
         MapTextureBake::Result* bakedValue = Require(baked);
-        const std::vector<std::string>* missing
-            = Require(bakedValue->Missing);
 
         std::cout
             << "  " << bakedValue->Baked
@@ -2058,12 +2058,12 @@ namespace MphRead::Mods::MapGen
             << " -> " << FormatN0(bakedValue->Bytes)
             << " B  " << FileName(texturePath)
             << '\n';
-        if (!missing->empty())
+        if (!Require(bakedValue->Missing)->empty())
         {
             std::cout
-                << "  no image for " << missing->size()
-                << ": " << JoinStrings(*missing, 6)
-                << (missing->size() > 6 ? " ..." : "")
+                << "  no image for " << Require(bakedValue->Missing)->size()
+                << ": " << JoinStrings(*Require(bakedValue->Missing), 6)
+                << (Require(bakedValue->Missing)->size() > 6 ? " ..." : "")
                 << '\n';
             std::cout
                 << "  those surfaces are dropped rather than painted with somebody else's"
@@ -2138,15 +2138,15 @@ namespace MphRead::Mods::MapGen
             = CombinePath(directory, prefix + ".json");
         definition->Save(path);
 
-        MapDefinition::SpawnList* spawns
+        MapDefinition::SpawnList* outputSpawns
             = definition->Spawns();
-        if (spawns == nullptr)
+        if (outputSpawns == nullptr)
         {
             NullReference();
         }
 
         std::cout
-            << "  " << spawns->size()
+            << "  " << outputSpawns->size()
             << " spawn points, "
             << FormatZeroOptionalOne(unit)
             << " Quake units per unit"
@@ -2165,10 +2165,22 @@ namespace MphRead::Mods::MapGen
             << " units\n";
         std::cout << "  wrote " << path << '\n';
 
-        if (spawns->size() < 4)
+        MapDefinition::SpawnList* checkSpawns
+            = definition->Spawns();
+        if (checkSpawns == nullptr)
         {
+            NullReference();
+        }
+        if (checkSpawns->size() < 4)
+        {
+            MapDefinition::SpawnList* warningSpawns
+                = definition->Spawns();
+            if (warningSpawns == nullptr)
+            {
+                NullReference();
+            }
             std::cout
-                << "  only " << spawns->size()
+                << "  only " << warningSpawns->size()
                 << " places to appear: this level was not"
                 << " built for a deathmatch. Add spawns to the map file before playing it with a full house.\n";
         }
@@ -2339,22 +2351,34 @@ namespace MphRead::Mods::MapGen
             }
         }
 
-        std::vector<std::shared_ptr<std::vector<float>>> chosen;
+        std::vector<std::shared_ptr<std::vector<float>>> concatenated;
+        const std::vector<std::shared_ptr<std::vector<float>>>* chosen;
         if (starts.size() >= 4)
         {
-            chosen = starts;
+            chosen = &starts;
         }
         else
         {
-            chosen.reserve(starts.size() + fallbacks.size());
-            chosen.insert(
-                chosen.end(),
+            if (starts.size()
+                    > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())
+                || fallbacks.size()
+                    > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())
+                        - starts.size())
+            {
+                throw std::overflow_error(
+                    "Arithmetic operation resulted in an overflow.");
+            }
+            const std::size_t count = starts.size() + fallbacks.size();
+            concatenated.reserve(count);
+            concatenated.insert(
+                concatenated.end(),
                 starts.begin(),
                 starts.end());
-            chosen.insert(
-                chosen.end(),
+            concatenated.insert(
+                concatenated.end(),
                 fallbacks.begin(),
                 fallbacks.end());
+            chosen = &concatenated;
         }
 
         MapImport* import = definition->Import();
@@ -2376,17 +2400,17 @@ namespace MphRead::Mods::MapGen
 
         auto centre = std::make_shared<std::vector<float>>(
             std::initializer_list<float>{
-                chosen.empty()
+                chosen->empty()
                     ? 0.0F
                     : static_cast<float>(
-                        AverageAxis(chosen, 0)),
-                chosen.empty()
+                        AverageAxis(*chosen, 0)),
+                chosen->empty()
                     ? 0.0F
                     : static_cast<float>(
-                        AverageAxis(chosen, 1))});
+                        AverageAxis(*chosen, 1))});
 
         for (const std::shared_ptr<std::vector<float>>& positionRef
-            : chosen)
+            : *chosen)
         {
             const std::vector<float>* position
                 = Require(positionRef);

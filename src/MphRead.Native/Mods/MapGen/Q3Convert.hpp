@@ -17,7 +17,7 @@ namespace MphRead::Mods::MapGen
         static constexpr float TargetExtent = 130.0F;
 
         [[nodiscard]] static std::int32_t Run(
-            const std::optional<std::string>& source,
+            const std::string& source,
             const std::optional<std::string>& mapName,
             const std::optional<std::string>& roomName,
             const std::optional<std::string>& outputDir,

@@ -1406,7 +1406,7 @@ namespace MphRead::Mods::Update
                 ThrowFileError(from, std::error_code(error, std::generic_category()));
             }
 
-            int destinationFlags = O_WRONLY | O_CREAT | O_TRUNC;
+            int destinationFlags = O_RDWR | O_CREAT | O_TRUNC;
 #ifdef O_CLOEXEC
             destinationFlags |= O_CLOEXEC;
 #endif

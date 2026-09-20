@@ -1981,13 +1981,9 @@ namespace
             }
 
             std::error_code deleteError;
-            const bool removed = std::filesystem::remove(sourcePath, deleteError);
-            if (deleteError || !removed)
+            (void)std::filesystem::remove(sourcePath, deleteError);
+            if (deleteError)
             {
-                if (!deleteError)
-                {
-                    deleteError = std::make_error_code(std::errc::no_such_file_or_directory);
-                }
                 throw std::system_error(
                     deleteError, "Could not delete temporary bundle after cross-device copy");
             }

@@ -937,7 +937,9 @@ namespace MphRead::Mods::Update
                     ThrowArchive(reader.get());
                 }
                 if (archive_read_set_format_option(
-                    reader.get(), "zip", "mac-ext", nullptr) != ARCHIVE_OK)
+                    reader.get(), "zip", "mac-ext", nullptr) != ARCHIVE_OK
+                    || archive_read_set_format_option(
+                        reader.get(), "zip", "hdrcharset", "UTF-8") != ARCHIVE_OK)
                 {
                     ThrowArchive(reader.get());
                 }
@@ -950,7 +952,9 @@ namespace MphRead::Mods::Update
                     ThrowArchive(reader.get());
                 }
                 if (archive_read_set_format_option(
-                    reader.get(), "tar", "mac-ext", nullptr) != ARCHIVE_OK)
+                    reader.get(), "tar", "mac-ext", nullptr) != ARCHIVE_OK
+                    || archive_read_set_format_option(
+                        reader.get(), "tar", "hdrcharset", "UTF-8") != ARCHIVE_OK)
                 {
                     ThrowArchive(reader.get());
                 }

@@ -10,17 +10,7 @@
 
 namespace OpenTK::Windowing::Common
 {
-    // Thin external boundary: OpenTK.Windowing.Common is not otherwise present in
-    // MphRead.Native yet; expose only the event members observed by Selection.cs.
-    class KeyboardKeyEventArgs final
-    {
-    public:
-        ::OpenTK::Windowing::GraphicsLibraryFramework::Keys Key
-            = ::OpenTK::Windowing::GraphicsLibraryFramework::Keys::Unknown;
-        bool Shift = false;
-        bool Alt = false;
-        bool Control = false;
-    };
+    struct KeyboardKeyEventArgs;
 }
 
 namespace MphRead
@@ -39,11 +29,11 @@ namespace MphRead
     class Selection final
     {
     public:
-        [[nodiscard]] static const std::shared_ptr<LinkedListNode<Entities::EntityBase>>& EntityNode() noexcept;
+        [[nodiscard]] static std::shared_ptr<LinkedListNode<Entities::EntityBase>> EntityNode() noexcept;
         [[nodiscard]] static std::shared_ptr<Entities::EntityBase> Entity() noexcept;
-        [[nodiscard]] static const std::shared_ptr<ModelInstance>& Instance() noexcept;
-        [[nodiscard]] static const std::shared_ptr<::MphRead::Node>& Node() noexcept;
-        [[nodiscard]] static const std::shared_ptr<::MphRead::Mesh>& Mesh() noexcept;
+        [[nodiscard]] static std::shared_ptr<ModelInstance> Instance() noexcept;
+        [[nodiscard]] static std::shared_ptr<::MphRead::Node> Node() noexcept;
+        [[nodiscard]] static std::shared_ptr<::MphRead::Mesh> Mesh() noexcept;
 
         [[nodiscard]] static bool CheckVolume(const std::shared_ptr<Entities::EntityBase>& entity);
         static void Clear() noexcept;

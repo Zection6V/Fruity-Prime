@@ -22,8 +22,17 @@ namespace MphRead
 {
     namespace SelectionExternal
     {
-        // Renderer.cs owns these Scene members in C#. Its native pair is not present
-        // yet, so Selection keeps only the exact unresolved surface it consumes.
+        // OpenTK event storage and the Renderer-owned Scene surface are external
+        // owners. Selection declares only the operations it consumes and does not
+        // define substitute runtime/platform types here.
+        [[nodiscard]] ::OpenTK::Windowing::GraphicsLibraryFramework::Keys Key(
+            const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
+        [[nodiscard]] bool Shift(
+            const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
+        [[nodiscard]] bool Alt(
+            const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
+        [[nodiscard]] bool Control(
+            const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
         [[nodiscard]] bool AllowCameraMovement(const Scene& scene);
         [[nodiscard]] bool CameraModeIsPlayer(const Scene& scene);
         [[nodiscard]] bool ShowAllEntities(const Scene& scene);
@@ -128,15 +137,11 @@ namespace MphRead
         }
 
         template <typename T>
-        [[nodiscard]] std::shared_ptr<T> AtManaged(
+        [[nodiscard]] std::shared_ptr<T> AtNativeCollection(
             const std::vector<std::shared_ptr<T>>& values,
             std::int32_t index)
         {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw std::out_of_range("Index was out of range.");
-            }
-            return values[static_cast<std::size_t>(index)];
+            return values.at(static_cast<std::size_t>(index));
         }
     }
 
@@ -148,7 +153,7 @@ namespace MphRead
     bool Selection::_hideUnselectedVolumes = false;
     std::vector<std::shared_ptr<::MphRead::Mesh>> Selection::_meshBuffer{};
 
-    const std::shared_ptr<LinkedListNode<Entities::EntityBase>>& Selection::EntityNode() noexcept
+    std::shared_ptr<LinkedListNode<Entities::EntityBase>> Selection::EntityNode() noexcept
     {
         return _entityNode;
     }
@@ -158,17 +163,17 @@ namespace MphRead
         return _entityNode ? _entityNode->Value() : nullptr;
     }
 
-    const std::shared_ptr<ModelInstance>& Selection::Instance() noexcept
+    std::shared_ptr<ModelInstance> Selection::Instance() noexcept
     {
         return _instance;
     }
 
-    const std::shared_ptr<::MphRead::Node>& Selection::Node() noexcept
+    std::shared_ptr<::MphRead::Node> Selection::Node() noexcept
     {
         return _node;
     }
 
-    const std::shared_ptr<::MphRead::Mesh>& Selection::Mesh() noexcept
+    std::shared_ptr<::MphRead::Mesh> Selection::Mesh() noexcept
     {
         return _mesh;
     }
@@ -289,47 +294,47 @@ namespace MphRead
         const ::OpenTK::Windowing::Common::KeyboardKeyEventArgs& e,
         Scene& scene)
     {
-        if (e.Key == Keys::M)
+        if (SelectionExternal::Key(e) == Keys::M)
         {
-            UpdateSelection(e.Control, e.Shift, scene);
+            UpdateSelection(SelectionExternal::Control(e), SelectionExternal::Shift(e), scene);
             return true;
         }
         if (!Any())
         {
             return false;
         }
-        if (e.Key == KeyEqual || e.Key == KeyPadEqual)
+        if (SelectionExternal::Key(e) == KeyEqual || SelectionExternal::Key(e) == KeyPadEqual)
         {
-            if (e.Alt)
+            if (SelectionExternal::Alt(e))
             {
-                NextAnimation(e.Control);
+                NextAnimation(SelectionExternal::Control(e));
             }
             else
             {
-                SelectNext(scene, e.Control);
+                SelectNext(scene, SelectionExternal::Control(e));
             }
             return true;
         }
-        if (e.Key == KeyMinus || e.Key == KeyPadSubtract)
+        if (SelectionExternal::Key(e) == KeyMinus || SelectionExternal::Key(e) == KeyPadSubtract)
         {
-            if (e.Alt)
+            if (SelectionExternal::Alt(e))
             {
-                PrevAnimation(e.Control);
+                PrevAnimation(SelectionExternal::Control(e));
             }
             else
             {
-                SelectPrev(scene, e.Control);
+                SelectPrev(scene, SelectionExternal::Control(e));
             }
             return true;
         }
-        if (e.Key == Keys::X
+        if (SelectionExternal::Key(e) == Keys::X
             && SelectionExternal::AllowCameraMovement(scene)
             && !SelectionExternal::CameraModeIsPlayer(scene))
         {
-            LookAtSelection(scene, e.Control, e.Shift);
+            LookAtSelection(scene, SelectionExternal::Control(e), SelectionExternal::Shift(e));
             return true;
         }
-        if (e.Key == Keys::D0 || e.Key == KeyPad0)
+        if (SelectionExternal::Key(e) == Keys::D0 || SelectionExternal::Key(e) == KeyPad0)
         {
             if (_mesh != nullptr)
             {
@@ -345,9 +350,9 @@ namespace MphRead
             }
             else if (Entity() != nullptr)
             {
-                if (e.Control)
+                if (SelectionExternal::Control(e))
                 {
-                    Entity()->SetActive(!e.Shift);
+                    Entity()->SetActive(!SelectionExternal::Shift(e));
                 }
                 else
                 {
@@ -358,12 +363,12 @@ namespace MphRead
             }
             return true;
         }
-        if (e.Key == Keys::D1 || e.Key == KeyPad1)
+        if (SelectionExternal::Key(e) == Keys::D1 || SelectionExternal::Key(e) == KeyPad1)
         {
             PrevRecolor();
             return true;
         }
-        if (e.Key == Keys::D2 || e.Key == KeyPad2)
+        if (SelectionExternal::Key(e) == Keys::D2 || SelectionExternal::Key(e) == KeyPad2)
         {
             NextRecolor();
             return true;
@@ -490,7 +495,7 @@ namespace MphRead
                 {
                     throw System::NullReferenceException();
                 }
-                _mesh = AtManaged(*meshes, _node->MeshId / 2);
+                _mesh = AtNativeCollection(*meshes, _node->MeshId / 2);
             }
         }
         else if (_instance != nullptr)
@@ -771,7 +776,7 @@ namespace MphRead
             const std::int32_t start = _node->MeshId / 2;
             for (std::int32_t i = 0; i < _node->MeshCount; ++i)
             {
-                _meshBuffer.push_back(AtManaged(*meshes, UncheckedAdd(start, i)));
+                _meshBuffer.push_back(AtNativeCollection(*meshes, UncheckedAdd(start, i)));
             }
             std::int32_t index = IndexOfIdentity(_meshBuffer, _mesh);
             while (mesh != _mesh)
@@ -785,7 +790,7 @@ namespace MphRead
                 {
                     index = 0;
                 }
-                mesh = AtManaged(_meshBuffer, index);
+                mesh = AtNativeCollection(_meshBuffer, index);
                 if (FilterMesh())
                 {
                     _mesh = mesh;
@@ -824,7 +829,7 @@ namespace MphRead
                 {
                     index = 0;
                 }
-                node = AtManaged(nodes, index);
+                node = AtNativeCollection(nodes, index);
                 if (FilterNode(Require(node), control))
                 {
                     _node = node;
@@ -857,7 +862,7 @@ namespace MphRead
                 {
                     index = 0;
                 }
-                inst = AtManaged(insts, index);
+                inst = AtNativeCollection(insts, index);
                 if (FilterInstance())
                 {
                     _instance = inst;

@@ -1,5 +1,6 @@
 #include "MapVote.hpp"
 
+#include "../../Formats/Types.hpp"
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
 
@@ -37,14 +38,6 @@ namespace
         target.~Hit();
         ::new (static_cast<void*>(std::addressof(target)))
             MphRead::Mods::EndScreen::Hit(source);
-    }
-
-    [[nodiscard]] bool HitContains(
-        const MphRead::Mods::EndScreen::Hit& hit,
-        float x, float y) noexcept
-    {
-        return hit.Right > hit.Left && hit.Bottom > hit.Top
-            && x >= hit.Left && x < hit.Right && y >= hit.Top && y < hit.Bottom;
     }
 
     struct Utf8Unit final
@@ -442,12 +435,12 @@ namespace MphRead::Mods::Network
         }
         const float x = MphRead::Mods::EndScreen::PointerX();
         const float y = MphRead::Mods::EndScreen::PointerY();
-        if (HitContains(_hitAccept, x, y))
+        if (_hitAccept.Contains(x, y))
         {
             Cast(true);
             return true;
         }
-        if (HitContains(_hitDeny, x, y))
+        if (_hitDeny.Contains(x, y))
         {
             Cast(false);
             return true;
@@ -510,7 +503,7 @@ namespace MphRead::Mods::Network
         }
     }
 
-    void MapVote::Propose(std::optional<std::string> roomKey)
+    void MapVote::Propose(const std::optional<std::string>& roomKey)
     {
         if (!NetSession::Active() || IsNullOrWhiteSpace(roomKey))
         {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Render/PlayerEntityVoteHud.hpp"
+#include "../EndScreen.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -22,11 +22,11 @@ namespace MphRead::Mods::Network
         MapVote& operator=(MapVote&&) = delete;
 
         [[nodiscard]] static bool Active() noexcept { return _active; }
-        [[nodiscard]] static const std::optional<std::string>& RoomKey() noexcept
+        [[nodiscard]] static std::optional<std::string> RoomKey()
         {
             return _roomKey;
         }
-        [[nodiscard]] static const std::optional<std::string>& Proposer() noexcept
+        [[nodiscard]] static std::optional<std::string> Proposer()
         {
             return _proposer;
         }
@@ -55,7 +55,7 @@ namespace MphRead::Mods::Network
 
         static void Reset();
         static void Apply(VoteStatePacket state);
-        static void Propose(std::optional<std::string> roomKey);
+        static void Propose(const std::optional<std::string>& roomKey);
         static void Cast(bool yes);
 
         [[nodiscard]] static std::string PromptLine();

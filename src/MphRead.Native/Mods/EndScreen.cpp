@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <new>
 #include <optional>
@@ -120,7 +121,7 @@ namespace MphRead::Mods
             }
             return key;
         }
-        catch (...)
+        catch (const std::exception&)
         {
             return key;
         }

@@ -1,0 +1,135 @@
+name: Native C++ Android
+
+on:
+  push:
+    branches:
+      - develop2
+    paths:
+      - "src/MphRead.Native.Android/**"
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - "src/MphRead.Android/MphRead.Android.csproj"
+      - ".github/workflows/native-cpp-android.yml"
+  pull_request:
+    branches:
+      - develop2
+    paths:
+      - "src/MphRead.Native.Android/**"
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - "src/MphRead.Android/MphRead.Android.csproj"
+      - ".github/workflows/native-cpp-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # MphRead.Android.csproj targets net9.0-android35.0 and declares
+  # SupportedOSPlatformVersion 24. Those are the only checked-in Android API
+  # bounds today; the native tree has no manifest that declares a different
+  # compile/min SDK or an ABI set.
+  ANDROID_COMPILE_SDK: "35"
+  ANDROID_MIN_SDK: "24"
+  ANDROID_BUILD_TOOLS: "35.0.0"
+
+  # Keep the NDK deterministic instead of inheriting whichever revision happens
+  # to be preinstalled on the hosted runner. r27c supports API 24+ and API 35.
+  ANDROID_NDK_VERSION: "27.2.12479018"
+
+jobs:
+  android-native:
+    name: Android NDK build contract
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # GitHub-hosted runners normally have the Android licences accepted,
+          # but accept any newly-added SDK package licence before installation.
+          yes | sdkmanager --licenses >/dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROID_COMPILE_SDK}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+          ndk_home="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          test -d "${ndk_home}"
+
+          echo "ANDROID_NDK_HOME=${ndk_home}" >> "${GITHUB_ENV}"
+          echo "ANDROID_NDK_ROOT=${ndk_home}" >> "${GITHUB_ENV}"
+
+      - name: Verify pinned NDK toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          toolchain="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "${toolchain}/clang++"
+          test -x "${toolchain}/llvm-ar"
+          test -f "${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake"
+
+          "${toolchain}/clang++" --version
+          "${toolchain}/llvm-ar" --version
+          printf 'compile SDK: android-%s\n' "${ANDROID_COMPILE_SDK}"
+          printf 'minimum API: %s\n' "${ANDROID_MIN_SDK}"
+          printf 'NDK: %s\n' "${ANDROID_NDK_VERSION}"
+
+      # The repository currently has the translated C++ source owners but no
+      # native Android build owner. Do not manufacture a CMake project, source
+      # list, JNI Activity, Gradle externalNativeBuild block, ABI matrix, or
+      # linker policy here: those are repository architecture, not CI policy.
+      #
+      # Once a repository-owned native manifest exists, replace this guard with
+      # that manifest's exact configure/build commands and target/ABI matrix.
+      - name: Require repository-owned Android native build manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t manifests < <(
+            find . -type f \
+              \( -name CMakeLists.txt \
+                 -o -name Android.mk \
+                 -o -name Application.mk \
+                 -o -name build.gradle \
+                 -o -name build.gradle.kts \
+                 -o -name settings.gradle \
+                 -o -name settings.gradle.kts \
+                 -o -name Makefile \
+                 -o -name meson.build \
+                 -o -name premake5.lua \
+                 -o -name '*.vcxproj' \
+                 -o -name vcpkg.json \
+                 -o -name conanfile.txt \
+                 -o -name conanfile.py \) \
+              -not -path './.git/*' \
+              -print | sort
+          )
+
+          if [ "${#manifests[@]}" -eq 0 ]; then
+            echo "::error title=Android native build owner missing::develop2 contains src/MphRead.Native.Android, src/MphRead.Native, and src/NcsfPlay.Native C++ sources, but no CMake, Gradle/externalNativeBuild, ndk-build, Make, Meson, Premake, Visual C++, vcpkg, or Conan build manifest exists anywhere in the repository. MphRead.Android.csproj establishes Android API 35 with minimum API 24 for the C# head, but it does not define native source membership, ABI variants, compile definitions, include paths, JNI/Activity bootstrap, or native link dependencies. CI cannot configure or link MphRead.Native.Android truthfully until that repository-owned build graph exists."
+            exit 1
+          fi
+
+          printf 'Detected native build manifests:\n'
+          printf '  %s\n' "${manifests[@]}"
+          echo "::error title=Android native workflow requires manifest integration::A native build manifest now exists, but this workflow intentionally does not guess its Android configure command, target names, ABI matrix, or link graph. Update this workflow from that repository-owned manifest before enabling compilation."
+          exit 1

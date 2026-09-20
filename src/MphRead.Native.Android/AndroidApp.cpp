@@ -76,8 +76,6 @@ namespace
 
     struct AndroidAppDoneTarget final
     {
-        MphRead::Droid::AndroidAppOwner* Owner = nullptr;
-
         // HomeView stores a reference to its adapter. The managed HomeView owns
         // its Avalonia control state intrinsically; retaining the adapter here
         // gives the native peer the same lifetime without adding policy.
@@ -89,14 +87,16 @@ namespace
         void* sender,
         MphRead::Mods::Launcher::LaunchPlan plan)
     {
+        (void)target;
         (void)sender;
-        auto& state = *static_cast<AndroidAppDoneTarget*>(target);
+        MphRead::Droid::AndroidAppOwner& owner =
+            MphRead::Droid::GetAndroidAppOwner();
         if (plan.Kind() == MphRead::Mods::Launcher::LaunchKind::None)
         {
-            state.Owner->FinishMainActivityIfPresent();
+            owner.FinishMainActivityIfPresent();
             return;
         }
-        state.Owner->StartMatchIfMainActivityPresent(plan);
+        owner.StartMatchIfMainActivityPresent(plan);
     }
 }
 
@@ -171,7 +171,6 @@ namespace MphRead::Droid
                 *adapter, settings, roomList);
 
         auto target = std::make_shared<AndroidAppDoneTarget>();
-        target->Owner = &owner;
         target->Adapter = adapter;
         home->AddDone(
             MphRead::Mods::Launcher::Gui::HomeViewEventHandler(

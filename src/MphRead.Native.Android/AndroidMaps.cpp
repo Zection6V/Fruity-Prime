@@ -6,6 +6,7 @@
 
 #include "../MphRead.Native/Mods/Launcher/Portable/GameFiles.hpp"
 #include "../MphRead.Native/Mods/MapGen/CustomRooms.hpp"
+#include "../MphRead.Native/Mods/MapGen/MapBundle.hpp"
 
 #include <cstdint>
 #include <exception>
@@ -174,6 +175,10 @@ namespace
     LocalRef<jstring> NewJavaString(JNIEnv* env, std::u16string_view value)
     {
         static_assert(sizeof(char16_t) == sizeof(jchar));
+        if (value.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max()))
+        {
+            throw std::length_error("string is too long for Android JNI");
+        }
         static const jchar empty = 0;
         const jchar* chars = value.empty()
             ? &empty
@@ -337,6 +342,26 @@ namespace
         return true;
     }
 
+    bool EndsWithOrdinalIgnoreCase(std::u16string_view value, std::string_view suffix) noexcept
+    {
+        if (value.size() < suffix.size())
+        {
+            return false;
+        }
+        const std::size_t start = value.size() - suffix.size();
+        for (std::size_t index = 0; index < suffix.size(); ++index)
+        {
+            const auto right = static_cast<char16_t>(
+                static_cast<unsigned char>(suffix[index])
+            );
+            if (!EqualsAsciiIgnoreCase(value[start + index], right))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     std::filesystem::path FileSystemPath(std::u16string_view value)
     {
         return std::filesystem::path(std::u16string(value));
@@ -477,13 +502,9 @@ namespace
                 {
                     const jint count = env->CallIntMethod(source.Get(), readMethod, buffer.Get());
                     CheckJavaException(env);
-                    if (count < 0)
+                    if (count <= 0)
                     {
                         break;
-                    }
-                    if (count == 0)
-                    {
-                        continue;
                     }
 
                     const std::size_t oldSize = bytes.size();
@@ -537,7 +558,7 @@ namespace MphRead::Droid
         }
 
         const std::u16string directory = CombinePath(root, AssetFolder);
-        Mods::MapGen::CustomRooms::MapDirectory = ToUtf8(directory);
+        Mods::MapGen::CustomRooms::MapDirectory(ToUtf8(directory));
         if (assets == nullptr)
         {
             return;
@@ -596,7 +617,10 @@ namespace MphRead::Droid
                 if (!EndsWithOrdinalIgnoreCase(name, u".json")
                     && !EndsWithOrdinalIgnoreCase(name, u".bsp")
                     && !EndsWithOrdinalIgnoreCase(name, u".tex")
-                    && !EndsWithOrdinalIgnoreCase(name, u".fpmap"))
+                    && !EndsWithOrdinalIgnoreCase(
+                        name,
+                        std::string_view(Mods::MapGen::MapBundle::Extension)
+                    ))
                 {
                     continue;
                 }

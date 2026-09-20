@@ -299,7 +299,7 @@ namespace MphRead::Mods::Launcher::Gui
         double subtitle = 0.0;
         if (!RequireSubtitle().empty())
         {
-            const std::u16string subtitleArgument = RequireSubtitle();
+            const std::u16string& subtitleArgument = RequireSubtitle();
             subtitle = TrackedText::Make(metrics, subtitleArgument, SubtitleSize, false,
                 TrackedTextBrush{&GuiTheme::TextBrush}).Width;
         }
@@ -390,7 +390,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         if (!RequireSubtitle().empty())
         {
-            const std::u16string subtitleArgument = RequireSubtitle();
+            const std::u16string& subtitleArgument = RequireSubtitle();
             const GuiBrush subtitleInk{GuiColor::FromArgb(200, 26, 18, 4)};
             const TrackedTextFormattedText sub = TrackedText::Make(
                 context, subtitleArgument, SubtitleSize, false,

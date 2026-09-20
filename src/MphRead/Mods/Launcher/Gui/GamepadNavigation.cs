@@ -20,7 +20,17 @@ namespace MphRead.Mods.Launcher.Gui
             if (!GamepadContexts.Focused) { _router.Reset(); return; }
             if (_root != root) { _root = root; _router.Reset(); }
             var snapshot = GamepadManager.Snapshot;
-            if (FocusNavigator.Focused(root) is KeyRow { Listening: true } keyRow)
+            var focused = FocusNavigator.Focused(root);
+            if (focused is PadRow padRow && GamepadContexts.Capturing)
+            {
+                // Binding capture owns controller input before menu routing. Feed the
+                // exact snapshot published by this UI tick directly to the row so a
+                // physical press cannot be lost between dispatcher timer callbacks.
+                padRow.Check(snapshot);
+                _router.Reset();
+                return;
+            }
+            if (focused is KeyRow { Listening: true } keyRow)
             {
                 var pressed = keyRow.ControllerPress(snapshot);
                 if (pressed != 0)

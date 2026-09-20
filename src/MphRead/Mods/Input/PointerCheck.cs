@@ -25,6 +25,10 @@ namespace MphRead.Mods.Input
                 Require(!WindowsPenInput.IsPromotedPointer(0), "physical mouse signature");
                 Require(WindowsPenInput.IsPromotedPointer(0xFF515701), "promoted pen signature");
                 Require(WindowsPenInput.IsPromotedPointer(0xFF515781), "promoted touch signature");
+                Require(WindowsPenInput.IsPromotedPrimaryRelease(0x0202, 0xFF515701),
+                    "promoted pen mouse-up is a release fallback");
+                Require(!WindowsPenInput.IsPromotedPrimaryRelease(0x0201, 0xFF515701),
+                    "promoted pen mouse-down is not a release fallback");
                 Console.WriteLine($"POINTERCHECK PASS ({_checks} assertions)");
                 return 0;
             }
@@ -194,6 +198,8 @@ namespace MphRead.Mods.Input
             var scene = (Scene)RuntimeHelpers.GetUninitializedObject(typeof(Scene));
             typeof(Scene).GetField("_movieFrameIndex", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(scene, -1);
+            typeof(Scene).GetField("_cameraMode", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(scene, CameraMode.Player);
             PlayerEntity.Reset();
             PlayerEntity.Construct(scene);
             var player = PlayerEntity.Main;
@@ -207,6 +213,8 @@ namespace MphRead.Mods.Input
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!.SetMethod!
                 .CreateDelegate<Action<MouseState, MouseButton, bool>>();
             var controls = player.Controls;
+            var processTouchInput = typeof(PlayerEntity).GetMethod("ProcessTouchInput",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
             PointerDevice.Reset();
             PointerInput.StylusMode = true;
             StylusZone.Enabled = true;
@@ -258,8 +266,39 @@ namespace MphRead.Mods.Input
                     StylusRegion.WeaponSelect => controls.WeaponMenu,
                     _ => controls.Morph
                 };
-                Require(bind.IsDown, $"{button.Label} reaches its gameplay action");
+                if (button.Region == StylusRegion.WeaponSelect)
+                {
+                    Require(!bind.IsDown && StylusZone.MenuHeld,
+                        "SEL stays source-owned instead of mutating the shared WeaponMenu bind");
+                }
+                else
+                {
+                    Require(bind.IsDown, $"{button.Label} reaches its gameplay action");
+                }
             }
+
+            // SEL is a source-owned hold: contact opens the weapon menu and pen-up
+            // must close it without depending on a stale value in WeaponMenu.IsDown.
+            // Keep selection empty so closing this synthetic menu has no audio/equip side effect.
+            typeof(PlayerEntity).GetField("<WeaponSelection>k__BackingField",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(player, BeamType.None);
+            Frame(0, 0, false);
+            var select = Array.Find(StylusZone.Buttons,
+                button => button.Region == StylusRegion.WeaponSelect);
+            Frame(select.X / StylusZone.DsWidth * 1920,
+                select.Y / StylusZone.DsHeight * StylusZone.Height * 1080, true);
+            PlayerEntity.ProcessInput(keyboard, mouse, false);
+            processTouchInput.Invoke(player, null);
+            Require(player.Flags1.TestFlag(PlayerFlags1.WeaponMenuOpen),
+                "stylus SEL opens weapon menu");
+            Frame(select.X / StylusZone.DsWidth * 1920,
+                select.Y / StylusZone.DsHeight * StylusZone.Height * 1080, false);
+            PlayerEntity.ProcessInput(keyboard, mouse, false);
+            processTouchInput.Invoke(player, null);
+            Require(!player.Flags1.TestFlag(PlayerFlags1.WeaponMenuOpen)
+                && !player.Flags1.TestFlag(PlayerFlags1.NoAimInput),
+                "stylus SEL release closes weapon menu");
+
             PointerInput.StylusMode = false;
             Frame(1000, 600, true);
             setButton(mouse, MouseButton.Left, false);

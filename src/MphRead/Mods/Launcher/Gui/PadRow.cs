@@ -183,13 +183,19 @@ namespace MphRead.Mods.Launcher.Gui
 
         internal void Check()
         {
+            Check(GamepadManager.Snapshot);
+        }
+
+        internal void Check(GamepadSnapshot snapshot)
+        {
             if (!_listening)
             {
                 return;
             }
-            // Observe the host's snapshot. Desktop polling and Android events keep
-            // it current; controls must not re-enter a platform event loop.
-            var snapshot = GamepadManager.Snapshot;
+            // The UI navigation pump passes the freshly published snapshot here
+            // every frame. The timer still calls this overload as a fallback for
+            // test/secondary hosts, but capture no longer depends on a 30 ms
+            // dispatcher tick happening to observe a short button press.
             if (!GamepadContexts.Focused || !snapshot.State.Connected || snapshot.Revision != _deviceRevision)
             {
                 _message = !GamepadContexts.Focused ? "Focus lost - try again"

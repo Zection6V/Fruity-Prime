@@ -103,6 +103,32 @@ namespace MphRead.Mods.Launcher.Gui
             GamepadChecks.Check(vote.IsVisible && vote.IsFocused, "active map vote can be reached with controller focus");
             Network.MapVote.Reset(); pause.RefreshVote(); window.UpdateLayout();
             GamepadChecks.Check(!vote.IsVisible && !vote.IsFocused, "expired vote restores pause focus");
+            // Exercise binding through the same navigation pump used by the real UI.
+            // The old test called PadRow.Check directly and therefore could not catch
+            // the menu-path regression where physical presses never reached the row.
+            PadBindings.Reset();
+            PadBindings.Set(PadAction.Chat, GamepadButtons.None); // free LeftThumb for an unambiguous capture
+            var routedBindings = new StackPanel();
+            var routedBinding = new PadRow(PadAction.Scan);
+            routedBindings.Children.Add(routedBinding);
+            window.Content = routedBindings; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            GamepadManager.UpdateDevice("route-test", new GamepadState
+            {
+                Connected = true, Name = "Route test"
+            }, true);
+            FocusNavigator.Focus(routedBinding);
+            FocusNavigator.Key(routedBinding, Avalonia.Input.Key.Enter);
+            navigation.Update(routedBindings);
+            GamepadManager.UpdateDevice("route-test", new GamepadState
+            {
+                Connected = true, Name = "Route test", Buttons = GamepadButtons.LeftThumb
+            }, true);
+            navigation.Update(routedBindings);
+            GamepadChecks.Check(PadBindings.Slot(PadAction.Scan, 0) == GamepadButtons.LeftThumb
+                && !GamepadContexts.Capturing,
+                "navigation pump delivers physical controller presses to binding capture");
+            GamepadManager.RemoveDevice("route-test");
+
             // Run the real binding row against synthetic normalized device events.
             PadBindings.Reset();
             var binding = new PadRow(PadAction.Scan);

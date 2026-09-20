@@ -131,18 +131,18 @@ namespace MphRead.Entities
         /// </summary>
         private static void ApplyStylusZone(PlayerEntity player)
         {
+            PlayerControls controls = player.Controls;
+            // Keep the stylus hold as its own input source instead of writing it
+            // into the shared WeaponMenu bind. That shared bind is also used by
+            // keyboard, mouse and controller input, and leaving a virtual hold in
+            // it can keep the menu open after pen contact ends.
+            player.Input.StylusWeaponMenuDown = Mods.Input.StylusZone.MenuHeld;
             if (!Mods.Input.StylusZone.CapturingPointer)
             {
                 return;
             }
-            PlayerControls controls = player.Controls;
-            if (Mods.Input.StylusZone.MenuHeld)
+            if (player.Input.StylusWeaponMenuDown)
             {
-                // Held down every frame of the touch. The release is the
-                // hardware's again when the contact ends. EndWeaponMenu equips
-                // when the combined hold is no longer down.
-                controls.WeaponMenu.IsDown = true;
-                controls.WeaponMenu.IsReleased = false;
                 player.Input.HasInput = true;
                 return;
             }
@@ -190,14 +190,16 @@ namespace MphRead.Entities
                     UpdateZoom(zoom: false);
                 }
             }
-            if ((GameState.Multiplayer || _weaponSlots[2] != BeamType.OmegaCannon) && Controls.WeaponMenu.IsDown)
+            bool weaponMenuDown = Controls.WeaponMenu.IsDown
+                || (IsMainPlayer && Input.StylusWeaponMenuDown);
+            if ((GameState.Multiplayer || _weaponSlots[2] != BeamType.OmegaCannon) && weaponMenuDown)
             {
                 Flags1 |= PlayerFlags1.NoAimInput;
                 Flags1 |= PlayerFlags1.WeaponMenuOpen;
                 _showScoreboard = false;
             }
             bool selected = false;
-            if (!Controls.WeaponMenu.IsDown)
+            if (!weaponMenuDown)
             {
                 selected = EndWeaponMenu();
             }
@@ -2644,6 +2646,7 @@ namespace MphRead.Entities
             }
             public float ClickX { get; set; } = -1;
             public float ClickY { get; set; } = -1;
+            public bool StylusWeaponMenuDown { get; set; }
 
             public bool HasInput { get; set; }
         }

@@ -71,6 +71,9 @@ namespace MphRead.Mods.Input
         internal static bool IsPromotedPointer(nuint extraInfo)
             => (extraInfo & 0xFFFFFF00u) == 0xFF515700u;
 
+        internal static bool IsPromotedPrimaryRelease(uint message, nuint extraInfo)
+            => message == 0x0202 && IsPromotedPointer(extraInfo);
+
         private static void EndContact()
         {
             _releasePending = _pen.InRange || _pen.InContact;
@@ -96,13 +99,29 @@ namespace MphRead.Mods.Input
                     _physicalPrimary = false;
                     PointerDevice.Reset();
                 }
-                else if (message == 0x0215 && lParam != 0) // Capture stolen by another window.
+                else if (message == 0x0215) // WM_CAPTURECHANGED: the active gesture no longer owns the window.
                 {
                     _physicalPrimary = false;
+                    if (_pen.InContact)
+                    {
+                        EndContact();
+                    }
                 }
                 else if (message == 0x0201 || message == 0x0202 || message == 0x0203)
                 {
-                    if (!IsPromotedPointer((nuint)GetMessageExtraInfo()))
+                    nuint extraInfo = (nuint)GetMessageExtraInfo();
+                    if (IsPromotedPrimaryRelease(message, extraInfo))
+                    {
+                        // Some tablet drivers promote the pen tip to mouse input even
+                        // when their native WM_POINTERUP is delayed or absent. Treat the
+                        // promoted release as a fallback edge only while native contact
+                        // is still active; a normal native release remains authoritative.
+                        if (_pen.InContact)
+                        {
+                            EndContact();
+                        }
+                    }
+                    else if (!IsPromotedPointer(extraInfo))
                     {
                         _physicalPrimary = message != 0x0202;
                     }

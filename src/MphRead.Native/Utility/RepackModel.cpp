@@ -1223,14 +1223,11 @@ namespace MphRead::Utility
             for (const auto& nodePtr : nodeBoundsValues)
             {
                 const Node& node = Require(nodePtr);
-                const auto makeIds = [&]()
-                {
-                    return node.MeshCount == 0
-                        ? node.GetAllMeshIds(nodes, true)
-                        : node.GetMeshIds();
-                };
+                const auto ids = node.MeshCount == 0
+                    ? node.GetAllMeshIds(nodes, true)
+                    : node.GetMeshIds();
                 bool any = false;
-                for (std::int32_t id : makeIds())
+                for (std::int32_t id : ids)
                 {
                     (void)id;
                     any = true;
@@ -1252,7 +1249,7 @@ namespace MphRead::Utility
                         std::numeric_limits<std::int32_t>::min(),
                         std::numeric_limits<std::int32_t>::min(),
                         std::numeric_limits<std::int32_t>::min());
-                    for (std::int32_t id : makeIds())
+                    for (std::int32_t id : ids)
                     {
                         const std::int32_t dlistId
                             = Require(ManagedAt(Require(meshes), id)).DlistId;
@@ -2754,9 +2751,9 @@ namespace MphRead::Utility
                     REPACK_MODEL_DEBUG_ASSERT(
                         (node - group.AnimationOffset)
                             % static_cast<std::uint32_t>(Sizes::NodeAnimation) == 0);
-                    const std::int32_t animCount = static_cast<std::int32_t>(
-                        (node - group.AnimationOffset)
-                        / static_cast<std::uint32_t>(Sizes::NodeAnimation));
+                    const std::int32_t animCount
+                        = static_cast<std::int32_t>(node - group.AnimationOffset)
+                        / Sizes::NodeAnimation;
                     const auto anims = Read::DoOffsets<NodeAnimation>(
                         first, group.AnimationOffset, animCount);
                     const auto otherAnims = Read::DoOffsets<NodeAnimation>(

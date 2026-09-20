@@ -50,7 +50,6 @@ namespace MphRead::Mods::MapGen
         CustomRooms& operator=(const CustomRooms&) = delete;
 
     private:
-        [[nodiscard]] static std::vector<std::string> MapFiles();
         [[nodiscard]] static std::shared_ptr<DefinitionList> LoadDefinitions();
         [[nodiscard]] static std::shared_ptr<MphRead::RoomMetadata> MakeMetadata(
             MapDefinition* def, std::int32_t id);

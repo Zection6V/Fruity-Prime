@@ -1178,8 +1178,11 @@ namespace
     [[nodiscard]] bool FileExists(const std::string& path) noexcept
     {
         std::error_code error;
-        const bool exists = std::filesystem::is_regular_file(PathFromUtf8(path), error);
-        return !error && exists;
+        const std::filesystem::file_status status =
+            std::filesystem::status(PathFromUtf8(path), error);
+        return !error
+            && std::filesystem::exists(status)
+            && !std::filesystem::is_directory(status);
     }
 
     [[nodiscard]] std::filesystem::file_time_type GetLastWriteTimeUtc(
@@ -1257,6 +1260,71 @@ namespace
             std::bit_cast<std::uint32_t>(left)
             + std::bit_cast<std::uint32_t>(right);
         return std::bit_cast<std::int32_t>(result);
+    }
+
+    struct MapFileEnumeration final
+    {
+        std::vector<std::string> Results;
+        std::unordered_set<
+            std::string, OrdinalIgnoreCaseHash, OrdinalIgnoreCaseEqual> Names;
+        std::filesystem::recursive_directory_iterator JsonIterator{};
+        std::filesystem::recursive_directory_iterator End{};
+    };
+
+    [[nodiscard]] MapFileEnumeration MapFiles()
+    {
+        MapFileEnumeration files;
+        if (!DirectoryExists(CustomRooms::MapDirectory()))
+        {
+            return files;
+        }
+
+        for (const std::filesystem::directory_entry& entry :
+            std::filesystem::recursive_directory_iterator(
+                PathFromUtf8(CustomRooms::MapDirectory()),
+                std::filesystem::directory_options::follow_directory_symlink))
+        {
+            if (!entry.is_directory()
+                && ExtensionMatches(
+                    entry.path(), MphRead::Mods::MapGen::MapBundle::Extension))
+            {
+                files.Results.push_back(PathToUtf8(entry.path()));
+            }
+        }
+
+        for (const std::string& path : files.Results)
+        {
+            files.Names.insert(GetFileNameWithoutExtension(path));
+        }
+
+        // Directory.EnumerateFiles creates its enumerable (and opens the root)
+        // here. Walking its entries remains deferred until OrderBy enumerates
+        // the Concat sequence in LoadDefinitions.
+        files.JsonIterator = std::filesystem::recursive_directory_iterator(
+            PathFromUtf8(CustomRooms::MapDirectory()),
+            std::filesystem::directory_options::follow_directory_symlink);
+        return files;
+    }
+
+    [[nodiscard]] std::vector<std::string> MaterializeMapFiles(
+        MapFileEnumeration files)
+    {
+        while (files.JsonIterator != files.End)
+        {
+            const std::filesystem::directory_entry entry =
+                *files.JsonIterator;
+            if (!entry.is_directory()
+                && ExtensionMatches(entry.path(), ".json"))
+            {
+                const std::string path = PathToUtf8(entry.path());
+                if (!files.Names.contains(GetFileNameWithoutExtension(path)))
+                {
+                    files.Results.push_back(path);
+                }
+            }
+            ++files.JsonIterator;
+        }
+        return std::move(files.Results);
     }
 
     struct CustomRoomsState final
@@ -1354,53 +1422,6 @@ namespace MphRead::Mods::MapGen
         return *state.Definitions;
     }
 
-    std::vector<std::string> CustomRooms::MapFiles()
-    {
-        if (!DirectoryExists(MapDirectory()))
-        {
-            return {};
-        }
-
-        std::vector<std::string> bundles;
-        for (const std::filesystem::directory_entry& entry :
-            std::filesystem::recursive_directory_iterator(
-                PathFromUtf8(MapDirectory()),
-                std::filesystem::directory_options::follow_directory_symlink))
-        {
-            if (entry.is_regular_file()
-                && ExtensionMatches(entry.path(), MapBundle::Extension))
-            {
-                bundles.push_back(PathToUtf8(entry.path()));
-            }
-        }
-
-        std::unordered_set<
-            std::string, OrdinalIgnoreCaseHash, OrdinalIgnoreCaseEqual> names;
-        for (const std::string& path : bundles)
-        {
-            names.insert(GetFileNameWithoutExtension(path));
-        }
-
-        std::vector<std::string> results = bundles;
-        for (const std::filesystem::directory_entry& entry :
-            std::filesystem::recursive_directory_iterator(
-                PathFromUtf8(MapDirectory()),
-                std::filesystem::directory_options::follow_directory_symlink))
-        {
-            if (!entry.is_regular_file()
-                || !ExtensionMatches(entry.path(), ".json"))
-            {
-                continue;
-            }
-            const std::string path = PathToUtf8(entry.path());
-            if (!names.contains(GetFileNameWithoutExtension(path)))
-            {
-                results.push_back(path);
-            }
-        }
-        return results;
-    }
-
     std::shared_ptr<CustomRooms::DefinitionList> CustomRooms::LoadDefinitions()
     {
         auto results = std::make_shared<DefinitionList>();
@@ -1409,7 +1430,8 @@ namespace MphRead::Mods::MapGen
             return results;
         }
 
-        std::vector<std::string> paths = MapFiles();
+        std::vector<std::string> paths =
+            MaterializeMapFiles(MapFiles());
 
         // Enumerable.OrderBy(string) uses the current culture's string
         // comparer. std::collate is the native current-locale equivalent.
@@ -1433,24 +1455,36 @@ namespace MphRead::Mods::MapGen
                 definition->Name(
                     ToUpperInvariantString(definition->Name()));
 
-                MapImport* import = definition->Import();
-                if (import != nullptr && !import->Resolve().has_value())
+                if (definition->Import() != nullptr)
                 {
-                    const std::string name = definition->Name();
-                    const std::string source = import->Source();
-                    const std::optional<std::string> baseDirectory =
-                        definition->BaseDirectory();
-                    const std::string directory = baseDirectory.has_value()
-                        ? *baseDirectory
-                        : MapDirectory();
+                    MapImport* resolveImport = definition->Import();
+                    if (resolveImport == nullptr)
+                    {
+                        throw System::NullReferenceException();
+                    }
+                    if (!resolveImport->Resolve().has_value())
+                    {
+                        const std::string name = definition->Name();
+                        MapImport* sourceImport = definition->Import();
+                        if (sourceImport == nullptr)
+                        {
+                            throw System::NullReferenceException();
+                        }
+                        const std::string source = sourceImport->Source();
+                        const std::optional<std::string> baseDirectory =
+                            definition->BaseDirectory();
+                        const std::string directory = baseDirectory.has_value()
+                            ? *baseDirectory
+                            : MapDirectory();
 
-                    const std::string message =
-                        "Leaving out map " + name
-                        + ": its source level " + source
-                        + " is not here. Put it in " + directory
-                        + " to have this map.";
-                    std::cout << message << std::endl;
-                    continue;
+                        const std::string message =
+                            "Leaving out map " + name
+                            + ": its source level " + source
+                            + " is not here. Put it in " + directory
+                            + " to have this map.";
+                        std::cout << message << std::endl;
+                        continue;
+                    }
                 }
                 results->push_back(std::move(definition));
             }

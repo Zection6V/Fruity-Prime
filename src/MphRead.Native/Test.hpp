@@ -14,10 +14,6 @@ namespace MphRead
     class Test final
     {
     public:
-        Test() = delete;
-        Test(const Test&) = delete;
-        Test& operator=(const Test&) = delete;
-
         static void ParseAllModels();
         static void TestAllModels();
         static void TestModelFiles();
@@ -33,6 +29,10 @@ namespace MphRead
         static void TestNodeBounds();
 
     private:
+        Test() = delete;
+        Test(const Test&) = delete;
+        Test& operator=(const Test&) = delete;
+
         [[nodiscard]] static Enumerable<std::shared_ptr<Model>> GetAllModels();
         [[nodiscard]] static Enumerable<std::shared_ptr<Model>> GetAllRooms();
         static void WriteAllModels();

@@ -1113,8 +1113,8 @@ namespace MphRead
             std::int32_t index = -1;
             for (std::size_t i = 0; i < list.size(); ++i)
             {
-                const std::string lower = ManagedToLower(list[i]);
-                if (lower == match1 || lower == match2)
+                if (ManagedToLower(list[i]) == match1
+                    || ManagedToLower(list[i]) == match2)
                 {
                     index = static_cast<std::int32_t>(i);
                     break;
@@ -1394,11 +1394,12 @@ namespace MphRead
                 for (std::int32_t meshId : ids)
                 {
                     anyMesh = true;
-                    const std::shared_ptr<Mesh>& meshPtr = VectorAt(meshes, meshId);
-                    const Mesh& mesh = Require(meshPtr);
-                    dlists.push_back(mesh.DlistId);
+                    const std::shared_ptr<Mesh>& listMeshPtr = VectorAt(meshes, meshId);
+                    dlists.push_back(Require(listMeshPtr).DlistId);
 
-                    const DisplayList dlist = VectorAt(displayLists, mesh.DlistId);
+                    const std::shared_ptr<Mesh>& displayMeshPtr = VectorAt(meshes, meshId);
+                    const DisplayList dlist
+                        = VectorAt(displayLists, Require(displayMeshPtr).DlistId);
                     minX = std::min(minX, dlist.MinBounds.X.Value);
                     minY = std::min(minY, dlist.MinBounds.Y.Value);
                     minZ = std::min(minZ, dlist.MinBounds.Z.Value);

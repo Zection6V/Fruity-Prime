@@ -87,6 +87,7 @@ namespace MphRead::NativeRuntime
     void SetSustainedLowLatencyGc();
     [[nodiscard]] bool DebuggerAttached();
     void DebuggerBreak();
+    void DebugAssert(bool condition);
     void ReturnToSharedArrayPool(
         const std::shared_ptr<ManagedArray<OpenTK::Mathematics::Vector3>>& array);
 }

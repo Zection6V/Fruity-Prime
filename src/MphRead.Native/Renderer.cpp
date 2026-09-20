@@ -50,7 +50,6 @@
 #include <algorithm>
 #include <bit>
 #include <clocale>
-#include <cassert>
 #include <charconv>
 #include <cmath>
 #include <condition_variable>
@@ -83,6 +82,13 @@ using OpenTK::Mathematics::Vector2;
 using OpenTK::Mathematics::Vector2i;
 using OpenTK::Mathematics::Vector3;
 using OpenTK::Mathematics::Vector4;
+
+#if defined(DEBUG)
+#define MPHREAD_DEBUG_ASSERT(condition) \
+    ::MphRead::NativeRuntime::DebugAssert(static_cast<bool>(condition))
+#else
+#define MPHREAD_DEBUG_ASSERT(condition) ((void)0)
+#endif
 
 namespace
 {
@@ -2171,7 +2177,7 @@ namespace MphRead
         for (const auto& entity : entities)
         {
             InsertEntityByType(entity);
-            assert(entity->Id != -1);
+            MPHREAD_DEBUG_ASSERT(entity->Id != -1);
             _entityMap.Add(entity->Id, entity);
             InitEntity(entity);
             entity->Initialized = false;
@@ -2295,7 +2301,7 @@ namespace MphRead
                 player->SetLoadFlags(player->LoadFlags() | LoadFlags::Initial);
                 if (team != -1)
                 {
-                    assert(team == 0 || team == 1);
+                    MPHREAD_DEBUG_ASSERT(team == 0 || team == 1);
                     player->SetTeamIndex(team);
                 }
                 player->SetIsBot(Entities::PlayerEntity::PlayerCount() >= 1);
@@ -2418,7 +2424,7 @@ namespace MphRead
                 target.X, target.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
             GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         }
-        assert(_renderBuffer != 0);
+        MPHREAD_DEBUG_ASSERT(_renderBuffer != 0);
         GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, _renderBuffer);
         GL::RenderbufferStorage(GL::RenderbufferTarget::Renderbuffer, GL::RenderbufferStorage::Depth24Stencil8,
             target.X, target.Y);
@@ -2771,11 +2777,11 @@ namespace MphRead
                 const std::uint32_t ab = (rgb >> 26) & 0x1F;
                 Vector4 diffuse(dr / 31.0F, dg / 31.0F, db / 31.0F, 1.0F);
                 Vector4 ambient(ar / 31.0F, ag / 31.0F, ab / 31.0F, 1.0F);
-                assert(ambient.X == 0.0F && ambient.Y == 0.0F && ambient.Z == 0.0F);
+                MPHREAD_DEBUG_ASSERT(ambient.X == 0.0F && ambient.Y == 0.0F && ambient.Z == 0.0F);
                 GL::Color4(diffuse.X, diffuse.Y, diffuse.Z, 0.0F);
                 if (set != 0)
                 {
-                    assert(false);
+                    MPHREAD_DEBUG_ASSERT(false);
                     GL::Color3(dr / 31.0F, dg / 31.0F, db / 31.0F);
                 }
                 break;
@@ -2794,7 +2800,7 @@ namespace MphRead
             }
             case InstructionCode::TEXCOORD:
             {
-                assert(textureWidth > 0 && textureHeight > 0);
+                MPHREAD_DEBUG_ASSERT(textureWidth > 0 && textureHeight > 0);
                 const std::uint32_t st = instruction.Arguments[0];
                 auto sx16 = [](std::uint32_t v)
                 {
@@ -4000,7 +4006,7 @@ namespace MphRead
         auto entry = _inactiveEffects.front();
         _inactiveEffects.pop();
         entry->EffectId = 0;
-        assert(entry->Elements->empty());
+        MPHREAD_DEBUG_ASSERT(entry->Elements->empty());
         return entry;
     }
 
@@ -4094,7 +4100,7 @@ namespace MphRead
         element->ElementName.clear();
         element->ParticleDefinitions->clear();
         element->TextureBindingIds->clear();
-        assert(element->Particles->empty());
+        MPHREAD_DEBUG_ASSERT(element->Particles->empty());
         _inactiveElements.push(element);
     }
 
@@ -4170,7 +4176,7 @@ namespace MphRead
         const auto effect = Read::GetEffect(effectId);
         if (!effect)
         {
-            assert(effectId == 162);
+            MPHREAD_DEBUG_ASSERT(effectId == 162);
             return;
         }
         for (const auto& elementDef : *effect->Elements)
@@ -4566,7 +4572,7 @@ namespace MphRead
         item->TexcoordMatrix = texcoordMatrix;
         item->Transform = transform;
         item->ListId = listId;
-        assert(matrixStack.size() == static_cast<std::size_t>(16 * matrixStackCount));
+        MPHREAD_DEBUG_ASSERT(matrixStack.size() == static_cast<std::size_t>(16 * matrixStackCount));
         item->MatrixStackCount = matrixStackCount;
         for (std::size_t i = 0; i < matrixStack.size(); ++i)
         {
@@ -4623,7 +4629,7 @@ namespace MphRead
         item->Points = std::move(vertices);
         item->ScaleS = 1.0F;
         item->ScaleT = 1.0F;
-        assert(type != RenderItemType::Ngon || vertexCount >= 3);
+        MPHREAD_DEBUG_ASSERT(type != RenderItemType::Ngon || vertexCount >= 3);
         item->ItemCount = vertexCount;
         AddRenderItem(item);
     }
@@ -4697,7 +4703,7 @@ namespace MphRead
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = RendererDetail::IdentityMatrix();
         item->ListId = 0;
-        assert(matrixStack.size() >= static_cast<std::size_t>(16 * matrixStackCount));
+        MPHREAD_DEBUG_ASSERT(matrixStack.size() >= static_cast<std::size_t>(16 * matrixStackCount));
         item->MatrixStackCount = matrixStackCount;
         for (std::int32_t i = 0; i < 16 * matrixStackCount; ++i)
         {
@@ -5107,7 +5113,7 @@ namespace MphRead
         }
         else if (afterFade == AfterFade::LoadRoom)
         {
-            assert(_room);
+            MPHREAD_DEBUG_ASSERT(_room);
             _room->LoadRoom(false);
             const MphRead::FadeType fadeType = _fadeType == MphRead::FadeType::FadeOutWhite
                 ? MphRead::FadeType::FadeInWhite : MphRead::FadeType::FadeInBlack;
@@ -5329,7 +5335,7 @@ namespace MphRead
 
     void Scene::RenderTrailMulti(const MphRead::RenderItem& item)
     {
-        assert(item.ItemCount >= 4 && item.ItemCount % 2 == 0);
+        MPHREAD_DEBUG_ASSERT(item.ItemCount >= 4 && item.ItemCount % 2 == 0);
         GL::Begin(GL::PrimitiveType::QuadStrip);
         for (std::int32_t i = 0; i < item.ItemCount; i += 2)
         {
@@ -6586,7 +6592,7 @@ namespace MphRead
     void Scene::OutputGetEntityInfo()
     {
         const auto entity = Selection::Entity();
-        assert(entity);
+        MPHREAD_DEBUG_ASSERT(entity);
         std::ostringstream out;
         out << '\n';
         if (_roomLoaded)
@@ -6621,7 +6627,7 @@ namespace MphRead
         const auto& models = entity->GetModels();
         if (entity->Type == EntityType::Model)
         {
-            assert(!models.empty());
+            MPHREAD_DEBUG_ASSERT(!models.empty());
             out << " (" << models[0]->Model()->Name << ")";
         }
         std::string color;
@@ -6775,7 +6781,7 @@ namespace MphRead
     void Scene::OutputGetModel()
     {
         const auto inst = Selection::Instance();
-        assert(inst);
+        MPHREAD_DEBUG_ASSERT(inst);
         const auto model = inst->Model();
         std::ostringstream out;
         out << '\n'
@@ -6807,7 +6813,7 @@ namespace MphRead
     {
         const auto node = Selection::Node();
         const auto inst = Selection::Instance();
-        assert(node && inst);
+        MPHREAD_DEBUG_ASSERT(node && inst);
         const auto model = inst->Model();
 
         const auto formatNode = [&model](std::int32_t index)
@@ -6866,7 +6872,7 @@ namespace MphRead
     {
         const auto mesh = Selection::Mesh();
         const auto inst = Selection::Instance();
-        assert(mesh && inst);
+        MPHREAD_DEBUG_ASSERT(mesh && inst);
         const auto model = inst->Model();
         const auto it = std::find(model->Meshes->begin(), model->Meshes->end(), mesh);
         const std::int32_t index = it == model->Meshes->end()
@@ -6931,6 +6937,10 @@ namespace MphRead
 
     void RenderWindow::LogCreatingWindow()
     {
+        // Accessing any static member of the C# type runs its static field
+        // initializers before the member body. Settings() is the native owner
+        // of those one-time settings values, so force that ordering here too.
+        (void)Settings();
         Mods::DebugLog::Line("render", "creating the game window and GL context ("
             + Mods::Launcher::LauncherPrefs::WindowModeString() + ")");
     }
@@ -7332,9 +7342,9 @@ namespace MphRead
         {
             paletteId = 4095;
         }
-        assert(textureId >= 0 && textureId < 4096);
-        assert(paletteId >= 0 && paletteId < 4096);
-        assert(recolorId >= 0 && recolorId < 255);
+        MPHREAD_DEBUG_ASSERT(textureId >= 0 && textureId < 4096);
+        MPHREAD_DEBUG_ASSERT(paletteId >= 0 && paletteId < 4096);
+        MPHREAD_DEBUG_ASSERT(recolorId >= 0 && recolorId < 255);
         const std::uint32_t key = static_cast<std::uint32_t>(textureId)
             | (static_cast<std::uint32_t>(paletteId) << 12U)
             | (static_cast<std::uint32_t>(recolorId) << 24U);
@@ -7384,4 +7394,6 @@ namespace MphRead
         SetItem(GetKey(textureId, paletteId, recolorId), TextureMapValue{bindingId, onlyOpaque});
     }
 
+
+#undef MPHREAD_DEBUG_ASSERT
 }

@@ -749,7 +749,7 @@ namespace MphRead::Entities
             {
                 continue;
             }
-            if (Mods::Network::NetLog::Enabled)
+            if (Mods::Network::NetLog::Enabled())
             {
                 ManagedAt(Mods::Network::NetDamage::PlayerChecks, Index(player.SlotIndex()))++;
             }
@@ -807,7 +807,7 @@ namespace MphRead::Entities
             if (hitPlayer && playerRes.Distance < minDist)
             {
                 Mods::Network::NetDamage::NotePlayerOverlap(_owner.get(), player);
-                if (Mods::Network::NetLog::Enabled)
+                if (Mods::Network::NetLog::Enabled())
                 {
                     ManagedAt(Mods::Network::NetDamage::PlayerOverlaps, Index(player.SlotIndex()))++;
                     ManagedAt(Mods::Network::NetDamage::PlayerAccepted, Index(player.SlotIndex()))++;
@@ -818,7 +818,7 @@ namespace MphRead::Entities
                 noColEff = false;
                 hitHalfturret = false;
             }
-            else if (hitPlayer && Mods::Network::NetLog::Enabled)
+            else if (hitPlayer && Mods::Network::NetLog::Enabled())
             {
                 ManagedAt(Mods::Network::NetDamage::PlayerOverlaps, Index(player.SlotIndex()))++;
             }
@@ -2514,7 +2514,7 @@ namespace MphRead::Entities
     {
         if (_collisionEffect != 255)
         {
-            if (PlayerEntity::PlayerCount > 2 && _collisionEffect == 4)
+            if (PlayerEntity::PlayerCount() > 2 && _collisionEffect == 4)
             {
                 noSplat = true;
             }

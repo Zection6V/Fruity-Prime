@@ -64,12 +64,28 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
-            PlayerEntity* player = PlayerEntity::Main();
-            if (player == nullptr)
+            const std::shared_ptr<PlayerEntity> player = PlayerEntity::Main();
+            if (!player)
             {
                 throw System::NullReferenceException();
             }
             return *player;
+        }
+
+        [[nodiscard]] std::shared_ptr<EnemyInstanceEntity> GetManagedReference(
+            Enemy02Entity* enemy, Scene* scene)
+        {
+            Scene& sceneRef = RequireReference(scene);
+            auto enumerator = sceneRef.GetEnemyInstanceEntities().GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                std::shared_ptr<EnemyInstanceEntity> current = enumerator.Current();
+                if (current.get() == enemy)
+                {
+                    return current;
+                }
+            }
+            throw SceneDetail::InvalidOperationException();
         }
 
         [[nodiscard]] Enemy02Entity& RequireEnemy(Enemy02Entity* enemy)
@@ -298,24 +314,27 @@ namespace MphRead::Entities::Enemies
             _field1D0 = false;
         }
 
-        ModelInstance& model = _models[0];
         if (_state2 == 0)
         {
+            ModelInstance& model = _models[0];
             model.SetAnimation(0);
             _speed = Vector3::Zero;
         }
         else if (_state2 == 1)
         {
+            ModelInstance& model = _models[0];
             model.SetAnimation(1);
         }
         else if (_state2 == 2)
         {
+            ModelInstance& model = _models[0];
             _soundSource.StopAllSfx();
             model.SetAnimation(10, AnimFlags::NoLoop);
             _speed = Vector3::Zero;
         }
         else if (_state2 == 3)
         {
+            ModelInstance& model = _models[0];
             model.SetAnimation(11, AnimFlags::NoLoop);
             _field1B8 = 0.0F;
             _field1BC = static_cast<Vector3>(Position);
@@ -330,6 +349,7 @@ namespace MphRead::Entities::Enemies
         }
         else if (_state2 == 4)
         {
+            ModelInstance& model = _models[0];
             model.SetAnimation(12, AnimFlags::NoLoop);
             PlayerEntity& player = MainPlayer();
             Vector3 playerDelta
@@ -339,6 +359,7 @@ namespace MphRead::Entities::Enemies
         }
         else if (_state2 == 5)
         {
+            ModelInstance& model = _models[0];
             model.SetAnimation(3);
             PlayerEntity& player = MainPlayer();
             Vector3 playerDelta
@@ -349,6 +370,7 @@ namespace MphRead::Entities::Enemies
         }
         else if (_state2 == 6)
         {
+            ModelInstance& model = _models[0];
             AnimationInfo& animInfo = RequireAnimInfo(model);
             if (RequireReference(animInfo.Index)[0] == 7)
             {
@@ -361,10 +383,12 @@ namespace MphRead::Entities::Enemies
         }
         else if (_state2 == 7)
         {
+            ModelInstance& model = _models[0];
             model.SetAnimation(0);
         }
         else if (_state2 == 8)
         {
+            ModelInstance& model = _models[0];
             PlayerEntity& player = MainPlayer();
             Vector3 playerFacing = player.FacingVector();
             Vector3 facing{};
@@ -390,11 +414,13 @@ namespace MphRead::Entities::Enemies
         }
         else if (_state2 == 9)
         {
+            ModelInstance& model = _models[0];
             model.SetAnimation(15, AnimFlags::NoLoop);
             _speed = Vector3::Zero;
         }
         else if (_state2 == 10)
         {
+            ModelInstance& model = _models[0];
             model.SetAnimation(2);
             _speed = Vector3::Zero;
         }
@@ -443,7 +469,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy02Entity::Detach()
     {
-        if (MainPlayer().AttachedEnemy() == this)
+        if (MainPlayer().AttachedEnemy().get() == this)
         {
             MainPlayer().SetAttachedEnemy(nullptr);
         }
@@ -453,7 +479,7 @@ namespace MphRead::Entities::Enemies
     void Enemy02Entity::UpdateAttached(PlayerEntity* player)
     {
         PlayerEntity& playerRef = RequireReference(player);
-        Vector3 position = playerRef.CameraInfo().Position
+        Vector3 position = RequireReference(playerRef.CameraInfo()).Position
             + Divide(playerRef.FacingVector(), 2.0F);
         SetTransform(Scale(playerRef.FacingVector(), -1.0F), UpVector(), position);
     }
@@ -687,7 +713,7 @@ namespace MphRead::Entities::Enemies
             AnimationInfo& animInfo = RequireAnimInfo(model);
             const std::int32_t frameCount = RequireReference(animInfo.FrameCount)[0];
             const std::int32_t animFrame = RequireReference(animInfo.Frame)[0];
-            const Vector3 cameraPos = MainPlayer().CameraInfo().Position;
+            const Vector3 cameraPos = RequireReference(MainPlayer().CameraInfo()).Position;
             const std::int32_t frameDelta
                 = UncheckedSubtractInt32(frameCount, animFrame);
             Vector3 position = Divide(
@@ -801,7 +827,7 @@ namespace MphRead::Entities::Enemies
         {
             return false;
         }
-        MainPlayer().SetAttachedEnemy(this);
+        MainPlayer().SetAttachedEnemy(GetManagedReference(this, _scene));
         return true;
     }
 

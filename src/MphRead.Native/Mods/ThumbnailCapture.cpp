@@ -586,15 +586,6 @@ namespace
         }
 
 
-    class IndexOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        IndexOutOfRangeException()
-            : std::out_of_range("Index was outside the bounds of the array.")
-        {
-        }
-    };
-
     [[nodiscard]] std::int32_t WrappedAdd(
         std::int32_t left,
         std::int32_t right) noexcept
@@ -629,9 +620,9 @@ namespace
         constexpr char version[] = MPHREAD_ENTRY_ASSEMBLY_VERSION;
         return std::string(version, sizeof(version) - 1);
 #else
-        // MphRead.csproj does not override Version/AssemblyVersion, so the
-        // SDK-generated entry assembly version is 1.0.0.0.
-        return "1.0.0.0";
+        // Native has no CLR entry assembly. Preserve the C# null-coalescing
+        // fallback instead of inventing an assembly version in this file.
+        return "?";
 #endif
     }
 
@@ -745,7 +736,7 @@ namespace
         }
         if (index >= values->size())
         {
-            throw IndexOutOfRangeException();
+            throw MphRead::SceneDetail::IndexOutOfRangeException();
         }
         return (*values)[index];
     }
@@ -836,7 +827,8 @@ namespace MphRead::Mods
 
     void ThumbnailCapture::Close()
     {
-        OnClosing();
+        // GameWindow.Close requests shutdown; OnClosing is delivered by the
+        // window lifecycle after the current callback, not synchronously here.
         _window->Close();
         _closeRequested = true;
     }
@@ -1021,6 +1013,11 @@ namespace MphRead::Mods
             args.Time = elapsed;
             OnRenderFrame(args);
         }
+
+        // RendererPlatform does not yet expose GameWindow.Run/event dispatch.
+        // Keep closing delivery deferred until after the render callback so
+        // Scene cleanup has the same relative timing as the C# override.
+        OnClosing();
     }
 
     std::int32_t ThumbnailCapture::CaptureRooms(

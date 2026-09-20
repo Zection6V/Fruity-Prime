@@ -78,7 +78,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          mapfile -t manifests < <(
+          manifests="$(
             find . -type f \
               \( -name CMakeLists.txt \
                  -o -name Makefile \
@@ -91,14 +91,13 @@ jobs:
                  -o -name conanfile.py \) \
               -not -path './.git/*' \
               -print | sort
-          )
+          )"
 
-          if [ "${#manifests[@]}" -eq 0 ]; then
+          if [ -z "$manifests" ]; then
             echo "::error title=Native build manifest missing::develop2 contains src/MphRead.Native and src/NcsfPlay.Native C++ sources, but no CMake, Make, Meson, Visual Studio C++, qmake, Premake, vcpkg, or Conan build manifest exists anywhere in the repository. Target source membership, compile definitions, include paths, link libraries, and platform-specific dependencies therefore cannot be derived truthfully."
             exit 1
           fi
 
-          printf 'Detected native build manifests:\n'
-          printf '  %s\n' "${manifests[@]}"
+          printf 'Detected native build manifests:\n%s\n' "$manifests"
           echo "::error title=Desktop native workflow requires manifest integration::A native build manifest now exists, but this workflow intentionally does not guess configure commands or target names. Update this workflow from the repository manifest before enabling compilation."
           exit 1

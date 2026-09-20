@@ -30,7 +30,7 @@ namespace MphRead::Entities::Enemies
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
@@ -207,7 +207,7 @@ namespace MphRead::Entities::Enemies
                 _seekingVolume = true;
             }
         }
-        Vector3 testPos = static_cast<Vector3>(Position) + Scale(UpVector(), _boundingRadius);
+        Vector3 testPos = static_cast<Vector3>(Position) + ScaleVector(UpVector(), _boundingRadius);
         ManagedArray<Formats::CollisionResult> results(8);
         std::int32_t colCount = Formats::CollisionDetection::CheckInRadius(
             testPos, _boundingRadius, 8, true, Formats::TestFlags::None, _scene, &results);
@@ -243,7 +243,7 @@ namespace MphRead::Entities::Enemies
                     vec = vec + result.Plane.Xyz();
                 }
             }
-            Vector3 position = testPos - Scale(UpVector(), _boundingRadius);
+            Vector3 position = testPos - ScaleVector(UpVector(), _boundingRadius);
             if (!Equal(vec, Vector3::Zero))
             {
                 vec = vec.Normalized();
@@ -251,16 +251,16 @@ namespace MphRead::Entities::Enemies
             }
             Vector3 upVector = UpVector();
             Vector3 upVec = upVector
-                + Scale(_field1AC - upVector, Fixed::ToFloat(819) / 2.0F); // todo: FPS stuff
+                + ScaleVector(_field1AC - upVector, Fixed::ToFloat(819) / 2.0F); // todo: FPS stuff
             upVec = upVec.Normalized();
             Vector3 facingVec = Vector3::Cross(upVec, _direction).Normalized();
             SetTransform(facingVec, upVec, position);
         }
-        _speed = Scale(UpVector(), Fixed::ToFloat(-245) / 2.0F); // todo: FPS stuff
+        _speed = ScaleVector(UpVector(), Fixed::ToFloat(-245) / 2.0F); // todo: FPS stuff
         if (_seekingVolume)
         {
             _direction = _direction
-                + Scale(_intendedDir - _direction, Fixed::ToFloat(819) / 2.0F); // todo: FPS stuff
+                + ScaleVector(_intendedDir - _direction, Fixed::ToFloat(819) / 2.0F); // todo: FPS stuff
             _direction = _direction.Normalized();
             if (Vector3::Dot(_intendedDir, _direction) > _angleCos)
             {
@@ -274,7 +274,7 @@ namespace MphRead::Entities::Enemies
             float dot = Vector3::Dot(_field1AC, UpVector());
             if (dot >= Fixed::ToFloat(3712))
             {
-                _speed = _speed + Scale(FacingVector(), Fixed::ToFloat(204) / 2.0F); // todo: FPS stuff
+                _speed = _speed + ScaleVector(FacingVector(), Fixed::ToFloat(204) / 2.0F); // todo: FPS stuff
                 if (dot >= Fixed::ToFloat(4095))
                 {
                     _field1A0 = _field1AC;

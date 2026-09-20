@@ -1993,8 +1993,12 @@ namespace
     {
         const std::int32_t workers = std::min(
             parallelism, static_cast<std::int32_t>(rooms.size()));
-        std::vector<std::vector<std::string>> shares(
-            static_cast<std::size_t>(workers));
+        std::vector<std::vector<std::string>> shares;
+        shares.reserve(static_cast<std::size_t>(workers));
+        for (std::int32_t i = 0; i < workers; ++i)
+        {
+            shares.emplace_back();
+        }
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(rooms.size()); ++i)
         {
             shares[static_cast<std::size_t>(i % workers)].push_back(
@@ -2011,7 +2015,6 @@ namespace
     {
         const std::filesystem::path workingDirectory = std::filesystem::current_path();
         std::vector<std::string> arguments;
-        arguments.reserve(share.size() * 2 + 2);
         for (const std::string& room : share)
         {
             arguments.emplace_back("-thumbnail");

@@ -6,28 +6,30 @@
 
 #include <jni.h>
 
+#include "../MphRead.Native/Mods/LogShare.hpp"
+
 #include <string>
 #include <string_view>
 
 namespace MphRead::Droid
 {
-    class AndroidLogShare final
+    class AndroidLogShare final : public MphRead::Mods::ILogShare
     {
     public:
         AndroidLogShare(JNIEnv* env, jobject context);
-        ~AndroidLogShare();
+        ~AndroidLogShare() override;
 
         AndroidLogShare(const AndroidLogShare&) = delete;
         AndroidLogShare& operator=(const AndroidLogShare&) = delete;
         AndroidLogShare(AndroidLogShare&&) = delete;
         AndroidLogShare& operator=(AndroidLogShare&&) = delete;
 
-        [[nodiscard]] std::u16string StagingPath(std::u16string_view fileName);
+        [[nodiscard]] std::u16string StagingPath(std::u16string_view fileName) override;
         bool Share(
             std::u16string_view path,
             std::u16string_view subject,
             std::u16string& error
-        );
+        ) override;
 
     private:
         static constexpr std::u16string_view _folder = u"logs-share";

@@ -1,6 +1,7 @@
 #include "AndroidLogShare.hpp"
 
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <limits>
@@ -615,6 +616,21 @@ namespace
         return LocalRef<jclass>(env, static_cast<jclass>(loaded.Release()));
     }
 
+    std::u16string GetDotNetTempPath()
+    {
+        const char* value = std::getenv("TMPDIR");
+        if (value == nullptr)
+        {
+            return u"/tmp/";
+        }
+        std::u16string result = Utf8ToUtf16(value);
+        if (result.empty() || result.back() != u'/')
+        {
+            result.push_back(u'/');
+        }
+        return result;
+    }
+
     std::u16string GetCacheDirectory(JNIEnv* env, jobject context)
     {
         if (context == nullptr)
@@ -655,7 +671,7 @@ namespace
                 return JavaStringToUtf16(env, absolutePath.Get());
             }
         }
-        return std::filesystem::temp_directory_path().u16string();
+        return GetDotNetTempPath();
     }
 
     std::u16string CombinePath(
@@ -751,7 +767,7 @@ namespace MphRead::Droid
                 : std::filesystem::directory_iterator(std::filesystem::path(directory)))
             {
                 const std::u16string name = entry.path().filename().u16string();
-                if (!entry.is_directory()
+                if (!std::filesystem::is_directory(entry.symlink_status())
                     && name.size() >= 4
                     && name.compare(name.size() - 4, 4, u".zip") == 0)
                 {

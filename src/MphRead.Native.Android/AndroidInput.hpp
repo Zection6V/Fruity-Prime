@@ -2,6 +2,7 @@
 
 #include "../MphRead.Native/Entities/Players/PlayerInput.hpp"
 
+#include <memory>
 #include <vector>
 
 namespace MphRead::Droid
@@ -22,8 +23,8 @@ namespace MphRead::Droid
         AndroidInput& operator=(AndroidInput&&) = delete;
         ~AndroidInput() = default;
 
-        [[nodiscard]] KeyboardState& Keyboard() noexcept { return _keyboard; }
-        [[nodiscard]] MouseState& Mouse() noexcept { return _mouse; }
+        [[nodiscard]] KeyboardState& Keyboard() noexcept { return *_keyboard; }
+        [[nodiscard]] MouseState& Mouse() noexcept { return *_mouse; }
         [[nodiscard]] Vector2 Pointer() const noexcept { return _pointer; }
 
         void SetKey(Keys key, bool down);
@@ -72,12 +73,15 @@ namespace MphRead::Droid
             }
         }
 
-        KeyboardState _keyboard{};
-        MouseState _mouse{};
+        // The managed auto-properties start null; the four HashSet instances
+        // are constructed by field initializers before the constructor body;
+        // then the constructor creates these two OpenTK reference objects.
+        std::unique_ptr<KeyboardState> _keyboard;
+        std::unique_ptr<MouseState> _mouse;
 
-        SetKeyAction _setKey;
-        SetPositionAction _setPosition;
-        SetButtonAction _setButton;
+        SetKeyAction _setKey = nullptr;
+        SetPositionAction _setPosition = nullptr;
+        SetButtonAction _setButton = nullptr;
 
         Vector2 _pointer{};
 

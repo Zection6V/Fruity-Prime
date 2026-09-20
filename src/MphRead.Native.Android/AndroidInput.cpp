@@ -24,10 +24,12 @@ namespace
 namespace MphRead::Droid
 {
     AndroidInput::AndroidInput()
-        : _setKey(&SetKeyState),
-          _setPosition(&SetPosition),
-          _setButton(&SetButtonState)
     {
+        _keyboard = std::make_unique<KeyboardState>();
+        _mouse = std::make_unique<MouseState>();
+        _setKey = &SetKeyState;
+        _setPosition = &SetPosition;
+        _setButton = &SetButtonState;
     }
 
     void AndroidInput::SetKeyState(KeyboardState& keyboard, Keys key, bool down)
@@ -69,13 +71,13 @@ namespace MphRead::Droid
     {
         if (key != Keys::Unknown)
         {
-            _setKey(_keyboard, key, down);
+            _setKey(*_keyboard, key, down);
         }
     }
 
     void AndroidInput::SetButton(MouseButton button, bool down)
     {
-        _setButton(_mouse, button, down);
+        _setButton(*_mouse, button, down);
     }
 
     void AndroidInput::Apply(const Entities::Keybind& bind, bool down)
@@ -164,13 +166,13 @@ namespace MphRead::Droid
         }
         _pointer.X += deltaX;
         _pointer.Y += deltaY;
-        _setPosition(_mouse, _pointer);
+        _setPosition(*_mouse, _pointer);
     }
 
     void AndroidInput::PlacePointer(float x, float y)
     {
         _pointer = Vector2(x, y);
-        _setPosition(_mouse, _pointer);
+        _setPosition(*_mouse, _pointer);
     }
 
     void AndroidInput::ReleaseAll()
@@ -190,9 +192,7 @@ namespace MphRead::Droid
             const std::shared_ptr<Entities::Keybind>& bind = all[index];
             if (bind == nullptr)
             {
-                throw std::runtime_error(
-                    "Object reference not set to an instance of an object."
-                );
+                throw System::NullReferenceException();
             }
 
             if (bind->Type() == Entities::ButtonType::Key)

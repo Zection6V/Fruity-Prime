@@ -44,12 +44,8 @@ namespace MphRead::Mods::Update
     {
         constexpr std::chrono::seconds Timeout(20);
 
-        [[nodiscard]] std::string ApiUrl()
-        {
-            return "https://api.github.com/repos/"
-                + std::string(Mods::Branding::Repository)
-                + "/releases/latest";
-        }
+        constexpr std::string_view Api =
+            "https://api.github.com/repos/liveteklol/Fruity-Prime/releases/latest";
 
         std::atomic<std::shared_ptr<const std::string>> LastReasonValue{nullptr};
 
@@ -896,7 +892,12 @@ namespace MphRead::Mods::Update
                 }
                 throw NamedException("HttpRequestException", curl_easy_strerror(code));
             }
-            curl_easy_getinfo(easy.get(), CURLINFO_RESPONSE_CODE, &response->StatusCode);
+            const CURLcode infoCode = curl_easy_getinfo(
+                easy.get(), CURLINFO_RESPONSE_CODE, &response->StatusCode);
+            if (infoCode != CURLE_OK)
+            {
+                throw NamedException("HttpRequestException", curl_easy_strerror(infoCode));
+            }
             return response;
         }
 
@@ -1085,7 +1086,7 @@ namespace MphRead::Mods::Update
             client.AddUserAgent(std::string(Mods::Branding::FileName) + "/"
                 + BuildVersion::Display());
             client.AddAccept("application/vnd.github+json");
-            CurlRequestMessage request(ApiUrl());
+            CurlRequestMessage request(std::string(Api));
             std::unique_ptr<HttpResponseMessage> response = SyncHttp::Send(&client,
                 &request, HttpCompletionOption::ResponseContentRead, cancel);
             auto* concrete = dynamic_cast<CurlResponseMessage*>(response.get());
@@ -1257,7 +1258,7 @@ namespace MphRead::Mods::Update
 #else
     #if defined(_WIN32)
         constexpr std::string_view os = "win";
-    #elif defined(__APPLE__)
+    #elif defined(__APPLE__) && defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__)
         constexpr std::string_view os = "osx";
     #else
         constexpr std::string_view os = "linux";
@@ -1283,7 +1284,9 @@ namespace MphRead::Mods::Update
         constexpr std::string_view arch = "s390x";
     #elif defined(__loongarch64)
         constexpr std::string_view arch = "loongarch64";
-    #elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__)
+    #elif defined(__powerpc64__) && (defined(__LITTLE_ENDIAN__) \
+        || (defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) \
+            && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__))
         constexpr std::string_view arch = "ppc64le";
     #elif defined(__riscv) && __riscv_xlen == 64
         constexpr std::string_view arch = "riscv64";

@@ -88,7 +88,15 @@ namespace
 
     [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
     {
-        if (std::isnan(value) || value >= 2147483648.0F || value < -2147483648.0F)
+        if (std::isnan(value))
+        {
+            return 0;
+        }
+        if (value >= 2147483648.0F)
+        {
+            return std::numeric_limits<std::int32_t>::max();
+        }
+        if (value <= -2147483648.0F)
         {
             return std::numeric_limits<std::int32_t>::min();
         }

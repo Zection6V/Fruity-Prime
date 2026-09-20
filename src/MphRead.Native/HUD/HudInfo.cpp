@@ -148,7 +148,7 @@ namespace
 
     template <typename T>
     [[nodiscard]] std::vector<T> ReadMany(
-        const std::vector<std::uint8_t>& bytes, std::size_t offset, std::int32_t count)
+        const std::vector<std::uint8_t>& bytes, std::int32_t offset, std::int32_t count)
     {
         if (count < 0)
         {
@@ -156,11 +156,34 @@ namespace
         }
         std::vector<T> result;
         result.reserve(static_cast<std::size_t>(count));
+        if (offset == 0)
+        {
+            return result;
+        }
+        std::int32_t current = offset;
         for (std::int32_t i = 0; i < count; ++i)
         {
-            result.push_back(ReadAt<T>(bytes, offset + static_cast<std::size_t>(i) * sizeof(T)));
+            if (current < 0)
+            {
+                throw std::out_of_range("Specified argument was out of the range of valid values.");
+            }
+            result.push_back(ReadAt<T>(bytes, static_cast<std::size_t>(current)));
+            current = std::bit_cast<std::int32_t>(
+                static_cast<std::uint32_t>(current) + static_cast<std::uint32_t>(sizeof(T)));
         }
         return result;
+    }
+
+    template <typename T>
+    [[nodiscard]] T ReadOffset(
+        const std::vector<std::uint8_t>& bytes, std::int32_t offset)
+    {
+        std::vector<T> values = ReadMany<T>(bytes, offset, 1);
+        if (values.empty())
+        {
+            throw std::out_of_range("Index was outside the bounds of the array.");
+        }
+        return values.front();
     }
 
     [[nodiscard]] std::int32_t WrappedAdd(std::int32_t left, std::int32_t right) noexcept
@@ -217,7 +240,7 @@ namespace
 
     [[nodiscard]] std::string LastPathPartWithoutExtension(const std::string& path)
     {
-        const std::size_t slash = path.find_last_of("/\\");
+        const std::size_t slash = path.find_last_of('/');
         const std::size_t start = slash == std::string::npos ? 0 : slash + 1;
         const std::size_t dot = path.find('.', start);
         return path.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
@@ -344,11 +367,11 @@ namespace MphRead::Hud
 
     void HudObjectInstance::SetAnimationFrames(ReadOnlyList<UiAnimParams> frames)
     {
+        std::vector<std::int32_t> list;
         if (!frames)
         {
             throw System::NullReferenceException();
         }
-        std::vector<std::int32_t> list;
         for (std::size_t i = 0; i < frames->size(); ++i)
         {
             const UiAnimParams& frame = frames->at(i);
@@ -363,7 +386,7 @@ namespace MphRead::Hud
     void HudObjectInstance::SetCharacterData(ReadOnlyList<std::uint8_t> data,
         std::int32_t width, std::int32_t height, Scene& scene)
     {
-        assert(static_cast<std::int64_t>(Width) * Height
+        assert(static_cast<std::int64_t>(WrappedProduct(Width, Height))
             <= static_cast<std::int64_t>(Texture->size()));
         Width = width;
         Height = height;
@@ -464,10 +487,6 @@ namespace MphRead::Hud
     {
         assert(CharacterData);
         assert(PaletteData);
-        if (!CharacterData || !PaletteData)
-        {
-            throw System::NullReferenceException();
-        }
         const std::int32_t paletteOffset = WrappedProduct(PaletteIndex, 16);
         const std::int32_t width = Width / 8;
         const std::int32_t height = Height / 8;
@@ -481,6 +500,10 @@ namespace MphRead::Hud
                 {
                     for (std::int32_t pixelX = 0; pixelX < 8; ++pixelX)
                     {
+                        if (!CharacterData)
+                        {
+                            throw System::NullReferenceException();
+                        }
                         const std::uint8_t paletteIndex = CharacterData->at(
                             static_cast<std::size_t>(WrappedAdd(image, WrappedAdd(
                                 WrappedProduct(WrappedProduct(WrappedProduct(tileY, width), 8), 8),
@@ -497,8 +520,13 @@ namespace MphRead::Hud
                         }
                         else
                         {
+                            if (!PaletteData)
+                            {
+                                throw System::NullReferenceException();
+                            }
                             Texture->at(static_cast<std::size_t>(index)) = PaletteData->at(
-                                static_cast<std::size_t>(paletteOffset + paletteIndex));
+                                static_cast<std::size_t>(WrappedAdd(
+                                    paletteOffset, static_cast<std::int32_t>(paletteIndex))));
                         }
                     }
                 }
@@ -552,10 +580,6 @@ namespace MphRead::Hud
         std::int32_t frames, std::int32_t afterAnim, HudObjectLoopType loopType)
     {
         assert(AnimFrames);
-        if (!AnimFrames)
-        {
-            throw System::NullReferenceException();
-        }
         if (start == target)
         {
             CurrentFrame = start;
@@ -565,8 +589,18 @@ namespace MphRead::Hud
             StartFrame = start;
             TargetFrame = target;
             Timer = Time = static_cast<float>(frames) * (1.0F / 30.0F);
-            AfterAnimFrame = loopType == HudObjectLoopType::Offset
-                ? afterAnim : AnimFrames->at(static_cast<std::size_t>(afterAnim));
+            if (loopType == HudObjectLoopType::Offset)
+            {
+                AfterAnimFrame = afterAnim;
+            }
+            else
+            {
+                if (!AnimFrames)
+                {
+                    throw System::NullReferenceException();
+                }
+                AfterAnimFrame = AnimFrames->at(static_cast<std::size_t>(afterAnim));
+            }
             Loop = loopType;
         }
     }
@@ -658,16 +692,16 @@ namespace MphRead::Hud
     {
         const UiPartHeader header = ReadAt<UiPartHeader>(bytes, 0);
         assert(header.Magic == 0);
-        std::size_t offset = static_cast<std::size_t>(_layerHeaderSize);
+        std::int32_t offset = _layerHeaderSize;
         std::vector<std::uint8_t> characterData = ReadMany<std::uint8_t>(
             bytes, offset, header.CharDataSize);
-        offset += static_cast<std::size_t>(header.CharDataSize);
+        offset = WrappedAdd(offset, header.CharDataSize);
         assert(header.PalDataSize % 2 == 0);
         std::vector<std::uint16_t> paletteData = ReadMany<std::uint16_t>(
             bytes, offset, header.PalDataSize / 2);
-        offset += static_cast<std::size_t>(header.PalDataSize);
-        const ScrDatInfo info = ReadAt<ScrDatInfo>(bytes, offset);
-        offset += static_cast<std::size_t>(_scrDatInfoSize);
+        offset = WrappedAdd(offset, header.PalDataSize);
+        const ScrDatInfo info = ReadOffset<ScrDatInfo>(bytes, offset);
+        offset = WrappedAdd(offset, _scrDatInfoSize);
         assert(info.ScrDataSize % 2 == 0);
         const std::vector<std::uint16_t> screenValues = ReadMany<std::uint16_t>(
             bytes, offset, info.ScrDataSize / 2);
@@ -677,11 +711,11 @@ namespace MphRead::Hud
         {
             screenData.emplace_back(value);
         }
-        offset += static_cast<std::size_t>(info.ScrDataSize);
-        for (std::size_t i = offset; i < bytes.size(); ++i)
-        {
-            assert(bytes[i] == 0);
-        }
+        offset = WrappedAdd(offset, info.ScrDataSize);
+        const std::vector<std::uint8_t> trailingData = ReadMany<std::uint8_t>(
+            bytes, offset, WrappedSubtract(static_cast<std::int32_t>(bytes.size()), offset));
+        assert(std::all_of(trailingData.begin(), trailingData.end(),
+            [](std::uint8_t value) { return value == 0; }));
 
         if (paletteOverride)
         {
@@ -873,23 +907,24 @@ namespace MphRead::Hud
         const std::vector<std::uint8_t> bytes
             = ReadAllBytes(Paths::Combine(Paths::FileSystem(), file));
         const UiObjectHeader header = ReadAt<UiObjectHeader>(bytes, 0);
-        std::size_t offset = static_cast<std::size_t>(_objHeaderSize);
+        std::int32_t offset = _objHeaderSize;
         assert(header.ParamDataSize % _animParamSize == 0);
         std::int32_t count = header.ParamDataSize / _animParamSize;
         std::vector<UiAnimParams> animParams = ReadMany<UiAnimParams>(bytes, offset, count);
-        offset += static_cast<std::size_t>(header.ParamDataSize);
+        offset = WrappedAdd(offset, header.ParamDataSize);
         assert(header.AttrDataSize % _oamAttrSize == 0);
         count = header.AttrDataSize / _oamAttrSize;
         const std::vector<RawUiOamAttrs> rawOamAttrs
             = ReadMany<RawUiOamAttrs>(bytes, offset, count);
-        offset += static_cast<std::size_t>(header.AttrDataSize);
+        offset = WrappedAdd(offset, header.AttrDataSize);
         const std::vector<std::uint8_t> characterData
             = ReadMany<std::uint8_t>(bytes, offset, header.CharDataSize);
-        offset += static_cast<std::size_t>(header.CharDataSize);
+        offset = WrappedAdd(offset, header.CharDataSize);
         assert(header.PalDataSize % 2 == 0);
         const std::vector<std::uint16_t> paletteData
             = ReadMany<std::uint16_t>(bytes, offset, header.PalDataSize / 2);
-        assert(offset + static_cast<std::size_t>(header.PalDataSize) == bytes.size());
+        assert(WrappedAdd(offset, header.PalDataSize)
+            == static_cast<std::int32_t>(bytes.size()));
 
         std::vector<std::uint8_t> paletteIndexData;
         paletteIndexData.reserve(characterData.size() * 2);
@@ -1096,13 +1131,13 @@ namespace MphRead::Hud
             const std::vector<std::uint8_t> bytes
                 = ReadAllBytes(Paths::Combine(Paths::FileSystem(), file));
             const UiObjectHeader header = ReadAt<UiObjectHeader>(bytes, 0);
-            std::size_t offset = static_cast<std::size_t>(_objHeaderSize);
+            std::int32_t offset = _objHeaderSize;
             assert(header.ParamDataSize % _animParamSize == 0);
             std::int32_t count = header.ParamDataSize / _animParamSize;
             assert(count == header.FrameCount);
             std::vector<UiAnimParams> animParamsValues = ReadMany<UiAnimParams>(bytes, offset, count);
             ReadOnlyList<UiAnimParams> animParams = MakeReadOnlyList(std::move(animParamsValues));
-            offset += static_cast<std::size_t>(header.ParamDataSize);
+            offset = WrappedAdd(offset, header.ParamDataSize);
             assert(header.AttrDataSize % _oamAttrSize == 0);
             count = header.AttrDataSize / _oamAttrSize;
             const std::vector<RawUiOamAttrs> rawOamAttrs = ReadMany<RawUiOamAttrs>(bytes, offset, count);
@@ -1112,15 +1147,15 @@ namespace MphRead::Hud
             {
                 oamAttrs.emplace_back(raw);
             }
-            offset += static_cast<std::size_t>(header.AttrDataSize);
+            offset = WrappedAdd(offset, header.AttrDataSize);
             const std::vector<std::uint8_t> characterData
                 = ReadMany<std::uint8_t>(bytes, offset, header.CharDataSize);
-            offset += static_cast<std::size_t>(header.CharDataSize);
+            offset = WrappedAdd(offset, header.CharDataSize);
             assert(header.PalDataSize % 2 == 0);
             std::vector<std::uint16_t> paletteValues
                 = ReadMany<std::uint16_t>(bytes, offset, header.PalDataSize / 2);
-            offset += static_cast<std::size_t>(header.PalDataSize);
-            assert(offset == bytes.size());
+            offset = WrappedAdd(offset, header.PalDataSize);
+            assert(offset == static_cast<std::int32_t>(bytes.size()));
             ReadOnlyList<std::uint16_t> paletteData = MakeReadOnlyList(std::move(paletteValues));
 
             if (name == "hud_targetcircle")
@@ -1155,6 +1190,10 @@ namespace MphRead::Hud
                 paletteIndexData.push_back(static_cast<std::uint8_t>((data & 0xF0) >> 4));
             }
             std::vector<ColorRgba> paletteColorData;
+            if (!paletteData)
+            {
+                throw System::NullReferenceException();
+            }
             paletteColorData.reserve(paletteData->size());
             for (std::uint16_t color : *paletteData)
             {
@@ -1301,16 +1340,16 @@ namespace MphRead::Hud
                 = ReadAllBytes(Paths::Combine(Paths::FileSystem(), file));
             const UiPartHeader header = ReadAt<UiPartHeader>(bytes, 0);
             assert(header.Magic == 0);
-            std::size_t offset = static_cast<std::size_t>(_layerHeaderSize);
+            std::int32_t offset = _layerHeaderSize;
             const std::vector<std::uint8_t> characterData
                 = ReadMany<std::uint8_t>(bytes, offset, header.CharDataSize);
-            offset += static_cast<std::size_t>(header.CharDataSize);
+            offset = WrappedAdd(offset, header.CharDataSize);
             assert(header.PalDataSize % 2 == 0);
             const std::vector<std::uint16_t> paletteData
                 = ReadMany<std::uint16_t>(bytes, offset, header.PalDataSize / 2);
-            offset += static_cast<std::size_t>(header.PalDataSize);
-            const ScrDatInfo info = ReadAt<ScrDatInfo>(bytes, offset);
-            offset += static_cast<std::size_t>(_scrDatInfoSize);
+            offset = WrappedAdd(offset, header.PalDataSize);
+            const ScrDatInfo info = ReadOffset<ScrDatInfo>(bytes, offset);
+            offset = WrappedAdd(offset, _scrDatInfoSize);
             assert(info.ScrDataSize % 2 == 0);
             const std::vector<std::uint16_t> screenDataValues
                 = ReadMany<std::uint16_t>(bytes, offset, info.ScrDataSize / 2);
@@ -1432,11 +1471,11 @@ namespace MphRead::Hud
                 std::filesystem::create_directories(PathFromUtf8(directory));
                 Export::Images::SaveTexture(directory, name, width, height, texture);
             }
-            offset += static_cast<std::size_t>(info.ScrDataSize);
-            for (std::size_t i = offset; i < bytes.size(); ++i)
-            {
-                assert(bytes[i] == 0);
-            }
+            offset = WrappedAdd(offset, info.ScrDataSize);
+            const std::vector<std::uint8_t> trailingData = ReadMany<std::uint8_t>(
+                bytes, offset, WrappedSubtract(static_cast<std::int32_t>(bytes.size()), offset));
+            assert(std::all_of(trailingData.begin(), trailingData.end(),
+                [](std::uint8_t value) { return value == 0; }));
             Nop();
         }
         Nop();

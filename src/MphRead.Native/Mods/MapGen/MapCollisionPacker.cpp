@@ -41,6 +41,13 @@ namespace
             static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
     }
 
+    [[nodiscard]] constexpr std::int32_t ToInt32Unchecked(
+        std::size_t value) noexcept
+    {
+        return std::bit_cast<std::int32_t>(
+            static_cast<std::uint32_t>(value));
+    }
+
     [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
     {
         if (std::isnan(value))
@@ -393,24 +400,24 @@ namespace MphRead::Mods::MapGen
         BinaryWriter writer;
         writer.Position(sizeof(CollisionHeader));
 
-        const std::int32_t pointOffset = ListCount(writer.Position());
+        const std::int32_t pointOffset = ToInt32Unchecked(writer.Position());
         for (const Vector3 point : points)
         {
             writer.WriteVector3(point);
         }
-        const std::int32_t planeOffset = ListCount(writer.Position());
+        const std::int32_t planeOffset = ToInt32Unchecked(writer.Position());
         for (const Vector4 plane : planes)
         {
             writer.WriteVector4(plane);
         }
-        const std::int32_t pointIndexOffset = ListCount(writer.Position());
+        const std::int32_t pointIndexOffset = ToInt32Unchecked(writer.Position());
         for (const std::uint16_t index : pointIndices)
         {
             writer.Write(index);
         }
         Align(writer);
 
-        const std::int32_t dataOffset = ListCount(writer.Position());
+        const std::int32_t dataOffset = ToInt32Unchecked(writer.Position());
         for (const Face& face : faces)
         {
             writer.Write(static_cast<std::uint32_t>(0));
@@ -422,20 +429,20 @@ namespace MphRead::Mods::MapGen
             writer.Write(face.Start);
         }
 
-        const std::int32_t dataIndexOffset = ListCount(writer.Position());
+        const std::int32_t dataIndexOffset = ToInt32Unchecked(writer.Position());
         for (const std::uint16_t index : dataIndices)
         {
             writer.Write(index);
         }
         Align(writer);
 
-        const std::int32_t entryOffset = ListCount(writer.Position());
+        const std::int32_t entryOffset = ToInt32Unchecked(writer.Position());
         for (const Entry& entry : entries)
         {
             writer.Write(entry.Count);
             writer.Write(entry.Start);
         }
-        const std::int32_t portalOffset = ListCount(writer.Position());
+        const std::int32_t portalOffset = ToInt32Unchecked(writer.Position());
 
         writer.Position(0);
         writer.WriteString("wc01", 4);

@@ -792,7 +792,21 @@ namespace
         CheckJavaException(env);
     }
 
-    bool FileExists(const std::string& path) noexcept
+    void InvokeReport(
+        const std::function<void(const std::string&)>& report,
+        const std::string& line
+    )
+    {
+        if (!report)
+        {
+            throw std::runtime_error(
+                "Object reference not set to an instance of an object."
+            );
+        }
+        report(line);
+    }
+
+    bool FileExists(const std::string& path)
     {
         if (path.find('\0') != std::string::npos)
         {
@@ -1075,7 +1089,8 @@ namespace MphRead::Droid
             return 0;
         }
 
-        report(
+        InvokeReport(
+            report,
             "[thumbnails] rendering "
             + std::to_string(rooms.size())
             + " preview(s) in the background, "
@@ -1128,7 +1143,8 @@ namespace MphRead::Droid
             if (written != last)
             {
                 last = written;
-                report(
+                InvokeReport(
+                    report,
                     "[thumbnails] "
                     + std::to_string(written)
                     + "/"
@@ -1146,7 +1162,8 @@ namespace MphRead::Droid
             );
         }
 
-        report(
+        InvokeReport(
+            report,
             "[thumbnails] the background workers ran out of time; "
             "the rest will be rendered on the next visit"
         );

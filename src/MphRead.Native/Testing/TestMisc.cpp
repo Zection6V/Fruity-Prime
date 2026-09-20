@@ -913,12 +913,19 @@ namespace MphRead::Testing
             outputSpan2 = Span<byte>(_outputBuf2);
         }
 
-        const int offset1 = ReadInt32LittleEndian(
-            std::span<const byte>(videoData.Slice(0, 4).Cast<byte>().Length() == 4
-                ? &videoData[0] : nullptr, 4)) + 8;
-        const int offset2 = ReadInt32LittleEndian(
-            std::span<const byte>(&videoData[4], 4));
-        Span<uint> videoDataUint = videoData.Slice(offset1 + offset2).Cast<uint>();
+        auto ReadVideoInt32 = [](Span<byte> source) -> int
+        {
+            if (source.Length() < 4)
+            {
+                throw System::ArgumentOutOfRangeException("source");
+            }
+            return ReadInt32LittleEndian(std::span<const byte>(&source[0], 4));
+        };
+
+        const int offset1 = UncheckedAdd(ReadVideoInt32(videoData), 8);
+        const int offset2 = ReadVideoInt32(videoData.Slice(4));
+        Span<uint> videoDataUint =
+            videoData.Slice(UncheckedAdd(offset1, offset2)).Cast<uint>();
         Span<ushort> videoDataUshort = videoData.Slice(offset1).Cast<ushort>();
         Span<byte> videoDataByte = videoData.Slice(8);
         _readBit = 1;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -17,7 +18,7 @@ namespace MphRead::Mods::Input
 
         inline static constexpr std::string_view FileName = "gamecontrollerdb.txt";
 
-        [[nodiscard]] static const std::string& Summary() noexcept;
+        [[nodiscard]] static std::string Summary();
         static void EnsureLoaded();
         [[nodiscard]] static std::string Suggest(std::int32_t slot);
         [[nodiscard]] static std::string Platform();
@@ -28,7 +29,7 @@ namespace MphRead::Mods::Input
         [[nodiscard]] static bool Apply(const std::string& text);
         [[nodiscard]] static std::int32_t Count(std::string_view text);
 
-        static bool _loaded;
+        static std::atomic_bool _loaded;
         static std::string _summary;
     };
 }

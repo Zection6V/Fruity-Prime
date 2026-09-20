@@ -26,26 +26,17 @@
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <TargetConditionals.h>
+#include <dlfcn.h>
 #include <mach-o/dyld.h>
 #elif defined(__linux__)
 #include <sys/auxv.h>
+#if !defined(__ANDROID__)
+#include <dlfcn.h>
 #endif
-
-#if !defined(_WIN32)
-#if defined(__APPLE__)
-#define MPHREAD_GLFW_WEAK __attribute__((weak_import))
-#elif defined(__GNUC__) || defined(__clang__)
-#define MPHREAD_GLFW_WEAK __attribute__((weak))
-#else
-#define MPHREAD_GLFW_WEAK
+#elif defined(__unix__)
+#if !defined(__ANDROID__)
+#include <dlfcn.h>
 #endif
-extern "C"
-{
-    MPHREAD_GLFW_WEAK int glfwUpdateGamepadMappings(const char*);
-    MPHREAD_GLFW_WEAK const char* glfwGetJoystickGUID(int);
-    MPHREAD_GLFW_WEAK const char* glfwGetJoystickName(int);
-}
-#undef MPHREAD_GLFW_WEAK
 #endif
 
 namespace
@@ -580,6 +571,16 @@ namespace
 #endif
     }
 
+    class GlfwBindingUnavailable final : public std::runtime_error
+    {
+    public:
+        explicit GlfwBindingUnavailable(const char* procedure)
+            : std::runtime_error(
+                std::string("GLFW binding unavailable: ") + procedure)
+        {
+        }
+    };
+
     using UpdateMappings = int (*)(const char*);
     using JoystickString = const char* (*)(int);
 
@@ -612,6 +613,68 @@ namespace
             ? nullptr
             : reinterpret_cast<T>(GetProcAddress(module, name));
     }
+#elif defined(__APPLE__) || (defined(__unix__) && !defined(__ANDROID__))
+    [[nodiscard]] void* GlfwModule() noexcept
+    {
+        static void* module = []() noexcept -> void*
+        {
+#if defined(__APPLE__)
+            constexpr const char* names[] = {
+                "glfw.3.3.dylib", "libglfw.3.3.dylib",
+                "glfw.3.dylib", "libglfw.3.dylib",
+                "glfw.dylib", "libglfw.dylib", "glfw"};
+#else
+            constexpr const char* names[] = {
+                "glfw.so.3.3", "libglfw.so.3.3",
+                "glfw.so.3", "libglfw.so.3",
+                "glfw.so", "libglfw.so", "glfw"};
+#endif
+            if (const std::optional<std::filesystem::path> process = ProcessPath())
+            {
+                const std::filesystem::path directory = process->parent_path();
+                for (const char* name : names)
+                {
+                    try
+                    {
+                        const std::string local = (directory / name).string();
+                        if (void* handle = dlopen(
+                            local.c_str(), RTLD_LAZY | RTLD_LOCAL))
+                        {
+                            return handle;
+                        }
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            }
+            for (const char* name : names)
+            {
+                if (void* handle = dlopen(name, RTLD_LAZY | RTLD_LOCAL))
+                {
+                    return handle;
+                }
+            }
+            return nullptr;
+        }();
+        return module;
+    }
+
+    template <typename T>
+    [[nodiscard]] T GlfwProc(const char* name) noexcept
+    {
+        void* module = GlfwModule();
+        return module == nullptr
+            ? nullptr
+            : reinterpret_cast<T>(dlsym(module, name));
+    }
+#else
+    template <typename T>
+    [[nodiscard]] T GlfwProc(const char*) noexcept
+    {
+        return nullptr;
+    }
+#endif
 
     [[nodiscard]] UpdateMappings UpdateMappingsApi() noexcept
     {
@@ -633,31 +696,13 @@ namespace
             = GlfwProc<JoystickString>("glfwGetJoystickName");
         return value;
     }
-#else
-    [[nodiscard]] UpdateMappings UpdateMappingsApi() noexcept
-    {
-        return glfwUpdateGamepadMappings == nullptr
-            ? nullptr : &glfwUpdateGamepadMappings;
-    }
-
-    [[nodiscard]] JoystickString GuidApi() noexcept
-    {
-        return glfwGetJoystickGUID == nullptr ? nullptr : &glfwGetJoystickGUID;
-    }
-
-    [[nodiscard]] JoystickString NameApi() noexcept
-    {
-        return glfwGetJoystickName == nullptr ? nullptr : &glfwGetJoystickName;
-    }
-#endif
 
     [[nodiscard]] std::optional<std::string> ReadJoystickString(
         JoystickString function, std::int32_t slot, const char* procedure)
     {
         if (function == nullptr)
         {
-            throw std::runtime_error(
-                std::string("GLFW binding unavailable: ") + procedure);
+            throw GlfwBindingUnavailable(procedure);
         }
         const char* value = function(slot);
         return value == nullptr
@@ -676,10 +721,10 @@ namespace
 
 namespace MphRead::Mods::Input
 {
-    bool GamepadMappings::_loaded = false;
+    std::atomic_bool GamepadMappings::_loaded{false};
     std::string GamepadMappings::_summary = "no extra mappings loaded";
 
-    const std::string& GamepadMappings::Summary() noexcept
+    std::string GamepadMappings::Summary()
     {
         return _summary;
     }
@@ -689,11 +734,11 @@ namespace MphRead::Mods::Input
 #if defined(__ANDROID__)
         return;
 #else
-        if (_loaded)
+        if (_loaded.load(std::memory_order_relaxed))
         {
             return;
         }
-        _loaded = true;
+        _loaded.store(true, std::memory_order_relaxed);
 
         std::int32_t files = 0;
         std::int32_t lines = 0;
@@ -764,8 +809,19 @@ namespace MphRead::Mods::Input
 
     bool GamepadMappings::Apply(const std::string& text)
     {
-        const UpdateMappings function = UpdateMappingsApi();
-        return function != nullptr && function(text.c_str()) == 1;
+        try
+        {
+            const UpdateMappings function = UpdateMappingsApi();
+            if (function == nullptr)
+            {
+                throw GlfwBindingUnavailable("glfwUpdateGamepadMappings");
+            }
+            return function(text.c_str()) != 0;
+        }
+        catch (const GlfwBindingUnavailable&)
+        {
+            return false;
+        }
     }
 
     std::int32_t GamepadMappings::Count(std::string_view text)

@@ -6,6 +6,7 @@
 
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -18,6 +19,13 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <version>
+#if defined(__cpp_lib_jthread) && __cpp_lib_jthread >= 201911L
+#include <stop_token>
+#define MPHREAD_HAS_STD_JTHREAD 1
+#else
+#define MPHREAD_HAS_STD_JTHREAD 0
+#endif
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -106,6 +114,165 @@ namespace MphRead::RendererDetail
 
 namespace MphRead
 {
+#if MPHREAD_HAS_STD_JTHREAD
+    using RendererStopToken = std::stop_token;
+    using RendererJThread = std::jthread;
+#else
+    namespace RendererDetail
+    {
+        class OutputStopState final
+        {
+        public:
+            [[nodiscard]] bool RequestStop() noexcept
+            {
+                bool changed = false;
+                {
+                    std::scoped_lock lock(_mutex);
+                    if (!_stopRequested)
+                    {
+                        _stopRequested = true;
+                        changed = true;
+                    }
+                }
+                if (changed)
+                {
+                    _condition.notify_all();
+                }
+                return changed;
+            }
+
+            [[nodiscard]] bool StopRequested() const noexcept
+            {
+                std::scoped_lock lock(_mutex);
+                return _stopRequested;
+            }
+
+            void WaitFor(std::chrono::milliseconds duration)
+            {
+                std::unique_lock lock(_mutex);
+                _condition.wait_for(lock, duration, [this] { return _stopRequested; });
+            }
+
+        private:
+            mutable std::mutex _mutex{};
+            std::condition_variable _condition{};
+            bool _stopRequested = false;
+        };
+    }
+
+    class RendererStopToken final
+    {
+    public:
+        RendererStopToken() noexcept = default;
+
+        [[nodiscard]] bool stop_requested() const noexcept
+        {
+            return _state && _state->StopRequested();
+        }
+
+        void WaitFor(std::chrono::milliseconds duration) const
+        {
+            if (_state)
+            {
+                _state->WaitFor(duration);
+            }
+            else
+            {
+                std::this_thread::sleep_for(duration);
+            }
+        }
+
+    private:
+        friend class RendererJThread;
+        explicit RendererStopToken(std::shared_ptr<RendererDetail::OutputStopState> state) noexcept
+            : _state(std::move(state))
+        {
+        }
+
+        std::shared_ptr<RendererDetail::OutputStopState> _state{};
+    };
+
+    class RendererJThread final
+    {
+    public:
+        RendererJThread() noexcept = default;
+
+        explicit RendererJThread(std::function<void(RendererStopToken)> entry)
+            : _state(std::make_shared<RendererDetail::OutputStopState>()),
+              _thread([state = _state, entry = std::move(entry)]() mutable
+              {
+                  entry(RendererStopToken(std::move(state)));
+              })
+        {
+        }
+
+        RendererJThread(const RendererJThread&) = delete;
+        RendererJThread& operator=(const RendererJThread&) = delete;
+
+        RendererJThread(RendererJThread&& other) noexcept
+            : _state(std::move(other._state)),
+              _thread(std::move(other._thread))
+        {
+        }
+
+        RendererJThread& operator=(RendererJThread&& other) noexcept
+        {
+            if (this != &other)
+            {
+                StopAndJoin();
+                _state = std::move(other._state);
+                _thread = std::move(other._thread);
+            }
+            return *this;
+        }
+
+        ~RendererJThread()
+        {
+            StopAndJoin();
+        }
+
+        [[nodiscard]] bool joinable() const noexcept
+        {
+            return _thread.joinable();
+        }
+
+        bool request_stop() noexcept
+        {
+            return _state && _state->RequestStop();
+        }
+
+    private:
+        void StopAndJoin()
+        {
+            if (_thread.joinable())
+            {
+                request_stop();
+                _thread.join();
+            }
+        }
+
+        std::shared_ptr<RendererDetail::OutputStopState> _state{};
+        std::thread _thread{};
+    };
+#endif
+
+    inline void RendererWaitForStop(
+        std::condition_variable_any& condition,
+        std::unique_lock<std::mutex>& lock,
+        const RendererStopToken& token,
+        std::chrono::milliseconds duration)
+    {
+#if MPHREAD_HAS_STD_JTHREAD
+        condition.wait_for(lock, token, duration, [] { return false; });
+#else
+        (void)condition;
+        (void)lock;
+        token.WaitFor(duration);
+#endif
+    }
+
+#undef MPHREAD_HAS_STD_JTHREAD
+
     class Scene;
     class RenderWindow;
     class TextureMap;
@@ -705,7 +872,7 @@ private: \
     void UpdatePointModule(); \
     void OutputStart(); \
     void OutputStop(); \
-    void OutputUpdate(std::stop_token token); \
+    void OutputUpdate(MphRead::RendererStopToken token); \
     void OutputLoadPrompt(); \
     /* OutputCameraPrompt preserves managed Single.TryParse grammar in Renderer.cpp. */ \
     void OutputCameraPrompt(); \
@@ -877,6 +1044,6 @@ private: \
     PromptState _promptState = PromptState::None; \
     MphRead::RendererConcurrentQueue<std::tuple<std::string, std::int32_t, bool>> _loadQueue{}; \
     MphRead::RendererConcurrentQueue<std::shared_ptr<MphRead::Entities::EntityBase>> _unloadQueue{}; \
-    std::jthread _outputThread{}; \
+    MphRead::RendererJThread _outputThread{}; \
     std::string _currentOutput{}; \
     std::string _outputBuffer{};

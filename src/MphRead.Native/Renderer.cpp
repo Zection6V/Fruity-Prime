@@ -6297,7 +6297,7 @@ namespace MphRead
 
     void Scene::OutputStart()
     {
-        _outputThread = std::jthread([this](std::stop_token token)
+        _outputThread = RendererJThread([this](RendererStopToken token)
         {
             OutputUpdate(token);
         });
@@ -6311,7 +6311,7 @@ namespace MphRead
         }
     }
 
-    void Scene::OutputUpdate(std::stop_token token)
+    void Scene::OutputUpdate(RendererStopToken token)
     {
         std::mutex delayMutex;
         std::condition_variable_any delayCondition;
@@ -6337,7 +6337,7 @@ namespace MphRead
                 _currentOutput = output;
             }
             std::unique_lock lock(delayMutex);
-            delayCondition.wait_for(lock, token, std::chrono::milliseconds(100), [] { return false; });
+            RendererWaitForStop(delayCondition, lock, token, std::chrono::milliseconds(100));
         }
     }
 

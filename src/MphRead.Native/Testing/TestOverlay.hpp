@@ -13,7 +13,7 @@ namespace MphRead::Testing
         static void CompareGames(const std::string& game1, const std::string& game2);
         static void Translate(std::int32_t mask);
 
-        static const std::shared_ptr<std::vector<std::int32_t>> OverlayMap;
+        static const std::shared_ptr<const std::vector<std::int32_t>> OverlayMap;
 
         TestOverlay() = delete;
         TestOverlay(const TestOverlay&) = delete;
@@ -47,4 +47,45 @@ namespace MphRead::Testing
         Slench = 0x10000,
         Bit17 = 0x20000
     };
+
+    [[nodiscard]] constexpr MphOverlay operator|(MphOverlay left, MphOverlay right) noexcept
+    {
+        return static_cast<MphOverlay>(
+            static_cast<std::int32_t>(left) | static_cast<std::int32_t>(right));
+    }
+
+    [[nodiscard]] constexpr MphOverlay operator&(MphOverlay left, MphOverlay right) noexcept
+    {
+        return static_cast<MphOverlay>(
+            static_cast<std::int32_t>(left) & static_cast<std::int32_t>(right));
+    }
+
+    [[nodiscard]] constexpr MphOverlay operator^(MphOverlay left, MphOverlay right) noexcept
+    {
+        return static_cast<MphOverlay>(
+            static_cast<std::int32_t>(left) ^ static_cast<std::int32_t>(right));
+    }
+
+    [[nodiscard]] constexpr MphOverlay operator~(MphOverlay value) noexcept
+    {
+        return static_cast<MphOverlay>(~static_cast<std::int32_t>(value));
+    }
+
+    constexpr MphOverlay& operator|=(MphOverlay& left, MphOverlay right) noexcept
+    {
+        left = left | right;
+        return left;
+    }
+
+    constexpr MphOverlay& operator&=(MphOverlay& left, MphOverlay right) noexcept
+    {
+        left = left & right;
+        return left;
+    }
+
+    constexpr MphOverlay& operator^=(MphOverlay& left, MphOverlay right) noexcept
+    {
+        left = left ^ right;
+        return left;
+    }
 }

@@ -3,10 +3,13 @@
 #include "../Formats/Formats.hpp"
 
 #include <algorithm>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
@@ -95,31 +98,52 @@ namespace
     [[nodiscard]] std::vector<std::string> EnumerateDirectoriesRecursive(
         const std::string& root)
     {
-        std::vector<std::string> result;
-        for (const std::filesystem::directory_entry& entry :
-            std::filesystem::recursive_directory_iterator(PathFromUtf8(root)))
+        struct PendingDirectory final
         {
-            if (entry.is_directory())
+            std::filesystem::path Path;
+            std::int32_t RemainingDepth;
+        };
+
+        std::vector<std::string> result;
+        std::deque<PendingDirectory> pending;
+        pending.push_back(PendingDirectory{
+            PathFromUtf8(root),
+            std::numeric_limits<std::int32_t>::max()});
+
+        while (!pending.empty())
+        {
+            PendingDirectory current = std::move(pending.front());
+            pending.pop_front();
+            for (const std::filesystem::directory_entry& entry :
+                std::filesystem::directory_iterator(current.Path))
             {
-                result.push_back(PathToUtf8(entry.path()));
+                if (entry.is_directory())
+                {
+                    if (current.RemainingDepth > 0)
+                    {
+                        pending.push_back(PendingDirectory{
+                            entry.path(),
+                            current.RemainingDepth - 1});
+                    }
+                    result.push_back(ReplaceAll(PathToUtf8(entry.path()), root, ""));
+                }
             }
         }
         return result;
     }
 
-    [[nodiscard]] std::vector<std::string> EnumerateFiles(
-        const std::string& directory)
+    void AppendFiles(
+        const std::string& directory,
+        std::vector<std::string>& files)
     {
-        std::vector<std::string> result;
         for (const std::filesystem::directory_entry& entry :
             std::filesystem::directory_iterator(PathFromUtf8(directory)))
         {
             if (!entry.is_directory())
             {
-                result.push_back(PathToUtf8(entry.path()));
+                files.push_back(GetFileName(PathToUtf8(entry.path())));
             }
         }
-        return result;
     }
 
     [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
@@ -135,48 +159,69 @@ namespace
             std::istreambuf_iterator<char>(stream),
             std::istreambuf_iterator<char>());
     }
+
+    [[nodiscard]] std::recursive_mutex& ConsoleMutex()
+    {
+        static std::recursive_mutex mutex;
+        return mutex;
+    }
+
+    void WriteLine(const std::string& value)
+    {
+        const std::lock_guard<std::recursive_mutex> lock(ConsoleMutex());
+        std::cout << value << '\n';
+        std::cout.flush();
+    }
+
+    void WriteLine()
+    {
+        const std::lock_guard<std::recursive_mutex> lock(ConsoleMutex());
+        std::cout << '\n';
+        std::cout.flush();
+    }
+
+    [[noreturn]] void ThrowDuplicateKey(const std::string& key)
+    {
+        throw std::invalid_argument(
+            "An item with the same key has already been added. Key: " + key);
+    }
 }
 
 namespace MphRead::Testing
 {
-    const std::shared_ptr<std::vector<std::int32_t>> TestOverlay::OverlayMap =
-        std::make_shared<std::vector<std::int32_t>>(
-            std::initializer_list<std::int32_t>{
-                4,
-                6,
-                17,
-                5,
-                16,
-                0,
-                7,
-                1,
-                2,
-                3,
-                8,
-                15,
-                10,
-                9,
-                11,
-                12,
-                13,
-                14});
+    const std::shared_ptr<const std::vector<std::int32_t>> TestOverlay::OverlayMap = []
+    {
+        auto values = std::make_shared<std::vector<std::int32_t>>();
+        values->push_back(4);
+        values->push_back(6);
+        values->push_back(17);
+        values->push_back(5);
+        values->push_back(16);
+        values->push_back(0);
+        values->push_back(7);
+        values->push_back(1);
+        values->push_back(2);
+        values->push_back(3);
+        values->push_back(8);
+        values->push_back(15);
+        values->push_back(10);
+        values->push_back(9);
+        values->push_back(11);
+        values->push_back(12);
+        values->push_back(13);
+        values->push_back(14);
+        return values;
+    }();
 
     void TestOverlay::CompareGames(const std::string& game1, const std::string& game2)
     {
-        const std::string fileSystemDirectory = GetDirectoryName(Paths::FileSystem());
-        const std::string root1 = Paths::Combine(fileSystemDirectory, game1);
-        const std::string root2 = Paths::Combine(fileSystemDirectory, game2);
+        const std::string root1 = Paths::Combine(
+            GetDirectoryName(Paths::FileSystem()), game1);
+        const std::string root2 = Paths::Combine(
+            GetDirectoryName(Paths::FileSystem()), game2);
 
-        std::vector<std::string> dirs1 = EnumerateDirectoriesRecursive(root1);
-        for (std::string& directory : dirs1)
-        {
-            directory = ReplaceAll(std::move(directory), root1, "");
-        }
-        std::vector<std::string> dirs2 = EnumerateDirectoriesRecursive(root2);
-        for (std::string& directory : dirs2)
-        {
-            directory = ReplaceAll(std::move(directory), root2, "");
-        }
+        const std::vector<std::string> dirs1 = EnumerateDirectoriesRecursive(root1);
+        const std::vector<std::string> dirs2 = EnumerateDirectoriesRecursive(root2);
 
         std::unordered_map<std::string, std::vector<std::string>> files1;
         std::unordered_map<std::string, std::vector<std::string>> files2;
@@ -185,24 +230,18 @@ namespace MphRead::Testing
             auto [entry, inserted] = files1.emplace(directory, std::vector<std::string>{});
             if (!inserted)
             {
-                throw std::invalid_argument("An item with the same key has already been added.");
+                ThrowDuplicateKey(directory);
             }
-            for (const std::string& file : EnumerateFiles(Paths::Combine(root1, directory)))
-            {
-                entry->second.push_back(GetFileName(file));
-            }
+            AppendFiles(Paths::Combine(root1, directory), entry->second);
         }
         for (const std::string& directory : dirs2)
         {
             auto [entry, inserted] = files2.emplace(directory, std::vector<std::string>{});
             if (!inserted)
             {
-                throw std::invalid_argument("An item with the same key has already been added.");
+                ThrowDuplicateKey(directory);
             }
-            for (const std::string& file : EnumerateFiles(Paths::Combine(root2, directory)))
-            {
-                entry->second.push_back(GetFileName(file));
-            }
+            AppendFiles(Paths::Combine(root2, directory), entry->second);
         }
 
         std::vector<std::string> dir1not2;
@@ -215,12 +254,12 @@ namespace MphRead::Testing
         }
         if (!dir1not2.empty())
         {
-            std::cout << "Directories in " << game1 << " not in " << game2 << ":\n";
+            WriteLine("Directories in " + game1 + " not in " + game2 + ":");
             for (const std::string& directory : dir1not2)
             {
-                std::cout << "-- " << directory << '\n';
+                WriteLine("-- " + directory);
             }
-            std::cout << '\n';
+            WriteLine();
         }
 
         std::vector<std::string> dir2not1;
@@ -233,12 +272,12 @@ namespace MphRead::Testing
         }
         if (!dir2not1.empty())
         {
-            std::cout << "Directories in " << game2 << " not in " << game1 << ":\n";
+            WriteLine("Directories in " + game2 + " not in " + game1 + ":");
             for (const std::string& directory : dir2not1)
             {
-                std::cout << "-- " << directory << '\n';
+                WriteLine("-- " + directory);
             }
-            std::cout << '\n';
+            WriteLine();
         }
 
         for (const std::string& directory : dirs1)
@@ -267,27 +306,27 @@ namespace MphRead::Testing
             }
             if (!file1not2.empty() || !file2not1.empty())
             {
-                std::cout << directory << '\n';
+                WriteLine(directory);
             }
             if (!file1not2.empty())
             {
-                std::cout << "Files in " << game1 << " not in " << game2 << ":\n";
+                WriteLine("Files in " + game1 + " not in " + game2 + ":");
                 for (const std::string& file : file1not2)
                 {
-                    std::cout << "-- " << file << '\n';
+                    WriteLine("-- " + file);
                 }
             }
             if (!file2not1.empty())
             {
-                std::cout << "Files in " << game2 << " not in " << game1 << ":\n";
+                WriteLine("Files in " + game2 + " not in " + game1 + ":");
                 for (const std::string& file : file2not1)
                 {
-                    std::cout << "-- " << file << '\n';
+                    WriteLine("-- " + file);
                 }
             }
             if (!file1not2.empty() || !file2not1.empty())
             {
-                std::cout << '\n';
+                WriteLine();
             }
         }
 
@@ -317,13 +356,13 @@ namespace MphRead::Testing
             }
             if (!changes.empty())
             {
-                std::cout << directory << '\n';
-                std::cout << "Changed files:\n";
+                WriteLine(directory);
+                WriteLine("Changed files:");
                 for (const std::string& file : changes)
                 {
-                    std::cout << file << '\n';
+                    WriteLine(file);
                 }
-                std::cout << '\n';
+                WriteLine();
             }
         }
         Nop();
@@ -341,15 +380,16 @@ namespace MphRead::Testing
             }
         }
         std::sort(active.begin(), active.end());
+        std::string line;
         for (std::size_t i = 0; i < active.size(); i++)
         {
             if (i != 0)
             {
-                std::cout << ", ";
+                line += ", ";
             }
-            std::cout << active[i];
+            line += std::to_string(active[i]);
         }
-        std::cout << '\n';
+        WriteLine(line);
         Nop();
     }
 

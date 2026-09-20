@@ -157,7 +157,7 @@ namespace MphRead::Entities
             return (*values)[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scalar) noexcept
+        [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scalar) noexcept
         {
             return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
         }
@@ -475,7 +475,7 @@ namespace MphRead::Entities
                     if (LengthSquared(between) < 5.0F * 5.0F)
                     {
                         _target = &player;
-                        _speed = Scale(FacingVector(), 0.3F);
+                        _speed = ScaleVector(FacingVector(), 0.3F);
                     }
                 }
             }
@@ -492,7 +492,7 @@ namespace MphRead::Entities
                     if (LengthSquared(between) < 5.0F * 5.0F)
                     {
                         _target = &halfturret;
-                        _speed = Scale(FacingVector(), 0.3F);
+                        _speed = ScaleVector(FacingVector(), 0.3F);
                     }
                 }
             }
@@ -538,7 +538,7 @@ namespace MphRead::Entities
             }
             if (RequireReference(_owner).IsAltForm())
             {
-                RequireReference(_owner).CheckHitByBomb(this, false);
+                (void)RequireReference(_owner).CheckHitByBomb(this, false);
             }
             if (TestFlag(_flags, BombFlags::Exploding))
             {
@@ -552,7 +552,7 @@ namespace MphRead::Entities
                     const float radius = _selfRadius + 0.4F;
                     if (dot < radius && dot > -radius)
                     {
-                        between = between - Scale(doorFacing, dot);
+                        between = between - ScaleVector(doorFacing, dot);
                         if (LengthSquared(between) <= door.RadiusSquared())
                         {
                             if (TestFlag(door.Flags(), DoorFlags::Locked)
@@ -815,7 +815,7 @@ namespace MphRead::Entities
                     if (owner.IsBot() && GameState::SinglePlayer())
                     {
                         const std::int32_t encounter
-                            = ManagedAt(GameState::EncounterState, owner.SlotIndex());
+                            = ManagedAt(GameState::EncounterState(), owner.SlotIndex());
                         if (encounter == 1
                             || encounter == 3
                             || encounter == 4
@@ -864,7 +864,7 @@ namespace MphRead::Entities
             if (owner.IsBot() && GameState::SinglePlayer())
             {
                 const std::int32_t encounter
-                    = ManagedAt(GameState::EncounterState, owner.SlotIndex());
+                    = ManagedAt(GameState::EncounterState(), owner.SlotIndex());
                 if (encounter == 1
                     || encounter == 3
                     || encounter == 4
@@ -952,7 +952,7 @@ namespace MphRead::Entities
             {
                 between = Divide(between, std::sqrt(magSqr));
             }
-            newSpeed = _speed + Scale(between - _speed, 0.15F);
+            newSpeed = _speed + ScaleVector(between - _speed, 0.15F);
         }
         else
         {
@@ -995,11 +995,11 @@ namespace MphRead::Entities
                 + 0.4F;
             if (dotw > 0.0F)
             {
-                Position = static_cast<Vector3>(Position) + Scale(normal, dotw);
+                Position = static_cast<Vector3>(Position) + ScaleVector(normal, dotw);
                 const float dot = Vector3::Dot(Divide(_speed, 2.0F), normal);
                 if (dot < 0.0F)
                 {
-                    _speed = _speed + Scale(normal, -dot);
+                    _speed = _speed + ScaleVector(normal, -dot);
                 }
             }
         }

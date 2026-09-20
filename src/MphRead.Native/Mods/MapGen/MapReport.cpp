@@ -335,7 +335,7 @@ namespace MphRead::Mods::MapGen
         summary += " textures";
         WriteLine(summary);
 
-        for (std::int32_t i = 0; i < materialCount; ++i)
+        for (std::int32_t i = 0;\n            i < static_cast<std::int32_t>(model->Materials->size()); ++i)
         {
             const std::shared_ptr<Material>& materialRef
                 = ListAt(*model->Materials, i);
@@ -344,7 +344,7 @@ namespace MphRead::Mods::MapGen
             std::string size = "no texture";
             std::string format;
             if (material.TextureId >= 0
-                && material.TextureId < textureCount)
+                && material.TextureId\n                    < static_cast<std::int32_t>(recolor->Textures->size()))
             {
                 const Texture& texture
                     = ListAt(*recolor->Textures, material.TextureId);

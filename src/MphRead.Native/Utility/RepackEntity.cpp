@@ -2308,7 +2308,8 @@ namespace MphRead::Utility
             case EntityType::ForceField: WriteMphForceField(CastEditor<ForceFieldEntityEditor>(entity), writer); break;
             default: break;
             }
-            return static_cast<std::int32_t>(writer.Position() - position);
+            return std::bit_cast<std::int32_t>(
+                static_cast<std::uint32_t>(writer.Position() - position));
         }
 
         [[nodiscard]] std::vector<std::uint8_t> RepackEntities(const EditorList& entities)
@@ -2336,7 +2337,8 @@ namespace MphRead::Utility
             std::vector<std::pair<std::int32_t, std::int32_t>> results;
             for (std::size_t i = 0; i < entities.size(); ++i)
             {
-                const std::int32_t offset = static_cast<std::int32_t>(writer.Position());
+                const std::int32_t offset = std::bit_cast<std::int32_t>(
+                    static_cast<std::uint32_t>(writer.Position()));
                 const std::int32_t size = WriteEntity(entities[i], writer);
                 results.emplace_back(offset, size);
                 if (i + 1 < entities.size())
@@ -2525,7 +2527,8 @@ namespace MphRead::Utility
             for (std::size_t i = 0; i < entities.size(); ++i)
             {
                 ThrowIfInvalid(entities[i], true);
-                offsets.push_back(static_cast<std::int32_t>(writer.Position()));
+                offsets.push_back(std::bit_cast<std::int32_t>(
+                    static_cast<std::uint32_t>(writer.Position())));
                 WriteFhEntity(entities[i], writer);
                 if (i + 1 < entities.size())
                 {
@@ -2843,7 +2846,7 @@ namespace MphRead::Utility
             {
                 REPACK_DEBUG_ASSERT(packEntries[i].DataOffset == fileEntries[i].DataOffset);
                 REPACK_DEBUG_ASSERT(EqualNodeName(packEntries[i].NodeName, fileEntries[i].NodeName, 16));
-                CompareData(static_cast<std::int32_t>(packEntries[i].DataOffset), pack, file);
+                CompareData(std::bit_cast<std::int32_t>(packEntries[i].DataOffset), pack, file);
             }
             REPACK_DEBUG_ASSERT(pack == file);
             Nop();

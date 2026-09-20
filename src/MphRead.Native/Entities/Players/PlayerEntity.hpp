@@ -706,6 +706,7 @@ namespace MphRead::Entities
         inline static std::array<std::array<MphRead::CollisionVolume, 3>, 8> PlayerVolumes{};
         inline static std::array<float, 4> KandenAltNodeDistances{};
 
+        MPHREAD_PLAYER_ENTITY_ICON_BOUNDS_MEMBERS
         MPHREAD_PLAYER_CAMERA_MEMBERS
         MPHREAD_PLAYER_COLLISION_MEMBERS
         MPHREAD_PLAYER_DIALOG_MEMBERS

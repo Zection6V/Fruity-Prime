@@ -1,5 +1,7 @@
 #include "PlayerEntityIconBounds.hpp"
 
+#include "../../Entities/Players/PlayerEntity.hpp"
+
 #include <bit>
 #include <cstddef>
 #include <cstdint>

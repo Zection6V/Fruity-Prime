@@ -4,6 +4,7 @@
 #include "../../Program.hpp"
 #include "../../Read.hpp"
 #include "BuiltMap.hpp"
+#include "CustomRooms.hpp"
 #include "MapBuilder.hpp"
 #include "MapDefinition.hpp"
 #include "MapTextureBake.hpp"
@@ -29,17 +30,6 @@
 #include <tuple>
 #include <utility>
 #include <vector>
-
-namespace MphRead::Mods::MapGen
-{
-    // Transitional dependency surface. CustomRooms is a later dependency-order
-    // item; bind only the exact member used by Q3Import.cs.
-    class CustomRooms final
-    {
-    public:
-        [[nodiscard]] static const std::string& MapDirectory();
-    };
-}
 
 namespace
 {
@@ -282,19 +272,6 @@ namespace
         return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
     }
 
-    [[nodiscard]] std::string_view TrimFloatWhitespace(std::string_view value) noexcept
-    {
-        while (!value.empty() && IsAsciiWhitespace(static_cast<unsigned char>(value.front())))
-        {
-            value.remove_prefix(1);
-        }
-        while (!value.empty() && IsAsciiWhitespace(static_cast<unsigned char>(value.back())))
-        {
-            value.remove_suffix(1);
-        }
-        return value;
-    }
-
     [[nodiscard]] bool EqualsIgnoreCaseAscii(
         std::string_view left, std::string_view right) noexcept
     {
@@ -453,26 +430,62 @@ namespace
         std::string_view text, float& result) noexcept
     {
         result = 0.0F;
-        text = TrimFloatWhitespace(text);
+        while (!text.empty()
+            && IsAsciiWhitespace(static_cast<unsigned char>(text.front())))
+        {
+            text.remove_prefix(1);
+        }
         if (text.empty())
         {
             return false;
         }
 
-        if (EqualsIgnoreCaseAscii(text, "NaN"))
+        // Number.TryParseFloat first parses NumberStyles.Float, then checks
+        // the culture's NaN/infinity symbols against a whitespace-trimmed
+        // view. InvariantCulture uses +, -, NaN and Infinity. All signed NaN
+        // spellings return Single.NaN, whose canonical .NET bit pattern is
+        // 0xFFC00000.
+        std::string_view special = text;
+        while (!special.empty()
+            && IsAsciiWhitespace(static_cast<unsigned char>(special.back())))
         {
-            result = std::numeric_limits<float>::quiet_NaN();
+            special.remove_suffix(1);
+        }
+        if (EqualsIgnoreCaseAscii(special, "NaN")
+            || EqualsIgnoreCaseAscii(special, "+NaN")
+            || EqualsIgnoreCaseAscii(special, "-NaN"))
+        {
+            result = std::bit_cast<float>(std::uint32_t{0xFFC00000U});
             return true;
         }
-        if (EqualsIgnoreCaseAscii(text, "Infinity"))
+        if (EqualsIgnoreCaseAscii(special, "Infinity")
+            || EqualsIgnoreCaseAscii(special, "+Infinity"))
         {
             result = std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsIgnoreCaseAscii(text, "-Infinity"))
+        if (EqualsIgnoreCaseAscii(special, "-Infinity"))
         {
             result = -std::numeric_limits<float>::infinity();
             return true;
+        }
+
+        // TryStringToNumber permits trailing whitespace and, for compatibility,
+        // then permits only embedded NUL characters to the end of the input.
+        // Strip in that order from the outside: NULs first, then whitespace.
+        // A NUL followed by whitespace must remain invalid.
+        while (!text.empty() && text.back() == '\0')
+        {
+            text.remove_suffix(1);
+        }
+        while (!text.empty()
+            && IsAsciiWhitespace(static_cast<unsigned char>(text.back())))
+        {
+            text.remove_suffix(1);
+        }
+        if (text.empty())
+        {
+            return false;
         }
 
         bool negative = false;

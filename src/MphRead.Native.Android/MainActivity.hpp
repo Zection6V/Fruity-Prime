@@ -202,11 +202,15 @@ namespace MphRead::Droid
         // CreateGameView is a mechanical constructor/wiring adapter for the
         // exact GameView constructor in MainActivity.cs; it must route its
         // build callback to AndroidMatch.Build rather than duplicate it.
+        // onBuildClose and onEnd are deliberately distinct: the C# source
+        // creates a close callback inside the build lambda and a separate
+        // GameView onEnd callback even though both ultimately post EndMatch.
         [[nodiscard]] virtual MainActivityObjectRef CreateGameView(
             MainActivity& activity,
             TouchControls& controls,
             std::shared_ptr<AndroidInput> input,
             const MphRead::Mods::Launcher::LaunchPlan& plan,
+            Action onBuildClose,
             Action onEnd,
             Action onLoaded,
             ErrorAction onError,
@@ -370,6 +374,8 @@ namespace MphRead::Droid
         void AfterRotation();
 
         [[nodiscard]] MainActivitySize ContentSize() const;
+        [[nodiscard]] MainActivityObjectRef LoadGameView() const noexcept;
+        void StoreGameView(MainActivityObjectRef value) noexcept;
         void WaitForSteadyWindow();
         void CancelPending(std::string reason);
         void StartPending(std::optional<std::string> note);
@@ -397,12 +403,11 @@ namespace MphRead::Droid
 
         MainActivityObjectRef _content{};
         MainActivityObjectRef _launcherView{};
-        MainActivityObjectRef _gameView{};
+        std::atomic<std::shared_ptr<void>> _gameView{};
         MainActivityObjectRef _overlay{};
         MainActivityObjectRef _notice{};
         MainActivityObjectRef _displays{};
 
-        std::atomic<bool> _inMatch{false};
         std::atomic<bool> _renderingPreviews{false};
         std::atomic<bool> _renderingHere{false};
 

@@ -308,12 +308,12 @@ namespace MphRead::Droid
 
     MainActivity* MainActivity::Instance() noexcept
     {
-        return _instance.load(std::memory_order_acquire);
+        return _instance.load(std::memory_order_relaxed);
     }
 
     bool MainActivity::InMatch() const noexcept
     {
-        return _inMatch.load(std::memory_order_acquire);
+        return _gameView.load(std::memory_order_relaxed) != nullptr;
     }
 
     MainActivityAppBuilderRef MainActivity::CustomizeAppBuilder(
@@ -436,7 +436,7 @@ namespace MphRead::Droid
 
     void MainActivity::OnCreate(jobject savedInstanceState)
     {
-        _instance.store(this, std::memory_order_release);
+        _instance.store(this, std::memory_order_relaxed);
 
         MainActivityOwner& owner = GetMainActivityOwner();
         owner.BaseOnCreate(*this, savedInstanceState);
@@ -724,17 +724,23 @@ namespace MphRead::Droid
         }
 
         MainActivityOwner& owner = GetMainActivityOwner();
-        const std::int32_t width = ContentSize().Width;
-        const std::int32_t height = ContentSize().Height;
+        const std::string beforeText =
+            owner.FormatInt32Current(before);
+        const std::string rotationText =
+            owner.FormatInt32Current(rotation);
+        const std::string widthText =
+            owner.FormatInt32Current(ContentSize().Width);
+        const std::string heightText =
+            owner.FormatInt32Current(ContentSize().Height);
         WriteConsoleLine(
             "[android] display rotation "
-            + owner.FormatInt32Current(before)
+            + beforeText
             + " -> "
-            + owner.FormatInt32Current(rotation)
+            + rotationText
             + " at "
-            + owner.FormatInt32Current(width)
+            + widthText
             + "x"
-            + owner.FormatInt32Current(height)
+            + heightText
         );
 
         AfterRotation();
@@ -788,9 +794,10 @@ namespace MphRead::Droid
             _displays = {};
         }
 
-        if (_gameView)
+        if (MainActivityObjectRef gameView = LoadGameView();
+            gameView)
         {
-            owner.GameViewOnPause(_gameView);
+            owner.GameViewOnPause(gameView);
         }
 
         owner.BaseOnPause(*this);
@@ -816,9 +823,10 @@ namespace MphRead::Droid
             }
         }
 
-        if (_gameView)
+        if (MainActivityObjectRef gameView = LoadGameView();
+            gameView)
         {
-            owner.GameViewOnResume(_gameView);
+            owner.GameViewOnResume(gameView);
         }
     }
 
@@ -878,14 +886,15 @@ namespace MphRead::Droid
 
     void MainActivity::OnDestroy()
     {
-        if (_instance.load(std::memory_order_acquire) == this)
+        if (_instance.load(std::memory_order_relaxed) == this)
         {
-            _instance.store(nullptr, std::memory_order_release);
+            _instance.store(nullptr, std::memory_order_relaxed);
         }
 
-        if (_gameView)
+        if (MainActivityObjectRef gameView = LoadGameView();
+            gameView)
         {
-            GetMainActivityOwner().GameViewStop(_gameView);
+            GetMainActivityOwner().GameViewStop(gameView);
         }
 
         GetMainActivityOwner().BaseOnDestroy(*this);
@@ -978,13 +987,17 @@ namespace MphRead::Droid
                 : "Loading your game..."
         );
 
+        const std::string startWidth =
+            owner.FormatInt32Current(_lastSize.Width);
+        const std::string startHeight =
+            owner.FormatInt32Current(_lastSize.Height);
         WriteConsoleLine(
             "[android] starting "
             + roomKey
             + " from "
-            + owner.FormatInt32Current(_lastSize.Width)
+            + startWidth
             + "x"
-            + owner.FormatInt32Current(_lastSize.Height)
+            + startHeight
         );
 
         WaitForSteadyWindow();
@@ -997,6 +1010,23 @@ namespace MphRead::Droid
             return {};
         }
         return GetMainActivityOwner().ViewSize(_content);
+    }
+
+    MainActivityObjectRef MainActivity::LoadGameView() const noexcept
+    {
+        return MainActivityObjectRef{
+            _gameView.load(std::memory_order_relaxed)
+        };
+    }
+
+    void MainActivity::StoreGameView(
+        MainActivityObjectRef value
+    ) noexcept
+    {
+        _gameView.store(
+            std::move(value.Native),
+            std::memory_order_relaxed
+        );
     }
 
     void MainActivity::WaitForSteadyWindow()
@@ -1134,13 +1164,15 @@ namespace MphRead::Droid
             );
         }
 
-        const std::int32_t width = ContentSize().Width;
-        const std::int32_t height = ContentSize().Height;
+        const std::string widthText =
+            owner.FormatInt32Current(ContentSize().Width);
+        const std::string heightText =
+            owner.FormatInt32Current(ContentSize().Height);
         WriteConsoleLine(
             "[android] building the match at "
-            + owner.FormatInt32Current(width)
+            + widthText
             + "x"
-            + owner.FormatInt32Current(height)
+            + heightText
         );
 
         owner.RequestedOrientation(
@@ -1153,7 +1185,8 @@ namespace MphRead::Droid
 
     void MainActivity::ShowSoftKeyboard(bool show)
     {
-        if (!_gameView)
+        MainActivityObjectRef gameView = LoadGameView();
+        if (!gameView)
         {
             return;
         }
@@ -1168,12 +1201,12 @@ namespace MphRead::Droid
 
         if (show)
         {
-            owner.GameViewRequestFocus(_gameView);
-            owner.ShowSoftInput(ime, _gameView);
+            owner.GameViewRequestFocus(gameView);
+            owner.ShowSoftInput(ime, gameView);
         }
         else
         {
-            owner.HideSoftInput(ime, _gameView);
+            owner.HideSoftInput(ime, gameView);
         }
     }
 
@@ -1195,6 +1228,15 @@ namespace MphRead::Droid
                 _controls,
                 std::move(input),
                 plan,
+                [this]()
+                {
+                    GetMainActivityOwner().RunOnUiThread(
+                        [this]()
+                        {
+                            EndMatch();
+                        }
+                    );
+                },
                 [this]()
                 {
                     GetMainActivityOwner().RunOnUiThread(
@@ -1242,16 +1284,15 @@ namespace MphRead::Droid
                 }
             );
 
-        _gameView = gameView;
-        _inMatch.store(true, std::memory_order_release);
+        StoreGameView(gameView);
 
         owner.GameViewSetZOrderMediaOverlay(
-            _gameView, true);
+            gameView, true);
 
         _overlay = owner.CreateTouchOverlayView(
             *this, _controls);
 
-        owner.AddView(_content, _gameView);
+        owner.AddView(_content, gameView);
         owner.AddView(_content, _overlay);
 
         ShowNotice(
@@ -1352,9 +1393,10 @@ namespace MphRead::Droid
         {
             owner.SetViewGone(_overlay);
         }
-        if (_gameView)
+        if (MainActivityObjectRef gameView = LoadGameView();
+            gameView)
         {
-            owner.SetViewGone(_gameView);
+            owner.SetViewGone(gameView);
         }
         if (_launcherView)
         {
@@ -1399,9 +1441,10 @@ namespace MphRead::Droid
         {
             owner.SetViewGone(_launcherView);
         }
-        if (_gameView)
+        if (MainActivityObjectRef gameView = LoadGameView();
+            gameView)
         {
-            owner.SetViewVisible(_gameView);
+            owner.SetViewVisible(gameView);
         }
         if (_overlay)
         {
@@ -1432,12 +1475,12 @@ namespace MphRead::Droid
             _overlay = {};
         }
 
-        if (_gameView)
+        if (MainActivityObjectRef gameView = LoadGameView();
+            gameView)
         {
-            owner.GameViewStop(_gameView);
-            owner.RemoveView(_content, _gameView);
-            _gameView = {};
-            _inMatch.store(false, std::memory_order_release);
+            owner.GameViewStop(gameView);
+            owner.RemoveView(_content, gameView);
+            StoreGameView({});
         }
 
         _controls.ReleaseEverything();

@@ -5,7 +5,7 @@
 #include <optional>
 #include <string>
 
-namespace System
+namespace MphRead::Mods::Update
 {
     class Version;
 }
@@ -17,7 +17,7 @@ namespace MphRead::Mods::Launcher
     public:
         GameFiles() = delete;
 
-        [[nodiscard]] static const std::string& Root() noexcept;
+        [[nodiscard]] static std::string Root();
         static void Root(std::string value);
 
         [[nodiscard]] static bool Ready();
@@ -40,6 +40,6 @@ namespace MphRead::Mods::Launcher
             const std::function<void(const std::string&)>& report);
 
         static std::string _root;
-        static const System::Version _minExtractVersion;
+        static const MphRead::Mods::Update::Version _minExtractVersion;
     };
 }

@@ -274,6 +274,128 @@ namespace
         return true;
     }
 
+    [[nodiscard]] constexpr bool IsVersionIntegerWhitespace(
+        unsigned char value) noexcept
+    {
+        return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
+    }
+
+    [[nodiscard]] bool TryParseVersionComponent(
+        std::string_view component, std::int32_t& result) noexcept
+    {
+        std::size_t first = 0;
+        while (first < component.size()
+            && IsVersionIntegerWhitespace(
+                static_cast<unsigned char>(component[first])))
+        {
+            ++first;
+        }
+        if (first == component.size())
+        {
+            return false;
+        }
+
+        bool negative = false;
+        if (component[first] == '+' || component[first] == '-')
+        {
+            negative = component[first] == '-';
+            ++first;
+            if (first == component.size())
+            {
+                return false;
+            }
+        }
+        if (component[first] < '0' || component[first] > '9')
+        {
+            return false;
+        }
+
+        const std::uint64_t limit = negative ? 2147483648ULL : 2147483647ULL;
+        std::uint64_t value = 0;
+        std::size_t cursor = first;
+        while (cursor < component.size()
+            && component[cursor] >= '0' && component[cursor] <= '9')
+        {
+            const auto digit = static_cast<unsigned char>(component[cursor] - '0');
+            if (value > limit / 10ULL
+                || (value == limit / 10ULL && digit > limit % 10ULL))
+            {
+                return false;
+            }
+            value = value * 10ULL + digit;
+            ++cursor;
+        }
+
+        while (cursor < component.size()
+            && IsVersionIntegerWhitespace(
+                static_cast<unsigned char>(component[cursor])))
+        {
+            ++cursor;
+        }
+        while (cursor < component.size() && component[cursor] == '\0')
+        {
+            ++cursor;
+        }
+        if (cursor != component.size() || negative)
+        {
+            return false;
+        }
+
+        result = static_cast<std::int32_t>(value);
+        return true;
+    }
+
+    [[nodiscard]] std::optional<MphRead::Mods::Update::Version>
+        TryParseManagedVersion(std::string_view text)
+    {
+        std::array<std::string_view, 4> parts{};
+        std::size_t count = 0;
+        std::size_t start = 0;
+        for (;;)
+        {
+            if (count == parts.size())
+            {
+                return std::nullopt;
+            }
+            const std::size_t dot = text.find('.', start);
+            parts[count++] = dot == std::string_view::npos
+                ? text.substr(start)
+                : text.substr(start, dot - start);
+            if (dot == std::string_view::npos)
+            {
+                break;
+            }
+            start = dot + 1;
+        }
+        if (count < 2)
+        {
+            return std::nullopt;
+        }
+
+        std::array<std::int32_t, 4> values{};
+        for (std::size_t index = 0; index < count; ++index)
+        {
+            if (!TryParseVersionComponent(parts[index], values[index]))
+            {
+                return std::nullopt;
+            }
+        }
+
+        switch (count)
+        {
+        case 2:
+            return MphRead::Mods::Update::Version(values[0], values[1]);
+        case 3:
+            return MphRead::Mods::Update::Version(
+                values[0], values[1], values[2]);
+        case 4:
+            return MphRead::Mods::Update::Version(
+                values[0], values[1], values[2], values[3]);
+        default:
+            return std::nullopt;
+        }
+    }
+
     void AppendUtf8(std::string& output, std::uint32_t value)
     {
         if (value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
@@ -710,7 +832,7 @@ namespace
                 struct stat target{};
                 if (::stat(nativePath.c_str(), &target) != 0)
                 {
-                    return true;
+                    return false;
                 }
                 return !S_ISDIR(target.st_mode);
             }
@@ -1708,9 +1830,9 @@ namespace MphRead::Mods::Launcher
     };
 
     std::string GameFiles::_root = AppContextBaseDirectory();
-    const System::Version GameFiles::_minExtractVersion(0, 19, 0, 0);
+    const MphRead::Mods::Update::Version GameFiles::_minExtractVersion(0, 19, 0, 0);
 
-    const std::string& GameFiles::Root() noexcept
+    std::string GameFiles::Root()
     {
         return _root;
     }
@@ -1747,7 +1869,8 @@ namespace MphRead::Mods::Launcher
                 text.resize(newline);
             }
             const std::string_view first = TrimDotNetWhitespace(text);
-            const std::optional<System::Version> extracted = System::Version::TryParse(first);
+            const std::optional<MphRead::Mods::Update::Version> extracted
+                = TryParseManagedVersion(first);
             if (!extracted.has_value() || !(*extracted >= _minExtractVersion))
             {
                 return "The extracted files are from an older version -- set up again";

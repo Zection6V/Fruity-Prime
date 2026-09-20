@@ -2970,11 +2970,11 @@ namespace MphRead
         }
         if (!combos.empty())
         {
-            TextureMap map;
+            auto map = std::make_shared<TextureMap>();
             for (const Combo& combo : combos)
             {
                 const bool onlyOpaque = BindTexture(model, combo.Texture, combo.Palette, combo.Recolor);
-                map.Add(combo.Texture, combo.Palette, combo.Recolor, _textureCount, onlyOpaque);
+                map->Add(combo.Texture, combo.Palette, combo.Recolor, _textureCount, onlyOpaque);
             }
             _texPalMap.emplace(model->Id, std::move(map));
         }
@@ -2987,7 +2987,7 @@ namespace MphRead
         auto found = _texPalMap.find(model->Id);
         if (found != _texPalMap.end())
         {
-            return found->second.Get(textureId, paletteId, recolorId).BindingId;
+            return found->second->Get(textureId, paletteId, recolorId).BindingId;
         }
         BindTexture(model, textureId, paletteId, recolorId);
         return _textureCount;
@@ -3087,7 +3087,7 @@ namespace MphRead
                 continue;
             }
             const std::int32_t paletteId = material.CurrentPaletteId;
-            TextureMapValue value = _texPalMap.at(model->Id).Get(textureId, paletteId, recolorId);
+            TextureMapValue value = _texPalMap.at(model->Id)->Get(textureId, paletteId, recolorId);
             material.TextureBindingId = value.BindingId;
             material.CurrentTextureId = textureId;
             material.CurrentPaletteId = paletteId;
@@ -3763,7 +3763,7 @@ namespace MphRead
             auto mapIt = _texPalMap.find(model->Id);
             if (mapIt != _texPalMap.end())
             {
-                for (const auto& [key, value] : mapIt->second)
+                for (const auto& [key, value] : *mapIt->second)
                 {
                     (void)key;
                     GL::DeleteTexture(value.BindingId);
@@ -4207,7 +4207,7 @@ namespace MphRead
                 element->Nodes->push_back(particleDef->Node);
                 auto& material = *particleDef->Model->Materials->at(static_cast<std::size_t>(particleDef->MaterialId));
                 material.TextureBindingId = Mods::Headless::Active() ? 0
-                    : _texPalMap.at(particleDef->Model->Id).Get(material.TextureId, material.PaletteId, 0).BindingId;
+                    : _texPalMap.at(particleDef->Model->Id)->Get(material.TextureId, material.PaletteId, 0).BindingId;
                 element->TextureBindingIds->push_back(material.TextureBindingId);
             }
         }
@@ -6909,17 +6909,21 @@ namespace MphRead
         return setting ? "yes" : "no ";
     }
 
-    RendererPlatform::WindowSettings RenderWindow::MakeSettings()
+    const RendererPlatform::WindowSettings& RenderWindow::Settings()
     {
-        RendererPlatform::WindowSettings settings{};
-        settings.ClientSize = Vector2i(1280, 768);
-        settings.Title = Mods::Branding::Name();
-        settings.UpdateFrequency = 0.0;
-        settings.StartVisible = false;
-        settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
-        settings.Flags = RendererPlatform::WindowSettings::ContextFlags::Default;
-        settings.ApiMajor = 3;
-        settings.ApiMinor = 2;
+        static const RendererPlatform::WindowSettings settings = []()
+        {
+            RendererPlatform::WindowSettings value{};
+            value.ClientSize = Vector2i(1280, 768);
+            value.Title = Mods::Branding::Name();
+            value.UpdateFrequency = 0.0;
+            value.StartVisible = false;
+            value.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
+            value.Flags = RendererPlatform::WindowSettings::ContextFlags::Default;
+            value.ApiMajor = 3;
+            value.ApiMinor = 2;
+            return value;
+        }();
         return settings;
     }
 
@@ -6932,7 +6936,7 @@ namespace MphRead
     }
 
     RenderWindow::RenderWindow()
-        : _window(RendererPlatform::CreateWindow(MakeSettings()))
+        : _window(RendererPlatform::CreateWindow(Settings()))
     {
         const Vector2i size = _window->Size();
         Mods::DebugLog::Line("render", "game window created, " + std::to_string(size.X)
@@ -7321,60 +7325,8 @@ namespace MphRead
         _window->BaseOnKeyDown(e);
     }
 
-    TextureMap::TextureMap(const TextureMap& other)
-        : _items(other._items), _freeSlots(other._freeSlots), _count(other._count),
-          _capacity(other._capacity), _version(other._version)
-    {
-        if (_capacity > 0)
-        {
-            _items.reserve(static_cast<std::size_t>(_capacity));
-        }
-    }
-
-    TextureMap& TextureMap::operator=(const TextureMap& other)
-    {
-        if (this != &other)
-        {
-            _items = other._items;
-            _freeSlots = other._freeSlots;
-            _count = other._count;
-            _capacity = other._capacity;
-            _version = other._version;
-            if (_capacity > 0)
-            {
-                _items.reserve(static_cast<std::size_t>(_capacity));
-            }
-        }
-        return *this;
-    }
-
-    TextureMap::TextureMap(TextureMap&& other) noexcept
-        : _items(std::move(other._items)), _freeSlots(std::move(other._freeSlots)),
-          _count(other._count), _capacity(other._capacity), _version(other._version)
-    {
-        other._count = 0;
-        other._capacity = 0;
-        other._version = 0;
-    }
-
-    TextureMap& TextureMap::operator=(TextureMap&& other) noexcept
-    {
-        if (this != &other)
-        {
-            _items = std::move(other._items);
-            _freeSlots = std::move(other._freeSlots);
-            _count = other._count;
-            _capacity = other._capacity;
-            _version = other._version;
-            other._count = 0;
-            other._capacity = 0;
-            other._version = 0;
-        }
-        return *this;
-    }
-
     std::int32_t TextureMap::GetKey(std::int32_t textureId, std::int32_t paletteId,
-        std::int32_t recolorId)
+        std::int32_t recolorId) const
     {
         if (paletteId == -1)
         {
@@ -7736,45 +7688,6 @@ namespace MphRead
         // Dictionary<TKey,TValue>.Enumerator.Current returns the cached value
         // without a version check; MoveNext/Reset are the version gates.
         return _current;
-    }
-
-    void TextureMap::GetObjectData(
-        std::shared_ptr<System::Runtime::Serialization::SerializationInfo> info,
-        System::Runtime::Serialization::StreamingContext context)
-    {
-        (void)context;
-        if (!info)
-        {
-            throw std::invalid_argument("info");
-        }
-
-        info->AddValue("Version", std::bit_cast<std::int32_t>(_version));
-        info->AddValue("Comparer", Comparer());
-        info->AddValue("HashSize", _capacity);
-        if (_capacity != 0)
-        {
-            std::vector<Entry> pairs;
-            pairs.reserve(static_cast<std::size_t>(_count));
-            for (const auto& item : _items)
-            {
-                if (item.has_value())
-                {
-                    pairs.push_back(*item);
-                }
-            }
-            info->AddValue("KeyValuePairs", std::move(pairs));
-        }
-    }
-
-    void TextureMap::OnDeserialization(std::shared_ptr<void> sender)
-    {
-        (void)sender;
-        // TextureMap exposes only its implicit parameterless constructor. The
-        // protected Dictionary(SerializationInfo, StreamingContext) base
-        // constructor is not inherited by C# subclasses, so no TextureMap
-        // instance can have a pending serialization payload to consume here.
-        // Dictionary.OnDeserialization is therefore a no-op for every
-        // constructible TextureMap instance.
     }
 
     [[noreturn]] void TextureMap::ThrowIncompatibleAlternateLookup()

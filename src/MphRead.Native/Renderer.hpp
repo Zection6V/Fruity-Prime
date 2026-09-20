@@ -4,7 +4,6 @@
 #include "Formats/Types.hpp"
 #include "Selection.hpp"
 
-#include <any>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -24,46 +23,6 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-
-namespace System::Runtime::Serialization
-{
-    // Renderer.cs inherits Dictionary's legacy public serialization surface.
-    // The native project has no CLR serialization provider, so this is the
-    // narrow type-erased carrier needed to preserve the observable payload and
-    // null/error behavior of Dictionary.GetObjectData.
-    class SerializationInfo final
-    {
-    public:
-        template <typename T>
-        void AddValue(std::string name, T value)
-        {
-            _values.insert_or_assign(std::move(name), std::any(std::move(value)));
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& GetValue(std::string_view name) const
-        {
-            auto it = _values.find(std::string(name));
-            if (it == _values.end())
-            {
-                throw std::out_of_range("name");
-            }
-            return std::any_cast<const T&>(it->second);
-        }
-
-        [[nodiscard]] bool Contains(std::string_view name) const
-        {
-            return _values.find(std::string(name)) != _values.end();
-        }
-
-    private:
-        std::unordered_map<std::string, std::any> _values{};
-    };
-
-    struct StreamingContext final
-    {
-    };
-}
 
 namespace OpenTK::Mathematics
 {
@@ -420,10 +379,10 @@ namespace MphRead
         };
 
         TextureMap() = default;
-        TextureMap(const TextureMap& other);
-        TextureMap& operator=(const TextureMap& other);
-        TextureMap(TextureMap&& other) noexcept;
-        TextureMap& operator=(TextureMap&& other) noexcept;
+        TextureMap(const TextureMap&) = delete;
+        TextureMap& operator=(const TextureMap&) = delete;
+        TextureMap(TextureMap&&) = delete;
+        TextureMap& operator=(TextureMap&&) = delete;
         virtual ~TextureMap() = default;
 
         [[nodiscard]] TextureMapValue Get(std::int32_t textureId, std::int32_t paletteId,
@@ -450,11 +409,6 @@ namespace MphRead
         void TrimExcess();
         void TrimExcess(std::int32_t capacity);
         [[nodiscard]] Enumerator GetEnumerator() noexcept;
-        virtual void GetObjectData(
-            std::shared_ptr<System::Runtime::Serialization::SerializationInfo> info,
-            System::Runtime::Serialization::StreamingContext context);
-        virtual void OnDeserialization(std::shared_ptr<void> sender);
-
         template <typename TAlternateKey>
         [[nodiscard]] AlternateLookup<TAlternateKey> GetAlternateLookup()
         {
@@ -725,8 +679,8 @@ namespace MphRead
         [[nodiscard]] const_iterator cend() const noexcept;
 
     private:
-        [[nodiscard]] static std::int32_t GetKey(std::int32_t textureId,
-            std::int32_t paletteId, std::int32_t recolorId);
+        [[nodiscard]] std::int32_t GetKey(std::int32_t textureId,
+            std::int32_t paletteId, std::int32_t recolorId) const;
         [[nodiscard]] static std::int32_t GetPrime(std::int32_t minimum);
         [[nodiscard]] static std::int32_t ExpandPrime(std::int32_t oldSize);
         [[nodiscard]] std::optional<std::size_t> FindIndex(KeyType key) const noexcept;
@@ -745,7 +699,7 @@ namespace MphRead
         mutable std::unique_ptr<ValueCollection> _values{};
     };
 
-    class RenderWindow final
+    class RenderWindow
     {
     public:
         static void LogCreatingWindow();
@@ -754,7 +708,7 @@ namespace MphRead
         RenderWindow& operator=(const RenderWindow&) = delete;
         RenderWindow(RenderWindow&&) = delete;
         RenderWindow& operator=(RenderWindow&&) = delete;
-        ~RenderWindow();
+        virtual ~RenderWindow();
 
         [[nodiscard]] MphRead::Scene& Scene() const;
         void AddRoom(std::int32_t id, GameMode mode = GameMode::None,
@@ -770,19 +724,19 @@ namespace MphRead
             std::optional<OpenTK::Mathematics::Vector3> position = std::nullopt);
         void QueueMovie(std::int32_t movieId);
 
-        void OnClosing();
-        void OnLoad();
-        void OnRenderFrame(const RendererPlatform::FrameEventArgs& args);
-        void OnResize(const RendererPlatform::ResizeEventArgs& e);
-        void OnMouseDown(const RendererPlatform::MouseButtonEventArgs& e);
-        void OnMouseUp(const RendererPlatform::MouseButtonEventArgs& e);
-        void OnMouseMove(const RendererPlatform::MouseMoveEventArgs& e);
-        void OnMouseWheel(const RendererPlatform::MouseWheelEventArgs& e);
-        void OnTextInput(const RendererPlatform::TextInputEventArgs& e);
-        void OnKeyDown(const RendererPlatform::KeyboardKeyEventArgs& e);
+        virtual void OnClosing();
+        virtual void OnLoad();
+        virtual void OnRenderFrame(const RendererPlatform::FrameEventArgs& args);
+        virtual void OnResize(const RendererPlatform::ResizeEventArgs& e);
+        virtual void OnMouseDown(const RendererPlatform::MouseButtonEventArgs& e);
+        virtual void OnMouseUp(const RendererPlatform::MouseButtonEventArgs& e);
+        virtual void OnMouseMove(const RendererPlatform::MouseMoveEventArgs& e);
+        virtual void OnMouseWheel(const RendererPlatform::MouseWheelEventArgs& e);
+        virtual void OnTextInput(const RendererPlatform::TextInputEventArgs& e);
+        virtual void OnKeyDown(const RendererPlatform::KeyboardKeyEventArgs& e);
 
     private:
-        static RendererPlatform::WindowSettings MakeSettings();
+        [[nodiscard]] static const RendererPlatform::WindowSettings& Settings();
         static bool OnWayland();
         static void IgnoreUnavailableGlfwFeatures();
         void FitToScreen();
@@ -989,7 +943,7 @@ private: \
         void Add(MphRead::ColorRgba pixel); \
         [[nodiscard]] OpenTK::Mathematics::Vector3 Result() const; \
     }; \
-    class MovieFadeSettings final \
+    class MovieFadeSettings \
     { \
     public: \
         MphRead::Movie MovieId{}; \
@@ -1136,7 +1090,7 @@ private: \
     bool _transformRoomNodes = false; \
     bool _outputCameraPos = false; \
     std::int32_t _textureCount = 0; \
-    std::unordered_map<std::int32_t, MphRead::TextureMap> _texPalMap{}; \
+    std::unordered_map<std::int32_t, std::shared_ptr<MphRead::TextureMap>> _texPalMap{}; \
     std::int32_t _shaderProgramId = 0; \
     std::int32_t _rttShaderProgramId = 0; \
     std::int32_t _shiftShaderProgramId = 0; \

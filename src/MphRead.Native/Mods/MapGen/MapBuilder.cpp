@@ -879,10 +879,13 @@ namespace MphRead::Mods::MapGen
         const Vector3 origin(x0, y0, z0);
         Terrain terrain = Terrain::Metal;
         Terrain parsed = Terrain::Metal;
-        if (brush->Terrain().has_value()
-            && TryParseTerrain(brush->Terrain(), parsed))
+        if (brush->Terrain().has_value())
         {
-            terrain = parsed;
+            const std::optional<std::string> terrainText = brush->Terrain();
+            if (TryParseTerrain(terrainText, parsed))
+            {
+                terrain = parsed;
+            }
         }
 
         for (std::size_t i = 0; i < 6; ++i)

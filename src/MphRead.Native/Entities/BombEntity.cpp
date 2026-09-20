@@ -13,7 +13,7 @@
 #include "DoorEntity.hpp"
 #include "Enemies/02_Temroid.hpp"
 #include "EnemyInstanceEntity.hpp"
-#include "HalfturretEntity.hpp"
+#include "Players/HalfturretEntity.hpp"
 #include "Players/PlayerEntity.hpp"
 
 #include <algorithm>

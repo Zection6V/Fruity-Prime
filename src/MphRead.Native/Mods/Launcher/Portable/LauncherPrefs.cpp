@@ -1,6 +1,7 @@
 #include "LauncherPrefs.hpp"
 
 #include "../../../Formats/Enums.hpp"
+#include "../../WindowMode.hpp"
 #include "../../Branding.hpp"
 #include "../../Network/NetMaster.hpp"
 #include "../../Network/NetProtocol.hpp"
@@ -11,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -53,12 +55,6 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #endif
-
-namespace MphRead::Mods::Launcher::Detail
-{
-    [[nodiscard]] MphRead::Mods::WindowStartMode LauncherPrefsWindowModeParse(
-        std::string_view value, MphRead::Mods::WindowStartMode fallback);
-}
 
 namespace
 {
@@ -1075,47 +1071,35 @@ namespace
         return path;
     }
 
-    [[nodiscard]] bool FileExists(std::string_view path) noexcept
+    [[nodiscard]] bool FileExists(std::string_view path)
     {
         if (path.empty() || path.find('\0') != std::string_view::npos)
         {
             return false;
         }
 
-        try
-        {
-            const std::filesystem::path nativePath
-                = PathFromManagedString(path);
+        const std::filesystem::path nativePath = PathFromManagedString(path);
 #if defined(_WIN32)
-            const DWORD attributes = GetFileAttributesW(nativePath.c_str());
-            return attributes != INVALID_FILE_ATTRIBUTES
-                && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+        const DWORD attributes = GetFileAttributesW(nativePath.c_str());
+        return attributes != INVALID_FILE_ATTRIBUTES
+            && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
 #else
-            struct stat info{};
-            if (::lstat(nativePath.c_str(), &info) != 0)
-            {
-                return false;
-            }
-            if (S_ISLNK(info.st_mode))
-            {
-                struct stat target{};
-                if (::stat(nativePath.c_str(), &target) != 0)
-                {
-                    return true;
-                }
-                return !S_ISDIR(target.st_mode);
-            }
-            return !S_ISDIR(info.st_mode);
-#endif
-        }
-        catch (...)
+        struct stat info{};
+        if (::stat(nativePath.c_str(), &info) != 0)
         {
             return false;
         }
+        return !S_ISDIR(info.st_mode);
+#endif
     }
 
     [[nodiscard]] std::string ReadAllText(std::string_view path)
     {
+        if (path.find('\0') != std::string_view::npos)
+        {
+            throw std::invalid_argument("Path contains a null character.");
+        }
+
         std::ifstream stream(
             PathFromManagedString(path), std::ios::in | std::ios::binary);
         if (!stream.is_open())
@@ -1253,7 +1237,7 @@ namespace MphRead::Mods::Launcher
         = static_cast<MphRead::Mods::WindowStartMode>(0);
     bool LauncherPrefs::_debugLogs = true;
 
-    const std::string& LauncherPrefs::Directory() noexcept
+    std::string LauncherPrefs::Directory()
     {
         return _directory;
     }
@@ -1263,7 +1247,7 @@ namespace MphRead::Mods::Launcher
         _directory = std::move(value);
     }
 
-    const std::string& LauncherPrefs::ServerAddress() noexcept
+    std::string LauncherPrefs::ServerAddress()
     {
         return _serverAddress;
     }
@@ -1283,7 +1267,7 @@ namespace MphRead::Mods::Launcher
         _serverPort = value;
     }
 
-    const std::string& LauncherPrefs::MasterHost() noexcept
+    std::string LauncherPrefs::MasterHost()
     {
         return _masterHost;
     }
@@ -1313,7 +1297,7 @@ namespace MphRead::Mods::Launcher
         _lastRole = value;
     }
 
-    const std::string& LauncherPrefs::PlayerName() noexcept
+    std::string LauncherPrefs::PlayerName()
     {
         return _playerName;
     }
@@ -1564,8 +1548,8 @@ namespace MphRead::Mods::Launcher
                 }
                 else if (key == "window_mode")
                 {
-                    _windowMode = Detail::LauncherPrefsWindowModeParse(
-                        value, _windowMode);
+                    _windowMode = MphRead::Mods::WindowMode::Parse(
+                        std::optional<std::string_view>{value}, _windowMode);
                 }
                 else if (key == "auto_update")
                 {
@@ -1593,7 +1577,7 @@ namespace MphRead::Mods::Launcher
                 }
             }
         }
-        catch (...)
+        catch (const std::exception&)
         {
         }
     }
@@ -1640,7 +1624,7 @@ namespace MphRead::Mods::Launcher
                         : "windowed"));
             WriteAllLines(path, lines);
         }
-        catch (...)
+        catch (const std::exception&)
         {
         }
     }

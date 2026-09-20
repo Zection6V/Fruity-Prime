@@ -22,16 +22,16 @@ namespace MphRead::Mods::Launcher
         LauncherPrefs() = delete;
         inline static constexpr std::string_view DefaultServer = "89.160.162.50";
 
-        [[nodiscard]] static const std::string& Directory() noexcept;
+        [[nodiscard]] static std::string Directory();
         static void Directory(std::string value);
 
-        [[nodiscard]] static const std::string& ServerAddress() noexcept;
+        [[nodiscard]] static std::string ServerAddress();
         static void ServerAddress(std::string value);
 
         [[nodiscard]] static std::int32_t ServerPort() noexcept;
         static void ServerPort(std::int32_t value) noexcept;
 
-        [[nodiscard]] static const std::string& MasterHost() noexcept;
+        [[nodiscard]] static std::string MasterHost();
         static void MasterHost(std::string value);
 
         [[nodiscard]] static std::int32_t MasterPort() noexcept;
@@ -40,7 +40,7 @@ namespace MphRead::Mods::Launcher
         [[nodiscard]] static std::int32_t LastRole() noexcept;
         static void LastRole(std::int32_t value) noexcept;
 
-        [[nodiscard]] static const std::string& PlayerName() noexcept;
+        [[nodiscard]] static std::string PlayerName();
         static void PlayerName(std::string value);
 
         [[nodiscard]] static MphRead::Hunter LastHunter() noexcept;

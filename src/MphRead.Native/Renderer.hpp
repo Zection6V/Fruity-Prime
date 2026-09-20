@@ -692,7 +692,7 @@ public: \
     std::shared_ptr<MphRead::Entities::BeamEffectEntity> InitBeamEffect(const MphRead::Entities::BeamEffectEntityData& data); \
     void UnlinkBeamEffect(MphRead::Entities::BeamEffectEntity* entry); \
     std::shared_ptr<MphRead::Entities::BombEntity> InitBomb(); \
-    void UnlinkBomb(const std::shared_ptr<MphRead::Entities::BombEntity>& entry); \
+    void UnlinkBomb(MphRead::Entities::BombEntity* entry); \
     void AddSingleParticle(MphRead::SingleType type, OpenTK::Mathematics::Vector3 position, \
         OpenTK::Mathematics::Vector3 color, float alpha, float scale); \
     void UnlinkEffectEntry(const std::shared_ptr<MphRead::Effects::EffectEntry>& entry); \

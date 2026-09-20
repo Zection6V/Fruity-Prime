@@ -3989,10 +3989,24 @@ namespace MphRead
         return entry;
     }
 
-    void Scene::UnlinkBomb(const std::shared_ptr<Entities::BombEntity>& entry)
+    void Scene::UnlinkBomb(Entities::BombEntity* entry)
     {
-        RemoveFirst(_activeBombs, entry);
-        _inactiveBombs.push(entry);
+        std::shared_ptr<Entities::BombEntity> owner;
+        for (auto enumerator = GetBombEntities().GetEnumerator(); enumerator.MoveNext();)
+        {
+            auto current = enumerator.Current();
+            if (current.get() == entry)
+            {
+                owner = std::move(current);
+                break;
+            }
+        }
+        if (!owner)
+        {
+            throw System::NullReferenceException();
+        }
+        RemoveFirst(_activeBombs, owner);
+        _inactiveBombs.push(std::move(owner));
     }
 
     void Scene::AddSingleParticle(SingleType type, Vector3 position, Vector3 color, float alpha, float scale)

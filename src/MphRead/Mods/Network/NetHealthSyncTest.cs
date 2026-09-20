@@ -17,17 +17,22 @@ namespace MphRead.Mods.Network
             Span<byte> data = stackalloc byte[NetHealthSync.HeaderSize + 2 * NetHealthSync.EntrySize];
             data.Clear(); data[2] = 2;
             BinaryPrimitives.WriteInt16LittleEndian(data[3..], 4);
-            data[5] = 3;
+            const int pickerSlot = 4;
+            data[5] = (byte)(3 | ((pickerSlot + 1) << 2));
             BinaryPrimitives.WriteUInt16LittleEndian(data[6..], 600);
             BinaryPrimitives.WriteUInt16LittleEndian(data[8..], 8);
             BinaryPrimitives.WriteInt16LittleEndian(data[10..], 7);
             Check(NetHealthSync.Validate(data), "valid state rejected");
             NetHealthSync.Receive(data);
-            Check(NetHealthSync.TryGet(4, out var state) && state == new HealthSpawnState(true, true, 600, 8), "state round trip");
-            Check(NetHealthSync.TryGet(7, out state) && !state.Available, "unavailable pickup");
-            data[5] = 4;
-            Check(!NetHealthSync.Validate(data), "unknown flags accepted");
-            data[5] = 3; data[10] = 4;
+            Check(NetHealthSync.TryGet(4, out var state)
+                && state == new HealthSpawnState(true, true, 600, 8, pickerSlot), "state round trip");
+            Check(NetHealthSync.TryGet(7, out state) && !state.Available && state.PickerSlot == -1,
+                "unavailable pickup");
+            data[5] = 0x80;
+            Check(!NetHealthSync.Validate(data), "reserved flags accepted");
+            data[5] = (byte)(3 | ((PlayerEntity.SlotCapacity + 1) << 2));
+            Check(!NetHealthSync.Validate(data), "out-of-range picker accepted");
+            data[5] = (byte)(3 | ((pickerSlot + 1) << 2)); data[10] = 4;
             Check(!NetHealthSync.Validate(data), "duplicate entity accepted");
             data[10] = 7;
             Check(!NetHealthSync.Validate(data[..^1]), "truncated entry accepted");

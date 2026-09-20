@@ -2017,8 +2017,12 @@ namespace MphRead.Mods.Network
         /// implicit in the enclosing state and knockback uses bounded 16-bit
         /// fixed-point components. Mixed v12/v13 peers must be refused because
         /// PlayerState and DamageEvent sizes changed.
+        /// Version 14 uses previously reserved health-spawner flag bits to carry
+        /// the slot that consumed a pickup, so replicas can play local pickup
+        /// feedback only after authority confirmation. Entry size is unchanged,
+        /// but v13 readers reject those bits, so mixed peers must be refused.
         /// </summary>
-        public const int ProtocolVersion = 13;
+        public const int ProtocolVersion = 14;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///

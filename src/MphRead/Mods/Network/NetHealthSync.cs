@@ -13,6 +13,9 @@ namespace MphRead.Mods.Network
         public const int MaxSpawns = 56;
         public const int HeaderSize = 3;
         public const int EntrySize = 7;
+        private const int PickerShift = 2;
+        private const int PickerMask = 0xF;
+        private const int ReservedMask = 0xC0;
         private static readonly List<ItemSpawnEntity> _spawns = new(MaxSpawns);
         private static readonly Dictionary<short, HealthSpawnState> _states = new(MaxSpawns);
         internal static IReadOnlyList<ItemSpawnEntity> RegisteredSpawns => _spawns;
@@ -43,8 +46,12 @@ namespace MphRead.Mods.Network
             foreach (ItemSpawnEntity spawn in _spawns)
             {
                 HealthSpawnState state = spawn.ModHealthState;
+                int encodedPicker = state.PickerSlot + 1;
+                if (encodedPicker < 0 || encodedPicker > PlayerEntity.SlotCapacity)
+                    throw new ProgramException($"Invalid health pickup slot {state.PickerSlot}.");
                 BinaryPrimitives.WriteInt16LittleEndian(dest[offset..], (short)spawn.Id);
-                dest[offset + 2] = (byte)((state.Available ? 1 : 0) | (state.Active ? 2 : 0));
+                dest[offset + 2] = (byte)((state.Available ? 1 : 0) | (state.Active ? 2 : 0)
+                    | (encodedPicker << PickerShift));
                 BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 3)..], state.Cooldown);
                 BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 5)..], state.SpawnCount);
                 offset += EntrySize;
@@ -58,7 +65,9 @@ namespace MphRead.Mods.Network
                 || src.Length != HeaderSize + src[2] * EntrySize) return false;
             for (int offset = HeaderSize; offset < src.Length; offset += EntrySize)
             {
-                if ((src[offset + 2] & ~3) != 0) return false;
+                byte flags = src[offset + 2];
+                int encodedPicker = (flags >> PickerShift) & PickerMask;
+                if ((flags & ReservedMask) != 0 || encodedPicker > PlayerEntity.SlotCapacity) return false;
                 short id = BinaryPrimitives.ReadInt16LittleEndian(src[offset..]);
                 if (id < 0) return false;
                 for (int previous = HeaderSize; previous < offset; previous += EntrySize)
@@ -72,12 +81,18 @@ namespace MphRead.Mods.Network
             if (!Validate(src) || !IsCurrentMatch(src)) return;
             _states.Clear();
             for (int offset = HeaderSize; offset < src.Length; offset += EntrySize)
+            {
+                byte flags = src[offset + 2];
+                sbyte pickerSlot = (sbyte)(((flags >> PickerShift) & PickerMask) - 1);
                 _states.Add(BinaryPrimitives.ReadInt16LittleEndian(src[offset..]), new(
-                    (src[offset + 2] & 1) != 0, (src[offset + 2] & 2) != 0,
+                    (flags & 1) != 0, (flags & 2) != 0,
                     BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 3)..]),
-                    BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 5)..])));
+                    BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 5)..]), pickerSlot));
+            }
         }
     }
 
-    public readonly record struct HealthSpawnState(bool Available, bool Active, ushort Cooldown, ushort SpawnCount);
+    public readonly record struct HealthSpawnState(
+        bool Available, bool Active, ushort Cooldown, ushort SpawnCount, sbyte PickerSlot);
+
 }

@@ -1340,10 +1340,7 @@ namespace MphRead.Entities
                         pickedUp = true;
                         _timeSinceHeal = 0;
                         GainHealth(_healthPickupAmounts[(int)item.ItemType]);
-                        if (Sfx.TimedSfxMute == 0)
-                        {
-                            PlaySfx(item.ItemType == ItemType.HealthSmall ? SfxId.POWER_UP1 : SfxId.POWER_UP2);
-                        }
+                        PlayHealthPickupSfx(item.ItemType);
                     }
                     break;
                 case ItemType.UASmall:
@@ -1475,9 +1472,19 @@ namespace MphRead.Entities
                 }
                 if (pickedUp)
                 {
-                    item.OnPickedUp();
+                    item.OnPickedUp(this);
                 }
             }
+        }
+
+        internal void PlayHealthPickupSfx(ItemType itemType)
+        {
+            if (!IsMainPlayer || Sfx.TimedSfxMute != 0
+                || !Mods.Multiplayer.MapResourceRules.IsHealth(itemType))
+            {
+                return;
+            }
+            _soundSource.PlayFreeSfx(itemType == ItemType.HealthSmall ? SfxId.POWER_UP1 : SfxId.POWER_UP2);
         }
 
         private void PickUpWeapon(ItemType itemType)

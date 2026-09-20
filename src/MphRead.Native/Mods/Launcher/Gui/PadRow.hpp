@@ -13,19 +13,23 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    enum class PadRowKey : std::uint8_t
+    // Keep the surrogate numerically identical to Avalonia 11.3.11 Key.
+    // This lets an adapter pass through the toolkit value directly while
+    // unsupported keys remain unsupported instead of aliasing a handled key.
+    enum class PadRowKey : std::int32_t
     {
-        Other,
-        Enter,
-        Space,
-        Escape,
-        Back,
-        Delete
+        Other = 0,
+        Enter = 6,
+        Space = 18,
+        Escape = 13,
+        Back = 2,
+        Delete = 32
     };
 
-    enum class PadRowDispatcherPriority : std::uint8_t
+    // Avalonia 11.3.11 DispatcherPriority.Input has Value == -1.
+    enum class PadRowDispatcherPriority : std::int32_t
     {
-        Input
+        Input = -1
     };
 
     enum class PadRowTextTrimming : std::uint8_t

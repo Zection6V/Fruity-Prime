@@ -2,18 +2,20 @@ name: Native C++ Android
 
 on:
   push:
-    branches:
-      - develop2
+    branches: [develop2]
     paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
       - "src/MphRead.Native.Android/**"
       - "src/MphRead.Native/**"
       - "src/NcsfPlay.Native/**"
       - "src/MphRead.Android/MphRead.Android.csproj"
       - ".github/workflows/native-cpp-android.yml"
   pull_request:
-    branches:
-      - develop2
+    branches: [develop2]
     paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
       - "src/MphRead.Native.Android/**"
       - "src/MphRead.Native/**"
       - "src/NcsfPlay.Native/**"
@@ -24,27 +26,20 @@ on:
 permissions:
   contents: read
 
-env:
-  # MphRead.Android.csproj targets net9.0-android35.0 and declares
-  # SupportedOSPlatformVersion 24. Those are the only checked-in Android API
-  # bounds today; the native tree has no manifest that declares a different
-  # compile/min SDK or an ABI set.
-  ANDROID_COMPILE_SDK: "35"
-  ANDROID_MIN_SDK: "24"
-  ANDROID_BUILD_TOOLS: "35.0.0"
-
-  # Keep the NDK deterministic instead of inheriting whichever revision happens
-  # to be preinstalled on the hosted runner. r27c supports API 24+ and API 35.
-  ANDROID_NDK_VERSION: "27.2.12479018"
-
 jobs:
   android-native:
-    name: Android NDK build contract
+    name: Android NDK native libraries
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Load repository Android build contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -DOUTPUT_FILE="$GITHUB_ENV" -P cmake/ExportAndroidConfig.cmake
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -63,11 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          # GitHub-hosted runners normally have the Android licences accepted,
-          # but accept any newly-added SDK package licence before installation.
           yes | sdkmanager --licenses >/dev/null || true
-
           sdkmanager \
             "platform-tools" \
             "platforms;android-${ANDROID_COMPILE_SDK}" \
@@ -75,65 +66,60 @@ jobs:
             "ndk;${ANDROID_NDK_VERSION}"
 
           ndk_home="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          test -d "${ndk_home}"
+          test -f "${ndk_home}/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_HOME=${ndk_home}" >> "$GITHUB_ENV"
 
-          echo "ANDROID_NDK_HOME=${ndk_home}" >> "${GITHUB_ENV}"
-          echo "ANDROID_NDK_ROOT=${ndk_home}" >> "${GITHUB_ENV}"
+      - name: Install shared-source header dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev
+
+          include_root="$GITHUB_WORKSPACE/.native-deps/include"
+          mkdir -p "$include_root"
+
+          archive_h="$(dpkg -L libarchive-dev | awk '/\/archive\.h$/ { print; exit }')"
+          archive_entry_h="$(dpkg -L libarchive-dev | awk '/\/archive_entry\.h$/ { print; exit }')"
+          curl_h="$(dpkg -L libcurl4-openssl-dev | awk '/\/curl\/curl\.h$/ { print; exit }')"
+          test -f "$archive_h"
+          test -f "$archive_entry_h"
+          test -f "$curl_h"
+
+          cp "$archive_h" "$include_root/archive.h"
+          cp "$archive_entry_h" "$include_root/archive_entry.h"
+          cp -a "$(dirname "$curl_h")" "$include_root/curl"
+          echo "FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR=${include_root}" >> "$GITHUB_ENV"
 
       - name: Verify pinned NDK toolchain
         shell: bash
         run: |
           set -euo pipefail
-
           toolchain="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           test -x "${toolchain}/clang++"
-          test -x "${toolchain}/llvm-ar"
-          test -f "${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake"
-
           "${toolchain}/clang++" --version
-          "${toolchain}/llvm-ar" --version
-          printf 'compile SDK: android-%s\n' "${ANDROID_COMPILE_SDK}"
-          printf 'minimum API: %s\n' "${ANDROID_MIN_SDK}"
-          printf 'NDK: %s\n' "${ANDROID_NDK_VERSION}"
+          printf 'compile SDK: android-%s\n' "$ANDROID_COMPILE_SDK"
+          printf 'minimum API: %s\n' "$ANDROID_MIN_API"
+          printf 'NDK: %s\n' "$ANDROID_NDK_VERSION"
+          printf 'ABIs: %s\n' "$FRUITY_ANDROID_ABIS"
 
-      # The repository currently has the translated C++ source owners but no
-      # native Android build owner. Do not manufacture a CMake project, source
-      # list, JNI Activity, Gradle externalNativeBuild block, ABI matrix, or
-      # linker policy here: those are repository architecture, not CI policy.
-      #
-      # Once a repository-owned native manifest exists, replace this guard with
-      # that manifest's exact configure/build commands and target/ABI matrix.
-      - name: Require repository-owned Android native build manifest
+      - name: Configure and build every repository ABI
         shell: bash
         run: |
           set -euo pipefail
 
-          mapfile -t manifests < <(
-            find . -type f \
-              \( -name CMakeLists.txt \
-                 -o -name Android.mk \
-                 -o -name Application.mk \
-                 -o -name build.gradle \
-                 -o -name build.gradle.kts \
-                 -o -name settings.gradle \
-                 -o -name settings.gradle.kts \
-                 -o -name Makefile \
-                 -o -name meson.build \
-                 -o -name premake5.lua \
-                 -o -name '*.vcxproj' \
-                 -o -name vcpkg.json \
-                 -o -name conanfile.txt \
-                 -o -name conanfile.py \) \
-              -not -path './.git/*' \
-              -print | sort
-          )
+          for abi in $FRUITY_ANDROID_ABIS; do
+            build_dir="build/native-android-${abi}"
+            cmake -S . -B "$build_dir" \
+              -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI="$abi" \
+              -DANDROID_PLATFORM="android-${ANDROID_MIN_API}" \
+              -DANDROID_STL=c++_static \
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DFRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR="$FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR"
 
-          if [ "${#manifests[@]}" -eq 0 ]; then
-            echo "::error title=Android native build owner missing::develop2 contains src/MphRead.Native.Android, src/MphRead.Native, and src/NcsfPlay.Native C++ sources, but no CMake, Gradle/externalNativeBuild, ndk-build, Make, Meson, Premake, Visual C++, vcpkg, or Conan build manifest exists anywhere in the repository. MphRead.Android.csproj establishes Android API 35 with minimum API 24 for the C# head, but it does not define native source membership, ABI variants, compile definitions, include paths, JNI/Activity bootstrap, or native link dependencies. CI cannot configure or link MphRead.Native.Android truthfully until that repository-owned build graph exists."
-            exit 1
-          fi
-
-          printf 'Detected native build manifests:\n'
-          printf '  %s\n' "${manifests[@]}"
-          echo "::error title=Android native workflow requires manifest integration::A native build manifest now exists, but this workflow intentionally does not guess its Android configure command, target names, ABI matrix, or link graph. Update this workflow from that repository-owned manifest before enabling compilation."
-          exit 1
+            cmake --build "$build_dir" \
+              --config RelWithDebInfo \
+              --parallel 2 \
+              --target fruity_mphread_native_android
+          done

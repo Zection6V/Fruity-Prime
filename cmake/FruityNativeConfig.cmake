@@ -1,0 +1,6 @@
+# Native build contract shared by CMake and GitHub Actions.
+set(FRUITY_ANDROID_COMPILE_SDK "35")
+set(FRUITY_ANDROID_MIN_API "24")
+set(FRUITY_ANDROID_BUILD_TOOLS "35.0.0")
+set(FRUITY_ANDROID_NDK_VERSION "27.2.12479018")
+set(FRUITY_ANDROID_ABIS "arm64-v8a;x86_64")

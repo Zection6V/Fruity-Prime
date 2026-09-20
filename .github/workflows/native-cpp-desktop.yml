@@ -2,16 +2,18 @@ name: Native C++ Desktop
 
 on:
   push:
-    branches:
-      - develop2
+    branches: [develop2]
     paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
       - "src/MphRead.Native/**"
       - "src/NcsfPlay.Native/**"
       - ".github/workflows/native-cpp-desktop.yml"
   pull_request:
-    branches:
-      - develop2
+    branches: [develop2]
     paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
       - "src/MphRead.Native/**"
       - "src/NcsfPlay.Native/**"
       - ".github/workflows/native-cpp-desktop.yml"
@@ -28,13 +30,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             label: Windows / MSVC
             toolchain: msvc
-          - os: macos-latest
+          - os: macos-15
             label: macOS / Clang
             toolchain: clang
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             label: Linux / GCC
             toolchain: gcc
 
@@ -48,13 +50,9 @@ jobs:
         run: |
           cmake --version
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (-not (Test-Path $vswhere)) {
-            throw "Visual Studio Installer vswhere.exe was not found on the Windows runner."
-          }
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe was not found." }
           $installation = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $installation) {
-            throw "A Visual Studio installation with the MSVC x86/x64 C++ toolchain was not found."
-          }
+          if (-not $installation) { throw "MSVC x86/x64 C++ tools were not found." }
           Write-Host "MSVC installation: $installation"
 
       - name: Verify Clang toolchain
@@ -73,31 +71,54 @@ jobs:
           g++ --version
           cmake --version
 
-      - name: Require repository native build manifest
+      - name: Install native dependencies on Windows
+        if: matrix.toolchain == 'msvc'
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) { throw "VCPKG_INSTALLATION_ROOT is not set on the runner." }
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT "vcpkg.exe"
+          if (-not (Test-Path $vcpkg)) { throw "vcpkg.exe was not found at $vcpkg" }
+          & $vcpkg install curl:x64-windows libarchive:x64-windows --clean-after-build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install native dependencies on macOS
+        if: matrix.toolchain == 'clang'
         shell: bash
         run: |
           set -euo pipefail
+          brew install curl libarchive
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive)" >> "$GITHUB_ENV"
 
-          manifests="$(
-            find . -type f \
-              \( -name CMakeLists.txt \
-                 -o -name Makefile \
-                 -o -name meson.build \
-                 -o -name premake5.lua \
-                 -o -name '*.vcxproj' \
-                 -o -name '*.pro' \
-                 -o -name vcpkg.json \
-                 -o -name conanfile.txt \
-                 -o -name conanfile.py \) \
-              -not -path './.git/*' \
-              -print | sort
-          )"
+      - name: Install native dependencies on Linux
+        if: matrix.toolchain == 'gcc'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev
 
-          if [ -z "$manifests" ]; then
-            echo "::error title=Native build manifest missing::develop2 contains src/MphRead.Native and src/NcsfPlay.Native C++ sources, but no CMake, Make, Meson, Visual Studio C++, qmake, Premake, vcpkg, or Conan build manifest exists anywhere in the repository. Target source membership, compile definitions, include paths, link libraries, and platform-specific dependencies therefore cannot be derived truthfully."
-            exit 1
-          fi
+      - name: Configure with MSVC
+        if: matrix.toolchain == 'msvc'
+        shell: pwsh
+        run: |
+          cmake -S . -B build/native -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          printf 'Detected native build manifests:\n%s\n' "$manifests"
-          echo "::error title=Desktop native workflow requires manifest integration::A native build manifest now exists, but this workflow intentionally does not guess configure commands or target names. Update this workflow from the repository manifest before enabling compilation."
-          exit 1
+      - name: Configure with Unix toolchain
+        if: matrix.toolchain != 'msvc'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/native \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}"
+
+      - name: Build shared native owners
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build/native \
+            --config RelWithDebInfo \
+            --parallel 2 \
+            --target fruity_ncsfplay_native fruity_mphread_native

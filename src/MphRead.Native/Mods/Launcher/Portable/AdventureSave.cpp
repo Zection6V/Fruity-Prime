@@ -19,12 +19,6 @@ namespace MphRead::Mods::Launcher
         "Arcterra", "Arcterra", "Oubliette"
     };
 
-    AdventureSave::SlotInfo::SlotInfo(const Init& init)
-        : Slot(init.Slot), Used(init.Used), Area(init.Area), Octoliths(init.Octoliths),
-          Health(init.Health), HealthMax(init.HealthMax)
-    {
-    }
-
     AdventureSave::SlotInfo& AdventureSave::SlotInfo::operator=(const SlotInfo& other)
     {
         if (std::addressof(*this) != std::addressof(other))
@@ -49,14 +43,14 @@ namespace MphRead::Mods::Launcher
         std::shared_ptr<MphRead::StorySave> save = MphRead::GameState::PeekSave(slot);
         if (save == nullptr)
         {
-            return SlotInfo(SlotInfo::Init
+            return SlotInfo
             {
                 .Slot = slot,
                 .Used = false,
                 .Area = std::string()
-            });
+            };
         }
-        return SlotInfo(SlotInfo::Init
+        return SlotInfo
         {
             .Slot = slot,
             .Used = true,
@@ -64,7 +58,7 @@ namespace MphRead::Mods::Launcher
             .Octoliths = save->CountFoundOctoliths(),
             .Health = save->Health,
             .HealthMax = save->HealthMax
-        });
+        };
     }
 
     std::vector<AdventureSave::SlotInfo> AdventureSave::ReadAll()

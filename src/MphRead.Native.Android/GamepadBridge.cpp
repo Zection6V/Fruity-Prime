@@ -31,61 +31,98 @@ namespace
             || (source & AINPUT_SOURCE_DPAD) == AINPUT_SOURCE_DPAD;
     }
 
-    jmethodID GetMethod(
+    bool TryGetMethod(
         JNIEnv* env,
         jobject object,
         const char* name,
-        const char* signature
+        const char* signature,
+        jmethodID& method
     )
     {
         jclass type = env->GetObjectClass(object);
-        jmethodID method = env->GetMethodID(type, name, signature);
+        if (type == nullptr)
+        {
+            return false;
+        }
+
+        if (env->ExceptionCheck())
+        {
+            env->DeleteLocalRef(type);
+            return false;
+        }
+
+        method = env->GetMethodID(type, name, signature);
         env->DeleteLocalRef(type);
-        return method;
+        return method != nullptr && !env->ExceptionCheck();
     }
 
-    std::int32_t GetSource(JNIEnv* env, jobject event)
+    bool TryGetInt(
+        JNIEnv* env,
+        jobject event,
+        const char* name,
+        std::int32_t& value
+    )
     {
-        const jmethodID method = GetMethod(env, event, "getSource", "()I");
-        return static_cast<std::int32_t>(env->CallIntMethod(event, method));
+        jmethodID method = nullptr;
+        if (!TryGetMethod(env, event, name, "()I", method))
+        {
+            return false;
+        }
+
+        const jint result = env->CallIntMethod(event, method);
+        if (env->ExceptionCheck())
+        {
+            return false;
+        }
+
+        value = static_cast<std::int32_t>(result);
+        return true;
     }
 
-    std::int32_t GetAction(JNIEnv* env, jobject event)
-    {
-        const jmethodID method = GetMethod(env, event, "getAction", "()I");
-        return static_cast<std::int32_t>(env->CallIntMethod(event, method));
-    }
-
-    std::int32_t GetRepeatCount(JNIEnv* env, jobject event)
-    {
-        const jmethodID method = GetMethod(env, event, "getRepeatCount", "()I");
-        return static_cast<std::int32_t>(env->CallIntMethod(event, method));
-    }
-
-    float GetAxisValue(
+    bool TryGetAxisValue(
         JNIEnv* env,
         jobject event,
         jmethodID method,
-        std::int32_t axis
+        std::int32_t axis,
+        float& value
     )
     {
-        return static_cast<float>(
-            env->CallFloatMethod(event, method, static_cast<jint>(axis))
+        const jfloat result = env->CallFloatMethod(
+            event, method, static_cast<jint>(axis)
         );
+        if (env->ExceptionCheck())
+        {
+            return false;
+        }
+
+        value = static_cast<float>(result);
+        return true;
     }
 
-    float Pick(
+    bool Pick(
         JNIEnv* env,
         jobject event,
         jmethodID getAxisValue,
         std::int32_t first,
-        std::int32_t second
+        std::int32_t second,
+        float& result
     )
     {
-        const float value = GetAxisValue(env, event, getAxisValue, first);
-        return value != 0.0F
-            ? value
-            : GetAxisValue(env, event, getAxisValue, second);
+        float value = 0.0F;
+        if (!TryGetAxisValue(env, event, getAxisValue, first, value))
+        {
+            return false;
+        }
+
+        if (value != 0.0F)
+        {
+            result = value;
+            return true;
+        }
+
+        return TryGetAxisValue(
+            env, event, getAxisValue, second, result
+        );
     }
 
     GamepadButtons Map(std::int32_t code) noexcept
@@ -139,7 +176,14 @@ namespace MphRead::Droid
         JNIEnv* env
     )
     {
-        if (event == nullptr || !IsGamepad(GetSource(env, event)))
+        if (event == nullptr)
+        {
+            return false;
+        }
+
+        std::int32_t source = 0;
+        if (!TryGetInt(env, event, "getSource", source)
+            || !IsGamepad(source))
         {
             return false;
         }
@@ -150,9 +194,17 @@ namespace MphRead::Droid
             return false;
         }
 
-        if (down && GetRepeatCount(env, event) > 0)
+        if (down)
         {
-            return true;
+            std::int32_t repeatCount = 0;
+            if (!TryGetInt(env, event, "getRepeatCount", repeatCount))
+            {
+                return false;
+            }
+            if (repeatCount > 0)
+            {
+                return true;
+            }
         }
 
         GamepadState state = GamepadInput::State;
@@ -184,16 +236,32 @@ namespace MphRead::Droid
         JNIEnv* env
     )
     {
-        if (event == nullptr
-            || !IsGamepad(GetSource(env, event))
-            || GetAction(env, event) != AMOTION_EVENT_ACTION_MOVE)
+        if (event == nullptr)
         {
             return false;
         }
 
-        const jmethodID getAxisValue = GetMethod(
-            env, event, "getAxisValue", "(I)F"
-        );
+        std::int32_t source = 0;
+        if (!TryGetInt(env, event, "getSource", source)
+            || !IsGamepad(source))
+        {
+            return false;
+        }
+
+        std::int32_t action = 0;
+        if (!TryGetInt(env, event, "getAction", action)
+            || action != AMOTION_EVENT_ACTION_MOVE)
+        {
+            return false;
+        }
+
+        jmethodID getAxisValue = nullptr;
+        if (!TryGetMethod(
+                env, event, "getAxisValue", "(I)F", getAxisValue
+            ))
+        {
+            return false;
+        }
 
         GamepadState state = GamepadInput::State;
         state.Connected = true;
@@ -202,40 +270,70 @@ namespace MphRead::Droid
             state.Name = "gamepad";
         }
 
-        state.LeftX = GetAxisValue(
-            env, event, getAxisValue, AMOTION_EVENT_AXIS_X
-        );
-        state.LeftY = -GetAxisValue(
-            env, event, getAxisValue, AMOTION_EVENT_AXIS_Y
-        );
-        state.RightX = Pick(
-            env,
-            event,
-            getAxisValue,
-            AMOTION_EVENT_AXIS_Z,
-            AMOTION_EVENT_AXIS_RX
-        );
-        state.RightY = -Pick(
-            env,
-            event,
-            getAxisValue,
-            AMOTION_EVENT_AXIS_RZ,
-            AMOTION_EVENT_AXIS_RY
-        );
-        state.LeftTrigger = Pick(
-            env,
-            event,
-            getAxisValue,
-            AMOTION_EVENT_AXIS_LTRIGGER,
-            AMOTION_EVENT_AXIS_BRAKE
-        );
-        state.RightTrigger = Pick(
-            env,
-            event,
-            getAxisValue,
-            AMOTION_EVENT_AXIS_RTRIGGER,
-            AMOTION_EVENT_AXIS_GAS
-        );
+        if (!TryGetAxisValue(
+                env, event, getAxisValue, AMOTION_EVENT_AXIS_X, state.LeftX
+            ))
+        {
+            return false;
+        }
+
+        float value = 0.0F;
+        if (!TryGetAxisValue(
+                env, event, getAxisValue, AMOTION_EVENT_AXIS_Y, value
+            ))
+        {
+            return false;
+        }
+        state.LeftY = -value;
+
+        if (!Pick(
+                env,
+                event,
+                getAxisValue,
+                AMOTION_EVENT_AXIS_Z,
+                AMOTION_EVENT_AXIS_RX,
+                state.RightX
+            ))
+        {
+            return false;
+        }
+
+        if (!Pick(
+                env,
+                event,
+                getAxisValue,
+                AMOTION_EVENT_AXIS_RZ,
+                AMOTION_EVENT_AXIS_RY,
+                value
+            ))
+        {
+            return false;
+        }
+        state.RightY = -value;
+
+        if (!Pick(
+                env,
+                event,
+                getAxisValue,
+                AMOTION_EVENT_AXIS_LTRIGGER,
+                AMOTION_EVENT_AXIS_BRAKE,
+                state.LeftTrigger
+            ))
+        {
+            return false;
+        }
+
+        if (!Pick(
+                env,
+                event,
+                getAxisValue,
+                AMOTION_EVENT_AXIS_RTRIGGER,
+                AMOTION_EVENT_AXIS_GAS,
+                state.RightTrigger
+            ))
+        {
+            return false;
+        }
 
         GamepadButtons buttons = static_cast<GamepadButtons>(
             Bits(state.Buttons)
@@ -260,12 +358,21 @@ namespace MphRead::Droid
             );
         }
 
-        const float hatX = GetAxisValue(
-            env, event, getAxisValue, AMOTION_EVENT_AXIS_HAT_X
-        );
-        const float hatY = GetAxisValue(
-            env, event, getAxisValue, AMOTION_EVENT_AXIS_HAT_Y
-        );
+        float hatX = 0.0F;
+        if (!TryGetAxisValue(
+                env, event, getAxisValue, AMOTION_EVENT_AXIS_HAT_X, hatX
+            ))
+        {
+            return false;
+        }
+
+        float hatY = 0.0F;
+        if (!TryGetAxisValue(
+                env, event, getAxisValue, AMOTION_EVENT_AXIS_HAT_Y, hatY
+            ))
+        {
+            return false;
+        }
 
         if (hatX < -HatPress)
         {

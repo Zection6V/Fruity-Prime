@@ -268,9 +268,29 @@ namespace
         return seconds * 10000000LL + nanoseconds / 100LL;
     }
 
+    [[nodiscard]] int OpenFile(const std::filesystem::path& path, int flags, mode_t mode = 0)
+    {
+#ifdef O_NOCTTY
+        flags |= O_NOCTTY;
+#endif
+        int fd = -1;
+        do
+        {
+            fd = mode == 0 ? ::open(path.c_str(), flags) : ::open(path.c_str(), flags, mode);
+        }
+        while (fd < 0 && errno == EINTR);
+        return fd;
+    }
+
     [[nodiscard]] bool TryFileShareLock(int fd, int operation)
     {
-        if (::flock(fd, operation | LOCK_NB) == 0)
+        int result = 0;
+        do
+        {
+            result = ::flock(fd, operation | LOCK_NB);
+        }
+        while (result < 0 && errno == EINTR);
+        if (result == 0)
         {
             return true;
         }
@@ -286,7 +306,12 @@ namespace
     {
         if (locked)
         {
-            ::flock(fd, LOCK_UN);
+            int result = 0;
+            do
+            {
+                result = ::flock(fd, LOCK_UN);
+            }
+            while (result < 0 && errno == EINTR);
             locked = false;
         }
     }
@@ -542,7 +567,7 @@ namespace
                 throw std::system_error(static_cast<int>(GetLastError()), std::system_category());
             }
 #else
-            _fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
+            _fd = OpenFile(path, O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
             if (_fd < 0)
             {
                 throw std::system_error(errno, std::generic_category());
@@ -550,7 +575,13 @@ namespace
             try
             {
                 _locked = TryFileShareLock(_fd, LOCK_EX);
-                if (::ftruncate(_fd, 0) != 0)
+                int truncateResult = 0;
+                do
+                {
+                    truncateResult = ::ftruncate(_fd, 0);
+                }
+                while (truncateResult < 0 && errno == EINTR);
+                if (truncateResult != 0)
                 {
                     const int code = errno;
                     if (code != EBADF && code != EINVAL)
@@ -600,7 +631,13 @@ namespace
             {
                 throw std::out_of_range("The archive position exceeds the seekable range.");
             }
-            if (::lseek(_fd, static_cast<off_t>(offset), SEEK_SET) < 0)
+            off_t result = 0;
+            do
+            {
+                result = ::lseek(_fd, static_cast<off_t>(offset), SEEK_SET);
+            }
+            while (result < 0 && errno == EINTR);
+            if (result < 0)
             {
                 throw std::system_error(errno, std::generic_category());
             }
@@ -717,7 +754,7 @@ namespace
                 throw std::system_error(static_cast<int>(GetLastError()), std::system_category());
             }
 #else
-            _fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+            _fd = OpenFile(path, O_RDONLY | O_CLOEXEC);
             if (_fd < 0)
             {
                 throw std::system_error(errno, std::generic_category());
@@ -725,7 +762,13 @@ namespace
             try
             {
                 struct stat status{};
-                if (::fstat(_fd, &status) != 0)
+                int statResult = 0;
+                do
+                {
+                    statResult = ::fstat(_fd, &status);
+                }
+                while (statResult < 0 && errno == EINTR);
+                if (statResult != 0)
                 {
                     throw std::system_error(errno, std::generic_category());
                 }
@@ -1547,7 +1590,13 @@ namespace
         if (S_ISLNK(status.st_mode))
         {
             struct stat target{};
-            if (::stat(path.c_str(), &target) == 0)
+            int statResult = 0;
+            do
+            {
+                statResult = ::stat(path.c_str(), &target);
+            }
+            while (statResult < 0 && errno == EINTR);
+            if (statResult == 0)
             {
                 return !S_ISDIR(target.st_mode);
             }
@@ -1636,8 +1685,13 @@ namespace MphRead::Mods
                 if (S_ISLNK(status.st_mode))
                 {
                     struct stat target{};
-                    isDirectory = ::stat(entry.path().c_str(), &target) == 0
-                        && S_ISDIR(target.st_mode);
+                    int statResult = 0;
+                    do
+                    {
+                        statResult = ::stat(entry.path().c_str(), &target);
+                    }
+                    while (statResult < 0 && errno == EINTR);
+                    isDirectory = statResult == 0 && S_ISDIR(target.st_mode);
                 }
                 if (isDirectory)
                 {

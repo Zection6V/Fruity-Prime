@@ -211,7 +211,7 @@ namespace
 
     [[nodiscard]] std::string FormatInt(std::int32_t value)
     {
-        return std::to_string(value);
+        return MphRead::Fixed(value).ToString();
     }
 }
 

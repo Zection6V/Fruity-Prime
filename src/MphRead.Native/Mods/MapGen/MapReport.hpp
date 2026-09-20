@@ -10,11 +10,11 @@ namespace MphRead::Mods::MapGen
     {
     public:
         [[nodiscard]] static std::int32_t ListShaders(
-            const std::optional<std::string>& source,
+            const std::string& source,
             const std::optional<std::string>& mapName);
 
         [[nodiscard]] static std::int32_t ListMaterials(
-            const std::optional<std::string>& room);
+            const std::string& room);
 
         MapReport() = delete;
         MapReport(const MapReport&) = delete;

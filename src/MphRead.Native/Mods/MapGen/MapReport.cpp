@@ -13,9 +13,10 @@
 #include <exception>
 #include <iostream>
 #include <memory>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 namespace
@@ -26,10 +27,31 @@ namespace
         std::int32_t Count;
     };
 
-    [[nodiscard]] const std::string& EmptyString()
+    [[noreturn]] void ThrowListIndex()
     {
-        static const std::string value;
-        return value;
+        throw std::out_of_range(
+            "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& ListAt(
+        const std::vector<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+        {
+            ThrowListIndex();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& RequireReference(const std::shared_ptr<T>& value)
+    {
+        if (!value)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
     }
 
     [[nodiscard]] std::int32_t ManagedAdd(
@@ -133,7 +155,8 @@ namespace
         case MphRead::TextureFormat::DirectRgb: return "DirectRgb";
         case MphRead::TextureFormat::PaletteA3I5: return "PaletteA3I5";
         default:
-            return std::to_string(static_cast<std::uint8_t>(value));
+            return std::to_string(
+                static_cast<unsigned int>(static_cast<std::uint8_t>(value)));
         }
     }
 
@@ -147,7 +170,8 @@ namespace
         case MphRead::RenderMode::Unknown3: return "Unknown3";
         case MphRead::RenderMode::Unknown4: return "Unknown4";
         default:
-            return std::to_string(static_cast<std::uint8_t>(value));
+            return std::to_string(
+                static_cast<unsigned int>(static_cast<std::uint8_t>(value)));
         }
     }
 
@@ -160,145 +184,170 @@ namespace
 namespace MphRead::Mods::MapGen
 {
     std::int32_t MapReport::ListShaders(
-        const std::optional<std::string>& source,
+        const std::string& source,
         const std::optional<std::string>& mapName)
     {
-        bool loading = true;
+        std::shared_ptr<Q3Bsp> bsp;
         try
         {
-            std::shared_ptr<Q3Bsp> bsp = Q3Bsp::Load(
-                source.has_value() ? *source : EmptyString(), mapName);
-            loading = false;
-
-            std::vector<ShaderCount> counts;
-            for (const std::shared_ptr<Q3Face>& faceRef : bsp->Faces())
-            {
-                if (!faceRef)
-                {
-                    throw System::NullReferenceException();
-                }
-                const Q3Face& face = *faceRef;
-                if (face.Type() != 1 && face.Type() != 3)
-                {
-                    continue;
-                }
-                const std::shared_ptr<Q3Texture>& textureRef = bsp->Textures().at(
-                    static_cast<std::size_t>(face.Texture()));
-                if (!textureRef)
-                {
-                    throw System::NullReferenceException();
-                }
-                const Q3Texture& texture = *textureRef;
-                if ((texture.Flags() & (Q3Bsp::SurfaceNoDraw | Q3Bsp::SurfaceSky
-                    | Q3Bsp::SurfaceHint | Q3Bsp::SurfaceSkip)) != 0)
-                {
-                    continue;
-                }
-
-                ShaderCount* found = nullptr;
-                for (ShaderCount& pair : counts)
-                {
-                    if (pair.Name == texture.Name())
-                    {
-                        found = std::addressof(pair);
-                        break;
-                    }
-                }
-                if (found == nullptr)
-                {
-                    counts.push_back(ShaderCount{texture.Name(), 0});
-                    found = std::addressof(counts.back());
-                }
-                found->Count = ManagedAdd(found->Count, face.MeshVertCount() / 3);
-            }
-
-            const std::string& label = mapName.has_value()
-                ? *mapName
-                : (source.has_value() ? *source : EmptyString());
-            std::string summary = label;
-            summary += ": ";
-            summary += FormatInt32(static_cast<std::int32_t>(counts.size()));
-            summary += " shaders drawn";
-            WriteLine(summary);
-
-            std::vector<const ShaderCount*> ordered;
-            ordered.reserve(counts.size());
-            for (const ShaderCount& pair : counts)
-            {
-                ordered.push_back(std::addressof(pair));
-            }
-            std::stable_sort(ordered.begin(), ordered.end(),
-                [](const ShaderCount* left, const ShaderCount* right)
-                {
-                    return left->Count > right->Count;
-                });
-
-            for (const ShaderCount* pair : ordered)
-            {
-                std::string line = "  ";
-                const std::string count = FormatInt32(pair->Count);
-                AppendRightAligned(line, count, 6);
-                line += " triangles  ";
-                line += pair->Name;
-                WriteLine(line);
-            }
-            return 0;
+            bsp = Q3Bsp::Load(source, mapName);
         }
         catch (const std::exception& ex)
         {
-            if (!loading)
-            {
-                throw;
-            }
             WriteLine(ex.what());
             return 1;
         }
+
+        if (!bsp)
+        {
+            throw System::NullReferenceException();
+        }
+
+        std::vector<ShaderCount> counts;
+        for (const std::shared_ptr<Q3Face>& faceRef : bsp->Faces())
+        {
+            const Q3Face& face = RequireReference(faceRef);
+            if (face.Type() != 1 && face.Type() != 3)
+            {
+                continue;
+            }
+
+            const std::shared_ptr<Q3Texture>& textureRef
+                = ListAt(bsp->Textures(), face.Texture());
+            const Q3Texture& texture = RequireReference(textureRef);
+            if ((texture.Flags() & (Q3Bsp::SurfaceNoDraw | Q3Bsp::SurfaceSky
+                | Q3Bsp::SurfaceHint | Q3Bsp::SurfaceSkip)) != 0)
+            {
+                continue;
+            }
+
+            if (!texture.Name().HasValue())
+            {
+                throw System::ArgumentNullException("key");
+            }
+            const std::string& name = texture.Name().Value();
+
+            ShaderCount* found = nullptr;
+            for (ShaderCount& pair : counts)
+            {
+                if (pair.Name == name)
+                {
+                    found = std::addressof(pair);
+                    break;
+                }
+            }
+            if (found == nullptr)
+            {
+                counts.push_back(ShaderCount{name, 0});
+                found = std::addressof(counts.back());
+            }
+            found->Count = ManagedAdd(found->Count, face.MeshVertCount() / 3);
+        }
+
+        std::string summary = mapName.has_value() ? *mapName : source;
+        summary += ": ";
+        summary += FormatInt32(static_cast<std::int32_t>(counts.size()));
+        summary += " shaders drawn";
+        WriteLine(summary);
+
+        std::vector<const ShaderCount*> ordered;
+        ordered.reserve(counts.size());
+        for (const ShaderCount& pair : counts)
+        {
+            ordered.push_back(std::addressof(pair));
+        }
+        std::stable_sort(ordered.begin(), ordered.end(),
+            [](const ShaderCount* left, const ShaderCount* right)
+            {
+                return left->Count > right->Count;
+            });
+
+        for (const ShaderCount* pair : ordered)
+        {
+            std::string line = "  ";
+            const std::string count = FormatInt32(pair->Count);
+            AppendRightAligned(line, count, 6);
+            line += " triangles  ";
+            line += pair->Name;
+            WriteLine(line);
+        }
+        return 0;
     }
 
-    std::int32_t MapReport::ListMaterials(
-        const std::optional<std::string>& room)
+    std::int32_t MapReport::ListMaterials(const std::string& room)
     {
         std::shared_ptr<Model> model;
         try
         {
-            if (!room.has_value())
+            const std::shared_ptr<ModelInstance> instance
+                = Read::GetRoomModelInstance(room);
+            if (!instance)
             {
-                throw System::ArgumentNullException("key");
+                throw System::NullReferenceException();
             }
-            model = Read::GetRoomModelInstance(*room)->Model();
+            model = instance->Model();
         }
         catch (const std::exception& ex)
         {
             std::string message = "Could not load ";
-            message += room.has_value() ? *room : EmptyString();
+            message += room;
             message += ": ";
             message += ex.what();
             WriteLine(message);
             return 1;
         }
 
-        const std::shared_ptr<Recolor>& recolor = model->Recolors->at(0);
-        std::string summary = *room;
+        if (!model)
+        {
+            throw System::NullReferenceException();
+        }
+        if (!model->Recolors)
+        {
+            throw System::NullReferenceException();
+        }
+
+        const std::shared_ptr<Recolor>& recolor
+            = ListAt(*model->Recolors, 0);
+
+        if (!model->Materials)
+        {
+            throw System::NullReferenceException();
+        }
+        const std::int32_t materialCount
+            = static_cast<std::int32_t>(model->Materials->size());
+
+        if (!recolor)
+        {
+            throw System::NullReferenceException();
+        }
+        if (!recolor->Textures)
+        {
+            throw System::NullReferenceException();
+        }
+        const std::int32_t textureCount
+            = static_cast<std::int32_t>(recolor->Textures->size());
+
+        std::string summary = room;
         summary += ": ";
-        summary += FormatInt32(static_cast<std::int32_t>(model->Materials->size()));
+        summary += FormatInt32(materialCount);
         summary += " materials, ";
-        summary += FormatInt32(static_cast<std::int32_t>(recolor->Textures->size()));
+        summary += FormatInt32(textureCount);
         summary += " textures";
         WriteLine(summary);
 
-        for (std::int32_t i = 0;
-            i < static_cast<std::int32_t>(model->Materials->size()); ++i)
+        for (std::int32_t i = 0; i < materialCount; ++i)
         {
-            const std::shared_ptr<Material>& material
-                = model->Materials->at(static_cast<std::size_t>(i));
+            const std::shared_ptr<Material>& materialRef
+                = ListAt(*model->Materials, i);
+            const Material& material = RequireReference(materialRef);
+
             std::string size = "no texture";
             std::string format;
-            if (material->TextureId >= 0
-                && material->TextureId
-                    < static_cast<std::int32_t>(recolor->Textures->size()))
+            if (material.TextureId >= 0
+                && material.TextureId < textureCount)
             {
-                const Texture& texture = recolor->Textures->at(
-                    static_cast<std::size_t>(material->TextureId));
+                const Texture& texture
+                    = ListAt(*recolor->Textures, material.TextureId);
                 size = FormatInt32(static_cast<std::int32_t>(texture.Width));
                 size += 'x';
                 size += FormatInt32(static_cast<std::int32_t>(texture.Height));
@@ -309,21 +358,21 @@ namespace MphRead::Mods::MapGen
             const std::string index = FormatInt32(i);
             AppendRightAligned(line, index, 3);
             line += "  ";
-            AppendLeftAligned(line, material->Name, 32);
+            AppendLeftAligned(line, material.Name, 32);
             line += " tex ";
-            const std::string textureId = FormatInt32(material->TextureId);
+            const std::string textureId = FormatInt32(material.TextureId);
             AppendRightAligned(line, textureId, 3);
             line += " pal ";
-            const std::string paletteId = FormatInt32(material->PaletteId);
+            const std::string paletteId = FormatInt32(material.PaletteId);
             AppendRightAligned(line, paletteId, 3);
             line += "  ";
             AppendLeftAligned(line, size, 9);
             line += ' ';
             line += format;
             line += ' ';
-            if (material->RenderMode != RenderMode::Normal)
+            if (material.RenderMode != RenderMode::Normal)
             {
-                line += FormatRenderMode(material->RenderMode);
+                line += FormatRenderMode(material.RenderMode);
             }
             WriteLine(line);
         }

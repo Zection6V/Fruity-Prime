@@ -18,6 +18,7 @@ namespace MphRead
 namespace MphRead::Entities
 {
     class PlayerEntity;
+    enum class Effectiveness : std::uint8_t;
 
     enum class BeamFlags : std::uint16_t
     {

@@ -13,6 +13,7 @@
 #include <typeinfo>
 #include <typeindex>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace MphRead::Mods::MapGen
@@ -73,7 +74,48 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] bool operator()(const std::string& left, const std::string& right) const noexcept;
     };
 
-    using Q3Entity = std::unordered_map<std::string, std::string, Q3StringHash, Q3StringEqual>;
+    class Q3Entity final
+    {
+    public:
+        using value_type = std::pair<std::string, std::string>;
+        using Storage = std::vector<value_type>;
+        using const_iterator = Storage::const_iterator;
+
+        [[nodiscard]] std::string& operator[](const std::string& key)
+        {
+            for (value_type& entry : _entries)
+            {
+                if (Q3StringEqual{}(entry.first, key))
+                {
+                    return entry.second;
+                }
+            }
+            _entries.emplace_back(key, std::string{});
+            return _entries.back().second;
+        }
+
+        [[nodiscard]] const_iterator find(const std::string& key) const noexcept
+        {
+            for (auto iterator = _entries.cbegin(); iterator != _entries.cend(); ++iterator)
+            {
+                if (Q3StringEqual{}(iterator->first, key))
+                {
+                    return iterator;
+                }
+            }
+            return _entries.cend();
+        }
+
+        [[nodiscard]] const_iterator begin() const noexcept { return _entries.cbegin(); }
+        [[nodiscard]] const_iterator end() const noexcept { return _entries.cend(); }
+        [[nodiscard]] const_iterator cbegin() const noexcept { return _entries.cbegin(); }
+        [[nodiscard]] const_iterator cend() const noexcept { return _entries.cend(); }
+        [[nodiscard]] std::size_t size() const noexcept { return _entries.size(); }
+        [[nodiscard]] bool empty() const noexcept { return _entries.empty(); }
+
+    private:
+        Storage _entries{};
+    };
     using Q3FloatArray = std::shared_ptr<std::vector<float>>;
     using Q3IntArray = std::shared_ptr<std::vector<std::int32_t>>;
     using Q3ByteArray = std::shared_ptr<std::vector<std::uint8_t>>;
@@ -92,11 +134,11 @@ namespace MphRead::Mods::MapGen
         Q3Texture(
             std::string name,
             std::int32_t flags,
-            std::int32_t contents) noexcept;
+            std::int32_t contents);
         Q3Texture(
             const char* name,
             std::int32_t flags,
-            std::int32_t contents) noexcept;
+            std::int32_t contents);
 
         virtual ~Q3Texture() = default;
         Q3Texture(Q3Texture&&) = delete;
@@ -548,15 +590,46 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] static std::vector<std::string> ListMaps(const std::string* source);
 
     private:
-        TextureList _textures{};
-        PlaneList _planes{};
-        BrushList _brushes{};
-        BrushSideList _brushSides{};
-        VertexList _vertices{};
-        MeshVertList _meshVerts{};
-        FaceList _faces{};
-        ModelList _models{};
-        EntityList _entities{};
+        template <typename T>
+        class ListStorage final
+        {
+        public:
+            using List = std::vector<T>;
+
+            ListStorage() = default;
+
+            ListStorage& operator=(List value)
+            {
+                _value = std::move(value);
+                _assigned = true;
+                return *this;
+            }
+
+            [[nodiscard]] const List& Get() const noexcept
+            {
+                return _assigned ? _value : Empty();
+            }
+
+        private:
+            [[nodiscard]] static const List& Empty() noexcept
+            {
+                static const List value{};
+                return value;
+            }
+
+            List _value{};
+            bool _assigned = false;
+        };
+
+        ListStorage<std::shared_ptr<Q3Texture>> _textures{};
+        ListStorage<std::shared_ptr<Q3Plane>> _planes{};
+        ListStorage<std::shared_ptr<Q3Brush>> _brushes{};
+        ListStorage<std::shared_ptr<Q3BrushSide>> _brushSides{};
+        ListStorage<std::shared_ptr<Q3Vertex>> _vertices{};
+        ListStorage<std::int32_t> _meshVerts{};
+        ListStorage<std::shared_ptr<Q3Face>> _faces{};
+        ListStorage<std::shared_ptr<Q3Model>> _models{};
+        ListStorage<std::shared_ptr<Q3Entity>> _entities{};
 
         [[nodiscard]] static std::shared_ptr<Q3Bsp> Parse(const std::vector<std::uint8_t>& bytes);
         [[nodiscard]] static EntityList ParseEntities(const std::string& text);
@@ -629,7 +702,7 @@ namespace MphRead::Mods::MapGen
 
     inline const std::type_info& Q3Texture::EqualityContract() const noexcept
     {
-        return typeid(Q3Texture);
+        return typeid(*this);
     }
 
     inline bool Q3Texture::Equals(const Q3Texture* other) const noexcept
@@ -726,7 +799,7 @@ namespace MphRead::Mods::MapGen
 
     inline const std::type_info& Q3Plane::EqualityContract() const noexcept
     {
-        return typeid(Q3Plane);
+        return typeid(*this);
     }
 
     inline bool Q3Plane::Equals(const Q3Plane* other) const noexcept
@@ -822,7 +895,7 @@ namespace MphRead::Mods::MapGen
 
     inline const std::type_info& Q3Brush::EqualityContract() const noexcept
     {
-        return typeid(Q3Brush);
+        return typeid(*this);
     }
 
     inline bool Q3Brush::Equals(const Q3Brush* other) const noexcept
@@ -909,7 +982,7 @@ namespace MphRead::Mods::MapGen
 
     inline const std::type_info& Q3BrushSide::EqualityContract() const noexcept
     {
-        return typeid(Q3BrushSide);
+        return typeid(*this);
     }
 
     inline bool Q3BrushSide::Equals(const Q3BrushSide* other) const noexcept
@@ -987,7 +1060,7 @@ namespace MphRead::Mods::MapGen
 
     inline const std::type_info& Q3Vertex::EqualityContract() const noexcept
     {
-        return typeid(Q3Vertex);
+        return typeid(*this);
     }
 
     inline bool Q3Vertex::Equals(const Q3Vertex* other) const noexcept
@@ -1083,7 +1156,7 @@ namespace MphRead::Mods::MapGen
 
     inline const std::type_info& Q3Face::EqualityContract() const noexcept
     {
-        return typeid(Q3Face);
+        return typeid(*this);
     }
 
     inline bool Q3Face::Equals(const Q3Face* other) const noexcept
@@ -1224,7 +1297,7 @@ namespace MphRead::Mods::MapGen
 
     inline const std::type_info& Q3Model::EqualityContract() const noexcept
     {
-        return typeid(Q3Model);
+        return typeid(*this);
     }
 
     inline bool Q3Model::Equals(const Q3Model* other) const noexcept

@@ -159,12 +159,12 @@ namespace
         const std::size_t length = buffer->Length();
         if (startIndex < 0 || static_cast<std::size_t>(startIndex) >= length)
         {
-            throw Detail::ArgumentOutOfRangeException();
+            throw std::out_of_range("Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')");
         }
         const std::size_t start = static_cast<std::size_t>(startIndex);
         if (width > length - start)
         {
-            throw std::invalid_argument("The array is too small for the requested value.");
+            throw std::invalid_argument("The array starting from the specified index is not long enough to read a value of the specified type. (Parameter 'value')");
         }
     }
 }

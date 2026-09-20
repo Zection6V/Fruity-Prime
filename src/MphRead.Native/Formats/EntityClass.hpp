@@ -78,7 +78,7 @@ namespace MphRead::Editor
         std::int32_t DamageEffectId = 0;
         std::int32_t DeadEffectId = 0;
         std::uint8_t ItemChance = 0;
-        ItemType ItemType{};
+        ::MphRead::ItemType ItemType{};
         std::uint32_t Unused1D0 = 0;
         std::uint32_t Unused1D4 = 0;
         std::int32_t BeamHitMsgTarget = 0;
@@ -176,7 +176,7 @@ namespace MphRead::Editor
     public:
         std::shared_ptr<std::string> DoorNodeName{};
         std::uint32_t PaletteId = 0;
-        DoorType DoorType{};
+        ::MphRead::DoorType DoorType{};
         std::uint32_t ConnectorId = 0;
         std::uint8_t TargetLayerId = 0;
         bool Locked = false;
@@ -206,7 +206,7 @@ namespace MphRead::Editor
     {
     public:
         std::int32_t ParentId = 0;
-        ItemType ItemType{};
+        ::MphRead::ItemType ItemType{};
         bool Enabled = false;
         bool HasBase = false;
         bool AlwaysActive = false;

@@ -24,6 +24,9 @@
 
 namespace MphRead::Mods::MapGen::MapTextureBakeInterop
 {
+    // Declaration-only bridges for the external APIs used by MapTextureBake.cs.
+    // They add no fallback or Native-only policy: the platform owner must supply
+    // System.IO.Compression-equivalent ZIP reads and ReFuel.Stb RGB decoding.
     class ZipArchive;
 
     struct DecodedImage final
@@ -177,40 +180,10 @@ namespace
         return {};
     }
 
-    [[nodiscard]] char FoldAscii(char value) noexcept
-    {
-        if (value >= 'A' && value <= 'Z')
-        {
-            return static_cast<char>(value + ('a' - 'A'));
-        }
-        return value;
-    }
-
     [[nodiscard]] bool OrdinalIgnoreCaseEquals(
-        std::string_view left, std::string_view right) noexcept
+        const std::string& left, const std::string& right) noexcept
     {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i)
-        {
-            const unsigned char a = static_cast<unsigned char>(left[i]);
-            const unsigned char b = static_cast<unsigned char>(right[i]);
-            if (a < 0x80U && b < 0x80U)
-            {
-                if (FoldAscii(static_cast<char>(a))
-                    != FoldAscii(static_cast<char>(b)))
-                {
-                    return false;
-                }
-            }
-            else if (a != b)
-            {
-                return false;
-            }
-        }
-        return true;
+        return MphRead::Mods::MapGen::Q3StringEqual{}(left, right);
     }
 
     class ArchiveGuard final
@@ -291,8 +264,16 @@ namespace
                 continue;
             }
 
-            const std::shared_ptr<Q3Texture>& textureRef = bsp->Textures().at(
-                static_cast<std::size_t>(textureIndex));
+            const Q3Bsp::TextureList& textures = bsp->Textures();
+            if (textureIndex < 0
+                || static_cast<std::uint64_t>(textureIndex) >= textures.size())
+            {
+                throw std::out_of_range(
+                    "Index was out of range. Must be non-negative and less than "
+                    "the size of the collection. (Parameter 'index')");
+            }
+            const std::shared_ptr<Q3Texture>& textureRef
+                = textures[static_cast<std::size_t>(textureIndex)];
             if (!textureRef)
             {
                 throw System::NullReferenceException();

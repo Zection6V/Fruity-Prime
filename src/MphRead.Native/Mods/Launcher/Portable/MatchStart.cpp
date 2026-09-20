@@ -6,6 +6,7 @@
 #include "LauncherPrefs.hpp"
 #include "../../../Entities/Players/PlayerEntity.hpp"
 #include "../../../Formats/Types.hpp"
+#include "../../../GameState.hpp"
 #include "../../../Menu.hpp"
 #include "../../../Renderer.hpp"
 #include "../../MapGen/CustomRooms.hpp"
@@ -26,9 +27,6 @@ namespace MphRead::Mods::Launcher::Detail
     // Direct-owner seams required by the current native dependency surface.
     // They carry no MatchStart policy: each operation is the C# call at that
     // exact evaluation point, and its owner supplies the behavior.
-    void MatchStartSetGameMode(MphRead::GameMode mode);
-    [[nodiscard]] bool MatchStartIsTeamMode(MphRead::GameMode mode);
-    void MatchStartCommitSave();
     void MatchStartRunWindow(MphRead::RenderWindow& renderer);
     void MatchStartSetBotLevel(MphRead::Entities::PlayerEntity& player, std::int32_t level);
 }
@@ -126,7 +124,7 @@ namespace MphRead::Mods::Launcher
         bool teamPlay;
         if (MphRead::Mods::Network::NetSession::Active())
         {
-            teamPlay = Detail::MatchStartIsTeamMode(mode);
+            teamPlay = MphRead::GameState::IsTeamMode(mode);
         }
         else
         {
@@ -134,7 +132,7 @@ namespace MphRead::Mods::Launcher
             {
                 throw System::NullReferenceException();
             }
-            teamPlay = settings->TeamPlay == "on" || Detail::MatchStartIsTeamMode(plan.Mode());
+            teamPlay = settings->TeamPlay == "on" || MphRead::GameState::IsTeamMode(plan.Mode());
         }
 
         if (MphRead::Mods::Network::NetSession::Active())
@@ -163,7 +161,7 @@ namespace MphRead::Mods::Launcher
             return;
         }
 
-        Detail::MatchStartSetGameMode(MphRead::GameMode::SinglePlayer);
+        MphRead::GameState::Mode(MphRead::GameMode::SinglePlayer);
         MphRead::RenderWindow::LogCreatingWindow();
         {
             MphRead::RenderWindow renderer;
@@ -203,7 +201,7 @@ namespace MphRead::Mods::Launcher
         MphRead::RenderWindow renderer;
         MphRead::Mods::Network::NetLaunch::BuildPlayers(
             renderer.Scene(), MphRead::Hunter::Samus, 0,
-            Detail::MatchStartIsTeamMode(room->Mode), -1);
+            MphRead::GameState::IsTeamMode(room->Mode), -1);
         renderer.AddRoom(room->RoomKey, room->Mode,
             MphRead::Mods::Network::NetLaunch::RoomPlayerCount);
         Detail::MatchStartRunWindow(renderer);
@@ -215,7 +213,7 @@ namespace MphRead::Mods::Launcher
         if (MphRead::Menu::NeededSave != MphRead::SaveWhen::Never
             && MphRead::Menu::SaveSlot != 0)
         {
-            Detail::MatchStartCommitSave();
+            MphRead::GameState::CommitSave();
         }
         MphRead::Menu::NeededSave = MphRead::SaveWhen::Never;
     }

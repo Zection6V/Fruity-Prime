@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Mods/Update/BuildVersion.hpp"
+
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -7,41 +9,62 @@
 #include <string_view>
 #include <vector>
 
-namespace System
-{
-    class Version final
-    {
-    public:
-        Version(std::int32_t major, std::int32_t minor);
-        Version(std::int32_t major, std::int32_t minor, std::int32_t build);
-        Version(std::int32_t major, std::int32_t minor, std::int32_t build, std::int32_t revision);
-
-        [[nodiscard]] static std::optional<Version> TryParse(std::string_view text) noexcept;
-
-        friend bool operator>=(const Version& left, const Version& right) noexcept;
-
-    private:
-        std::int32_t _major;
-        std::int32_t _minor;
-        std::int32_t _build;
-        std::int32_t _revision;
-    };
-}
-
 namespace MphRead
 {
     class Program final
     {
     public:
-        static const System::Version Version;
-
-        // Language/runtime entry seam: C# can designate a private method as the
-        // CLR entry point; native startup code must be able to call this symbol.
+        // Native entry seam for executable adapters. The C# entry point itself
+        // is private; native startup has no CLR entry-point metadata.
         static void Main(const std::vector<std::string>& args);
+
+        static const Mods::Update::Version Version;
 
         Program() = delete;
         Program(const Program&) = delete;
         Program& operator=(const Program&) = delete;
+
+    private:
+        struct Argument final
+        {
+            const std::optional<std::string> Name{};
+            const std::optional<std::string> ValueOne{};
+            const std::optional<std::string> ValueTwo{};
+
+            Argument() = default;
+            Argument(std::string name, std::optional<std::string> valueOne,
+                std::optional<std::string> valueTwo = std::nullopt);
+            Argument(const Argument&) = default;
+            Argument(Argument&&) = default;
+            Argument& operator=(const Argument& other);
+            Argument& operator=(Argument&& other);
+        };
+
+        class PairRange;
+
+        static const Mods::Update::Version _minExtractVersion;
+
+        [[nodiscard]] static bool CheckSetup(const std::vector<std::string>& args);
+        [[nodiscard]] static bool CheckVersion();
+        [[nodiscard]] static PairRange GetPairs(
+            const std::vector<Argument>& arguments,
+            std::string_view fullName, std::string_view shortName);
+        [[nodiscard]] static bool TryGetArgument(
+            const std::vector<Argument>& arguments,
+            std::string_view fullName, std::string_view shortName,
+            std::optional<Argument>& argument);
+        [[nodiscard]] static bool TryGetString(
+            const std::vector<Argument>& arguments,
+            std::string_view fullName, std::string_view shortName,
+            std::optional<std::string>& value);
+        [[nodiscard]] static bool TryGetInt(
+            const std::vector<Argument>& arguments,
+            std::string_view fullName, std::string_view shortName,
+            std::int32_t& value);
+        [[nodiscard]] static std::vector<Argument> ParseArguments(
+            const std::vector<std::string>& args);
+        [[noreturn]] static void Exit();
+        static void Nop();
     };
 
     class ProgramException : public std::runtime_error

@@ -23,6 +23,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -42,17 +43,6 @@
 #endif
 namespace
 {
-    const System::Version MinExtractVersion(0, 19, 0, 0);
-    struct Argument final
-    {
-        std::string Name;
-        std::optional<std::string> ValueOne;
-        std::optional<std::string> ValueTwo;
-        Argument(std::string name, std::optional<std::string> valueOne, std::optional<std::string> valueTwo = std::nullopt)
-            : Name(std::move(name)), ValueOne(std::move(valueOne)), ValueTwo(std::move(valueTwo))
-        {
-        }
-    };
     [[nodiscard]] bool IsDotNetTrimWhitespace(std::uint32_t codePoint) noexcept
     {
         if (codePoint >= 0x0009 && codePoint <= 0x000D)
@@ -218,7 +208,7 @@ namespace
     {
         return !text.empty() && text.front() == '-';
     }
-    [[nodiscard]] std::string ToLowerInvariantForProgram(std::string_view text)
+    [[nodiscard]] std::string ToLowerForProgramFallback(std::string_view text)
     {
         std::string result(text);
         for (char &ch : result)
@@ -538,38 +528,269 @@ namespace
             EchoConsoleBytes(keyBytes);
 #endif
     }
-    [[nodiscard]] bool AnyName(const std::vector<Argument> &arguments, std::string_view name) noexcept
+
+    [[nodiscard]] std::optional<MphRead::Mods::Update::Version> TryParseVersionForProgram(
+        std::string_view text)
     {
-        for (const Argument &argument : arguments)
-            if (argument.Name == name)
-                return true;
-        return false;
-    }
-    [[nodiscard]] bool TryGetArgument(const std::vector<Argument> &arguments, std::string_view fullName, std::string_view shortName, const Argument *&argument) noexcept
-    {
-        for (const Argument &item : arguments)
+        std::array<std::int32_t, 4> components{};
+        std::size_t componentCount = 0;
+        std::size_t start = 0;
+        while (true)
         {
-            if (item.Name == fullName || item.Name == shortName)
+            if (componentCount == components.size())
             {
-                argument = &item;
-                return true;
+                return std::nullopt;
+            }
+            const std::size_t separator = text.find('.', start);
+            const std::string_view component = separator == std::string_view::npos
+                ? text.substr(start)
+                : text.substr(start, separator - start);
+            std::int32_t value = 0;
+            if (!TryParseInt32(component, value) || value < 0)
+            {
+                return std::nullopt;
+            }
+            components[componentCount++] = value;
+            if (separator == std::string_view::npos)
+            {
+                break;
+            }
+            start = separator + 1;
+        }
+        if (componentCount < 2 || componentCount > 4)
+        {
+            return std::nullopt;
+        }
+        try
+        {
+            if (componentCount == 2)
+            {
+                return MphRead::Mods::Update::Version(components[0], components[1]);
+            }
+            if (componentCount == 3)
+            {
+                return MphRead::Mods::Update::Version(
+                    components[0], components[1], components[2]);
+            }
+            return MphRead::Mods::Update::Version(
+                components[0], components[1], components[2], components[3]);
+        }
+        catch (...)
+        {
+            return std::nullopt;
+        }
+    }
+}
+
+namespace MphRead
+{
+    Program::Argument::Argument(
+        std::string name,
+        std::optional<std::string> valueOne,
+        std::optional<std::string> valueTwo)
+        : Name(std::move(name)),
+          ValueOne(std::move(valueOne)),
+          ValueTwo(std::move(valueTwo))
+    {
+    }
+
+    Program::Argument& Program::Argument::operator=(const Argument& other)
+    {
+        if (this != std::addressof(other))
+        {
+            this->~Argument();
+            std::construct_at(this, other);
+        }
+        return *this;
+    }
+
+    Program::Argument& Program::Argument::operator=(Argument&& other)
+    {
+        if (this != std::addressof(other))
+        {
+            this->~Argument();
+            std::construct_at(this, std::move(other));
+        }
+        return *this;
+    }
+
+    class Program::PairRange final
+    {
+    public:
+        class Iterator final
+        {
+        public:
+            using value_type = std::pair<std::string, std::int32_t>;
+            using difference_type = std::ptrdiff_t;
+            using iterator_category = std::input_iterator_tag;
+
+            Iterator(
+                const std::vector<Argument>* arguments,
+                std::string_view fullName,
+                std::string_view shortName,
+                std::size_t index)
+                : _arguments(arguments),
+                  _fullName(fullName),
+                  _shortName(shortName),
+                  _index(index)
+            {
+                AdvanceToMatch();
+            }
+
+            [[nodiscard]] value_type operator*() const
+            {
+                const Argument& argument = (*_arguments)[_index];
+                std::int32_t valueTwo = 0;
+                if (argument.ValueTwo.has_value())
+                {
+                    (void)TryParseInt32(*argument.ValueTwo, valueTwo);
+                }
+                return std::make_pair(*argument.ValueOne, valueTwo);
+            }
+
+            Iterator& operator++()
+            {
+                ++_index;
+                AdvanceToMatch();
+                return *this;
+            }
+
+            void operator++(int)
+            {
+                ++(*this);
+            }
+
+            friend bool operator==(const Iterator& left, const Iterator& right) noexcept
+            {
+                return left._arguments == right._arguments
+                    && left._index == right._index;
+            }
+
+            friend bool operator!=(const Iterator& left, const Iterator& right) noexcept
+            {
+                return !(left == right);
+            }
+
+        private:
+            void AdvanceToMatch()
+            {
+                while (_arguments != nullptr && _index < _arguments->size())
+                {
+                    const Argument& argument = (*_arguments)[_index];
+                    const bool nameMatches = argument.Name.has_value()
+                        && (*argument.Name == _fullName || *argument.Name == _shortName);
+                    if (nameMatches && argument.ValueOne.has_value())
+                    {
+                        return;
+                    }
+                    ++_index;
+                }
+            }
+
+            const std::vector<Argument>* _arguments;
+            std::string_view _fullName;
+            std::string_view _shortName;
+            std::size_t _index;
+        };
+
+        PairRange(
+            const std::vector<Argument>& arguments,
+            std::string_view fullName,
+            std::string_view shortName)
+            : _arguments(arguments),
+              _fullName(fullName),
+              _shortName(shortName)
+        {
+        }
+
+        [[nodiscard]] Iterator begin() const
+        {
+            return Iterator(&_arguments, _fullName, _shortName, 0);
+        }
+
+        [[nodiscard]] Iterator end() const
+        {
+            return Iterator(&_arguments, _fullName, _shortName, _arguments.size());
+        }
+
+    private:
+        const std::vector<Argument>& _arguments;
+        std::string_view _fullName;
+        std::string_view _shortName;
+    };
+
+    const Mods::Update::Version Program::Version(0, 35, 1, 0);
+    const Mods::Update::Version Program::_minExtractVersion(0, 19, 0, 0);
+
+    ProgramException::ProgramException(const std::string& message)
+        : std::runtime_error(message)
+    {
+    }
+
+    Program::PairRange Program::GetPairs(
+        const std::vector<Argument>& arguments,
+        std::string_view fullName,
+        std::string_view shortName)
+    {
+        return PairRange(arguments, fullName, shortName);
+    }
+
+    bool Program::TryGetArgument(
+        const std::vector<Argument>& arguments,
+        std::string_view fullName,
+        std::string_view shortName,
+        std::optional<Argument>& argument)
+    {
+        bool any = false;
+        for (const Argument& item : arguments)
+        {
+            if (item.Name.has_value()
+                && (*item.Name == fullName || *item.Name == shortName))
+            {
+                any = true;
+                break;
             }
         }
-        argument = nullptr;
+
+        if (any)
+        {
+            for (const Argument& item : arguments)
+            {
+                if (item.Name.has_value()
+                    && (*item.Name == fullName || *item.Name == shortName))
+                {
+                    argument = item;
+                    return true;
+                }
+            }
+        }
+
+        argument.reset();
         return false;
     }
-    [[nodiscard]] bool TryGetString(const std::vector<Argument> &arguments, std::string_view fullName, std::string_view shortName, std::optional<std::string> &value)
+
+    bool Program::TryGetString(
+        const std::vector<Argument>& arguments,
+        std::string_view fullName,
+        std::string_view shortName,
+        std::optional<std::string>& value)
     {
-        const Argument *argument = nullptr;
-        if (TryGetArgument(arguments, fullName, shortName, argument) && argument->ValueOne.has_value())
+        std::optional<Argument> argument;
+        if (TryGetArgument(arguments, fullName, shortName, argument)
+            && argument->ValueOne.has_value())
         {
             value = argument->ValueOne;
             return true;
         }
-        value = std::nullopt;
+        value.reset();
         return false;
     }
-    [[nodiscard]] bool TryGetInt(const std::vector<Argument> &arguments, std::string_view fullName, std::string_view shortName, std::int32_t &value)
+
+    bool Program::TryGetInt(
+        const std::vector<Argument>& arguments,
+        std::string_view fullName,
+        std::string_view shortName,
+        std::int32_t& value)
     {
         std::optional<std::string> stringValue;
         if (TryGetString(arguments, fullName, shortName, stringValue))
@@ -584,66 +805,9 @@ namespace
         value = 0;
         return false;
     }
-    class PairRange final
-    {
-    public:
-        class Iterator final
-        {
-        public:
-            using value_type = std::pair<std::string, std::int32_t>;
-            using difference_type = std::ptrdiff_t;
-            using iterator_category = std::input_iterator_tag;
-            Iterator(const std::vector<Argument> *arguments, std::string_view fullName, std::string_view shortName, std::size_t index)
-                : _arguments(arguments), _fullName(fullName), _shortName(shortName), _index(index) { AdvanceToMatch(); }
-            [[nodiscard]] value_type operator*() const
-            {
-                const Argument &argument = (*_arguments)[_index];
-                std::int32_t valueTwo = 0;
-                if (argument.ValueTwo.has_value())
-                    (void)TryParseInt32(*argument.ValueTwo, valueTwo);
-                return std::make_pair(*argument.ValueOne, valueTwo);
-            }
-            Iterator &operator++()
-            {
-                ++_index;
-                AdvanceToMatch();
-                return *this;
-            }
-            void operator++(int) { ++(*this); }
-            friend bool operator==(const Iterator &left, const Iterator &right) noexcept { return left._arguments == right._arguments && left._index == right._index; }
-            friend bool operator!=(const Iterator &left, const Iterator &right) noexcept { return !(left == right); }
 
-        private:
-            void AdvanceToMatch()
-            {
-                while (_arguments != nullptr && _index < _arguments->size())
-                {
-                    const Argument &argument = (*_arguments)[_index];
-                    if ((argument.Name == _fullName || argument.Name == _shortName) && argument.ValueOne.has_value())
-                        return;
-                    ++_index;
-                }
-            }
-            const std::vector<Argument> *_arguments;
-            std::string_view _fullName;
-            std::string_view _shortName;
-            std::size_t _index;
-        };
-        PairRange(const std::vector<Argument> &arguments, std::string_view fullName, std::string_view shortName)
-            : _arguments(arguments), _fullName(fullName), _shortName(shortName) {}
-        [[nodiscard]] Iterator begin() const { return Iterator(&_arguments, _fullName, _shortName, 0); }
-        [[nodiscard]] Iterator end() const { return Iterator(&_arguments, _fullName, _shortName, _arguments.size()); }
-
-    private:
-        const std::vector<Argument> &_arguments;
-        std::string_view _fullName;
-        std::string_view _shortName;
-    };
-    [[nodiscard]] PairRange GetPairs(const std::vector<Argument> &arguments, std::string_view fullName, std::string_view shortName)
-    {
-        return PairRange(arguments, fullName, shortName);
-    }
-    [[nodiscard]] std::vector<Argument> ParseArguments(const std::vector<std::string> &args)
+    std::vector<Program::Argument> Program::ParseArguments(
+        const std::vector<std::string>& args)
     {
         std::vector<Argument> arguments;
         for (std::size_t i = 0; i < args.size(); ++i)
@@ -651,14 +815,18 @@ namespace
             std::string arg = args[i];
             if (StartsWithDash(arg) && arg.size() > 1)
             {
-                arg.erase(0, 1);
+                arg = arg.substr(1);
                 if (i == args.size() - 1)
+                {
                     arguments.emplace_back(std::move(arg), std::nullopt);
+                }
                 else
                 {
-                    const std::string &valueOne = args[i + 1];
+                    const std::string& valueOne = args[i + 1];
                     if (StartsWithDash(valueOne))
+                    {
                         arguments.emplace_back(std::move(arg), std::nullopt);
+                    }
                     else
                     {
                         std::optional<std::string> valueTwo;
@@ -667,7 +835,8 @@ namespace
                             valueTwo = args[i + 2];
                             ++i;
                         }
-                        arguments.emplace_back(std::move(arg), valueOne, std::move(valueTwo));
+                        arguments.emplace_back(
+                            std::move(arg), valueOne, std::move(valueTwo));
                         ++i;
                     }
                 }
@@ -675,22 +844,33 @@ namespace
         }
         return arguments;
     }
-    [[nodiscard]] bool CheckVersion()
+
+    bool Program::CheckVersion()
     {
         std::string text = ReadAllText("paths.txt");
         const std::size_t newline = text.find('\n');
         if (newline != std::string::npos)
+        {
             text.resize(newline);
+        }
         const std::string_view trimmed = TrimDotNetWhitespace(text);
-        const auto extractVersion = System::Version::TryParse(trimmed);
-        return extractVersion.has_value() && *extractVersion >= MinExtractVersion;
+        const std::optional<Mods::Update::Version> extractVersion
+            = TryParseVersionForProgram(trimmed);
+        return extractVersion.has_value()
+            && *extractVersion >= _minExtractVersion;
     }
-    [[nodiscard]] bool CheckSetup(const std::vector<std::string> &args)
+
+    bool Program::CheckSetup(const std::vector<std::string>& args)
     {
         if (FileExists("paths.txt") && !CheckVersion())
         {
-            WriteLine("Your paths.txt file is not compatible with this version of " + std::string(MphRead::Mods::Branding::Name) + " and needs to be recreated.");
-            WriteLine("It is recommended that you delete the file as well as any extracted game files, then perform setup again.");
+            WriteLine(
+                "Your paths.txt file is not compatible with this version of "
+                + std::string(Mods::Branding::Name)
+                + " and needs to be recreated.");
+            WriteLine(
+                "It is recommended that you delete the file as well as any extracted game files, "
+                "then perform setup again.");
             WriteLine();
             WriteLine("Press any key to exit...");
             ReadKey();
@@ -698,28 +878,35 @@ namespace
         }
         if (args.size() == 1 && !StartsWithDash(args[0]) && FileExists(args[0]))
         {
-            MphRead::Extract::Setup(args[0]);
+            Extract::Setup(args[0]);
             return true;
         }
         if (!FileExists("paths.txt"))
         {
             WriteLine("Could not find the paths.txt file.");
-            WriteLine("You may need to perform first-time setup by dragging a ROM onto the " + MphRead::Mods::Branding::Executable() + " executable.");
+            WriteLine(
+                "You may need to perform first-time setup by dragging a ROM onto the "
+                + Mods::Branding::Executable()
+                + " executable.");
             WriteLine();
             WriteLine("Press any key to exit...");
             ReadKey();
             return true;
         }
-        MphRead::Paths::UpdatePaths();
-        MphRead::Paths::ChooseMphPath();
-        MphRead::Paths::ChooseFhPath();
+        Paths::UpdatePaths();
+        Paths::ChooseMphPath();
+        Paths::ChooseFhPath();
         return false;
     }
-    void Nop() {}
-    [[noreturn]] void Exit()
+
+    void Program::Nop()
+    {
+    }
+
+    [[noreturn]] void Program::Exit()
     {
         Nop();
-        WriteLine(MphRead::Mods::Branding::Executable() + " usage:");
+        WriteLine(Mods::Branding::Executable() + " usage:");
         WriteLine("    -room <room_name -or- room_id>");
         WriteLine("    -model <model_name> [recolor_index]");
         WriteLine("At most one room may be specified. Any number of models may be specified.");
@@ -731,111 +918,54 @@ namespace
         WriteLine("- or -");
         WriteLine("    -export <target_name>");
         WriteLine("The export target may be a model or room name.");
-        std::cout.flush();
         std::exit(1);
     }
-}
-namespace System
-{
-    Version::Version(std::int32_t major, std::int32_t minor) : _major(major), _minor(minor), _build(-1), _revision(-1)
-    {
-        if (major < 0)
-            throw std::out_of_range("major");
-        if (minor < 0)
-            throw std::out_of_range("minor");
-    }
-    Version::Version(std::int32_t major, std::int32_t minor, std::int32_t build) : _major(major), _minor(minor), _build(build), _revision(-1)
-    {
-        if (major < 0)
-            throw std::out_of_range("major");
-        if (minor < 0)
-            throw std::out_of_range("minor");
-        if (build < 0)
-            throw std::out_of_range("build");
-    }
-    Version::Version(std::int32_t major, std::int32_t minor, std::int32_t build, std::int32_t revision) : _major(major), _minor(minor), _build(build), _revision(revision)
-    {
-        if (major < 0)
-            throw std::out_of_range("major");
-        if (minor < 0)
-            throw std::out_of_range("minor");
-        if (build < 0)
-            throw std::out_of_range("build");
-        if (revision < 0)
-            throw std::out_of_range("revision");
-    }
-    std::optional<Version> Version::TryParse(std::string_view text) noexcept
-    {
-        std::array<std::int32_t, 4> components{};
-        std::size_t componentCount = 0;
-        std::size_t start = 0;
-        while (true)
-        {
-            if (componentCount == components.size())
-                return std::nullopt;
-            const std::size_t separator = text.find('.', start);
-            const std::string_view component = separator == std::string_view::npos ? text.substr(start) : text.substr(start, separator - start);
-            std::int32_t value = 0;
-            if (!TryParseInt32(component, value) || value < 0)
-                return std::nullopt;
-            components[componentCount++] = value;
-            if (separator == std::string_view::npos)
-                break;
-            start = separator + 1;
-        }
-        if (componentCount < 2 || componentCount > 4)
-            return std::nullopt;
-        try
-        {
-            if (componentCount == 2)
-                return Version(components[0], components[1]);
-            if (componentCount == 3)
-                return Version(components[0], components[1], components[2]);
-            return Version(components[0], components[1], components[2], components[3]);
-        }
-        catch (...)
-        {
-            return std::nullopt;
-        }
-    }
-    bool operator>=(const Version &left, const Version &right) noexcept
-    {
-        if (left._major != right._major)
-            return left._major > right._major;
-        if (left._minor != right._minor)
-            return left._minor > right._minor;
-        if (left._build != right._build)
-            return left._build > right._build;
-        return left._revision >= right._revision;
-    }
-}
-namespace MphRead
-{
-    const System::Version Program::Version(0, 35, 1, 0);
-    ProgramException::ProgramException(const std::string &message) : std::runtime_error(message) {}
-    void Program::Main(const std::vector<std::string> &args)
+
+    void Program::Main(const std::vector<std::string>& args)
     {
         ConsoleSetup::Run();
 #if defined(_WIN32)
         Mods::ConsoleWindow::Prepare(args);
 #endif
         if (Mods::ModEntry::TryHandleHeadless(args))
+        {
             return;
+        }
         if (CheckSetup(args))
+        {
             return;
+        }
+
         const std::vector<Argument> arguments = ParseArguments(args);
         if (Mods::ModEntry::TryHandle(args))
-            return;
-        if (arguments.empty())
-            Menu::ShowMenuPrompts();
-        else if (AnyName(arguments, "setup"))
         {
-            const std::string archivesPath = Paths::Combine(Paths::FileSystem(), "archives");
-            for (const std::filesystem::directory_entry &entry : std::filesystem::directory_iterator(PathFromUtf8(archivesPath)))
+            return;
+        }
+
+        const auto hasName = [](const std::vector<Argument>& values, std::string_view name)
+        {
+            for (const Argument& argument : values)
             {
-                std::error_code statusError;
-                const bool isDirectory = entry.is_directory(statusError);
-                if (!isDirectory)
+                if (argument.Name.has_value() && *argument.Name == name)
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (arguments.empty())
+        {
+            Menu::ShowMenuPrompts();
+        }
+        else if (hasName(arguments, "setup"))
+        {
+            const std::string archivesPath
+                = Paths::Combine(Paths::FileSystem(), "archives");
+            for (const std::filesystem::directory_entry& entry
+                : std::filesystem::directory_iterator(PathFromUtf8(archivesPath)))
+            {
+                if (entry.is_regular_file())
                 {
                     const std::string path = PathToUtf8(entry.path());
                     Read::ExtractArchive(GetFileNameWithoutExtension(path));
@@ -847,87 +977,144 @@ namespace MphRead
             std::optional<std::string> exportValue;
             if (TryGetString(arguments, "export", "e", exportValue))
             {
-                if (ToLowerInvariantForProgram(*exportValue) == "layer2d")
-                    Export::Images::ExportHudLayers();
-                else if (ToLowerInvariantForProgram(*exportValue) == "object2d")
-                    Export::Images::ExportHudObjects();
-                else if (ToLowerInvariantForProgram(*exportValue) == "sfx")
-                    Formats::Sound::SoundRead::ExportSamples();
-                else if (ToLowerInvariantForProgram(*exportValue) == "wfs")
-                    Formats::Sound::SoundRead::ExportWfsSamples();
-                else if (ToLowerInvariantForProgram(*exportValue) == "strm")
-                    Formats::Sound::SoundRead::ExportStreams();
-                else if (ToLowerInvariantForProgram(*exportValue) == "fhsfx")
-                    Formats::Sound::SoundRead::ExportAllFh();
-                else if (ToLowerInvariantForProgram(*exportValue) == "movie")
+                if (ToLowerForProgramFallback(*exportValue) == "layer2d")
                 {
-                    const Argument *exportArgument = nullptr;
+                    Export::Images::ExportHudLayers();
+                }
+                else if (ToLowerForProgramFallback(*exportValue) == "object2d")
+                {
+                    Export::Images::ExportHudObjects();
+                }
+                else if (ToLowerForProgramFallback(*exportValue) == "sfx")
+                {
+                    Formats::Sound::SoundRead::ExportSamples();
+                }
+                else if (ToLowerForProgramFallback(*exportValue) == "wfs")
+                {
+                    Formats::Sound::SoundRead::ExportWfsSamples();
+                }
+                else if (ToLowerForProgramFallback(*exportValue) == "strm")
+                {
+                    Formats::Sound::SoundRead::ExportStreams();
+                }
+                else if (ToLowerForProgramFallback(*exportValue) == "fhsfx")
+                {
+                    Formats::Sound::SoundRead::ExportAllFh();
+                }
+                else if (ToLowerForProgramFallback(*exportValue) == "movie")
+                {
+                    std::optional<Argument> exportArgument;
                     (void)TryGetArgument(arguments, "export", "e", exportArgument);
                     if (exportArgument->ValueTwo.has_value())
-                        Formats::VxDecoder::Instance1().Export(*exportArgument->ValueTwo).GetAwaiter().GetResult();
+                    {
+                        Formats::VxDecoder::Instance1()
+                            .Export(*exportArgument->ValueTwo)
+                            .GetAwaiter()
+                            .GetResult();
+                    }
                     else
-                        Formats::VxDecoder::Instance1().ExportAll().GetAwaiter().GetResult();
+                    {
+                        Formats::VxDecoder::Instance1()
+                            .ExportAll()
+                            .GetAwaiter()
+                            .GetResult();
+                    }
                 }
                 else
                 {
-                    const bool firstHunt = AnyName(arguments, "fh");
+                    const bool firstHunt = hasName(arguments, "fh");
                     Read::ReadAndExport(*exportValue, firstHunt);
                 }
-                return;
-            }
-            std::optional<std::string> extractValue;
-            if (TryGetString(arguments, "extract", "x", extractValue))
-            {
-                Read::ExtractArchive(*extractValue);
-                return;
-            }
-            std::vector<std::string> rooms;
-            std::vector<std::pair<std::string, std::int32_t>> models;
-            GameMode mode = GameMode::None;
-            std::int32_t playerCount = 0;
-            BossFlags bossFlags = BossFlags::None;
-            std::int32_t nodeLayerMask = 0;
-            std::int32_t entityLayerId = -1;
-            std::int32_t roomId = 0;
-            if (TryGetInt(arguments, "room", "r", roomId))
-            {
-                const RoomMetadata *meta = Metadata::GetRoomById(roomId);
-                if (meta == nullptr)
-                    Exit();
-                rooms.push_back(meta->Name());
             }
             else
             {
-                std::optional<std::string> roomName;
-                if (TryGetString(arguments, "room", "r", roomName))
-                    rooms.push_back(*roomName);
+                std::optional<std::string> extractValue;
+                if (TryGetString(arguments, "extract", "x", extractValue))
+                {
+                    Read::ExtractArchive(*extractValue);
+                }
+                else
+                {
+                    std::vector<std::string> rooms;
+                    std::vector<std::pair<std::string, std::int32_t>> models;
+                    GameMode mode = GameMode::None;
+                    std::int32_t playerCount = 0;
+                    BossFlags bossFlags = BossFlags::None;
+                    std::int32_t nodeLayerMask = 0;
+                    std::int32_t entityLayerId = -1;
+
+                    std::int32_t roomId = 0;
+                    if (TryGetInt(arguments, "room", "r", roomId))
+                    {
+                        const RoomMetadata* meta = Metadata::GetRoomById(roomId);
+                        if (meta == nullptr)
+                        {
+                            Exit();
+                        }
+                        rooms.push_back(meta->Name);
+                    }
+                    else
+                    {
+                        std::optional<std::string> roomName;
+                        if (TryGetString(arguments, "room", "r", roomName))
+                        {
+                            rooms.push_back(*roomName);
+                        }
+                    }
+
+                    std::int32_t modeValue = 0;
+                    if (TryGetInt(arguments, "mode", "g", modeValue))
+                    {
+                        mode = static_cast<GameMode>(modeValue);
+                    }
+                    std::int32_t playerValue = 0;
+                    if (TryGetInt(arguments, "players", "p", playerValue))
+                    {
+                        playerCount = playerValue;
+                    }
+                    std::int32_t bossValue = 0;
+                    if (TryGetInt(arguments, "boss", "b", bossValue))
+                    {
+                        bossFlags = static_cast<BossFlags>(bossValue);
+                    }
+                    std::int32_t nodeValue = 0;
+                    if (TryGetInt(arguments, "node", "n", nodeValue))
+                    {
+                        nodeLayerMask = nodeValue;
+                    }
+                    std::int32_t entityValue = 0;
+                    if (TryGetInt(arguments, "entity", "l", entityValue))
+                    {
+                        entityLayerId = entityValue;
+                    }
+
+                    for (const auto& pair : GetPairs(arguments, "model", "m"))
+                    {
+                        models.push_back(pair);
+                    }
+
+                    if (rooms.size() > 1
+                        || (rooms.empty() && models.empty()))
+                    {
+                        Exit();
+                    }
+
+                    RenderWindow renderer;
+                    for (const std::string& room : rooms)
+                    {
+                        renderer.AddRoom(
+                            room, mode, playerCount, bossFlags,
+                            nodeLayerMask, entityLayerId);
+                    }
+
+                    const bool firstHunt = hasName(arguments, "fh");
+                    for (const auto& [model, recolor] : models)
+                    {
+                        renderer.AddModel(model, recolor, firstHunt);
+                    }
+                    renderer.Run();
+                }
             }
-            std::int32_t modeValue = 0;
-            if (TryGetInt(arguments, "mode", "g", modeValue))
-                mode = static_cast<GameMode>(modeValue);
-            std::int32_t playerValue = 0;
-            if (TryGetInt(arguments, "players", "p", playerValue))
-                playerCount = playerValue;
-            std::int32_t bossValue = 0;
-            if (TryGetInt(arguments, "boss", "b", bossValue))
-                bossFlags = static_cast<BossFlags>(bossValue);
-            std::int32_t nodeValue = 0;
-            if (TryGetInt(arguments, "node", "n", nodeValue))
-                nodeLayerMask = nodeValue;
-            std::int32_t entityValue = 0;
-            if (TryGetInt(arguments, "entity", "l", entityValue))
-                entityLayerId = entityValue;
-            for (const auto &pair : GetPairs(arguments, "model", "m"))
-                models.push_back(pair);
-            if (rooms.size() > 1 || (rooms.empty() && models.empty()))
-                Exit();
-            RenderWindow renderer;
-            for (const std::string &room : rooms)
-                renderer.AddRoom(room, mode, playerCount, bossFlags, nodeLayerMask, entityLayerId);
-            const bool firstHunt = AnyName(arguments, "fh");
-            for (const auto &[model, recolor] : models)
-                renderer.AddModel(model, recolor, firstHunt);
-            renderer.Run();
         }
     }
 }

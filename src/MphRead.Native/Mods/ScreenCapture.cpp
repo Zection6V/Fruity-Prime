@@ -230,7 +230,8 @@ namespace MphRead::Mods
                 first += " came out black ";
 
                 std::string second = "(";
-                second += ScreenCaptureInterop::FormatFixedTwoCurrentCulture(\n                    LitFraction(*pixels) * 100.0);
+                second += ScreenCaptureInterop::FormatFixedTwoCurrentCulture(
+                    LitFraction(*pixels) * 100.0);
                 second += "% lit, ";
                 second += std::to_string(width);
                 second += "x";

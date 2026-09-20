@@ -936,11 +936,21 @@ namespace MphRead::Mods::Update
                 {
                     ThrowArchive(reader.get());
                 }
+                if (archive_read_set_format_option(
+                    reader.get(), "zip", "mac-ext", nullptr) != ARCHIVE_OK)
+                {
+                    ThrowArchive(reader.get());
+                }
             }
             else
             {
                 if (archive_read_support_filter_gzip(reader.get()) != ARCHIVE_OK
                     || archive_read_support_format_tar(reader.get()) != ARCHIVE_OK)
+                {
+                    ThrowArchive(reader.get());
+                }
+                if (archive_read_set_format_option(
+                    reader.get(), "tar", "mac-ext", nullptr) != ARCHIVE_OK)
                 {
                     ThrowArchive(reader.get());
                 }

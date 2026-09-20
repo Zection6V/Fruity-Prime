@@ -20,11 +20,13 @@ namespace MphRead::Mods::Launcher::Gui
         UpdateBadgeNullReferenceException();
     };
 
-    enum class UpdateBadgeKey : std::uint8_t
+    // Keep the surrogate numerically identical to Avalonia 11.3.11 Key so
+    // adapters can pass raw Key values through without remapping or collision.
+    enum class UpdateBadgeKey : std::int32_t
     {
-        Other,
-        Enter,
-        Space
+        Other = 0,
+        Enter = 6,
+        Space = 18
     };
 
     struct UpdateBadgeSize final

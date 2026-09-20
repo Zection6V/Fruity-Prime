@@ -11,7 +11,7 @@
 #include "../Utility/Rng.hpp"
 #include "../Mods/Network/NetDamage.hpp"
 #include "DoorEntity.hpp"
-#include "Enemies/Enemy02Entity.hpp"
+#include "Enemies/02_Temroid.hpp"
 #include "Enemies/EnemyInstanceEntity.hpp"
 #include "HalfturretEntity.hpp"
 #include "Players/PlayerEntity.hpp"
@@ -524,7 +524,7 @@ namespace MphRead::Entities
                         && enemy.EnemyType() == MphRead::EnemyType::Temroid
                         && enemy.StateA() == 8)
                     {
-                        auto* temroid = dynamic_cast<Enemy02Entity*>(&enemy);
+                        auto* temroid = dynamic_cast<Enemies::Enemy02Entity*>(&enemy);
                         if (temroid == nullptr)
                         {
                             throw SceneDetail::InvalidCastException();

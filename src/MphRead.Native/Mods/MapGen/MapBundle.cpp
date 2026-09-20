@@ -1785,16 +1785,17 @@ namespace
         result.UncompressedSize = bytes.size();
         result.LocalOffset = StreamPosition(stream);
 
-        // ZipArchiveEntry.AreSizesTooLarge uses a strict > uint.MaxValue test.
+        // For a seekable create-mode ZipArchive the local header is emitted on
+        // the first non-empty write, before the final sizes are known. If either
+        // final size later exceeds uint.MaxValue, .NET cannot grow that header
+        // to add a ZIP64 extra field: it upgrades the version, sets the data-
+        // descriptor flag, leaves local CRC/sizes at zero, then appends a
+        // 64-bit descriptor after the compressed payload.
         const bool zip64Size = result.CompressedSize > 0xFFFFFFFFULL
             || result.UncompressedSize > 0xFFFFFFFFULL;
-        ByteVector extra;
         if (zip64Size)
         {
-            PushU16(extra, 0x0001U);
-            PushU16(extra, 16U);
-            PushU64(extra, result.UncompressedSize);
-            PushU64(extra, result.CompressedSize);
+            result.Flags = static_cast<std::uint16_t>(result.Flags | 0x0008U);
         }
 
         ByteVector header;
@@ -1804,18 +1805,27 @@ namespace
         PushU16(header, result.Method);
         PushU16(header, result.Timestamp.Time);
         PushU16(header, result.Timestamp.Date);
-        PushU32(header, result.Crc);
-        PushU32(header, zip64Size ? 0xFFFFFFFFU
+        PushU32(header, zip64Size ? 0U : result.Crc);
+        PushU32(header, zip64Size ? 0U
             : static_cast<std::uint32_t>(result.CompressedSize));
-        PushU32(header, zip64Size ? 0xFFFFFFFFU
+        PushU32(header, zip64Size ? 0U
             : static_cast<std::uint32_t>(result.UncompressedSize));
         PushU16(header, static_cast<std::uint16_t>(result.Name.size()));
-        PushU16(header, static_cast<std::uint16_t>(extra.size()));
+        PushU16(header, 0U);
 
         WriteBytes(stream, header);
         WriteRaw(stream, result.Name.data(), result.Name.size());
-        WriteBytes(stream, extra);
         WriteBytes(stream, compressed);
+        if (zip64Size)
+        {
+            // WriteCrcAndSizesInLocalHeader's "pretend streaming" path emits
+            // this descriptor without the optional signature.
+            ByteVector descriptor;
+            PushU32(descriptor, result.Crc);
+            PushU64(descriptor, result.CompressedSize);
+            PushU64(descriptor, result.UncompressedSize);
+            WriteBytes(stream, descriptor);
+        }
         return result;
     }
 
@@ -1824,19 +1834,18 @@ namespace
         const std::uint64_t centralOffset = StreamPosition(stream);
         for (const WrittenEntry& entry : entries)
         {
-            const bool zip64Uncompressed = entry.UncompressedSize > 0xFFFFFFFFULL;
-            const bool zip64Compressed = entry.CompressedSize > 0xFFFFFFFFULL;
+            const bool zip64Sizes = entry.UncompressedSize > 0xFFFFFFFFULL
+                || entry.CompressedSize > 0xFFFFFFFFULL;
             const bool zip64Offset = entry.LocalOffset > 0xFFFFFFFFULL;
             ByteVector extra;
-            if (zip64Uncompressed || zip64Compressed || zip64Offset)
+            if (zip64Sizes || zip64Offset)
             {
                 ByteVector values;
-                if (zip64Uncompressed)
+                // ZipArchiveEntry writes both size values when either one no
+                // longer fits in the 32-bit central-directory fields.
+                if (zip64Sizes)
                 {
                     PushU64(values, entry.UncompressedSize);
-                }
-                if (zip64Compressed)
-                {
                     PushU64(values, entry.CompressedSize);
                 }
                 if (zip64Offset)
@@ -1848,7 +1857,7 @@ namespace
                 extra.insert(extra.end(), values.begin(), values.end());
             }
 
-            const bool zip64 = zip64Uncompressed || zip64Compressed || zip64Offset;
+            const bool zip64 = zip64Sizes || zip64Offset;
             ByteVector header;
             PushU32(header, 0x02014B50U);
 #if defined(_WIN32)
@@ -1862,9 +1871,9 @@ namespace
             PushU16(header, entry.Timestamp.Time);
             PushU16(header, entry.Timestamp.Date);
             PushU32(header, entry.Crc);
-            PushU32(header, zip64Compressed ? 0xFFFFFFFFU
+            PushU32(header, zip64Sizes ? 0xFFFFFFFFU
                 : static_cast<std::uint32_t>(entry.CompressedSize));
-            PushU32(header, zip64Uncompressed ? 0xFFFFFFFFU
+            PushU32(header, zip64Sizes ? 0xFFFFFFFFU
                 : static_cast<std::uint32_t>(entry.UncompressedSize));
             PushU16(header, static_cast<std::uint16_t>(entry.Name.size()));
             PushU16(header, static_cast<std::uint16_t>(extra.size()));

@@ -75,6 +75,8 @@ namespace MphRead::Mods::Launcher::Detail
         const std::exception& exception);
     [[nodiscard]] std::optional<std::string> TextLauncherConsoleReadLine();
     [[nodiscard]] bool TextLauncherConsoleIsOutputRedirected() noexcept;
+    [[nodiscard]] bool TextLauncherTryParseInt32CurrentCulture(
+        std::string_view text, std::int32_t& value);
 }
 
 namespace MphRead::GameStateDetail
@@ -1019,7 +1021,8 @@ namespace
                 return false;
             }
             std::int32_t index = 0;
-            if (!TryParseInt32Invariant(choice, index)
+            if (!MphRead::Mods::Launcher::Detail::TextLauncherTryParseInt32CurrentCulture(
+                    choice, index)
                 || index < 1 || index > static_cast<std::int32_t>(slots.size()))
             {
                 continue;

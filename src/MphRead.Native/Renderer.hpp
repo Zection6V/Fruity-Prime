@@ -109,6 +109,7 @@ namespace MphRead
     class Scene;
     class RenderWindow;
     class TextureMap;
+    enum class AfterMovie : std::int32_t;
     namespace Formats::Culling { struct NodeRef; struct FrustumPlane; class FrustumInfo; }
     class RoomMetadata;
     class Model;

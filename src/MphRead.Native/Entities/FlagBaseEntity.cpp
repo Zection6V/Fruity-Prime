@@ -19,7 +19,7 @@ namespace MphRead::Entities
         SetTransform(data.Header.FacingVector, data.Header.UpVector, data.Header.Position);
         _volume = CollisionVolume::Move(_data.Volume, Position);
 
-        const GameMode mode = GameState::Mode;
+        const GameMode mode = GameState::Mode();
         if (mode == GameMode::Capture)
         {
             AddPlaceholderModel();
@@ -71,7 +71,7 @@ namespace MphRead::Entities
             PlayerEntity& player = *playerValue;
 
             if (player.OctolithFlag() == nullptr
-                || (_capture && player.TeamIndex() != _data.TeamId))
+                || (_capture && std::cmp_not_equal(player.TeamIndex(), _data.TeamId)))
             {
                 continue;
             }
@@ -80,9 +80,9 @@ namespace MphRead::Entities
             {
                 if (_capture && !CheckOwnOctolith(player))
                 {
-                    if (&player == PlayerEntity::Main())
+                    if (&player == PlayerEntity::Main().get())
                     {
-                        PlayerEntity* main = PlayerEntity::Main();
+                        std::shared_ptr<PlayerEntity> main = PlayerEntity::Main();
                         if (main == nullptr)
                         {
                             throw System::NullReferenceException();
@@ -135,7 +135,7 @@ namespace MphRead::Entities
             throw System::NullReferenceException();
         }
 
-        if (_scene->ShowVolumes == VolumeDisplay::FlagBase)
+        if (_scene->ShowVolumes() == VolumeDisplay::FlagBase)
         {
             AddVolumeItem(_volume, OpenTK::Mathematics::Vector3(1.0F, 1.0F, 1.0F));
         }

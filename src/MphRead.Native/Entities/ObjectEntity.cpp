@@ -64,17 +64,18 @@ namespace
         {
             throw MphRead::Memory::Detail::NullReferenceException();
         }
-        return scene->RoomId;
+        return scene->RoomId();
     }
 
-    [[nodiscard]] MphRead::Entities::PlayerEntity& RequireMainPlayer()
+    [[nodiscard]] std::shared_ptr<MphRead::Entities::PlayerEntity> RequireMainPlayer()
     {
-        MphRead::Entities::PlayerEntity* player = MphRead::Entities::PlayerEntity::Main();
+        std::shared_ptr<MphRead::Entities::PlayerEntity> player
+            = MphRead::Entities::PlayerEntity::Main();
         if (player == nullptr)
         {
             throw MphRead::Memory::Detail::NullReferenceException();
         }
-        return *player;
+        return player;
     }
 
     [[nodiscard]] constexpr std::int32_t UncheckedEffectInterval(
@@ -212,8 +213,8 @@ namespace MphRead::Entities
         UpdateVisiblePosition();
         _flags = data.Flags;
         _state = static_cast<std::int32_t>(data.Flags & ObjectFlags::State);
-        assert(GameState::Mode == GameMode::SinglePlayer);
-        StorySave* storySave = GameState::StorySave;
+        assert(GameState::Mode() == GameMode::SinglePlayer);
+        std::shared_ptr<StorySave> storySave = GameState::StorySave;
         const std::int32_t roomId = GetRoomId(scene);
         const std::int32_t id = Id;
         if (storySave == nullptr)
@@ -223,7 +224,7 @@ namespace MphRead::Entities
         if (storySave->GetRoomState(roomId, id) == -1)
         {
             assert(_state >= 0 && _state <= 2);
-            StorySave* setStorySave = GameState::StorySave;
+            std::shared_ptr<StorySave> setStorySave = GameState::StorySave;
             const std::int32_t setRoomId = GetRoomId(scene);
             const std::int32_t setId = Id;
             const std::int32_t roomState = UncheckedAddOne(_state);
@@ -233,7 +234,7 @@ namespace MphRead::Entities
             }
             setStorySave->SetRoomState(setRoomId, setId, roomState);
         }
-        StorySave* getStorySave = GameState::StorySave;
+        std::shared_ptr<StorySave> getStorySave = GameState::StorySave;
         const std::int32_t getRoomId = GetRoomId(scene);
         const std::int32_t getId = Id;
         if (getStorySave == nullptr)
@@ -416,7 +417,7 @@ namespace MphRead::Entities
             }
             else
             {
-                StorySave* storySave = GameState::StorySave;
+                std::shared_ptr<StorySave> storySave = GameState::StorySave;
                 const std::int32_t scanId = GetScanId();
                 if (storySave == nullptr)
                 {
@@ -552,7 +553,7 @@ namespace MphRead::Entities
         _effectIntervalTimer = 0;
         _effectIntervalIndex = 15;
         assert(_state >= 0 && _state <= 2);
-        StorySave* storySave = GameState::StorySave;
+        std::shared_ptr<StorySave> storySave = GameState::StorySave;
         const std::int32_t roomId = GetRoomId(_scene);
         const std::int32_t id = Id;
         const std::int32_t roomState = UncheckedAddOne(_state);
@@ -580,8 +581,8 @@ namespace MphRead::Entities
         {
             if (_state != 2)
             {
-                PlayerEntity& mainPlayer = RequireMainPlayer();
-                const Vector3 mainPosition = mainPlayer.Position;
+                const std::shared_ptr<PlayerEntity> mainPlayer = RequireMainPlayer();
+                const Vector3 mainPosition = mainPlayer->Position;
                 const Vector3 objectPosition = Position;
                 const Vector3 between = mainPosition - objectPosition;
                 if (Vector3::Dot(between, between) >= 15 * 15)
@@ -692,10 +693,21 @@ namespace MphRead::Entities
             {
                 if (TestFlag(_data.EffectFlags, ObjEffFlags::UseEffectVolume))
                 {
-                    const Vector3 cameraPosition
-                        = _scene->CameraMode == CameraMode::Player
-                        ? RequireMainPlayer().CameraInfo().Position
-                        : _scene->CameraPosition;
+                    Vector3 cameraPosition;
+                    if (_scene->CameraMode() == CameraMode::Player)
+                    {
+                        const std::shared_ptr<PlayerEntity> mainPlayer = RequireMainPlayer();
+                        const std::shared_ptr<CameraInfo> cameraInfo = mainPlayer->CameraInfo();
+                        if (cameraInfo == nullptr)
+                        {
+                            throw Memory::Detail::NullReferenceException();
+                        }
+                        cameraPosition = cameraInfo->Position;
+                    }
+                    else
+                    {
+                        cameraPosition = _scene->CameraPosition();
+                    }
                     processEffect = _effectVolume.TestPoint(cameraPosition);
                 }
                 else
@@ -803,7 +815,7 @@ namespace MphRead::Entities
                                 offset, GetTransformMatrix(spawnFacing, spawnUp));
                         }
                         _scene->SpawnEffect(
-                            _data.EffectId, spawnFacing, spawnUp, spawnPos, entCol);
+                            _data.EffectId, spawnFacing, spawnUp, spawnPos, false, entCol);
                         if (sfxInfo != nullptr && !sfxInfo->Environment)
                         {
                             _soundSource.PlaySfx(sfxInfo->SfxId);
@@ -864,7 +876,7 @@ namespace MphRead::Entities
         if (!TestFlag(_flags, ObjectFlags::NoAnimation)
             && _data.ModelId != -1)
         {
-            if (_scene->ScanVisor
+            if (_scene->ScanVisor()
                 || (_data.ModelId != 0 && _data.ModelId != 41))
             {
                 if (IsVisible(NodeRef))
@@ -882,7 +894,7 @@ namespace MphRead::Entities
                     _flags &= ~ObjectFlags::IsVisible;
                 }
             }
-            if (_scene->ShowInvisibleEntities)
+            if (_scene->ShowInvisibleEntities())
             {
                 EntityBase::GetDrawInfo();
             }
@@ -891,7 +903,7 @@ namespace MphRead::Entities
 
     void ObjectEntity::GetDisplayVolumes()
     {
-        if (_data.EffectId > 0 && _scene->ShowVolumes == VolumeDisplay::Object)
+        if (_data.EffectId > 0 && _scene->ShowVolumes() == VolumeDisplay::Object)
         {
             AddVolumeItem(_effectVolume, Vector3(1.0F, 0.0F, 0.0F));
         }

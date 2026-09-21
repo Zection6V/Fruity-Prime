@@ -86,6 +86,18 @@ namespace MphRead::Entities
             return *value;
         }
 
+        template <typename T>
+        [[nodiscard]] T& ManagedAt(
+            const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
+        {
+            ManagedArray<T>& array = RequireReference(values);
+            if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
+            {
+                throw SceneDetail::IndexOutOfRangeException();
+            }
+            return array[static_cast<std::size_t>(index)];
+        }
+
         [[nodiscard]] StorySave& RequireStorySave()
         {
             if (GameState::StorySave == nullptr)
@@ -188,7 +200,11 @@ namespace MphRead::Entities
         [[nodiscard]] std::string MarshalString(
             const std::shared_ptr<ManagedArray<char16_t>>& value)
         {
-            ManagedArray<char16_t>& chars = RequireReference(value);
+            if (!value)
+            {
+                throw System::ArgumentNullException("array");
+            }
+            ManagedArray<char16_t>& chars = *value;
             std::string result;
             for (std::size_t i = 0; i < chars.Length(); ++i)
             {
@@ -239,13 +255,14 @@ namespace MphRead::Entities
           ParentEntCol(_parentEntCol)
     {
         Id = data.Header.EntityId;
+        std::string marshaledNodeName = MarshalString(data.NodeName);
         _rangeNodeRef = RequireReference(scene).GetNodeRefByName(
-            MarshalString(data.NodeName));
+            std::move(marshaledNodeName));
         _cooldownTimer = static_cast<std::int32_t>(_data.InitialCooldown) * 2;
-        assert(GameState::Mode == GameMode::SinglePlayer);
+        assert(GameState::Mode() == GameMode::SinglePlayer);
         bool active = false;
         const std::int32_t state = RequireStorySave().InitRoomState(
-            RequireReference(_scene).RoomId, Id, data.Active != 0);
+            RequireReference(_scene).RoomId(), Id, data.Active != 0);
         if (data.AlwaysActive != 0)
         {
             active = data.Active != 0;
@@ -272,22 +289,21 @@ namespace MphRead::Entities
     void EnemySpawnEntity::Initialize()
     {
         EntityBase::Initialize();
-        Scene& scene = RequireReference(_scene);
         if (_data.EntityId1 != -1)
         {
-            (void)scene.TryGetEntity(_data.EntityId1, _entity1);
+            (void)RequireReference(_scene).TryGetEntity(_data.EntityId1, _entity1);
         }
         if (_data.EntityId2 != -1)
         {
-            (void)scene.TryGetEntity(_data.EntityId2, _entity2);
+            (void)RequireReference(_scene).TryGetEntity(_data.EntityId2, _entity2);
         }
         if (_data.EntityId3 != -1)
         {
-            (void)scene.TryGetEntity(_data.EntityId3, _entity3);
+            (void)RequireReference(_scene).TryGetEntity(_data.EntityId3, _entity3);
         }
         if (_data.LinkedEntityId != -1)
         {
-            (void)scene.TryGetEntity(_data.LinkedEntityId, _parent);
+            (void)RequireReference(_scene).TryGetEntity(_data.LinkedEntityId, _parent);
             if (_parent)
             {
                 _parentEntCol = _parent->EntityCollision[0];
@@ -303,7 +319,7 @@ namespace MphRead::Entities
                 this, MphRead::EnemyType::Spawner, NodeRef, _scene);
             if (enemy)
             {
-                scene.AddEntity(enemy);
+                RequireReference(_scene).AddEntity(enemy);
             }
         }
     }
@@ -320,7 +336,6 @@ namespace MphRead::Entities
         {
             return EntityBase::Process();
         }
-        Scene& scene = RequireReference(_scene);
         if (_parentEntCol)
         {
             Transform = Multiply(_invTransform, _parentEntCol->Transform);
@@ -332,9 +347,9 @@ namespace MphRead::Entities
         if (TestFlag(Flags, SpawnerFlags::Suspended) && _cooldownTimer == 0)
         {
             if (_rangeNodeRef != Formats::Culling::NodeRef::None
-                && scene.CameraMode == MphRead::CameraMode::Player)
+                && RequireReference(_scene).CameraMode() == MphRead::CameraMode::Player)
             {
-                auto enumerator = scene.GetPlayerEntities().GetEnumerator();
+                auto enumerator = RequireReference(_scene).GetPlayerEntities().GetEnumerator();
                 while (enumerator.MoveNext())
                 {
                     std::shared_ptr<PlayerEntity> player = enumerator.Current();
@@ -359,9 +374,9 @@ namespace MphRead::Entities
         distSqr *= distSqr;
         bool inRange = false;
         if (_data.EnemyType != MphRead::EnemyType::CarnivorousPlant
-            && scene.CameraMode == MphRead::CameraMode::Player)
+            && RequireReference(_scene).CameraMode() == MphRead::CameraMode::Player)
         {
-            auto enumerator = scene.GetPlayerEntities().GetEnumerator();
+            auto enumerator = RequireReference(_scene).GetPlayerEntities().GetEnumerator();
             while (enumerator.MoveNext())
             {
                 std::shared_ptr<PlayerEntity> player = enumerator.Current();
@@ -405,7 +420,7 @@ namespace MphRead::Entities
                     {
                         break;
                     }
-                    scene.AddEntity(spawned);
+                    RequireReference(_scene).AddEntity(spawned);
                 }
 
                 if (TestFlag(Flags, SpawnerFlags::HasModel))
@@ -437,9 +452,9 @@ namespace MphRead::Entities
         PlayerEntity* player = nullptr;
         for (std::int32_t i = 0; i < 4; ++i)
         {
-            player = PlayerEntity::Players[static_cast<std::size_t>(i)];
+            player = PlayerEntity::Players()[static_cast<std::size_t>(i)].get();
             PlayerEntity& playerRef = RequireReference(player);
-            if (playerRef.Health() == 0 && playerRef.EnemySpawner == this)
+            if (playerRef.Health() == 0 && playerRef.EnemySpawner().get() == this)
             {
                 playerRef.Spawn(
                     Position, FacingVector(), UpVector(), NodeRef, true);
@@ -455,41 +470,39 @@ namespace MphRead::Entities
         bool updateSave = false;
         Flags &= ~SpawnerFlags::Active;
         Scene& scene = RequireReference(_scene);
-        RequireStorySave().SetRoomState(scene.RoomId, Id, 1);
+        RequireStorySave().SetRoomState(scene.RoomId(), Id, 1);
 
         if ((_data.EnemyType != MphRead::EnemyType::Hunter
                 || _data.Fields.S09().EncounterType == 1)
-            && scene.AreaId < 8)
+            && scene.AreaId() < 8)
         {
             const std::int32_t type = static_cast<std::int32_t>(_data.EnemyType);
             if (type >= 0 && (type >> 3) < 8)
             {
-                if (scene.AreaId < 0)
-                {
-                    throw SceneDetail::IndexOutOfRangeException();
-                }
-                RequireStorySave().EnemyEncounters[
-                    static_cast<std::size_t>(scene.AreaId)]
-                    [static_cast<std::size_t>(type >> 3)]
-                    |= static_cast<std::uint8_t>(1U << (type & 7));
+                StorySave& storySave = RequireStorySave();
+                const std::int32_t areaId = scene.AreaId();
+                StorySave::ByteArray& encounterRow
+                    = ManagedAt(storySave.EnemyEncounters, areaId);
+                std::uint8_t& encounter = ManagedAt(encounterRow, type >> 3);
+                encounter |= static_cast<std::uint8_t>(1U << (type & 7));
             }
         }
 
         if (_data.EnemyType == MphRead::EnemyType::Cretaphid)
         {
             RequireStorySave().Areas |= 3;
-            GameState::UpdateBossFlags(scene.AreaId);
+            GameState::UpdateBossFlags(scene.AreaId());
             updateSave = true;
         }
         else if (_data.EnemyType == MphRead::EnemyType::Slench)
         {
             RequireStorySave().Areas |= 0xF0;
-            GameState::UpdateBossFlags(scene.AreaId);
+            GameState::UpdateBossFlags(scene.AreaId());
             updateSave = true;
         }
         else if (_data.EnemyType == MphRead::EnemyType::Gorea1A)
         {
-            GameState::UpdateBossFlags(scene.AreaId);
+            GameState::UpdateBossFlags(scene.AreaId());
             updateSave = true;
         }
 
@@ -544,7 +557,7 @@ namespace MphRead::Entities
                     {
                         Flags &= ~SpawnerFlags::Active;
                         RequireStorySave().SetRoomState(
-                            RequireReference(_scene).RoomId, Id, 1);
+                            RequireReference(_scene).RoomId(), Id, 1);
                     }
                     else
                     {
@@ -569,7 +582,7 @@ namespace MphRead::Entities
         {
             Flags |= SpawnerFlags::Active;
             RequireStorySave().SetRoomState(
-                RequireReference(_scene).RoomId, Id, 3);
+                RequireReference(_scene).RoomId(), Id, 3);
         }
         else if (info.Message == Message::SetActive)
         {
@@ -577,13 +590,13 @@ namespace MphRead::Entities
             {
                 Flags |= SpawnerFlags::Active;
                 RequireStorySave().SetRoomState(
-                    RequireReference(_scene).RoomId, Id, 3);
+                    RequireReference(_scene).RoomId(), Id, 3);
             }
             else
             {
                 Flags &= ~SpawnerFlags::Active;
                 RequireStorySave().SetRoomState(
-                    RequireReference(_scene).RoomId, Id, 1);
+                    RequireReference(_scene).RoomId(), Id, 1);
             }
         }
         else if (info.Message == Message::Gorea2Trigger)
@@ -666,7 +679,7 @@ namespace MphRead::Entities
         case MphRead::EnemyType::Trocra:
         {
             Scene& sceneRef = RequireReference(scene);
-            if (sceneRef.RoomId == 91)
+            if (sceneRef.RoomId() == 91)
             {
                 std::int32_t enemyCount = 0;
                 bool isGorea1 = false;

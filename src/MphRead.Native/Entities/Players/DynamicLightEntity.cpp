@@ -139,65 +139,72 @@ namespace MphRead::Entities
             throw System::NullReferenceException();
         }
 
-        const float frames = _scene->FrameTime * 30.0F;
+        const float frames = _scene->FrameTime() * 30.0F;
 
-        for (LightSourceEntity& lightSource : _scene->GetLightSourceEntities())
+        auto enumerator = _scene->GetLightSourceEntities().GetEnumerator();
+        while (enumerator.MoveNext())
         {
-            if (lightSource.Volume().TestPoint(position))
+            std::shared_ptr<LightSourceEntity> lightSource = enumerator.Current();
+            if (lightSource == nullptr)
             {
-                if (lightSource.Light1Enabled())
+                throw System::NullReferenceException();
+            }
+
+            if (lightSource->Volume().TestPoint(position))
+            {
+                if (lightSource->Light1Enabled())
                 {
                     hasLight1 = true;
 
                     light1Vector.X +=
-                        (lightSource.Light1Vector().X - light1Vector.X)
+                        (lightSource->Light1Vector().X - light1Vector.X)
                         / 8.0F * frames;
                     light1Vector.Y +=
-                        (lightSource.Light1Vector().Y - light1Vector.Y)
+                        (lightSource->Light1Vector().Y - light1Vector.Y)
                         / 8.0F * frames;
                     light1Vector.Z +=
-                        (lightSource.Light1Vector().Z - light1Vector.Z)
+                        (lightSource->Light1Vector().Z - light1Vector.Z)
                         / 8.0F * frames;
 
                     light1Color.X = updateChannel(
                         light1Color.X,
-                        lightSource.Light1Color().X,
+                        lightSource->Light1Color().X,
                         frames);
                     light1Color.Y = updateChannel(
                         light1Color.Y,
-                        lightSource.Light1Color().Y,
+                        lightSource->Light1Color().Y,
                         frames);
                     light1Color.Z = updateChannel(
                         light1Color.Z,
-                        lightSource.Light1Color().Z,
+                        lightSource->Light1Color().Z,
                         frames);
                 }
 
-                if (lightSource.Light2Enabled())
+                if (lightSource->Light2Enabled())
                 {
                     hasLight2 = true;
 
                     light2Vector.X +=
-                        (lightSource.Light2Vector().X - light2Vector.X)
+                        (lightSource->Light2Vector().X - light2Vector.X)
                         / 8.0F * frames;
                     light2Vector.Y +=
-                        (lightSource.Light2Vector().Y - light2Vector.Y)
+                        (lightSource->Light2Vector().Y - light2Vector.Y)
                         / 8.0F * frames;
                     light2Vector.Z +=
-                        (lightSource.Light2Vector().Z - light2Vector.Z)
+                        (lightSource->Light2Vector().Z - light2Vector.Z)
                         / 8.0F * frames;
 
                     light2Color.X = updateChannel(
                         light2Color.X,
-                        lightSource.Light2Color().X,
+                        lightSource->Light2Color().X,
                         frames);
                     light2Color.Y = updateChannel(
                         light2Color.Y,
-                        lightSource.Light2Color().Y,
+                        lightSource->Light2Color().Y,
                         frames);
                     light2Color.Z = updateChannel(
                         light2Color.Z,
-                        lightSource.Light2Color().Z,
+                        lightSource->Light2Color().Z,
                         frames);
                 }
             }
@@ -206,52 +213,52 @@ namespace MphRead::Entities
         if (!hasLight1)
         {
             light1Vector.X +=
-                (_scene->Light1Vector.X - light1Vector.X)
+                (_scene->Light1Vector().X - light1Vector.X)
                 / 8.0F * frames;
             light1Vector.Y +=
-                (_scene->Light1Vector.Y - light1Vector.Y)
+                (_scene->Light1Vector().Y - light1Vector.Y)
                 / 8.0F * frames;
             light1Vector.Z +=
-                (_scene->Light1Vector.Z - light1Vector.Z)
+                (_scene->Light1Vector().Z - light1Vector.Z)
                 / 8.0F * frames;
 
             light1Color.X = updateChannel(
                 light1Color.X,
-                _scene->Light1Color.X,
+                _scene->Light1Color().X,
                 frames);
             light1Color.Y = updateChannel(
                 light1Color.Y,
-                _scene->Light1Color.Y,
+                _scene->Light1Color().Y,
                 frames);
             light1Color.Z = updateChannel(
                 light1Color.Z,
-                _scene->Light1Color.Z,
+                _scene->Light1Color().Z,
                 frames);
         }
 
         if (!hasLight2)
         {
             light2Vector.X +=
-                (_scene->Light2Vector.X - light2Vector.X)
+                (_scene->Light2Vector().X - light2Vector.X)
                 / 8.0F * frames;
             light2Vector.Y +=
-                (_scene->Light2Vector.Y - light2Vector.Y)
+                (_scene->Light2Vector().Y - light2Vector.Y)
                 / 8.0F * frames;
             light2Vector.Z +=
-                (_scene->Light2Vector.Z - light2Vector.Z)
+                (_scene->Light2Vector().Z - light2Vector.Z)
                 / 8.0F * frames;
 
             light2Color.X = updateChannel(
                 light2Color.X,
-                _scene->Light2Color.X,
+                _scene->Light2Color().X,
                 frames);
             light2Color.Y = updateChannel(
                 light2Color.Y,
-                _scene->Light2Color.Y,
+                _scene->Light2Color().Y,
                 frames);
             light2Color.Z = updateChannel(
                 light2Color.Z,
-                _scene->Light2Color.Z,
+                _scene->Light2Color().Z,
                 frames);
         }
 
@@ -265,11 +272,6 @@ namespace MphRead::Entities
     {
         if (_useRoomLights)
         {
-            if (_scene == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-
             return EntityBase::GetLightInfo();
         }
 

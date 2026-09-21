@@ -9,9 +9,29 @@
 #include "../../Scene.hpp"
 
 #include <bit>
+#include <csignal>
+#include <cstdlib>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
+namespace
+{
+    void DebuggerBreak()
+    {
+#if defined(_MSC_VER)
+        __debugbreak();
+#elif defined(SIGTRAP)
+        std::raise(SIGTRAP);
+#else
+        std::abort();
+#endif
+    }
+}
 
 namespace MphRead::Entities
 {
@@ -308,7 +328,7 @@ namespace MphRead::Entities
         }
         if (_hasTouch)
         {
-            Debugger::Break();
+            DebuggerBreak();
             Flags3 &= ~AiFlags3::NoInput;
             _framesWithoutTouch = 0;
             if (_framesWithTouch < 6000) ++_framesWithTouch;
@@ -374,12 +394,12 @@ namespace MphRead::Entities
     void PlayerEntity::PlayerAiData::UpdateAggro()
     {
         float fov = DegreesToRadians(_player->CameraInfo()->Fov > 0 ? _player->CameraInfo()->Fov : 78.0F);
-        Matrix4 perspectiveMatrix = _scene.GetPerspectiveMatrix(fov);
+        OpenTK::Mathematics::Matrix4 perspectiveMatrix = _scene.GetPerspectiveMatrix(fov);
         for (auto _enumerator0 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator0.MoveNext(); )
         if (const auto other = _enumerator0.Current(); true)
         {
             if (other == _player || other->Health() == 0 || !IsPlayerVisible(*_player, *other)) continue;
-            Vector2 proj{};
+            OpenTK::Mathematics::Vector2 proj{};
             float w = Matrix::ProjectPosition(other->Position, _player->CameraInfo()->ViewMatrix, perspectiveMatrix, proj);
             if (w < 0) return;
             if (proj.X >= 1 || proj.Y >= 1) continue;
@@ -403,7 +423,7 @@ namespace MphRead::Entities
                 AggroFunc214864C(6, 1, 2, nullptr, other, 0, alpha, 10, 3);
             }
             float otherFov = DegreesToRadians(other->CameraInfo()->Fov > 0 ? other->CameraInfo()->Fov : 78.0F);
-            Matrix4 otherPerspective = _scene.GetPerspectiveMatrix(otherFov);
+            OpenTK::Mathematics::Matrix4 otherPerspective = _scene.GetPerspectiveMatrix(otherFov);
             w = Matrix::ProjectPosition(_player->Position, other->CameraInfo()->ViewMatrix, otherPerspective, proj);
             if (w < 0) return;
             if (proj.X < 1 && proj.Y < 1) AggroFunc214864C(6, 2, 1, other, nullptr, 0, 30, 10, 3);
@@ -466,11 +486,13 @@ namespace MphRead::Entities
             _executionTree[static_cast<std::size_t>(context.Depth + 1)]->Data1;
         if (nextData1->Data2.empty()) return -1;
         std::int32_t result = -1;
-        for (const auto& data2 : nextData1->Data2)
+        for (const auto& data2Value : nextData1->Data2)
         {
+            const Formats::AiPersonalityData2& data2 = *data2Value;
             bool noUpdate = false;
-            for (const auto& data4 : data2.Data4)
+            for (const auto& data4Value : data2.Data4)
             {
+                const Formats::AiPersonalityData4& data4 = *data4Value;
                 if (ExecuteFuncs3(context, data4.Func3Id, data4.Parameters) == 0)
                 {
                     noUpdate = true;
@@ -974,7 +996,7 @@ namespace MphRead::Entities
                             << std::setw(5) << std::fixed << std::setprecision(1) << pct << "%) -> " << target << '\n';
                         if (data2->Func3Id >= 70 && data2->Func3Id <= 72)
                         {
-                            std::int32_t param1 = data2->Parameters.Param1 * 2;
+                            std::int32_t param1 = data2->Parameters->Param1 * 2;
                             std::int32_t padding = static_cast<std::int32_t>(std::to_string(param1).size());
                             float callPct = item->CallCount / static_cast<float>(param1) * 100.0F;
                             out << "c: " << std::setw(padding) << item->CallCount << " / " << param1 << " ("

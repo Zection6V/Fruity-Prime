@@ -16,6 +16,15 @@
 
 namespace System
 {
+    class ArgumentException final : public std::invalid_argument
+    {
+    public:
+        ArgumentException()
+            : std::invalid_argument("Value does not fall within the expected range.")
+        {
+        }
+    };
+
     class ArgumentOutOfRangeException final : public std::out_of_range
     {
     public:

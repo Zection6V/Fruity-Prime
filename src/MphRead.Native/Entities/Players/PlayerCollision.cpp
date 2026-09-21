@@ -971,7 +971,7 @@ namespace MphRead::Entities
         {
             isPlatform = true;
             platform = dynamic_cast<PlatformEntity*>(
-                result.EntityCollision->Entity.get());
+                result.EntityCollision->Entity);
             if (platform == nullptr)
             {
                 throw SceneDetail::InvalidCastException();
@@ -1394,7 +1394,7 @@ namespace MphRead::Entities
             SetFlags1(Flags1() | PlayerFlags1::CollidingEntity);
             RequireReference(_scene).SendMessage(
                 Message::PlayerCollideWith, this,
-                result.EntityCollision->Entity.get(),
+                result.EntityCollision->Entity,
                 BoxInt32(0), BoxInt32(_standingEntCol == nullptr ? 0 : 1));
             _collidedEntCol = result.EntityCollision;
             if (isCrusher)

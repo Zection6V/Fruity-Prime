@@ -785,8 +785,7 @@ namespace MphRead::Entities
         {
             const std::shared_ptr<Model> modelValue = attach->Model();
             Model& model = RequireReference(modelValue);
-            const std::shared_ptr<Node> node = model.GetNodeByName("attach");
-            _colAttachNode = node.get();
+            _colAttachNode = model.GetNodeByName("attach");
         }
     }
 
@@ -1038,14 +1037,13 @@ namespace MphRead::Entities
         auto getItems = [&](auto&& self, Node& node) -> void
         {
             const std::shared_ptr<Model> modelValue = inst.Model();
-            Model& model = RequireReference(modelValue);
             if (node.Enabled)
             {
                 const std::int32_t start = node.MeshId / 2;
-                const auto& meshes = RequireReference(model.Meshes);
-                const auto& materials = RequireReference(model.Materials);
                 for (std::int32_t k = 0; k < node.MeshCount; ++k)
                 {
+                    Model& model = RequireReference(modelValue);
+                    const auto& meshes = RequireReference(model.Meshes);
                     const std::shared_ptr<Mesh>& meshValue
                         = ManagedReadOnlyListAt(meshes, start + k);
                     Mesh& mesh = RequireReference(meshValue);
@@ -1053,6 +1051,7 @@ namespace MphRead::Entities
                     {
                         continue;
                     }
+                    const auto& materials = RequireReference(model.Materials);
                     const std::shared_ptr<Material>& materialValue
                         = ManagedReadOnlyListAt(materials, mesh.MaterialId);
                     Material& material = RequireReference(materialValue);
@@ -1068,6 +1067,7 @@ namespace MphRead::Entities
                         = GetBindingOverride(inst, material, mesh.MaterialId);
 
                     Scene* renderScene = _scene;
+                    const float alpha = Alpha;
                     const LightInfo resolvedLightInfo = lightInfo.has_value()
                         ? *lightInfo : GetLightInfo();
                     const Matrix4 nodeAnimation = node.Animation;
@@ -1083,15 +1083,17 @@ namespace MphRead::Entities
                     const std::optional<Vector4> paletteOverride
                         = PaletteOverride();
                     const BillboardMode billboardMode = node.BillboardMode;
+                    const float drawScale = _drawScale;
 
                     RequireReference(renderScene).AddRenderItem(
-                        material, polygonId, Alpha, emission, resolvedLightInfo,
+                        material, polygonId, alpha, emission, resolvedLightInfo,
                         texcoordMatrix, nodeAnimation, listId, matrixStackCount,
                         matrixStack, color, paletteOverride, selectionType,
-                        billboardMode, _drawScale, bindingOverride);
+                        billboardMode, drawScale, bindingOverride);
                 }
                 if (node.ChildIndex != -1)
                 {
+                    Model& model = RequireReference(modelValue);
                     const auto& nodes = RequireReference(model.Nodes);
                     const std::shared_ptr<Node>& childValue
                         = ManagedReadOnlyListAt(nodes, node.ChildIndex);
@@ -1101,6 +1103,7 @@ namespace MphRead::Entities
             }
             if (node.NextIndex != -1)
             {
+                Model& model = RequireReference(modelValue);
                 const auto& nodes = RequireReference(model.Nodes);
                 const std::shared_ptr<Node>& nextValue
                     = ManagedReadOnlyListAt(nodes, node.NextIndex);
@@ -1200,7 +1203,6 @@ namespace MphRead::Entities
         (void)materialId;
         (void)node;
         const std::shared_ptr<Model> modelValue = inst.Model();
-        Model& model = RequireReference(modelValue);
         Matrix4 texcoordMatrix = IdentityMatrix();
 
         AnimationInfo& animInfo = RequireReference(inst.AnimInfo);
@@ -1225,12 +1227,14 @@ namespace MphRead::Entities
             if (!currentModel.FirstHunt
                 || material.TexgenMode != TexgenMode::None)
             {
-                texcoordMatrix = model.AnimateTexcoords(
-                    group, *animation, animInfo.TexcoordFrame());
+                const std::int32_t texcoordFrame = animInfo.TexcoordFrame();
+                texcoordMatrix = RequireReference(modelValue).AnimateTexcoords(
+                    group, *animation, texcoordFrame);
             }
         }
         if (material.TexgenMode != TexgenMode::None)
         {
+            Model& model = RequireReference(modelValue);
             Matrix4 materialMatrix;
             const auto& textureMatrices
                 = RequireReference(model.TextureMatrices);

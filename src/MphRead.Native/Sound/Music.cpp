@@ -175,8 +175,8 @@ namespace MphRead
 
         float g_userVolume = 1.0F;
         float g_musicVolume = 1.0F;
-        std::vector<MusicTrack> g_musicInfo;
-        std::vector<RoomMusic> g_roomMusic;
+        std::shared_ptr<const std::vector<std::shared_ptr<MusicTrack>>> g_musicInfo;
+        std::shared_ptr<const std::vector<RoomMusic>> g_roomMusic;
         bool g_musicInfoInitialized = false;
         bool g_roomMusicInitialized = false;
         bool g_playing = false;
@@ -224,13 +224,13 @@ namespace MphRead
         std::recursive_mutex g_playerMutex;
         constexpr std::int32_t SampleRate = 32728;
 
-        const std::vector<MusicTrack>& MusicInfo()
+        const std::vector<std::shared_ptr<MusicTrack>>& MusicInfo()
         {
             if (!g_musicInfoInitialized)
             {
                 throw std::runtime_error("Object reference not set to an instance of an object.");
             }
-            return g_musicInfo;
+            return *g_musicInfo;
         }
 
         const std::vector<RoomMusic>& RoomMusicInfo()
@@ -239,7 +239,7 @@ namespace MphRead
             {
                 throw std::runtime_error("Object reference not set to an instance of an object.");
             }
-            return g_roomMusic;
+            return *g_roomMusic;
         }
 
         void EnsureMusicPlayerInitialized() noexcept
@@ -329,10 +329,10 @@ namespace MphRead
     void Music::PlayMusic(MusicId musicId, std::optional<std::uint16_t> tracks,
         bool toggleOnTracks, bool toggleOffTracks)
     {
-        const std::vector<MusicTrack>& musicInfo = MusicInfo();
+        const std::vector<std::shared_ptr<MusicTrack>>& musicInfo = MusicInfo();
         const std::int32_t index = static_cast<std::int32_t>(musicId);
         if (index < 0 || index >= static_cast<std::int32_t>(musicInfo.size())) return;
-        const MusicTrack& info = musicInfo[static_cast<std::size_t>(index)];
+        const MusicTrack& info = *musicInfo[static_cast<std::size_t>(index)];
         if (info.SeqId == SeqId::None) return;
         if (!tracks.has_value()) tracks = info.Tracks;
         if (toggleOnTracks) g_pendingTracks = static_cast<std::uint16_t>(g_pendingTracks | *tracks);
@@ -610,10 +610,10 @@ namespace MphRead
     void Music::PlayPausedMusic()
     {
         if (!g_paused) return;
-        const std::vector<MusicTrack>& musicInfo = MusicInfo();
+        const std::vector<std::shared_ptr<MusicTrack>>& musicInfo = MusicInfo();
         const std::int32_t index = static_cast<std::int32_t>(g_currentMusicId);
         if (index < 0 || index >= static_cast<std::int32_t>(musicInfo.size())) return;
-        const MusicTrack& info = musicInfo[static_cast<std::size_t>(index)];
+        const MusicTrack& info = *musicInfo[static_cast<std::size_t>(index)];
         if (info.SeqId == SeqId::None) return;
         g_paused = false;
         PlaySeq(info.SeqId, g_pendingTracks, true, true);

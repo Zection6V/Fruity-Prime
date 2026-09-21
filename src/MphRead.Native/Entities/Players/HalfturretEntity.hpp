@@ -106,8 +106,8 @@ namespace MphRead::Entities
 
         std::shared_ptr<MphRead::EquipInfo> _equipInfo{};
 
-        Node* _baseNode = nullptr;
-        Node* _baseNodeParent = nullptr;
-        ModelInstance* _altIceModel = nullptr;
+        std::shared_ptr<Node> _baseNode{};
+        std::shared_ptr<Node> _baseNodeParent{};
+        std::shared_ptr<ModelInstance> _altIceModel{};
     };
 }

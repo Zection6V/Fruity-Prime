@@ -1,9 +1,11 @@
 #include "HalfturretEntity.hpp"
 
 #include "../BeamProjectileEntity.hpp"
+#include "../RoomEntity.hpp"
 #include "../../Formats/CollisionDetection.hpp"
 #include "../../Formats/Effects.hpp"
 #include "../../GameState.hpp"
+#include "../../MemoryArrays.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../Scene.hpp"
@@ -22,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -71,7 +74,7 @@ namespace
             Vector4(position, 1.0F));
     }
 
-    [[nodiscard]] constexpr Matrix4 Scale(Vector3 scale) noexcept
+    [[nodiscard]] constexpr Matrix4 CreateScale(Vector3 scale) noexcept
     {
         return Matrix4(
             Vector4(scale.X, 0.0F, 0.0F, 0.0F),
@@ -110,6 +113,27 @@ namespace
     [[nodiscard]] constexpr std::int32_t UncheckedInt32(std::uint64_t value) noexcept
     {
         return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& ReadOnlyListAt(
+        const std::vector<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+        {
+            throw MphRead::Memory::Detail::ArgumentOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T, std::size_t Size>
+    [[nodiscard]] T& ArrayAt(std::array<T, Size>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= Size)
+        {
+            throw MphRead::Memory::Detail::IndexOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
     }
 }
 
@@ -170,12 +194,13 @@ namespace MphRead::Entities
     void HalfturretEntity::Create()
     {
         ModelInstance& inst = SetUpModel("WeavelAlt_Turret_lod0");
-        std::shared_ptr<Node> baseNode = RequireReference(inst.Model()).GetNodeByName("TurretBase");
-        _baseNode = &RequireReference(baseNode);
-        const std::int32_t parentIndex = _baseNode->ParentIndex;
-        _baseNodeParent = &RequireReference((*RequireReference(inst.Model()).Nodes).at(
-            static_cast<std::size_t>(parentIndex)));
-        _altIceModel = &SetUpModel("alt_ice");
+        const std::shared_ptr<Model> model = inst.Model();
+        _baseNode = RequireReference(model).GetNodeByName("TurretBase");
+        const std::int32_t parentIndex = RequireReference(_baseNode).ParentIndex;
+        const auto& nodes = RequireReference(RequireReference(model).Nodes);
+        _baseNodeParent = ReadOnlyListAt(nodes, parentIndex);
+        SetUpModel("alt_ice");
+        _altIceModel = _models.Items().back();
     }
 
     void HalfturretEntity::Initialize()
@@ -200,8 +225,9 @@ namespace MphRead::Entities
             _health = 1;
         }
         _grounded = TypeExtensions::TestFlag(owner.Flags1(), PlayerFlags1::Standing);
-        RequireReference(_equipInfo).Beams = owner.EquipInfo()->Beams;
-        RequireReference(_equipInfo).Weapon = Weapons::Current.at(3);
+        MphRead::EquipInfo& equipInfo = RequireReference(_equipInfo);
+        equipInfo.Beams = RequireReference(owner.EquipInfo()).Beams;
+        equipInfo.Weapon = ReadOnlyListAt(RequireReference(Weapons::Current), 3);
         _models[0].SetAnimation(1, AnimFlags::NoLoop);
         _light1Vector = owner.Light1Vector();
         _light1Color = owner.Light1Color();
@@ -252,15 +278,15 @@ namespace MphRead::Entities
     void HalfturretEntity::OnSetOnFire()
     {
         _burnTimer = 150 * 2;
-        Scene& scene = RequireReference(_scene);
         if (_burnEffect != nullptr)
         {
-            scene.UnlinkEffectEntry(_burnEffect);
+            RequireReference(_scene).UnlinkEffectEntry(_burnEffect);
             _burnEffect.reset();
         }
         Vector3 facing = FacingVector();
         facing.Y = 0.0F;
-        _burnEffect = scene.SpawnEffectGetEntry(187, facing, UnitY, Position);
+        _burnEffect = RequireReference(_scene).SpawnEffectGetEntry(
+            187, facing, UnitY, Position);
         if (_burnEffect != nullptr)
         {
             _burnEffect->SetElementExtension(true);
@@ -269,12 +295,13 @@ namespace MphRead::Entities
 
     bool HalfturretEntity::Process()
     {
-        PlayerEntity& owner = RequireReference(_owner);
-        Scene& scene = RequireReference(_scene);
-        if (_health == 0 || !TypeExtensions::TestFlag(owner.Flags2(), PlayerFlags2::Halfturret))
+        if (_health == 0
+            || !TypeExtensions::TestFlag(
+                RequireReference(_owner).Flags2(), PlayerFlags2::Halfturret))
         {
             return false;
         }
+        PlayerEntity& owner = RequireReference(_owner);
         if (_burnTimer > 0)
         {
             --_burnTimer;
@@ -282,7 +309,7 @@ namespace MphRead::Entities
             {
                 owner.TakeDamage(1,
                     DamageFlags::NoSfx | DamageFlags::Burn | DamageFlags::NoDmgInvuln | DamageFlags::Halfturret,
-                    std::nullopt, owner.BurnedBy());
+                    std::nullopt, owner.BurnedBy().get());
             }
             if (_burnEffect != nullptr)
             {
@@ -293,7 +320,7 @@ namespace MphRead::Entities
         }
         else if (_burnEffect != nullptr)
         {
-            scene.UnlinkEffectEntry(_burnEffect);
+            RequireReference(_scene).UnlinkEffectEntry(_burnEffect);
             _burnEffect.reset();
         }
         if (_freezeTimer == 0)
@@ -318,13 +345,18 @@ namespace MphRead::Entities
             if (_target == nullptr)
             {
                 float minDistSqr = 15.0F * 15.0F;
-                auto enumerator = scene.GetPlayerEntities().GetEnumerator();
+                auto enumerator = RequireReference(_scene).GetPlayerEntities().GetEnumerator();
                 while (enumerator.MoveNext())
                 {
                     std::shared_ptr<PlayerEntity> playerValue = enumerator.Current();
+                    if (playerValue == _owner)
+                    {
+                        continue;
+                    }
                     PlayerEntity& player = RequireReference(playerValue);
-                    if (playerValue == _owner || player.Health() == 0
-                        || player.TeamIndex() == owner.TeamIndex() || player.CurAlpha() < 6.0F / 31.0F)
+                    if (player.Health() == 0
+                        || player.TeamIndex() == owner.TeamIndex()
+                        || player.CurAlpha() < 6.0F / 31.0F)
                     {
                         continue;
                     }
@@ -340,9 +372,9 @@ namespace MphRead::Entities
             if (_target != nullptr)
             {
                 const Vector3 muzzlePos = TypeExtensions::AddY(Position, 0.4F);
-                const std::int32_t encounter = GameState::EncounterState.at(
-                    static_cast<std::size_t>(owner.SlotIndex()));
-                if (owner.IsBot() && GameState::SinglePlayer
+                const std::int32_t encounter = ArrayAt(
+                    GameState::EncounterState(), owner.SlotIndex());
+                if (owner.IsBot() && GameState::SinglePlayer()
                     && (encounter == 1 || encounter == 3 || encounter == 4))
                 {
                     if (_cooldownTimer > 0)
@@ -358,20 +390,20 @@ namespace MphRead::Entities
                 {
                     _cooldownTimer = 1;
                 }
-                UpdateAim(muzzlePos, _target->Position, _equipInfo, _aimVector);
+                (void)UpdateAim(muzzlePos, _target->Position, _equipInfo, _aimVector);
                 const float cooldownValue = static_cast<float>(RequireReference(RequireReference(_equipInfo).Weapon).ShotCooldown)
                     * _cooldownFactor;
                 const float cooldown = cooldownValue < 7.5F ? 7.0F : cooldownValue;
                 if (owner.TimeSinceShot() >= cooldown * 2.0F && _cooldownTimer < 60 * 2)
                 {
-                    if (owner.IsBot() && GameState::SinglePlayer
+                    if (owner.IsBot() && GameState::SinglePlayer()
                         && (encounter == 1 || encounter == 3 || encounter == 4))
                     {
-                        RequireReference(_equipInfo).UnchargedDamage = 3;
-                        RequireReference(_equipInfo).HeadshotDamage = 3;
-                        RequireReference(_equipInfo).SplashDamage = 3;
-                        RequireReference(_equipInfo).MinChargeSplashDamage = 3;
-                        RequireReference(_equipInfo).ChargedSplashDamage = 3;
+                        RequireReference(_equipInfo).UnchargedDamage(3);
+                        RequireReference(_equipInfo).HeadshotDamage(3);
+                        RequireReference(_equipInfo).SplashDamage(3);
+                        RequireReference(_equipInfo).MinChargeSplashDamage(3);
+                        RequireReference(_equipInfo).ChargedSplashDamage(3);
                         RequireReference(_equipInfo).DmgDirTypes[0] = 0;
                         RequireReference(_equipInfo).DmgDirTypes[1] = 0;
                     }
@@ -401,7 +433,7 @@ namespace MphRead::Entities
         {
             ++_timeSinceDamage;
         }
-        if (_owner.get() == PlayerEntity::Main())
+        if (_owner == PlayerEntity::Main())
         {
             std::string message = Text::Strings::GetHudMessage(233);
             const std::string replacement = std::to_string(_health);
@@ -418,11 +450,12 @@ namespace MphRead::Entities
             const Vector3 prevPos = Position;
             _ySpeed -= 0.02F / 2.0F;
             Position = TypeExtensions::AddY(Position, _ySpeed / 2.0F);
-            std::array<Formats::CollisionResult, 1> results{};
+            ManagedArray<Formats::CollisionResult> results(1);
             if (Formats::CollisionDetection::CheckSphereBetweenPoints(
-                prevPos, Position, 0.45F, 1, false, TestFlags::None, _scene, results) > 0)
+                prevPos, Position, 0.45F, 1, false, Formats::TestFlags::None,
+                _scene, &results) > 0)
             {
-                const Formats::CollisionResult& result = results[0];
+                const Formats::CollisionResult result = results[0];
                 const Vector3 plane = result.Plane.Xyz();
                 float dot = Vector3::Dot(Position, plane) - result.Plane.W;
                 dot = 0.45F - dot;
@@ -434,11 +467,12 @@ namespace MphRead::Entities
                 _grounded = true;
             }
             UpdateLightSources(Position);
-            NodeRef = scene.UpdateNodeRef(NodeRef, prevPos, Position);
+            NodeRef = RequireReference(_scene).UpdateNodeRef(NodeRef, prevPos, Position);
             _closestNode.reset();
         }
-        assert(scene.Room != nullptr);
-        if (Position.Y < scene.Room->Meta.KillHeight)
+        assert(RequireReference(_scene).Room() != nullptr);
+        const std::shared_ptr<RoomEntity> room = RequireReference(_scene).Room();
+        if (Position.Y < RequireReference(room).Meta().KillHeight)
         {
             Die();
         }
@@ -566,7 +600,7 @@ namespace MphRead::Entities
         {
             _useRoomLights = true;
             const float radius = 0.65F;
-            Matrix4 transform = Scale(Vector3(radius, radius, radius));
+            Matrix4 transform = CreateScale(Vector3(radius, radius, radius));
             transform.M41 = Position.X;
             transform.M42 = Position.Y;
             transform.M43 = Position.Z;
@@ -604,12 +638,22 @@ namespace MphRead::Entities
         PlayerEntity& owner = RequireReference(_owner);
         if (owner.DoubleDamage() && material.Lighting > 0 && node.BillboardMode == BillboardMode::None)
         {
-            const Texture& texture = *owner.DoubleDamageModel()->Model()->Recolors->at(0)->Textures->at(0);
+            const std::shared_ptr<ModelInstance> doubleDamageInstance
+                = owner.DoubleDamageModel();
+            const std::shared_ptr<Model> doubleDamageModel
+                = RequireReference(doubleDamageInstance).Model();
+            const auto& recolors = RequireReference(
+                RequireReference(doubleDamageModel).Recolors);
+            const std::shared_ptr<Recolor> doubleDamageRecolor
+                = ReadOnlyListAt(recolors, 0);
+            const auto& textures = RequireReference(
+                RequireReference(doubleDamageRecolor).Textures);
+            const Texture texture = ReadOnlyListAt(textures, 0);
             Matrix4 texgenMatrix = Identity();
             const Vector3 modelScale = RequireReference(inst.Model()).Scale;
             if (modelScale.X != 1.0F || modelScale.Y != 1.0F || modelScale.Z != 1.0F)
             {
-                texgenMatrix = Matrix::Multiply44(Scale(modelScale), texgenMatrix);
+                texgenMatrix = Matrix::Multiply44(CreateScale(modelScale), texgenMatrix);
             }
             Matrix4 product = texgenMatrix;
             product.M12 *= -1.0F;
@@ -618,7 +662,7 @@ namespace MphRead::Entities
             product.M23 *= -1.0F;
             product.M32 *= -1.0F;
             product.M33 *= -1.0F;
-            const std::uint64_t frame = RequireReference(_scene).LiveFrames / 2U;
+            const std::uint64_t frame = RequireReference(_scene).LiveFrames() / 2U;
             const std::uint64_t zTerm = 781874935307ULL * (53248ULL * frame);
             const std::uint64_t zValue = 16ULL * ((zTerm >> 32) + 2048ULL);
             const std::int32_t zInt = UncheckedInt32(zValue);

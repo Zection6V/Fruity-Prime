@@ -189,7 +189,7 @@ namespace MphRead::Entities::Enemies
             _itemChance3 = 0;
             _itemChance4 = 60;
             _field1C4 = static_cast<std::uint8_t>(5 * 2);
-            _target = PlayerEntity::Main();
+            _target = PlayerEntity::Main().get();
         }
     }
 
@@ -423,7 +423,7 @@ namespace MphRead::Entities::Enemies
         }
         std::int32_t damage = _field1B4;
         float dirMag = _field1B0;
-        PlayerEntity& mainPlayer = RequireReference(PlayerEntity::Main());
+        PlayerEntity& mainPlayer = RequireReference(PlayerEntity::Main().get());
         if (!HitPlayerAt(HitPlayers, mainPlayer.SlotIndex()))
         {
             const float factor

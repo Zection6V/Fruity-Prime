@@ -156,7 +156,7 @@ namespace MphRead::Entities::Enemies
             return std::sqrt(LengthSquared(value));
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float factor) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float factor) noexcept
         {
             return Vector3(
                 value.X * factor, value.Y * factor, value.Z * factor);
@@ -397,10 +397,8 @@ namespace MphRead::Entities::Enemies
         _recoilTimer = 1000;
 
         const std::shared_ptr<WeaponInfo> slenchTear
-            = VectorAt(Weapons::BossWeapons, 3);
-        _equipInfo = std::make_shared<EquipInfo>();
-        _equipInfo->SetWeapon(slenchTear);
-        _equipInfo->SetBeams(RequireReference(_beams));
+            = VectorAt(RequireReference(Weapons::BossWeapons), 3);
+        _equipInfo = std::make_shared<EquipInfo>(slenchTear, _beams);
         _equipInfo->SetGetAmmo([this]() { return _ammo; });
         _equipInfo->SetSetAmmo(
             [this](std::int32_t newAmmo) { _ammo = newAmmo; });
@@ -422,7 +420,7 @@ namespace MphRead::Entities::Enemies
         UpdateFacing();
         _targetHorizontal = Vector3(_targetX, 0.0F, _targetZ);
         _startPos = position;
-        _detachedPosition = Scale(facing, 3.0F) + position;
+        _detachedPosition = ScaleVector(facing, 3.0F) + position;
         _detachedFacing = _detachedPosition + facing;
         ChangeState(SlenchState::Initial);
 
@@ -674,8 +672,8 @@ namespace MphRead::Entities::Enemies
         const Enemy41Values phaseValues = GetPhaseValues();
         const Vector3 facing = FacingVector();
         const Vector3 up = UpVector();
-        PlayerEntity& player = MainPlayer();
-        Vector3 playerTarget = AddY(player.Volume().SpherePosition, 0.5F);
+        Vector3 playerTarget = AddY(
+            MainPlayer().Volume().SpherePosition, 0.5F);
 
         if (TestFlag(_slenchFlags, Enemies::SlenchFlags::Wobbling))
         {
@@ -688,7 +686,7 @@ namespace MphRead::Entities::Enemies
             const Matrix4 rotMtx = CreateFromAxisAngle(
                 axis, DegreesToRadians(_wobbleAngle));
             playerTarget = playerTarget
-                + Scale(Vec3MultMtx3(up, rotMtx).Normalized(), 2.0F);
+                + ScaleVector(Vec3MultMtx3(up, rotMtx).Normalized(), 2.0F);
         }
 
         if (TestFlag(_slenchFlags, Enemies::SlenchFlags::TargetingPlayer))
@@ -701,9 +699,10 @@ namespace MphRead::Entities::Enemies
             {
                 EquipInfo& equip = RequireReference(_equipInfo);
                 equip.SetWeapon(VectorAt(
-                    Weapons::BossWeapons, AddInt32Unchecked(4, _subtype)));
+                    RequireReference(Weapons::BossWeapons),
+                    AddInt32Unchecked(4, _subtype)));
                 const Vector3 spawnPos
-                    = Scale(facing, _shieldOffset) + static_cast<Vector3>(Position);
+                    = ScaleVector(facing, _shieldOffset) + static_cast<Vector3>(Position);
                 const BeamResultFlags result = BeamProjectileEntity::Spawn(
                     SharedEntity(_scene, this),
                     _equipInfo,
@@ -716,14 +715,14 @@ namespace MphRead::Entities::Enemies
                 {
                     SetRecoilTargetVecs();
                     _soundSource.PlaySfx(SfxId::BIGEYE_ATTACK2);
-                    const std::shared_ptr<WeaponInfo> weapon = equip.Weapon();
+                    const std::shared_ptr<WeaponInfo> weapon = equip.Weapon;
                     _shotCooldown = MulInt32Unchecked(
-                        RequireReference(weapon).ShotCooldown(), 2);
+                        RequireReference(weapon).ShotCooldown, 2);
                 }
             }
         }
 
-        const std::int32_t slotIndex = player.SlotIndex();
+        const std::int32_t slotIndex = MainPlayer().SlotIndex();
         if (slotIndex < 0
             || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
         {
@@ -731,7 +730,7 @@ namespace MphRead::Entities::Enemies
         }
         if (HitPlayers[static_cast<std::size_t>(slotIndex)])
         {
-            player.TakeDamage(35, DamageFlags::None, facing, this);
+            MainPlayer().TakeDamage(35, DamageFlags::None, facing, this);
         }
 
         if (State() == SlenchState::Roam)
@@ -881,11 +880,11 @@ namespace MphRead::Entities::Enemies
                             facing, DegreesToRadians(angle));
                         const Vector3 vecA = Vec3MultMtx3(up, rotMtx);
                         const Vector3 vecB
-                            = Scale(facing, 4.0F)
+                            = ScaleVector(facing, 4.0F)
                             + static_cast<Vector3>(Position);
                         const float randf = static_cast<float>(
                             Rng::GetRandomInt2(0x2000)) / 4096.0F + 2.0F;
-                        _destVec2 = Scale(vecA, randf) + vecB;
+                        _destVec2 = ScaleVector(vecA, randf) + vecB;
                     }
                     (void)RotateToTarget(
                         _destVec2,
@@ -908,13 +907,13 @@ namespace MphRead::Entities::Enemies
                 _staticShotCooldown
                     = static_cast<std::int32_t>(phaseValues.StaticShotCooldown) * 2;
                 RequireReference(_equipInfo).SetWeapon(
-                    VectorAt(Weapons::BossWeapons, 3));
+                    VectorAt(RequireReference(Weapons::BossWeapons), 3));
                 if (_staticShotCounter > 1)
                 {
                     _soundSource.PlaySfx(SfxId::MISSILE);
                 }
                 const Vector3 spawnPos
-                    = Scale(facing, _shieldOffset)
+                    = ScaleVector(facing, _shieldOffset)
                     + static_cast<Vector3>(Position);
                 const BeamResultFlags result = BeamProjectileEntity::Spawn(
                     SharedEntity(_scene, this),
@@ -1083,7 +1082,7 @@ namespace MphRead::Entities::Enemies
                                         _slenchFlags,
                                         Enemies::SlenchFlags::PatternFlip1))
                                     {
-                                        vecA = Scale(_targetHorizontal, -1.0F);
+                                        vecA = ScaleVector(_targetHorizontal, -1.0F);
                                         angle = 360.0F - _patternAngle;
                                     }
                                     else
@@ -1095,7 +1094,7 @@ namespace MphRead::Entities::Enemies
                                     const float factor = Fixed::ToFloat(
                                         phaseValues.RollingSpeed);
                                     const Vector3 vecB
-                                        = Scale(vecA, factor)
+                                        = ScaleVector(vecA, factor)
                                         + _detachedPosition;
                                     const float radians = DegreesToRadians(angle);
                                     const float sine = std::sin(radians);
@@ -1105,7 +1104,7 @@ namespace MphRead::Entities::Enemies
                                         0.0F, 1.0F, 0.0F,
                                         sine, 0.0F, cosine);
                                     const Vector3 newPos
-                                        = Scale(
+                                        = ScaleVector(
                                             Vec3MultMtx3(
                                                 _targetHorizontal, mtx),
                                             factor)
@@ -1189,7 +1188,7 @@ namespace MphRead::Entities::Enemies
                                 Vector3(0.0F, 1.0F, 0.0F)).Normalized();
                             const Matrix4 rotMtx = CreateFromAxisAngle(
                                 vecB, DegreesToRadians(angle));
-                            Position = Scale(
+                            Position = ScaleVector(
                                 Vec3MultMtx3(_targetHorizontal, rotMtx),
                                 factor) + vecA;
 
@@ -1238,7 +1237,7 @@ namespace MphRead::Entities::Enemies
                                 _targetHorizontal).Normalized();
                         }
 
-                        vecA = Scale(
+                        vecA = ScaleVector(
                             vecA, Fixed::ToFloat(phaseValues.FloatingSpeed));
                         const Vector3 vecB = vecA + _detachedPosition;
                         const Matrix4 rotMtx = CreateFromAxisAngle(
@@ -1269,7 +1268,7 @@ namespace MphRead::Entities::Enemies
                                     ^= Enemies::SlenchFlags::PatternFlip2;
                             }
                             Position = static_cast<Vector3>(Position)
-                                + Scale(_targetHorizontal, _floatBaseY);
+                                + ScaleVector(_targetHorizontal, _floatBaseY);
                             if (_subtype == 2)
                             {
                                 (void)SetUpSlam(playerTarget);
@@ -1366,7 +1365,7 @@ namespace MphRead::Entities::Enemies
                 }
                 const Matrix4 rotMtx = CreateFromAxisAngle(
                     facing, DegreesToRadians(_wobbleAngle));
-                Position = Scale(Vec3MultMtx3(up, rotMtx), factor)
+                Position = ScaleVector(Vec3MultMtx3(up, rotMtx), factor)
                     + _destVec2;
             }
         }
@@ -1437,7 +1436,7 @@ namespace MphRead::Entities::Enemies
             + _shieldOffset * (dist >= 0.0F ? 1.0F : -1.0F);
         if (!Equal(vec, Vector3::Zero))
         {
-            const Vector3 dest = Scale(vec, factor) + position;
+            const Vector3 dest = ScaleVector(vec, factor) + position;
             if (Formats::CollisionDetection::CheckBetweenPoints(
                 position,
                 dest,
@@ -1451,7 +1450,7 @@ namespace MphRead::Entities::Enemies
 
         if (vec.X != 0.0F || vec.Z != 0.0F)
         {
-            Vector3 dest = Scale(vec, factor)
+            Vector3 dest = ScaleVector(vec, factor)
                 + AddY(position, _shieldOffset / -2.0F);
             if (Formats::CollisionDetection::CheckBetweenPoints(
                 position,
@@ -1463,7 +1462,7 @@ namespace MphRead::Entities::Enemies
                 return true;
             }
 
-            dest = Scale(vec, factor)
+            dest = ScaleVector(vec, factor)
                 + AddY(position, _shieldOffset * -1.0F);
             if (Formats::CollisionDetection::CheckBetweenPoints(
                 position,
@@ -1500,7 +1499,7 @@ namespace MphRead::Entities::Enemies
                 plane.W = (plane.X * 0.4F + lockPosition.X) * plane.X
                     + (plane.Y * 0.4F + lockPosition.Y) * plane.Y
                     + (plane.Z * 0.4F + lockPosition.Z) * plane.Z;
-                const Vector3 cylTop = position + Scale(vec, dist);
+                const Vector3 cylTop = position + ScaleVector(vec, dist);
                 if (Formats::CollisionDetection::CheckCylinderIntersectPlane(
                         position, cylTop, plane, res)
                     && res.Distance < 2.0F)
@@ -1520,7 +1519,7 @@ namespace MphRead::Entities::Enemies
     {
         _recoilTimer = 0;
         _destVec2 = Position;
-        _destVec1 = Scale(FacingVector(), -1.0F).Normalized();
+        _destVec1 = ScaleVector(FacingVector(), -1.0F).Normalized();
     }
 
     void Enemy41Entity::ProcessRecoil()
@@ -1542,7 +1541,7 @@ namespace MphRead::Entities::Enemies
                 9 * 2 + 1 - static_cast<std::int32_t>(_recoilTimer));
             factor = diff / static_cast<float>(5 * 2);
         }
-        Position = Scale(_destVec1, factor) + _destVec2;
+        Position = ScaleVector(_destVec1, factor) + _destVec2;
         _recoilTimer = static_cast<std::uint16_t>(
             static_cast<std::uint32_t>(_recoilTimer) + 1U);
     }
@@ -1607,7 +1606,7 @@ namespace MphRead::Entities::Enemies
                 {
                     _destVec2 = Position;
                     target = target.Normalized();
-                    _destVec1 = Scale(target, length - radius)
+                    _destVec1 = ScaleVector(target, length - radius)
                         + static_cast<Vector3>(Position);
                     _slamTimer = 0;
                     ChangeState(SlenchState::SlamReady);
@@ -1630,7 +1629,7 @@ namespace MphRead::Entities::Enemies
         {
             between = between.Normalized();
             Position = static_cast<Vector3>(Position)
-                + Scale(between, increment);
+                + ScaleVector(between, increment);
             return false;
         }
         Position = position;
@@ -1765,7 +1764,7 @@ namespace MphRead::Entities::Enemies
             }
             else if (_rollTimer < 0)
             {
-                if (Bugfixes::NoSlenchRollTimerUnderflow)
+                if (Bugfixes::NoSlenchRollTimerUnderflow())
                 {
                     _rollTimer = 1;
                 }
@@ -1790,8 +1789,13 @@ namespace MphRead::Entities::Enemies
                 && source != nullptr
                 && source->Type == EntityType::BeamProjectile)
             {
-                BeamProjectileEntity& beam
-                    = *static_cast<BeamProjectileEntity*>(source);
+                BeamProjectileEntity* beamPtr
+                    = dynamic_cast<BeamProjectileEntity*>(source);
+                if (beamPtr == nullptr)
+                {
+                    throw SceneDetail::InvalidCastException();
+                }
+                BeamProjectileEntity& beam = *beamPtr;
                 const Vector3 up
                     = (static_cast<Vector3>(beam.Position)
                         - static_cast<Vector3>(Position)).Normalized();

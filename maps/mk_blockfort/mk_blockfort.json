@@ -66,6 +66,19 @@
     { "Position": [ 62.5665, -4.58838, -18.7578 ], "yaw": 180 },
     { "Position": [ 43.2163, -4.58838, 37.4923 ], "yaw": 90 }
   ],
+  // The centre pad and the Double Damage above it are one thing: the pickup
+  // is out of reach on the ground, so taking it costs the ride up and the
+  // moment at the top where everybody can see you. cooldownTime and
+  // controlLockTime are frames.
+  "JumpPads": [
+    {
+      "position": [ 24.99, -4.68734, 0 ],
+      "target": [ 24.99, -2.0, 0 ],
+      "size": [ 2.0, 2.2, 2.0 ],
+      "cooldownTime": 20,
+      "controlLockTime": 14
+    }
+  ],
   // The plinths are legibility, not decoration: a pickup the colour of the
   // area it stands in disappears into the floor without one. Green area,
   // Battlehammer (green); blue, Judicator (purple); red, Imperialist (red).
@@ -75,7 +88,7 @@
   // it has one in all four, because two opposite corners would be a half-turn
   // of symmetry inside a quarter-turn layout and read as a mistake.
   "Items": [
-    { "Position": [ 24.99, -0.89, 0 ], "Type": "DoubleDamage", "hasBase": false },
+    { "Position": [ 24.99, 1.14514, 0 ], "Type": "DoubleDamage", "hasBase": false, "spawnInterval": 5400 },
 
     { "Position": [ -2.58491, -0.506107, 27.0647], "Type": "Imperialist", "hasBase": false },
     { "Position": [ -2.5836, -0.506107, -27.6329], "Type": "Imperialist", "hasBase": true },

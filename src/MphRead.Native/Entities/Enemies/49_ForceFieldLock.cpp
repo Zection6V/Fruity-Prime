@@ -59,7 +59,7 @@ namespace MphRead::Entities::Enemies
             return left.X * right.X + left.Y * right.Y + left.Z * right.Z;
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float factor) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float factor) noexcept
         {
             return Vector3(value.X * factor, value.Y * factor, value.Z * factor);
         }
@@ -155,7 +155,7 @@ namespace MphRead::Entities::Enemies
         _fieldPosition = position;
         _vec1 = data.Header.UpVector.ToFloatVector();
         _vec2 = data.Header.FacingVector.ToFloatVector();
-        position = position + Scale(_vec2, Fixed::ToFloat(409));
+        position = position + ScaleVector(_vec2, Fixed::ToFloat(409));
         SetTransform(_vec2, _vec1, position);
 
         Flags |= EnemyFlags::NoMaxDistance;
@@ -201,14 +201,17 @@ namespace MphRead::Entities::Enemies
         SetRecolor(forceField.Recolor());
 
         const std::int32_t weaponIndex = UInt32ToInt32(data.Type);
+        const Weapons::WeaponList& weapons1P
+            = RequireReference(Weapons::Weapons1P);
         if (weaponIndex < 0
-            || static_cast<std::size_t>(weaponIndex) >= Weapons::Weapons1P.size())
+            || static_cast<std::size_t>(weaponIndex) >= weapons1P.size())
         {
             throw SceneDetail::IndexOutOfRangeException();
         }
         _equipInfo = std::make_shared<EquipInfo>();
-        _equipInfo->SetWeapon(Weapons::Weapons1P[static_cast<std::size_t>(weaponIndex)]);
-        _equipInfo->SetBeams(RequireReference(_beams));
+        _equipInfo->SetWeapon(
+            weapons1P[static_cast<std::size_t>(weaponIndex)]);
+        _equipInfo->SetBeams(_beams);
         _equipInfo->SetGetAmmo([this]() { return _ammo; });
         _equipInfo->SetSetAmmo([this](std::int32_t newAmmo) { _ammo = newAmmo; });
     }
@@ -242,12 +245,12 @@ namespace MphRead::Entities::Enemies
             }
         }
 
-        const Vector3 cameraPosition = MainPlayer().CameraInfo().Position;
+        const Vector3 cameraPosition = RequireReference(MainPlayer().CameraInfo()).Position;
         if (Dot(cameraPosition - _fieldPosition, _vec2) < 0.0F)
         {
-            _vec2 = Scale(_vec2, -1.0F);
+            _vec2 = ScaleVector(_vec2, -1.0F);
             const Vector3 position
-                = _fieldPosition + Scale(_vec2, Fixed::ToFloat(409));
+                = _fieldPosition + ScaleVector(_vec2, Fixed::ToFloat(409));
             SetTransform(_vec2, _vec1, position);
             _prevPos = Position;
         }
@@ -262,7 +265,7 @@ namespace MphRead::Entities::Enemies
                 const Vector3 spawnDir
                     = (_targetPosition - static_cast<Vector3>(Position)).Normalized();
                 const Vector3 spawnPos
-                    = static_cast<Vector3>(Position) + Scale(spawnDir, 0.1F);
+                    = static_cast<Vector3>(Position) + ScaleVector(spawnDir, 0.1F);
                 (void)BeamProjectileEntity::Spawn(
                     SharedEntity(_scene, this),
                     _equipInfo,
@@ -289,9 +292,9 @@ namespace MphRead::Entities::Enemies
         {
             const Vector3 fieldFacing = forceField.FieldFacingVector();
             const float dot1 = Dot(between, fieldFacing);
-            between = (between - Scale(fieldFacing, dot1)).Normalized();
+            between = (between - ScaleVector(fieldFacing, dot1)).Normalized();
             const float dot2 = Dot(_ownSpeed, between) * 2.0F;
-            _ownSpeed = _ownSpeed - Scale(between, dot2);
+            _ownSpeed = _ownSpeed - ScaleVector(between, dot2);
             const float inv = 1.0F / std::sqrt(pct);
             const float rf = rightPct * inv * width;
             const float uf = upPct * inv * height;
@@ -337,10 +340,10 @@ namespace MphRead::Entities::Enemies
         }
         else if (RequireReference(_scene).FrameCount() % 2 == 0)
         {
-            _ownSpeed = Scale(_ownSpeed, Fixed::ToFloat(3973));
+            _ownSpeed = ScaleVector(_ownSpeed, Fixed::ToFloat(3973));
         }
 
-        _speed = Scale(_ownSpeed, 0.5F);
+        _speed = ScaleVector(_ownSpeed, 0.5F);
     }
 
     bool Enemy49Entity::EnemyTakeDamage(EntityBase* source)
@@ -367,7 +370,7 @@ namespace MphRead::Entities::Enemies
             && GetEffectiveness(RequireReference(beam).Beam()) == Effectiveness::Zero)
         {
             const std::shared_ptr<EntityBase> owner = RequireReference(beam).Owner();
-            if (owner.get() == PlayerEntity::Main())
+            if (owner.get() == PlayerEntity::Main().get())
             {
                 const ForceFieldEntity& forceField = RequireReference(_forceField);
                 _shotFrames = forceField.Data().Type == 7

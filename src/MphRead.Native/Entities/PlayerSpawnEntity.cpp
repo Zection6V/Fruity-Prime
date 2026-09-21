@@ -3,35 +3,39 @@
 #include "../Features.hpp"
 #include "../GameState.hpp"
 #include "../Messaging.hpp"
+#include "../MemoryArrays.hpp"
 #include "../Scene.hpp"
 
 #include <any>
 #include <cstdint>
-#include <typeinfo>
+#include <memory>
 #include <utility>
 
 namespace
 {
-    [[nodiscard]] std::int32_t UnboxInt32(const std::any& value)
+    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
     {
-        if (!value.has_value())
+        if (!value || !value->has_value())
         {
-            throw System::NullReferenceException();
+            throw MphRead::Memory::Detail::NullReferenceException();
         }
-        if (value.type() != typeid(std::int32_t))
+        try
         {
-            throw System::InvalidCastException();
+            return std::any_cast<std::int32_t>(*value);
         }
-        return std::any_cast<std::int32_t>(value);
+        catch (const std::bad_any_cast&)
+        {
+            throw MphRead::Memory::Detail::InvalidCastException();
+        }
     }
 
     [[nodiscard]] std::int32_t GetRoomId(MphRead::Scene* scene)
     {
         if (scene == nullptr)
         {
-            throw System::NullReferenceException();
+            throw MphRead::Memory::Detail::NullReferenceException();
         }
-        return scene->RoomId;
+        return scene->RoomId();
     }
 }
 
@@ -87,20 +91,21 @@ namespace MphRead::Entities
             _data.Header.UpVector,
             _data.Header.Position);
 
-        if (GameState::Mode == GameMode::SinglePlayer)
+        if (GameState::Mode() == GameMode::SinglePlayer)
         {
             const bool active
-                = Cheats::SkipPlanetIntros ? true : (_data.Active != 0);
+                = Cheats::SkipPlanetIntros() ? true : (_data.Active != 0);
 
-            StorySave* storySave = GameState::StorySave;
+            std::shared_ptr<StorySave> storySave = GameState::StorySave;
             const std::int32_t roomId = GetRoomId(_scene);
+            const std::int32_t id = Id;
 
             if (storySave == nullptr)
             {
-                throw System::NullReferenceException();
+                throw Memory::Detail::NullReferenceException();
             }
 
-            _active = storySave->InitRoomState(roomId, Id, active) != 0;
+            _active = storySave->InitRoomState(roomId, id, active) != 0;
         }
         else
         {
@@ -126,17 +131,18 @@ namespace MphRead::Entities
         {
             _active = true;
 
-            if (GameState::Mode == GameMode::SinglePlayer)
+            if (GameState::Mode() == GameMode::SinglePlayer)
             {
-                StorySave* storySave = GameState::StorySave;
+                std::shared_ptr<StorySave> storySave = GameState::StorySave;
                 const std::int32_t roomId = GetRoomId(_scene);
+                const std::int32_t id = Id;
 
                 if (storySave == nullptr)
                 {
-                    throw System::NullReferenceException();
+                    throw Memory::Detail::NullReferenceException();
                 }
 
-                storySave->SetRoomState(roomId, Id, 3);
+                storySave->SetRoomState(roomId, id, 3);
             }
         }
         else if (info.Message == Message::SetActive
@@ -144,17 +150,18 @@ namespace MphRead::Entities
         {
             _active = false;
 
-            if (GameState::Mode == GameMode::SinglePlayer)
+            if (GameState::Mode() == GameMode::SinglePlayer)
             {
-                StorySave* storySave = GameState::StorySave;
+                std::shared_ptr<StorySave> storySave = GameState::StorySave;
                 const std::int32_t roomId = GetRoomId(_scene);
+                const std::int32_t id = Id;
 
                 if (storySave == nullptr)
                 {
-                    throw System::NullReferenceException();
+                    throw Memory::Detail::NullReferenceException();
                 }
 
-                storySave->SetRoomState(roomId, Id, 1);
+                storySave->SetRoomState(roomId, id, 1);
             }
         }
     }

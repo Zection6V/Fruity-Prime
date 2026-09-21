@@ -64,8 +64,41 @@ namespace
         return std::make_shared<const std::any>(value);
     }
 
+    [[nodiscard]] float Determinant(Matrix4 value) noexcept
+    {
+        const float m11 = value.M11;
+        const float m12 = value.M12;
+        const float m13 = value.M13;
+        const float m14 = value.M14;
+        const float m21 = value.M21;
+        const float m22 = value.M22;
+        const float m23 = value.M23;
+        const float m24 = value.M24;
+        const float m31 = value.M31;
+        const float m32 = value.M32;
+        const float m33 = value.M33;
+        const float m34 = value.M34;
+        const float m41 = value.M41;
+        const float m42 = value.M42;
+        const float m43 = value.M43;
+        const float m44 = value.M44;
+
+        return
+            (m11 * m22 * m33 * m44) - (m11 * m22 * m34 * m43) + (m11 * m23 * m34 * m42) - (m11 * m23 * m32 * m44)
+            + (m11 * m24 * m32 * m43) - (m11 * m24 * m33 * m42) - (m12 * m23 * m34 * m41) + (m12 * m23 * m31 * m44)
+            - (m12 * m24 * m31 * m43) + (m12 * m24 * m33 * m41) - (m12 * m21 * m33 * m44) + (m12 * m21 * m34 * m43)
+            + (m13 * m24 * m31 * m42) - (m13 * m24 * m32 * m41) + (m13 * m21 * m32 * m44) - (m13 * m21 * m34 * m42)
+            + (m13 * m22 * m34 * m41) - (m13 * m22 * m31 * m44) - (m14 * m21 * m32 * m43) + (m14 * m21 * m33 * m42)
+            - (m14 * m22 * m33 * m41) + (m14 * m22 * m31 * m43) - (m14 * m23 * m31 * m42) + (m14 * m23 * m32 * m41);
+    }
+
     [[nodiscard]] Matrix4 Invert(Matrix4 value)
     {
+        if (Determinant(value) == 0.0F)
+        {
+            return value;
+        }
+
         const float a = value.M11;
         const float b = value.M21;
         const float c = value.M31;
@@ -98,7 +131,7 @@ namespace
         const float det = a * a11 + b * a12 + c * a13 + d * a14;
         if (std::abs(det) < std::numeric_limits<float>::denorm_min())
         {
-            throw std::runtime_error("Matrix is singular and cannot be inverted.");
+            throw MphRead::SceneDetail::InvalidOperationException();
         }
 
         const float invDet = 1.0F / det;
@@ -151,10 +184,10 @@ namespace MphRead::Entities
         Id = data.Header.EntityId;
         Position = data.Header.Position.ToFloatVector();
         _alwaysActive = data.AlwaysActive != 0;
-        if (GameState::Mode == GameMode::SinglePlayer)
+        if (GameState::Mode() == GameMode::SinglePlayer)
         {
-            StorySave* storySave = GameState::StorySave;
-            const std::int32_t roomId = RequireReference(_scene).RoomId;
+            std::shared_ptr<StorySave> storySave = GameState::StorySave;
+            const std::int32_t roomId = RequireReference(_scene).RoomId();
             if (storySave == nullptr)
             {
                 throw System::NullReferenceException();
@@ -324,10 +357,10 @@ namespace MphRead::Entities
         {
             Active = true;
             _playKeySfx = true;
-            if (GameState::Mode == GameMode::SinglePlayer)
+            if (GameState::Mode() == GameMode::SinglePlayer)
             {
-                StorySave* storySave = GameState::StorySave;
-                const std::int32_t roomId = RequireReference(_scene).RoomId;
+                std::shared_ptr<StorySave> storySave = GameState::StorySave;
+                const std::int32_t roomId = RequireReference(_scene).RoomId();
                 if (storySave == nullptr)
                 {
                     throw System::NullReferenceException();
@@ -339,10 +372,10 @@ namespace MphRead::Entities
             && UnboxInt32(info.Param1) == 0)
         {
             Active = false;
-            if (GameState::Mode == GameMode::SinglePlayer)
+            if (GameState::Mode() == GameMode::SinglePlayer)
             {
-                StorySave* storySave = GameState::StorySave;
-                const std::int32_t roomId = RequireReference(_scene).RoomId;
+                std::shared_ptr<StorySave> storySave = GameState::StorySave;
+                const std::int32_t roomId = RequireReference(_scene).RoomId();
                 if (storySave == nullptr)
                 {
                     throw System::NullReferenceException();
@@ -373,7 +406,7 @@ namespace MphRead::Entities
                     {
                         std::shared_ptr<PlayerEntity> player = enumerator.Current();
                         PlayerEntity& playerRef = RequireReference(player);
-                        if (playerRef.EnemySpawner == info.Sender)
+                        if (playerRef.EnemySpawner().get() == info.Sender)
                         {
                             Vector3 position{};
                             playerRef.GetPosition(position);

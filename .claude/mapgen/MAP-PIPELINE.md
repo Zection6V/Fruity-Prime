@@ -539,6 +539,81 @@ look like anything in the game either until somebody walks into them.
    allows a unit behind the drawn surface and a quarter in front and still
    reports the trim.
 
+### One spot, one player: what the sweeps cannot reach
+
+```bash
+FruityPrime -altprobe "DUST2" -at 1.17053,-2.73169,-41.3657 -hunter Weavel
+FruityPrime -altprobe "DUST2" -at 1.17053,-2.73169,-41.3657 -hunter Weavel -delay 12
+```
+
+`-mapcheck` asks about the mesh and `-maptest` asks whether eight players can
+survive the room for twenty seconds. Neither can answer "this one place does
+something wrong when you do these two things in this order", and that is the
+shape of every collision report that comes back from a real match.
+
+This stands one hunter on one coordinate, jumps, and morphs N frames later,
+for every N across the jump's arc, and says whether he ended up below the
+floor he started on. With `-delay N` it runs that one trial and prints every
+frame -- form, Y, previous Y, vertical speed, standing, `NoUnmorph` -- which
+is what turns "he falls through" into a frame number and a distance.
+
+It found what `-maptest` had been running over: jumping and then morphing
+beside a crate on DUST2 drove Weavel's head 0.63 into the slab overhead, and
+`HandleCollision`'s 4x ceiling response turned that into a 2.5 unit downward
+teleport in one frame, past the crate top 1.56 below. The tour morphs and
+jumps constantly and had never once been standing there when it did them.
+
+Four things about it are worth knowing before it is used again:
+
+- **It drives slot 1, not slot 0.** The main player's controls are refilled
+  from the keyboard every frame, so anything written into them is gone before
+  the engine reads it -- which is also why the tour's own reports have always
+  said `moved 7/8` rather than `8/8`.
+- **A held button is not a press every frame.** Morph toggles, the animation
+  is forty frames long, and calling each frame of a three-frame hold a press
+  queues three toggles that go off long after the input stopped. Edges only.
+- **`Teleport` writes `Position` and not `PrevPosition`**, and the sweep's
+  starting point is `PrevPosition`. A player put back on top of a crate he had
+  fallen below therefore starts every test from *under* it, every face between
+  the two is discarded as behind the starting point, and he drops straight
+  through again -- the probe confirming itself. The reset moves both.
+- **The pass mark is measured, not assumed.** "Fell through" is against where
+  he actually came to rest before the jump, not against the coordinate he was
+  given: on a spot taken off a headroom sweep rather than out of a bug report
+  he may legitimately settle some way below it, and calling that a fall makes
+  every trial read YES and says nothing.
+
+What it measures that is worth writing down: **a jump lifts a hunter 2.443
+units**, measured in the engine on the sand in DUST2 (Weavel, rest -1.451 to
+apex +0.992). It is the same for all eight -- `jumpSpeed` is 1228 and
+`bipedGravity` -77 for every one of them -- so it is one number, and it is
+the number a barrier meant to keep players off a ledge has to beat. A
+self-splash rocket jump beats it.
+
+### Gaps nobody can stand in
+
+An alt form is short, so a hand-built mesh can leave a slot that a ball fits
+into and cannot get out of. The ball is `AltColRadius` twice over: Weavel and
+Kanden are the shortest at **0.7998**, Samus, Noxus and Spire are 1.0, Trace
+and Sylux 1.2598. Where it sits is `AltColYPos`, which is a separate number --
+Weavel's equals his radius, so his ball rests with its bottom exactly at his
+own Y, which is why his resting position reads as the floor height exactly.
+
+DUST2 had three gaps of **0.781** between a crate top and the slab above it
+-- short of the ball by 0.0193 -- and a player who got into one was wedged
+where the engine set `NoUnmorph` and would not let him stand up again.
+
+Two ways to fix one, and the second is what DUST2 uses:
+
+- Lower the crate. Simple, and it changes what the map looks like.
+- Wall the approach, with faces in an object of their own carrying the
+  `nobeams` flag so they stop a player and let a shot through. Every normal
+  points **outward**: a one-sided wall that faces inward keeps people in
+  rather than out, which is worse than the gap. Each wall has to cover the
+  height band a player is actually at while arriving -- above the crate top
+  where the approach is level, below it where the approach is a jump from
+  lower ground, since a jump that cannot reach the top never gets above it.
+
 ## Pickups a custom map may use
 
 `MapBuilder.MultiplayerItems`, enforced when the map is built rather than
@@ -601,6 +676,7 @@ FruityPrime -mapgen "LONGEST YARD"        # just one
 FruityPrime -mapmaterials "MP3 PROVING GROUND"   # what textures can be borrowed
 FruityPrime -mapitems "DUST2"             # what pickups the level already holds
 FruityPrime -mapcheck "DUST2"             # what its collision will be, before generating
+FruityPrime -altprobe "DUST2" -at X,Y,Z -hunter Weavel   # jump then morph there: does the floor hold?
 python tools/collision-to-obj.py dust2 --files FILES --group terrain   # collision out, to edit
 FruityPrime -maptest "LONGEST YARD" -players 8 -seconds 22
 FruityPrime -thumbnail "LONGEST YARD"     # the launcher's picture

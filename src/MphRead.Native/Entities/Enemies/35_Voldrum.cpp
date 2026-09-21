@@ -48,7 +48,7 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
-            return RequireReference(PlayerEntity::Main());
+            return RequireReference(PlayerEntity::Main().get());
         }
 
         [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
@@ -61,7 +61,7 @@ namespace MphRead::Entities::Enemies
             return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
@@ -259,7 +259,7 @@ namespace MphRead::Entities::Enemies
             if (v7 > 0.0F)
             {
                 Position = static_cast<Vector3>(Position)
-                    + Scale(result.Plane.Xyz(), v7);
+                    + ScaleVector(result.Plane.Xyz(), v7);
                 if (result.Plane.Y >= 0.1F || result.Plane.Y <= -0.1F)
                 {
                     _grounded = true;
@@ -269,7 +269,7 @@ namespace MphRead::Entities::Enemies
                     _airborne = true;
                     if (_state1 != 0 && _state1 != stateB)
                     {
-                        _speed = -_speed;
+                        _speed = Vector3(-_speed.X, -_speed.Y, -_speed.Z);
                         _speed.Y = Fixed::ToFloat(1000) / 2.0F;
                     }
                     else
@@ -280,7 +280,7 @@ namespace MphRead::Entities::Enemies
                 const float dot = Vector3::Dot(_speed, result.Plane.Xyz());
                 if (dot < 0.0F)
                 {
-                    _speed = _speed + Scale(result.Plane.Xyz(), -dot);
+                    _speed = _speed + ScaleVector(result.Plane.Xyz(), -dot);
                 }
             }
         }
@@ -419,7 +419,7 @@ namespace MphRead::Entities::Enemies
         }
         _speedInc = _speedIncAmount;
         _speedFactor = _minSpeedFactor;
-        _speed = Scale(FacingVector(), _speedFactor);
+        _speed = ScaleVector(FacingVector(), _speedFactor);
         return true;
     }
 
@@ -434,7 +434,7 @@ namespace MphRead::Entities::Enemies
         _handledRamCol = false;
         _speedInc = _speedIncAmount;
         _speedFactor = _minSpeedFactor;
-        _speed = Scale(FacingVector(), _speedFactor);
+        _speed = ScaleVector(FacingVector(), _speedFactor);
         return true;
     }
 
@@ -498,7 +498,7 @@ namespace MphRead::Entities::Enemies
                     15, DamageFlags::NoDmgInvuln, std::nullopt, this);
                 _handledRamCol = true;
                 _ramDamageNeeded = false;
-                _speed = -_speed;
+                _speed = Vector3(-_speed.X, -_speed.Y, -_speed.Z);
                 _speed.Y = Fixed::ToFloat(1000) / 2.0F;
                 _models[0].SetAnimation(4);
                 return true;

@@ -177,7 +177,7 @@ namespace MphRead
     {
         if (!Weapon)
         {
-            throw std::runtime_error("Object reference not set to an instance of an object.");
+            throw System::NullReferenceException();
         }
         return *Weapon;
     }

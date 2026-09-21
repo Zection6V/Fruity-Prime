@@ -275,8 +275,9 @@ namespace
             q.Y = static_cast<float>((row2.Y + row1.Z) * sq);
         }
 
+        const float xyzLengthSquared = (q.X * q.X + q.Y * q.Y) + q.Z * q.Z;
         const float inverseLength = 1.0F / std::sqrt(
-            q.W * q.W + q.X * q.X + q.Y * q.Y + q.Z * q.Z);
+            q.W * q.W + xyzLengthSquared);
         q.X *= inverseLength;
         q.Y *= inverseLength;
         q.Z *= inverseLength;
@@ -317,21 +318,58 @@ namespace
 
     [[nodiscard]] Matrix4 ClearScale(Matrix4 value) noexcept
     {
-        const Vector3 scale = ExtractScale(value);
-        value.M11 /= scale.X;
-        value.M12 /= scale.X;
-        value.M13 /= scale.X;
-        value.M21 /= scale.Y;
-        value.M22 /= scale.Y;
-        value.M23 /= scale.Y;
-        value.M31 /= scale.Z;
-        value.M32 /= scale.Z;
-        value.M33 /= scale.Z;
+        const Vector3 row0 = Vector3(value.M11, value.M12, value.M13).Normalized();
+        value.M11 = row0.X;
+        value.M12 = row0.Y;
+        value.M13 = row0.Z;
+
+        const Vector3 row1 = Vector3(value.M21, value.M22, value.M23).Normalized();
+        value.M21 = row1.X;
+        value.M22 = row1.Y;
+        value.M23 = row1.Z;
+
+        const Vector3 row2 = Vector3(value.M31, value.M32, value.M33).Normalized();
+        value.M31 = row2.X;
+        value.M32 = row2.Y;
+        value.M33 = row2.Z;
         return value;
+    }
+
+    [[nodiscard]] float Determinant(Matrix4 value) noexcept
+    {
+        const float m11 = value.M11;
+        const float m12 = value.M12;
+        const float m13 = value.M13;
+        const float m14 = value.M14;
+        const float m21 = value.M21;
+        const float m22 = value.M22;
+        const float m23 = value.M23;
+        const float m24 = value.M24;
+        const float m31 = value.M31;
+        const float m32 = value.M32;
+        const float m33 = value.M33;
+        const float m34 = value.M34;
+        const float m41 = value.M41;
+        const float m42 = value.M42;
+        const float m43 = value.M43;
+        const float m44 = value.M44;
+
+        return
+            (m11 * m22 * m33 * m44) - (m11 * m22 * m34 * m43) + (m11 * m23 * m34 * m42) - (m11 * m23 * m32 * m44)
+            + (m11 * m24 * m32 * m43) - (m11 * m24 * m33 * m42) - (m12 * m23 * m34 * m41) + (m12 * m23 * m31 * m44)
+            - (m12 * m24 * m31 * m43) + (m12 * m24 * m33 * m41) - (m12 * m21 * m33 * m44) + (m12 * m21 * m34 * m43)
+            + (m13 * m24 * m31 * m42) - (m13 * m24 * m32 * m41) + (m13 * m21 * m32 * m44) - (m13 * m21 * m34 * m42)
+            + (m13 * m22 * m34 * m41) - (m13 * m22 * m31 * m44) - (m14 * m21 * m32 * m43) + (m14 * m21 * m33 * m42)
+            - (m14 * m22 * m33 * m41) + (m14 * m22 * m31 * m43) - (m14 * m23 * m31 * m42) + (m14 * m23 * m32 * m41);
     }
 
     [[nodiscard]] Matrix4 Invert(Matrix4 value)
     {
+        if (Determinant(value) == 0.0F)
+        {
+            return value;
+        }
+
         const float a = value.M11;
         const float b = value.M21;
         const float c = value.M31;
@@ -364,7 +402,7 @@ namespace
         const float det = a * a11 + b * a12 + c * a13 + d * a14;
         if (std::abs(det) < std::numeric_limits<float>::denorm_min())
         {
-            throw std::runtime_error("Matrix is singular and cannot be inverted.");
+            throw MphRead::SceneDetail::InvalidOperationException();
         }
 
         const float invDet = 1.0F / det;
@@ -1016,7 +1054,8 @@ namespace MphRead::Entities
         model.AnimateMaterials(inst.AnimInfo);
         model.AnimateTextures(inst.AnimInfo);
         model.ComputeNodeMatrices(0);
-        model.AnimateNodes(0, UseNodeTransform(), transform, model.Scale, inst.AnimInfo);
+        const bool useNodeTransform = UseNodeTransform();
+        model.AnimateNodes(0, useNodeTransform, transform, model.Scale, inst.AnimInfo);
         model.UpdateMatrixStack();
         RequireReference(_scene).UpdateMaterials(modelValue, recolor);
     }
@@ -1141,7 +1180,7 @@ namespace MphRead::Entities
         if (nodeRef == MphRead::Formats::Culling::NodeRef::None
             || RequireReference(_scene).CameraMode() != CameraMode::Player
             || RequireReference(_scene).ShowInvisibleEntities()
-            || MphRead::Mods::Network::DemoPlayback::IsActive)
+            || MphRead::Mods::Network::DemoPlayback::IsActive())
         {
             return true;
         }

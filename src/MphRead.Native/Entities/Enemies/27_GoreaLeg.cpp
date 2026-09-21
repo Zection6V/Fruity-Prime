@@ -61,7 +61,7 @@ namespace MphRead::Entities::Enemies
             return values[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(
                 value.X * scale,
@@ -148,11 +148,11 @@ namespace MphRead::Entities::Enemies
         Vector3 cylinderVec = transform.Row0().Xyz().Normalized();
         if (Index != 1)
         {
-            cylinderVec = Scale(cylinderVec, -1.0F);
+            cylinderVec = ScaleVector(cylinderVec, -1.0F);
         }
 
         const Vector3 cylinderPos
-            = Scale(cylinderVec, Fixed::ToFloat(-9700));
+            = ScaleVector(cylinderVec, Fixed::ToFloat(-9700));
         _hurtVolumeInit = CollisionVolume(
             cylinderVec,
             cylinderPos,
@@ -178,8 +178,9 @@ namespace MphRead::Entities::Enemies
             : FacingVector();
 
         PlayerEntity& speedPlayer = MainPlayer();
-        speedPlayer.Speed = static_cast<Vector3>(speedPlayer.Speed)
-            + Scale(between, factor);
+        const Vector3 speed = speedPlayer.Speed();
+        const Vector3 speedDelta = ScaleVector(between, factor);
+        speedPlayer.SetSpeed(speed + speedDelta);
 
         MainPlayer().TakeDamage(
             damage, DamageFlags::None, std::nullopt, this);

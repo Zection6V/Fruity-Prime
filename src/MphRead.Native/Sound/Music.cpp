@@ -2,7 +2,7 @@
 
 #include "../Formats/Sound.hpp"
 #include "../GameState.hpp"
-#include "../Paths.hpp"
+#include "../Formats/Formats.hpp"
 
 #include <algorithm>
 #include <array>

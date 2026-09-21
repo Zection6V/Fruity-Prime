@@ -44,7 +44,7 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
-            return RequireReference(PlayerEntity::Main());
+            return RequireReference(PlayerEntity::Main().get());
         }
 
         [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
@@ -168,7 +168,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 between = static_cast<Vector3>(MainPlayer().Position)
             - static_cast<Vector3>(Position);
         const float shake = std::min(1.0F / LengthSquared(between) * 3.0F, shakeMax);
-        MainPlayer().CameraInfo.SetShake(shake);
+        RequireReference(MainPlayer().CameraInfo().get()).SetShake(shake);
     }
 
     void Enemy38Entity::DoThing(float shakeMax)

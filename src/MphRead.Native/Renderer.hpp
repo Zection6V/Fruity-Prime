@@ -737,6 +737,10 @@ public: \
     [[nodiscard]] MphRead::FadeType FadeType() const noexcept; \
     void SetFade(MphRead::FadeType type, float length, bool overwrite, \
         MphRead::AfterFade afterFade = MphRead::AfterFade::None, float delay = 0.0F); \
+    void StartMovies(MphRead::Movie movieId, MphRead::Movie afterMovieId, \
+        MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
+        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, \
+        MphRead::AfterMovie afterMovieAction); \
     void StartMovie(MphRead::Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
         MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength); \
     void StartMovie(MphRead::Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \

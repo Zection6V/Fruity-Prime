@@ -5001,6 +5001,33 @@ namespace MphRead
         return _fadeType;
     }
 
+    void Scene::StartMovies(Movie movieId, Movie afterMovieId,
+        FadeType fadeToMovieType, float fadeToMovieLength,
+        FadeType fadeFromMovieType, float fadeFromMovieLength,
+        AfterMovie afterMovieAction)
+    {
+        _movieSettings.MovieId = movieId;
+        _movieSettings.AfterMovieId = afterMovieId;
+        _movieSettings.AfterFadeType = fadeFromMovieType;
+        _movieSettings.AfterFadeLength = fadeFromMovieLength;
+        _movieSettings.AfterPosition.reset();
+        _movieSettings.AfterFacing.reset();
+        _movieSettings.AfterMovieAction = afterMovieAction;
+        if (GameState::MatchState() == MatchState::InProgress)
+        {
+            const std::shared_ptr<Entities::PlayerEntity> main = Entities::PlayerEntity::Main();
+            if (!main)
+            {
+                throw System::NullReferenceException();
+            }
+            if (main->Health() > 0)
+            {
+                GameState::PausePrevented(true);
+            }
+        }
+        SetFade(fadeToMovieType, fadeToMovieLength, true, AfterFade::PlayMovie);
+    }
+
     void Scene::StartMovie(Movie movieId, FadeType fadeToMovieType, float fadeToMovieLength,
         FadeType fadeFromMovieType, float fadeFromMovieLength)
     {

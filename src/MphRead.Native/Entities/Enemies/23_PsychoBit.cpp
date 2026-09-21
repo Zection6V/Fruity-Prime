@@ -75,7 +75,7 @@ namespace MphRead::Entities::Enemies
             return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
@@ -232,20 +232,20 @@ namespace MphRead::Entities::Enemies
         _rangeVolume = CollisionVolume::Move(
             spawner.Data.Fields.S06().Volume3, Position);
 
+        const Weapons::WeaponList& enemyWeapons
+            = RequireReference(Weapons::EnemyWeapons);
         if (version < 0
-            || static_cast<std::size_t>(version) >= Weapons::EnemyWeapons.size())
+            || static_cast<std::size_t>(version) >= enemyWeapons.size())
         {
             throw SceneDetail::IndexOutOfRangeException();
         }
         const std::shared_ptr<WeaponInfo> weapon
-            = Weapons::EnemyWeapons[static_cast<std::size_t>(version)];
-        _equipInfo = std::make_shared<EquipInfo>();
-        _equipInfo->SetWeapon(weapon);
-        _equipInfo->SetBeams(RequireReference(_beams));
+            = enemyWeapons[static_cast<std::size_t>(version)];
+        _equipInfo = std::make_shared<EquipInfo>(weapon, _beams);
         _equipInfo->SetGetAmmo([this]() { return _ammo; });
         _equipInfo->SetSetAmmo([this](std::int32_t newAmmo) { _ammo = newAmmo; });
-        _equipInfo->SetUnchargedDamage(_values.BeamDamage);
-        _equipInfo->SetSplashDamage(_values.SplashDamage);
+        _equipInfo->UnchargedDamage(_values.BeamDamage);
+        _equipInfo->SplashDamage(_values.SplashDamage);
 
         _delayTimer = TimesTwo(_values.DelayTime);
         _shotTimer = TimesTwo(_values.ShotTime);
@@ -459,7 +459,7 @@ namespace MphRead::Entities::Enemies
                 _speedFactor = min / 2.0F;
             }
         }
-        _speed = Scale(FacingVector(), _speedFactor);
+        _speed = ScaleVector(FacingVector(), _speedFactor);
     }
 
     void Enemy23Entity::State00()
@@ -507,11 +507,11 @@ namespace MphRead::Entities::Enemies
                 static_cast<Vector3>(MainPlayer().Position), 0.5F);
             _aimVec = (targetPos - static_cast<Vector3>(Position)).Normalized();
             const Vector3 spawnPos
-                = static_cast<Vector3>(Position) + Scale(_aimVec, 0.5F);
+                = static_cast<Vector3>(Position) + ScaleVector(_aimVec, 0.5F);
             EquipInfo& equip = RequireReference(_equipInfo);
-            equip.SetUnchargedDamage(_values.BeamDamage);
-            equip.SetSplashDamage(_values.SplashDamage);
-            equip.SetHeadshotDamage(_values.BeamDamage);
+            equip.UnchargedDamage(_values.BeamDamage);
+            equip.SplashDamage(_values.SplashDamage);
+            equip.HeadshotDamage(_values.BeamDamage);
             (void)BeamProjectileEntity::Spawn(
                 SharedEntity(_scene, this),
                 _equipInfo,
@@ -577,7 +577,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy23Entity::State10()
     {
-        _speed = Scale(FacingVector(), _speedFactor);
+        _speed = ScaleVector(FacingVector(), _speedFactor);
         (void)CallSubroutine<Enemy23Entity>(Metadata::Enemy23Subroutines, this);
     }
 
@@ -599,7 +599,7 @@ namespace MphRead::Entities::Enemies
         _speedInc = (maxFactor - minFactor)
             * (1.0F / static_cast<float>(_values.SpeedSteps));
         _speedInc /= 2.0F;
-        _speed = Scale(facing, _speedFactor);
+        _speed = ScaleVector(facing, _speedFactor);
         _curFacing = facing;
         _models[0].SetAnimation(2);
         return true;
@@ -684,7 +684,7 @@ namespace MphRead::Entities::Enemies
         _speedInc = (maxFactor - minFactor)
             * (1.0F / static_cast<float>(_values.SpeedSteps));
         _speedInc /= 2.0F;
-        _speed = Scale(facing, _speedFactor);
+        _speed = ScaleVector(facing, _speedFactor);
         _curFacing = facing;
         return true;
     }

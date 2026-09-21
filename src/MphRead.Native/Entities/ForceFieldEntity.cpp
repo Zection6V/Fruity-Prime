@@ -39,22 +39,13 @@ namespace
         return *value;
     }
 
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        if (MphRead::GameState::StorySave == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *MphRead::GameState::StorySave;
-    }
-
     template <typename T, std::size_t Size>
     [[nodiscard]] const T& GetChecked(
         const std::array<T, Size>& values, std::uint32_t index)
     {
         if (index >= Size)
         {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
+            throw System::ArgumentOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -82,9 +73,13 @@ namespace MphRead::Entities
         _height = data.Height.FloatValue();
         SetTransform(data.Header.FacingVector, data.Header.UpVector, data.Header.Position);
         Scale = Vector3(_width, _height, 1.0F);
-        assert(GameState::Mode == GameMode::SinglePlayer);
-        const std::int32_t state = RequireStorySave().InitRoomState(
-            RequireReference(_scene).RoomId, Id, _data.Active != 0);
+        assert(GameState::Mode() == GameMode::SinglePlayer);
+        const std::shared_ptr<MphRead::StorySave> storySave = GameState::StorySave;
+        const std::int32_t roomId = RequireReference(_scene).RoomId();
+        const std::int32_t entityId = Id;
+        const bool active = _data.Active != 0;
+        const std::int32_t state
+            = RequireReference(storySave).InitRoomState(roomId, entityId, active);
         _active = state != 0;
         if (_active)
         {
@@ -207,7 +202,10 @@ namespace MphRead::Entities
                 {
                     _soundSource.PlayFreeSfx(SfxId::GEN_OFF);
                 }
-                RequireStorySave().SetRoomState(RequireReference(_scene).RoomId, Id, 1);
+                const std::shared_ptr<MphRead::StorySave> storySave = GameState::StorySave;
+                const std::int32_t roomId = RequireReference(_scene).RoomId();
+                const std::int32_t entityId = Id;
+                RequireReference(storySave).SetRoomState(roomId, entityId, 1);
             }
             _active = false;
             _scanId = 0;
@@ -230,7 +228,10 @@ namespace MphRead::Entities
             {
                 _scanId = GetChecked(_scanIds, static_cast<std::uint32_t>(_data.Type));
             }
-            RequireStorySave().SetRoomState(RequireReference(_scene).RoomId, Id, 3);
+            const std::shared_ptr<MphRead::StorySave> storySave = GameState::StorySave;
+            const std::int32_t roomId = RequireReference(_scene).RoomId();
+            const std::int32_t entityId = Id;
+            RequireReference(storySave).SetRoomState(roomId, entityId, 3);
             if (_lock == nullptr && _data.Type != 9)
             {
                 std::shared_ptr<EnemyInstanceEntity> enemy = EnemySpawnEntity::SpawnEnemy(

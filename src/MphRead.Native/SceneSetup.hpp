@@ -14,8 +14,8 @@ namespace MphRead
     class RoomMetadata;
     class Scene;
     class StorySave;
-    enum class BossFlags : std::uint32_t;
-    enum class GameMode : std::int32_t;
+    enum class BossFlags : std::int32_t;
+    enum class GameMode : std::uint8_t;
 
     namespace Formats
     {

@@ -23,12 +23,16 @@ namespace MphRead::Entities::Enemies
 
     void Enemy43Entity::EnemyInitialize()
     {
+        if (_spawner == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
         Transform = _spawner->Transform;
         _health = _healthMax = 100;
         Flags |= EnemyFlags::Visible;
         Flags |= EnemyFlags::Invincible;
         Flags |= EnemyFlags::NoMaxDistance;
-        HealthbarMessageId = 2;
+        SetHealthbarMessageId(2);
         _boundingRadius = 0.0F;
         _hurtVolumeInit = CollisionVolume(OpenTK::Mathematics::Vector3::Zero, 0.0F);
         SetUpModel("BigEyeNest");

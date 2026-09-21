@@ -5,6 +5,7 @@
 #include "../MorphCameraEntity.hpp"
 #include "../RoomEntity.hpp"
 #include "../../Formats/CollisionDetection.hpp"
+#include "../../Mods/InputSettings.hpp"
 #include "../../Scene.hpp"
 #include "../../Utility/Rng.hpp"
 #include "PlayerEntity.hpp"
@@ -842,13 +843,13 @@ namespace MphRead::Entities
                     || (!Controls().AimUp().IsDown() && !Controls().AimDown().IsDown()))
                 {
                     aimY = -_input.MouseDeltaY() / 4.0F
-                        * Mods::InputSettings::MouseSensitivity;
+                        * Mods::InputSettings::MouseSensitivity();
                 }
                 if (!Controls().KeyboardAim()
                     || (!Controls().AimLeft().IsDown() && !Controls().AimRight().IsDown()))
                 {
                     aimX = -_input.MouseDeltaX() / 4.0F
-                        * Mods::InputSettings::MouseSensitivity;
+                        * Mods::InputSettings::MouseSensitivity();
                 }
             }
 

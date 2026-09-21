@@ -316,12 +316,12 @@ namespace MphRead::Entities
             {
                 const std::shared_ptr<Formats::Collision::CollisionInstance> collision
                     = Formats::Collision::Collision::GetCollision(&modelMeta);
-                SetCollision(collision.get(), 0, &inst);
+                SetCollision(collision, 0, &inst);
                 if (modelMeta.ExtraCollisionPath.has_value())
                 {
                     const std::shared_ptr<Formats::Collision::CollisionInstance> extraCollision
                         = Formats::Collision::Collision::GetCollision(&modelMeta, true);
-                    SetCollision(extraCollision.get(), 1);
+                    SetCollision(extraCollision, 1);
                     if (_state != 2)
                     {
                         const auto entCol = EntityCollision[1];

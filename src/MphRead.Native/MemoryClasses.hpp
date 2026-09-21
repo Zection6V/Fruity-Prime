@@ -13,6 +13,7 @@
 namespace MphRead
 {
 enum class EquipFlags : std::uint8_t;
+enum class GameMode : std::uint8_t;
 
 namespace Entities
 {

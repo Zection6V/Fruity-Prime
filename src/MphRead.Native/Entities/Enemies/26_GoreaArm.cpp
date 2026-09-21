@@ -65,7 +65,7 @@ namespace MphRead::Entities::Enemies
             return values[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(
                 value.X * scale,
@@ -222,7 +222,7 @@ namespace MphRead::Entities::Enemies
             GetElbowNodeVectors(position, up, facing);
             up = up.Normalized();
             facing = facing.Normalized();
-            position = position + Scale(up, Fixed::ToFloat(8343));
+            position = position + ScaleVector(up, Fixed::ToFloat(8343));
             _shotEffect->Transform(facing, up, position);
         }
 

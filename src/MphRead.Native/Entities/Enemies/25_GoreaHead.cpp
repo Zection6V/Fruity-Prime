@@ -33,7 +33,7 @@ namespace MphRead::Entities::Enemies
             return *value;
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(
                 value.X * scale,
@@ -88,9 +88,9 @@ namespace MphRead::Entities::Enemies
             {
                 Enemy24Entity& gorea = RequireReference(_gorea1A);
                 Vector3 position = static_cast<Vector3>(Position)
-                    + Scale(gorea.FacingVector(), Fixed::ToFloat(2949));
+                    + ScaleVector(gorea.FacingVector(), Fixed::ToFloat(2949));
                 position = position
-                    + Scale(gorea.UpVector(), Fixed::ToFloat(-939));
+                    + ScaleVector(gorea.UpVector(), Fixed::ToFloat(-939));
                 _flashEffect->Transform(
                     gorea.FacingVector(), gorea.UpVector(), position);
             }
@@ -112,9 +112,9 @@ namespace MphRead::Entities::Enemies
         RemoveFlashEffect();
         Enemy24Entity& gorea = RequireReference(_gorea1A);
         Vector3 spawnPos = static_cast<Vector3>(Position)
-            + Scale(gorea.FacingVector(), Fixed::ToFloat(2949));
+            + ScaleVector(gorea.FacingVector(), Fixed::ToFloat(2949));
         spawnPos = spawnPos
-            + Scale(gorea.UpVector(), Fixed::ToFloat(-939));
+            + ScaleVector(gorea.UpVector(), Fixed::ToFloat(-939));
         _flashEffect = SpawnEffectGetEntry(104, spawnPos, false);
     }
 

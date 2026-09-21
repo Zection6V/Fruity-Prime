@@ -72,7 +72,7 @@ namespace MphRead::Entities::Enemies
             return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
@@ -213,19 +213,17 @@ namespace MphRead::Entities::Enemies
         Metadata::LoadEffectiveness(_values.Effectiveness, BeamEffectiveness);
         _scanId = _values.ScanId;
 
+        const Weapons::WeaponList& enemyWeapons
+            = RequireReference(Weapons::EnemyWeapons);
         if (version < 0
-            || static_cast<std::size_t>(version) >= Weapons::EnemyWeapons.size())
+            || static_cast<std::size_t>(version) >= enemyWeapons.size())
         {
             throw SceneDetail::IndexOutOfRangeException();
         }
         const std::shared_ptr<WeaponInfo> weapon
-            = Weapons::EnemyWeapons[static_cast<std::size_t>(version)];
-        _equipInfo1 = std::make_shared<EquipInfo>();
-        _equipInfo1->SetWeapon(weapon);
-        _equipInfo1->SetBeams(RequireReference(_beams));
-        _equipInfo2 = std::make_shared<EquipInfo>();
-        _equipInfo2->SetWeapon(weapon);
-        _equipInfo2->SetBeams(RequireReference(_beams));
+            = enemyWeapons[static_cast<std::size_t>(version)];
+        _equipInfo1 = std::make_shared<EquipInfo>(weapon, _beams);
+        _equipInfo2 = std::make_shared<EquipInfo>(weapon, _beams);
 
         _equipInfo1->SetGetAmmo([this]() { return _ammo1; });
         _equipInfo1->SetSetAmmo(
@@ -233,10 +231,10 @@ namespace MphRead::Entities::Enemies
         _equipInfo1->SetGetAmmo([this]() { return _ammo2; });
         _equipInfo1->SetSetAmmo(
             [this](std::int32_t newAmmo) { _ammo2 = newAmmo; });
-        _equipInfo1->SetUnchargedDamage(_values.BeamDamage);
-        _equipInfo1->SetSplashDamage(_values.SplashDamage);
-        _equipInfo2->SetUnchargedDamage(_values.BeamDamage);
-        _equipInfo2->SetSplashDamage(_values.SplashDamage);
+        _equipInfo1->UnchargedDamage(_values.BeamDamage);
+        _equipInfo1->SplashDamage(_values.SplashDamage);
+        _equipInfo2->UnchargedDamage(_values.BeamDamage);
+        _equipInfo2->SplashDamage(_values.SplashDamage);
 
         const float minFactor = Fixed::ToFloat(_values.MinSpeedFactor);
         const float maxFactor = Fixed::ToFloat(_values.MaxSpeedFactor);
@@ -367,13 +365,13 @@ namespace MphRead::Entities::Enemies
                 static_cast<Vector3>(Position), 0.43F);
 
             EquipInfo& equip1 = RequireReference(_equipInfo1);
-            equip1.SetUnchargedDamage(_values.BeamDamage);
-            equip1.SetSplashDamage(_values.SplashDamage);
-            equip1.SetHeadshotDamage(_values.BeamDamage);
+            equip1.UnchargedDamage(_values.BeamDamage);
+            equip1.SplashDamage(_values.SplashDamage);
+            equip1.HeadshotDamage(_values.BeamDamage);
             EquipInfo& equip2 = RequireReference(_equipInfo2);
-            equip2.SetUnchargedDamage(_values.BeamDamage);
-            equip2.SetSplashDamage(_values.SplashDamage);
-            equip2.SetHeadshotDamage(_values.BeamDamage);
+            equip2.UnchargedDamage(_values.BeamDamage);
+            equip2.SplashDamage(_values.SplashDamage);
+            equip2.HeadshotDamage(_values.BeamDamage);
 
             const std::shared_ptr<EntityBase> source = SharedEntity(_scene, this);
             (void)BeamProjectileEntity::Spawn(
@@ -422,7 +420,7 @@ namespace MphRead::Entities::Enemies
         }
         _speedInc = _speedIncAmount;
         _speedFactor = _minSpeedFactor;
-        _speed = WithY(Scale(FacingVector(), _speedFactor), 0.0F);
+        _speed = WithY(ScaleVector(FacingVector(), _speedFactor), 0.0F);
         _airborne = false;
         _timeInAir = 0;
         return true;

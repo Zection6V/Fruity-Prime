@@ -72,7 +72,7 @@ namespace
         return Vector3(-value.X, -value.Y, -value.Z);
     }
 
-    [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scale) noexcept
+    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
     }
@@ -155,7 +155,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::SwitchCamera(Entities::CameraType type, Vector3 facing)
     {
-        CameraInfo& camera = RequireReference(_cameraInfo);
+        ::MphRead::Entities::CameraInfo& camera = RequireReference(_cameraInfo);
         if (type == Entities::CameraType::Third1)
         {
             camera.Target = camera.Position + facing;
@@ -187,7 +187,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateCamera()
     {
-        CameraInfo& camera = RequireReference(_cameraInfo);
+        ::MphRead::Entities::CameraInfo& camera = RequireReference(_cameraInfo);
         camera.PrevPosition = camera.Position;
         if (_camSwitchTimer < Values().CamSwitchTime * 2)
         {
@@ -226,7 +226,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateCameraFirst()
     {
-        CameraInfo& camera = RequireReference(_cameraInfo);
+        ::MphRead::Entities::CameraInfo& camera = RequireReference(_cameraInfo);
         Vector3 position = Position;
         if (!_field6D0)
         {
@@ -243,10 +243,10 @@ namespace MphRead::Entities
         if (_camSwitchTimer < switchTime)
         {
             const float pct = static_cast<float>(_camSwitchTimer) / switchTime;
-            camera.Position = _field544 + Scale(position - _field544, pct);
+            camera.Position = _field544 + ScaleVector(position - _field544, pct);
             const Vector3 target = camera.Position + _facingVector;
             camera.Target = static_cast<Vector3>(Position)
-                + Scale(target - static_cast<Vector3>(Position), pct);
+                + ScaleVector(target - static_cast<Vector3>(Position), pct);
         }
         else
         {
@@ -278,7 +278,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateCameraThird1()
     {
-        CameraInfo& camera = RequireReference(_cameraInfo);
+        ::MphRead::Entities::CameraInfo& camera = RequireReference(_cameraInfo);
         float v5;
         float v6;
         float v7;
@@ -352,14 +352,14 @@ namespace MphRead::Entities
         {
             const float pct = static_cast<float>(_camSwitchTimer)
                 / (static_cast<float>(Values().CamSwitchTime) * 2.0F);
-            camera.Position = _field544 + Scale(posVec - _field544, pct);
+            camera.Position = _field544 + ScaleVector(posVec - _field544, pct);
             const Vector3 facingVec = camera.Position + camera.Facing;
-            camera.Target = facingVec + Scale(camera.Target - facingVec, pct);
+            camera.Target = facingVec + ScaleVector(camera.Target - facingVec, pct);
         }
         else
         {
             const float factor = Fixed::ToFloat(Values().Field84);
-            camera.Position = camera.Position + Scale(posVec - camera.Position, factor);
+            camera.Position = camera.Position + ScaleVector(posVec - camera.Position, factor);
         }
 
         if (_field553 > 0)
@@ -414,8 +414,8 @@ namespace MphRead::Entities
                 blocked2 = true;
             }
 
-            point1 = camera.Position + Scale(camera.UpVector, margin);
-            point2 = volume.SpherePosition + Scale(camera.UpVector, margin);
+            point1 = camera.Position + ScaleVector(camera.UpVector, margin);
+            point2 = volume.SpherePosition + ScaleVector(camera.UpVector, margin);
             if (CollisionDetection::CheckBetweenPoints(
                 candidates, point1, point1, TestFlags::Players, _scene, res))
             {
@@ -423,8 +423,8 @@ namespace MphRead::Entities
                 _field551 = 0;
             }
 
-            point1 = camera.Position - Scale(camera.UpVector, margin / 2.0F);
-            point2 = volume.SpherePosition - Scale(camera.UpVector, margin / 2.0F);
+            point1 = camera.Position - ScaleVector(camera.UpVector, margin / 2.0F);
+            point2 = volume.SpherePosition - ScaleVector(camera.UpVector, margin / 2.0F);
             if (CollisionDetection::CheckBetweenPoints(
                 candidates, point1, point1, TestFlags::Players, _scene, res))
             {
@@ -608,7 +608,7 @@ namespace MphRead::Entities
                     if (dot > 0.0F)
                     {
                         camera.Position = camera.Position
-                            + Scale(result.Plane.Xyz(), dot);
+                            + ScaleVector(result.Plane.Xyz(), dot);
                         v85 = true;
                     }
                 }
@@ -627,7 +627,7 @@ namespace MphRead::Entities
                         if (dot > 0.0F)
                         {
                             camera.Position = camera.Position
-                                + Scale(result.Plane.Xyz(), dot);
+                                + ScaleVector(result.Plane.Xyz(), dot);
                         }
                     }
                 }
@@ -656,7 +656,7 @@ namespace MphRead::Entities
                 }
                 const Vector3 planeXyz = doorPlane.Xyz();
                 const Vector3 wvec = ComponentMultiply(
-                    planeXyz, lockPosition + Scale(planeXyz, 0.4F));
+                    planeXyz, lockPosition + ScaleVector(planeXyz, 0.4F));
                 doorPlane.W = wvec.X + wvec.Y + wvec.Z;
                 CollisionResult planeRes{};
                 if (CollisionDetection::CheckCylinderIntersectPlane(
@@ -671,7 +671,7 @@ namespace MphRead::Entities
                         {
                             dot += 0.1F;
                             camera.Position = camera.Position
-                                - Scale(doorPlane.Xyz(), dot);
+                                - ScaleVector(doorPlane.Xyz(), dot);
                         }
                     }
                 }
@@ -694,7 +694,7 @@ namespace MphRead::Entities
             else
             {
                 const Vector3 between = camera.Position - camera.Target;
-                camera.Position = camera.Target + Scale(between, targResult.Distance);
+                camera.Position = camera.Target + ScaleVector(between, targResult.Distance);
             }
         }
         else
@@ -705,7 +705,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateCameraThird2()
     {
-        CameraInfo& camera = RequireReference(_cameraInfo);
+        ::MphRead::Entities::CameraInfo& camera = RequireReference(_cameraInfo);
         const float switchTime = static_cast<float>(Values().CamSwitchTime * 2);
         if (_camSwitchTimer < switchTime)
         {
@@ -745,20 +745,20 @@ namespace MphRead::Entities
         }
         else
         {
-            camVec = Scale(_facingVector, _field690);
+            camVec = ScaleVector(_facingVector, _field690);
         }
         const Vector3 posVec = camera.Target - camVec;
         if (_camSwitchTimer < switchTime)
         {
             const float pct = static_cast<float>(_camSwitchTimer) / switchTime;
-            camera.Position = _field544 + Scale(posVec - _field544, pct);
+            camera.Position = _field544 + ScaleVector(posVec - _field544, pct);
             const Vector3 facingVec = camera.Position + _facingVector;
-            camera.Target = facingVec + Scale(camera.Target - facingVec, pct);
+            camera.Target = facingVec + ScaleVector(camera.Target - facingVec, pct);
         }
         else
         {
             const float factor = Fixed::ToFloat(Values().Field84);
-            camera.Position = camera.Position + Scale(posVec - camera.Position, factor);
+            camera.Position = camera.Position + ScaleVector(posVec - camera.Position, factor);
         }
 
         CollisionResult result{};
@@ -766,16 +766,16 @@ namespace MphRead::Entities
             camTarget, camera.Position, TestFlags::Players, _scene, result))
         {
             const Vector3 toTarget = camera.Position - camTarget;
-            camera.Position = camTarget + Scale(toTarget, result.Distance);
-            camera.Position = camera.Position + Scale(result.Plane.Xyz(), 0.15F);
+            camera.Position = camTarget + ScaleVector(toTarget, result.Distance);
+            camera.Position = camera.Position + ScaleVector(result.Plane.Xyz(), 0.15F);
         }
     }
 
     void PlayerEntity::UpdateCameraFree()
     {
-        CameraInfo& camera = RequireReference(_cameraInfo);
+        ::MphRead::Entities::CameraInfo& camera = RequireReference(_cameraInfo);
         Scene& scene = RequireReference(_scene);
-        assert(scene.Room != nullptr);
+        assert(scene.Room() != nullptr);
 
         const std::uint16_t switchTime = static_cast<std::uint16_t>(
             Values().CamSwitchTime * 2);
@@ -786,14 +786,14 @@ namespace MphRead::Entities
             Vector3 camVec = camera.Position - camera.Target;
             camVec = !IsZero(camVec) ? camVec.Normalized() : _facingVector;
             Vector3 posVec = Volume().SpherePosition
-                + Scale(camVec, Fixed::ToFloat(Values().Field78));
-            if (RequireReference(scene.Room).Meta().HasLimits)
+                + ScaleVector(camVec, Fixed::ToFloat(Values().Field78));
+            if (RequireReference(scene.Room()).Meta().HasLimits)
             {
                 posVec = Clamp(posVec,
-                    RequireReference(scene.Room).Meta().CameraMin,
-                    RequireReference(scene.Room).Meta().CameraMax);
+                    RequireReference(scene.Room()).Meta().CameraMin,
+                    RequireReference(scene.Room()).Meta().CameraMax);
             }
-            camera.Position = _field544 + Scale(posVec - _field544, pct);
+            camera.Position = _field544 + ScaleVector(posVec - _field544, pct);
         }
         else
         {
@@ -813,22 +813,22 @@ namespace MphRead::Entities
                 }
             }
 
-            if (Controls().MoveUp.IsDown)
+            if (Controls().MoveUp().IsDown())
             {
                 camera.Position = camera.Position
-                    + Divide(Scale(camera.Facing, 0.4F), 2.0F);
+                    + Divide(ScaleVector(camera.Facing, 0.4F), 2.0F);
             }
-            else if (Controls().MoveDown.IsDown)
+            else if (Controls().MoveDown().IsDown())
             {
                 camera.Position = camera.Position
-                    - Divide(Scale(camera.Facing, 0.4F), 2.0F);
+                    - Divide(ScaleVector(camera.Facing, 0.4F), 2.0F);
             }
-            if (Controls().MoveLeft.IsDown)
+            if (Controls().MoveLeft().IsDown())
             {
                 camera.Position.X += camera.Field50 * 0.4F / 2.0F;
                 camera.Position.Z += camera.Field54 * 0.4F / 2.0F;
             }
-            else if (Controls().MoveRight.IsDown)
+            else if (Controls().MoveRight().IsDown())
             {
                 camera.Position.X -= camera.Field50 * 0.4F / 2.0F;
                 camera.Position.Z -= camera.Field54 * 0.4F / 2.0F;
@@ -836,35 +836,35 @@ namespace MphRead::Entities
 
             float aimY = 0.0F;
             float aimX = 0.0F;
-            if (Controls().MouseAim && !IsBot())
+            if (Controls().MouseAim() && !IsBot())
             {
-                if (!Controls().KeyboardAim
-                    || (!Controls().AimUp.IsDown && !Controls().AimDown.IsDown))
+                if (!Controls().KeyboardAim()
+                    || (!Controls().AimUp().IsDown() && !Controls().AimDown().IsDown()))
                 {
-                    aimY = -Input().MouseDeltaY / 4.0F
+                    aimY = -_input.MouseDeltaY() / 4.0F
                         * Mods::InputSettings::MouseSensitivity;
                 }
-                if (!Controls().KeyboardAim
-                    || (!Controls().AimLeft.IsDown && !Controls().AimRight.IsDown))
+                if (!Controls().KeyboardAim()
+                    || (!Controls().AimLeft().IsDown() && !Controls().AimRight().IsDown()))
                 {
-                    aimX = -Input().MouseDeltaX / 4.0F
+                    aimX = -_input.MouseDeltaX() / 4.0F
                         * Mods::InputSettings::MouseSensitivity;
                 }
             }
 
-            if (Controls().KeyboardAim || IsBot())
+            if (Controls().KeyboardAim() || IsBot())
             {
                 const float maxAimX = _maxButtonAimX * 30.0F;
                 const float aimStepX = maxAimX * (40.0F / 4096.0F);
                 const float maxAimY = _maxButtonAimY * 30.0F;
                 const float aimStepY = maxAimY * (40.0F / 4096.0F);
 
-                if (Controls().AimRight.IsDown)
+                if (Controls().AimRight().IsDown())
                 {
                     std::tie(_buttonAimX, aimX) = ConstantAcceleration(
                         -aimStepX, _buttonAimX, -maxAimX, -maxAimX * 0.4F);
                 }
-                else if (Controls().AimLeft.IsDown)
+                else if (Controls().AimLeft().IsDown())
                 {
                     std::tie(_buttonAimX, aimX) = ConstantAcceleration(
                         aimStepX, _buttonAimX, maxAimY * 0.4F, maxAimX);
@@ -887,12 +887,12 @@ namespace MphRead::Entities
                     }
                 }
 
-                if (Controls().AimUp.IsDown)
+                if (Controls().AimUp().IsDown())
                 {
                     std::tie(_buttonAimY, aimY) = ConstantAcceleration(
                         aimStepY, _buttonAimY, maxAimY * 0.4F, maxAimY);
                 }
-                else if (Controls().AimDown.IsDown)
+                else if (Controls().AimDown().IsDown())
                 {
                     std::tie(_buttonAimY, aimY) = ConstantAcceleration(
                         -aimStepY, _buttonAimY, -maxAimY, -maxAimY * 0.4F);
@@ -916,11 +916,11 @@ namespace MphRead::Entities
                 }
             }
 
-            if (Controls().InvertAimY)
+            if (Controls().InvertAimY())
             {
                 aimY *= -1.0F;
             }
-            if (Controls().InvertAimX)
+            if (Controls().InvertAimX())
             {
                 aimX *= -1.0F;
             }
@@ -951,11 +951,11 @@ namespace MphRead::Entities
             }
 
             Vector3 pos = camera.Position;
-            if (RequireReference(scene.Room).Meta().HasLimits)
+            if (RequireReference(scene.Room()).Meta().HasLimits)
             {
                 pos = Clamp(pos,
-                    RequireReference(scene.Room).Meta().CameraMin,
-                    RequireReference(scene.Room).Meta().CameraMax);
+                    RequireReference(scene.Room()).Meta().CameraMin,
+                    RequireReference(scene.Room()).Meta().CameraMax);
             }
             camera.Position = pos;
             camera.Target = camera.Position + camera.Facing;
@@ -980,7 +980,7 @@ namespace MphRead::Entities
             if (dot > 0.0F)
             {
                 camera.Position = camera.Position
-                    + Scale(result.Plane.Xyz(), dot);
+                    + ScaleVector(result.Plane.Xyz(), dot);
                 _camSwitchTimer = switchTime;
             }
         }
@@ -996,7 +996,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::SetUpMatchEndCamera()
     {
-        CameraInfo& camera = RequireReference(_cameraInfo);
+        ::MphRead::Entities::CameraInfo& camera = RequireReference(_cameraInfo);
         _field70 = camera.Field48;
         _field74 = camera.Field4C;
         _gunVec2 = Vector3(camera.Field50, 0.0F, camera.Field54);
@@ -1008,7 +1008,7 @@ namespace MphRead::Entities
         std::shared_ptr<PlayerEntity> winner, float timeSinceMatchEnd)
     {
         PlayerEntity& winnerRef = RequireReference(winner);
-        CameraInfo& camera = RequireReference(_cameraInfo);
+        ::MphRead::Entities::CameraInfo& camera = RequireReference(_cameraInfo);
         const Vector3 winnerFacing = winnerRef.FacingVector();
 
         _cameraType = Entities::CameraType::Third2;
@@ -1026,7 +1026,7 @@ namespace MphRead::Entities
         }
         else
         {
-            camera.Target = camera.Target + Scale(winnerFacing, 10.0F);
+            camera.Target = camera.Target + ScaleVector(winnerFacing, 10.0F);
             camera.Position = TypeExtensions::AddZ(
                 TypeExtensions::AddY(
                     TypeExtensions::AddX(
@@ -1071,8 +1071,8 @@ namespace MphRead::Entities
             const Vector3 between = camera.Position
                 - static_cast<Vector3>(winnerRef.Position);
             camera.Position = static_cast<Vector3>(winnerRef.Position)
-                + Scale(between, result.Distance)
-                + Scale(result.Plane.Xyz(), 0.05F);
+                + ScaleVector(between, result.Distance)
+                + ScaleVector(result.Plane.Xyz(), 0.05F);
         }
 
         camera.UpVector = UnitY;
@@ -1091,7 +1091,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::ResumeOwnCamera()
     {
-        CameraInfo& camera = RequireReference(_cameraInfo);
+        ::MphRead::Entities::CameraInfo& camera = RequireReference(_cameraInfo);
         if (_cameraType == Entities::CameraType::Third1)
         {
             camera.Target = Position;
@@ -1107,7 +1107,7 @@ namespace MphRead::Entities
             _field690 = Fixed::ToFloat(Values().Field78);
             camera.Target = TypeExtensions::AddY(
                 Position, _field68C + Fixed::ToFloat(Values().AltColYPos));
-            camera.Position = camera.Target - Scale(_facingVector, _field690);
+            camera.Position = camera.Target - ScaleVector(_facingVector, _field690);
             _field544 = camera.Position;
         }
     }

@@ -357,7 +357,7 @@ namespace MphRead::Entities::Enemies
             }
             if (Func214D5B8([this](PlayerEntity* player) { return Func214D828(player); }))
             {
-                Func214DAB0(Vector3::UnitY);
+                Func214DAB0(Vector3(0.0F, 1.0F, 0.0F));
             }
             else if (!Func214D65C(_target))
             {
@@ -833,14 +833,14 @@ namespace MphRead::Entities::Enemies
             {
                 Vector3 facing = FacingVector();
                 Vector3 up = UpVector();
-                if (Vector3::Dot(up, Vector3::UnitY) >= Fixed::ToFloat(4034))
+                if (Vector3::Dot(up, Vector3(0.0F, 1.0F, 0.0F)) >= Fixed::ToFloat(4034))
                 {
-                    up = Vector3::UnitY;
+                    up = Vector3(0.0F, 1.0F, 0.0F);
                     _flags &= ~QuadtroidFlags::Bit2;
                 }
                 else
                 {
-                    const float angle = Func214D500(up, Vector3::UnitY, facing)
+                    const float angle = Func214D500(up, Vector3(0.0F, 1.0F, 0.0F), facing)
                         ? -10.0F : 10.0F;
                     up = RotateVector(up, facing, angle).Normalized();
                 }
@@ -1062,7 +1062,7 @@ namespace MphRead::Entities::Enemies
             {
                 _flags |= QuadtroidFlags::Bit3;
             }
-            if (Func214D500(UpVector(), Vector3::UnitY, facing))
+            if (Func214D500(UpVector(), Vector3(0.0F, 1.0F, 0.0F), facing))
             {
                 _flags |= QuadtroidFlags::Bit4;
             }

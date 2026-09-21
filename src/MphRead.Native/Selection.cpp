@@ -900,7 +900,7 @@ namespace MphRead
             {
                 break;
             }
-            if (FilterEntity(Require(entity).Value(), scene))
+            if (entity != nullptr && FilterEntity(entity->Value(), scene))
             {
                 _entityNode = entity;
                 break;

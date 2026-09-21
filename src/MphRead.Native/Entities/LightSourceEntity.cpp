@@ -1,6 +1,7 @@
 #include "LightSourceEntity.hpp"
 
 #include "../Renderer.hpp"
+#include "../Scene.hpp"
 
 namespace MphRead::Entities
 {
@@ -62,15 +63,20 @@ namespace MphRead::Entities
 
     void LightSourceEntity::GetDisplayVolumes()
     {
-        if (_scene->ShowVolumes == VolumeDisplay::LightColor1
-            || _scene->ShowVolumes == VolumeDisplay::LightColor2)
+        if (_scene == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+
+        if (_scene->ShowVolumes() == VolumeDisplay::LightColor1
+            || _scene->ShowVolumes() == VolumeDisplay::LightColor2)
         {
             ::OpenTK::Mathematics::Vector3 color = ::OpenTK::Mathematics::Vector3::Zero;
-            if (_scene->ShowVolumes == VolumeDisplay::LightColor1 && _data.Light1Enabled != 0)
+            if (_scene->ShowVolumes() == VolumeDisplay::LightColor1 && _data.Light1Enabled != 0)
             {
                 color = Light1Color();
             }
-            else if (_scene->ShowVolumes == VolumeDisplay::LightColor2 && _data.Light2Enabled != 0)
+            else if (_scene->ShowVolumes() == VolumeDisplay::LightColor2 && _data.Light2Enabled != 0)
             {
                 color = Light2Color();
             }

@@ -965,8 +965,11 @@ namespace MphRead::Entities
     LightInfo EntityBase::GetLightInfo()
     {
         Scene& scene = RequireReference(_scene);
-        return LightInfo(scene.Light1Vector(), scene.Light1Color(),
-            scene.Light2Vector(), scene.Light2Color());
+        const Vector3 light1Vector = scene.Light1Vector();
+        const Vector3 light1Color = scene.Light1Color();
+        const Vector3 light2Vector = scene.Light2Vector();
+        const Vector3 light2Color = scene.Light2Color();
+        return LightInfo(light1Vector, light1Color, light2Vector, light2Color);
     }
 
     std::optional<std::int32_t> EntityBase::GetBindingOverride(

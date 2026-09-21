@@ -209,14 +209,14 @@ namespace MphRead::Entities::Enemies
         const std::int32_t version
             = UInt32ToInt32(spawner.Data.Fields.S10().EnemyVersion);
         const std::shared_ptr<WeaponInfo> weapon
-            = VectorAt(Weapons::EnemyWeapons, version);
+            = VectorAt(RequireReference(Weapons::EnemyWeapons), version);
         _equipInfo = std::make_shared<EquipInfo>();
         _equipInfo->SetWeapon(weapon);
-        _equipInfo->SetBeams(RequireReference(_beams));
+        _equipInfo->SetBeams(_beams);
         _equipInfo->SetGetAmmo([this]() { return _ammo; });
         _equipInfo->SetSetAmmo(
             [this](std::int32_t newAmmo) { _ammo = newAmmo; });
-        _equipInfo->SetUnchargedDamage(_values.Damage);
+        _equipInfo->UnchargedDamage(_values.Damage);
 
         _index = static_cast<std::int32_t>(spawner.Data.Fields.S10().Index);
         _subId = _state1;
@@ -348,8 +348,8 @@ namespace MphRead::Entities::Enemies
             _soundSource.PlaySfx(SfxId::TURRET_ATTACK);
 
             EquipInfo& equip = RequireReference(_equipInfo);
-            equip.SetUnchargedDamage(_values.Damage);
-            equip.SetHeadshotDamage(_values.Damage);
+            equip.UnchargedDamage(_values.Damage);
+            equip.HeadshotDamage(_values.Damage);
             SetAnimationReverse();
 
             const std::shared_ptr<EntityBase> owner

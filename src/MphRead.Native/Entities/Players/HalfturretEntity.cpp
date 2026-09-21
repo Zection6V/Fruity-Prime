@@ -436,7 +436,7 @@ namespace MphRead::Entities
         if (_owner == PlayerEntity::Main())
         {
             std::string message = Text::Strings::GetHudMessage(233);
-            const std::string replacement = std::to_string(_health);
+            const std::string replacement = Fixed(_health).ToString();
             std::size_t pos = 0;
             while ((pos = message.find("%d", pos)) != std::string::npos)
             {

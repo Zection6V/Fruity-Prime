@@ -1,6 +1,9 @@
 #include "28_Gorea1B.hpp"
 #include "29_GoreaSealSphere1.hpp"
 #include "30_Trocra.hpp"
+#include "../../Features.hpp"
+#include "../../Formats/CollisionDetection.hpp"
+#include "../../Formats/Movie.hpp"
 #include "../../Metadata/Enemies.hpp"
 #include "../../Metadata/SoundMeta.hpp"
 #include "../../Scene.hpp"
@@ -18,6 +21,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -311,7 +315,9 @@ namespace MphRead::Entities::Enemies
         }
         const Vector3 between = TypeExtensions::WithY(static_cast<Vector3>(MainPlayer().Position) - static_cast<Vector3>(Position), 0.0F);
         PlayerEntity &player = MainPlayer();
-        player.Speed = static_cast<Vector3>(player.Speed) + DivideVector(between, 4.0F);
+        const Vector3 speed = player.Speed();
+        const Vector3 speedDelta = DivideVector(between, 4.0F);
+        player.SetSpeed(speed + speedDelta);
         MainPlayer().TakeDamage(15, DamageFlags::None, std::nullopt, this);
     }
     void Enemy28Entity::State00()
@@ -505,8 +511,10 @@ namespace MphRead::Entities::Enemies
         {
             between = between.Normalized();
             ArrayAt(_grappleVecs, 23) = ArrayAt(_grappleVecs, 23) + DivideVector(ScaleVector(between, 0.3F), 2.0F);
-            CollisionResult result{};
-            if (CollisionDetection::CheckBetweenPoints(ArrayAt(_grappleVecs, 0), ArrayAt(_grappleVecs, 23), TestFlags::None, _scene, result))
+            Formats::CollisionResult result{};
+            if (Formats::CollisionDetection::CheckBetweenPoints(
+                ArrayAt(_grappleVecs, 0), ArrayAt(_grappleVecs, 23),
+                Formats::TestFlags::None, _scene, result))
             {
                 Vector3 toCollision = result.Position - ArrayAt(_grappleVecs, 0);
                 if (Length(toCollision) > 20.0F)
@@ -531,8 +539,9 @@ namespace MphRead::Entities::Enemies
                 _grappleEffect.reset();
             }
             _grappleEffect = SpawnEffectGetEntry(148, ArrayAt(_grappleVecs, 23), true);
-            MainPlayer().CameraInfo.SetShake(1.0F / 6.0F);
-            if (TypeExtensions::TestFlag(MainPlayer().Flags1, PlayerFlags1::AltForm) || TypeExtensions::TestFlag(MainPlayer().Flags1, PlayerFlags1::Morphing))
+            RequireReference(MainPlayer().CameraInfo()).SetShake(1.0F / 6.0F);
+            if (TypeExtensions::TestFlag(MainPlayer().Flags1(), PlayerFlags1::AltForm)
+                || TypeExtensions::TestFlag(MainPlayer().Flags1(), PlayerFlags1::Morphing))
             {
                 MainPlayer().ExitAltForm();
             }
@@ -642,7 +651,7 @@ namespace MphRead::Entities::Enemies
             playerPos = playerPos + ScaleVector(between, -0.5F);
         }
         MainPlayer().Position = playerPos;
-        MainPlayer().CameraInfo.SetShake(0.0F);
+        RequireReference(MainPlayer().CameraInfo()).SetShake(0.0F);
     }
     void Enemy28Entity::Func213C4DC()
     {
@@ -758,7 +767,7 @@ namespace MphRead::Entities::Enemies
             _field10 = ScaleVector(vec, -1.0F / 1.5F);
         }
         MainPlayer().Position = TypeExtensions::AddY(ArrayAt(_grappleVecs, 23), -0.05F);
-        MainPlayer().CameraInfo.SetShake(1.0F / 128.0F);
+        RequireReference(MainPlayer().CameraInfo()).SetShake(1.0F / 128.0F);
         (void)CallSubroutine<Enemy28Entity>(Metadata::Enemy28Subroutines, this);
     }
     void Enemy28Entity::State10()
@@ -998,7 +1007,7 @@ namespace MphRead::Entities::Enemies
             Scene &scene = RequireReference(_scene);
             if (scene.FrameCount() != 0 && scene.FrameCount() % 2 == 0)
             {
-                MainPlayer().CameraInfo.SetShake(0.75F);
+                RequireReference(MainPlayer().CameraInfo()).SetShake(0.75F);
             }
         }
     }
@@ -1081,11 +1090,12 @@ namespace MphRead::Entities::Enemies
             StopGrappling();
             DeactivateAllTrocraSpawns();
             DestroyAllTrocras();
-            GameState::StorySave.CheckpointRoomId = -1;
-            GameState::StorySave.CheckpointEntityId = -1;
-            if ((GameState::StorySave.TriggerState[1] & 0x10) != 0 || Cheats::AlwaysFightGorea2)
+            RequireReference(GameState::StorySave).CheckpointRoomId = -1;
+            RequireReference(GameState::StorySave).CheckpointEntityId = -1;
+            if ((RequireReference(RequireReference(GameState::StorySave).TriggerState)[1] & 0x10) != 0
+                || Cheats::AlwaysFightGorea2())
             {
-                GameState::TransitionRoomId = 92;
+                GameState::TransitionRoomId(92);
                 RequireReference(_scene).StartMovie(Movie::Gorea2Intro, FadeType::FadeOutInWhite, 45.0F / 30.0F, FadeType::FadeOutInWhite, 45.0F / 30.0F);
             }
             else
@@ -1256,10 +1266,11 @@ namespace MphRead::Entities::Enemies
     bool Enemy28Entity::Behavior12()
     {
         bool collided = false;
-        CollisionResult result{};
-        const Vector3 prevPosition = MainPlayer().PrevPosition;
+        Formats::CollisionResult result{};
+        const Vector3 prevPosition = MainPlayer().PrevPosition();
         const Vector3 currentPosition = MainPlayer().Position;
-        if (CollisionDetection::CheckBetweenPoints(prevPosition, currentPosition, TestFlags::None, _scene, result))
+        if (Formats::CollisionDetection::CheckBetweenPoints(
+            prevPosition, currentPosition, Formats::TestFlags::None, _scene, result))
         {
             MainPlayer().Position = result.Position;
             MainPlayer().HandleCollision(result);
@@ -1271,7 +1282,7 @@ namespace MphRead::Entities::Enemies
             const float yDiff = MainPlayer().Position.Y - spawnerY;
             if (yDiff < 0.0F)
             {
-                result = CollisionResult{};
+                result = Formats::CollisionResult{};
                 result.Field0 = 0;
                 result.Plane = Vector4(0.0F, 1.0F, 0.0F, spawnerY);
                 result.Field14 = -yDiff;
@@ -1285,7 +1296,7 @@ namespace MphRead::Entities::Enemies
             StopGrappling();
             _soundSource.PlaySfx(SfxId::GOREA_ATTACK2C_SCR);
             MainPlayer().TakeDamage(30, DamageFlags::NoDmgInvuln, std::nullopt, this);
-            MainPlayer().CameraInfo.SetShake(0.75F);
+            RequireReference(MainPlayer().CameraInfo()).SetShake(0.75F);
             _holdTimer = MulInt32Unchecked(UInt32ToInt32Unchecked(Rng::GetRandomInt2(150) + 150U), 2);
         }
         return collided;
@@ -1353,14 +1364,16 @@ namespace MphRead::Entities::Enemies
         Model &model = RequireReference(RequireReference(_model).Model());
         for (std::int32_t i = 0; i < 6; ++i)
         {
-            std::shared_ptr<Material> material = model.GetMaterialByName(ArrayAt(_bodyMatNames1, i));
+            std::shared_ptr<Material> material = model.GetMaterialByName(
+                std::string(ArrayAt(_bodyMatNames1, i)));
             Material &materialRef = RequireReference(material);
             materialRef.Ambient = VectorAt(RequireReference(RequireReference(_gorea1A).Colors()), 2);
             materialRef.Diffuse = VectorAt(RequireReference(RequireReference(_gorea1A).Colors()), 3);
         }
         for (std::int32_t i = 0; i < 2; ++i)
         {
-            std::shared_ptr<Material> material = model.GetMaterialByName(ArrayAt(_bodyMatNames2, i));
+            std::shared_ptr<Material> material = model.GetMaterialByName(
+                std::string(ArrayAt(_bodyMatNames2, i)));
             Material &materialRef = RequireReference(material);
             materialRef.Ambient = VectorAt(RequireReference(RequireReference(_gorea1A).Colors()), 0);
             materialRef.Diffuse = VectorAt(RequireReference(RequireReference(_gorea1A).Colors()), 1);

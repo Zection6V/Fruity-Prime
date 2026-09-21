@@ -7,6 +7,7 @@
 #include "../Renderer.hpp"
 #include "../Scene.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "TriggerVolumeEntity.hpp"
 
 #include <any>
 #include <bit>
@@ -53,14 +54,14 @@ namespace
         {
             throw System::NullReferenceException();
         }
-        return scene->RoomId;
+        return scene->RoomId();
     }
 
     [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
     {
         if (!value || !value->has_value())
         {
-            throw MphRead::Memory::Detail::NullReferenceException();
+            throw System::NullReferenceException();
         }
         try
         {
@@ -68,7 +69,7 @@ namespace
         }
         catch (const std::bad_any_cast&)
         {
-            throw MphRead::Memory::Detail::InvalidCastException();
+            throw MphRead::SceneDetail::InvalidCastException();
         }
     }
 
@@ -78,7 +79,7 @@ namespace
         if (index < 0
             || static_cast<std::size_t>(index) >= MphRead::Metadata::JumpPads.size())
         {
-            throw MphRead::Memory::Detail::IndexOutOfRangeException();
+            throw System::ArgumentOutOfRangeException();
         }
         return MphRead::Metadata::JumpPads[static_cast<std::size_t>(index)];
     }
@@ -88,7 +89,7 @@ namespace
         return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
     }
 
-    [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scale) noexcept
+    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
     }
@@ -191,7 +192,7 @@ namespace
         const float det = a * a11 + b * a12 + c * a13 + d * a14;
         if (std::abs(det) < std::numeric_limits<float>::denorm_min())
         {
-            throw std::runtime_error("Matrix is singular and cannot be inverted.");
+            throw MphRead::SceneDetail::InvalidOperationException();
         }
 
         const float invDet = 1.0F / det;
@@ -255,20 +256,18 @@ namespace MphRead::Entities
         _beamTransform.M42 = 0.25F;
         const Vector3 transformedBeam = Matrix::Vec3MultMtx3(beamVector, Transform);
         const float beamSpeed = _data.Speed.FloatValue();
-        _beamVector = Scale(transformedBeam, beamSpeed);
+        _beamVector = ScaleVector(transformedBeam, beamSpeed);
 
-        if (GameState::Mode == GameMode::SinglePlayer)
+        if (GameState::Mode() == GameMode::SinglePlayer)
         {
-            StorySave* storySave = GameState::StorySave;
+            const std::shared_ptr<StorySave> storySave = GameState::StorySave;
             const std::int32_t roomId = GetRoomId(_scene);
-            if (storySave == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            Active = storySave->InitRoomState(
+            const std::int32_t entityId = Id;
+            const bool active = data.Active != 0;
+            Active = RequireReference(storySave).InitRoomState(
                 roomId,
-                Id,
-                data.Active != 0) != 0;
+                entityId,
+                active) != 0;
         }
         else
         {
@@ -385,15 +384,12 @@ namespace MphRead::Entities
         if (info.Message == Message::Activate)
         {
             Active = true;
-            if (GameState::Mode == GameMode::SinglePlayer)
+            if (GameState::Mode() == GameMode::SinglePlayer)
             {
-                StorySave* storySave = GameState::StorySave;
+                const std::shared_ptr<StorySave> storySave = GameState::StorySave;
                 const std::int32_t roomId = GetRoomId(_scene);
-                if (storySave == nullptr)
-                {
-                    throw System::NullReferenceException();
-                }
-                storySave->SetRoomState(roomId, Id, 3);
+                const std::int32_t entityId = Id;
+                RequireReference(storySave).SetRoomState(roomId, entityId, 3);
             }
         }
         else if (info.Message == Message::SetActive)
@@ -401,29 +397,23 @@ namespace MphRead::Entities
             if (UnboxInt32(info.Param1) != 0)
             {
                 Active = true;
-                if (GameState::Mode == GameMode::SinglePlayer)
+                if (GameState::Mode() == GameMode::SinglePlayer)
                 {
-                    StorySave* storySave = GameState::StorySave;
+                    const std::shared_ptr<StorySave> storySave = GameState::StorySave;
                     const std::int32_t roomId = GetRoomId(_scene);
-                    if (storySave == nullptr)
-                    {
-                        throw System::NullReferenceException();
-                    }
-                    storySave->SetRoomState(roomId, Id, 3);
+                    const std::int32_t entityId = Id;
+                    RequireReference(storySave).SetRoomState(roomId, entityId, 3);
                 }
             }
             else
             {
                 Active = false;
-                if (GameState::Mode == GameMode::SinglePlayer)
+                if (GameState::Mode() == GameMode::SinglePlayer)
                 {
-                    StorySave* storySave = GameState::StorySave;
+                    const std::shared_ptr<StorySave> storySave = GameState::StorySave;
                     const std::int32_t roomId = GetRoomId(_scene);
-                    if (storySave == nullptr)
-                    {
-                        throw System::NullReferenceException();
-                    }
-                    storySave->SetRoomState(roomId, Id, 1);
+                    const std::int32_t entityId = Id;
+                    RequireReference(storySave).SetRoomState(roomId, entityId, 1);
                 }
             }
         }
@@ -452,7 +442,7 @@ namespace MphRead::Entities
 
     void JumpPadEntity::GetDisplayVolumes()
     {
-        if (RequireReference(_scene).ShowVolumes == VolumeDisplay::JumpPad)
+        if (RequireReference(_scene).ShowVolumes() == VolumeDisplay::JumpPad)
         {
             AddVolumeItem(_volume, UnitY);
         }
@@ -501,7 +491,7 @@ namespace MphRead::Entities
 
     void FhJumpPadEntity::GetDisplayVolumes()
     {
-        if (RequireReference(_scene).ShowVolumes == VolumeDisplay::JumpPad)
+        if (RequireReference(_scene).ShowVolumes() == VolumeDisplay::JumpPad)
         {
             AddVolumeItem(_volume, UnitY);
         }

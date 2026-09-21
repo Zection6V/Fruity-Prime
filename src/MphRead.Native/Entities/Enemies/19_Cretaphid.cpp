@@ -395,22 +395,20 @@ namespace MphRead::Entities::Enemies
         SpawnEyes();
         SpawnCrystal();
 
+        const Weapons::WeaponList& bossWeapons
+            = RequireReference(Weapons::BossWeapons);
         const std::shared_ptr<WeaponInfo> laserWeapon
-            = VectorAt(Weapons::BossWeapons, 1);
+            = VectorAt(bossWeapons, 1);
         const std::shared_ptr<WeaponInfo> plasmaWeapon
-            = VectorAt(Weapons::BossWeapons, 2);
-        EquipInfo[0] = std::make_shared<::MphRead::EquipInfo>();
-        EquipInfo[0]->SetWeapon(laserWeapon);
-        EquipInfo[0]->SetBeams(RequireReference(_beams));
-        EquipInfo[1] = std::make_shared<::MphRead::EquipInfo>();
-        EquipInfo[1]->SetWeapon(plasmaWeapon);
-        EquipInfo[1]->SetBeams(RequireReference(_beams));
-        EquipInfo[0]->SetGetAmmo([this]() { return _ammo0; });
-        EquipInfo[0]->SetSetAmmo([this](std::int32_t newAmmo) { _ammo0 = newAmmo; });
-        EquipInfo[1]->SetGetAmmo([this]() { return _ammo1; });
-        EquipInfo[1]->SetSetAmmo([this](std::int32_t newAmmo) { _ammo1 = newAmmo; });
-        EquipInfo[0]->SetChargeLevel(RequireReference(laserWeapon).FullCharge());
-        EquipInfo[1]->SetChargeLevel(RequireReference(plasmaWeapon).FullCharge());
+            = VectorAt(bossWeapons, 2);
+        EquipInfo[0] = std::make_shared<::MphRead::EquipInfo>(laserWeapon, _beams);
+        EquipInfo[1] = std::make_shared<::MphRead::EquipInfo>(plasmaWeapon, _beams);
+        EquipInfo[0]->GetAmmo = [this]() { return _ammo0; };
+        EquipInfo[0]->SetAmmo = [this](std::int32_t newAmmo) { _ammo0 = newAmmo; };
+        EquipInfo[1]->GetAmmo = [this]() { return _ammo1; };
+        EquipInfo[1]->SetAmmo = [this](std::int32_t newAmmo) { _ammo1 = newAmmo; };
+        EquipInfo[0]->ChargeLevel = RequireReference(laserWeapon).FullCharge;
+        EquipInfo[1]->ChargeLevel = RequireReference(plasmaWeapon).FullCharge;
 
         SetPhase0();
         _crystalShotTimer = GetPhaseValue(PhaseValue::CrystalShotTime);
@@ -440,7 +438,7 @@ namespace MphRead::Entities::Enemies
         for (std::int32_t i = 0; i < _eyeCount; ++i)
         {
             std::shared_ptr<EnemyInstanceEntity> spawned = EnemySpawnEntity::SpawnEnemy(
-                this, EnemyType::CretaphidEye, NodeRef, RequireReference(_scene));
+                this, EnemyType::CretaphidEye, NodeRef, _scene);
             std::shared_ptr<Enemy20Entity> eye
                 = std::dynamic_pointer_cast<Enemy20Entity>(spawned);
             if (!eye)
@@ -470,7 +468,7 @@ namespace MphRead::Entities::Enemies
             if (!eye)
             {
                 std::shared_ptr<EnemyInstanceEntity> spawned = EnemySpawnEntity::SpawnEnemy(
-                    this, EnemyType::CretaphidEye, NodeRef, RequireReference(_scene));
+                    this, EnemyType::CretaphidEye, NodeRef, _scene);
                 std::shared_ptr<Enemy20Entity> newEye
                     = std::dynamic_pointer_cast<Enemy20Entity>(spawned);
                 if (!newEye)
@@ -502,7 +500,7 @@ namespace MphRead::Entities::Enemies
     void Enemy19Entity::SpawnCrystal()
     {
         std::shared_ptr<EnemyInstanceEntity> spawned = EnemySpawnEntity::SpawnEnemy(
-            this, EnemyType::CretaphidCrystal, NodeRef, RequireReference(_scene));
+            this, EnemyType::CretaphidCrystal, NodeRef, _scene);
         std::shared_ptr<Enemy21Entity> crystal
             = std::dynamic_pointer_cast<Enemy21Entity>(spawned);
         if (!crystal)

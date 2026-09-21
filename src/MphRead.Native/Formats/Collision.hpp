@@ -15,10 +15,14 @@
 
 namespace MphRead
 {
-    class EntityBase;
     class ModelMetadata;
     class RoomMetadata;
     class Scene;
+}
+
+namespace MphRead::Entities
+{
+    class EntityBase;
 }
 
 namespace MphRead::Formats::Collision
@@ -41,13 +45,13 @@ namespace MphRead::Formats::Collision
         OpenTK::Mathematics::Vector3 CurrentCenter{};
         float MaxDistance = 0.0F;
 
-        MphRead::EntityBase* const Entity;
+        MphRead::Entities::EntityBase* const Entity;
         const std::shared_ptr<CollisionInstance> Collision;
         const std::shared_ptr<std::vector<OpenTK::Mathematics::Vector3>> DrawPoints;
 
         EntityCollision(
             std::shared_ptr<CollisionInstance> collision,
-            MphRead::EntityBase* entity);
+            MphRead::Entities::EntityBase* entity);
 
         EntityCollision(const EntityCollision&) = delete;
         EntityCollision& operator=(const EntityCollision&) = delete;

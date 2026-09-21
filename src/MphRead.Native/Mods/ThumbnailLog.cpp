@@ -259,14 +259,10 @@ namespace
     [[nodiscard]] std::chrono::system_clock::time_point ToSystemClock(
         std::filesystem::file_time_type value)
     {
-#if defined(__cpp_lib_chrono) && __cpp_lib_chrono >= 201907L
+        const auto fileNow = std::filesystem::file_time_type::clock::now();
+        const auto systemNow = std::chrono::system_clock::now();
         return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-            std::filesystem::file_time_type::clock::to_sys(value));
-#else
-        return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-            value - std::filesystem::file_time_type::clock::now()
-            + std::chrono::system_clock::now());
-#endif
+            systemNow + (value - fileNow));
     }
 
     [[nodiscard]] std::string BaseDirectoryLastWriteTime()

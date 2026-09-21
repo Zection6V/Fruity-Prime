@@ -246,9 +246,18 @@ namespace
     }
 
 #if defined(_WIN32)
+    [[nodiscard]] std::chrono::system_clock::time_point ToSystemClock(
+        std::filesystem::file_time_type value)
+    {
+        const auto fileNow = std::filesystem::file_time_type::clock::now();
+        const auto systemNow = std::chrono::system_clock::now();
+        return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+            systemNow + (value - fileNow));
+    }
+
     [[nodiscard]] std::int64_t LastWriteTicks(std::filesystem::file_time_type value)
     {
-        const auto systemValue = std::chrono::file_clock::to_sys(value);
+        const auto systemValue = ToSystemClock(value);
         return std::chrono::duration_cast<TickDuration>(systemValue.time_since_epoch()).count();
     }
 #else

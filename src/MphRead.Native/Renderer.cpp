@@ -3958,6 +3958,12 @@ namespace MphRead
         return entry;
     }
 
+    void Scene::UnlinkBeamEffect(const std::shared_ptr<Entities::BeamEffectEntity>& entry)
+    {
+        RemoveFirst(_activeBeamEffects, entry);
+        _inactiveBeamEffects.push(entry);
+    }
+
     void Scene::UnlinkBeamEffect(Entities::BeamEffectEntity* entry)
     {
         std::shared_ptr<Entities::BeamEffectEntity> owner;
@@ -3974,8 +3980,7 @@ namespace MphRead
         {
             throw System::NullReferenceException();
         }
-        RemoveFirst(_activeBeamEffects, owner);
-        _inactiveBeamEffects.push(std::move(owner));
+        UnlinkBeamEffect(owner);
     }
 
     std::shared_ptr<Entities::BombEntity> Scene::InitBomb()
@@ -3987,6 +3992,12 @@ namespace MphRead
         auto entry = _inactiveBombs.front();
         _inactiveBombs.pop();
         return entry;
+    }
+
+    void Scene::UnlinkBomb(const std::shared_ptr<Entities::BombEntity>& entry)
+    {
+        RemoveFirst(_activeBombs, entry);
+        _inactiveBombs.push(entry);
     }
 
     void Scene::UnlinkBomb(Entities::BombEntity* entry)
@@ -4005,8 +4016,7 @@ namespace MphRead
         {
             throw System::NullReferenceException();
         }
-        RemoveFirst(_activeBombs, owner);
-        _inactiveBombs.push(std::move(owner));
+        UnlinkBomb(owner);
     }
 
     void Scene::AddSingleParticle(SingleType type, Vector3 position, Vector3 color, float alpha, float scale)

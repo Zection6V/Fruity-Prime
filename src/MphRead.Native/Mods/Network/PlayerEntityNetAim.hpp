@@ -113,4 +113,13 @@ private: \
 
 #ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER
 #include "../../Entities/Players/PlayerEntity.hpp"
+
+namespace MphRead::Entities::PlayerEntityNetAimDetail
+{
+}
+
+namespace MphRead::Entities::Detail
+{
+    using namespace ::MphRead::Entities::PlayerEntityNetAimDetail;
+}
 #endif

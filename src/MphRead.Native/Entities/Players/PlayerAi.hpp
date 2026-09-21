@@ -124,6 +124,7 @@ namespace MphRead::Entities
     constexpr AiFlags4& operator|=(AiFlags4& a, AiFlags4 b) noexcept { return a = a | b; }
     constexpr AiFlags4& operator&=(AiFlags4& a, AiFlags4 b) noexcept { return a = a & b; }
 
+#ifndef MPHREAD_PLAYER_AI_MEMBERS
 #define MPHREAD_PLAYER_AI_MEMBERS \
 public: \
     class PlayerAiData; \
@@ -133,6 +134,8 @@ public: \
     void SetBotLevel(std::int32_t value) noexcept { _botLevel = value; } \
 private: \
     std::int32_t _botLevel = 0;
+#endif
+
 }
 
 #ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER

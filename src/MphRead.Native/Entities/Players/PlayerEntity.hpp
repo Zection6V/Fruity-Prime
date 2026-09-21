@@ -2,8 +2,19 @@
 
 #define MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER 1
 
+#ifndef MPHREAD_PLAYER_AI_MEMBERS
+#define MPHREAD_PLAYER_AI_MEMBERS \
+public: \
+    class PlayerAiData; \
+    std::shared_ptr<PlayerAiData> AiData{}; \
+    std::shared_ptr<::MphRead::Formats::NodeData3> ClosestNode{}; \
+    [[nodiscard]] std::int32_t BotLevel() const noexcept { return _botLevel; } \
+    void SetBotLevel(std::int32_t value) noexcept { _botLevel = value; } \
+private: \
+    std::int32_t _botLevel = 0;
+#endif
+
 #include "DynamicLightEntity.hpp"
-#include "PlayerAi.hpp"
 #include "PlayerCamera.hpp"
 #include "PlayerCollision.hpp"
 #include "PlayerDialog.hpp"
@@ -994,3 +1005,5 @@ namespace MphRead::Entities
 }
 
 #undef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER
+
+#include "PlayerAi.hpp"

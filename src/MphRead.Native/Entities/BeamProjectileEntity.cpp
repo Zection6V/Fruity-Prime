@@ -306,7 +306,7 @@ namespace
         {
             return nullptr;
         }
-        return reinterpret_cast<EntityBase*>(collision->Entity.get());
+        return collision->Entity;
     }
 
     template <typename TContainer>

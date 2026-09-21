@@ -52,6 +52,11 @@ namespace MphRead
     struct WeaponInfo;
     class Scene;
 
+    namespace Formats
+    {
+        class NodeData3;
+    }
+
     namespace Effects
     {
         class EffectEntry;

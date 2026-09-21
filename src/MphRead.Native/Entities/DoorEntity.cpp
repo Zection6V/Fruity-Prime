@@ -132,7 +132,7 @@ namespace
         return Vector3(-value.X, -value.Y, -value.Z);
     }
 
-    [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
     }
@@ -297,10 +297,10 @@ namespace MphRead::Entities
         (*inst.AnimInfo->Flags)[1] |= AnimFlags::Reverse;
         _lock = &SetUpModel(meta.LockName);
         _lockTransform = CreateTranslation(0.0F, meta.LockOffset, 0.0F);
-        assert(GameState::Mode == GameMode::SinglePlayer);
+        assert(GameState::Mode() == GameMode::SinglePlayer);
         const std::int32_t state = RequireStorySave().InitRoomState(
-            RequireReference(_scene).RoomId, Id, _data.Locked != 0);
-        if (state != 0 && !Cheats::UnlockAllDoors)
+            RequireReference(_scene).RoomId(), Id, _data.Locked != 0);
+        if (state != 0 && !Cheats::UnlockAllDoors())
         {
             _flags |= DoorFlags::Locked;
         }
@@ -458,15 +458,15 @@ namespace MphRead::Entities
     {
         EntityBase::Initialize();
         _scene->LoadEffect(114, false); // lockDefeat
-        if (_data.ConnectorId != 255 && _scene->Room != nullptr)
+        if (_data.ConnectorId != 255 && _scene->Room() != nullptr)
         {
-            _scene->Room->AddConnector(this);
+            _scene->Room()->AddConnector(this);
         }
         else
         {
             const std::string portalName = MarshalString(_data.NodeName) + "_" + *_nodeName;
-            std::shared_ptr<Formats::Collision::Portal> portal = _scene->Room != nullptr
-                ? _scene->Room->GetPortalByName(portalName)
+            std::shared_ptr<Formats::Collision::Portal> portal = _scene->Room() != nullptr
+                ? _scene->Room()->GetPortalByName(portalName)
                 : nullptr;
             if (portal != nullptr)
             {
@@ -487,8 +487,8 @@ namespace MphRead::Entities
         const Vector3 negUp = Negate(up);
         const Vector3 right = Vector3::Cross(facing, up).Normalized();
         const Vector3 negRight = Negate(right);
-        const Vector3 widthVec = Scale(right, _portWidth);
-        const Vector3 heightVec = Scale(up, height);
+        const Vector3 widthVec = ScaleVector(right, _portWidth);
+        const Vector3 heightVec = ScaleVector(up, height);
         auto points = std::make_shared<std::vector<Vector3>>();
         points->reserve(4);
         points->push_back(pos - widthVec);
@@ -563,7 +563,7 @@ namespace MphRead::Entities
             // every frame after a door is unlocked. in our case, that can cause room state issues during
             // room transitions, so we clear it. shouldn't cause any differences in behavior.
             _flags &= ~DoorFlags::Unlocked;
-            RequireStorySave().SetRoomState(_scene->RoomId, Id, 1);
+            RequireStorySave().SetRoomState(_scene->RoomId(), Id, 1);
         }
         UpdateScanId();
         if (Locked() && !Unlocked())
@@ -586,10 +586,10 @@ namespace MphRead::Entities
         {
             // the game also checks for loading connectors behind doors, but we do that at room load
             _flags &= ~DoorFlags::ShouldOpen;
-            GameState::TransitionState = TransitionState::Start;
-            assert(_scene->Room != nullptr && _scene->Room->LoaderDoor == nullptr);
-            _scene->Room->LoaderDoor = this;
-            GameState::TransitionRoomId = _targetRoomId;
+            GameState::TransitionState(TransitionState::Start);
+            assert(_scene->Room() != nullptr && _scene->Room()->LoaderDoor == nullptr);
+            _scene->Room()->LoaderDoor = this;
+            GameState::TransitionRoomId(_targetRoomId);
             auto enumerator = _scene->GetDoorEntities().GetEnumerator();
             while (enumerator.MoveNext())
             {
@@ -684,8 +684,8 @@ namespace MphRead::Entities
         {
             if (_connectorModel != nullptr && !_connectorModel->Active)
             {
-                assert(_scene->Room != nullptr);
-                _scene->Room->ActivateConnector(this);
+                assert(_scene->Room() != nullptr);
+                _scene->Room()->ActivateConnector(this);
             }
             if (_data.ConnectorId != 255)
             {
@@ -694,7 +694,7 @@ namespace MphRead::Entities
                 if (roomName[0] == 'C' && roomName[1] == 'o' && roomName[2] == 'n'
                     && TryParseInt32TwoChars(roomName + 3, id) && id >= 1)
                 {
-                    RequireStorySave().SetVisitedConnector(id - 1, _scene->AreaId);
+                    RequireStorySave().SetVisitedConnector(id - 1, _scene->AreaId());
                 }
             }
             // todo: FPS stuff
@@ -752,7 +752,7 @@ namespace MphRead::Entities
                     || TestFlag((*animInfo.Flags)[0], AnimFlags::Ended)))
             {
                 // todo: bits 8/9 and 10 are basically a counter and a bool, and we should just replace them with that
-                if (TestFlag(_flags, DoorFlags::Bit10) && _scene->FrameCount > 3 * 2)
+                if (TestFlag(_flags, DoorFlags::Bit10) && _scene->FrameCount() > 3 * 2)
                 {
                     _soundSource.PlaySfx(SfxId::LOCK_ANIM,
                         false, false, std::numeric_limits<float>::max(), true);
@@ -837,7 +837,7 @@ namespace MphRead::Entities
         _flags |= DoorFlags::Locked;
         if (updateState)
         {
-            RequireStorySave().SetRoomState(_scene->RoomId, Id, 3);
+            RequireStorySave().SetRoomState(_scene->RoomId(), Id, 3);
         }
     }
 
@@ -853,24 +853,24 @@ namespace MphRead::Entities
         // UNIT1_B1, UNIT4_B1, UNIT2_B2, UNIT3_B2 (Slench)
         // the game has its own weird hacks for this where fade state is checked in the timed SFX code.
         // note: lock SFX is prevented by the frame count check in Process()
-        if (_scene->RoomId != 55 && _scene->RoomId != 71
-            && _scene->RoomId != 44 && _scene->RoomId != 88
-            && _scene->RoomId != 35 && _scene->RoomId != 82
-            && _scene->RoomId != 64 && _scene->RoomId != 76)
+        if (_scene->RoomId() != 55 && _scene->RoomId() != 71
+            && _scene->RoomId() != 44 && _scene->RoomId() != 88
+            && _scene->RoomId() != 35 && _scene->RoomId() != 82
+            && _scene->RoomId() != 64 && _scene->RoomId() != 76)
         {
             auto&& mainValue = PlayerEntity::Main();
             PlayerEntity& main = RequireReference(mainValue);
-            main.SetDoorChimeSfxTimer(2.0F / 30.0F);
+            main.DoorChimeSfxTimer = 2.0F / 30.0F;
             if (!noLockAnimSfx)
             {
-                main.SetDoorUnlockSfxTimer(2.0F / 30.0F);
+                main.DoorUnlockSfxTimer = 2.0F / 30.0F;
             }
         }
         RequireReference(_lock).SetAnimation(1, AnimFlags::NoLoop);
         _scene->SpawnEffect(114, UpVector(), FacingVector(), LockPosition()); // lockDefeat
         if (updateState)
         {
-            RequireStorySave().SetRoomState(_scene->RoomId, Id, 1);
+            RequireStorySave().SetRoomState(_scene->RoomId(), Id, 1);
         }
     }
 

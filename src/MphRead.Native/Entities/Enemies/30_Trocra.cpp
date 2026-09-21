@@ -1,7 +1,7 @@
 #include "30_Trocra.hpp"
 
 #include "28_Gorea1B.hpp"
-#include "../../CollisionDetection.hpp"
+#include "../../Formats/CollisionDetection.hpp"
 #include "../../Scene.hpp"
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"

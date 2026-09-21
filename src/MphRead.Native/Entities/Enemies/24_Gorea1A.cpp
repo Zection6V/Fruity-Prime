@@ -12,7 +12,7 @@
 #include "../../Utility/Rng.hpp"
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
-#include "../HalfturretEntity.hpp"
+#include "../Players/HalfturretEntity.hpp"
 #include "../ItemInstanceEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 

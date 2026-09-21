@@ -2,7 +2,7 @@
 
 #include "32_GoreaSealSphere2.hpp"
 #include "33_GoreaMeteor.hpp"
-#include "../../CollisionDetection.hpp"
+#include "../../Formats/CollisionDetection.hpp"
 #include "../../Metadata/Enemies.hpp"
 #include "../../Scene.hpp"
 #include "../../Sound/Music.hpp"

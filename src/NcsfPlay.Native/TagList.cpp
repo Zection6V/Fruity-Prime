@@ -66,6 +66,103 @@ namespace
         return std::bit_cast<std::int32_t>(hash);
     }
 
+
+#if !defined(_WIN32)
+    static constexpr char16_t HalfFullLowerChars[] = {
+        0x0021, 0x0022, 0x0023, 0x0024, 0x0025, 0x0026, 0x0027, 0x0028, 0x0029, 0x002a, 0x002b, 0x002c, 0x002d, 0x002e, 0x002f,
+            0x0030, 0x0031, 0x0032, 0x0033, 0x0034, 0x0035, 0x0036, 0x0037, 0x0038, 0x0039, 0x003a, 0x003b, 0x003c, 0x003d, 0x003e,
+            0x003f, 0x0040, 0x0041, 0x0042, 0x0043, 0x0044, 0x0045, 0x0046, 0x0047, 0x0048, 0x0049, 0x004a, 0x004b, 0x004c, 0x004d,
+            0x004e, 0x004f, 0x0050, 0x0051, 0x0052, 0x0053, 0x0054, 0x0055, 0x0056, 0x0057, 0x0058, 0x0059, 0x005a, 0x005b, 0x005d,
+            0x005e, 0x005f, 0x0060, 0x0061, 0x0062, 0x0063, 0x0064, 0x0065, 0x0066, 0x0067, 0x0068, 0x0069, 0x006a, 0x006b, 0x006c,
+            0x006d, 0x006e, 0x006f, 0x0070, 0x0071, 0x0072, 0x0073, 0x0074, 0x0075, 0x0076, 0x0077, 0x0078, 0x0079, 0x007a, 0x007b,
+            0x007c, 0x007d, 0x007e, 0x00a2, 0x00a3, 0x00ac, 0x00af, 0x00a6, 0x00a5, 0x20a9,
+            0x3002, 0x300c, 0x300d, 0x3001, 0x30fb, 0x30f2, 0x30a1, 0x30a3, 0x30a5, 0x30a7, 0x30a9, 0x30e3, 0x30e5, 0x30e7, 0x30c3,
+            0x30a2, 0x30a4, 0x30a6, 0x30a8, 0x30aa, 0x30ab, 0x30ad, 0x30af, 0x30b1, 0x30b3, 0x30b5, 0x30b7, 0x30b9, 0x30bb, 0x30bd,
+            0x30bf, 0x30c1, 0x30c4, 0x30c6, 0x30c8, 0x30ca, 0x30cb, 0x30cc, 0x30cd, 0x30ce, 0x30cf, 0x30d2, 0x30d5, 0x30d8, 0x30db,
+            0x30de, 0x30df, 0x30e0, 0x30e1, 0x30e2, 0x30e4, 0x30e6, 0x30e8, 0x30e9, 0x30ea, 0x30eb, 0x30ec, 0x30ed, 0x30ef, 0x30f3,
+            0x3164, 0x3131, 0x3132, 0x3133, 0x3134, 0x3135, 0x3136, 0x3137, 0x3138, 0x3139, 0x313a, 0x313b, 0x313c, 0x313d, 0x313e,
+            0x313f, 0x3140, 0x3141, 0x3142, 0x3143, 0x3144, 0x3145, 0x3146, 0x3147, 0x3148, 0x3149, 0x314a, 0x314b, 0x314c, 0x314d,
+            0x314e, 0x314f, 0x3150, 0x3151, 0x3152, 0x3153, 0x3154, 0x3155, 0x3156, 0x3157, 0x3158, 0x3159, 0x315a, 0x315b, 0x315c,
+            0x315d, 0x315e, 0x315f, 0x3160, 0x3161, 0x3162, 0x3163
+    };
+
+    static constexpr char16_t HalfFullHigherChars[] = {
+        0xff01, 0xff02, 0xff03, 0xff04, 0xff05, 0xff06, 0xff07, 0xff08, 0xff09, 0xff0a, 0xff0b, 0xff0c, 0xff0d, 0xff0e, 0xff0f,
+            0xff10, 0xff11, 0xff12, 0xff13, 0xff14, 0xff15, 0xff16, 0xff17, 0xff18, 0xff19, 0xff1a, 0xff1b, 0xff1c, 0xff1d, 0xff1e,
+            0xff1f, 0xff20, 0xff21, 0xff22, 0xff23, 0xff24, 0xff25, 0xff26, 0xff27, 0xff28, 0xff29, 0xff2a, 0xff2b, 0xff2c, 0xff2d,
+            0xff2e, 0xff2f, 0xff30, 0xff31, 0xff32, 0xff33, 0xff34, 0xff35, 0xff36, 0xff37, 0xff38, 0xff39, 0xff3a, 0xff3b, 0xff3d,
+            0xff3e, 0xff3f, 0xff40, 0xff41, 0xff42, 0xff43, 0xff44, 0xff45, 0xff46, 0xff47, 0xff48, 0xff49, 0xff4a, 0xff4b, 0xff4c,
+            0xff4d, 0xff4e, 0xff4f, 0xff50, 0xff51, 0xff52, 0xff53, 0xff54, 0xff55, 0xff56, 0xff57, 0xff58, 0xff59, 0xff5a, 0xff5b,
+            0xff5c, 0xff5d, 0xff5e, 0xffe0, 0xffe1, 0xffe2, 0xffe3, 0xffe4, 0xffe5, 0xffe6,
+            0xff61, 0xff62, 0xff63, 0xff64, 0xff65, 0xff66, 0xff67, 0xff68, 0xff69, 0xff6a, 0xff6b, 0xff6c, 0xff6d, 0xff6e, 0xff6f,
+            0xff71, 0xff72, 0xff73, 0xff74, 0xff75, 0xff76, 0xff77, 0xff78, 0xff79, 0xff7a, 0xff7b, 0xff7c, 0xff7d, 0xff7e, 0xff7f,
+            0xff80, 0xff81, 0xff82, 0xff83, 0xff84, 0xff85, 0xff86, 0xff87, 0xff88, 0xff89, 0xff8a, 0xff8b, 0xff8c, 0xff8d, 0xff8e,
+            0xff8f, 0xff90, 0xff91, 0xff92, 0xff93, 0xff94, 0xff95, 0xff96, 0xff97, 0xff98, 0xff99, 0xff9a, 0xff9b, 0xff9c, 0xff9d,
+            0xffa0, 0xffa1, 0xffa2, 0xffa3, 0xffa4, 0xffa5, 0xffa6, 0xffa7, 0xffa8, 0xffa9, 0xffaa, 0xffab, 0xffac, 0xffad, 0xffae,
+            0xffaf, 0xffb0, 0xffb1, 0xffb2, 0xffb3, 0xffb4, 0xffb5, 0xffb6, 0xffb7, 0xffb8, 0xffb9, 0xffba, 0xffbb, 0xffbc, 0xffbd,
+            0xffbe, 0xffc2, 0xffc3, 0xffc4, 0xffc5, 0xffc6, 0xffc7, 0xffca, 0xffcb, 0xffcc, 0xffcd, 0xffce, 0xffcf, 0xffd2, 0xffd3,
+            0xffd4, 0xffd5, 0xffd6, 0xffd7, 0xffda, 0xffdb, 0xffdc
+    };
+
+    static constexpr char16_t HiraganaWithoutVoicedSoundMarkChars[] = {
+        0x3041, 0x3042, 0x3043, 0x3044, 0x3045, 0x3046, 0x3047, 0x3048, 0x3049, 0x304A, 0x304B, 0x304D, 0x304F, 0x3051, 0x3053,
+            0x3055, 0x3057, 0x3059, 0x305B, 0x305D, 0x305F, 0x3061, 0x3063, 0x3064, 0x3066, 0x3068, 0x306A, 0x306B, 0x306C, 0x306D,
+            0x306E, 0x306F, 0x3072, 0x3075, 0x3078, 0x307B, 0x307E, 0x307F, 0x3080, 0x3081, 0x3082, 0x3083, 0x3084, 0x3085, 0x3086,
+            0x3087, 0x3088, 0x3089, 0x308A, 0x308B, 0x308C, 0x308D, 0x308E, 0x308F, 0x3090, 0x3091, 0x3092, 0x3093, 0x3095, 0x3096, 0x309D,
+    };
+
+    [[nodiscard]] constexpr bool NeedsIcuRuleEscape(char16_t character) noexcept
+    {
+        return (character >= 0x21 && character <= 0x2F)
+            || (character >= 0x3A && character <= 0x40)
+            || (character >= 0x5B && character <= 0x60)
+            || (character >= 0x7B && character <= 0x7E);
+    }
+
+    void AppendDotNetInvariantIgnoreCaseRules(std::u16string& rules)
+    {
+        static constexpr char16_t HiraganaToKatakanaOffset = 0x30A1 - 0x3041;
+
+        for (char16_t hiragana : HiraganaWithoutVoicedSoundMarkChars)
+        {
+            rules.push_back(u'&');
+            rules.push_back(hiragana);
+            rules.push_back(u'<');
+            rules.push_back(static_cast<char16_t>(
+                hiragana + HiraganaToKatakanaOffset));
+        }
+
+        static_assert(
+            std::size(HalfFullLowerChars) == std::size(HalfFullHigherChars));
+        for (std::size_t index = 0;
+             index < std::size(HalfFullLowerChars);
+             ++index)
+        {
+            const char16_t lower = HalfFullLowerChars[index];
+            rules.push_back(u'&');
+            if (NeedsIcuRuleEscape(lower))
+            {
+                rules.push_back(u'\\');
+            }
+            rules.push_back(lower);
+            rules.push_back(u'<');
+            rules.push_back(HalfFullHigherChars[index]);
+        }
+
+        static constexpr char16_t UpperCaseToLowerCaseOffset = 0xFF41 - 0xFF21;
+        for (char16_t upper = 0xFF21; upper <= 0xFF3A; ++upper)
+        {
+            rules.push_back(u'&');
+            rules.push_back(static_cast<char16_t>(
+                upper + UpperCaseToLowerCaseOffset));
+            rules.push_back(u'=');
+            rules.push_back(upper);
+        }
+
+        rules.append(u"&a=a");
+    }
+#endif
+
 #if defined(_WIN32)
     [[nodiscard]] bool InvariantCultureIgnoreCaseEquals(
         std::u16string_view left, std::u16string_view right)
@@ -306,27 +403,27 @@ namespace
     {
         LocalJavaRef<jclass> localeClass(
             env,
-            env->FindClass("java/util/Locale"));
+            env->FindClass("android/icu/util/ULocale"));
         CheckAndroidJavaException(
             env,
-            "Could not resolve java.util.Locale for invariant collation.");
+            "Could not resolve android.icu.util.ULocale for invariant collation.");
         if (!localeClass)
         {
             throw std::runtime_error(
-                "Could not resolve java.util.Locale for invariant collation.");
+                "Could not resolve android.icu.util.ULocale for invariant collation.");
         }
 
         const jfieldID rootField = env->GetStaticFieldID(
             localeClass.Get(),
             "ROOT",
-            "Ljava/util/Locale;");
+            "Landroid/icu/util/ULocale;");
         CheckAndroidJavaException(
             env,
-            "Could not resolve Locale.ROOT for invariant collation.");
+            "Could not resolve ULocale.ROOT for invariant collation.");
         if (rootField == nullptr)
         {
             throw std::runtime_error(
-                "Could not resolve Locale.ROOT for invariant collation.");
+                "Could not resolve ULocale.ROOT for invariant collation.");
         }
 
         LocalJavaRef<jobject> rootLocale(
@@ -334,39 +431,39 @@ namespace
             env->GetStaticObjectField(localeClass.Get(), rootField));
         CheckAndroidJavaException(
             env,
-            "Could not read Locale.ROOT for invariant collation.");
+            "Could not read ULocale.ROOT for invariant collation.");
         if (!rootLocale)
         {
             throw std::runtime_error(
-                "Could not read Locale.ROOT for invariant collation.");
+                "Could not read ULocale.ROOT for invariant collation.");
         }
 
         collatorClass = LocalJavaRef<jclass>(
             env,
-            env->FindClass("java/text/Collator"));
+            env->FindClass("android/icu/text/Collator"));
         CheckAndroidJavaException(
             env,
-            "Could not resolve java.text.Collator.");
+            "Could not resolve android.icu.text.Collator.");
         if (!collatorClass)
         {
             throw std::runtime_error(
-                "Could not resolve java.text.Collator.");
+                "Could not resolve android.icu.text.Collator.");
         }
 
         const jmethodID getInstance = env->GetStaticMethodID(
             collatorClass.Get(),
             "getInstance",
-            "(Ljava/util/Locale;)Ljava/text/Collator;");
+            "(Landroid/icu/util/ULocale;)Landroid/icu/text/Collator;");
         CheckAndroidJavaException(
             env,
-            "Could not resolve Collator.getInstance(Locale).");
+            "Could not resolve Collator.getInstance(ULocale).");
         if (getInstance == nullptr)
         {
             throw std::runtime_error(
-                "Could not resolve Collator.getInstance(Locale).");
+                "Could not resolve Collator.getInstance(ULocale).");
         }
 
-        LocalJavaRef<jobject> collator(
+        LocalJavaRef<jobject> baseCollator(
             env,
             env->CallStaticObjectMethod(
                 collatorClass.Get(),
@@ -374,65 +471,177 @@ namespace
                 rootLocale.Get()));
         CheckAndroidJavaException(
             env,
-            "Could not create the Android invariant collator.");
+            "Could not create the Android ICU root collator.");
+        if (!baseCollator)
+        {
+            throw std::runtime_error(
+                "Could not create the Android ICU root collator.");
+        }
+
+        LocalJavaRef<jclass> ruleBasedClass(
+            env,
+            env->FindClass("android/icu/text/RuleBasedCollator"));
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve android.icu.text.RuleBasedCollator.");
+        if (!ruleBasedClass)
+        {
+            throw std::runtime_error(
+                "Could not resolve android.icu.text.RuleBasedCollator.");
+        }
+
+        if (env->IsInstanceOf(baseCollator.Get(), ruleBasedClass.Get()) != JNI_TRUE)
+        {
+            throw std::runtime_error(
+                "Android ICU root collator is not rule based.");
+        }
+
+        const jmethodID getRules = env->GetMethodID(
+            ruleBasedClass.Get(),
+            "getRules",
+            "()Ljava/lang/String;");
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve RuleBasedCollator.getRules().");
+        if (getRules == nullptr)
+        {
+            throw std::runtime_error(
+                "Could not resolve RuleBasedCollator.getRules().");
+        }
+
+        LocalJavaRef<jstring> baseRules(
+            env,
+            static_cast<jstring>(
+                env->CallObjectMethod(baseCollator.Get(), getRules)));
+        CheckAndroidJavaException(
+            env,
+            "Could not read the Android ICU root collation rules.");
+        if (!baseRules)
+        {
+            throw std::runtime_error(
+                "Could not read the Android ICU root collation rules.");
+        }
+
+        const jsize baseRuleLength = env->GetStringLength(baseRules.Get());
+        CheckAndroidJavaException(
+            env,
+            "Could not read the Android ICU root collation rule length.");
+
+        const jchar* baseRuleChars =
+            env->GetStringChars(baseRules.Get(), nullptr);
+        CheckAndroidJavaException(
+            env,
+            "Could not read the Android ICU root collation rules.");
+        if (baseRuleChars == nullptr && baseRuleLength != 0)
+        {
+            throw std::runtime_error(
+                "Could not read the Android ICU root collation rules.");
+        }
+
+        std::u16string rules;
+        if (baseRuleLength != 0)
+        {
+            static_assert(sizeof(jchar) == sizeof(char16_t));
+            rules.assign(
+                reinterpret_cast<const char16_t*>(baseRuleChars),
+                static_cast<std::size_t>(baseRuleLength));
+        }
+        if (baseRuleChars != nullptr)
+        {
+            env->ReleaseStringChars(baseRules.Get(), baseRuleChars);
+        }
+
+        AppendDotNetInvariantIgnoreCaseRules(rules);
+        if (rules.size()
+            > static_cast<std::size_t>(
+                std::numeric_limits<jsize>::max()))
+        {
+            throw std::length_error(
+                "Invariant collation rule length exceeds the Android JNI limit.");
+        }
+
+        static constexpr jchar Empty = 0;
+        const jchar* ruleChars = rules.empty()
+            ? &Empty
+            : reinterpret_cast<const jchar*>(rules.data());
+        LocalJavaRef<jstring> ruleString(
+            env,
+            env->NewString(
+                ruleChars,
+                static_cast<jsize>(rules.size())));
+        CheckAndroidJavaException(
+            env,
+            "Could not create the Android ICU invariant collation rules.");
+        if (!ruleString)
+        {
+            throw std::runtime_error(
+                "Could not create the Android ICU invariant collation rules.");
+        }
+
+        const jmethodID constructor = env->GetMethodID(
+            ruleBasedClass.Get(),
+            "<init>",
+            "(Ljava/lang/String;)V");
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve RuleBasedCollator(String).");
+        if (constructor == nullptr)
+        {
+            throw std::runtime_error(
+                "Could not resolve RuleBasedCollator(String).");
+        }
+
+        LocalJavaRef<jobject> collator(
+            env,
+            env->NewObject(
+                ruleBasedClass.Get(),
+                constructor,
+                ruleString.Get()));
+        CheckAndroidJavaException(
+            env,
+            "Could not create the Android ICU invariant collator.");
         if (!collator)
         {
             throw std::runtime_error(
-                "Could not create the Android invariant collator.");
+                "Could not create the Android ICU invariant collator.");
         }
 
         const jfieldID secondaryField = env->GetStaticFieldID(
             collatorClass.Get(),
             "SECONDARY",
             "I");
-        const jfieldID canonicalField = env->GetStaticFieldID(
-            collatorClass.Get(),
-            "CANONICAL_DECOMPOSITION",
-            "I");
         CheckAndroidJavaException(
             env,
-            "Could not resolve Android Collator constants.");
-        if (secondaryField == nullptr || canonicalField == nullptr)
+            "Could not resolve Android ICU Collator.SECONDARY.");
+        if (secondaryField == nullptr)
         {
             throw std::runtime_error(
-                "Could not resolve Android Collator constants.");
+                "Could not resolve Android ICU Collator.SECONDARY.");
         }
 
-        const jint secondary = env->GetStaticIntField(
-            collatorClass.Get(),
-            secondaryField);
-        const jint canonical = env->GetStaticIntField(
-            collatorClass.Get(),
-            canonicalField);
+        const jint secondary =
+            env->GetStaticIntField(collatorClass.Get(), secondaryField);
         CheckAndroidJavaException(
             env,
-            "Could not read Android Collator constants.");
+            "Could not read Android ICU Collator.SECONDARY.");
 
         const jmethodID setStrength = env->GetMethodID(
             collatorClass.Get(),
             "setStrength",
             "(I)V");
-        const jmethodID setDecomposition = env->GetMethodID(
-            collatorClass.Get(),
-            "setDecomposition",
-            "(I)V");
         CheckAndroidJavaException(
             env,
-            "Could not resolve Android Collator configuration methods.");
-        if (setStrength == nullptr || setDecomposition == nullptr)
+            "Could not resolve Android ICU Collator.setStrength(int).");
+        if (setStrength == nullptr)
         {
             throw std::runtime_error(
-                "Could not resolve Android Collator configuration methods.");
+                "Could not resolve Android ICU Collator.setStrength(int).");
         }
 
         env->CallVoidMethod(collator.Get(), setStrength, secondary);
         CheckAndroidJavaException(
             env,
-            "Could not configure Android invariant collation strength.");
-        env->CallVoidMethod(collator.Get(), setDecomposition, canonical);
-        CheckAndroidJavaException(
-            env,
-            "Could not configure Android invariant collation normalization.");
+            "Could not configure Android ICU invariant collation strength.");
         return collator;
     }
 
@@ -527,7 +736,7 @@ namespace
         const jmethodID getCollationKey = env->GetMethodID(
             collatorClass.Get(),
             "getCollationKey",
-            "(Ljava/lang/String;)Ljava/text/CollationKey;");
+            "(Ljava/lang/String;)Landroid/icu/text/CollationKey;");
         CheckAndroidJavaException(
             env,
             "Could not resolve Collator.getCollationKey(String).");
@@ -554,10 +763,10 @@ namespace
 
         LocalJavaRef<jclass> keyClass(
             env,
-            env->FindClass("java/text/CollationKey"));
+            env->FindClass("android/icu/text/CollationKey"));
         CheckAndroidJavaException(
             env,
-            "Could not resolve java.text.CollationKey.");
+            "Could not resolve android.icu.text.CollationKey.");
         if (!keyClass)
         {
             throw std::runtime_error(
@@ -656,39 +865,48 @@ namespace
     public:
         InvariantCollator()
             : _open(_library.Load<OpenFunction>("ucol_open")),
-              _setStrength(
-                  _library.Load<SetStrengthFunction>(
-                      "ucol_setStrength")),
-              _setAttribute(
-                  _library.Load<SetAttributeFunction>(
-                      "ucol_setAttribute")),
+              _openRules(
+                  _library.Load<OpenRulesFunction>("ucol_openRules")),
+              _getRules(
+                  _library.Load<GetRulesFunction>("ucol_getRules")),
               _close(_library.Load<CloseFunction>("ucol_close")),
               _strcoll(_library.Load<StrcollFunction>("ucol_strcoll")),
               _getSortKey(
-                  _library.Load<GetSortKeyFunction>(
-                      "ucol_getSortKey"))
+                  _library.Load<GetSortKeyFunction>("ucol_getSortKey"))
         {
             std::int32_t status = 0;
-            _collator = _open("root", &status);
+            AppleUCollator* base = _open("root", &status);
+            if (status > 0 || base == nullptr)
+            {
+                throw std::runtime_error(
+                    "Unable to create the Apple ICU root collator.");
+            }
+
+            std::int32_t baseRuleLength = 0;
+            const char16_t* baseRules =
+                _getRules(base, &baseRuleLength);
+            std::u16string rules;
+            if (baseRules != nullptr && baseRuleLength > 0)
+            {
+                rules.assign(
+                    baseRules,
+                    baseRules + baseRuleLength);
+            }
+            AppendDotNetInvariantIgnoreCaseRules(rules);
+
+            status = 0;
+            _collator = _openRules(
+                rules.data(),
+                static_cast<std::int32_t>(rules.size()),
+                DefaultNormalization,
+                SecondaryStrength,
+                nullptr,
+                &status);
+            _close(base);
             if (status > 0 || _collator == nullptr)
             {
                 throw std::runtime_error(
-                    "Unable to create the Apple ICU invariant collator.");
-            }
-
-            _setStrength(_collator, SecondaryStrength);
-            status = 0;
-            _setAttribute(
-                _collator,
-                NormalizationMode,
-                AttributeOn,
-                &status);
-            if (status > 0)
-            {
-                _close(_collator);
-                _collator = nullptr;
-                throw std::runtime_error(
-                    "Unable to configure the Apple ICU invariant collator.");
+                    "Unable to create the Apple ICU invariant ignore-case collator.");
             }
         }
 
@@ -731,14 +949,16 @@ namespace
     private:
         using OpenFunction =
             AppleUCollator* (*)(const char*, std::int32_t*);
-        using SetStrengthFunction =
-            void (*)(AppleUCollator*, std::int32_t);
-        using SetAttributeFunction =
-            void (*)(
-                AppleUCollator*,
+        using OpenRulesFunction =
+            AppleUCollator* (*)(
+                const char16_t*,
                 std::int32_t,
                 std::int32_t,
+                std::int32_t,
+                void*,
                 std::int32_t*);
+        using GetRulesFunction =
+            const char16_t* (*)(const AppleUCollator*, std::int32_t*);
         using CloseFunction = void (*)(AppleUCollator*);
         using StrcollFunction =
             std::int32_t (*)(
@@ -755,14 +975,13 @@ namespace
                 std::uint8_t*,
                 std::int32_t);
 
+        static constexpr std::int32_t DefaultNormalization = -1;
         static constexpr std::int32_t SecondaryStrength = 1;
-        static constexpr std::int32_t NormalizationMode = 4;
-        static constexpr std::int32_t AttributeOn = 17;
 
         AppleIcuLibrary _library;
         OpenFunction _open;
-        SetStrengthFunction _setStrength;
-        SetAttributeFunction _setAttribute;
+        OpenRulesFunction _openRules;
+        GetRulesFunction _getRules;
         CloseFunction _close;
         StrcollFunction _strcoll;
         GetSortKeyFunction _getSortKey;
@@ -837,26 +1056,40 @@ namespace
         InvariantCollator()
         {
             UErrorCode status = U_ZERO_ERROR;
-            _collator = ucol_open("root", &status);
+            UCollator* base = ucol_open("root", &status);
+            if (U_FAILURE(status) || base == nullptr)
+            {
+                throw std::runtime_error(
+                    "Unable to create the ICU root collator.");
+            }
+
+            std::int32_t baseRuleLength = 0;
+            const UChar* baseRules =
+                ucol_getRules(base, &baseRuleLength);
+            static_assert(sizeof(UChar) == sizeof(char16_t));
+            std::u16string rules;
+            if (baseRules != nullptr && baseRuleLength > 0)
+            {
+                rules.assign(
+                    reinterpret_cast<const char16_t*>(baseRules),
+                    reinterpret_cast<const char16_t*>(baseRules)
+                        + baseRuleLength);
+            }
+            AppendDotNetInvariantIgnoreCaseRules(rules);
+
+            status = U_ZERO_ERROR;
+            _collator = ucol_openRules(
+                reinterpret_cast<const UChar*>(rules.data()),
+                static_cast<std::int32_t>(rules.size()),
+                UCOL_DEFAULT,
+                UCOL_SECONDARY,
+                nullptr,
+                &status);
+            ucol_close(base);
             if (U_FAILURE(status) || _collator == nullptr)
             {
                 throw std::runtime_error(
-                    "Unable to create the ICU invariant collator.");
-            }
-
-            ucol_setStrength(_collator, UCOL_SECONDARY);
-            status = U_ZERO_ERROR;
-            ucol_setAttribute(
-                _collator,
-                UCOL_NORMALIZATION_MODE,
-                UCOL_ON,
-                &status);
-            if (U_FAILURE(status))
-            {
-                ucol_close(_collator);
-                _collator = nullptr;
-                throw std::runtime_error(
-                    "Unable to configure the ICU invariant collator.");
+                    "Unable to create the ICU invariant ignore-case collator.");
             }
         }
 

@@ -11,3 +11,7 @@ private: \
     static const ::OpenTK::Mathematics::Vector4 _stylusLit; \
     void DrawStylusCircle(float centreX, float centreY, float radiusX, float radiusY, \
         ::OpenTK::Mathematics::Vector4 colour);
+
+#ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER
+#include "../../Entities/Players/PlayerEntity.hpp"
+#endif

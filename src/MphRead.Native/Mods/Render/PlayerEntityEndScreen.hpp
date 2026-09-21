@@ -56,3 +56,7 @@ private:                                                                        
         = std::make_shared<std::vector<::MphRead::Mods::EndScreen::Hit>>(EndSuitHitCount());    \
     void DrawEndSuits(::MphRead::Hunter hunter, std::int32_t chosen,                            \
         float left, float top, float aspect);
+
+#ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER
+#include "../../Entities/Players/PlayerEntity.hpp"
+#endif

@@ -2,28 +2,7 @@
 
 #include "../../Formats/Types.hpp"
 
-namespace MphRead::Mods
-{
-    class EndScreen final
-    {
-    public:
-        EndScreen() = delete;
-
-        struct Hit
-        {
-            const float Left = 0.0F;
-            const float Top = 0.0F;
-            const float Right = 0.0F;
-            const float Bottom = 0.0F;
-
-            [[nodiscard]] bool Contains(float x, float y) const;
-        };
-
-        [[nodiscard]] static bool Available();
-        [[nodiscard]] static float PointerX();
-        [[nodiscard]] static float PointerY();
-    };
-}
+#include "../EndScreen.hpp"
 
 #define MPHREAD_PLAYER_VOTE_HUD_MEMBERS \
 public: \
@@ -46,3 +25,7 @@ private: \
     [[nodiscard]] static bool VoteByTouch(); \
     [[nodiscard]] static ::MphRead::Mods::EndScreen::Hit ModVoteHit( \
         float left, float top, float right, float bottom);
+
+#ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER
+#include "../../Entities/Players/PlayerEntity.hpp"
+#endif

@@ -15,28 +15,14 @@ namespace MphRead::Text
     class Font;
 }
 
-namespace MphRead::Entities
-{
-    class PlayerEntity
-    {
-    public:
-        float ModAmmoTextX(float x, float y, MphRead::Hud::Align align, std::u16string_view text);
+#define MPHREAD_PLAYER_ENTITY_AMMO_CLEAR_MEMBERS \
+public: \
+    float ModAmmoTextX(float x, float y, MphRead::Hud::Align align, std::u16string_view text); \
+private: \
+    static constexpr float AmmoIconGap = 2.0F; \
+    static constexpr float FontLineHeight = 12.0F; \
+    float ModTextWidth(std::u16string_view text);
 
-    private:
-        static constexpr float AmmoIconGap = 2.0F;
-        static constexpr float FontLineHeight = 12.0F;
-
-        float ModTextWidth(std::u16string_view text);
-
-        // Declaration-only seams for private members owned by the later PlayerEntity/Text slices.
-        // They carry no behavior in this slice.
-        [[nodiscard]] MphRead::Hud::HudObjectInstance& WeaponIconInst();
-        [[nodiscard]] MphRead::Hud::HudObjects& HudObjectsState();
-        [[nodiscard]] float ObjShiftX() const;
-        [[nodiscard]] float ObjShiftY() const;
-        [[nodiscard]] float HudAspectFix();
-        [[nodiscard]] MphRead::Text::Font& SetUpFont(char16_t firstChar, bool set);
-        [[nodiscard]] static std::int32_t GlyphIndex(const MphRead::Text::Font& font, std::int32_t ch);
-        [[nodiscard]] static std::int32_t FontWidthAt(const MphRead::Text::Font& font, std::int32_t index);
-    };
-}
+#ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER
+#include "../../Entities/Players/PlayerEntity.hpp"
+#endif

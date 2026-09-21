@@ -124,24 +124,22 @@ namespace MphRead::Entities
     constexpr AiFlags4& operator|=(AiFlags4& a, AiFlags4 b) noexcept { return a = a | b; }
     constexpr AiFlags4& operator&=(AiFlags4& a, AiFlags4 b) noexcept { return a = a & b; }
 
-    class PlayerEntity
-    {
-    public:
-        class PlayerAiData;
+#define MPHREAD_PLAYER_AI_MEMBERS \
+public: \
+    class PlayerAiData; \
+    std::shared_ptr<PlayerAiData> AiData{}; \
+    std::shared_ptr<::MphRead::Formats::NodeData3> ClosestNode{}; \
+    [[nodiscard]] std::int32_t BotLevel() const noexcept { return _botLevel; } \
+    void SetBotLevel(std::int32_t value) noexcept { _botLevel = value; } \
+private: \
+    std::int32_t _botLevel = 0;
+}
 
-        // PlayerAi.cs partial surface.
-        std::shared_ptr<PlayerAiData> AiData{};
-        std::shared_ptr<Formats::NodeData3> ClosestNode{};
-        std::int32_t BotLevel = 0;
+#ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER
+#include "PlayerEntity.hpp"
 
-        // Declarations supplied by other PlayerEntity partials. They are only
-        // declared here so this exact partial can be materialized before its host.
-        static const std::int32_t SlotCapacity;
-        static std::int32_t MaxPlayers;
-        static std::vector<std::shared_ptr<PlayerEntity>> Players;
-        static std::shared_ptr<PlayerEntity> Main;
-    };
-
+namespace MphRead::Entities
+{
     class PlayerEntity::PlayerAiData
     {
     public:
@@ -4264,3 +4262,5 @@ namespace MphRead::Entities
         AiEntityRefs _entityRefs{};
     };
 }
+
+#endif

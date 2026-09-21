@@ -1,14 +1,26 @@
 #pragma once
 
+#define MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER 1
+
 #include "DynamicLightEntity.hpp"
+#include "PlayerAi.hpp"
 #include "PlayerCamera.hpp"
 #include "PlayerCollision.hpp"
 #include "PlayerDialog.hpp"
 #include "PlayerDraw.hpp"
 #include "PlayerHud.hpp"
 #include "PlayerInput.hpp"
+#include "PlayerPause.hpp"
+#include "PlayerProcess.hpp"
+#include "PlayerScan.hpp"
 #include "PlayerSound.hpp"
 #include "../../Mods/Chat/PlayerEntityChatHud.hpp"
+#include "../../Mods/Network/PlayerEntityNetAim.hpp"
+#include "../../Mods/Network/PlayerEntityNetHud.hpp"
+#include "../../Mods/Render/PlayerEntityAmmoClear.hpp"
+#include "../../Mods/Render/PlayerEntityEndScreen.hpp"
+#include "../../Mods/Render/PlayerEntityStylusHud.hpp"
+#include "../../Mods/Render/PlayerEntityVoteHud.hpp"
 #include "../EnemyInstanceEntity.hpp"
 #include "../../Formats/Culling.hpp"
 #include "../../Formats/Formats.hpp"
@@ -599,8 +611,6 @@ namespace MphRead::Entities
         [[nodiscard]] std::int32_t SlotIndex() const noexcept { return _slotIndex; }
         [[nodiscard]] bool IsBot() const noexcept { return _isBot; }
         void SetIsBot(bool value) noexcept { _isBot = value; }
-        // PlayerAi.cs contributor-owned seam used by accepted collision code.
-        [[nodiscard]] std::int32_t BotLevel() const noexcept;
         [[nodiscard]] Entities::LoadFlags LoadFlags() const noexcept { return _loadFlags; }
         void SetLoadFlags(Entities::LoadFlags value) noexcept { _loadFlags = value; }
         [[nodiscard]] MphRead::Hunter Hunter() const noexcept { return _hunter; }
@@ -683,7 +693,6 @@ namespace MphRead::Entities
         void Reposition(::OpenTK::Mathematics::Vector3 offset,
             MphRead::Formats::Culling::NodeRef nodeRef);
         void BlockFormSwitch();
-        void ResetCombatVisor();
         void SetBipedStuck(bool stuck);
         [[nodiscard]] bool CheckHitByBomb(BombEntity* bomb, bool halfturret);
         void OnHalfturretDied();
@@ -708,6 +717,7 @@ namespace MphRead::Entities
         inline static std::array<std::array<MphRead::CollisionVolume, 3>, 8> PlayerVolumes{};
         inline static std::array<float, 4> KandenAltNodeDistances{};
 
+        MPHREAD_PLAYER_AI_MEMBERS
         MPHREAD_PLAYER_ENTITY_ICON_BOUNDS_MEMBERS
         MPHREAD_PLAYER_CAMERA_MEMBERS
         MPHREAD_PLAYER_COLLISION_MEMBERS
@@ -715,8 +725,17 @@ namespace MphRead::Entities
         MPHREAD_PLAYER_DRAW_MEMBERS
         MPHREAD_PLAYER_HUD_MEMBERS
         MPHREAD_PLAYER_INPUT_MEMBERS
+        MPHREAD_PLAYER_PAUSE_MEMBERS
+        MPHREAD_PLAYER_PROCESS_MEMBERS
+        MPHREAD_PLAYER_SCAN_MEMBERS
         MPHREAD_PLAYER_SOUND_MEMBERS
         MPHREAD_PLAYER_ENTITY_CHAT_HUD_MEMBERS
+        MPHREAD_PLAYER_ENTITY_NET_AIM_MEMBERS
+        MPHREAD_PLAYER_ENTITY_NET_HUD_MEMBERS
+        MPHREAD_PLAYER_ENTITY_AMMO_CLEAR_MEMBERS
+        MPHREAD_PLAYER_ENTITY_END_SCREEN_MEMBERS
+        MPHREAD_PLAYER_STYLUS_HUD_MEMBERS
+        MPHREAD_PLAYER_VOTE_HUD_MEMBERS
 
     private:
         explicit PlayerEntity(std::int32_t slotIndex, MphRead::Scene* scene);
@@ -973,3 +992,5 @@ namespace MphRead::Entities
         inline static std::array<std::optional<std::string>, 9> _weaponNames{};
     };
 }
+
+#undef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER

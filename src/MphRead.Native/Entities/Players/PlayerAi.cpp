@@ -119,8 +119,8 @@ namespace MphRead::Entities
         _playerVisibility[_visIndex2][_visIndex1] = false;
         std::shared_ptr<PlayerEntity> player1 = PlayerEntity::Players()[_visIndex1];
         std::shared_ptr<PlayerEntity> player2 = PlayerEntity::Players()[_visIndex2];
-        if (player1->Health() != 0 && player1->HasFlag(LoadFlags(), LoadFlags::Active)
-            && player2->Health() != 0 && player2->HasFlag(LoadFlags(), LoadFlags::Active)
+        if (player1->Health() != 0 && HasFlag(player1->LoadFlags(), LoadFlags::Active)
+            && player2->Health() != 0 && HasFlag(player2->LoadFlags(), LoadFlags::Active)
             && (player1->IsBot() || player2->IsBot()))
         {
             Vector3 pos1 = player1->CameraInfo()->Position;
@@ -227,12 +227,13 @@ namespace MphRead::Entities
 
     void PlayerEntity::PlayerAiData::InitializeMain()
     {
-        if (_scene.Room == nullptr || _scene.Room->NodeData == nullptr) return;
-        _nodeData = _scene.Room->NodeData;
+        if (_scene.Room() == nullptr || _scene.Room()->NodeData == nullptr) return;
+        _nodeData = _scene.Room()->NodeData;
         SetClosestNodeList(_player->Position);
         if (GameState::Mode() == GameMode::Capture)
         {
-            for (const auto& entity : _scene.Entities)
+            for (auto entityEnumerator = _scene.Entities().GetEnumerator(); entityEnumerator.MoveNext(); )
+            if (const auto entity = entityEnumerator.Current(); true)
             {
                 if (entity->Type == EntityType::OctolithFlag)
                 {
@@ -251,7 +252,8 @@ namespace MphRead::Entities
         }
         else if (GameState::Mode() == GameMode::Bounty || GameState::Mode() == GameMode::BountyTeams)
         {
-            for (const auto& entity : _scene.Entities)
+            for (auto entityEnumerator = _scene.Entities().GetEnumerator(); entityEnumerator.MoveNext(); )
+            if (const auto entity = entityEnumerator.Current(); true)
             {
                 if (entity->Type == EntityType::OctolithFlag && !_octolithFlagCC)
                     _octolithFlagCC = _octolithFlagD4 = _octolithFlagDC = std::static_pointer_cast<OctolithFlagEntity>(entity);
@@ -369,7 +371,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::PlayerAiData::UpdateAggro()
     {
-        float fov = MathHelper::DegreesToRadians(_player->CameraInfo()->Fov > 0 ? _player->CameraInfo()->Fov : 78.0F);
+        float fov = DegreesToRadians(_player->CameraInfo()->Fov > 0 ? _player->CameraInfo()->Fov : 78.0F);
         Matrix4 perspectiveMatrix = _scene.GetPerspectiveMatrix(fov);
         for (auto _enumerator0 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator0.MoveNext(); )
         if (const auto other = _enumerator0.Current(); true)
@@ -379,7 +381,7 @@ namespace MphRead::Entities
             float w = Matrix::ProjectPosition(other->Position, _player->CameraInfo()->ViewMatrix, perspectiveMatrix, proj);
             if (w < 0) return;
             if (proj.X >= 1 || proj.Y >= 1) continue;
-            if (other->CurAlpha() >= 1 || other->HasFlag(Flags2(), PlayerFlags2::RadarReveal) || GameState::RadarPlayers()
+            if (other->CurAlpha() >= 1 || HasFlag(other->Flags2(), PlayerFlags2::RadarReveal) || GameState::RadarPlayers()
                 || other->OctolithFlag() != nullptr || GameState::PrimeHunter() == other->SlotIndex())
             {
                 AggroFunc214864C(6, 1, 2, nullptr, other, 0, 30, 10, 3);
@@ -398,7 +400,7 @@ namespace MphRead::Entities
                 alpha = alpha <= 2 ? 1 : alpha - 2;
                 AggroFunc214864C(6, 1, 2, nullptr, other, 0, alpha, 10, 3);
             }
-            float otherFov = MathHelper::DegreesToRadians(other->CameraInfo()->Fov > 0 ? other->CameraInfo()->Fov : 78.0F);
+            float otherFov = DegreesToRadians(other->CameraInfo()->Fov > 0 ? other->CameraInfo()->Fov : 78.0F);
             Matrix4 otherPerspective = _scene.GetPerspectiveMatrix(otherFov);
             w = Matrix::ProjectPosition(_player->Position, other->CameraInfo()->ViewMatrix, otherPerspective, proj);
             if (w < 0) return;
@@ -424,7 +426,7 @@ namespace MphRead::Entities
         Flags2 &= ~AiFlags2::Bit10;
         RemovePlayerFromGlobals(_player);
         if (std::find(_func4Ids.begin(), _func4Ids.end(), context.Func24Id) != _func4Ids.end()
-            && _player->HasFlag(Flags1(), PlayerFlags1::Grounded))
+            && HasFlag(_player->Flags1(), PlayerFlags1::Grounded))
         {
             Flags2 &= ~AiFlags2::Bit7;
         }
@@ -437,7 +439,7 @@ namespace MphRead::Entities
     {
         ExecuteFuncs1(context.Data1->Data3b);
         ExecuteFuncs2(context);
-        if (context.Func24Id != 0 && _player->EquipWeapon()HasFlag(.Flags, WeaponFlags::CanZoom)
+        if (context.Func24Id != 0 && HasFlag(_player->EquipWeapon().Flags, WeaponFlags::CanZoom)
             && _buttons.Select.FramesUp > 5 * 2
             && ((!_player->EquipInfo()->Zoomed && (Flags4 & AiFlags4::Bit2) != AiFlags4::None)
                 || (_player->EquipInfo()->Zoomed && (Flags4 & AiFlags4::Bit2) == AiFlags4::None)))

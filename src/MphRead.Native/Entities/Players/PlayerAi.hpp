@@ -4,6 +4,7 @@
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
+#include <any>
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -153,10 +154,13 @@ private: \
 #include "../JumpPadEntity.hpp"
 #include "../NodeDefenseEntity.hpp"
 #include "../OctolithFlagEntity.hpp"
+#include "../../Formats/AiPersonality.hpp"
 #include "../../Formats/NodeData.hpp"
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
+#include "../../Metadata/Player.hpp"
 #include "../../Scene.hpp"
+#include "../../SceneSetup.hpp"
 #include "../../Utility/Rng.hpp"
 
 namespace MphRead::Entities
@@ -229,6 +233,15 @@ namespace MphRead::Entities
         [[nodiscard]] static constexpr Vector3 UnitX() noexcept { return Vector3(1.0F, 0.0F, 0.0F); }
         [[nodiscard]] static constexpr Vector3 UnitY() noexcept { return Vector3(0.0F, 1.0F, 0.0F); }
         [[nodiscard]] static constexpr Vector3 UnitZ() noexcept { return Vector3(0.0F, 0.0F, 1.0F); }
+
+        [[nodiscard]] static constexpr float DegreesToRadians(float degrees) noexcept
+        {
+            return degrees * (3.14159265358979323846F / 180.0F);
+        }
+        [[nodiscard]] static constexpr float RadiansToDegrees(float radians) noexcept
+        {
+            return radians * (180.0F / 3.14159265358979323846F);
+        }
 
         template <typename T>
         [[nodiscard]] static constexpr bool HasFlag(T value, T flag) noexcept
@@ -1191,7 +1204,7 @@ namespace MphRead::Entities
             for (auto _enumerator1 = _scene.GetCamSeqEntities().GetEnumerator(); _enumerator1.MoveNext(); )
             if (const auto camSeq = _enumerator1.Current(); true)
             {
-                if (camSeq->Id == 56) { _scene.SendMessage(Message::Activate, _player, *camSeq, 0, 0); break; }
+                if (camSeq->Id == 56) { _scene.SendMessage(Message::Activate, _player.get(), camSeq.get(), std::make_shared<const std::any>(std::int32_t{0}), std::make_shared<const std::any>(std::int32_t{0})); break; }
             }
         }
         void Func1_UnlockEchoHallForceField()
@@ -1199,7 +1212,7 @@ namespace MphRead::Entities
             for (auto _enumerator2 = _scene.GetForceFieldEntities().GetEnumerator(); _enumerator2.MoveNext(); )
             if (const auto forceField = _enumerator2.Current(); true)
             {
-                if (forceField->Id == 19) { _scene.SendMessage(Message::Unlock, _player, *forceField, 0, 0); break; }
+                if (forceField->Id == 19) { _scene.SendMessage(Message::Unlock, _player.get(), forceField.get(), std::make_shared<const std::any>(std::int32_t{0}), std::make_shared<const std::any>(std::int32_t{0})); break; }
             }
         }
         void Func1_SetInvulnerable() { Flags3 |= AiFlags3::Invulnerable; }
@@ -1321,7 +1334,7 @@ namespace MphRead::Entities
                 else if (context.Field5 != 58 || _player->IsAltForm()) Func2140094(context);
                 else Func214003C(context);
                 if (context.Field6 == 52 && !_player->IsAltForm() && !_player->IsMorphing()
-                    && !_player->HasFlag(Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > 5 * 2)
+                    && !HasFlag(_player->Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > 5 * 2)
                 {
                     AiPlayerAggro* aggro = AggroFunc214847C(4, 7, 1, nullptr, nullptr);
                     if (aggro != nullptr && aggro->Staleness < 30 * 2)
@@ -1372,7 +1385,7 @@ namespace MphRead::Entities
                         else Func2142ABC(*position);
                         if (!_player->IsMorphing() && !_player->IsUnmorphing())
                         {
-                            if (_player->_horizColTimer > 10 * 2 && _player->HasFlag(Flags1(), PlayerFlags1::Grounded)) PressL();
+                            if (_player->_horizColTimer > 10 * 2 && HasFlag(_player->Flags1(), PlayerFlags1::Grounded)) PressL();
                             if (context.Field9 == 6 || context.Field9 == 14 || context.Field9 == 17 || context.Field9 == 20)
                             {
                                 Vector3 toPos = *position - _player->Position;
@@ -1410,7 +1423,7 @@ namespace MphRead::Entities
                 }
                 else if (context.FieldF == 66)
                 {
-                    if (HasFlag(_player->_abilities, AbilityFlags::SpireAltAttack) && !_player->HasFlag(Flags2(), PlayerFlags2::AltAttack)) shootAndSetDelay();
+                    if (HasFlag(_player->_abilities, AbilityFlags::SpireAltAttack) && !HasFlag(_player->Flags2(), PlayerFlags2::AltAttack)) shootAndSetDelay();
                 }
                 else if (context.FieldF == 67)
                 {
@@ -1452,10 +1465,10 @@ namespace MphRead::Entities
                 assert(_targetPlayer);
                 if (_targetPlayer->Hunter() == Hunter::Sylux && _targetPlayer->IsAltForm() && Func2139C60(*_targetPlayer)) PressL();
             }
-            if (context.Field6 == 51 && !_player->IsAltForm() && !_player->IsMorphing() && !_player->HasFlag(Flags1(), PlayerFlags1::UsedJump)) PressButton(_buttons.L, 5);
+            if (context.Field6 == 51 && !_player->IsAltForm() && !_player->IsMorphing() && !HasFlag(_player->Flags1(), PlayerFlags1::UsedJump)) PressButton(_buttons.L, 5);
             if ((Flags2 & AiFlags2::Bit21) != AiFlags2::None && Rng::GetRandomInt2(10) == 0
-                && !_player->IsAltForm() && !_player->IsMorphing() && !_player->HasFlag(Flags1(), PlayerFlags1::UsedJump)) PressButton(_buttons.L, 5);
-            if (context.Func24Id == 95 && !_player->IsAltForm() && !_player->IsMorphing() && !_player->HasFlag(Flags1(), PlayerFlags1::UsedJump)
+                && !_player->IsAltForm() && !_player->IsMorphing() && !HasFlag(_player->Flags1(), PlayerFlags1::UsedJump)) PressButton(_buttons.L, 5);
+            if (context.Func24Id == 95 && !_player->IsAltForm() && !_player->IsMorphing() && !HasFlag(_player->Flags1(), PlayerFlags1::UsedJump)
                 && Metadata::SlipSpeedFactors[_player->_slipperiness] > 0 && _player->_hSpeedMag > 0) PressButton(_buttons.L, 5);
         }
 
@@ -1599,7 +1612,8 @@ namespace MphRead::Entities
             auto toTarget = static_cast<Vector3>(_targetPlayer->Position) - static_cast<Vector3>(_player->Position);
             float minLengthSqr = LengthSquared(toTarget);
             std::shared_ptr<BeamProjectileEntity> closestBeam{};
-            for (auto& beam : _targetPlayer->EquipInfo()->Beams)
+            for (std::int32_t beamIndex = 0; beamIndex < _targetPlayer->EquipInfo()->Beams->Length(); ++beamIndex)
+            if (const auto& beam = (*_targetPlayer->EquipInfo()->Beams)[beamIndex]; true)
             {
                 if (beam->Lifespan() > 0)
                 {
@@ -1614,7 +1628,7 @@ namespace MphRead::Entities
             }
             if (closestBeam)
             {
-                auto beamVelocityH = closestBeam->WithY(Velocity(), 0);
+                auto beamVelocityH = WithY(closestBeam->Velocity(), 0);
                 auto altVec = _player->IsAltForm()
                     ? ::OpenTK::Mathematics::Vector3(_player->_field80, 0, _player->_field84)
                     : ::OpenTK::Mathematics::Vector3(_player->_field70, 0, _player->_field74);
@@ -1705,7 +1719,7 @@ namespace MphRead::Entities
                 Func21436D8();
             }
             if ((Flags2 & AiFlags2::Bit10) != AiFlags2::None && Rng::GetRandomInt2(10) == 0 && !_player->IsAltForm() && !_player->IsMorphing()
-                && !_player->HasFlag(Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > 10) _buttons.L.IsDown = true;
+                && !HasFlag(_player->Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > 10) _buttons.L.IsDown = true;
         }
 
         void Func2142D38()
@@ -1718,7 +1732,7 @@ namespace MphRead::Entities
         void Func2_213E31C(AiContext&)
         {
             CheckUnmorph(); if ((Flags2 & AiFlags2::TargetPlayer) != AiFlags2::None) Func21433E4(); Func2142D38();
-            if (!_player->HasFlag(Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > _field1034)
+            if (!HasFlag(_player->Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > _field1034)
             { _buttons.L.IsDown = true; _field1034 = Rng::GetRandomInt2(150) + 30; }
         }
         void Func21431B4()
@@ -1736,7 +1750,7 @@ namespace MphRead::Entities
         void Func2_213E274(AiContext&)
         {
             CheckUnmorph(); if ((Flags2 & AiFlags2::TargetPlayer) != AiFlags2::None) { Func21436D8(); Func21431B4(); }
-            if (!_player->HasFlag(Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > _field1034)
+            if (!HasFlag(_player->Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > _field1034)
             { _buttons.L.IsDown = true; _field1034 = Rng::GetRandomInt2(150) + 30; }
         }
         void Func21430B4()
@@ -1749,7 +1763,7 @@ namespace MphRead::Entities
         void Func2_213E1CC(AiContext&)
         {
             CheckUnmorph(); if ((Flags2 & AiFlags2::TargetHalfturret) != AiFlags2::None) { Func2143470(); Func21430B4(); }
-            if (!_player->HasFlag(Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > _field1034)
+            if (!HasFlag(_player->Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > _field1034)
             { _buttons.L.IsDown = true; _field1034 = Rng::GetRandomInt2(150) + 30; }
         }
         void Func2_213D9B8(AiContext& context)
@@ -1758,8 +1772,8 @@ namespace MphRead::Entities
             else
             {
                 assert(_node40); Func2142ABC(_node40->Position); Field118++;
-                if (!_player->HasFlag(Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > 10
-                    && (_player->_standTerrain == Terrain::Lava || (_player->_horizColTimer > 20 && _player->HasFlag(Flags1(), PlayerFlags1::Grounded)))) _buttons.L.IsDown = true;
+                if (!HasFlag(_player->Flags1(), PlayerFlags1::UsedJump) && _buttons.L.FramesUp > 10
+                    && (_player->_standTerrain == Terrain::Lava || (_player->_horizColTimer > 20 && HasFlag(_player->Flags1(), PlayerFlags1::Grounded)))) _buttons.L.IsDown = true;
                 Func2140B18(context, _node40->Position);
             }
         }
@@ -1778,10 +1792,10 @@ namespace MphRead::Entities
         std::int32_t Func3_213D7B8(AiContext& c, const Formats::AiPersonalityData5& p) { return Func3_213D7D0(c,p); }
         std::int32_t Func3_213D7A0(AiContext& c, const Formats::AiPersonalityData5& p) { return Func3_213D7D0(c,p); }
         std::int32_t Func3_213D77C(AiContext&, const Formats::AiPersonalityData5&)
-        { if ((Flags2 & AiFlags2::TargetDoor) != AiFlags2::None) { assert(_targetDoor); return _targetDoor->HasFlag(Flags(), DoorFlags::ShotOpen) ? 1 : 0; } return 0; }
+        { if ((Flags2 & AiFlags2::TargetDoor) != AiFlags2::None) { assert(_targetDoor); return HasFlag(_targetDoor->Flags(), DoorFlags::ShotOpen) ? 1 : 0; } return 0; }
         std::int32_t Func3_213D758(AiContext& c, const Formats::AiPersonalityData5& p) { return Func3_213D77C(c,p) ^ 1; }
         std::int32_t Func3_213D734(AiContext&, const Formats::AiPersonalityData5&)
-        { if ((Flags2 & AiFlags2::TargetDoor) != AiFlags2::None) { assert(_targetDoor); return _targetDoor->HasFlag(Flags(), DoorFlags::Locked) ? 1 : 0; } return 0; }
+        { if ((Flags2 & AiFlags2::TargetDoor) != AiFlags2::None) { assert(_targetDoor); return HasFlag(_targetDoor->Flags(), DoorFlags::Locked) ? 1 : 0; } return 0; }
         std::int32_t Func3_213D710(AiContext& c, const Formats::AiPersonalityData5& p) { return Func3_213D734(c,p) ^ 1; }
         std::int32_t Func3_213D6D0(AiContext&, const Formats::AiPersonalityData5&)
         { FindEntityRef(AiEntRefType::Type0); assert(_entityRefs.Field0); return IsNodeInRange(*_entityRefs.Field0) ? 1 : 0; }
@@ -1800,7 +1814,8 @@ namespace MphRead::Entities
         std::int32_t Func3_213D530(AiContext&,const Formats::AiPersonalityData5&){return Func213842C()?1:0;}
         std::int32_t Func3_213D514(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213D530(c,p)^1;}
         std::int32_t Func3_213D4C0(AiContext&,const Formats::AiPersonalityData5&)
-        { if((Flags2&AiFlags2::TargetPlayer)==AiFlags2::None)return 0; assert(_targetPlayer); for(auto& b:_targetPlayer->EquipInfo()->Beams) if(b->Lifespan()!=0)return 1; return 0; }
+        { if((Flags2&AiFlags2::TargetPlayer)==AiFlags2::None)return 0; assert(_targetPlayer); for (std::int32_t beamIndex = 0; beamIndex < _targetPlayer->EquipInfo()->Beams->Length(); ++beamIndex)
+            if (const auto& b = (*_targetPlayer->EquipInfo()->Beams)[beamIndex]; true) if(b->Lifespan()!=0)return 1; return 0; }
         std::int32_t Func3_213D49C(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213D4C0(c,p)^1;}
         std::int32_t Func3_213D43C(AiContext&,const Formats::AiPersonalityData5&)
         { for (auto _enumerator3 = _scene.GetBeamProjectileEntities().GetEnumerator(); _enumerator3.MoveNext(); )
@@ -1934,7 +1949,7 @@ namespace MphRead::Entities
         std::int32_t Func3_213BD7C(AiContext& c,const Formats::AiPersonalityData5& p){FindEntityRef(AiEntRefType::Type57);return _entityRefs.Field57&&Func3_213BE10(c,p)==1?1:0;}
         std::int32_t Func3_213BCE8(AiContext&,const Formats::AiPersonalityData5&){return CanChargeWeapon()?1:0;}
         std::int32_t Func3_213BCC4(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213BCE8(c,p)^1;}
-        std::int32_t Func3_213BCB0(AiContext&,const Formats::AiPersonalityData5&){return _player->HasFlag(Flags2(), PlayerFlags2::AltAttack)?1:0;}
+        std::int32_t Func3_213BCB0(AiContext&,const Formats::AiPersonalityData5&){return HasFlag(_player->Flags2(), PlayerFlags2::AltAttack)?1:0;}
         std::int32_t Func3_213BC8C(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213BCB0(c,p)^1;}
         std::int32_t Func3_213BC70(AiContext&,const Formats::AiPersonalityData5&){assert(_octolithFlagDC);return _octolithFlagDC->Carrier()==_player?1:0;}
         std::int32_t Func3_213BC4C(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213BC70(c,p)^1;}
@@ -2037,8 +2052,8 @@ namespace MphRead::Entities
         std::int32_t Func3_213AAF0(AiContext&,const Formats::AiPersonalityData5& p){return (Flags2&AiFlags2::TargetPlayer)!=AiFlags2::None&&_targetPlayer&&_targetPlayer->Position.Z<p.Param1/4096.0F?1:0;}
         std::int32_t Func3_213AA64(AiContext&,const Formats::AiPersonalityData5& p){if((Flags2&AiFlags2::TargetPlayer)==AiFlags2::None)return 0;assert(_targetPlayer);float d=p.Param1/4096.0F;return LengthSquared(_targetPlayer->Position)<d*d?1:0;}
         std::int32_t Func3_213AA20(AiContext& c,const Formats::AiPersonalityData5& p){return (Flags2&AiFlags2::TargetPlayer)!=AiFlags2::None&&Func3_213AA64(c,p)==0?1:0;}
-        std::int32_t Func3_213A9B8(AiContext&,const Formats::AiPersonalityData5&){if((Flags2&AiFlags2::TargetPlayer)==AiFlags2::None)return 0;if(GameState::RadarPlayers())return 31;assert(_targetPlayer);if(_targetPlayer->HasFlag(Flags2(), PlayerFlags2::RadarReveal)||_targetPlayer->OctolithFlag()||_targetPlayer->IsPrimeHunter())return 31;return static_cast<int>(_targetPlayer->CurAlpha()*31);}
-        std::int32_t Func3_213A94C(AiContext&,const Formats::AiPersonalityData5&){if((Flags2&AiFlags2::TargetPlayer)==AiFlags2::None)return 31;if(GameState::RadarPlayers())return 0;assert(_targetPlayer);if(_targetPlayer->HasFlag(Flags2(), PlayerFlags2::RadarReveal)||_targetPlayer->OctolithFlag()||_targetPlayer->IsPrimeHunter())return 0;return 31-static_cast<int>(_targetPlayer->CurAlpha()*31);}
+        std::int32_t Func3_213A9B8(AiContext&,const Formats::AiPersonalityData5&){if((Flags2&AiFlags2::TargetPlayer)==AiFlags2::None)return 0;if(GameState::RadarPlayers())return 31;assert(_targetPlayer);if(HasFlag(_targetPlayer->Flags2(), PlayerFlags2::RadarReveal)||_targetPlayer->OctolithFlag()||_targetPlayer->IsPrimeHunter())return 31;return static_cast<int>(_targetPlayer->CurAlpha()*31);}
+        std::int32_t Func3_213A94C(AiContext&,const Formats::AiPersonalityData5&){if((Flags2&AiFlags2::TargetPlayer)==AiFlags2::None)return 31;if(GameState::RadarPlayers())return 0;assert(_targetPlayer);if(HasFlag(_targetPlayer->Flags2(), PlayerFlags2::RadarReveal)||_targetPlayer->OctolithFlag()||_targetPlayer->IsPrimeHunter())return 0;return 31-static_cast<int>(_targetPlayer->CurAlpha()*31);}
         std::int32_t Func3_213A938(AiContext&,const Formats::AiPersonalityData5&){return (Flags4&AiFlags4::Bit2)!=AiFlags4::None?1:0;}
         std::int32_t Func3_213A91C(AiContext&,const Formats::AiPersonalityData5&){return (Flags4&AiFlags4::Bit2)!=AiFlags4::None?0:1;}
         std::int32_t Func3_213A900(AiContext&,const Formats::AiPersonalityData5&){return _player->_deathaltTimer!=0?1:0;}
@@ -2047,14 +2062,14 @@ namespace MphRead::Entities
         std::int32_t Func3_213A884(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213A8A8(c,p)^1;}
         std::int32_t Func3_213A868(AiContext&,const Formats::AiPersonalityData5&){return _player->_timeSinceGrounded>60?1:0;}
         std::int32_t Func3_213A844(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213A868(c,p)^1;}
-        std::int32_t Func3_213A828(AiContext&,const Formats::AiPersonalityData5&){return _player->HasFlag(Flags1(), PlayerFlags1::UsedJump)?0:1;}
+        std::int32_t Func3_213A828(AiContext&,const Formats::AiPersonalityData5&){return HasFlag(_player->Flags1(), PlayerFlags1::UsedJump)?0:1;}
         std::int32_t Func3_213A804(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213A828(c,p)^1;}
         std::int32_t Func3_213A798(AiContext&,const Formats::AiPersonalityData5&){for (auto _enumerator15 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator15.MoveNext(); )
             if (const auto o = _enumerator15.Current(); true)if(o!=_player&&o->IsBot()&&(o->AiData->Flags2&AiFlags2::Bit18)!=AiFlags2::None)return 1;return 0;}
         std::int32_t Func3_213A72C(AiContext&,const Formats::AiPersonalityData5&){for (auto _enumerator16 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator16.MoveNext(); )
             if (const auto o = _enumerator16.Current(); true)if(o!=_player&&o->IsBot()&&(o->AiData->Flags2&AiFlags2::Bit19)!=AiFlags2::None)return 1;return 0;}
         std::int32_t Func3_213A714(AiContext&,const Formats::AiPersonalityData5&){return _player->_horizColTimer>20?1:0;}
-        std::int32_t Func3_213A698(AiContext&,const Formats::AiPersonalityData5&){if((_scene.RoomId()==114||_scene.RoomId()==112)&&_player->!VectorEqual(Speed(), Vector3::Zero)&&!_player->IsAltForm())return 0;return _player->_standTerrain==Terrain::Lava?1:0;}
+        std::int32_t Func3_213A698(AiContext&,const Formats::AiPersonalityData5&){if((_scene.RoomId()==114||_scene.RoomId()==112)&&!VectorEqual(_player->Speed(), Vector3::Zero)&&!_player->IsAltForm())return 0;return _player->_standTerrain==Terrain::Lava?1:0;}
         std::int32_t Func3_213A688(AiContext&,const Formats::AiPersonalityData5&){return (Flags2&AiFlags2::AiStart)!=AiFlags2::None?1:0;}
         std::int32_t Func3_213A660(AiContext&,const Formats::AiPersonalityData5& p){return p.Param1+static_cast<int>(Rng::GetRandomInt2(p.Param2-p.Param1));}
         std::int32_t Func3_213A650(AiContext&,const Formats::AiPersonalityData5&){return (Flags2&AiFlags2::Bit13)!=AiFlags2::None?1:0;}
@@ -2137,7 +2152,7 @@ namespace MphRead::Entities
                         v25=Func213A1A8();
                         if(v25==_field4C[0]){_node44=_node40;_node40=v25;node40Set=true;}
                     }
-                    else if(!_player->HasFlag(Flags1(), PlayerFlags1::Grounded)){_node40=_field4C[0];node40Set=true;}
+                    else if(!HasFlag(_player->Flags1(), PlayerFlags1::Grounded)){_node40=_field4C[0];node40Set=true;}
                 }
                 if(!node40Set){FindEntityRef(AiEntRefType::Type1);_node40=_entityRefs.Field1;}
                 assert(_node40);
@@ -2214,7 +2229,7 @@ namespace MphRead::Entities
                 if(_node40&&IsNodeInRange(*_node40))
                 {
                     if(!v25)v25=Func213A1A8();bool v33=false;
-                    for(int i=0;i<_node40->Count2;i++)if(_node40->Values()[_node40->Index2+i]==v25->Id){v33=true;break;}
+                    for(int i=0;i<_node40->Count2;i++)if((*_node40->Values)[_node40->Index2+i]==v25->Id){v33=true;break;}
                     if(!v33)
                     {
                         _node48=_node44=_node40;_field4C[0]=_node40=v25;
@@ -2223,7 +2238,7 @@ namespace MphRead::Entities
                 }
             }
             if(context.Field5==47){_field90=_player->Position;_field9C=0.5F;}
-            if(context.Field6==51&&!_player->IsAltForm()&&!_player->IsMorphing()&&!_player->HasFlag(Flags1(), PlayerFlags1::UsedJump)&&_buttons.L.FramesUp>10)_buttons.L.IsDown=true;
+            if(context.Field6==51&&!_player->IsAltForm()&&!_player->IsMorphing()&&!HasFlag(_player->Flags1(), PlayerFlags1::UsedJump)&&_buttons.L.FramesUp>10)_buttons.L.IsDown=true;
         }
 
         void Func4_2145EB0(AiContext& context){context.Field40=0;context.Field34=_player->Position;if(Rng::GetRandomInt2(2)==0)Flags2&=~AiFlags2::Bit12;else Flags2|=AiFlags2::Bit12;}
@@ -2273,7 +2288,7 @@ namespace MphRead::Entities
             if(dot>255/256.0F)Flags2|=AiFlags2::Bit0;else Flags2&=~AiFlags2::Bit0;
             if(dot<1)
             {
-                if(dot>_dotValues[_player->BotLevel()])_buttonAimX=MathHelper::RadiansToDegrees(std::acos(dot));else _buttonAimX=_aimValues[_player->BotLevel()];
+                if(dot>_dotValues[_player->BotLevel()])_buttonAimX=RadiansToDegrees(std::acos(dot));else _buttonAimX=_aimValues[_player->BotLevel()];
                 if(Vector3::Cross(vec1,vec2).Y<0)_buttonAimX*=-1;
             }
         }
@@ -2282,9 +2297,9 @@ namespace MphRead::Entities
             Vector3 vec1(_player->CameraInfo()->Field48,0,_player->CameraInfo()->Field4C);
             Vector3 vec2=(_field1038.X!=0||_field1038.Z!=0)?WithY(_field1038, 0).Normalized():vec1;
             float dot=Vector3::Dot(vec1,vec2);float value=_aimValues[_player->BotLevel()];
-            if(dot<1){if(dot>_dotValues[_player->BotLevel()])_buttonAimX=MathHelper::RadiansToDegrees(std::acos(dot));else _buttonAimX=value;if(Vector3::Cross(vec1,vec2).Y<0)_buttonAimX*=-1;}
-            float angle1=90-MathHelper::RadiansToDegrees(std::acos(_player->CameraInfo()->Facing.Y));
-            float angle2=90-MathHelper::RadiansToDegrees(std::acos(_field1038.Y));
+            if(dot<1){if(dot>_dotValues[_player->BotLevel()])_buttonAimX=RadiansToDegrees(std::acos(dot));else _buttonAimX=value;if(Vector3::Cross(vec1,vec2).Y<0)_buttonAimX*=-1;}
+            float angle1=90-RadiansToDegrees(std::acos(_player->CameraInfo()->Facing.Y));
+            float angle2=90-RadiansToDegrees(std::acos(_field1038.Y));
             _buttonAimY=std::clamp(angle2-angle1,-value,value);
         }
         void Func21436D8()
@@ -2312,14 +2327,14 @@ namespace MphRead::Entities
                 int field1020Diff=_field1020-prevField1020;
                 if((Flags4&AiFlags4::Bit3)!=AiFlags4::None&&field1020Diff>0&&_player->BotLevel()>0)
                 {
-                    auto equip=_player->EquipInfo();auto weapon=equip.Weapon;bool isCharged=false;float chargePct=0;
+                    const auto& equip = *_player->EquipInfo(); const WeaponInfo& weapon = *equip.Weapon;bool isCharged=false;float chargePct=0;
                     if(HasFlag(weapon.Flags, WeaponFlags::PartialCharge))
                     {
                         if(HasFlag(weapon.Flags, WeaponFlags::CanCharge)&&equip.ChargeLevel>=weapon.MinCharge*2)
                         {isCharged=true;chargePct=(equip.ChargeLevel-weapon.MinCharge*2)/static_cast<float>(weapon.FullCharge*2-weapon.MinCharge*2);}
                     }
                     else if(equip.ChargeLevel>=weapon.FullCharge*2){isCharged=true;chargePct=1;}
-                    Vector3 vec=(targetPos-_field1054)/(field1020Diff/2.0F);float homing;float speed;
+                    Vector3 vec = DivideVector(targetPos - _field1054, field1020Diff / 2.0F);float homing;float speed;
                     if(isCharged)
                     {
                         homing=(weapon.MinChargeHoming+((weapon.ChargedHoming-weapon.MinChargeHoming)*chargePct))/4096.0F/2;
@@ -2354,7 +2369,7 @@ namespace MphRead::Entities
                     if(rand1>6)rand1=Rng::GetRandomInt2(8192)/4096.0F+4;else if(rand1<-6)rand1=-4-Rng::GetRandomInt2(9182)/4096.0F;
                     if(rand2>6)rand2=Rng::GetRandomInt2(8192)/4096.0F+4;else if(rand2<-6)rand2=-4-Rng::GetRandomInt2(9182)/4096.0F;
                 }
-                _field1048+=camVec*rand1+_player->CameraInfo()->UpVector*rand2;
+                _field1048 = _field1048 + ScaleVector(camVec, rand1) + ScaleVector(_player->CameraInfo()->UpVector, rand2);
             }
             Func2145738(_field1048);
             if((Flags4&AiFlags4::Bit2)!=AiFlags4::None){float aimValue=_aimValues[_player->BotLevel()]/2;_buttonAimX=std::clamp(_buttonAimX,-aimValue,aimValue);_buttonAimY=std::clamp(_buttonAimY,-aimValue,aimValue);}
@@ -2366,8 +2381,8 @@ namespace MphRead::Entities
             toTarget=toTarget.Normalized();float toTargetYNrm=toTarget.Y;toTarget=WithY(toTarget, 0);toTarget=!VectorEqual(toTarget, Vector3::Zero)?toTarget.Normalized():UnitX();
             Vector3 toPos=position-_player->_muzzlePos;float distToPosH=Length(WithY(toPos, 0));float posY=toPos.Y;toPos=toPos.Normalized();float posYNrm=toPos.Y;toPos=WithY(toPos, 0);toPos=!VectorEqual(toPos, Vector3::Zero)?toPos.Normalized():toTarget;
             float dot=Vector3::Dot(toTarget,toPos);float value=_aimValues[_player->BotLevel()];
-            if(dot<1){if(dot>_dotValues[_player->BotLevel()])_buttonAimX=MathHelper::RadiansToDegrees(std::acos(dot));else _buttonAimX=value;if(Vector3::Cross(toTarget,toPos).Y<0)_buttonAimX*=-1;}
-            auto equip=_player->EquipInfo();auto weapon=equip.Weapon;float chargePct=0;
+            if(dot<1){if(dot>_dotValues[_player->BotLevel()])_buttonAimX=RadiansToDegrees(std::acos(dot));else _buttonAimX=value;if(Vector3::Cross(toTarget,toPos).Y<0)_buttonAimX*=-1;}
+            const auto& equip = *_player->EquipInfo(); const WeaponInfo& weapon = *equip.Weapon;float chargePct=0;
             if(HasFlag(weapon.Flags, WeaponFlags::CanCharge)&&equip.ChargeLevel>=weapon.MinCharge*2)chargePct=(equip.ChargeLevel-weapon.MinCharge*2)/static_cast<float>(weapon.FullCharge*2-weapon.MinCharge*2);
             float speed=(weapon.UnchargedSpeed+((weapon.MinChargeSpeed-weapon.UnchargedSpeed)*chargePct))/4096.0F/2;
             float gravity=(weapon.UnchargedGravity+((weapon.MinChargeGravity-weapon.UnchargedGravity)*chargePct))/4096.0F/2;
@@ -2376,9 +2391,9 @@ namespace MphRead::Entities
             {
                 float div2=0;if(toTargetX!=0||toTargetZ!=0){float toTargetDistH=std::sqrt(toTargetX*toTargetX+toTargetZ*toTargetZ);div2=toTargetY/toTargetDistH;}
                 float v28=distToPosH*distToPosH-4*(div/2*(div/2-posY));if(v28<0)return;float sqrt=std::sqrt(v28);float div3=(sqrt-distToPosH)/div;
-                angle1=MathHelper::RadiansToDegrees(std::atan(div2));angle2=MathHelper::RadiansToDegrees(std::atan(div3));
+                angle1=RadiansToDegrees(std::atan(div2));angle2=RadiansToDegrees(std::atan(div3));
             }
-            else {angle1=90-MathHelper::RadiansToDegrees(std::acos(toTargetYNrm));angle2=90-MathHelper::RadiansToDegrees(std::acos(posYNrm));}
+            else {angle1=90-RadiansToDegrees(std::acos(toTargetYNrm));angle2=90-RadiansToDegrees(std::acos(posYNrm));}
             float angleDiff=angle2-angle1;_buttonAimY=std::clamp(angleDiff,-value,value);Flags2&=~AiFlags2::Bit8;if(dot>=255/256.0F&&angleDiff>-5&&angleDiff<5)Flags2|=AiFlags2::Bit8;
         }
 
@@ -2391,7 +2406,7 @@ namespace MphRead::Entities
 
         void Func2143A40()
         {
-            auto equip=_player->EquipInfo();auto weapon=_player->EquipWeapon();int shotDelay;
+            const auto& equip = *_player->EquipInfo(); const WeaponInfo& weapon = _player->EquipWeapon();int shotDelay;
             if(_player->BotLevel()==0)shotDelay=60;else if(_player->BotLevel()==1)shotDelay=15;else shotDelay=5;
             if((Flags2&AiFlags2::Bit21)!=AiFlags2::None)shotDelay/=2;shotDelay*=2;
             BeamType beam=GetBeamType(_weapon1);if(beam!=BeamType::ShockCoil&&!_player->AvailableWeapons()[beam])return;
@@ -2400,7 +2415,7 @@ namespace MphRead::Entities
             {
                 if(_player->CurrentWeapon()!=beam)_touchButtons.PowerBeam.IsDown=true;
                 else if((Flags4&AiFlags4::Bit1)!=AiFlags4::None&&CanChargeWeapon())
-                {if((!_player->HasFlag(Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp==0)||equip.ChargeLevel>=weapon.FullCharge*2)setRandomDelay();else _buttons.R.IsDown=true;}
+                {if((!HasFlag(_player->Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp==0)||equip.ChargeLevel>=weapon.FullCharge*2)setRandomDelay();else _buttons.R.IsDown=true;}
                 else if(_buttons.R.FramesDown>0&&_buttons.R.FramesDown<_shotDelay)_buttons.R.IsDown=true;
                 else if(_buttons.R.FramesUp<=_shotDelay)setRandomDelay();
                 else{_buttons.R.IsDown=true;_shotDelay=static_cast<int>(Rng::GetRandomInt2(weapon.FullCharge*2));}
@@ -2409,20 +2424,20 @@ namespace MphRead::Entities
             {
                 if(_player->CurrentWeapon()!=beam)_touchButtons.Missile.IsDown=true;
                 else if((Flags4&AiFlags4::Bit1)!=AiFlags4::None&&CanChargeWeapon())
-                {if((!_player->HasFlag(Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp<=_shotDelay)||equip.ChargeLevel>=weapon.FullCharge*2)setRandomDelay();else _buttons.R.IsDown=true;}
-                else if(_player->HasFlag(Flags1(), PlayerFlags1::GunOpenAnimation)&&_buttons.R.FramesUp>_shotDelay){_buttons.R.IsDown=true;setRandomDelay();}
+                {if((!HasFlag(_player->Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp<=_shotDelay)||equip.ChargeLevel>=weapon.FullCharge*2)setRandomDelay();else _buttons.R.IsDown=true;}
+                else if(HasFlag(_player->Flags1(), PlayerFlags1::GunOpenAnimation)&&_buttons.R.FramesUp>_shotDelay){_buttons.R.IsDown=true;setRandomDelay();}
             }
             else if(beam==BeamType::VoltDriver)
             {
                 if(_player->CurrentWeapon()!=beam)_touchButtons.VoltDriver.IsDown=true;
                 else if((Flags4&AiFlags4::Bit1)!=AiFlags4::None&&CanChargeWeapon())
-                {if((!_player->HasFlag(Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp<=_shotDelay)||equip.ChargeLevel>=weapon.FullCharge*2)setRandomDelay();else _buttons.R.IsDown=true;}
+                {if((!HasFlag(_player->Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp<=_shotDelay)||equip.ChargeLevel>=weapon.FullCharge*2)setRandomDelay();else _buttons.R.IsDown=true;}
                 else if(_buttons.R.FramesUp>_shotDelay){_buttons.R.IsDown=true;setRandomDelay();}
             }
             else if(beam==BeamType::Battlehammer)
             {
                 if(_player->CurrentWeapon()!=beam)_touchButtons.Battlehammer.IsDown=true;
-                else if(_player->HasFlag(Flags1(), PlayerFlags1::ShotUncharged)||_buttons.R.FramesUp>0)_buttons.R.IsDown=true;
+                else if(HasFlag(_player->Flags1(), PlayerFlags1::ShotUncharged)||_buttons.R.FramesUp>0)_buttons.R.IsDown=true;
             }
             else if(beam==BeamType::Imperialist)
             {if(_player->CurrentWeapon()!=beam)_touchButtons.Imperialist.IsDown=true;else if(_buttons.R.FramesUp>_shotDelay)_buttons.R.IsDown=true;}
@@ -2431,7 +2446,7 @@ namespace MphRead::Entities
                 if(_player->CurrentWeapon()!=beam)_touchButtons.Judicator.IsDown=true;
                 else if((Flags4&AiFlags4::Bit1)!=AiFlags4::None&&CanChargeWeapon())
                 {
-                    if((!_player->HasFlag(Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp<=_shotDelay)||equip.ChargeLevel>=weapon.FullCharge*2)
+                    if((!HasFlag(_player->Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp<=_shotDelay)||equip.ChargeLevel>=weapon.FullCharge*2)
                     {
                         if((Flags2&AiFlags2::TargetPlayer)!=AiFlags2::None)
                         {
@@ -2448,7 +2463,7 @@ namespace MphRead::Entities
             {
                 if(_player->CurrentWeapon()!=beam)_touchButtons.Magmaul.IsDown=true;
                 else if((Flags4&AiFlags4::Bit1)!=AiFlags4::None&&CanChargeWeapon())
-                {if((!_player->HasFlag(Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp<=_shotDelay)||equip.ChargeLevel>=weapon.FullCharge*2)setRandomDelay();else _buttons.R.IsDown=true;}
+                {if((!HasFlag(_player->Flags2(), PlayerFlags2::Shooting)&&_buttons.R.FramesUp<=_shotDelay)||equip.ChargeLevel>=weapon.FullCharge*2)setRandomDelay();else _buttons.R.IsDown=true;}
                 else if(_buttons.R.FramesUp>_shotDelay){setRandomDelay();_buttons.R.IsDown=true;}
             }
             else if(beam==BeamType::ShockCoil)
@@ -2458,8 +2473,8 @@ namespace MphRead::Entities
                 {
                     if(!_player->AvailableWeapons()[beam])return;
                     if(_player->CurrentWeapon()!=beam)_touchButtons.ShockCoil.IsDown=true;
-                    else if((_player->HasFlag(Flags1(), PlayerFlags1::ShotUncharged)||_buttons.R.FramesUp>0)
-                        &&(distSqr<225||(distSqr<256&&_player->HasFlag(Flags1(), PlayerFlags1::ShotUncharged))))_buttons.R.IsDown=true;
+                    else if((HasFlag(_player->Flags1(), PlayerFlags1::ShotUncharged)||_buttons.R.FramesUp>0)
+                        &&(distSqr<225||(distSqr<256&&HasFlag(_player->Flags1(), PlayerFlags1::ShotUncharged))))_buttons.R.IsDown=true;
                 }
                 else if(_player->CurrentWeapon()!=BeamType::PowerBeam)_touchButtons.PowerBeam.IsDown=true;
                 else if(_buttons.R.FramesDown>0&&_buttons.R.FramesDown<_shotDelay)_buttons.R.IsDown=true;
@@ -2476,7 +2491,7 @@ namespace MphRead::Entities
 
         void Func214380C()
         {
-            auto equip=_player->EquipInfo();auto weapon=_player->EquipWeapon();if(!HasFlag(weapon.Flags, WeaponFlags::CanCharge))return;BeamType beam=GetBeamType(_weapon1);
+            const auto& equip = *_player->EquipInfo(); const WeaponInfo& weapon = _player->EquipWeapon();if(!HasFlag(weapon.Flags, WeaponFlags::CanCharge))return;BeamType beam=GetBeamType(_weapon1);
             if(_player->CurrentWeapon()!=beam&&_player->_availableWeapons[beam])
             {
                 if(beam==BeamType::PowerBeam)_touchButtons.PowerBeam.IsDown=true;else if(beam==BeamType::Missile)_touchButtons.Missile.IsDown=true;
@@ -2491,7 +2506,7 @@ namespace MphRead::Entities
         void Func2143470(){if((Flags2&AiFlags2::TargetHalfturret)!=AiFlags2::None){assert(_targetHalfturret);Func2144964();auto t=static_cast<Vector3>(_targetHalfturret->Position) - static_cast<Vector3>(_player->Position);if((Flags2&AiFlags2::Bit8)!=AiFlags2::None||LengthSquared(t)<10)Func2143A40();else if((Flags4&AiFlags4::Bit1)!=AiFlags4::None||_weapon1==0||_weapon1==1)Func214380C();}else if((Flags4&AiFlags4::Bit1)!=AiFlags4::None)Func214380C();}
         void Func2144964(){if((Flags2&AiFlags2::TargetHalfturret)!=AiFlags2::None){assert(_targetHalfturret);Vector3 p;_targetHalfturret->GetPosition(p);_field1048=AddY(p, 0.5F);Func2145738(_field1048);}}
         void Func21433A0(Vector3 position){Func2145738(position);if((Flags2&AiFlags2::Bit8)!=AiFlags2::None)Func2143A40();}
-        void Func2145BA0(){float facingY=_player->_facingVector.Y;if(facingY!=0){float aimY=MathHelper::RadiansToDegrees(std::acos(facingY))-90;float value=_aimValues[_player->BotLevel()];_buttonAimY=std::clamp(aimY,-value,value);}}
+        void Func2145BA0(){float facingY=_player->_facingVector.Y;if(facingY!=0){float aimY=RadiansToDegrees(std::acos(facingY))-90;float value=_aimValues[_player->BotLevel()];_buttonAimY=std::clamp(aimY,-value,value);}}
         void PressButton(AiButton& button,int frames=0){if(button.FramesUp>frames*2)button.IsDown=true;}
         void PressL(int frames=0){if(_touchButtons.Magmaul.FramesUp>frames*2)_buttons.L.IsDown=true;}
 
@@ -2528,7 +2543,7 @@ namespace MphRead::Entities
                 if(context.Field20==2)PressL();
                 if(context.Field20!=0)
                 {
-                    if((Flags2&AiFlags2::Bit21)!=AiFlags2::None||_player->HasFlag(Flags1(), PlayerFlags1::Grounded)
+                    if((Flags2&AiFlags2::Bit21)!=AiFlags2::None||HasFlag(_player->Flags1(), PlayerFlags1::Grounded)
                         ||LengthSquared(WithY((static_cast<Vector3>(_player->Position) - static_cast<Vector3>(_node40->Position)), 0))>_node40->MaxDistance*_node40->MaxDistance)
                     {
                         if(context.Field30&&(context.Field2C==0||context.Field2C==2||context.Field20==2))Func2142A80();
@@ -2554,13 +2569,13 @@ namespace MphRead::Entities
                     if(std::get<0>(bomb)){node2=Func2139F84(_node40,node1,std::get<1>(bomb),std::get<2>(bomb));if(node2!=node1)node1=node2;}
                     context.Field14=0;context.Field1C=0;
                     if(node1==node2){context.Field14=1;context.Field1C=1;context.Field20=2;context.Field24=2;}
-                    else for(int i=0;i<_node40->Count2;i++)if(_node40->Values()[_node40->Index2+i]==node1->Id){context.Field14=1;context.Field1C=1;context.Field20=2;context.Field24=2;break;}
+                    else for(int i=0;i<_node40->Count2;i++)if((*_node40->Values)[_node40->Index2+i]==node1->Id){context.Field14=1;context.Field1C=1;context.Field20=2;context.Field24=2;break;}
                     _node48=_node44=_node40;_field4C[0]=_node40=node1;context.Field18=_node40->NodeType==NodeType::AltForm&&_player->Hunter()!=Hunter::Guardian?2:0;Flags2|=AiFlags2::Bit7;
                     return context.Field24!=0;
                 }
-                if(_player->_horizColTimer<=20||(_player->HasFlag(Flags1(), PlayerFlags1::Grounded)&&_player->_horizColTimer<=120)||_player->IsAltForm()||_player->IsMorphing())
+                if(_player->_horizColTimer<=20||(HasFlag(_player->Flags1(), PlayerFlags1::Grounded)&&_player->_horizColTimer<=120)||_player->IsAltForm()||_player->IsMorphing())
                 {
-                    if(_player->_horizColTimer>60&&_player->HasFlag(Flags1(), PlayerFlags1::Grounded)&&_player->IsAltForm()&&!_player->IsUnmorphing()&&Field118>60)
+                    if(_player->_horizColTimer>60&&HasFlag(_player->Flags1(), PlayerFlags1::Grounded)&&_player->IsAltForm()&&!_player->IsUnmorphing()&&Field118>60)
                     {
                         _field7A[_field78]=_node40->Id;if(_field78<9)_field78++;FindEntityRef(AiEntRefType::Type1);_node40=_entityRefs.Field1;assert(_node40);
                         context.Field18=_node40->NodeType==NodeType::AltForm&&_player->Hunter()!=Hunter::Guardian?2:0;
@@ -2568,7 +2583,7 @@ namespace MphRead::Entities
                     else if((Flags2&AiFlags2::TargetPlayer)!=AiFlags2::None&&_targetPlayer&&_targetPlayer->Hunter()==Hunter::Sylux&&_targetPlayer->IsAltForm())
                     {if(Func2139C60(*_targetPlayer)){context.Field14=1;context.Field1C=1;context.Field20=2;context.Field24=2;Flags2|=AiFlags2::Bit15;}}
                     else if(!_node44||!IsNodeInRange(*_node44))
-                    {auto toNode=static_cast<Vector3>(_node40->Position) - static_cast<Vector3>(_player->Position);if(LengthSquared(toNode)<0.25F&&_player->HasFlag(Flags1(), PlayerFlags1::Grounded)&&Field118>60)Field118=302;}
+                    {auto toNode=static_cast<Vector3>(_node40->Position) - static_cast<Vector3>(_player->Position);if(LengthSquared(toNode)<0.25F&&HasFlag(_player->Flags1(), PlayerFlags1::Grounded)&&Field118>60)Field118=302;}
                 }
                 else if((Flags2&AiFlags2::Bit15)!=AiFlags2::None)
                 {
@@ -2586,7 +2601,7 @@ namespace MphRead::Entities
                 if(IsNodeInRange(*_node40)||(Flags2&AiFlags2::Bit7)!=AiFlags2::None)return true;
                 FindEntityRef(AiEntRefType::Type1);_node40=_entityRefs.Field1;return false;
             }
-            if(context.Field24==2&&_player->HasFlag(Flags1(), PlayerFlags1::UsedJump)){context.Field20=1;context.Field24=0;return true;}
+            if(context.Field24==2&&HasFlag(_player->Flags1(), PlayerFlags1::UsedJump)){context.Field20=1;context.Field24=0;return true;}
             return false;
         }
 
@@ -2624,7 +2639,7 @@ namespace MphRead::Entities
         {
             assert(_node40);Vector3 altVec=_player->IsAltForm()?Vector3(_player->_field80,0,_player->_field84):Vector3(_player->_field70,0,_player->_field74);
             Vector3 toNode=_node40->Position-(_node44?_node44->Position:_field90);toNode=(toNode.X!=0||toNode.Z!=0)?WithY(toNode, 0).Normalized():altVec;float dot=Vector3::Dot(altVec,toNode);
-            if(dot<1){if(dot>_dotValues[_player->BotLevel()])_buttonAimX=MathHelper::RadiansToDegrees(std::acos(dot));else _buttonAimX=_aimValues[_player->BotLevel()];if(Vector3::Cross(altVec,toNode).Y<0)_buttonAimX*=-1;}Func214201C();
+            if(dot<1){if(dot>_dotValues[_player->BotLevel()])_buttonAimX=RadiansToDegrees(std::acos(dot));else _buttonAimX=_aimValues[_player->BotLevel()];if(Vector3::Cross(altVec,toNode).Y<0)_buttonAimX*=-1;}Func214201C();
         }
         void Func2142AE8(Vector3 position){Vector3 altVec=_player->IsAltForm()?Vector3(_player->_field80,0,_player->_field84):Vector3(_player->_field70,0,_player->_field74);Vector3 toPos=position-_player->Position;toPos=(toPos.X!=0||toPos.Z!=0)?WithY(toPos, 0).Normalized():altVec;Helper01(altVec,toPos,_buttons.X,_buttons.B,_buttons.Y,_buttons.A);}
         void Func2142ABC(Vector3 position){Func2142AE8(position);Func2145C14(position);}
@@ -2633,7 +2648,7 @@ namespace MphRead::Entities
         void Func214201C(){Vector3 altVec=_player->IsAltForm()?Vector3(_player->_field80,0,_player->_field84):Vector3(_player->_field70,0,_player->_field74);Helper02(altVec,_buttons.X,_buttons.B,_buttons.Y,_buttons.A);}
         void Func2140D5C(){if(CheckSpireClimbInput())return;Vector3 altVec(_player->_altRollFbX,0,_player->_altRollFbZ);Helper02(altVec,_buttons.Up,_buttons.Down,_buttons.Left,_buttons.Right);}
         bool CheckSpireClimbInput()
-        {if(_player->Hunter()==Hunter::Spire){if(_field116>0)_field116--;else if(_player->HasFlag(Flags2(), PlayerFlags2::SpireClimbing)){if(_buttons.Up.FramesUp<20||_buttons.Down.FramesUp<20||_buttons.Left.FramesUp<20||_buttons.Right.FramesUp<20)return true;_field116=20;}}return false;}
+        {if(_player->Hunter()==Hunter::Spire){if(_field116>0)_field116--;else if(HasFlag(_player->Flags2(), PlayerFlags2::SpireClimbing)){if(_buttons.Up.FramesUp<20||_buttons.Down.FramesUp<20||_buttons.Left.FramesUp<20||_buttons.Right.FramesUp<20)return true;_field116=20;}}return false;}
         void Helper01(Vector3 altVec,Vector3 toPos,AiButton& upButton,AiButton& downButton,AiButton& leftButton,AiButton& rightButton)
         {
             float dot=Vector3::Dot(altVec,toPos);auto cross=Vector3::Cross(altVec,toPos);
@@ -2648,10 +2663,10 @@ namespace MphRead::Entities
             assert(_node40);Vector3 toNode=_node40->Position-(_node44?_node44->Position:_field90);toNode=(toNode.X!=0||toNode.Z!=0)?WithY(toNode, 0).Normalized():altVec;
             Vector3 playerToNode=static_cast<Vector3>(_node40->Position) - static_cast<Vector3>(_player->Position);playerToNode=(playerToNode.X!=0||playerToNode.Z!=0)?WithY(toNode, 0).Normalized():UnitX();
             if(Vector3::Dot(playerToNode,toNode)<0){_node44.reset();_field90=_player->Position;toNode=_node40->Position-_field90;toNode=(toNode.X!=0||toNode.Z!=0)?WithY(toNode, 0).Normalized():altVec;}
-            float dot=Vector3::Dot(altVec,toNode);auto cross1=Vector3::Cross(altVec,toNode);auto cross2=Vector3::Cross(toNode,UnitY());cross2=(cross2.X!=0||cross2.Z!=0)?WithY(cross2, 0).Normalized()WithY(:toNode, 0);
-            Vector3 pos1Add=_node40->Position+ScaleVector(cross2, _node40->MaxDistance);Vector3 pos2Add=_node44?_node44->Position+ScaleVector(cross2, _node44->MaxDistance):_field90+cross2*_field9C;Vector3 pos3Add=_player->Position+DivideVector(cross2, 2.0F);Vector3 cross3=UnitY();
+            float dot=Vector3::Dot(altVec,toNode);auto cross1=Vector3::Cross(altVec,toNode);auto cross2=Vector3::Cross(toNode,UnitY());cross2 = (cross2.X != 0 || cross2.Z != 0) ? WithY(cross2, 0).Normalized() : WithY(toNode, 0);
+            Vector3 pos1Add=_node40->Position+ScaleVector(cross2, _node40->MaxDistance);Vector3 pos2Add=_node44?_node44->Position+ScaleVector(cross2, _node44->MaxDistance):_field90 + ScaleVector(cross2, _field9C);Vector3 pos3Add=_player->Position+DivideVector(cross2, 2.0F);Vector3 cross3=UnitY();
             Vector3 pos21=WithY((pos1Add-pos2Add), 0),pos23=WithY((pos3Add-pos2Add), 0);if((pos21.X!=0||pos21.Z!=0)&&(pos23.X!=0||pos23.Z!=0))cross3=Vector3::Cross(pos21,pos23);
-            pos1Add=_node40->Position+ScaleVector(cross2, -_node40->MaxDistance);pos2Add=_node44?_node44->Position+ScaleVector(cross2, -_node44->MaxDistance):_field90+cross2*-_field9C;pos3Add=_player->Position+DivideVector(cross2, -2.0F);Vector3 cross4=UnitY();
+            pos1Add=_node40->Position+ScaleVector(cross2, -_node40->MaxDistance);pos2Add=_node44?_node44->Position+ScaleVector(cross2, -_node44->MaxDistance):_field90 + ScaleVector(cross2, -_field9C);pos3Add=_player->Position+DivideVector(cross2, -2.0F);Vector3 cross4=UnitY();
             pos21=WithY((pos1Add-pos2Add), 0);pos23=WithY((pos3Add-pos2Add), 0);if((pos21.X!=0||pos21.Z!=0)&&(pos23.X!=0||pos23.Z!=0))cross4=Vector3::Cross(pos21,pos23);
             if(cross4.Y>0)Flags2|=AiFlags2::Bit11;else if(cross3.Y<0)Flags2&=~AiFlags2::Bit11;bool bit11=(Flags2&AiFlags2::Bit11)!=AiFlags2::None;
             if(dot>0.866F){upButton.IsDown=true;if(bit11)rightButton.IsDown=true;else leftButton.IsDown=true;}
@@ -2663,11 +2678,11 @@ namespace MphRead::Entities
         void Func214182C(){assert(_node40);Func2141840(_node40->Position);}
         void Func2141840(Vector3 position){assert(_node40);Vector3 toPos=position-_player->Position;toPos=(toPos.X!=0||toPos.Z!=0)?WithY(toPos, 0).Normalized():Vector3(_player->_altRollFbX,0,_player->_altRollFbZ);Func2141A0C(toPos);}
         void Func2141A0C(Vector3 toPos)
-        {assert(_node40);Vector3 altVec(_player->_altRollFbX,0,_player->_altRollFbZ);float dot=Vector3::Dot(altVec,toPos);auto cross=Vector3::Cross(altVec,toPos);if(HasFlag(_player->_abilities, AbilityFlags::Boost)&&!_player->HasFlag(Flags1(), PlayerFlags1::Boosting)){if(_framesWithTouch==0&&_framesWithoutTouch>_field1032){_field1032=static_cast<int>(_field1030+Rng::GetRandomInt2(_field1030/2));_hasTouch=true;_touchAimX=static_cast<std::uint16_t>(static_cast<int>(50*cross.Y)+128);_touchAimY=static_cast<std::uint16_t>(static_cast<int>(50*dot)+100);}else if(_framesWithTouch==1){_hasTouch=true;_touchAimX=static_cast<std::uint16_t>(256-_touchAimX);_touchAimY=static_cast<std::uint16_t>(200-_touchAimY);}}Helper01(altVec,toPos,_buttons.Up,_buttons.Down,_buttons.Left,_buttons.Right);}
+        {assert(_node40);Vector3 altVec(_player->_altRollFbX,0,_player->_altRollFbZ);float dot=Vector3::Dot(altVec,toPos);auto cross=Vector3::Cross(altVec,toPos);if(HasFlag(_player->_abilities, AbilityFlags::Boost)&&!HasFlag(_player->Flags1(), PlayerFlags1::Boosting)){if(_framesWithTouch==0&&_framesWithoutTouch>_field1032){_field1032=static_cast<int>(_field1030+Rng::GetRandomInt2(_field1030/2));_hasTouch=true;_touchAimX=static_cast<std::uint16_t>(static_cast<int>(50*cross.Y)+128);_touchAimY=static_cast<std::uint16_t>(static_cast<int>(50*dot)+100);}else if(_framesWithTouch==1){_hasTouch=true;_touchAimX=static_cast<std::uint16_t>(256-_touchAimX);_touchAimY=static_cast<std::uint16_t>(200-_touchAimY);}}Helper01(altVec,toPos,_buttons.Up,_buttons.Down,_buttons.Left,_buttons.Right);}
         void Func2140B18(AiContext& context,Vector3 position)
         {
             if(context.Field44>0){context.Field44--;PressL();if(!_player->IsAltForm()||_player->Values().AltFormStrafe!=0){_buttons.X.IsDown=false;_buttons.B.IsDown=false;_buttons.Y.IsDown=false;_buttons.A.IsDown=false;}else{_buttons.Up.IsDown=false;_buttons.Down.IsDown=false;_buttons.Left.IsDown=false;_buttons.Right.IsDown=false;}}
-            else{if(_player->Speed().Y>=0.0625F/2||_player->Speed().Y<-0.0625F/2||_player->IsMorphing()||_player->IsUnmorphing()){context.Field40=0;context.Field34=_player->Position;}else if(_player->HasFlag(Flags1(), PlayerFlags1::CollidingLateral)&&!_player->HasFlag(Flags1(), PlayerFlags1::Grounded))context.Field40++;if(context.Field40>=24){Vector3 toPlayer=WithY((_player->Position-context.Field34), 0);Vector3 toPos=WithY((position-_player->Position), 0).Normalized();if(Vector3::Dot(toPlayer,toPos)<1/256.0F)context.Field44=30;context.Field40=0;context.Field34=_player->Position;}}
+            else{if(_player->Speed().Y>=0.0625F/2||_player->Speed().Y<-0.0625F/2||_player->IsMorphing()||_player->IsUnmorphing()){context.Field40=0;context.Field34=_player->Position;}else if(HasFlag(_player->Flags1(), PlayerFlags1::CollidingLateral)&&!HasFlag(_player->Flags1(), PlayerFlags1::Grounded))context.Field40++;if(context.Field40>=24){Vector3 toPlayer=WithY((_player->Position-context.Field34), 0);Vector3 toPos=WithY((position-_player->Position), 0).Normalized();if(Vector3::Dot(toPlayer,toPos)<1/256.0F)context.Field44=30;context.Field40=0;context.Field34=_player->Position;}}
         }
         void Func214003C(AiContext& context){if((Flags2&AiFlags2::TargetPlayer)!=AiFlags2::None)Func21436D8();else if((Flags4&AiFlags4::Bit1)!=AiFlags4::None)Func214380C();Func2140094(context);}
 
@@ -2805,7 +2820,7 @@ namespace MphRead::Entities
                     position = AddY(position, _player->IsAltForm()
                         ? -(Fixed::ToFloat(_player->Values().AltColRadius) - Fixed::ToFloat(_player->Values().AltColYPos)) : -0.5F);
                     _entityRefs.Field0 = FindClosestNodeToPosition(position);
-                    if (_nodeData->Simple) _player->ClosestNode = _entityRefs.Field0;
+                    if (_nodeData->Simple()) _player->ClosestNode = _entityRefs.Field0;
                 }
             }
             else if (type == AiEntRefType::Type1)
@@ -2833,7 +2848,7 @@ namespace MphRead::Entities
                     position = AddY(position, _targetPlayer->IsAltForm()
                         ? -(Fixed::ToFloat(_targetPlayer->Values().AltColRadius) - Fixed::ToFloat(_targetPlayer->Values().AltColYPos)) : -0.5F);
                     _entityRefs.Field2 = FindClosestNonHazardNodeToPosition(position);
-                    if (_nodeData->Simple) _targetPlayer->ClosestNode = _entityRefs.Field2;
+                    if (_nodeData->Simple()) _targetPlayer->ClosestNode = _entityRefs.Field2;
                 }
             }
             else if (type == AiEntRefType::Type3)
@@ -2847,13 +2862,13 @@ namespace MphRead::Entities
                 else
                 {
                     _entityRefs.Field3 = FindClosestNonHazardNodeToPosition(_targetHalfturret->Position);
-                    if (_nodeData->Simple) _targetHalfturret->ClosestNode() = _entityRefs.Field3;
+                    if (_nodeData->Simple()) _targetHalfturret->ClosestNode() = _entityRefs.Field3;
                 }
             }
             else if (type == AiEntRefType::Type4)
             {
                 if (!_itemSpawnC4) { FindEntityRef(AiEntRefType::Type0); _entityRefs.Field4 = _entityRefs.Field0; return; }
-                if (_nodeData->Simple) _entityRefs.Field4 = _itemSpawnC4->ClosestNode();
+                if (_nodeData->Simple()) _entityRefs.Field4 = _itemSpawnC4->ClosestNode();
                 else _entityRefs.Field4 = FindClosestNonHazardNodeToPosition(_itemSpawnC4->Position);
             }
             else if (type == AiEntRefType::Type5)
@@ -2865,7 +2880,7 @@ namespace MphRead::Entities
                 else
                 {
                     _entityRefs.Field5 = FindClosestNonHazardNodeToPosition(_itemC8->Position);
-                    if (_nodeData->Simple) _itemC8->ClosestNode() = _entityRefs.Field5;
+                    if (_nodeData->Simple()) _itemC8->ClosestNode() = _entityRefs.Field5;
                 }
             }
             else if (type == AiEntRefType::Type6)
@@ -2887,28 +2902,28 @@ namespace MphRead::Entities
             {
                 assert(_octolithFlagD4);
                 if (_octolithFlagD4->ClosestNode()) _entityRefs.Field9 = _octolithFlagD4->ClosestNode();
-                else { _entityRefs.Field9 = FindClosestNonHazardNodeToPosition(_octolithFlagD4->Position); if (_nodeData->Simple) _octolithFlagD4->ClosestNode() = _entityRefs.Field9; }
+                else { _entityRefs.Field9 = FindClosestNonHazardNodeToPosition(_octolithFlagD4->Position); if (_nodeData->Simple()) _octolithFlagD4->ClosestNode() = _entityRefs.Field9; }
             }
             else if (type == AiEntRefType::Type10)
-            { assert(_octolithFlagD4); _entityRefs.Field10 = _nodeData->Simple ? _octolithFlagD4->BaseClosestNode() : FindClosestNonHazardNodeToPosition(_octolithFlagD4->BasePosition()); }
+            { assert(_octolithFlagD4); _entityRefs.Field10 = _nodeData->Simple() ? _octolithFlagD4->BaseClosestNode() : FindClosestNonHazardNodeToPosition(_octolithFlagD4->BasePosition()); }
             else if (type == AiEntRefType::Type11)
-            { assert(_flagBaseD8); _entityRefs.Field11 = _nodeData->Simple ? _flagBaseD8->ClosestNode() : FindClosestNonHazardNodeToPosition(_flagBaseD8->Position); }
+            { assert(_flagBaseD8); _entityRefs.Field11 = _nodeData->Simple() ? _flagBaseD8->ClosestNode() : FindClosestNonHazardNodeToPosition(_flagBaseD8->Position); }
             else if (type == AiEntRefType::Type12)
             {
                 assert(_octolithFlagDC);
                 if (_octolithFlagDC->ClosestNode()) _entityRefs.Field12 = _octolithFlagDC->ClosestNode();
-                else { _entityRefs.Field12 = FindClosestNonHazardNodeToPosition(_octolithFlagDC->Position); if (_nodeData->Simple) _octolithFlagDC->ClosestNode() = _entityRefs.Field12; }
+                else { _entityRefs.Field12 = FindClosestNonHazardNodeToPosition(_octolithFlagDC->Position); if (_nodeData->Simple()) _octolithFlagDC->ClosestNode() = _entityRefs.Field12; }
             }
             else if (type == AiEntRefType::Type13)
-            { assert(_octolithFlagDC); _entityRefs.Field13 = _nodeData->Simple ? _octolithFlagDC->BaseClosestNode() : FindClosestNonHazardNodeToPosition(_octolithFlagDC->BasePosition()); }
+            { assert(_octolithFlagDC); _entityRefs.Field13 = _nodeData->Simple() ? _octolithFlagDC->BaseClosestNode() : FindClosestNonHazardNodeToPosition(_octolithFlagDC->BasePosition()); }
             else if (type == AiEntRefType::Type14)
-            { assert(_flagBaseE0); _entityRefs.Field14 = _nodeData->Simple ? _flagBaseE0->ClosestNode() : FindClosestNonHazardNodeToPosition(_flagBaseE0->Position); }
+            { assert(_flagBaseE0); _entityRefs.Field14 = _nodeData->Simple() ? _flagBaseE0->ClosestNode() : FindClosestNonHazardNodeToPosition(_flagBaseE0->Position); }
             else if (type == AiEntRefType::Type15)
             {
                 if ((Flags2 & AiFlags2::TargetDefense) == AiFlags2::None)
                 { FindEntityRef(AiEntRefType::Type0); _entityRefs.Field15 = _entityRefs.Field0; return; }
                 assert(_targetDefense);
-                _entityRefs.Field15 = _nodeData->Simple ? _targetDefense->ClosestNode() : FindClosestNonHazardNodeToPosition(_targetDefense->Position);
+                _entityRefs.Field15 = _nodeData->Simple() ? _targetDefense->ClosestNode() : FindClosestNonHazardNodeToPosition(_targetDefense->Position);
             }
             else if (type == AiEntRefType::Type16) _entityRefs.Field16 = FindFarthestNodeFromPosition(_player->Position);
             else if (type == AiEntRefType::Type17) { assert(_targetPlayer); _entityRefs.Field17 = FindFarthestNodeFromPosition(_targetPlayer->Position); }
@@ -3442,12 +3457,12 @@ namespace MphRead::Entities
         std::int32_t Func213A0A4(const std::shared_ptr<Formats::NodeData3>& head, std::array<std::shared_ptr<Formats::NodeData3>,20>& nodeList)
         {
             if(!_nodeList||_nodeList->empty()||!head)return 0;std::int32_t count=0,i=0,index=0;
-            while(i<static_cast<std::int32_t>(_nodeList->size())){std::int32_t j=0;for(;j<count;j++)if(nodeList[j]==(*_nodeList)[head->Values()[head->Index1+index+1]])break;if(j==count){auto node=(*_nodeList)[head->Values()[head->Index1+index+1]];if(node!=head){nodeList[count]=node;count++;if(count>=19)break;}}i+=head->Values()[head->Index1+index];index+=2;}return count;
+            while(i<static_cast<std::int32_t>(_nodeList->size())){std::int32_t j=0;for(;j<count;j++)if(nodeList[j]==(*_nodeList)[(*head->Values)[head->Index1+index+1]])break;if(j==count){auto node=(*_nodeList)[(*head->Values)[head->Index1+index+1]];if(node!=head){nodeList[count]=node;count++;if(count>=19)break;}}i+=(*head->Values)[head->Index1+index];index+=2;}return count;
         }
         std::shared_ptr<Formats::NodeData3> Func213A1A8()
         {
             assert(_node3C&&_node40);std::int32_t index=0;std::int32_t maxId=_node3C->Id;std::int32_t valueTotal=0;
-            if(_node40->Values()[_node40->Index1]<=maxId){std::int32_t value2;do{std::int32_t value=_node40->Values()[_node40->Index1+index];valueTotal+=value;index+=2;value2=valueTotal+_node40->Values()[_node40->Index1+index];}while(value2<=maxId);}return (*_nodeList)[_node40->Values()[_node40->Index1+index+1]];
+            if((*_node40->Values)[_node40->Index1]<=maxId){std::int32_t value2;do{std::int32_t value=(*_node40->Values)[_node40->Index1+index];valueTotal+=value;index+=2;value2=valueTotal+(*_node40->Values)[_node40->Index1+index];}while(value2<=maxId);}return (*_nodeList)[(*_node40->Values)[_node40->Index1+index+1]];
         }
         std::shared_ptr<Formats::NodeData3> Func21396A0(Vector3 position)
         {
@@ -3469,11 +3484,11 @@ namespace MphRead::Entities
         }
         bool IsNodeInRange(const Formats::NodeData3& node)
         {
-            if(_player->_timeSinceJumpPad>10&&IsJumpPadNode(node))return false;if(!_player->HasFlag(Flags1(), PlayerFlags1::Grounded)&&(!_node40||_node40->NodeType!=NodeType::Aerial))return false;Vector3 between=node.Position-_player->Position;between=AddY(between, _player->IsAltForm()?Fixed::ToFloat(_player->Values().AltColRadius)-Fixed::ToFloat(_player->Values().AltColYPos):0.5F);return LengthSquared(between)<node.MaxDistance*node.MaxDistance;
+            if(_player->_timeSinceJumpPad>10&&IsJumpPadNode(node))return false;if(!HasFlag(_player->Flags1(), PlayerFlags1::Grounded)&&(!_node40||_node40->NodeType!=NodeType::Aerial))return false;Vector3 between=node.Position-_player->Position;between=AddY(between, _player->IsAltForm()?Fixed::ToFloat(_player->Values().AltColRadius)-Fixed::ToFloat(_player->Values().AltColYPos):0.5F);return LengthSquared(between)<node.MaxDistance*node.MaxDistance;
         }
         bool IsJumpPadNode(const Formats::NodeData3& node)
         { for (auto _enumerator18 = _scene.GetJumpPadEntities().GetEnumerator(); _enumerator18.MoveNext(); )
-            if (const auto jumpPad = _enumerator18.Current(); true)if(jumpPad->ClosestNode().get()==&node)return true;return false; }
+            if (const auto jumpPad = _enumerator18.Current(); true)if(reinterpret_cast<const void*>(jumpPad->ClosestNode().get()) == reinterpret_cast<const void*>(&node))return true;return false; }
         std::shared_ptr<Formats::NodeData3> GetRandomAerialNode()
         {std::int32_t a=_nodeTypeIndex[static_cast<int>(NodeType::Aerial)],v=_nodeTypeIndex[static_cast<int>(NodeType::Vantage)];if(a==v)return GetRandomNavigationNode();return (*_nodeList)[a+static_cast<int>(Rng::GetRandomInt2(v-a))];}
         std::shared_ptr<Formats::NodeData3> GetRandomNavigationNode()
@@ -3496,7 +3511,7 @@ namespace MphRead::Entities
                     result = player;
                     minDist = DistanceSquared(player->Position, position);
                 }
-                if (player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay
+                if (player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay()
                     && (!botsOnly || player->IsBot()))
                 {
                     float dist = DistanceSquared(player->Position, position);
@@ -3526,7 +3541,7 @@ namespace MphRead::Entities
                     minDist = DistanceSquared(player->Position, position);
                 }
                 if (AggroFunc214857C(6, 1, 2, nullptr, player)
-                    && player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay)
+                    && player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay())
                 {
                     float dist = DistanceSquared(player->Position, position);
                     if (dist <= minDist || result->Health() == 0)
@@ -3556,7 +3571,7 @@ namespace MphRead::Entities
                     result = player;
                     minDist = DistanceSquared(player->Position, position);
                 }
-                if (player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay)
+                if (player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay())
                 {
                     std::int32_t value = AggroFunc2148394(7, 2, 1, player, nullptr);
                     if (value > maxValue)
@@ -3598,7 +3613,7 @@ namespace MphRead::Entities
                     minDist = DistanceSquared(player->Position, position);
                 }
                 if (AggroFunc214857C(6, 1, 2, nullptr, player)
-                    && player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay)
+                    && player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay())
                 {
                     std::int32_t value = AggroFunc2148394(7, 2, 1, player, nullptr);
                     if (value > maxValue)
@@ -3634,13 +3649,13 @@ namespace MphRead::Entities
             if (const auto player = _enumerator23.Current(); true)
             {
                 bool v14 = AggroFunc214857C(6, 1, 2, nullptr, player);
-                if ((v14 || !v4) && player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay)
+                if ((v14 || !v4) && player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay())
                 {
                     std::int32_t value = AggroFunc2148394(7, 2, 1, player, nullptr);
                     for (auto _enumerator24 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator24.MoveNext(); )
             if (const auto other = _enumerator24.Current(); true)
                     {
-                        if (other != _player && other->TeamIndex() == _player->TeamIndex() && other->ModInPlay)
+                        if (other != _player && other->TeamIndex() == _player->TeamIndex() && other->ModInPlay())
                         {
                             value += AggroFunc2148394(7, 2, 2, player, other);
                         }
@@ -3675,13 +3690,13 @@ namespace MphRead::Entities
             for (auto _enumerator25 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator25.MoveNext(); )
             if (const auto player = _enumerator25.Current(); true)
             {
-                if (player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay
+                if (player != _player && player->TeamIndex() != _player->TeamIndex() && player->ModInPlay()
                     && player->Hunter() == Hunter::Weavel && player->Halfturret()->Health() > 0)
                 {
                     std::int32_t value = AggroFunc2148394(5, 2, 1, player, nullptr);
                     if (value == 0)
                     {
-                        if (player->Halfturret()->Target != _player)
+                        if (player->Halfturret()->Target() != _player)
                         {
                             continue;
                         }
@@ -3744,9 +3759,9 @@ namespace MphRead::Entities
         {
             auto isType = [type1, type2, type3](const ItemSpawnEntity& candidate)
             {
-                return candidate.Data.ItemType == type1
-                    || type2 != ItemType::None && candidate.Data.ItemType == type2
-                    || type3 != ItemType::None && candidate.Data.ItemType == type3;
+                return candidate.Data().ItemType == type1
+                    || type2 != ItemType::None && candidate.Data().ItemType == type2
+                    || type3 != ItemType::None && candidate.Data().ItemType == type3;
             };
             std::shared_ptr<ItemSpawnEntity> result{};
             float minDist = std::numeric_limits<float>::max();
@@ -3807,9 +3822,9 @@ namespace MphRead::Entities
         {
             auto isType = [type1, type2, type3](const ItemInstanceEntity& candidate)
             {
-                return candidate.ItemType == type1
-                    || type2 != ItemType::None && candidate.ItemType == type2
-                    || type3 != ItemType::None && candidate.ItemType == type3;
+                return candidate.ItemType() == type1
+                    || type2 != ItemType::None && candidate.ItemType() == type2
+                    || type3 != ItemType::None && candidate.ItemType() == type3;
             };
             std::shared_ptr<ItemInstanceEntity> result{};
             if (Func2137860())
@@ -3870,22 +3885,22 @@ namespace MphRead::Entities
 
         bool IsHealth(const ItemSpawnEntity& itemSpawn) const
         {
-            return itemSpawn.Data.ItemType == ItemType::HealthMedium
-                || itemSpawn.Data.ItemType == ItemType::HealthSmall
-                || itemSpawn.Data.ItemType == ItemType::HealthBig;
+            return itemSpawn.Data().ItemType == ItemType::HealthMedium
+                || itemSpawn.Data().ItemType == ItemType::HealthSmall
+                || itemSpawn.Data().ItemType == ItemType::HealthBig;
         }
 
         bool IsHealth(const ItemInstanceEntity& item) const
         {
-            return item.ItemType == ItemType::HealthMedium
-                || item.ItemType == ItemType::HealthSmall
-                || item.ItemType == ItemType::HealthBig;
+            return item.ItemType() == ItemType::HealthMedium
+                || item.ItemType() == ItemType::HealthSmall
+                || item.ItemType() == ItemType::HealthBig;
         }
 
         bool Func21377FC(const ItemInstanceEntity& item) const
         {
             return GameState::IsOctolithMode() && _scene.RoomId() == 117
-                && _octolithFlagDC && _octolithFlagDC->Carrier() == _player && item.Owner && item.Owner->Id == 53;
+                && _octolithFlagDC && _octolithFlagDC->Carrier() == _player && item.Owner() && item.Owner()->Id == 53;
         }
 
         std::shared_ptr<NodeDefenseEntity> FindClosestNodeDefense(Vector3 position)
@@ -4009,21 +4024,24 @@ namespace MphRead::Entities
 
         void UpdateNodeDataSetSelection()
         {
-            for (std::size_t i = 0; i < _nodeData->SetIndices.size(); ++i)
+            for (std::size_t i = 0; i < _nodeData->SetIndices->size(); ++i)
             {
-                if (_nodeData->SetSelector[i] && (_nodeDataSelOff & (1 << i)) != 0)
+                const std::int32_t index = static_cast<std::int32_t>(i);
+                const bool selected = NativeRuntime::ManagedBoolArrayGet(_nodeData->SetSelector, index);
+                if (selected && (_nodeDataSelOff & (1 << i)) != 0)
                 {
-                    _nodeData->SetSelector[i] = false;
+                    NativeRuntime::ManagedBoolArraySet(_nodeData->SetSelector, index, false);
                 }
-                else if (!_nodeData->SetSelector[i] && (_nodeDataSelOn & (1 << i)) != 0)
+                else if (!selected && (_nodeDataSelOn & (1 << i)) != 0)
                 {
-                    _nodeData->SetSelector[i] = true;
+                    NativeRuntime::ManagedBoolArraySet(_nodeData->SetSelector, index, true);
                 }
             }
             std::int32_t newIndex = 0;
-            for (std::size_t i = 0; i < _nodeData->SetIndices.size(); ++i)
+            for (std::size_t i = 0; i < _nodeData->SetIndices->size(); ++i)
             {
-                newIndex += (_nodeData->SetSelector[i] ? 1 : 0) << i;
+                newIndex += (NativeRuntime::ManagedBoolArrayGet(
+                    _nodeData->SetSelector, static_cast<std::int32_t>(i)) ? 1 : 0) << i;
             }
             for (auto _enumerator37 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator37.MoveNext(); )
             if (const auto player = _enumerator37.Current(); true)
@@ -4039,17 +4057,17 @@ namespace MphRead::Entities
         void SetClosestNodeList(Vector3 position)
         {
             Flags2 &= ~AiFlags2::Bit7;
-            auto& data1 = _nodeData->Data[static_cast<std::size_t>(_nodeDataSetIndex)];
-            _nodeList = &data1[0];
+            const auto& data1 = *(*_nodeData->Data)[static_cast<std::size_t>(_nodeDataSetIndex)];
+            _nodeList = data1[0].get();
             if (data1.size() > 1)
             {
-                float minDist = GetClosestNodeInList(position, data1[0]);
+                float minDist = GetClosestNodeInList(position, *data1[0]);
                 for (std::size_t i = 1; i < data1.size(); ++i)
                 {
-                    float dist = GetClosestNodeInList(position, data1[i]);
+                    float dist = GetClosestNodeInList(position, *data1[i]);
                     if (dist < minDist)
                     {
-                        _nodeList = &data1[i];
+                        _nodeList = data1[i].get();
                         minDist = dist;
                     }
                 }

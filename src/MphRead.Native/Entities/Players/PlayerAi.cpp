@@ -117,15 +117,15 @@ namespace MphRead::Entities
     {
         _playerVisibility[_visIndex1][_visIndex2] = false;
         _playerVisibility[_visIndex2][_visIndex1] = false;
-        std::shared_ptr<PlayerEntity> player1 = PlayerEntity::Players[_visIndex1];
-        std::shared_ptr<PlayerEntity> player2 = PlayerEntity::Players[_visIndex2];
-        if (player1->Health != 0 && player1->LoadFlags.TestFlag(LoadFlags::Active)
-            && player2->Health != 0 && player2->LoadFlags.TestFlag(LoadFlags::Active)
-            && (player1->IsBot || player2->IsBot))
+        std::shared_ptr<PlayerEntity> player1 = PlayerEntity::Players()[_visIndex1];
+        std::shared_ptr<PlayerEntity> player2 = PlayerEntity::Players()[_visIndex2];
+        if (player1->Health() != 0 && player1->HasFlag(LoadFlags(), LoadFlags::Active)
+            && player2->Health() != 0 && player2->HasFlag(LoadFlags(), LoadFlags::Active)
+            && (player1->IsBot() || player2->IsBot()))
         {
-            Vector3 pos1 = player1->CameraInfo.Position;
-            Vector3 pos2 = player2->CameraInfo.Position;
-            if (pos1 == pos2) { pos1 = player1->Position; pos2 = player2->Position; }
+            Vector3 pos1 = player1->CameraInfo()->Position;
+            Vector3 pos2 = player2->CameraInfo()->Position;
+            if (VectorEqual(pos1, pos2)) { pos1 = player1->Position; pos2 = player2->Position; }
             CollisionResult discard{};
             if (!CollisionDetection::CheckBetweenPoints(pos1, pos2, TestFlags::None, scene, discard))
             {
@@ -133,7 +133,7 @@ namespace MphRead::Entities
                 _playerVisibility[_visIndex2][_visIndex1] = true;
             }
         }
-        std::int32_t slots = std::clamp(PlayerEntity::MaxPlayers, 2, PlayerEntity::SlotCapacity);
+        std::int32_t slots = std::clamp(PlayerEntity::MaxPlayers(), 2, PlayerEntity::SlotCapacity);
         if (++_visIndex1 >= slots)
         {
             if (++_visIndex2 >= slots - 1) _visIndex2 = 0;
@@ -148,8 +148,8 @@ namespace MphRead::Entities
         AiGlobals& global = _globalObjs[static_cast<std::size_t>(_globalField0)];
         std::shared_ptr<PlayerEntity> player = global.Player;
         std::shared_ptr<Formats::NodeData3> node = (*global.NodeData)[static_cast<std::size_t>(global.NodeDataIndex)];
-        Vector3 pos1 = player->Position.AddY(player->IsAltForm ? 0.5F : 1.0F);
-        Vector3 pos2 = node->Position.AddY(0.5F);
+        Vector3 pos1 = AddY(player->Position, player->IsAltForm() ? 0.5F : 1.0F);
+        Vector3 pos2 = AddY(node->Position, 0.5F);
         CollisionResult discard{};
         if (CollisionDetection::CheckBetweenPoints(pos1, pos2, TestFlags::None, scene, discard))
         {
@@ -183,15 +183,15 @@ namespace MphRead::Entities
 
     void PlayerEntity::PlayerAiData::InitializeSub()
     {
-        if (GameState::SinglePlayer && GameState::EncounterState[_player->SlotIndex] != 0)
+        if (GameState::SinglePlayer() && GameState::EncounterState()[_player->SlotIndex()] != 0)
         {
             _field102C = 0;
             _field1030 = 0;
         }
         else
         {
-            std::int32_t index = std::clamp(_player->BotLevel, 0, 2);
-            _field102C = _botLevelRandomValues1[static_cast<std::size_t>(index)][static_cast<std::size_t>(_player->Hunter)] * 2;
+            std::int32_t index = std::clamp(_player->BotLevel(), 0, 2);
+            _field102C = _botLevelRandomValues1[static_cast<std::size_t>(index)][static_cast<std::size_t>(_player->Hunter())] * 2;
             _field1030 = _botLevelRandomValues2[static_cast<std::size_t>(index)] * 2;
         }
     }
@@ -199,7 +199,7 @@ namespace MphRead::Entities
     void PlayerEntity::PlayerAiData::Process()
     {
         if (!_nodeData || _forceDisable) return;
-        if ((Flags2 & AiFlags2::TargetItem) != AiFlags2::None && _itemC8 && _itemC8->DespawnTimer == 0)
+        if ((Flags2 & AiFlags2::TargetItem) != AiFlags2::None && _itemC8 && _itemC8->DespawnTimer() == 0)
             Flags2 &= ~AiFlags2::TargetItem;
         Flags2 &= ~AiFlags2::Bit18;
         Flags2 &= ~AiFlags2::Bit19;
@@ -221,7 +221,7 @@ namespace MphRead::Entities
     {
         UpdateAggroExpiration();
         Flags4 &= ~AiFlags4::Bit0;
-        if (Vector3::Dot(_field1038, _player->CameraInfo.Facing) >= 255.0F / 256.0F) Flags4 |= AiFlags4::Bit0;
+        if (Vector3::Dot(_field1038, _player->CameraInfo()->Facing) >= 255.0F / 256.0F) Flags4 |= AiFlags4::Bit0;
         if (_field1020 > 0) --_field1020;
     }
 
@@ -230,26 +230,26 @@ namespace MphRead::Entities
         if (_scene.Room == nullptr || _scene.Room->NodeData == nullptr) return;
         _nodeData = _scene.Room->NodeData;
         SetClosestNodeList(_player->Position);
-        if (GameState::Mode == GameMode::Capture)
+        if (GameState::Mode() == GameMode::Capture)
         {
             for (const auto& entity : _scene.Entities)
             {
                 if (entity->Type == EntityType::OctolithFlag)
                 {
                     auto octoFlag = std::static_pointer_cast<OctolithFlagEntity>(entity);
-                    if (octoFlag->Data.TeamId == _player->TeamIndex) _octolithFlagCC = _octolithFlagD4 = octoFlag;
+                    if (octoFlag->Data().TeamId == _player->TeamIndex()) _octolithFlagCC = _octolithFlagD4 = octoFlag;
                     else _octolithFlagDC = octoFlag;
                 }
                 else if (entity->Type == EntityType::FlagBase)
                 {
                     auto flagBase = std::static_pointer_cast<FlagBaseEntity>(entity);
-                    if (flagBase->Data.TeamId == _player->TeamIndex) _flagBaseD0 = _flagBaseD8 = flagBase;
+                    if (flagBase->Data().TeamId == _player->TeamIndex()) _flagBaseD0 = _flagBaseD8 = flagBase;
                     else _flagBaseE0 = flagBase;
                 }
             }
             if (!_octolithFlagCC || !_octolithFlagD4 || !_octolithFlagDC) _forceDisable = true;
         }
-        else if (GameState::Mode == GameMode::Bounty || GameState::Mode == GameMode::BountyTeams)
+        else if (GameState::Mode() == GameMode::Bounty || GameState::Mode() == GameMode::BountyTeams)
         {
             for (const auto& entity : _scene.Entities)
             {
@@ -269,16 +269,16 @@ namespace MphRead::Entities
         for (AiButton* button : _buttons.AllButtons)
         {
             Keybind* control = nullptr;
-            if (button == &_buttons.Up) control = _player->IsAltForm ? &_player->Controls.RollUp : &_player->Controls.AimUp;
-            else if (button == &_buttons.Down) control = _player->IsAltForm ? &_player->Controls.RollDown : &_player->Controls.AimDown;
-            else if (button == &_buttons.Left) control = _player->IsAltForm ? &_player->Controls.RolltLeft : &_player->Controls.AimLeft;
-            else if (button == &_buttons.Right) control = _player->IsAltForm ? &_player->Controls.RollRight : &_player->Controls.AimRight;
-            else if (button == &_buttons.A) control = _player->IsAltForm && _player->Values.AltFormStrafe == 0 ? &_player->Controls.AimRight : &_player->Controls.MoveRight;
-            else if (button == &_buttons.B) control = _player->IsAltForm && _player->Values.AltFormStrafe == 0 ? &_player->Controls.AimDown : &_player->Controls.MoveDown;
-            else if (button == &_buttons.X) control = _player->IsAltForm && _player->Values.AltFormStrafe == 0 ? &_player->Controls.AimUp : &_player->Controls.MoveUp;
-            else if (button == &_buttons.Y) control = _player->IsAltForm && _player->Values.AltFormStrafe == 0 ? &_player->Controls.AimLeft : &_player->Controls.MoveLeft;
-            else if (button == &_buttons.L) control = _player->IsAltForm ? &_player->Controls.AltAttack : &_player->Controls.Jump;
-            else if (button == &_buttons.R) control = _player->IsAltForm ? &_player->Controls.Boost : &_player->Controls.Shoot;
+            if (button == &_buttons.Up) control = _player->IsAltForm() ? &_player->Controls.RollUp : &_player->Controls.AimUp;
+            else if (button == &_buttons.Down) control = _player->IsAltForm() ? &_player->Controls.RollDown : &_player->Controls.AimDown;
+            else if (button == &_buttons.Left) control = _player->IsAltForm() ? &_player->Controls.RolltLeft : &_player->Controls.AimLeft;
+            else if (button == &_buttons.Right) control = _player->IsAltForm() ? &_player->Controls.RollRight : &_player->Controls.AimRight;
+            else if (button == &_buttons.A) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls.AimRight : &_player->Controls.MoveRight;
+            else if (button == &_buttons.B) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls.AimDown : &_player->Controls.MoveDown;
+            else if (button == &_buttons.X) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls.AimUp : &_player->Controls.MoveUp;
+            else if (button == &_buttons.Y) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls.AimLeft : &_player->Controls.MoveLeft;
+            else if (button == &_buttons.L) control = _player->IsAltForm() ? &_player->Controls.AltAttack : &_player->Controls.Jump;
+            else if (button == &_buttons.R) control = _player->IsAltForm() ? &_player->Controls.Boost : &_player->Controls.Shoot;
             else if (button == &_buttons.Start) control = &_player->Controls.Pause;
             else if (button == &_buttons.Select) control = &_player->Controls.Zoom;
             else throw std::runtime_error("Unreachable AI button.");
@@ -355,40 +355,41 @@ namespace MphRead::Entities
     {
         _entityRefs.Clear();
         UpdateAggro();
-        if (GameState::Mode == GameMode::PrimeHunter && GameState::PrimeHunter == _player->SlotIndex
+        if (GameState::Mode() == GameMode::PrimeHunter && GameState::PrimeHunter() == _player->SlotIndex()
             && (Flags2 & AiFlags2::TargetItem) != AiFlags2::None && _itemC8
-            && (_itemC8->ItemType == ItemType::HealthSmall || _itemC8->ItemType == ItemType::HealthMedium
-                || _itemC8->ItemType == ItemType::HealthBig))
+            && (_itemC8->ItemType() == ItemType::HealthSmall || _itemC8->ItemType() == ItemType::HealthMedium
+                || _itemC8->ItemType() == ItemType::HealthBig))
             Flags2 &= ~AiFlags2::TargetItem;
     }
 
     bool PlayerEntity::PlayerAiData::IsPlayerVisible(const PlayerEntity& player, const PlayerEntity& other) const
     {
-        return _playerVisibility[static_cast<std::size_t>(other.SlotIndex)][static_cast<std::size_t>(player.SlotIndex)];
+        return _playerVisibility[static_cast<std::size_t>(other.SlotIndex())][static_cast<std::size_t>(player.SlotIndex())];
     }
 
     void PlayerEntity::PlayerAiData::UpdateAggro()
     {
-        float fov = MathHelper::DegreesToRadians(_player->CameraInfo.Fov > 0 ? _player->CameraInfo.Fov : 78.0F);
+        float fov = MathHelper::DegreesToRadians(_player->CameraInfo()->Fov > 0 ? _player->CameraInfo()->Fov : 78.0F);
         Matrix4 perspectiveMatrix = _scene.GetPerspectiveMatrix(fov);
-        for (const std::shared_ptr<PlayerEntity>& other : _scene.GetPlayerEntities())
+        for (auto _enumerator0 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator0.MoveNext(); )
+        if (const auto other = _enumerator0.Current(); true)
         {
-            if (other == _player || other->Health == 0 || !IsPlayerVisible(*_player, *other)) continue;
+            if (other == _player || other->Health() == 0 || !IsPlayerVisible(*_player, *other)) continue;
             Vector2 proj{};
-            float w = Matrix::ProjectPosition(other->Position, _player->CameraInfo.ViewMatrix, perspectiveMatrix, proj);
+            float w = Matrix::ProjectPosition(other->Position, _player->CameraInfo()->ViewMatrix, perspectiveMatrix, proj);
             if (w < 0) return;
             if (proj.X >= 1 || proj.Y >= 1) continue;
-            if (other->CurAlpha >= 1 || other->Flags2.TestFlag(PlayerFlags2::RadarReveal) || GameState::RadarPlayers
-                || other->OctolithFlag != nullptr || GameState::PrimeHunter == other->SlotIndex)
+            if (other->CurAlpha() >= 1 || other->HasFlag(Flags2(), PlayerFlags2::RadarReveal) || GameState::RadarPlayers()
+                || other->OctolithFlag() != nullptr || GameState::PrimeHunter() == other->SlotIndex())
             {
                 AggroFunc214864C(6, 1, 2, nullptr, other, 0, 30, 10, 3);
             }
             else
             {
-                Vector3 between = other->Position - _player->CameraInfo.Position;
-                between = between.AddY(other->IsAltForm ? Fixed::ToFloat(other->Values.AltColYPos) : 0.5F);
-                std::int32_t rand = static_cast<std::int32_t>(between.LengthSquared * 4096.0F);
-                std::int32_t alpha = static_cast<std::int32_t>(other->CurAlpha * 31.0F);
+                Vector3 between = other->Position - _player->CameraInfo()->Position;
+                between = AddY(between, other->IsAltForm() ? Fixed::ToFloat(other->Values().AltColYPos) : 0.5F);
+                std::int32_t rand = static_cast<std::int32_t>(LengthSquared(between) * 4096.0F);
+                std::int32_t alpha = static_cast<std::int32_t>(other->CurAlpha() * 31.0F);
                 if (alpha > 2) rand /= alpha * alpha * 853;
                 else rand /= 2 * 2 * 853;
                 std::int32_t div = 1;
@@ -397,9 +398,9 @@ namespace MphRead::Entities
                 alpha = alpha <= 2 ? 1 : alpha - 2;
                 AggroFunc214864C(6, 1, 2, nullptr, other, 0, alpha, 10, 3);
             }
-            float otherFov = MathHelper::DegreesToRadians(other->CameraInfo.Fov > 0 ? other->CameraInfo.Fov : 78.0F);
+            float otherFov = MathHelper::DegreesToRadians(other->CameraInfo()->Fov > 0 ? other->CameraInfo()->Fov : 78.0F);
             Matrix4 otherPerspective = _scene.GetPerspectiveMatrix(otherFov);
-            w = Matrix::ProjectPosition(_player->Position, other->CameraInfo.ViewMatrix, otherPerspective, proj);
+            w = Matrix::ProjectPosition(_player->Position, other->CameraInfo()->ViewMatrix, otherPerspective, proj);
             if (w < 0) return;
             if (proj.X < 1 && proj.Y < 1) AggroFunc214864C(6, 2, 1, other, nullptr, 0, 30, 10, 3);
         }
@@ -423,7 +424,7 @@ namespace MphRead::Entities
         Flags2 &= ~AiFlags2::Bit10;
         RemovePlayerFromGlobals(_player);
         if (std::find(_func4Ids.begin(), _func4Ids.end(), context.Func24Id) != _func4Ids.end()
-            && _player->Flags1.TestFlag(PlayerFlags1::Grounded))
+            && _player->HasFlag(Flags1(), PlayerFlags1::Grounded))
         {
             Flags2 &= ~AiFlags2::Bit7;
         }
@@ -436,12 +437,12 @@ namespace MphRead::Entities
     {
         ExecuteFuncs1(context.Data1->Data3b);
         ExecuteFuncs2(context);
-        if (context.Func24Id != 0 && _player->EquipWeapon.Flags.TestFlag(WeaponFlags::CanZoom)
+        if (context.Func24Id != 0 && _player->EquipWeapon()HasFlag(.Flags, WeaponFlags::CanZoom)
             && _buttons.Select.FramesUp > 5 * 2
-            && ((!_player->EquipInfo.Zoomed && (Flags4 & AiFlags4::Bit2) != AiFlags4::None)
-                || (_player->EquipInfo.Zoomed && (Flags4 & AiFlags4::Bit2) == AiFlags4::None)))
+            && ((!_player->EquipInfo()->Zoomed && (Flags4 & AiFlags4::Bit2) != AiFlags4::None)
+                || (_player->EquipInfo()->Zoomed && (Flags4 & AiFlags4::Bit2) == AiFlags4::None)))
             _buttons.Select.IsDown = true;
-        if (_player->Hunter == Hunter::Spire && !_player->IsAltForm) _field116 = 0;
+        if (_player->Hunter() == Hunter::Spire && !_player->IsAltForm()) _field116 = 0;
         if (context.CallCount < std::numeric_limits<std::int32_t>::max()) ++context.CallCount;
         if (!context.Data1->Data1.empty() && context.Depth < _maxContextDepth - 1)
         {
@@ -475,7 +476,7 @@ namespace MphRead::Entities
             if (noUpdate) continue;
             std::int32_t weightIndex = data2.Data1SelectIndex;
             if (weightIndex >= 20) weightIndex = static_cast<std::int32_t>(context.Data1->Data1.size());
-            if ((data2.Weight >= 100000 && data2.Func3Id != 210) || _scene.FrameCount % 2 == 0)
+            if ((data2.Weight >= 100000 && data2.Func3Id != 210) || _scene.FrameCount() % 2 == 0)
             {
                 context.Weights[static_cast<std::size_t>(weightIndex)] +=
                     ExecuteFuncs3(context, data2.Func3Id, data2.Parameters) * data2.Weight;
@@ -875,20 +876,21 @@ namespace MphRead::Entities
     void PlayerEntity::PlayerAiData::OnTakeDamage(std::int32_t damage, const std::shared_ptr<EntityBase>& source,
         const std::shared_ptr<PlayerEntity>& attacker)
     {
-        for (const std::shared_ptr<PlayerEntity>& player : _scene.GetPlayerEntities())
+        for (auto _enumerator1 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator1.MoveNext(); )
+        if (const auto player = _enumerator1.Current(); true)
         {
-            if (!player->IsBot)
+            if (!player->IsBot())
             {
                 continue;
             }
-            ++player->AiData->_slotHits[static_cast<std::size_t>(_player->SlotIndex)];
-            player->AiData->_slotDamage[static_cast<std::size_t>(_player->SlotIndex)] += damage;
+            ++player->AiData->_slotHits[static_cast<std::size_t>(_player->SlotIndex())];
+            player->AiData->_slotDamage[static_cast<std::size_t>(_player->SlotIndex())] += damage;
             if (attacker)
             {
                 if (player == _player)
                 {
                     if (source->Type == EntityType::BeamProjectile
-                        && attacker->Hunter == Hunter::Weavel && attacker->IsAltForm)
+                        && attacker->Hunter() == Hunter::Weavel && attacker->IsAltForm())
                     {
                         AggroFunc214864C(5, 2, 1, attacker, nullptr, damage, damage, 2, 2);
                     }
@@ -896,15 +898,15 @@ namespace MphRead::Entities
                     {
                         AggroFunc214864C(4, 2, 1, attacker, nullptr, damage, damage, 2, 2);
                         if (source->Type == EntityType::BeamProjectile
-                            && std::static_pointer_cast<BeamProjectileEntity>(source)->Beam == BeamType::ShockCoil
-                            && attacker->ShockCoilTimer > 10 * 2)
+                            && std::static_pointer_cast<BeamProjectileEntity>(source)->Beam() == BeamType::ShockCoil
+                            && attacker->ShockCoilTimer() > 10 * 2)
                         {
                             player->AiData->Flags2 |= AiFlags2::Bit21;
                         }
                     }
                 }
                 else if (source->Type == EntityType::BeamProjectile
-                    && attacker->Hunter == Hunter::Weavel && attacker->IsAltForm)
+                    && attacker->Hunter() == Hunter::Weavel && attacker->IsAltForm())
                 {
                     AggroFunc214864C(5, 2, 2, attacker, _player,
                         damage, damage, 2, 2);

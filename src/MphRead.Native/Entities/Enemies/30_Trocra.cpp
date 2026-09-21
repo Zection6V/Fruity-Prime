@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 
 namespace MphRead::Entities::Enemies
 {
@@ -25,6 +26,16 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] T& RequireReference(T* value)
         {
             if (value == nullptr)
+            {
+                throw System::NullReferenceException();
+            }
+            return *value;
+        }
+
+        template <typename T>
+        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
+        {
+            if (!value)
             {
                 throw System::NullReferenceException();
             }
@@ -68,6 +79,11 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] float Length(Vector3 value) noexcept
         {
             return std::sqrt(LengthSquared(value));
+        }
+
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
+        {
+            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
 
         [[nodiscard]] float Clamp(float value, float min, float max) noexcept
@@ -145,12 +161,12 @@ namespace MphRead::Entities::Enemies
             }
             if (_health > 0)
             {
-                CollisionResult discard{};
+                Formats::CollisionResult discard{};
                 const Vector3 position = Position;
                 const Vector3 travel = _prevPos - position;
                 if (LengthSquared(travel) > 1.0F / 128.0F
-                    && CollisionDetection::CheckBetweenPoints(
-                        _prevPos, position, TestFlags::Beams, _scene, discard))
+                    && Formats::CollisionDetection::CheckBetweenPoints(
+                        _prevPos, position, Formats::TestFlags::Beams, _scene, discard))
                 {
                     DieAndSpawnEffect(164);
                 }
@@ -168,16 +184,16 @@ namespace MphRead::Entities::Enemies
         const float distance = Length(between);
         if (distance < 2.0F)
         {
-            CollisionResult discard{};
+            Formats::CollisionResult discard{};
             const Vector3 position = Position;
             const Vector3 limitMin(
                 position.X - 2.0F, position.Y - 2.0F, position.Z - 2.0F);
             const Vector3 limitMax(
                 position.X + 2.0F, position.Y + 2.0F, position.Z + 2.0F);
-            const auto candidates = CollisionDetection::GetCandidatesForLimits(
-                nullptr, Vector3::Zero, 0, limitMin, limitMax, false, _scene);
-            if (!CollisionDetection::CheckBetweenPoints(
-                candidates, _prevPos, Position, TestFlags::Beams, _scene, discard))
+            const auto& candidates = Formats::CollisionDetection::GetCandidatesForLimits(
+                std::nullopt, Vector3::Zero, 0, limitMin, limitMax, false, _scene);
+            if (!Formats::CollisionDetection::CheckBetweenPoints(
+                &candidates, _prevPos, Position, Formats::TestFlags::Beams, _scene, discard))
             {
                 std::int32_t damage = 15;
                 float force = 1.0F;
@@ -190,11 +206,11 @@ namespace MphRead::Entities::Enemies
                 }
                 if (distance > 1.0F / 128.0F)
                 {
-                    between = between.Normalized() * force;
+                    between = ScaleVector(between.Normalized(), force);
                 }
                 else
                 {
-                    between = Vector3::UnitY * force;
+                    between = ScaleVector(Vector3(0.0F, 1.0F, 0.0F), force);
                 }
                 MainPlayer().TakeDamage(
                     damage, DamageFlags::NoDmgInvuln, between, this);

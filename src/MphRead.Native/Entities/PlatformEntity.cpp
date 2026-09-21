@@ -495,7 +495,7 @@ namespace MphRead::Entities
             if (modelMeta.CollisionPath.has_value())
             {
                 const auto collision = Formats::Collision::Collision::GetCollision(&modelMeta);
-                SetCollision(collision.get(), 0, &inst);
+                SetCollision(collision, 0, &inst);
             }
         }
 
@@ -2084,7 +2084,7 @@ namespace MphRead::Entities
         const ModelMetadata& modelMeta = FirstHuntModelAt(name);
         assert(modelMeta.CollisionPath.has_value());
         const auto collision = Formats::Collision::Collision::GetCollision(&modelMeta);
-        SetCollision(collision.get());
+        SetCollision(collision);
 
         _speed = data.Speed.FloatValue() / 2.0F;
         assert(data.PositionCount >= 2 && data.PositionCount < 8);

@@ -116,7 +116,7 @@ namespace MphRead::Entities
         ::OpenTK::Mathematics::Vector3 _rotation = ::OpenTK::Mathematics::Vector3::Zero;
         ::OpenTK::Mathematics::Vector3 _position = ::OpenTK::Mathematics::Vector3::Zero;
 
-        Node* _colAttachNode = nullptr;
+        std::shared_ptr<Node> _colAttachNode{};
 
     public:
         MatrixProperty Transform;

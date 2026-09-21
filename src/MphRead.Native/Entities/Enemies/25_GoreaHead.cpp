@@ -75,7 +75,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy25Entity::EnemyProcess()
     {
-        Matrix4 transform = GetNodeTransform(_gorea1A, _attachNode);
+        Matrix4 transform = GetNodeTransform(_gorea1A, _attachNode.get());
         Position = transform.Row3().Xyz();
 
         if (_flashEffect)

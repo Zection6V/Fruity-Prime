@@ -298,6 +298,11 @@ namespace MphRead
         EquipInfo() = default;
         EquipInfo(std::shared_ptr<WeaponInfo> weapon, std::shared_ptr<BeamProjectileArray> beams);
 
+        void SetWeapon(std::shared_ptr<WeaponInfo> value) noexcept { Weapon = std::move(value); }
+        void SetBeams(std::shared_ptr<BeamProjectileArray> value) noexcept { Beams = std::move(value); }
+        void SetGetAmmo(std::function<int()> value) noexcept { GetAmmo = std::move(value); }
+        void SetSetAmmo(std::function<void(int)> value) noexcept { SetAmmo = std::move(value); }
+
         [[nodiscard]] int Ammo() const;
         void Ammo(int value);
         [[nodiscard]] std::uint16_t UnchargedDamage() const;

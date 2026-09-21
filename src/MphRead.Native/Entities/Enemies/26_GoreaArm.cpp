@@ -146,10 +146,8 @@ namespace MphRead::Entities::Enemies
             _healthMax = 120;
 
             const std::shared_ptr<WeaponInfo> weapon
-                = ManagedListAt(Weapons::GoreaWeapons, 0);
-            auto equipInfo = std::make_shared<MphRead::EquipInfo>();
-            RequireReference(equipInfo).SetWeapon(weapon);
-            RequireReference(equipInfo).SetBeams(RequireReference(_beams));
+                = ManagedListAt(RequireReference(Weapons::GoreaWeapons), 0);
+            auto equipInfo = std::make_shared<MphRead::EquipInfo>(weapon, _beams);
             _equipInfo = std::move(equipInfo);
             RequireReference(_equipInfo).SetGetAmmo(
                 [this]() { return Ammo; });

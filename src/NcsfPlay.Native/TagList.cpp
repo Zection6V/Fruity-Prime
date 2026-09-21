@@ -9,6 +9,11 @@
 #if defined(_WIN32)
 #define NOMINMAX
 #include <windows.h>
+#elif defined(__ANDROID__)
+#include <dlfcn.h>
+#include <jni.h>
+#elif defined(__APPLE__)
+#include <dlfcn.h>
 #else
 #include <unicode/ucol.h>
 #endif
@@ -143,6 +148,688 @@ namespace
             reinterpret_cast<const std::uint8_t*>(storage.data()),
             static_cast<std::size_t>(required));
     }
+#elif defined(__ANDROID__)
+    template <typename T>
+    class LocalJavaRef final
+    {
+    public:
+        LocalJavaRef() noexcept = default;
+
+        LocalJavaRef(JNIEnv* env, T value) noexcept
+            : _env(env),
+              _value(value)
+        {
+        }
+
+        ~LocalJavaRef()
+        {
+            Reset();
+        }
+
+        LocalJavaRef(const LocalJavaRef&) = delete;
+        LocalJavaRef& operator=(const LocalJavaRef&) = delete;
+
+        LocalJavaRef(LocalJavaRef&& other) noexcept
+            : _env(other._env),
+              _value(other._value)
+        {
+            other._env = nullptr;
+            other._value = nullptr;
+        }
+
+        LocalJavaRef& operator=(LocalJavaRef&& other) noexcept
+        {
+            if (this != &other)
+            {
+                Reset();
+                _env = other._env;
+                _value = other._value;
+                other._env = nullptr;
+                other._value = nullptr;
+            }
+            return *this;
+        }
+
+        [[nodiscard]] T Get() const noexcept
+        {
+            return _value;
+        }
+
+        explicit operator bool() const noexcept
+        {
+            return _value != nullptr;
+        }
+
+        void Reset() noexcept
+        {
+            if (_env != nullptr && _value != nullptr)
+            {
+                _env->DeleteLocalRef(_value);
+            }
+            _env = nullptr;
+            _value = nullptr;
+        }
+
+    private:
+        JNIEnv* _env = nullptr;
+        T _value = nullptr;
+    };
+
+    [[noreturn]] void ThrowAndroidCollationFailure(
+        JNIEnv* env,
+        const char* message)
+    {
+        if (env != nullptr && env->ExceptionCheck())
+        {
+            env->ExceptionClear();
+        }
+        throw std::runtime_error(message);
+    }
+
+    void CheckAndroidJavaException(JNIEnv* env, const char* message)
+    {
+        if (env->ExceptionCheck())
+        {
+            ThrowAndroidCollationFailure(env, message);
+        }
+    }
+
+    class ScopedAndroidJniEnv final
+    {
+    public:
+        ScopedAndroidJniEnv()
+        {
+            using GetCreatedJavaVMs = jint (*)(JavaVM**, jsize, jsize*);
+            const auto getCreatedJavaVMs = reinterpret_cast<GetCreatedJavaVMs>(
+                dlsym(RTLD_DEFAULT, "JNI_GetCreatedJavaVMs"));
+            if (getCreatedJavaVMs == nullptr)
+            {
+                throw std::runtime_error(
+                    "Android Java VM discovery is unavailable.");
+            }
+
+            jsize count = 0;
+            if (getCreatedJavaVMs(&_javaVm, 1, &count) != JNI_OK
+                || count != 1
+                || _javaVm == nullptr)
+            {
+                throw std::runtime_error(
+                    "Android Java VM is not available.");
+            }
+
+            const jint result = _javaVm->GetEnv(
+                reinterpret_cast<void**>(&_env),
+                JNI_VERSION_1_6);
+            if (result == JNI_EDETACHED)
+            {
+                if (_javaVm->AttachCurrentThread(
+                        &_env,
+                        nullptr) != JNI_OK)
+                {
+                    throw std::runtime_error(
+                        "Could not attach the current thread to the Android Java VM.");
+                }
+                _attached = true;
+            }
+            else if (result != JNI_OK || _env == nullptr)
+            {
+                throw std::runtime_error(
+                    "Could not obtain the Android JNI environment.");
+            }
+        }
+
+        ~ScopedAndroidJniEnv()
+        {
+            if (_attached)
+            {
+                _javaVm->DetachCurrentThread();
+            }
+        }
+
+        ScopedAndroidJniEnv(const ScopedAndroidJniEnv&) = delete;
+        ScopedAndroidJniEnv& operator=(const ScopedAndroidJniEnv&) = delete;
+
+        [[nodiscard]] JNIEnv* Get() const noexcept
+        {
+            return _env;
+        }
+
+    private:
+        JavaVM* _javaVm = nullptr;
+        JNIEnv* _env = nullptr;
+        bool _attached = false;
+    };
+
+    [[nodiscard]] LocalJavaRef<jobject> CreateAndroidInvariantCollator(
+        JNIEnv* env,
+        LocalJavaRef<jclass>& collatorClass)
+    {
+        LocalJavaRef<jclass> localeClass(
+            env,
+            env->FindClass("java/util/Locale"));
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve java.util.Locale for invariant collation.");
+        if (!localeClass)
+        {
+            throw std::runtime_error(
+                "Could not resolve java.util.Locale for invariant collation.");
+        }
+
+        const jfieldID rootField = env->GetStaticFieldID(
+            localeClass.Get(),
+            "ROOT",
+            "Ljava/util/Locale;");
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve Locale.ROOT for invariant collation.");
+        if (rootField == nullptr)
+        {
+            throw std::runtime_error(
+                "Could not resolve Locale.ROOT for invariant collation.");
+        }
+
+        LocalJavaRef<jobject> rootLocale(
+            env,
+            env->GetStaticObjectField(localeClass.Get(), rootField));
+        CheckAndroidJavaException(
+            env,
+            "Could not read Locale.ROOT for invariant collation.");
+        if (!rootLocale)
+        {
+            throw std::runtime_error(
+                "Could not read Locale.ROOT for invariant collation.");
+        }
+
+        collatorClass = LocalJavaRef<jclass>(
+            env,
+            env->FindClass("java/text/Collator"));
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve java.text.Collator.");
+        if (!collatorClass)
+        {
+            throw std::runtime_error(
+                "Could not resolve java.text.Collator.");
+        }
+
+        const jmethodID getInstance = env->GetStaticMethodID(
+            collatorClass.Get(),
+            "getInstance",
+            "(Ljava/util/Locale;)Ljava/text/Collator;");
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve Collator.getInstance(Locale).");
+        if (getInstance == nullptr)
+        {
+            throw std::runtime_error(
+                "Could not resolve Collator.getInstance(Locale).");
+        }
+
+        LocalJavaRef<jobject> collator(
+            env,
+            env->CallStaticObjectMethod(
+                collatorClass.Get(),
+                getInstance,
+                rootLocale.Get()));
+        CheckAndroidJavaException(
+            env,
+            "Could not create the Android invariant collator.");
+        if (!collator)
+        {
+            throw std::runtime_error(
+                "Could not create the Android invariant collator.");
+        }
+
+        const jfieldID secondaryField = env->GetStaticFieldID(
+            collatorClass.Get(),
+            "SECONDARY",
+            "I");
+        const jfieldID canonicalField = env->GetStaticFieldID(
+            collatorClass.Get(),
+            "CANONICAL_DECOMPOSITION",
+            "I");
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve Android Collator constants.");
+        if (secondaryField == nullptr || canonicalField == nullptr)
+        {
+            throw std::runtime_error(
+                "Could not resolve Android Collator constants.");
+        }
+
+        const jint secondary = env->GetStaticIntField(
+            collatorClass.Get(),
+            secondaryField);
+        const jint canonical = env->GetStaticIntField(
+            collatorClass.Get(),
+            canonicalField);
+        CheckAndroidJavaException(
+            env,
+            "Could not read Android Collator constants.");
+
+        const jmethodID setStrength = env->GetMethodID(
+            collatorClass.Get(),
+            "setStrength",
+            "(I)V");
+        const jmethodID setDecomposition = env->GetMethodID(
+            collatorClass.Get(),
+            "setDecomposition",
+            "(I)V");
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve Android Collator configuration methods.");
+        if (setStrength == nullptr || setDecomposition == nullptr)
+        {
+            throw std::runtime_error(
+                "Could not resolve Android Collator configuration methods.");
+        }
+
+        env->CallVoidMethod(collator.Get(), setStrength, secondary);
+        CheckAndroidJavaException(
+            env,
+            "Could not configure Android invariant collation strength.");
+        env->CallVoidMethod(collator.Get(), setDecomposition, canonical);
+        CheckAndroidJavaException(
+            env,
+            "Could not configure Android invariant collation normalization.");
+        return collator;
+    }
+
+    [[nodiscard]] LocalJavaRef<jstring> CreateAndroidString(
+        JNIEnv* env,
+        std::u16string_view value)
+    {
+        if (value.size()
+            > static_cast<std::size_t>(
+                std::numeric_limits<jsize>::max()))
+        {
+            throw std::length_error(
+                "String length exceeds the native comparison limit.");
+        }
+
+        static constexpr jchar Empty = 0;
+        const jchar* chars = value.empty()
+            ? &Empty
+            : reinterpret_cast<const jchar*>(value.data());
+        static_assert(sizeof(jchar) == sizeof(char16_t));
+
+        LocalJavaRef<jstring> result(
+            env,
+            env->NewString(
+                chars,
+                static_cast<jsize>(value.size())));
+        CheckAndroidJavaException(
+            env,
+            "Could not create an Android UTF-16 string.");
+        if (!result)
+        {
+            throw std::runtime_error(
+                "Could not create an Android UTF-16 string.");
+        }
+        return result;
+    }
+
+    [[nodiscard]] bool InvariantCultureIgnoreCaseEquals(
+        std::u16string_view left,
+        std::u16string_view right)
+    {
+        if (left.data() == right.data() && left.size() == right.size())
+        {
+            return true;
+        }
+
+        ScopedAndroidJniEnv scope;
+        JNIEnv* env = scope.Get();
+        LocalJavaRef<jclass> collatorClass;
+        LocalJavaRef<jobject> collator =
+            CreateAndroidInvariantCollator(env, collatorClass);
+        LocalJavaRef<jstring> leftString =
+            CreateAndroidString(env, left);
+        LocalJavaRef<jstring> rightString =
+            CreateAndroidString(env, right);
+
+        const jmethodID compare = env->GetMethodID(
+            collatorClass.Get(),
+            "compare",
+            "(Ljava/lang/String;Ljava/lang/String;)I");
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve Collator.compare(String, String).");
+        if (compare == nullptr)
+        {
+            throw std::runtime_error(
+                "Could not resolve Collator.compare(String, String).");
+        }
+
+        const jint result = env->CallIntMethod(
+            collator.Get(),
+            compare,
+            leftString.Get(),
+            rightString.Get());
+        CheckAndroidJavaException(
+            env,
+            "Android invariant string comparison failed.");
+        return result == 0;
+    }
+
+    [[nodiscard]] std::int32_t InvariantCultureIgnoreCaseHash(
+        std::u16string_view value)
+    {
+        ScopedAndroidJniEnv scope;
+        JNIEnv* env = scope.Get();
+        LocalJavaRef<jclass> collatorClass;
+        LocalJavaRef<jobject> collator =
+            CreateAndroidInvariantCollator(env, collatorClass);
+        LocalJavaRef<jstring> stringValue =
+            CreateAndroidString(env, value);
+
+        const jmethodID getCollationKey = env->GetMethodID(
+            collatorClass.Get(),
+            "getCollationKey",
+            "(Ljava/lang/String;)Ljava/text/CollationKey;");
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve Collator.getCollationKey(String).");
+        if (getCollationKey == nullptr)
+        {
+            throw std::runtime_error(
+                "Could not resolve Collator.getCollationKey(String).");
+        }
+
+        LocalJavaRef<jobject> key(
+            env,
+            env->CallObjectMethod(
+                collator.Get(),
+                getCollationKey,
+                stringValue.Get()));
+        CheckAndroidJavaException(
+            env,
+            "Android invariant sort-key generation failed.");
+        if (!key)
+        {
+            throw std::runtime_error(
+                "Android invariant sort-key generation failed.");
+        }
+
+        LocalJavaRef<jclass> keyClass(
+            env,
+            env->FindClass("java/text/CollationKey"));
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve java.text.CollationKey.");
+        if (!keyClass)
+        {
+            throw std::runtime_error(
+                "Could not resolve java.text.CollationKey.");
+        }
+
+        const jmethodID toByteArray = env->GetMethodID(
+            keyClass.Get(),
+            "toByteArray",
+            "()[B");
+        CheckAndroidJavaException(
+            env,
+            "Could not resolve CollationKey.toByteArray().");
+        if (toByteArray == nullptr)
+        {
+            throw std::runtime_error(
+                "Could not resolve CollationKey.toByteArray().");
+        }
+
+        LocalJavaRef<jbyteArray> bytes(
+            env,
+            static_cast<jbyteArray>(
+                env->CallObjectMethod(key.Get(), toByteArray)));
+        CheckAndroidJavaException(
+            env,
+            "Android invariant sort-key generation failed.");
+        if (!bytes)
+        {
+            throw std::runtime_error(
+                "Android invariant sort-key generation failed.");
+        }
+
+        const jsize length = env->GetArrayLength(bytes.Get());
+        CheckAndroidJavaException(
+            env,
+            "Could not read the Android invariant sort key.");
+        std::vector<std::uint8_t> storage(
+            static_cast<std::size_t>(length));
+        if (length != 0)
+        {
+            env->GetByteArrayRegion(
+                bytes.Get(),
+                0,
+                length,
+                reinterpret_cast<jbyte*>(storage.data()));
+            CheckAndroidJavaException(
+                env,
+                "Could not read the Android invariant sort key.");
+        }
+        return HashBytes(storage.data(), storage.size());
+    }
+#elif defined(__APPLE__)
+    struct AppleUCollator;
+
+    class AppleIcuLibrary final
+    {
+    public:
+        AppleIcuLibrary()
+            : _handle(dlopen(
+                  "/usr/lib/libicucore.A.dylib",
+                  RTLD_LAZY | RTLD_LOCAL))
+        {
+            if (_handle == nullptr)
+            {
+                throw std::runtime_error(
+                    "Unable to open the Apple ICU runtime.");
+            }
+        }
+
+        ~AppleIcuLibrary()
+        {
+            dlclose(_handle);
+        }
+
+        AppleIcuLibrary(const AppleIcuLibrary&) = delete;
+        AppleIcuLibrary& operator=(const AppleIcuLibrary&) = delete;
+
+        template <typename Function>
+        [[nodiscard]] Function Load(const char* name) const
+        {
+            void* symbol = dlsym(_handle, name);
+            if (symbol == nullptr)
+            {
+                throw std::runtime_error(
+                    "Unable to resolve an Apple ICU collation symbol.");
+            }
+            return reinterpret_cast<Function>(symbol);
+        }
+
+    private:
+        void* _handle = nullptr;
+    };
+
+    class InvariantCollator final
+    {
+    public:
+        InvariantCollator()
+            : _open(_library.Load<OpenFunction>("ucol_open")),
+              _setStrength(
+                  _library.Load<SetStrengthFunction>(
+                      "ucol_setStrength")),
+              _setAttribute(
+                  _library.Load<SetAttributeFunction>(
+                      "ucol_setAttribute")),
+              _close(_library.Load<CloseFunction>("ucol_close")),
+              _strcoll(_library.Load<StrcollFunction>("ucol_strcoll")),
+              _getSortKey(
+                  _library.Load<GetSortKeyFunction>(
+                      "ucol_getSortKey"))
+        {
+            std::int32_t status = 0;
+            _collator = _open("root", &status);
+            if (status > 0 || _collator == nullptr)
+            {
+                throw std::runtime_error(
+                    "Unable to create the Apple ICU invariant collator.");
+            }
+
+            _setStrength(_collator, SecondaryStrength);
+            status = 0;
+            _setAttribute(
+                _collator,
+                NormalizationMode,
+                AttributeOn,
+                &status);
+            if (status > 0)
+            {
+                _close(_collator);
+                _collator = nullptr;
+                throw std::runtime_error(
+                    "Unable to configure the Apple ICU invariant collator.");
+            }
+        }
+
+        InvariantCollator(const InvariantCollator&) = delete;
+        InvariantCollator& operator=(const InvariantCollator&) = delete;
+
+        ~InvariantCollator()
+        {
+            if (_collator != nullptr)
+            {
+                _close(_collator);
+            }
+        }
+
+        [[nodiscard]] std::int32_t Compare(
+            std::u16string_view left,
+            std::u16string_view right) const
+        {
+            return _strcoll(
+                _collator,
+                left.data(),
+                static_cast<std::int32_t>(left.size()),
+                right.data(),
+                static_cast<std::int32_t>(right.size()));
+        }
+
+        [[nodiscard]] std::int32_t GetSortKey(
+            std::u16string_view value,
+            std::uint8_t* result,
+            std::int32_t capacity) const
+        {
+            return _getSortKey(
+                _collator,
+                value.data(),
+                static_cast<std::int32_t>(value.size()),
+                result,
+                capacity);
+        }
+
+    private:
+        using OpenFunction =
+            AppleUCollator* (*)(const char*, std::int32_t*);
+        using SetStrengthFunction =
+            void (*)(AppleUCollator*, std::int32_t);
+        using SetAttributeFunction =
+            void (*)(
+                AppleUCollator*,
+                std::int32_t,
+                std::int32_t,
+                std::int32_t*);
+        using CloseFunction = void (*)(AppleUCollator*);
+        using StrcollFunction =
+            std::int32_t (*)(
+                const AppleUCollator*,
+                const char16_t*,
+                std::int32_t,
+                const char16_t*,
+                std::int32_t);
+        using GetSortKeyFunction =
+            std::int32_t (*)(
+                const AppleUCollator*,
+                const char16_t*,
+                std::int32_t,
+                std::uint8_t*,
+                std::int32_t);
+
+        static constexpr std::int32_t SecondaryStrength = 1;
+        static constexpr std::int32_t NormalizationMode = 4;
+        static constexpr std::int32_t AttributeOn = 17;
+
+        AppleIcuLibrary _library;
+        OpenFunction _open;
+        SetStrengthFunction _setStrength;
+        SetAttributeFunction _setAttribute;
+        CloseFunction _close;
+        StrcollFunction _strcoll;
+        GetSortKeyFunction _getSortKey;
+        AppleUCollator* _collator = nullptr;
+    };
+
+    [[nodiscard]] const InvariantCollator& GetInvariantCollator()
+    {
+        static const InvariantCollator collator;
+        return collator;
+    }
+
+    [[nodiscard]] bool InvariantCultureIgnoreCaseEquals(
+        std::u16string_view left,
+        std::u16string_view right)
+    {
+        if (left.data() == right.data() && left.size() == right.size())
+        {
+            return true;
+        }
+        if (left.size()
+                > static_cast<std::size_t>(
+                    std::numeric_limits<std::int32_t>::max())
+            || right.size()
+                > static_cast<std::size_t>(
+                    std::numeric_limits<std::int32_t>::max()))
+        {
+            throw std::length_error(
+                "String length exceeds the native comparison limit.");
+        }
+
+        return GetInvariantCollator().Compare(left, right) == 0;
+    }
+
+    [[nodiscard]] std::int32_t InvariantCultureIgnoreCaseHash(
+        std::u16string_view value)
+    {
+        if (value.size()
+            > static_cast<std::size_t>(
+                std::numeric_limits<std::int32_t>::max()))
+        {
+            throw std::length_error(
+                "String length exceeds the native comparison limit.");
+        }
+
+        const InvariantCollator& collator = GetInvariantCollator();
+        const std::int32_t required =
+            collator.GetSortKey(value, nullptr, 0);
+        if (required <= 0)
+        {
+            throw std::runtime_error(
+                "Unable to create the Apple ICU invariant sort key.");
+        }
+
+        std::vector<std::uint8_t> sortKey(
+            static_cast<std::size_t>(required));
+        const std::int32_t written = collator.GetSortKey(
+            value,
+            sortKey.data(),
+            required);
+        if (written != required)
+        {
+            throw std::runtime_error(
+                "Unable to create the Apple ICU invariant sort key.");
+        }
+        return HashBytes(sortKey.data(), sortKey.size());
+    }
 #else
     class InvariantCollator final
     {
@@ -150,20 +837,26 @@ namespace
         InvariantCollator()
         {
             UErrorCode status = U_ZERO_ERROR;
-            _collator = ucol_open("", &status);
+            _collator = ucol_open("root", &status);
             if (U_FAILURE(status) || _collator == nullptr)
             {
-                throw std::runtime_error("Unable to create the ICU invariant collator.");
+                throw std::runtime_error(
+                    "Unable to create the ICU invariant collator.");
             }
 
             ucol_setStrength(_collator, UCOL_SECONDARY);
             status = U_ZERO_ERROR;
-            ucol_setAttribute(_collator, UCOL_NORMALIZATION_MODE, UCOL_ON, &status);
+            ucol_setAttribute(
+                _collator,
+                UCOL_NORMALIZATION_MODE,
+                UCOL_ON,
+                &status);
             if (U_FAILURE(status))
             {
                 ucol_close(_collator);
                 _collator = nullptr;
-                throw std::runtime_error("Unable to configure the ICU invariant collator.");
+                throw std::runtime_error(
+                    "Unable to configure the ICU invariant collator.");
             }
         }
 
@@ -191,16 +884,22 @@ namespace
     }
 
     [[nodiscard]] bool InvariantCultureIgnoreCaseEquals(
-        std::u16string_view left, std::u16string_view right)
+        std::u16string_view left,
+        std::u16string_view right)
     {
         if (left.data() == right.data() && left.size() == right.size())
         {
             return true;
         }
-        if (left.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())
-            || right.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
+        if (left.size()
+                > static_cast<std::size_t>(
+                    std::numeric_limits<std::int32_t>::max())
+            || right.size()
+                > static_cast<std::size_t>(
+                    std::numeric_limits<std::int32_t>::max()))
         {
-            throw std::length_error("String length exceeds the native comparison limit.");
+            throw std::length_error(
+                "String length exceeds the native comparison limit.");
         }
 
         return ucol_strcoll(
@@ -211,11 +910,15 @@ namespace
             static_cast<std::int32_t>(right.size())) == UCOL_EQUAL;
     }
 
-    [[nodiscard]] std::int32_t InvariantCultureIgnoreCaseHash(std::u16string_view value)
+    [[nodiscard]] std::int32_t InvariantCultureIgnoreCaseHash(
+        std::u16string_view value)
     {
-        if (value.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
+        if (value.size()
+            > static_cast<std::size_t>(
+                std::numeric_limits<std::int32_t>::max()))
         {
-            throw std::length_error("String length exceeds the native comparison limit.");
+            throw std::length_error(
+                "String length exceeds the native comparison limit.");
         }
 
         const UCollator* collator = GetInvariantCollator().Get();
@@ -227,10 +930,12 @@ namespace
             0);
         if (required <= 0)
         {
-            throw std::runtime_error("Unable to create the ICU invariant sort key.");
+            throw std::runtime_error(
+                "Unable to create the ICU invariant sort key.");
         }
 
-        std::vector<std::uint8_t> sortKey(static_cast<std::size_t>(required));
+        std::vector<std::uint8_t> sortKey(
+            static_cast<std::size_t>(required));
         const std::int32_t written = ucol_getSortKey(
             collator,
             reinterpret_cast<const UChar*>(value.data()),
@@ -239,7 +944,8 @@ namespace
             required);
         if (written != required)
         {
-            throw std::runtime_error("Unable to create the ICU invariant sort key.");
+            throw std::runtime_error(
+                "Unable to create the ICU invariant sort key.");
         }
         return HashBytes(sortKey.data(), sortKey.size());
     }
@@ -349,7 +1055,7 @@ namespace NCSFCommon
 
     TagList::KeyComparer::KeyComparer()
     {
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__ANDROID__)
         static_cast<void>(GetInvariantCollator());
 #endif
     }

@@ -2,6 +2,7 @@
 
 #include "../../Formats/Types.hpp"
 #include "../../HUD/HudInfo.hpp"
+#include "../../Mods/Render/PlayerEntityIconBounds.hpp"
 #include "../../Mods/Render/PlayerEntityProHud.hpp"
 
 #include <array>
@@ -28,7 +29,6 @@ namespace MphRead::Text
 namespace MphRead::Entities
 {
     class EntityBase;
-    struct IconBounds;
 }
 
 #define MPHREAD_PLAYER_HUD_MEMBERS                                                            \

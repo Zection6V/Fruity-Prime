@@ -30,7 +30,7 @@ namespace MphRead::Entities::Enemies
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
@@ -85,13 +85,20 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
         {
-            if (!std::isfinite(value)
-                || value >= 2147483648.0F
-                || value < -2147483648.0F)
+            if (std::isnan(value))
+            {
+                return 0;
+            }
+            const double wide = static_cast<double>(value);
+            if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
             {
                 return std::numeric_limits<std::int32_t>::min();
             }
-            return static_cast<std::int32_t>(value);
+            if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
+            {
+                return std::numeric_limits<std::int32_t>::max();
+            }
+            return static_cast<std::int32_t>(std::trunc(wide));
         }
 
         [[nodiscard]] float CollisionCorrection(float value, std::int32_t rmd) noexcept
@@ -135,6 +142,10 @@ namespace MphRead::Entities::Enemies
             static_cast<float>(facingX) / 4096.0F,
             0.0F,
             static_cast<float>(facingZ) / 4096.0F);
+        if (_spawner == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
         if (facing.X == 0.0F && facing.Z == 0.0F)
         {
             facing = _spawner->Transform.Row2().Xyz();
@@ -150,9 +161,9 @@ namespace MphRead::Entities::Enemies
         _hurtVolumeInit = CollisionVolume(spawnFields.Volume0);
         SetUpModel(Metadata::EnemyModelNames.at(1));
         _field1A0 = _field1AC = up;
-        _angleInc = Fixed::ToFloat(static_cast<std::int32_t>(Rng::GetRandomInt2(0x3000))) + 3.0F;
+        _angleInc = Fixed::ToFloat(Rng::GetRandomInt2(0x3000)) + 3.0F;
         _angleInc /= 2.0F; // todo: FPS stuff
-        _maxAngle = Fixed::ToFloat(static_cast<std::int32_t>(Rng::GetRandomInt2(0))) + 40.0F;
+        _maxAngle = Fixed::ToFloat(Rng::GetRandomInt2(0)) + 40.0F;
         _angleCos = std::cos(DegreesToRadians(_angleInc));
         _homeVolume = CollisionVolume::Move(
             spawnFields.Volume1, _spawner->Data.Header.Position.ToFloatVector());
@@ -196,7 +207,7 @@ namespace MphRead::Entities::Enemies
                 _seekingVolume = true;
             }
         }
-        Vector3 testPos = static_cast<Vector3>(Position) + Scale(UpVector(), _boundingRadius);
+        Vector3 testPos = static_cast<Vector3>(Position) + ScaleVector(UpVector(), _boundingRadius);
         ManagedArray<Formats::CollisionResult> results(8);
         std::int32_t colCount = Formats::CollisionDetection::CheckInRadius(
             testPos, _boundingRadius, 8, true, Formats::TestFlags::None, _scene, &results);
@@ -232,7 +243,7 @@ namespace MphRead::Entities::Enemies
                     vec = vec + result.Plane.Xyz();
                 }
             }
-            Vector3 position = testPos - Scale(UpVector(), _boundingRadius);
+            Vector3 position = testPos - ScaleVector(UpVector(), _boundingRadius);
             if (!Equal(vec, Vector3::Zero))
             {
                 vec = vec.Normalized();
@@ -240,16 +251,16 @@ namespace MphRead::Entities::Enemies
             }
             Vector3 upVector = UpVector();
             Vector3 upVec = upVector
-                + Scale(_field1AC - upVector, Fixed::ToFloat(819) / 2.0F); // todo: FPS stuff
+                + ScaleVector(_field1AC - upVector, Fixed::ToFloat(819) / 2.0F); // todo: FPS stuff
             upVec = upVec.Normalized();
             Vector3 facingVec = Vector3::Cross(upVec, _direction).Normalized();
             SetTransform(facingVec, upVec, position);
         }
-        _speed = Scale(UpVector(), Fixed::ToFloat(-245) / 2.0F); // todo: FPS stuff
+        _speed = ScaleVector(UpVector(), Fixed::ToFloat(-245) / 2.0F); // todo: FPS stuff
         if (_seekingVolume)
         {
             _direction = _direction
-                + Scale(_intendedDir - _direction, Fixed::ToFloat(819) / 2.0F); // todo: FPS stuff
+                + ScaleVector(_intendedDir - _direction, Fixed::ToFloat(819) / 2.0F); // todo: FPS stuff
             _direction = _direction.Normalized();
             if (Vector3::Dot(_intendedDir, _direction) > _angleCos)
             {
@@ -263,7 +274,7 @@ namespace MphRead::Entities::Enemies
             float dot = Vector3::Dot(_field1AC, UpVector());
             if (dot >= Fixed::ToFloat(3712))
             {
-                _speed = _speed + Scale(FacingVector(), Fixed::ToFloat(204) / 2.0F); // todo: FPS stuff
+                _speed = _speed + ScaleVector(FacingVector(), Fixed::ToFloat(204) / 2.0F); // todo: FPS stuff
                 if (dot >= Fixed::ToFloat(4095))
                 {
                     _field1A0 = _field1AC;

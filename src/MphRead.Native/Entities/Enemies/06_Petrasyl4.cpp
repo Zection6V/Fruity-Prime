@@ -69,7 +69,7 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
-            PlayerEntity* player = PlayerEntity::Main();
+            const std::shared_ptr<PlayerEntity> player = PlayerEntity::Main();
             if (player == nullptr)
             {
                 throw System::NullReferenceException();
@@ -92,6 +92,16 @@ namespace MphRead::Entities::Enemies
         {
             value.Y = y;
             return value;
+        }
+
+        [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scalar) noexcept
+        {
+            return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
+        }
+
+        [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
+        {
+            return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
         }
 
         [[nodiscard]] float LengthSquared(Vector3 value) noexcept
@@ -275,7 +285,7 @@ namespace MphRead::Entities::Enemies
             static_cast<void>(Rng::GetRandomInt2(0x1000));
 
             Vector3 facing = FacingVector();
-            _field184 = facing * 0.05F;
+            _field184 = MphRead::Entities::Enemies::Scale(facing, 0.05F);
             if (_field184.X == 0.0F && _field184.Y == 0.0F)
             {
                 _field184 = facing;
@@ -284,8 +294,7 @@ namespace MphRead::Entities::Enemies
             {
                 _field184 = _field184.Normalized();
             }
-            _speed = _field184 * 0.05F;
-            _speed /= 2.0F;
+            _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
         }
     }
 
@@ -423,8 +432,7 @@ namespace MphRead::Entities::Enemies
         }
 
         SetTransform(newFacing, UpVector(), static_cast<Vector3>(Position));
-        _speed = _field184 * 0.05F;
-        _speed /= 2.0F;
+        _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
         _targetY += _speed.Y / 2.0F;
         _speed.Y += ySpeedInc / 2.0F;
     }

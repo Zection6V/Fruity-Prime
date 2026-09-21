@@ -62,7 +62,7 @@ namespace
         {
             throw MphRead::Memory::Detail::NullReferenceException();
         }
-        return scene->RoomId;
+        return scene->RoomId();
     }
 
     [[nodiscard]] MphRead::Entities::AreaVolumeEntity* RequireAreaVolume(
@@ -86,13 +86,27 @@ namespace
     }
 
     [[nodiscard]] MphRead::Entities::BeamProjectileEntity* RequireBeam(
-        const std::shared_ptr<MphRead::Entities::BeamProjectileEntity>& entity)
+        const std::shared_ptr<MphRead::BeamProjectileEntity>& entity)
     {
         if (!entity)
         {
             throw MphRead::Memory::Detail::NullReferenceException();
         }
-        return entity.get();
+        // EquipInfo::Beams currently carries the root forward-declared beam type,
+        // while the concrete native entity lives in MphRead::Entities. Erase only
+        // the static pointer type here; ownership and object identity are unchanged.
+        return static_cast<MphRead::Entities::BeamProjectileEntity*>(
+            static_cast<void*>(entity.get()));
+    }
+
+    [[nodiscard]] MphRead::BeamProjectileArray& RequireBeams(
+        const std::shared_ptr<MphRead::EquipInfo>& equip)
+    {
+        if (!equip || !equip->Beams)
+        {
+            throw MphRead::Memory::Detail::NullReferenceException();
+        }
+        return *equip->Beams;
     }
 }
 
@@ -125,9 +139,9 @@ namespace MphRead::Entities
         }
         _cooldownTime *= 2;
 
-        if (GameState::Mode == GameMode::SinglePlayer)
+        if (GameState::Mode() == GameMode::SinglePlayer)
         {
-            StorySave* storySave = GameState::StorySave;
+            const std::shared_ptr<StorySave>& storySave = GameState::StorySave;
             const std::int32_t roomId = GetRoomId(_scene);
             if (storySave == nullptr)
             {
@@ -186,9 +200,9 @@ namespace MphRead::Entities
         if (info.Message == Message::Activate)
         {
             Active = true;
-            if (GameState::Mode == GameMode::SinglePlayer)
+            if (GameState::Mode() == GameMode::SinglePlayer)
             {
-                StorySave* storySave = GameState::StorySave;
+                const std::shared_ptr<StorySave>& storySave = GameState::StorySave;
                 const std::int32_t roomId = GetRoomId(_scene);
                 if (storySave == nullptr)
                 {
@@ -202,9 +216,9 @@ namespace MphRead::Entities
             if (UnboxInt32(info.Param1) != 0)
             {
                 Active = true;
-                if (GameState::Mode == GameMode::SinglePlayer)
+                if (GameState::Mode() == GameMode::SinglePlayer)
                 {
-                    StorySave* storySave = GameState::StorySave;
+                    const std::shared_ptr<StorySave>& storySave = GameState::StorySave;
                     const std::int32_t roomId = GetRoomId(_scene);
                     if (storySave == nullptr)
                     {
@@ -216,9 +230,9 @@ namespace MphRead::Entities
             else
             {
                 Active = false;
-                if (GameState::Mode == GameMode::SinglePlayer)
+                if (GameState::Mode() == GameMode::SinglePlayer)
                 {
-                    StorySave* storySave = GameState::StorySave;
+                    const std::shared_ptr<StorySave>& storySave = GameState::StorySave;
                     const std::int32_t roomId = GetRoomId(_scene);
                     if (storySave == nullptr)
                     {
@@ -232,11 +246,11 @@ namespace MphRead::Entities
 
     void AreaVolumeEntity::GetDisplayVolumes()
     {
-        if (_scene->ShowVolumes == VolumeDisplay::AreaInside
-            || _scene->ShowVolumes == VolumeDisplay::AreaExit)
+        if (_scene->ShowVolumes() == VolumeDisplay::AreaInside
+            || _scene->ShowVolumes() == VolumeDisplay::AreaExit)
         {
             const ::OpenTK::Mathematics::Vector3 color
-                = _scene->ShowVolumes == VolumeDisplay::AreaInside
+                = _scene->ShowVolumes() == VolumeDisplay::AreaInside
                 ? _insideEventColor
                 : _exitEventColor;
             AddVolumeItem(_volume, color);
@@ -422,15 +436,15 @@ namespace MphRead::Entities
         {
             PlayerEntity* player = RequirePlayer(enumerator.Current());
 
-            if (GameState::Mode == GameMode::SinglePlayer
-                && player != PlayerEntity::Main())
+            if (GameState::Mode() == GameMode::SinglePlayer
+                && player != PlayerEntity::Main().get())
             {
                 continue;
             }
 
-            for (std::size_t i = 0; i < player->EquipInfo().Beams().size(); ++i)
+            for (std::size_t i = 0; i < RequireBeams(player->EquipInfo()).size(); ++i)
             {
-                BeamProjectileEntity* beam = RequireBeam(player->EquipInfo().Beams()[i]);
+                BeamProjectileEntity* beam = RequireBeam(RequireBeams(player->EquipInfo())[i]);
                 if (beam->Lifespan() > 0)
                 {
                     Formats::CollisionResult discard{};
@@ -507,11 +521,11 @@ namespace MphRead::Entities
 
     void FhAreaVolumeEntity::GetDisplayVolumes()
     {
-        if (_scene->ShowVolumes == VolumeDisplay::AreaInside
-            || _scene->ShowVolumes == VolumeDisplay::AreaExit)
+        if (_scene->ShowVolumes() == VolumeDisplay::AreaInside
+            || _scene->ShowVolumes() == VolumeDisplay::AreaExit)
         {
             const ::OpenTK::Mathematics::Vector3 color
-                = _scene->ShowVolumes == VolumeDisplay::AreaInside
+                = _scene->ShowVolumes() == VolumeDisplay::AreaInside
                 ? _insideEventColor
                 : _exitEventColor;
             AddVolumeItem(_volume, color);

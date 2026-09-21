@@ -3945,7 +3945,8 @@ namespace MphRead
         }
     }
 
-    std::shared_ptr<Entities::BeamEffectEntity> Scene::InitBeamEffect(const BeamEffectEntityData& data)
+    std::shared_ptr<Entities::BeamEffectEntity> Scene::InitBeamEffect(
+        const Entities::BeamEffectEntityData& data)
     {
         if (_inactiveBeamEffects.empty())
         {
@@ -3957,10 +3958,24 @@ namespace MphRead
         return entry;
     }
 
-    void Scene::UnlinkBeamEffect(const std::shared_ptr<Entities::BeamEffectEntity>& entry)
+    void Scene::UnlinkBeamEffect(Entities::BeamEffectEntity* entry)
     {
-        RemoveFirst(_activeBeamEffects, entry);
-        _inactiveBeamEffects.push(entry);
+        std::shared_ptr<Entities::BeamEffectEntity> owner;
+        for (auto enumerator = GetBeamEffectEntities().GetEnumerator(); enumerator.MoveNext();)
+        {
+            auto current = enumerator.Current();
+            if (current.get() == entry)
+            {
+                owner = std::move(current);
+                break;
+            }
+        }
+        if (!owner)
+        {
+            throw System::NullReferenceException();
+        }
+        RemoveFirst(_activeBeamEffects, owner);
+        _inactiveBeamEffects.push(std::move(owner));
     }
 
     std::shared_ptr<Entities::BombEntity> Scene::InitBomb()
@@ -3974,10 +3989,24 @@ namespace MphRead
         return entry;
     }
 
-    void Scene::UnlinkBomb(const std::shared_ptr<Entities::BombEntity>& entry)
+    void Scene::UnlinkBomb(Entities::BombEntity* entry)
     {
-        RemoveFirst(_activeBombs, entry);
-        _inactiveBombs.push(entry);
+        std::shared_ptr<Entities::BombEntity> owner;
+        for (auto enumerator = GetBombEntities().GetEnumerator(); enumerator.MoveNext();)
+        {
+            auto current = enumerator.Current();
+            if (current.get() == entry)
+            {
+                owner = std::move(current);
+                break;
+            }
+        }
+        if (!owner)
+        {
+            throw System::NullReferenceException();
+        }
+        RemoveFirst(_activeBombs, owner);
+        _inactiveBombs.push(std::move(owner));
     }
 
     void Scene::AddSingleParticle(SingleType type, Vector3 position, Vector3 color, float alpha, float scale)
@@ -4960,6 +4989,38 @@ namespace MphRead
     FadeType Scene::FadeType() const noexcept
     {
         return _fadeType;
+    }
+
+    void Scene::StartMovie(Movie movieId, FadeType fadeToMovieType, float fadeToMovieLength,
+        FadeType fadeFromMovieType, float fadeFromMovieLength)
+    {
+        StartMovie(movieId, fadeToMovieType, fadeToMovieLength,
+            fadeFromMovieType, fadeFromMovieLength, AfterMovie::LoadRoom);
+    }
+
+    void Scene::StartMovie(Movie movieId, FadeType fadeToMovieType, float fadeToMovieLength,
+        FadeType fadeFromMovieType, float fadeFromMovieLength, AfterMovie afterMovieAction)
+    {
+        _movieSettings.MovieId = movieId;
+        _movieSettings.AfterMovieId.reset();
+        _movieSettings.AfterFadeType = fadeFromMovieType;
+        _movieSettings.AfterFadeLength = fadeFromMovieLength;
+        _movieSettings.AfterPosition.reset();
+        _movieSettings.AfterFacing.reset();
+        _movieSettings.AfterMovieAction = afterMovieAction;
+        if (GameState::MatchState() == MatchState::InProgress)
+        {
+            const std::shared_ptr<Entities::PlayerEntity> main = Entities::PlayerEntity::Main();
+            if (!main)
+            {
+                throw System::NullReferenceException();
+            }
+            if (main->Health() > 0)
+            {
+                GameState::PausePrevented(true);
+            }
+        }
+        SetFade(fadeToMovieType, fadeToMovieLength, true, AfterFade::PlayMovie);
     }
 
     void Scene::SetFade(MphRead::FadeType type, float length, bool overwrite, AfterFade afterFade, float delay)
@@ -6297,7 +6358,7 @@ namespace MphRead
 
     void Scene::OutputStart()
     {
-        _outputThread = std::jthread([this](std::stop_token token)
+        _outputThread = RendererJThread([this](RendererStopToken token)
         {
             OutputUpdate(token);
         });
@@ -6311,7 +6372,7 @@ namespace MphRead
         }
     }
 
-    void Scene::OutputUpdate(std::stop_token token)
+    void Scene::OutputUpdate(RendererStopToken token)
     {
         std::mutex delayMutex;
         std::condition_variable_any delayCondition;
@@ -6337,7 +6398,7 @@ namespace MphRead
                 _currentOutput = output;
             }
             std::unique_lock lock(delayMutex);
-            delayCondition.wait_for(lock, token, std::chrono::milliseconds(100), [] { return false; });
+            RendererWaitForStop(delayCondition, lock, token, std::chrono::milliseconds(100));
         }
     }
 

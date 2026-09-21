@@ -183,7 +183,13 @@ namespace MphRead
 
 namespace MphRead
 {
-    class BeamProjectileEntity;
+    namespace Entities
+    {
+        class BeamProjectileEntity;
+    }
+
+    using BeamProjectileEntity = Entities::BeamProjectileEntity;
+
     class WeaponInfo;
 
     enum class EquipFlags : std::uint8_t
@@ -260,7 +266,7 @@ namespace MphRead
     constexpr WeaponFlags& operator&=(WeaponFlags& lhs, WeaponFlags rhs) noexcept { return lhs = lhs & rhs; }
     constexpr WeaponFlags& operator^=(WeaponFlags& lhs, WeaponFlags rhs) noexcept { return lhs = lhs ^ rhs; }
 
-    using BeamProjectileArray = std::vector<std::shared_ptr<BeamProjectileEntity>>;
+    using BeamProjectileArray = std::vector<std::shared_ptr<Entities::BeamProjectileEntity>>;
 
     class EquipInfo
     {

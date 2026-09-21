@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace MphRead::Entities::Enemies
 {
@@ -39,8 +40,8 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
-            PlayerEntity* player = PlayerEntity::Main();
-            if (player == nullptr)
+            const std::shared_ptr<PlayerEntity> player = PlayerEntity::Main();
+            if (!player)
             {
                 throw System::NullReferenceException();
             }
@@ -79,6 +80,28 @@ namespace MphRead::Entities::Enemies
             return degrees * (3.14159265358979323846F / 180.0F);
         }
     }
+}
+
+namespace MphRead::Metadata
+{
+    namespace
+    {
+        using Entities::EnemyBehavior;
+        using Entities::EnemySubroutine;
+        using Entities::Enemies::Enemy05Entity;
+
+        const std::vector<EnemyBehavior<Enemy05Entity>> Enemy05State0{
+            {1, static_cast<bool(*)(Enemy05Entity*)>(&Enemy05Entity::Behavior01)}
+        };
+        const std::vector<EnemyBehavior<Enemy05Entity>> Enemy05State1{
+            {1, static_cast<bool(*)(Enemy05Entity*)>(&Enemy05Entity::Behavior00)}
+        };
+    }
+
+    std::vector<EnemySubroutine<Enemy05Entity>> Enemy05Subroutines{
+        EnemySubroutine<Enemy05Entity>(Enemy05State0),
+        EnemySubroutine<Enemy05Entity>(Enemy05State1)
+    };
 }
 
 namespace MphRead::Entities::Enemies
@@ -157,7 +180,7 @@ namespace MphRead::Entities::Enemies
             {
                 _field184 = _field184.Normalized();
             }
-            _speed = Divide(Scale(_field184, 0.05F), 2.0F);
+            _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
         }
     }
 
@@ -303,7 +326,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 currentUp = UpVector();
         const Vector3 transformPosition = static_cast<Vector3>(Position);
         SetTransform(newFacing, currentUp, transformPosition);
-        _speed = Divide(Scale(_field184, 0.05F), 2.0F);
+        _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
         _targetY += _speed.Y / 2.0F;
         _speed.Y += ySpeedInc / 2.0F;
     }

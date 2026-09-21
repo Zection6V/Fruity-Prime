@@ -17,6 +17,7 @@
 #include "DoorEntity.hpp"
 #include "EnemyInstanceEntity.hpp"
 #include "ForceFieldEntity.hpp"
+#include "Enemies/49_ForceFieldLock.hpp"
 #include "ItemSpawnEntity.hpp"
 #include "PlatformEntity.hpp"
 #include "Players/HalfturretEntity.hpp"
@@ -229,6 +230,84 @@ namespace
         return std::bit_cast<std::int32_t>(value);
     }
 
+    [[nodiscard]] std::int32_t ManagedInt32FromUInt32(std::uint32_t value) noexcept
+    {
+        return std::bit_cast<std::int32_t>(value);
+    }
+
+    struct EntityBaseSoundAccess final : EntityBase
+    {
+        using EntityBase::_soundSource;
+    };
+
+    [[nodiscard]] MphRead::Sound::SoundSource& EntitySoundSource(EntityBase& entity) noexcept
+    {
+        static constexpr auto member = &EntityBaseSoundAccess::_soundSource;
+        return entity.*member;
+    }
+
+    void StopContinuousPlayerBeamSfx(MphRead::Entities::PlayerEntity& player, MphRead::BeamType beam)
+    {
+        const auto table = MphRead::Metadata::BeamSfx();
+        const auto& rows = RequireReference(table);
+        const auto& row = ManagedAt(rows, Index(static_cast<std::int32_t>(beam)));
+        MphRead::Sound::SoundSource& source = EntitySoundSource(player);
+        source.StopSfx(ManagedAt(row, Index(static_cast<std::int32_t>(MphRead::BeamSfx::Shot))));
+        source.StopSfx(ManagedAt(row,
+            Index(static_cast<std::int32_t>(MphRead::BeamSfx::AffinityChargeShot))));
+    }
+
+    void GainPlayerHealth(MphRead::Entities::PlayerEntity& player, std::uint32_t health)
+    {
+        const std::int32_t amount = ManagedInt32FromUInt32(health);
+        std::int32_t playerHealth = player.Health();
+        if (playerHealth <= 0)
+        {
+            return;
+        }
+
+        if (TestFlag(player.Flags2(), MphRead::Entities::PlayerFlags2::Halfturret))
+        {
+            MphRead::Entities::HalfturretEntity& halfturret = RequireReference(player.Halfturret());
+            std::int32_t turretHealth = halfturret.Health();
+            if (playerHealth <= turretHealth)
+            {
+                playerHealth = ManagedAdd(playerHealth, ManagedSubtract(amount, amount / 2));
+                turretHealth = ManagedAdd(turretHealth, amount / 2);
+            }
+            else
+            {
+                playerHealth = ManagedAdd(playerHealth, amount / 2);
+                turretHealth = ManagedAdd(turretHealth, ManagedSubtract(amount, amount / 2));
+            }
+            if (turretHealth > 100)
+            {
+                turretHealth = 100;
+            }
+            halfturret.SetHealth(turretHealth);
+        }
+        else
+        {
+            playerHealth = ManagedAdd(playerHealth, amount);
+        }
+
+        if (playerHealth > player.HealthMax())
+        {
+            playerHealth = player.HealthMax();
+        }
+        player.SetHealth(playerHealth);
+    }
+
+    [[nodiscard]] EntityBase* CollisionEntity(
+        const std::shared_ptr<MphRead::Formats::Collision::EntityCollision>& collision) noexcept
+    {
+        if (!collision || !collision->Entity)
+        {
+            return nullptr;
+        }
+        return reinterpret_cast<EntityBase*>(collision->Entity.get());
+    }
+
     template <typename TContainer>
     [[nodiscard]] decltype(auto) ManagedListAt(const TContainer& container, std::int32_t index)
     {
@@ -377,7 +456,7 @@ namespace MphRead::Entities
             return false;
         }
         Scene& scene = RequireReference(_scene);
-        _lifespan -= scene.FrameTime;
+        _lifespan -= scene.FrameTime();
         if (TestFlag(_flags, BeamFlags::Collided))
         {
             return true;
@@ -388,13 +467,13 @@ namespace MphRead::Entities
             if (TestFlag(_flags, BeamFlags::Continuous) && _owner && _owner->Type == EntityType::Player)
             {
                 StopHomingSfx();
-                static_cast<PlayerEntity*>(_owner.get())->StopContinuousBeamSfx(_beam);
+                StopContinuousPlayerBeamSfx(*static_cast<PlayerEntity*>(_owner.get()), _beam);
             }
             return false;
         }
-        _age += scene.FrameTime;
+        _age += scene.FrameTime();
         _backPosition = Position;
-        if (scene.FrameCount % 2 == 0)
+        if (scene.FrameCount() % 2 == 0)
         {
             for (std::int32_t i = 9; i > 0; --i)
             {
@@ -427,7 +506,7 @@ namespace MphRead::Entities
                 {
                     _speed = GetInterpolatedValue(
                         _speedInterpolation, _initialSpeed, _finalSpeed, _age / _speedDecayTime);
-                    _velocity = Scale(_velocity, _speed / magnitude);
+                    _velocity = ::Scale(_velocity, _speed / magnitude);
                 }
             }
         }
@@ -440,7 +519,7 @@ namespace MphRead::Entities
             {
                 MessageInfo info = queue[i];
                 if (info.Message == Message::Destroyed
-                    && info.ExecuteFrame == scene.FrameCount
+                    && info.ExecuteFrame == scene.FrameCount()
                     && info.Sender == _target.get())
                 {
                     _target.reset();
@@ -458,14 +537,14 @@ namespace MphRead::Entities
             _target->GetPosition(targetPos);
             Vector3 acceleration = targetPos - static_cast<Vector3>(Position);
             acceleration = !IsZero(acceleration) ? Normalize(acceleration) : Vector3(1, 0, 0);
-            acceleration = Scale(acceleration, _speed);
+            acceleration = ::Scale(acceleration, _speed);
             if (Vector3::Dot(acceleration, _velocity) >= 0.0F)
             {
                 acceleration = acceleration - _velocity;
                 const float accelMag = Length(acceleration);
                 if (accelMag > _homing)
                 {
-                    acceleration = Scale(acceleration, _homing / accelMag);
+                    acceleration = ::Scale(acceleration, _homing / accelMag);
                 }
                 _velocity = _velocity + acceleration;
             }
@@ -581,7 +660,7 @@ namespace MphRead::Entities
                     plane.X *= -1.0F; plane.Y *= -1.0F; plane.Z *= -1.0F; plane.W *= -1.0F;
                 }
                 const Vector3 wvec = ComponentMultiply(
-                    plane.Xyz(), lockPos + Scale(plane.Xyz(), 0.4F));
+                    plane.Xyz(), lockPos + ::Scale(plane.Xyz(), 0.4F));
                 plane.W = wvec.X + wvec.Y + wvec.Z;
                 if (Formats::CollisionDetection::CheckCylinderIntersectPlane(
                         _backPosition, Position, plane, colRes)
@@ -606,7 +685,7 @@ namespace MphRead::Entities
             {
                 const std::shared_ptr<ForceFieldEntity> forceFieldPtr = forceFields.Current();
                 ForceFieldEntity& forceField = RequireReference(forceFieldPtr);
-                if (forceField.Active
+                if (forceField.Active()
                     && Formats::CollisionDetection::CheckCylinderIntersectPlane(
                         _backPosition, Position, forceField.Plane(), colRes)
                     && colRes.Distance < minDist)
@@ -670,7 +749,7 @@ namespace MphRead::Entities
             {
                 continue;
             }
-            if (Mods::Network::NetLog::Enabled)
+            if (Mods::Network::NetLog::Enabled())
             {
                 ManagedAt(Mods::Network::NetDamage::PlayerChecks, Index(player.SlotIndex()))++;
             }
@@ -727,8 +806,8 @@ namespace MphRead::Entities
 
             if (hitPlayer && playerRes.Distance < minDist)
             {
-                Mods::Network::NetDamage::NotePlayerOverlap(_owner.get(), &player);
-                if (Mods::Network::NetLog::Enabled)
+                Mods::Network::NetDamage::NotePlayerOverlap(_owner.get(), player);
+                if (Mods::Network::NetLog::Enabled())
                 {
                     ManagedAt(Mods::Network::NetDamage::PlayerOverlaps, Index(player.SlotIndex()))++;
                     ManagedAt(Mods::Network::NetDamage::PlayerAccepted, Index(player.SlotIndex()))++;
@@ -739,7 +818,7 @@ namespace MphRead::Entities
                 noColEff = false;
                 hitHalfturret = false;
             }
-            else if (hitPlayer && Mods::Network::NetLog::Enabled)
+            else if (hitPlayer && Mods::Network::NetLog::Enabled())
             {
                 ManagedAt(Mods::Network::NetDamage::PlayerOverlaps, Index(player.SlotIndex()))++;
             }
@@ -762,7 +841,7 @@ namespace MphRead::Entities
             }
         }
 
-        if (GameState::SinglePlayer)
+        if (GameState::SinglePlayer())
         {
             auto beams = scene.GetBeamProjectileEntities().GetEnumerator();
             while (beams.MoveNext())
@@ -823,9 +902,9 @@ namespace MphRead::Entities
                     player = std::addressof(RequireReference(turretOwner));
                 }
                 DamageFlags damageFlags = DamageFlags::NoDmgInvuln;
-                if (ManagedAt(player->BeamEffectiveness(), Index(static_cast<std::int32_t>(_beam))) == Effectiveness::Zero)
+                if (ManagedAt(player->BeamEffectiveness, Index(static_cast<std::int32_t>(_beam))) == Effectiveness::Zero)
                 {
-                    if (GameState::SinglePlayer && _owner.get() == PlayerEntity::Main())
+                    if (GameState::SinglePlayer() && _owner == PlayerEntity::Main())
                     {
                         Matrix4 transform = GetTransformMatrix(Vector3(1, 0, 0), Vector3(0, 1, 0), player->Position);
                         std::shared_ptr<Effects::EffectEntry> effect = scene.SpawnEffectGetEntry(115, transform);
@@ -904,9 +983,9 @@ namespace MphRead::Entities
                         if (!ownerPlayer->IsPrimeHunter() && ownerPlayer->TeamIndex() != player->TeamIndex())
                         {
                             const std::int32_t before = ownerPlayer->Health();
-                            ownerPlayer->GainHealth(wholeDamage);
+                            GainPlayerHealth(*ownerPlayer, wholeDamage);
                             Mods::Network::NetHitPrediction::NoteDrain(
-                                ownerPlayer, ownerPlayer->Health() - before);
+                                *ownerPlayer, ownerPlayer->Health() - before);
                         }
                     }
                     if (!player->IsMainPlayer() || player->IsAltForm() || player->IsMorphing())
@@ -921,16 +1000,16 @@ namespace MphRead::Entities
             else if (colWith->Type == EntityType::EnemyInstance)
             {
                 EnemyInstanceEntity* enemy = static_cast<EnemyInstanceEntity*>(colWith);
-                const std::shared_ptr<EntityBase> enemyOwner = enemy->Owner();
-                EnemyInstanceEntity* enemyOwnerInst = enemyOwner && enemyOwner->Type == EntityType::EnemyInstance
-                    ? static_cast<EnemyInstanceEntity*>(enemyOwner.get()) : nullptr;
+                EntityBase* enemyOwner = enemy->Owner();
+                EnemyInstanceEntity* enemyOwnerInst = enemyOwner != nullptr && enemyOwner->Type == EntityType::EnemyInstance
+                    ? static_cast<EnemyInstanceEntity*>(enemyOwner) : nullptr;
                 if (enemy->GetEffectiveness(_beam) == Effectiveness::Zero
                     && (enemy->EnemyType() == EnemyType::FireSpawn
                         || (enemyOwnerInst != nullptr && enemyOwnerInst->EnemyType() == EnemyType::FireSpawn)))
                 {
                     const Vector3 facing = Normalize(enemy->Transform.Row2().Xyz());
                     const float w = Vector3::Dot(facing,
-                        static_cast<Vector3>(enemy->Position) + Scale(facing, Fixed::ToFloat(0x3800)));
+                        static_cast<Vector3>(enemy->Position) + ::Scale(facing, Fixed::ToFloat(0x3800)));
                     anyRes.Plane = Vector4(facing, w);
                     const float dot = Vector3::Dot(Position, facing);
                     anyRes.Position = Vector3(
@@ -947,7 +1026,7 @@ namespace MphRead::Entities
                         const float pct = Vector3::Distance(Position, _spawnPosition) / _maxDistance;
                         damage = GetInterpolatedValue(_damageInterpolation, _damage, 0.0F, pct);
                     }
-                    if (damage > 0.0F && (_beam != BeamType::ShockCoil || scene.FrameCount % 2 == 0))
+                    if (damage > 0.0F && (_beam != BeamType::ShockCoil || scene.FrameCount() % 2 == 0))
                     {
                         enemy->TakeDamage(static_cast<std::uint32_t>(damage), this);
                         SpawnCollisionEffect(anyRes, true);
@@ -966,7 +1045,7 @@ namespace MphRead::Entities
                 if (_owner && _owner->Type == EntityType::Player)
                 {
                     PlayerEntity* player = static_cast<PlayerEntity*>(_owner.get());
-                    if (player->IsMainPlayer() || scene.CameraMode != CameraMode::Player)
+                    if (player->IsMainPlayer() || scene.CameraMode() != CameraMode::Player)
                     {
                         if (TestFlag(door->Flags(), DoorFlags::Locked)
                             && !TestFlag(door->Flags(), DoorFlags::ShowLock))
@@ -975,13 +1054,13 @@ namespace MphRead::Entities
                             {
                                 door->Unlock(true, true);
                             }
-                            else if (GameState::SinglePlayer)
+                            else if (GameState::SinglePlayer())
                             {
                                 scene.SendMessage(Message::ShowWarning, this, nullptr,
                                     BoxInt32(40), BoxInt32(180), 10);
                             }
                         }
-                        if (!GameState::InRoomTransition)
+                        if (!GameState::InRoomTransition())
                         {
                             door->SetFlags(door->Flags() | DoorFlags::ShotOpen);
                         }
@@ -1023,7 +1102,7 @@ namespace MphRead::Entities
                     _soundSource.PlaySfx(SfxId::BIGEYE_ATTACK1C, false, true);
                     ItemType item = ItemType::None;
                     const std::uint32_t rand = Rng::GetRandomInt2(100U);
-                    if (scene.AreaId == 0)
+                    if (scene.AreaId() == 0)
                     {
                         if (rand < 5)
                         {
@@ -1068,9 +1147,10 @@ namespace MphRead::Entities
             bool reflected = TestFlag(anyRes.Flags, Formats::Collision::CollisionFlags::ReflectBeams);
             if (anyRes.EntityCollision)
             {
-                scene.SendMessage(Message::BeamCollideWith, this, anyRes.EntityCollision->Entity.get(),
+                EntityBase* collisionEntity = CollisionEntity(anyRes.EntityCollision);
+                scene.SendMessage(Message::BeamCollideWith, this, collisionEntity,
                     BoxValue(anyRes), BoxInt32(0));
-                RequireReference(anyRes.EntityCollision->Entity).CheckBeamReflection(reflected);
+                RequireReference(collisionEntity).CheckBeamReflection(reflected);
             }
             if ((!TestFlag(_flags, BeamFlags::Ricochet) && !reflected)
                 || _drawFuncId == 8 || anyRes.Terrain() >= Terrain::Acid)
@@ -1132,7 +1212,7 @@ namespace MphRead::Entities
             _pastPositions[static_cast<std::size_t>(i)] = _pastPositions[static_cast<std::size_t>(i - 1)];
         }
         _pastPositions[0] = Position;
-        if (RequireReference(_scene).FrameCount % 2 == 0)
+        if (RequireReference(_scene).FrameCount() % 2 == 0)
         {
             for (std::int32_t i = 9; i > 0; --i)
             {
@@ -1207,7 +1287,7 @@ namespace MphRead::Entities
             CheckSplashDamage(colWith);
             if (_ricochetWeapon && (colWith == nullptr || colWith->Type != EntityType::Player))
             {
-                const Vector3 factor = Scale(_velocity, 7.0F);
+                const Vector3 factor = ::Scale(_velocity, 7.0F);
                 const float dot = Vector3::Dot(colRes.Plane.Xyz(), factor);
                 const Vector3 spawnDir = Normalize(Vector3(
                     colRes.Plane.X + factor.X - colRes.Plane.X * 2.0F * dot,
@@ -1216,31 +1296,31 @@ namespace MphRead::Entities
                 if (RequireReference(_owner).Type == EntityType::Player)
                 {
                     PlayerEntity* player = static_cast<PlayerEntity*>(_owner.get());
-                    if (player->IsBot() && GameState::SinglePlayer && player->Hunter() == Hunter::Spire)
+                    if (player->IsBot() && GameState::SinglePlayer() && player->Hunter() == Hunter::Spire)
                     {
                         const std::int32_t encounter
-                            = ManagedAt(GameState::EncounterState, Index(player->SlotIndex()));
+                            = ManagedAt(GameState::EncounterState(), Index(player->SlotIndex()));
                         std::uint16_t damage = 3;
                         if (encounter == 2 || (encounter == 0 && player->BotLevel() > 0))
                         {
                             damage = 4;
                         }
-                        _ricochetEquip->SetUnchargedDamage(damage);
-                        _ricochetEquip->SetMinChargeDamage(damage);
-                        _ricochetEquip->SetChargedDamage(damage);
-                        _ricochetEquip->SetHeadshotDamage(damage);
-                        _ricochetEquip->SetMinChargeHeadshotDamage(damage);
-                        _ricochetEquip->SetChargedHeadshotDamage(damage);
-                        _ricochetEquip->SetSplashDamage(damage);
-                        _ricochetEquip->SetMinChargeSplashDamage(damage);
-                        _ricochetEquip->SetChargedSplashDamage(damage);
-                        ManagedAt(_ricochetEquip->DmgDirTypes(), 0) = 0;
-                        ManagedAt(_ricochetEquip->DmgDirTypes(), 1) = 0;
+                        _ricochetEquip->UnchargedDamage(damage);
+                        _ricochetEquip->MinChargeDamage(damage);
+                        _ricochetEquip->ChargedDamage(damage);
+                        _ricochetEquip->HeadshotDamage(damage);
+                        _ricochetEquip->MinChargeHeadshotDamage(damage);
+                        _ricochetEquip->ChargedHeadshotDamage(damage);
+                        _ricochetEquip->SplashDamage(damage);
+                        _ricochetEquip->MinChargeSplashDamage(damage);
+                        _ricochetEquip->ChargedSplashDamage(damage);
+                        ManagedAt(_ricochetEquip->DmgDirTypes, 0) = 0;
+                        ManagedAt(_ricochetEquip->DmgDirTypes, 1) = 0;
                     }
                 }
                 EquipInfo& equip = RequireReference(_equip);
-                _ricochetEquip->SetBeams(equip.Beams());
-                _ricochetEquip->SetWeapon(_ricochetWeapon);
+                _ricochetEquip->Beams = equip.Beams;
+                _ricochetEquip->Weapon = _ricochetWeapon;
                 BeamSpawnFlags flags = BeamSpawnFlags::None;
                 if (TestFlag(_flags, BeamFlags::Charged))
                 {
@@ -1279,7 +1359,7 @@ namespace MphRead::Entities
 
             const auto omegaCannonFlash = [&]()
             {
-                if (_beam == BeamType::OmegaCannon && playerPtr.get() == PlayerEntity::Main())
+                if (_beam == BeamType::OmegaCannon && playerPtr == PlayerEntity::Main())
                 {
                     scene.SetFade(FadeType::FadeInWhite, 15.0F / 30.0F, false);
                 }
@@ -1444,7 +1524,7 @@ namespace MphRead::Entities
             {
                 DrawTrail4(0.15F, 0.5F, 10);
             }
-            else if (_owner.get() == PlayerEntity::Main())
+            else if (_owner == PlayerEntity::Main())
             {
                 DrawTrail4(0.025F, 0.35F, 5);
             }
@@ -1468,7 +1548,7 @@ namespace MphRead::Entities
     {
         assert(_trailModel != nullptr);
         Model& model = RequireReference(RequireReference(_trailModel).Model());
-        const Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
+        const ::MphRead::Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
         const Texture& texture = ManagedAt(RequireReference(recolor.Textures), 0);
         const float uvS = (texture.Width - (1.0F / 16.0F)) / texture.Width;
         const float uvT = (texture.Height - (1.0F / 16.0F)) / texture.Height;
@@ -1508,7 +1588,7 @@ namespace MphRead::Entities
         }
         const std::int32_t count = 4 * segments;
         Model& model = RequireReference(RequireReference(_trailModel).Model());
-        const Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
+        const ::MphRead::Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
         const Texture& texture = ManagedAt(RequireReference(recolor.Textures), 0);
         const float uvT = (texture.Height - (1.0F / 16.0F)) / texture.Height;
         auto uvsAndVerts = std::make_shared<ManagedArray<Vector3>>(static_cast<std::size_t>(count));
@@ -1531,14 +1611,14 @@ namespace MphRead::Entities
         Scene& scene = RequireReference(_scene);
         scene.AddRenderItem(RenderItemType::TrailMulti, alpha, scene.GetNextPolygonId(), _color,
             material.XRepeat, material.YRepeat, material.ScaleS, material.ScaleT,
-            Translation(_pastPositions[0]), uvsAndVerts, _bindingId, count);
+            Translation(_pastPositions[0]), uvsAndVerts, _bindingId, BillboardMode::None, count);
     }
 
     void BeamProjectileEntity::DrawTrail3(float height)
     {
         assert(_trailModel != nullptr);
         Model& model = RequireReference(RequireReference(_trailModel).Model());
-        const Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
+        const ::MphRead::Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
         const Texture& texture = ManagedAt(RequireReference(recolor.Textures), 0);
         const float uvS2 = (texture.Width - (1.0F / 16.0F)) / texture.Width;
         const float uvT2 = (texture.Height / 4.0F - (1.0F / 16.0F)) / texture.Height;
@@ -1574,14 +1654,14 @@ namespace MphRead::Entities
         }
         const std::int32_t count = 4 * segments;
         Scene& scene = RequireReference(_scene);
-        const std::int32_t frames = ManagedInt32FromUInt64(scene.LiveFrames) / 2;
+        const std::int32_t frames = ManagedInt32FromUInt64(scene.LiveFrames()) / 2;
         const std::int32_t positionSeed = static_cast<std::int32_t>(Position.X * 4096.0F);
         std::uint32_t rng = std::bit_cast<std::uint32_t>(ManagedAdd(frames, positionSeed));
         const std::int32_t index = frames & 15;
         const float halfRange = range / 2.0F;
         const Vector3 vec = static_cast<Vector3>(Position) - _pastPositions[8];
         Model& model = RequireReference(RequireReference(_trailModel).Model());
-        const Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
+        const ::MphRead::Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
         const Texture& texture = ManagedAt(RequireReference(recolor.Textures), 0);
         const float uvT = (texture.Height - (1.0F / 16.0F)) / texture.Height;
         auto uvsAndVerts = std::make_shared<ManagedArray<Vector3>>(static_cast<std::size_t>(count));
@@ -1613,7 +1693,7 @@ namespace MphRead::Entities
         Material& material = RequireReference(ManagedAt(RequireReference(model.Materials), 0));
         scene.AddRenderItem(RenderItemType::TrailMulti, 1.0F, scene.GetNextPolygonId(), _color,
             material.XRepeat, material.YRepeat, material.ScaleS, material.ScaleT,
-            Translation(_pastPositions[8]), uvsAndVerts, _bindingId, count);
+            Translation(_pastPositions[8]), uvsAndVerts, _bindingId, BillboardMode::None, count);
     }
 
     Matrix4 BeamProjectileEntity::GetModelTransform(ModelInstance& inst, std::int32_t index)
@@ -1666,18 +1746,18 @@ namespace MphRead::Entities
         const std::shared_ptr<EntityBase>& owner)
     {
         EquipInfo& equipRef = RequireReference(equip);
-        WeaponInfo& weapon = RequireReference(equipRef.Weapon());
-        auto& beams = equipRef.Beams();
-        if (TestFlag(weapon.Flags(), WeaponFlags::Continuous))
+        WeaponInfo& weapon = RequireReference(equipRef.Weapon);
+        auto& beams = RequireReference(equipRef.Beams);
+        if (TestFlag(weapon.Flags, WeaponFlags::Continuous))
         {
             for (std::size_t i = 0; i < beams.size(); ++i)
             {
                 const std::shared_ptr<BeamProjectileEntity>& beam = beams[i];
                 BeamProjectileEntity& beamRef = RequireReference(beam);
                 if (TestFlag(beamRef._flags, BeamFlags::Continuous)
-                    && beamRef._beamKind == weapon.BeamKind()
+                    && beamRef._beamKind == weapon.BeamKind
                     && beamRef._owner == owner
-                    && beamRef._lifespan < weapon.UnchargedLifespan())
+                    && beamRef._lifespan < weapon.UnchargedLifespan)
                 {
                     return beam;
                 }
@@ -1692,9 +1772,9 @@ namespace MphRead::Entities
                 return beam;
             }
             if (TestFlag(beamRef._flags, BeamFlags::Continuous)
-                && beamRef._beamKind == weapon.BeamKind()
+                && beamRef._beamKind == weapon.BeamKind
                 && beamRef._owner == owner
-                && beamRef._lifespan < weapon.UnchargedLifespan())
+                && beamRef._lifespan < weapon.UnchargedLifespan)
             {
                 return beam;
             }
@@ -1717,23 +1797,23 @@ namespace MphRead::Entities
     {
         BeamResultFlags result = BeamResultFlags::Spawned;
         EquipInfo& equipRef = RequireReference(equip);
-        const std::shared_ptr<WeaponInfo> weaponPtr = equipRef.Weapon();
+        const std::shared_ptr<WeaponInfo> weaponPtr = equipRef.Weapon;
         WeaponInfo& weapon = RequireReference(weaponPtr);
 
         bool charged = false;
         float chargePct = 0.0F;
-        if (TestFlag(weapon.Flags(), WeaponFlags::CanCharge))
+        if (TestFlag(weapon.Flags, WeaponFlags::CanCharge))
         {
-            if (TestFlag(weapon.Flags(), WeaponFlags::PartialCharge))
+            if (TestFlag(weapon.Flags, WeaponFlags::PartialCharge))
             {
-                if (equipRef.ChargeLevel() >= weapon.MinCharge() * 2)
+                if (equipRef.ChargeLevel >= weapon.MinCharge * 2)
                 {
                     charged = true;
-                    chargePct = (equipRef.ChargeLevel() - weapon.MinCharge() * 2)
-                        / static_cast<float>(weapon.FullCharge() * 2 - weapon.MinCharge() * 2);
+                    chargePct = (equipRef.ChargeLevel - weapon.MinCharge * 2)
+                        / static_cast<float>(weapon.FullCharge * 2 - weapon.MinCharge * 2);
                 }
             }
-            else if (equipRef.ChargeLevel() >= weapon.FullCharge() * 2)
+            else if (equipRef.ChargeLevel >= weapon.FullCharge * 2)
             {
                 charged = true;
                 chargePct = 1.0F;
@@ -1750,15 +1830,15 @@ namespace MphRead::Entities
         };
 
         std::int32_t cost = static_cast<std::int32_t>(
-            getAmount(weapon.AmmoCost(), weapon.MinChargeCost(), weapon.ChargeCost()));
-        if (TestFlag(weapon.Flags(), WeaponFlags::Continuous))
+            getAmount(weapon.AmmoCost, weapon.MinChargeCost, weapon.ChargeCost));
+        if (TestFlag(weapon.Flags, WeaponFlags::Continuous))
         {
-            if (RequireReference(scene).FrameCount % 2 == 0)
+            if (RequireReference(scene).FrameCount() % 2 == 0)
             {
                 const std::uint64_t bits = static_cast<std::uint64_t>(cost & 31);
                 cost /= 32;
-                if (RequireReference(scene).FrameCount % 2 == 0 && bits != 0
-                    && ((bits * (RequireReference(scene).FrameCount / 2)) & 31U) > 32U - bits)
+                if (RequireReference(scene).FrameCount() % 2 == 0 && bits != 0
+                    && ((bits * (RequireReference(scene).FrameCount() / 2)) & 31U) > 32U - bits)
                 {
                     ++cost;
                 }
@@ -1773,12 +1853,12 @@ namespace MphRead::Entities
         {
             return BeamResultFlags::NoSpawn;
         }
-        equipRef.SetAmmo(ManagedSubtract(ammo, cost));
+        equipRef.Ammo(ManagedSubtract(ammo, cost));
 
         std::shared_ptr<Effects::EffectEntry> muzzleEffect{};
         if (!TestFlag(spawnFlags, BeamSpawnFlags::NoMuzzle))
         {
-            const std::uint8_t effectId = ManagedAt(weapon.MuzzleEffects(), charged ? 1U : 0U);
+            const std::uint8_t effectId = ManagedAt(RequireReference(weapon.MuzzleEffects), charged ? 1U : 0U);
             if (effectId != 255)
             {
                 assert(effectId >= 3);
@@ -1798,28 +1878,28 @@ namespace MphRead::Entities
         }
 
         const std::int32_t projectiles = static_cast<std::int32_t>(
-            getAmount(weapon.Projectiles(), weapon.MinChargeProjectiles(), weapon.ChargedProjectiles()));
+            getAmount(weapon.Projectiles, weapon.MinChargeProjectiles, weapon.ChargedProjectiles));
         if (projectiles <= 0)
         {
             return result;
         }
 
-        const bool instantAoe = (charged && TestFlag(weapon.Flags(), WeaponFlags::AoeCharged))
-            || (!charged && TestFlag(weapon.Flags(), WeaponFlags::AoeUncharged));
+        const bool instantAoe = (charged && TestFlag(weapon.Flags, WeaponFlags::AoeCharged))
+            || (!charged && TestFlag(weapon.Flags, WeaponFlags::AoeUncharged));
 
         BeamFlags flags = BeamFlags::None;
         const float speed = getAmount(
-            weapon.UnchargedSpeed(), weapon.MinChargeSpeed(), weapon.ChargedSpeed()) / 4096.0F / 2.0F;
+            weapon.UnchargedSpeed, weapon.MinChargeSpeed, weapon.ChargedSpeed) / 4096.0F / 2.0F;
         const float finalSpeed = getAmount(
-            weapon.UnchargedFinalSpeed(), weapon.MinChargeFinalSpeed(), weapon.ChargedFinalSpeed())
+            weapon.UnchargedFinalSpeed, weapon.MinChargeFinalSpeed, weapon.ChargedFinalSpeed)
             / 4096.0F / 2.0F;
-        const float speedDecayTime = ManagedAt(weapon.SpeedDecayTimes(), charged ? 1U : 0U) * (1.0F / 30.0F);
-        const std::uint16_t speedInterpolation = ManagedAt(weapon.SpeedInterpolations(), charged ? 1U : 0U);
+        const float speedDecayTime = ManagedAt(RequireReference(weapon.SpeedDecayTimes), charged ? 1U : 0U) * (1.0F / 30.0F);
+        const std::uint16_t speedInterpolation = ManagedAt(RequireReference(weapon.SpeedInterpolations), charged ? 1U : 0U);
         const float gravity = getAmount(
-            weapon.UnchargedGravity(), weapon.MinChargeGravity(), weapon.ChargedGravity()) / 4096.0F;
+            weapon.UnchargedGravity, weapon.MinChargeGravity, weapon.ChargedGravity) / 4096.0F;
         const Vector3 acceleration(0.0F, gravity / 2.0F, 0.0F);
         const float homing = getAmount(
-            weapon.UnchargedHoming(), weapon.MinChargeHoming(), weapon.ChargedHoming()) / 4096.0F / 2.0F;
+            weapon.UnchargedHoming, weapon.MinChargeHoming, weapon.ChargedHoming) / 4096.0F / 2.0F;
         if (homing > 0.0F)
         {
             flags |= BeamFlags::Homing;
@@ -1828,50 +1908,50 @@ namespace MphRead::Entities
         {
             flags |= BeamFlags::Charged;
         }
-        if ((charged && TestFlag(weapon.Flags(), WeaponFlags::RicochetCharged))
-            || (!charged && TestFlag(weapon.Flags(), WeaponFlags::RicochetUncharged)))
+        if ((charged && TestFlag(weapon.Flags, WeaponFlags::RicochetCharged))
+            || (!charged && TestFlag(weapon.Flags, WeaponFlags::RicochetUncharged)))
         {
             flags |= BeamFlags::Ricochet;
         }
-        if ((charged && TestFlag(weapon.Flags(), WeaponFlags::SelfDamageCharged))
-            || (!charged && TestFlag(weapon.Flags(), WeaponFlags::SelfDamageUncharged)))
+        if ((charged && TestFlag(weapon.Flags, WeaponFlags::SelfDamageCharged))
+            || (!charged && TestFlag(weapon.Flags, WeaponFlags::SelfDamageUncharged)))
         {
             flags |= BeamFlags::SelfDamage;
         }
-        if ((charged && TestFlag(weapon.Flags(), WeaponFlags::ForceEffectCharged))
-            || (!charged && TestFlag(weapon.Flags(), WeaponFlags::ForceEffectUncharged)))
+        if ((charged && TestFlag(weapon.Flags, WeaponFlags::ForceEffectCharged))
+            || (!charged && TestFlag(weapon.Flags, WeaponFlags::ForceEffectUncharged)))
         {
             flags |= BeamFlags::ForceEffect;
         }
-        if ((charged && TestFlag(weapon.Flags(), WeaponFlags::DestroyableCharged))
-            || (!charged && TestFlag(weapon.Flags(), WeaponFlags::DestroyableUncharged)))
+        if ((charged && TestFlag(weapon.Flags, WeaponFlags::DestroyableCharged))
+            || (!charged && TestFlag(weapon.Flags, WeaponFlags::DestroyableUncharged)))
         {
             flags |= BeamFlags::Destroyable;
         }
-        if ((charged && TestFlag(weapon.Flags(), WeaponFlags::LifeDrainCharged))
-            || (!charged && TestFlag(weapon.Flags(), WeaponFlags::LifeDrainUncharged)))
+        if ((charged && TestFlag(weapon.Flags, WeaponFlags::LifeDrainCharged))
+            || (!charged && TestFlag(weapon.Flags, WeaponFlags::LifeDrainUncharged)))
         {
             flags |= BeamFlags::LifeDrain;
         }
 
-        std::uint8_t drawFuncId = ManagedAt(equipRef.DrawFuncIds(), charged ? 1U : 0U);
+        std::uint8_t drawFuncId = ManagedAt(equipRef.DrawFuncIds, charged ? 1U : 0U);
         if (drawFuncId == 255)
         {
-            drawFuncId = ManagedAt(weapon.DrawFuncIds(), charged ? 1U : 0U);
+            drawFuncId = ManagedAt(RequireReference(weapon.DrawFuncIds), charged ? 1U : 0U);
         }
-        const std::uint16_t colorValue = ManagedAt(weapon.Colors(), charged ? 1U : 0U);
+        const std::uint16_t colorValue = ManagedAt(RequireReference(weapon.Colors), charged ? 1U : 0U);
         const float red = ((colorValue >> 0) & 0x1FU) / 31.0F;
         const float green = ((colorValue >> 5) & 0x1FU) / 31.0F;
         const float blue = ((colorValue >> 10) & 0x1FU) / 31.0F;
         const Vector3 color(red, green, blue);
-        const std::uint8_t colEffect = ManagedAt(weapon.CollisionEffects(), charged ? 1U : 0U);
-        std::uint8_t dmgDirType = ManagedAt(equipRef.DmgDirTypes(), charged ? 1U : 0U);
+        const std::uint8_t colEffect = ManagedAt(RequireReference(weapon.CollisionEffects), charged ? 1U : 0U);
+        std::uint8_t dmgDirType = ManagedAt(equipRef.DmgDirTypes, charged ? 1U : 0U);
         if (dmgDirType == 255)
         {
-            dmgDirType = ManagedAt(weapon.DmgDirTypes(), charged ? 1U : 0U);
+            dmgDirType = ManagedAt(RequireReference(weapon.DmgDirTypes), charged ? 1U : 0U);
         }
         const float dmgDirMag = getAmount(
-            weapon.UnchargedDmgDirMag(), weapon.MinChargeDmgDirMag(), weapon.ChargedDmgDirMag()) / 4096.0F;
+            weapon.UnchargedDmgDirMag, weapon.MinChargeDmgDirMag, weapon.ChargedDmgDirMag) / 4096.0F;
         std::int32_t damage = static_cast<std::int32_t>(getAmount(
             equipRef.UnchargedDamage(), equipRef.MinChargeDamage(), equipRef.ChargedDamage()));
         std::int32_t hsDamage = static_cast<std::int32_t>(getAmount(
@@ -1879,8 +1959,8 @@ namespace MphRead::Entities
         std::int32_t splashDmg = static_cast<std::int32_t>(getAmount(
             equipRef.SplashDamage(), equipRef.MinChargeSplashDamage(), equipRef.ChargedSplashDamage()));
         const float splashRadius = getAmount(
-            weapon.UnchargedSplashRadius(), weapon.MinChargeSplashRadius(), weapon.ChargedSplashRadius()) / 4096.0F;
-        const std::uint8_t splashDmgType = ManagedAt(weapon.SplashDamageTypes(), charged ? 1U : 0U);
+            weapon.UnchargedSplashRadius, weapon.MinChargeSplashRadius, weapon.ChargedSplashRadius) / 4096.0F;
+        const std::uint8_t splashDmgType = ManagedAt(RequireReference(weapon.SplashDamageTypes), charged ? 1U : 0U);
         if (TestFlag(spawnFlags, BeamSpawnFlags::DoubleDamage))
         {
             damage *= 2;
@@ -1893,19 +1973,19 @@ namespace MphRead::Entities
             hsDamage = 150 * hsDamage / 100;
             splashDmg = 150 * splashDmg / 100;
         }
-        if (Features::HalfDamageUnscoped && weapon.Beam() == BeamType::Imperialist && !equipRef.Zoomed())
+        if (Features::HalfDamageUnscoped() && weapon.Beam == BeamType::Imperialist && !equipRef.Zoomed)
         {
             damage /= 2;
             hsDamage /= 2;
             splashDmg /= 2;
         }
-        if (TestFlag(weapon.Flags(), WeaponFlags::Continuous))
+        if (TestFlag(weapon.Flags, WeaponFlags::Continuous))
         {
-            if (RequireReference(scene).FrameCount % 2 == 0)
+            if (RequireReference(scene).FrameCount() % 2 == 0)
             {
                 const std::uint64_t bits = static_cast<std::uint64_t>(damage & 31);
                 damage /= 32;
-                if (bits != 0 && ((bits * (RequireReference(scene).FrameCount / 2)) & 31U) >= 32U - bits)
+                if (bits != 0 && ((bits * (RequireReference(scene).FrameCount() / 2)) & 31U) >= 32U - bits)
                 {
                     ++damage;
                 }
@@ -1915,39 +1995,39 @@ namespace MphRead::Entities
                 damage = 0;
             }
         }
-        if (Cheats::QuadrupleDamage)
+        if (Cheats::QuadrupleDamage())
         {
             damage *= 4;
             hsDamage *= 4;
             splashDmg *= 4;
         }
 
-        const std::uint16_t damageInterpolation = ManagedAt(weapon.DamageInterpolations(), charged ? 1U : 0U);
+        const std::uint16_t damageInterpolation = ManagedAt(RequireReference(weapon.DamageInterpolations), charged ? 1U : 0U);
         const float maxDist = getAmount(
-            weapon.UnchargedDistance(), weapon.MinChargeDistance(), weapon.ChargedDistance()) / 4096.0F;
-        const Affliction afflictions = ManagedAt(weapon.Afflictions(), charged ? 1U : 0U);
+            weapon.UnchargedDistance, weapon.MinChargeDistance, weapon.ChargedDistance) / 4096.0F;
+        const Affliction afflictions = ManagedAt(RequireReference(weapon.Afflictions), charged ? 1U : 0U);
         const float cylinderRadius = getAmount(
-            weapon.UnchargedCylRadius(), weapon.MinChargeCylRadius(), weapon.ChargedCylRadius()) / 4096.0F;
+            weapon.UnchargedCylRadius, weapon.MinChargeCylRadius, weapon.ChargedCylRadius) / 4096.0F;
         const float lifespan = getAmount(
-            weapon.UnchargedLifespan(), weapon.MinChargeLifespan(), weapon.ChargedLifespan()) * (1.0F / 30.0F);
-        if (TestFlag(weapon.Flags(), WeaponFlags::Continuous))
+            weapon.UnchargedLifespan, weapon.MinChargeLifespan, weapon.ChargedLifespan) * (1.0F / 30.0F);
+        if (TestFlag(weapon.Flags, WeaponFlags::Continuous))
         {
             flags |= BeamFlags::Continuous;
         }
-        if (TestFlag(weapon.Flags(), WeaponFlags::SurfaceCollision))
+        if (TestFlag(weapon.Flags, WeaponFlags::SurfaceCollision))
         {
             flags |= BeamFlags::SurfaceCollision;
         }
         const std::uint32_t radiusIndex
-            = (static_cast<std::uint32_t>(weapon.Flags()) >> (charged ? 26U : 24U)) & 3U;
+            = (static_cast<std::uint32_t>(weapon.Flags) >> (charged ? 26U : 24U)) & 3U;
         flags = static_cast<BeamFlags>(
             static_cast<std::uint16_t>(flags) | static_cast<std::uint16_t>(radiusIndex << 9U));
         const float ricochetLossH = getAmount(
-            weapon.UnchargedRicochetLossH(), weapon.MinChargeRicochetLossH(), weapon.ChargedRicochetLossH()) / 4096.0F;
+            weapon.UnchargedRicochetLossH, weapon.MinChargeRicochetLossH, weapon.ChargedRicochetLossH) / 4096.0F;
         const float ricochetLossV = getAmount(
-            weapon.UnchargedRicochetLossV(), weapon.MinChargeRicochetLossV(), weapon.ChargedRicochetLossV()) / 4096.0F;
+            weapon.UnchargedRicochetLossV, weapon.MinChargeRicochetLossV, weapon.ChargedRicochetLossV) / 4096.0F;
         const std::int32_t maxSpread = static_cast<std::int32_t>(getAmount(
-            weapon.UnchargedSpread(), weapon.MinChargeSpread(), weapon.ChargedSpread()));
+            weapon.UnchargedSpread, weapon.MinChargeSpread, weapon.ChargedSpread));
         const std::shared_ptr<WeaponInfo> ricochetWeapon
             = charged ? weapon.ChargedRicochetWeapon() : weapon.UnchargedRicochetWeapon();
 
@@ -1965,7 +2045,7 @@ namespace MphRead::Entities
         Vector3 velocity = Vector3::Zero;
         if (maxSpread <= 0)
         {
-            velocity = Scale(direction, speed);
+            velocity = ::Scale(direction, speed);
         }
 
         for (std::int32_t i = 0; i < projectiles; ++i)
@@ -1987,18 +2067,18 @@ namespace MphRead::Entities
             if (!charged)
             {
                 std::uint16_t smoke = static_cast<std::uint16_t>(
-                    static_cast<std::uint32_t>(equipRef.SmokeLevel())
-                    + static_cast<std::uint32_t>(weapon.SmokeShotAmount()));
-                equipRef.SetSmokeLevel(smoke);
-                if (equipRef.SmokeLevel() > weapon.SmokeStart())
+                    static_cast<std::uint32_t>(equipRef.SmokeLevel)
+                    + static_cast<std::uint32_t>(weapon.SmokeShotAmount));
+                equipRef.SmokeLevel = smoke;
+                if (equipRef.SmokeLevel > weapon.SmokeStart)
                 {
-                    equipRef.SetSmokeLevel(weapon.SmokeStart());
+                    equipRef.SmokeLevel = weapon.SmokeStart;
                 }
             }
 
             beamRef._owner = owner;
-            beamRef._beam = weapon.Beam();
-            beamRef._beamKind = weapon.BeamKind();
+            beamRef._beam = weapon.Beam;
+            beamRef._beamKind = weapon.BeamKind;
             beamRef._flags = flags;
             beamRef.NodeRef = nodeRef;
             beamRef._age = 0.0F;
@@ -2040,7 +2120,7 @@ namespace MphRead::Entities
             {
                 PlayerEntity* ownerPlayer = static_cast<PlayerEntity*>(owner.get());
                 const std::size_t slotIndex = Index(ownerPlayer->SlotIndex());
-                std::int32_t& beamDamageMax = ManagedAt(GameState::BeamDamageMax, slotIndex);
+                std::int32_t& beamDamageMax = ManagedAt(GameState::BeamDamageMax(), slotIndex);
                 beamDamageMax = ManagedAdd(beamDamageMax, damage);
             }
 
@@ -2067,7 +2147,7 @@ namespace MphRead::Entities
                 velocity.X = direction.X * cos1 + (beamRef._up.X * cos2 + beamRef._right.X * sin2) * sin1;
                 velocity.Y = direction.Y * cos1 + (beamRef._up.Y * cos2 + beamRef._right.Y * sin2) * sin1;
                 velocity.Z = direction.Z * cos1 + (beamRef._up.Z * cos2 + beamRef._right.Z * sin2) * sin1;
-                velocity = Scale(velocity, beamRef._speed);
+                velocity = ::Scale(velocity, beamRef._speed);
             }
             beamRef._velocity = velocity;
             beamRef._acceleration = acceleration;
@@ -2088,7 +2168,7 @@ namespace MphRead::Entities
                 beamRef.Transform = transform;
                 AnimationInfo& animInfo = RequireReference(RequireReference(model).AnimInfo);
                 const std::int32_t frameCount = (*animInfo.FrameCount)[0];
-                (*animInfo.Frame)[0] = ManagedInt32FromUInt64(RequireReference(scene).FrameCount) / 2 % frameCount;
+                (*animInfo.Frame)[0] = ManagedInt32FromUInt64(RequireReference(scene).FrameCount()) / 2 % frameCount;
             }
             else
             {
@@ -2123,9 +2203,9 @@ namespace MphRead::Entities
                 if (beamRef._beam == BeamType::ShockCoil && RequireReference(owner).Type == EntityType::Player)
                 {
                     PlayerEntity* ownerPlayer = static_cast<PlayerEntity*>(owner.get());
-                    if ((GameState::Multiplayer || !ownerPlayer->IsBot())
+                    if ((GameState::Multiplayer() || !ownerPlayer->IsBot())
                         && ownerPlayer->ShockCoilTarget() == beamRef._target
-                        && RequireReference(scene).FrameCount % 2 == 0)
+                        && RequireReference(scene).FrameCount() % 2 == 0)
                     {
                         const std::uint16_t timer = ownerPlayer->ShockCoilTimer();
                         if (timer >= 120 * 2)
@@ -2166,7 +2246,7 @@ namespace MphRead::Entities
     {
         bool result = false;
         EquipInfo& equipRef = RequireReference(equip);
-        const std::shared_ptr<WeaponInfo> weapon = equipRef.Weapon();
+        const std::shared_ptr<WeaponInfo> weapon = equipRef.Weapon;
         BeamProjectileEntity& beamRef = RequireReference(beam);
         assert(beamRef._owner != nullptr);
         const float tolerance = Fixed::ToFloat(equipRef.HomingTolerance());
@@ -2251,8 +2331,8 @@ namespace MphRead::Entities
                     const Vector3 between = targetPosition - static_cast<Vector3>(beamRef.Position);
                     const float distSqr = Vector3::Dot(between, between);
                     WeaponInfo& weaponRef = RequireReference(weapon);
-                    const float range = Fixed::ToFloat(weaponRef.HomingRange());
-                    if ((TestFlag(weaponRef.Flags(), WeaponFlags::Continuous)
+                    const float range = Fixed::ToFloat(weaponRef.HomingRange);
+                    if ((TestFlag(weaponRef.Flags, WeaponFlags::Continuous)
                             && beamRef._beamKind != BeamType::Platform
                         || distSqr <= range * range)
                         && distSqr > 0.0F)
@@ -2263,7 +2343,7 @@ namespace MphRead::Entities
                         const float div1 = dot / dist;
                         if (div1 >= curDiv)
                         {
-                            if (TestFlag(weaponRef.Flags(), WeaponFlags::Continuous))
+                            if (TestFlag(weaponRef.Flags, WeaponFlags::Continuous))
                             {
                                 bool canTarget = false;
                                 if (type == EntityType::Player)
@@ -2308,10 +2388,10 @@ namespace MphRead::Entities
     {
         WeaponInfo& weapon = RequireReference(weaponPtr);
         float angle = chargePct <= 0.0F
-            ? static_cast<float>(weapon.UnchargedSpread())
-            : static_cast<float>(weapon.MinChargeSpread())
+            ? static_cast<float>(weapon.UnchargedSpread)
+            : static_cast<float>(weapon.MinChargeSpread)
                 + static_cast<float>(ManagedSubtract(
-                    weapon.ChargedSpread(), weapon.MinChargeSpread())) * chargePct;
+                    weapon.ChargedSpread, weapon.MinChargeSpread)) * chargePct;
         angle /= 4096.0F;
         assert(angle == 60.0F);
         CheckIceWaveCollision(angle);
@@ -2364,12 +2444,12 @@ namespace MphRead::Entities
         const Vector3 full = position - static_cast<Vector3>(Position);
         Vector3 between = full;
         const float dot = Vector3::Dot(between, _up);
-        between = between + Scale(_up, -dot);
+        between = between + ::Scale(_up, -dot);
         const float mag = Length(between);
-        const float reach = GameState::ShadowFreeze ? mag : Length(full);
+        const float reach = GameState::ShadowFreeze() ? mag : Length(full);
         if (reach < _maxDistance && reach > 0.0F)
         {
-            const Vector3 toward = GameState::ShadowFreeze ? Divide(between, mag) : Divide(full, reach);
+            const Vector3 toward = GameState::ShadowFreeze() ? Divide(between, mag) : Divide(full, reach);
             if (Vector3::Dot(toward, _direction) > angleCos)
             {
                 const Vector3 dir = GetDamageDirection(Position, player.Position);
@@ -2394,7 +2474,7 @@ namespace MphRead::Entities
             {
                 direction = Normalize(_velocity);
             }
-            return Scale(direction, _damageDirMag);
+            return ::Scale(direction, _damageDirMag);
         }
         if (_damageDirType == 2)
         {
@@ -2412,14 +2492,14 @@ namespace MphRead::Entities
             {
                 direction = Vector3(0, 0.03F, 0);
             }
-            return Scale(direction, _damageDirMag);
+            return ::Scale(direction, _damageDirMag);
         }
         if (_damageDirType == 3)
         {
             Vector3 direction = WithY(targetPos - beamPos, 0.0F);
             if (!IsZero(direction))
             {
-                direction = Scale(Normalize(direction), _damageDirMag);
+                direction = ::Scale(Normalize(direction), _damageDirMag);
             }
             return direction;
         }
@@ -2434,7 +2514,7 @@ namespace MphRead::Entities
     {
         if (_collisionEffect != 255)
         {
-            if (PlayerEntity::PlayerCount > 2 && _collisionEffect == 4)
+            if (PlayerEntity::PlayerCount() > 2 && _collisionEffect == 4)
             {
                 noSplat = true;
             }
@@ -2451,7 +2531,7 @@ namespace MphRead::Entities
             const Vector3 facing = GetCrossVector(up);
             Matrix4 transform = GetTransformMatrix(facing, up);
             SetRow3(transform, spawnPos);
-            if (!GameState::SinglePlayer || colRes.Terrain() <= Terrain::Lava)
+            if (!GameState::SinglePlayer() || colRes.Terrain() <= Terrain::Lava)
             {
                 const std::shared_ptr<BeamEffectEntity> ent = BeamEffectEntity::Create(
                     BeamEffectEntityData(_collisionEffect, noSplat, transform, colRes.EntityCollision), _scene);
@@ -2467,7 +2547,7 @@ namespace MphRead::Entities
             const auto& splatRow = ManagedListAt(_terSplat1P, static_cast<std::int32_t>(_beamKind));
             const std::uint8_t splatEffect
                 = ManagedListAt(splatRow, static_cast<std::int32_t>(colRes.Terrain()));
-            if (GameState::SinglePlayer && splatEffect != 255)
+            if (GameState::SinglePlayer() && splatEffect != 255)
             {
                 const std::uint8_t adjusted = static_cast<std::uint8_t>(splatEffect + 3);
                 const std::shared_ptr<BeamEffectEntity> ent = BeamEffectEntity::Create(
@@ -2493,7 +2573,7 @@ namespace MphRead::Entities
         {
             effectId = static_cast<std::int32_t>(_beam) + 20;
         }
-        else if (GameState::SinglePlayer)
+        else if (GameState::SinglePlayer())
         {
             effectId = static_cast<std::int32_t>(_beam) + 12;
         }

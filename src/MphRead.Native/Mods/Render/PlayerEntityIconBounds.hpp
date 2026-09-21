@@ -38,47 +38,54 @@ namespace MphRead::Entities
         };
     }
 
-    class PlayerEntity
-    {
-    public:
-        static IconBounds ModIconBounds(std::span<const std::uint8_t> data,
-            std::int32_t frame, std::int32_t width, std::int32_t height);
-
-        template <Detail::ByteReadOnlyList T>
-        static IconBounds ModIconBounds(const T& data,
-            std::int32_t frame, std::int32_t width, std::int32_t height)
-        {
-            return ModIconBoundsCore(std::addressof(data), &CountAdapter<T>, &ReadAdapter<T>,
-                frame, width, height);
-        }
-
-        template <Detail::ByteReadOnlyList T>
-        static IconBounds ModIconBounds(const T* data,
-            std::int32_t frame, std::int32_t width, std::int32_t height)
-        {
-            return ModIconBoundsCore(data, &CountAdapter<T>, &ReadAdapter<T>, frame, width, height);
-        }
-
-        static IconBounds ModIconBounds(std::nullptr_t,
-            std::int32_t frame, std::int32_t width, std::int32_t height);
-
-    private:
-        using CountCallback = std::int32_t (*)(const void* data);
-        using ReadCallback = std::uint8_t (*)(const void* data, std::int32_t index);
-
-        template <Detail::ByteReadOnlyList T>
-        static std::int32_t CountAdapter(const void* data)
-        {
-            return static_cast<std::int32_t>(std::ranges::size(*static_cast<const T*>(data)));
-        }
-
-        template <Detail::ByteReadOnlyList T>
-        static std::uint8_t ReadAdapter(const void* data, std::int32_t index)
-        {
-            return (*static_cast<const T*>(data))[index];
-        }
-
-        static IconBounds ModIconBoundsCore(const void* data, CountCallback count, ReadCallback read,
-            std::int32_t frame, std::int32_t width, std::int32_t height);
-    };
+#define MPHREAD_PLAYER_ENTITY_ICON_BOUNDS_MEMBERS                                              \
+public:                                                                                        \
+    static IconBounds ModIconBounds(std::span<const std::uint8_t> data, \
+        std::int32_t frame, std::int32_t width, std::int32_t height); \
+     \
+    template <Detail::ByteReadOnlyList T> \
+    static IconBounds ModIconBounds(const T& data, \
+        std::int32_t frame, std::int32_t width, std::int32_t height) \
+    { \
+        return ModIconBoundsCore(std::addressof(data), &CountAdapter<T>, &ReadAdapter<T>, \
+            frame, width, height); \
+    } \
+     \
+    template <Detail::ByteReadOnlyList T> \
+    static IconBounds ModIconBounds(const std::shared_ptr<T>& data, \
+        std::int32_t frame, std::int32_t width, std::int32_t height) \
+    { \
+        return ModIconBoundsCore(data.get(), &CountAdapter<T>, &ReadAdapter<T>, \
+            frame, width, height); \
+    } \
+     \
+    template <Detail::ByteReadOnlyList T> \
+    static IconBounds ModIconBounds(const T* data, \
+        std::int32_t frame, std::int32_t width, std::int32_t height) \
+    { \
+        return ModIconBoundsCore(data, &CountAdapter<T>, &ReadAdapter<T>, frame, width, height); \
+    } \
+     \
+    static IconBounds ModIconBounds(std::nullptr_t, \
+        std::int32_t frame, std::int32_t width, std::int32_t height); \
+     \
+    private: \
+    using CountCallback = std::int32_t (*)(const void* data); \
+    using ReadCallback = std::uint8_t (*)(const void* data, std::int32_t index); \
+     \
+    template <Detail::ByteReadOnlyList T> \
+    static std::int32_t CountAdapter(const void* data) \
+    { \
+        return static_cast<std::int32_t>(std::ranges::size(*static_cast<const T*>(data))); \
+    } \
+     \
+    template <Detail::ByteReadOnlyList T> \
+    static std::uint8_t ReadAdapter(const void* data, std::int32_t index) \
+    { \
+        return (*static_cast<const T*>(data))[index]; \
+    } \
+     \
+    static IconBounds ModIconBoundsCore(const void* data, CountCallback count, ReadCallback read, \
+        std::int32_t frame, std::int32_t width, std::int32_t height); \
+public:
 }

@@ -69,7 +69,7 @@ namespace MphRead::Entities::Enemies
                 value.X * value.X + value.Y * value.Y + value.Z * value.Z);
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
@@ -321,20 +321,19 @@ namespace MphRead::Entities::Enemies
         _initialFacing = facing;
         _aimVec = facing;
 
+        const Weapons::WeaponList& enemyWeapons = RequireReference(Weapons::EnemyWeapons);
         if (version < 0
-            || static_cast<std::size_t>(version) >= Weapons::EnemyWeapons.size())
+            || static_cast<std::size_t>(version) >= enemyWeapons.size())
         {
             throw SceneDetail::IndexOutOfRangeException();
         }
         const std::shared_ptr<WeaponInfo> weapon
-            = Weapons::EnemyWeapons[static_cast<std::size_t>(version)];
-        _equipInfo = std::make_shared<EquipInfo>();
-        _equipInfo->SetWeapon(weapon);
-        _equipInfo->SetBeams(RequireReference(_beams));
-        _equipInfo->SetGetAmmo([this]() { return _ammo; });
-        _equipInfo->SetSetAmmo([this](std::int32_t newAmmo) { _ammo = newAmmo; });
-        _equipInfo->SetUnchargedDamage(_values.BeamDamage);
-        _equipInfo->SetSplashDamage(_values.SplashDamage);
+            = enemyWeapons[static_cast<std::size_t>(version)];
+        _equipInfo = std::make_shared<EquipInfo>(weapon, _beams);
+        _equipInfo->GetAmmo = [this]() { return _ammo; };
+        _equipInfo->SetAmmo = [this](std::int32_t newAmmo) { _ammo = newAmmo; };
+        _equipInfo->UnchargedDamage(_values.BeamDamage);
+        _equipInfo->SplashDamage(_values.SplashDamage);
     }
 
     void Enemy18Entity::EnemyProcess()
@@ -445,14 +444,14 @@ namespace MphRead::Entities::Enemies
         {
             const Vector3 targetPos = AddY(static_cast<Vector3>(_target->Position), 0.5F);
             const Vector3 spawnVec = (targetPos - _rotNodePos).Normalized();
-            const Vector3 spawnPos = Scale(spawnVec, Fixed::ToFloat(_values.ShotOffset))
+            const Vector3 spawnPos = ScaleVector(spawnVec, Fixed::ToFloat(_values.ShotOffset))
                 + _rotNodePos;
             _soundSource.PlaySfx(SfxId::TURRET_ATTACK);
 
             EquipInfo& equip = RequireReference(_equipInfo);
-            equip.SetUnchargedDamage(_values.BeamDamage);
-            equip.SetSplashDamage(_values.SplashDamage);
-            equip.SetHeadshotDamage(_values.BeamDamage);
+            equip.UnchargedDamage(_values.BeamDamage);
+            equip.SplashDamage(_values.SplashDamage);
+            equip.HeadshotDamage(_values.BeamDamage);
             (void)BeamProjectileEntity::Spawn(
                 SharedEntity(_scene, this), _equipInfo,
                 spawnPos, spawnVec, BeamSpawnFlags::None, NodeRef, _scene);
@@ -481,7 +480,7 @@ namespace MphRead::Entities::Enemies
                 if (playerRef.IsBot() && GameState::SinglePlayer()
                     || playerRef.Health() == 0
                     || !_rangeVolume.TestPoint(playerRef.Position)
-                    || GameState::Mode == GameMode::BountyTeams && playerRef.TeamIndex() == 0)
+                    || GameState::Mode() == GameMode::BountyTeams && playerRef.TeamIndex() == 0)
                 {
                     continue;
                 }
@@ -531,7 +530,7 @@ namespace MphRead::Entities::Enemies
             PlayerEntity& playerRef = RequireReference(player);
             if (playerRef.Health() == 0
                 || !_rangeVolume.TestPoint(playerRef.Position)
-                || GameState::Mode == GameMode::BountyTeams && playerRef.TeamIndex() == 0)
+                || GameState::Mode() == GameMode::BountyTeams && playerRef.TeamIndex() == 0)
             {
                 continue;
             }

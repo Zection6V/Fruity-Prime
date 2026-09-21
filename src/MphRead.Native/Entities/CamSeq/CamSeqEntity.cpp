@@ -191,7 +191,7 @@ namespace MphRead::Entities
 
         if (_data.EndMessageTargetId != -1)
         {
-            RequireReference(_scene).TryGetEntity(
+            (void)RequireReference(_scene).TryGetEntity(
                 _data.EndMessageTargetId, _endMessageTarget);
         }
 
@@ -231,7 +231,7 @@ namespace MphRead::Entities
             {
                 if (_data.Loop != 0)
                 {
-                    if (Bugfixes::SmoothCamSeqHandoff)
+                    if (Bugfixes::SmoothCamSeqHandoff())
                     {
                         sequence.Restart(
                             sequence.TransitionTimer(),
@@ -272,23 +272,19 @@ namespace MphRead::Entities
                     bool playPausedMusic = musicValue != 0;
                     if (playPausedMusic && (musicValue & 0x2000) != 0)
                     {
-                        StorySave* storySave = GameState::StorySave;
-                        if (storySave == nullptr)
-                        {
-                            throw Memory::Detail::NullReferenceException();
-                        }
-                        const std::int32_t areaId = RequireReference(_scene).AreaId;
+                        StorySave& storySave = RequireReference(GameState::StorySave);
+                        const std::int32_t areaId = RequireReference(_scene).AreaId();
                         const std::int32_t shift
                             = Memory::Detail::UncheckedMultiply(2, areaId);
                         const std::int32_t bossFlags
-                            = static_cast<std::int32_t>(storySave->BossFlags);
+                            = static_cast<std::int32_t>(storySave.BossFlags);
                         playPausedMusic
                             = (ArithmeticShiftRight(bossFlags, shift) & 3) == 0;
                     }
                     if (playPausedMusic && (musicValue & 0x400) != 0)
                     {
-                        playPausedMusic = GameState::EscapeTimer == -1
-                            || GameState::EscapeState != EscapeState::Escape;
+                        playPausedMusic = GameState::EscapeTimer() == -1
+                            || GameState::EscapeState() != EscapeState::Escape;
                     }
                     if (playPausedMusic
                         && (musicValue & 0x4000) == 0
@@ -315,7 +311,7 @@ namespace MphRead::Entities
         if ((player.Health() == 0
                 && player.DeathCountdown() > 0
                 && _data.BlockInput != 0)
-            || GameState::DialogPause)
+            || GameState::DialogPause())
         {
             return;
         }
@@ -327,22 +323,18 @@ namespace MphRead::Entities
         bool hasMusic = musicValue != 0;
         if (hasMusic && (musicValue & 0x2000) != 0)
         {
-            StorySave* storySave = GameState::StorySave;
-            if (storySave == nullptr)
-            {
-                throw Memory::Detail::NullReferenceException();
-            }
-            const std::int32_t areaId = RequireReference(_scene).AreaId;
+            StorySave& storySave = RequireReference(GameState::StorySave);
+            const std::int32_t areaId = RequireReference(_scene).AreaId();
             const std::int32_t shift
                 = Memory::Detail::UncheckedMultiply(2, areaId);
             const std::int32_t bossFlags
-                = static_cast<std::int32_t>(storySave->BossFlags);
+                = static_cast<std::int32_t>(storySave.BossFlags);
             hasMusic = (ArithmeticShiftRight(bossFlags, shift) & 3) == 0;
         }
         if (hasMusic && (musicValue & 0x400) != 0)
         {
-            hasMusic = GameState::EscapeTimer == -1
-                || GameState::EscapeState != EscapeState::Escape;
+            hasMusic = GameState::EscapeTimer() == -1
+                || GameState::EscapeState() != EscapeState::Escape;
         }
 
         const std::int32_t sfxData
@@ -393,8 +385,8 @@ namespace MphRead::Entities
                         static_cast<MusicId>(musicOrSeqId));
                 }
                 else if ((musicValue & 0x1000) != 0
-                    && GameState::EscapeTimer != -1
-                    && GameState::EscapeState == EscapeState::Escape)
+                    && GameState::EscapeTimer() != -1
+                    && GameState::EscapeState() == EscapeState::Escape)
                 {
                     Music::PlayMusic(MusicId::SEQ_OREGANO_M55);
                     Music::UpdateEscapeMusic();
@@ -460,7 +452,7 @@ namespace MphRead::Entities
         const std::uint16_t transitionTime
             = static_cast<std::uint16_t>(_handoff ? 60 * 2 : 0);
         PlayerEntity& player = RequireReference(PlayerEntity::Main());
-        sequence.SetUp(player.CameraInfo(), transitionTime);
+        sequence.SetUp(RequireReference(player.CameraInfo()), transitionTime);
         RequireReference(PlayerEntity::Main()).RefreshExternalCamera();
     }
 
@@ -473,7 +465,7 @@ namespace MphRead::Entities
             = Formats::CameraSequence::Current() == _sequence.get();
         Formats::CameraSequence& sequence = RequireReference(_sequence);
         const bool playerCam
-            = sequence.CamInfoRef() == &player.CameraInfo();
+            = sequence.CamInfoRef() == player.CameraInfo().get();
 
         SendEndMessage();
         sequence.End();
@@ -555,7 +547,7 @@ namespace MphRead::Entities
 
             if (activate)
             {
-                if (Cheats::SkipPlanetIntros
+                if (Cheats::SkipPlanetIntros()
                     && (Name() == "unit2_land_intro"
                         || Name() == "unit1_land_intro"
                         || Name() == "unit3_land_intro"
@@ -608,15 +600,15 @@ namespace MphRead::Entities
                 {
                     const auto& keyframe = RequireReference(keyframes[i]);
                     const Message message
-                        = static_cast<Message>(keyframe.MessageId());
+                        = static_cast<Message>(keyframe.MessageId);
                     if (message != Message::None)
                     {
                         RequireReference(_scene).SendMessage(
                             message,
                             nullptr,
-                            keyframe.MessageTarget(),
+                            keyframe.MessageTarget.get(),
                             BoxInt32(static_cast<std::int32_t>(
-                                keyframe.MessageParam())),
+                                keyframe.MessageParam)),
                             BoxInt32(0));
                     }
                 }

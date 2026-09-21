@@ -124,7 +124,11 @@ namespace MphRead
             const std::vector<std::shared_ptr<T>>& values,
             std::int32_t index)
         {
-            return values.at(static_cast<std::size_t>(index));
+            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+            {
+                throw System::ArgumentOutOfRangeException();
+            }
+            return values[static_cast<std::size_t>(index)];
         }
     }
 
@@ -498,11 +502,12 @@ namespace MphRead
             {
                 const std::shared_ptr<Model> model = _instance->Model();
                 const auto& meshes = Require(model).Meshes;
+                const std::int32_t index = _node->MeshId / 2;
                 if (!meshes)
                 {
                     throw System::NullReferenceException();
                 }
-                _mesh = AtNativeCollection(*meshes, _node->MeshId / 2);
+                _mesh = AtNativeCollection(*meshes, index);
             }
         }
         else if (_instance != nullptr)
@@ -517,7 +522,7 @@ namespace MphRead
                 const auto& nodes = Require(model).Nodes;
                 if (!nodes)
                 {
-                    throw System::NullReferenceException();
+                    throw System::ArgumentNullException("source");
                 }
                 _node = nodes->empty() ? nullptr : (*nodes)[0];
             }
@@ -774,16 +779,17 @@ namespace MphRead
         {
             std::shared_ptr<::MphRead::Mesh> mesh{};
             _meshBuffer.clear();
-            const std::shared_ptr<Model> model = _instance->Model();
-            const auto& meshes = Require(model).Meshes;
-            if (!meshes)
-            {
-                throw System::NullReferenceException();
-            }
             const std::int32_t start = _node->MeshId / 2;
             for (std::int32_t i = 0; i < _node->MeshCount; ++i)
             {
-                _meshBuffer.push_back(AtNativeCollection(*meshes, UncheckedAdd(start, i)));
+                const std::shared_ptr<Model> model = _instance->Model();
+                const auto& meshes = Require(model).Meshes;
+                const std::int32_t index = UncheckedAdd(start, i);
+                if (!meshes)
+                {
+                    throw System::NullReferenceException();
+                }
+                _meshBuffer.push_back(AtNativeCollection(*meshes, index));
             }
             std::int32_t index = IndexOfIdentity(_meshBuffer, _mesh);
             while (mesh != _mesh)
@@ -837,7 +843,7 @@ namespace MphRead
                     index = 0;
                 }
                 node = AtNativeCollection(nodes, index);
-                if (FilterNode(Require(node), control))
+                if (!control || FilterNode(Require(node), control))
                 {
                     _node = node;
                     break;

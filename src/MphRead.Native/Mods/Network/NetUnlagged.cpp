@@ -197,7 +197,7 @@ namespace MphRead::Mods::Network
         for (std::int32_t i = 0; i < length; ++i)
         {
             Entities::BeamProjectileEntity& beam
-                = RequireReference(RequireReference(beams).Item(i));
+                = RequireReference(RequireReference(beams)[i]);
             _beamsBefore.at(static_cast<std::size_t>(i)) = beam.Lifespan() > 0.0F;
         }
         _inProgress = true;
@@ -281,7 +281,7 @@ namespace MphRead::Mods::Network
         for (std::int32_t i = 0; i < length; ++i)
         {
             Entities::BeamProjectileEntity& beam
-                = RequireReference(RequireReference(beams).Item(i));
+                = RequireReference(RequireReference(beams)[i]);
             if (!_beamsBefore.at(static_cast<std::size_t>(i)) && beam.Lifespan() > 0.0F)
             {
                 _beamsBefore.at(static_cast<std::size_t>(i)) = true;
@@ -319,7 +319,7 @@ namespace MphRead::Mods::Network
                     continue;
                 }
                 Entities::BeamProjectileEntity& beam
-                    = RequireReference(RequireReference(beams).Item(i));
+                    = RequireReference(RequireReference(beams)[i]);
                 const bool hit = TestFlag(beam.Flags(), Entities::BeamFlags::Collided);
                 _catchUpSteps = UncheckedIncrement(_catchUpSteps);
                 if (!beam.Process() || TestFlag(beam.Flags(), Entities::BeamFlags::Collided))

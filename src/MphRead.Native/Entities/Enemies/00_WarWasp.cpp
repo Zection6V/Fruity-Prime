@@ -142,14 +142,14 @@ namespace MphRead::Entities::Enemies
         Vector3 facing = _spawner->Data.Header.FacingVector.ToFloatVector();
         Vector3 up = FixParallelVectors(facing, Vector3(0.0F, 1.0F, 0.0F));
         SetTransform(facing, up, _spawner->Data.Header.Position.ToFloatVector());
-        _movementType = _spawner->Data.Fields.S01.WarWasp.MovementType;
+        _movementType = _spawner->Data.Fields.S01().WarWasp.MovementType;
         _health = _healthMax = static_cast<std::uint16_t>(_movementType == 3 ? 8 : 40);
         Flags |= EnemyFlags::Visible;
         Flags |= EnemyFlags::OnRadar;
         _boundingRadius = 1.0F;
         _hurtVolumeInit = CollisionVolume(Vector3(0.0F, -0.45F, 0.0F), 1.4F);
-        _homeVolume = CollisionVolume::Move(_spawner->Data.Fields.S01.WarWasp.Volume2, Position);
-        _movementVolume = CollisionVolume::Move(_spawner->Data.Fields.S01.WarWasp.Volume1, Position);
+        _homeVolume = CollisionVolume::Move(_spawner->Data.Fields.S01().WarWasp.Volume2, Position);
+        _movementVolume = CollisionVolume::Move(_spawner->Data.Fields.S01().WarWasp.Volume1, Position);
         SetUpModel(Metadata::EnemyModelNames[0], 1);
         _stepDistance = 0.2F;
         _attackDelay = 30 * 2; // todo: FPS stuff
@@ -180,12 +180,12 @@ namespace MphRead::Entities::Enemies
         else if (_movementType == 2 || _movementType == 3)
         {
             _maxMoveIndex = static_cast<std::uint8_t>(
-                _spawner->Data.Fields.S01.WarWasp.PositionCount - 1);
+                _spawner->Data.Fields.S01().WarWasp.PositionCount - 1);
             _finalMoveIndex = _maxMoveIndex;
             for (std::int32_t i = 0; i < 16; i++)
             {
                 _movePositions[static_cast<std::size_t>(i)]
-                    = _spawner->Data.Fields.S01.WarWasp.MovementVectors[i].ToFloatVector()
+                    = _spawner->Data.Fields.S01().WarWasp.MovementVectors[i].ToFloatVector()
                     + static_cast<Vector3>(Position);
             }
         }
@@ -207,7 +207,7 @@ namespace MphRead::Entities::Enemies
         }
         else
         {
-            _speed = Scale(travel, _stepDistance / distance);
+            _speed = ::MphRead::Entities::Enemies::Scale(travel, _stepDistance / distance);
             // todo: FPS stuff
             _speed.X /= 2.0F;
             _speed.Y /= 2.0F;

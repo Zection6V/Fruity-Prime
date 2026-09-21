@@ -6,7 +6,7 @@
 #include "Metadata/Metadata.hpp"
 #include "Read.hpp"
 #include "Shaders.hpp"
-#include "Music.hpp"
+#include "Sound/Music.hpp"
 #include "Sound/Sfx.hpp"
 #include "Text/Strings.hpp"
 #include "Entities/EntityBase.hpp"

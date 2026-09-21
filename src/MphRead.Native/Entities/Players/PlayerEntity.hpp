@@ -107,7 +107,7 @@ namespace MphRead::Entities
     constexpr LoadFlags& operator&=(LoadFlags& left, LoadFlags right) noexcept { return left = left & right; }
     constexpr LoadFlags& operator^=(LoadFlags& left, LoadFlags right) noexcept { return left = left ^ right; }
 
-    class AvailableArray final
+    class AvailableArray
     {
     public:
         void ClearAll() noexcept;
@@ -571,7 +571,7 @@ namespace MphRead::Entities
             std::uint16_t altAttackDamage, std::int16_t altAttackCooldown) noexcept;
     };
 
-    class PlayerEntity final : public DynamicLightEntityBase, public std::enable_shared_from_this<PlayerEntity>
+    class PlayerEntity : public DynamicLightEntityBase, public std::enable_shared_from_this<PlayerEntity>
     {
     public:
         static constexpr std::int32_t SlotCapacity = 8;

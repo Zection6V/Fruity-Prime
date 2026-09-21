@@ -35,6 +35,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -138,6 +139,80 @@ namespace
     [[nodiscard]] const T& ManagedAt(const std::array<T, N>& values, std::int32_t index)
     {
         return values[CheckedArrayIndex(index, N)];
+    }
+
+    template <typename T>
+    [[nodiscard]] T& ManagedAt(const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
+    {
+        ManagedArray<T>& array = RequireReference(values);
+        if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
+        {
+            throw MphRead::SceneDetail::IndexOutOfRangeException();
+        }
+        return array[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& ManagedReadOnlyListAt(const std::vector<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+        {
+            throw System::ArgumentOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T, std::size_t N>
+    [[nodiscard]] const T& ManagedReadOnlyListAt(const std::array<T, N>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= N)
+        {
+            throw System::ArgumentOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    [[nodiscard]] MphRead::StorySave& RequireStorySave()
+    {
+        return RequireReference(MphRead::GameState::StorySave);
+    }
+
+    [[nodiscard]] std::shared_ptr<MphRead::WeaponInfo> CurrentWeaponPtrAt(std::int32_t index)
+    {
+        const auto& current = RequireReference(MphRead::Weapons::Current);
+        return ManagedReadOnlyListAt(current, index);
+    }
+
+    [[nodiscard]] MphRead::WeaponInfo& CurrentWeaponAt(std::int32_t index)
+    {
+        return RequireReference(CurrentWeaponPtrAt(index));
+    }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedAddInt32(
+        std::int32_t left, std::int32_t right) noexcept
+    {
+        return std::bit_cast<std::int32_t>(
+            std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right));
+    }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedSubtractInt32(
+        std::int32_t left, std::int32_t right) noexcept
+    {
+        return std::bit_cast<std::int32_t>(
+            std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right));
+    }
+
+    [[nodiscard]] constexpr bool ManagedInt32LessThanOrEqualUInt32(
+        std::int32_t left, std::uint32_t right) noexcept
+    {
+        return static_cast<std::int64_t>(left) <= static_cast<std::int64_t>(right);
+    }
+
+    [[nodiscard]] constexpr std::uint32_t ManagedShiftLeftInt32(
+        std::int32_t value, std::int32_t count) noexcept
+    {
+        return std::bit_cast<std::uint32_t>(value)
+            << (static_cast<std::uint32_t>(count) & 0x1FU);
     }
 
     [[nodiscard]] float Distance(Vector3 left, Vector3 right) noexcept
@@ -340,12 +415,12 @@ namespace MphRead::Entities
 
     bool PlayerEntity::IsMainPlayer() const
     {
-        return this == Main().get() && RequireReference(_scene).CameraMode == MphRead::CameraMode::Player;
+        return this == Main().get() && RequireReference(_scene).CameraMode() == MphRead::CameraMode::Player;
     }
 
     bool PlayerEntity::IsPrimeHunter() const
     {
-        return _slotIndex == GameState::PrimeHunter;
+        return _slotIndex == GameState::PrimeHunter();
     }
 
     bool PlayerEntity::IsAltForm() const noexcept
@@ -365,7 +440,7 @@ namespace MphRead::Entities
 
     MphRead::WeaponInfo& PlayerEntity::EquipWeapon() const
     {
-        return RequireReference(_equipInfo).Weapon;
+        return RequireReference(RequireReference(_equipInfo).Weapon);
     }
 
     PlayerAnimation PlayerEntity::Biped1Anim() const
@@ -482,7 +557,12 @@ namespace MphRead::Entities
         std::int32_t prevHealth = _health;
 
         _models.Clear();
-        const auto& hunterModels = Metadata::HunterModels.at(_hunter);
+        const auto hunterModelsIt = Metadata::HunterModels.find(_hunter);
+        if (hunterModelsIt == Metadata::HunterModels.end())
+        {
+            throw MphRead::SceneDetail::KeyNotFoundException();
+        }
+        const auto& hunterModels = hunterModelsIt->second;
         _bipedModelLods[0] = Read::GetModelInstance(hunterModels[0]);
         _bipedModelLods[1] = Read::GetModelInstance(hunterModels[1]);
         _bipedModel1 = Read::GetModelInstance(hunterModels[0]);
@@ -507,12 +587,13 @@ namespace MphRead::Entities
         _models.Add(_octolithSimpleModel);
 
         _trailModel = Read::GetModelInstance("trail");
-        std::shared_ptr<MphRead::Material> material
-            = RequireReference(_trailModel).Model()->Materials->at(0);
+        const auto& trailMaterials
+            = RequireReference(RequireReference(RequireReference(_trailModel).Model()).Materials);
+        std::shared_ptr<MphRead::Material> material = ManagedReadOnlyListAt(trailMaterials, 0);
         _trailBindingId1 = RequireReference(_scene).BindGetTexture(
             RequireReference(_trailModel).Model(), RequireReference(material).TextureId,
             RequireReference(material).PaletteId, 0);
-        material = RequireReference(_trailModel).Model()->Materials->at(1);
+        material = ManagedReadOnlyListAt(trailMaterials, 1);
         _trailBindingId2 = RequireReference(_scene).BindGetTexture(
             RequireReference(_trailModel).Model(), RequireReference(material).TextureId,
             RequireReference(material).PaletteId, 0);
@@ -523,23 +604,24 @@ namespace MphRead::Entities
         RequireReference(_equipInfo).Beams = _beams;
         std::destroy_at(std::addressof(_values));
         std::construct_at(std::addressof(_values),
-            Metadata::PlayerValues[CheckedArrayIndex(static_cast<std::int32_t>(_hunter), Metadata::PlayerValues.size())]);
-        _hudObjects = HudElements::HunterObjects[CheckedArrayIndex(static_cast<std::int32_t>(_hunter), HudElements::HunterObjects.size())];
+            ManagedReadOnlyListAt(Metadata::PlayerValues, static_cast<std::int32_t>(_hunter)));
+        _hudObjects = ManagedReadOnlyListAt(
+            RequireReference(HudElements::HunterObjects), static_cast<std::int32_t>(_hunter));
         if (IsMainPlayer())
         {
             SetUpHud();
         }
-        if (GameState::Multiplayer)
+        if (GameState::Multiplayer())
         {
             _healthMax = 2 * _values.EnergyTank - 1;
             _ammoMax[UA] = _ammoMax[Missiles] = _values.MpAmmoCap;
         }
         else
         {
-            StorySave& save = GameState::StorySave;
+            StorySave& save = RequireStorySave();
             _healthMax = save.HealthMax;
-            _ammoMax[UA] = save.AmmoMax[UA];
-            _ammoMax[Missiles] = save.AmmoMax[Missiles];
+            _ammoMax[UA] = ManagedAt(save.AmmoMax, UA);
+            _ammoMax[Missiles] = ManagedAt(save.AmmoMax, Missiles);
         }
 
         InitializeWeapon();
@@ -640,11 +722,12 @@ namespace MphRead::Entities
             _flags1 |= PlayerFlags1::GroundedPrevious;
             _reloadInit = false;
         }
-        else if (RequireReference(_scene).Room == nullptr || RequireReference(_scene).Room->LoadEntityId == -1)
+        else if (RequireReference(_scene).Room() == nullptr
+            || RequireReference(RequireReference(_scene).Room()).LoadEntityId == -1)
         {
-            const std::int32_t checkpointId = GameState::StorySave.CheckpointEntityId;
+            const std::int32_t checkpointId = RequireStorySave().CheckpointEntityId;
             std::shared_ptr<EntityBase> checkpoint{};
-            if (IsMainPlayer() && GameState::Mode == GameMode::SinglePlayer && checkpointId != -1
+            if (IsMainPlayer() && GameState::Mode() == GameMode::SinglePlayer && checkpointId != -1
                 && RequireReference(_scene).TryGetEntity(checkpointId, checkpoint))
             {
                 Vector3 position{};
@@ -717,14 +800,14 @@ namespace MphRead::Entities
             _abilities |= AbilityFlags::WeavelAltAttack;
         }
 
-        if (GameState::Multiplayer)
+        if (GameState::Multiplayer())
         {
             _health = _values.EnergyTank - 1;
         }
         else if (IsMainPlayer())
         {
-            _healthMax = GameState::StorySave.HealthMax;
-            _health = GameState::StorySave.Health;
+            _healthMax = RequireStorySave().HealthMax;
+            _health = RequireStorySave().Health;
         }
         else
         {
@@ -784,7 +867,7 @@ namespace MphRead::Entities
         _gunViewBob = 0.0F;
         _walkViewBob = 0.0F;
 
-        if (GameState::SinglePlayer && Formats::CameraSequence::Current != nullptr)
+        if (GameState::SinglePlayer() && Formats::CameraSequence::Current != nullptr)
         {
             _camSwitchTimer = static_cast<std::uint16_t>(_values.CamSwitchTime * 2);
             _viewTiltAngleH = 0.0F;
@@ -792,7 +875,7 @@ namespace MphRead::Entities
         }
         else
         {
-            if (IsMainPlayer() && GameState::Multiplayer
+            if (IsMainPlayer() && GameState::Multiplayer()
                 && Formats::CameraSequence::Current != nullptr
                 && Formats::CameraSequence::Current->IsIntro)
             {
@@ -841,7 +924,7 @@ namespace MphRead::Entities
         _bombRefillTimer = 0;
         _bombAmmo = 3;
         _damageInvulnTimer = 0;
-        if (_isBot && GameState::SinglePlayer)
+        if (_isBot && GameState::SinglePlayer())
         {
             _spawnInvulnTimer = 0;
         }
@@ -870,7 +953,7 @@ namespace MphRead::Entities
         else
         {
             std::int32_t rangeIndex = 1;
-            if (GameState::SinglePlayer && _hunter == MphRead::Hunter::Guardian)
+            if (GameState::SinglePlayer() && _hunter == MphRead::Hunter::Guardian)
             {
                 rangeIndex = 21;
             }
@@ -905,10 +988,10 @@ namespace MphRead::Entities
         _altRollFbZ = RequireReference(_cameraInfo).Field4C;
         _altRollLrX = RequireReference(_cameraInfo).Field50;
         _altRollLrZ = RequireReference(_cameraInfo).Field54;
-        _light1Vector = RequireReference(_scene).Light1Vector;
-        _light1Color = RequireReference(_scene).Light1Color;
-        _light2Vector = RequireReference(_scene).Light2Vector;
-        _light2Color = RequireReference(_scene).Light2Color;
+        _light1Vector = RequireReference(_scene).Light1Vector();
+        _light1Color = RequireReference(_scene).Light1Color();
+        _light2Vector = RequireReference(_scene).Light2Vector();
+        _light2Color = RequireReference(_scene).Light2Color();
         Controls.ClearPressed();
         if (_isBot)
         {
@@ -916,10 +999,10 @@ namespace MphRead::Entities
         }
         _lastTarget.reset();
         UpdateScanIds();
-        if (respawn && (IsMainPlayer() || GameState::Multiplayer))
+        if (respawn && (IsMainPlayer() || GameState::Multiplayer()))
         {
             const std::int32_t effectId
-                = GameState::Multiplayer && _playerCount > 2 && !Features::MaxPlayerDetail ? 33 : 31;
+                = GameState::Multiplayer() && _playerCount > 2 && !Features::MaxPlayerDetail() ? 33 : 31;
             RequireReference(_scene).SpawnEffect(effectId, Vector3::UnitX, Vector3::UnitY, Position);
         }
         if (IsMainPlayer())
@@ -927,12 +1010,12 @@ namespace MphRead::Entities
             EndWhiteout();
             if (IsAltForm() || IsMorphing())
             {
-                _healthbarYOffset = _hudObjects.HealthOffsetYAlt;
+                _healthbarYOffset = RequireReference(_hudObjects).HealthOffsetYAlt;
                 _boostBombsYOffset = 160;
             }
             else
             {
-                _healthbarYOffset = _hudObjects.HealthOffsetY;
+                _healthbarYOffset = RequireReference(_hudObjects).HealthOffsetY;
                 _boostBombsYOffset = 208;
             }
         }
@@ -941,7 +1024,7 @@ namespace MphRead::Entities
     void PlayerEntity::InitEnemyHunter()
     {
         assert(_enemySpawner != nullptr);
-        assert(GameState::Mode == GameMode::SinglePlayer);
+        assert(GameState::Mode() == GameMode::SinglePlayer);
         EnemySpawnFields09 data = RequireReference(_enemySpawner).Data().Fields.S09;
         _healthMax = data.HunterHealthMax;
         _health = data.HunterHealth;
@@ -960,8 +1043,8 @@ namespace MphRead::Entities
             _weaponSlots[2] = weapon;
             _ammo[0] = 0;
             _ammo[1] = 0;
-            MphRead::WeaponInfo& weaponInfo = Weapons::Current[static_cast<std::size_t>(weapon)];
-            _ammo[weaponInfo.AmmoType] = std::numeric_limits<std::int32_t>::max();
+            MphRead::WeaponInfo& weaponInfo = CurrentWeaponAt(static_cast<std::int32_t>(weapon));
+            ManagedAt(_ammo, static_cast<std::int32_t>(weaponInfo.AmmoType)) = std::numeric_limits<std::int32_t>::max();
             RequireReference(_equipInfo).InfiniteAmmo = true;
             RequireReference(_equipInfo).ChargeLevel = 0;
             RequireReference(_equipInfo).SmokeLevel = 0;
@@ -993,18 +1076,18 @@ namespace MphRead::Entities
         {
             return;
         }
-        StorySave& save = GameState::StorySave;
+        StorySave& save = RequireStorySave();
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(_weaponSlots.size()); ++i)
         {
-            save.WeaponSlots[static_cast<std::size_t>(i)]
-                = static_cast<std::int32_t>(_weaponSlots[static_cast<std::size_t>(i)]);
+            ManagedAt(save.WeaponSlots, i)
+                = static_cast<std::int32_t>(ManagedAt(_weaponSlots, i));
         }
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(_ammo.size()); ++i)
         {
-            save.Ammo[static_cast<std::size_t>(i)] = _ammo[static_cast<std::size_t>(i)];
+            ManagedAt(save.Ammo, i) = ManagedAt(_ammo, i);
         }
         save.Health = _health;
-        if (RequireReference(_scene).FadeType == MphRead::FadeType::None)
+        if (RequireReference(_scene).FadeType() == MphRead::FadeType::None)
         {
             save.CheckpointRoomId = -1;
             save.CheckpointEntityId = -1;
@@ -1054,8 +1137,10 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateScanIds()
     {
-        _scanId = ScanIds[static_cast<std::size_t>(_hunter)][IsAltForm() ? 1 : 0];
-        _altScanId = ScanIds[static_cast<std::size_t>(_hunter)][IsAltForm() ? 3 : 2];
+        const std::size_t hunterIndex = CheckedArrayIndex(
+            static_cast<std::int32_t>(_hunter), ScanIds.size());
+        _scanId = ScanIds[hunterIndex][IsAltForm() ? 1 : 0];
+        _altScanId = ScanIds[hunterIndex][IsAltForm() ? 3 : 2];
     }
 
     void PlayerEntity::SetBiped1Animation(PlayerAnimation anim, MphRead::AnimFlags animFlags)
@@ -1253,37 +1338,37 @@ namespace MphRead::Entities
     {
         _availableWeapons.ClearAll();
         _availableCharges.ClearAll();
-        if (GameState::SinglePlayer && IsMainPlayer())
+        if (GameState::SinglePlayer() && IsMainPlayer())
         {
-            _availableWeapons.Set(GameState::StorySave.Weapons);
+            _availableWeapons.Set(RequireStorySave().Weapons);
             _availableCharges.CopyFrom(_availableWeapons);
-            StorySave& save = GameState::StorySave;
+            StorySave& save = RequireStorySave();
             for (std::int32_t i = 0; i < static_cast<std::int32_t>(_weaponSlots.size()); ++i)
             {
-                _weaponSlots[static_cast<std::size_t>(i)]
-                    = static_cast<MphRead::BeamType>(save.WeaponSlots[static_cast<std::size_t>(i)]);
+                ManagedAt(_weaponSlots, i)
+                    = static_cast<MphRead::BeamType>(ManagedAt(save.WeaponSlots, i));
             }
             for (std::int32_t i = 0; i < static_cast<std::int32_t>(_ammo.size()); ++i)
             {
-                _ammo[static_cast<std::size_t>(i)] = save.Ammo[static_cast<std::size_t>(i)];
+                ManagedAt(_ammo, i) = ManagedAt(save.Ammo, i);
             }
         }
-        else if (GameState::SinglePlayer && _isBot)
+        else if (GameState::SinglePlayer() && _isBot)
         {
             const MphRead::BeamType affinityBeam = Weapons::GetAffinityBeam(_hunter);
-            MphRead::WeaponInfo& affinityInfo = Weapons::Current[static_cast<std::size_t>(affinityBeam)];
+            MphRead::WeaponInfo& affinityInfo = CurrentWeaponAt(static_cast<std::int32_t>(affinityBeam));
             _availableWeapons[affinityBeam] = true;
             _availableCharges[affinityBeam] = true;
             _weaponSlots[0] = _weaponSlots[1] = MphRead::BeamType::None;
             _weaponSlots[2] = affinityBeam;
             _ammo[UA] = _ammo[Missiles] = 0;
-            _ammo[affinityInfo.AmmoType] = -1;
+            ManagedAt(_ammo, static_cast<std::int32_t>(affinityInfo.AmmoType)) = -1;
             _previousWeapon = affinityBeam;
             TryEquipWeapon(affinityBeam, true);
         }
         else
         {
-            MphRead::WeaponInfo& missileInfo = Weapons::Current[static_cast<std::size_t>(MphRead::BeamType::Missile)];
+            MphRead::WeaponInfo& missileInfo = CurrentWeaponAt(static_cast<std::int32_t>(MphRead::BeamType::Missile));
             _availableWeapons[MphRead::BeamType::PowerBeam] = true;
             _availableWeapons[MphRead::BeamType::Missile] = true;
             _availableCharges[MphRead::BeamType::PowerBeam] = true;
@@ -1292,7 +1377,7 @@ namespace MphRead::Entities
             _weaponSlots[1] = MphRead::BeamType::Missile;
             _weaponSlots[2] = MphRead::BeamType::None;
             _ammo[UA] = _ammo[Missiles] = 0;
-            _ammo[missileInfo.AmmoType] = 10 * missileInfo.AmmoCost;
+            ManagedAt(_ammo, static_cast<std::int32_t>(missileInfo.AmmoType)) = 10 * missileInfo.AmmoCost;
         }
         if (IsMainPlayer())
         {
@@ -1307,21 +1392,22 @@ namespace MphRead::Entities
         {
             return false;
         }
-        MphRead::WeaponInfo& info = Weapons::Current[static_cast<std::size_t>(beam)];
+        MphRead::WeaponInfo& info = CurrentWeaponAt(index);
         const std::uint8_t ammoType = info.AmmoType;
-        if (debug && Cheats::FreeWeaponSelect)
+        if (debug && Cheats::FreeWeaponSelect())
         {
             _availableWeapons[beam] = true;
             _availableCharges[beam] = true;
-            _ammo[ammoType] = _ammoMax[ammoType];
+            ManagedAt(_ammo, static_cast<std::int32_t>(ammoType)) = ManagedAt(_ammoMax, static_cast<std::int32_t>(ammoType));
         }
         const bool hasAmmo = beam == MphRead::BeamType::PowerBeam
-            || _ammo[ammoType] >= info.AmmoCost || _ammo[ammoType] == -1;
+            || ManagedAt(_ammo, static_cast<std::int32_t>(ammoType)) >= info.AmmoCost
+            || ManagedAt(_ammo, static_cast<std::int32_t>(ammoType)) == -1;
         if (!silent && (!hasAmmo || !_availableWeapons[beam] || _gunAnimation == GunAnimation::UpDown))
         {
             if (IsMainPlayer())
             {
-                if (!GameState::MenuPause)
+                if (!GameState::MenuPause())
                 {
                     _soundSource.PlayFreeSfx(SfxId::BEAM_SWITCH_FAIL);
                 }
@@ -1338,28 +1424,36 @@ namespace MphRead::Entities
         _previousWeapon = _currentWeapon;
         _currentWeapon = _weaponSelection = beam;
         if (beam == Weapons::GetAffinityBeam(_hunter)
-            || (GameState::SinglePlayer
+            || (GameState::SinglePlayer()
                 && ((_hunter == MphRead::Hunter::Samus
                         && (beam == MphRead::BeamType::PowerBeam || beam == MphRead::BeamType::OmegaCannon))
                     || (_hunter == MphRead::Hunter::Guardian && beam == MphRead::BeamType::VoltDriver))))
         {
-            RequireReference(_equipInfo).Weapon = Weapons::Current[static_cast<std::size_t>(index + 9)];
+            RequireReference(_equipInfo).Weapon = CurrentWeaponPtrAt(index + 9);
         }
         else
         {
-            RequireReference(_equipInfo).Weapon = Weapons::Current[static_cast<std::size_t>(index)];
+            RequireReference(_equipInfo).Weapon = CurrentWeaponPtrAt(index);
         }
         RequireReference(_equipInfo).ChargeLevel = 0;
         RequireReference(_equipInfo).SmokeLevel = 0;
-        RequireReference(_equipInfo).GetAmmo = [this, ammoType]() { return _ammo[ammoType]; };
-        RequireReference(_equipInfo).SetAmmo = [this, ammoType](std::int32_t newAmmo) { _ammo[ammoType] = newAmmo; };
+        RequireReference(_equipInfo).GetAmmo = [this, ammoType]() {
+            return ManagedAt(_ammo, static_cast<std::int32_t>(ammoType));
+        };
+        RequireReference(_equipInfo).SetAmmo = [this, ammoType](std::int32_t newAmmo) {
+            ManagedAt(_ammo, static_cast<std::int32_t>(ammoType)) = newAmmo;
+        };
         _timeSinceInput = 0;
 
         if (!silent)
         {
-            if (IsMainPlayer() && !IsAltForm() && beam != MphRead::BeamType::Missile && !GameState::MenuPause)
+            if (IsMainPlayer() && !IsAltForm() && beam != MphRead::BeamType::Missile && !GameState::MenuPause())
             {
-                const std::int32_t sfx = Metadata::HunterSfx[static_cast<std::size_t>(_hunter)][static_cast<std::size_t>(HunterSfx::BeamSwitch)];
+                const auto& hunterSfx = RequireReference(Metadata::HunterSfx());
+            const auto& sfxRow = hunterSfx[CheckedArrayIndex(
+                static_cast<std::int32_t>(_hunter), hunterSfx.size())];
+            const std::int32_t sfx = sfxRow[CheckedArrayIndex(
+                static_cast<std::int32_t>(HunterSfx::BeamSwitch), sfxRow.size())];
                 if (sfx != -1)
                 {
                     _soundSource.PlayFreeSfx(sfx);
@@ -1426,7 +1520,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::UnequipOmegaCannon()
     {
-        if (_currentWeapon == MphRead::BeamType::OmegaCannon && GameState::Multiplayer)
+        if (_currentWeapon == MphRead::BeamType::OmegaCannon && GameState::Multiplayer())
         {
             _availableCharges[MphRead::BeamType::OmegaCannon] = false;
             _availableWeapons[MphRead::BeamType::OmegaCannon] = false;
@@ -1436,8 +1530,9 @@ namespace MphRead::Entities
             {
                 if (i != 2 && _availableWeapons[i])
                 {
-                    MphRead::WeaponInfo& info = Weapons::Current[static_cast<std::size_t>(i)];
-                    if (info.Priority > priority && _ammo[info.AmmoType] >= info.AmmoCost)
+                    MphRead::WeaponInfo& info = CurrentWeaponAt(i);
+                    if (info.Priority > priority
+                        && ManagedAt(_ammo, static_cast<std::int32_t>(info.AmmoType)) >= info.AmmoCost)
                     {
                         priority = info.Priority;
                         nextBeam = static_cast<MphRead::BeamType>(i);
@@ -1459,13 +1554,14 @@ namespace MphRead::Entities
     void PlayerEntity::SetGunAnimation(GunAnimation anim, MphRead::AnimFlags animFlags)
     {
         _gunAnimation = anim;
-        std::int32_t animId = Metadata::GunAnimationIds[static_cast<std::size_t>(_hunter)]
-            [static_cast<std::size_t>(anim)][0];
+        const auto& hunterAnimations = ManagedAt(
+            Metadata::GunAnimationIds, static_cast<std::int32_t>(_hunter));
+        const auto& animationIds = ManagedAt(hunterAnimations, static_cast<std::int32_t>(anim));
+        std::int32_t animId = ManagedAt(animationIds, 0);
         MphRead::SetFlags setFlags = MphRead::SetFlags::Texture | MphRead::SetFlags::Texcoord
             | MphRead::SetFlags::Material | MphRead::SetFlags::Unused | MphRead::SetFlags::Node;
         RequireReference(_gunModel).SetAnimation(animId, 0, setFlags, animFlags);
-        animId = Metadata::GunAnimationIds[static_cast<std::size_t>(_hunter)]
-            [static_cast<std::size_t>(anim)][static_cast<std::size_t>(static_cast<std::int32_t>(_currentWeapon) + 1)];
+        animId = ManagedAt(animationIds, static_cast<std::int32_t>(_currentWeapon) + 1);
         if (animId >= 0)
         {
             setFlags &= ~MphRead::SetFlags::Node;
@@ -1519,7 +1615,7 @@ namespace MphRead::Entities
                 ManagedAt(*animInfo.Flags, 0) &= ~AnimFlags::Ended;
             }
         }
-        else if (!Features::NoIdleSway
+        else if (!Features::NoIdleSway()
             && static_cast<std::uint64_t>(_timeSinceInput) >= static_cast<std::uint64_t>(_values.GunIdleTime) * 2)
         {
             if (_gunAnimation != GunAnimation::UpDown)
@@ -1573,14 +1669,15 @@ namespace MphRead::Entities
         }
 
         MphRead::EquipInfo& equipInfo = RequireReference(_equipInfo);
-        if (equipInfo.ChargeLevel >= equipInfo.Weapon.MinCharge * 2)
+        MphRead::WeaponInfo& equipWeapon = RequireReference(equipInfo.Weapon);
+        if (equipInfo.ChargeLevel >= equipWeapon.MinCharge * 2)
         {
             if ((_gunAnimation == GunAnimation::Charging || _gunAnimation == GunAnimation::ChargingMissile)
-                && RequireReference(_scene).FrameCount != 0 && RequireReference(_scene).FrameCount % 2 == 0)
+                && RequireReference(_scene).FrameCount() != 0 && RequireReference(_scene).FrameCount() % 2 == 0)
             {
                 const std::int32_t frame = (ManagedAt(*animInfo.FrameCount, 0) - 1)
-                    * (equipInfo.ChargeLevel / 2 - equipInfo.Weapon.MinCharge)
-                    / (equipInfo.Weapon.FullCharge - equipInfo.Weapon.MinCharge);
+                    * (equipInfo.ChargeLevel / 2 - equipWeapon.MinCharge)
+                    / (equipWeapon.FullCharge - equipWeapon.MinCharge);
                 ManagedAt(*animInfo.Frame, 0) = frame;
             }
             if (_currentWeapon == MphRead::BeamType::Missile)
@@ -1711,7 +1808,8 @@ namespace MphRead::Entities
                 if (damage > 0)
                 {
                     damage = static_cast<std::uint32_t>(
-                        damage * Metadata::DamageMultipliers[static_cast<std::size_t>(effectiveness)]);
+                        damage * ManagedReadOnlyListAt(
+                            Metadata::DamageMultipliers, static_cast<std::int32_t>(effectiveness)));
                     if (damage == 0)
                     {
                         damage = 1;
@@ -1738,8 +1836,8 @@ namespace MphRead::Entities
         }
 
         bool ignoreDamage = false;
-        if ((GameState::SinglePlayer && _isBot && attacker == this)
-            || (GameState::Teams && !GameState::FriendlyFire
+        if ((GameState::SinglePlayer() && _isBot && attacker == this)
+            || (GameState::Teams() && !GameState::FriendlyFire()
                 && attacker != nullptr && attacker != this && attacker->_teamIndex == _teamIndex))
         {
             ignoreDamage = true;
@@ -1747,19 +1845,21 @@ namespace MphRead::Entities
         }
         if (!ignoreDamage && TestFlag(flags, DamageFlags::Headshot) && attacker == Main().get())
         {
-            const std::int32_t messageId = GameState::Multiplayer ? 228 : 121;
+            const std::int32_t messageId = GameState::Multiplayer() ? 228 : 121;
             QueueHudMessage(128, 40, 20.0F / 30.0F, 0, messageId);
         }
         if (attacker != nullptr && attacker != this && beam != nullptr)
         {
-            GameState::BeamDamageDealt[attacker->_slotIndex] = std::min(
-                GameState::BeamDamageDealt[attacker->_slotIndex] + std::bit_cast<std::int32_t>(damage),
-                GameState::BeamDamageMax[attacker->_slotIndex]);
+            ManagedAt(GameState::BeamDamageDealt(), attacker->_slotIndex) = std::min(
+                UncheckedAddInt32(
+                    ManagedAt(GameState::BeamDamageDealt(), attacker->_slotIndex),
+                    std::bit_cast<std::int32_t>(damage)),
+                ManagedAt(GameState::BeamDamageMax(), attacker->_slotIndex));
         }
         if (damage > 0)
         {
             damage = static_cast<std::uint32_t>(
-                damage * Metadata::DamageLevels[static_cast<std::size_t>(GameState::DamageLevel)]);
+                damage * ManagedReadOnlyListAt(Metadata::DamageLevels, GameState::DamageLevel()));
             if (damage == 0)
             {
                 damage = 1;
@@ -1781,28 +1881,29 @@ namespace MphRead::Entities
             {
                 turretDamage = damage / 2;
             }
-            if (static_cast<std::uint32_t>(turret.Health()) <= turretDamage)
+            if (ManagedInt32LessThanOrEqualUInt32(turret.Health(), turretDamage))
             {
                 turret.Die();
             }
             else
             {
-                turret.SetHealth(turret.Health() - std::bit_cast<std::int32_t>(turretDamage));
+                turret.SetHealth(UncheckedSubtractInt32(
+                    turret.Health(), std::bit_cast<std::int32_t>(turretDamage)));
             }
             damage -= turretDamage;
-            if (_isBot && GameState::SinglePlayer && RequireReference(AiData).Flags1)
+            if (_isBot && GameState::SinglePlayer() && RequireReference(AiData).Flags1)
             {
                 if (_health > RequireReference(AiData).HealthThreshold
                     && (static_cast<std::int64_t>(_health) - static_cast<std::int64_t>(damage))
                         <= RequireReference(AiData).HealthThreshold)
                 {
-                    damage = static_cast<std::uint32_t>(
-                        _health - RequireReference(AiData).HealthThreshold - 1);
+                    damage = static_cast<std::uint32_t>(UncheckedSubtractInt32(
+                        UncheckedSubtractInt32(_health, RequireReference(AiData).HealthThreshold), 1));
                 }
             }
-            else if (static_cast<std::uint32_t>(_health) <= damage)
+            else if (ManagedInt32LessThanOrEqualUInt32(_health, damage))
             {
-                damage = static_cast<std::uint32_t>(_health - 1);
+                damage = static_cast<std::uint32_t>(UncheckedSubtractInt32(_health, 1));
             }
             turret.SetTimeSinceDamage(0);
             if (_isBot)
@@ -1822,12 +1923,12 @@ namespace MphRead::Entities
         Mods::Network::NetHitPrediction::NoteHit(this, attacker, flags, damage);
 
         bool dead = false;
-        if (_isBot && GameState::SinglePlayer && RequireReference(AiData).Flags1
+        if (_isBot && GameState::SinglePlayer() && RequireReference(AiData).Flags1
             && _health <= RequireReference(AiData).HealthThreshold)
         {
             dead = true;
         }
-        else if (static_cast<std::uint32_t>(_health) <= damage || TestFlag(flags, DamageFlags::Death))
+        else if (ManagedInt32LessThanOrEqualUInt32(_health, damage) || TestFlag(flags, DamageFlags::Death))
         {
             dead = true;
         }
@@ -1836,11 +1937,12 @@ namespace MphRead::Entities
         {
             if (attacker == Main().get())
             {
-                Main()->UpdateOpponent(_slotIndex);
+                RequireReference(Main()).UpdateOpponent(_slotIndex);
             }
             if (attacker != this)
             {
-                GameState::DamageCount[attacker->_slotIndex]++;
+                ManagedAt(GameState::DamageCount(), attacker->_slotIndex) = UncheckedAddInt32(
+                    ManagedAt(GameState::DamageCount(), attacker->_slotIndex), 1);
                 attacker->_hidingTimer = 0;
                 _hidingTimer = 0;
             }
@@ -1884,7 +1986,7 @@ namespace MphRead::Entities
             _deathaltTimer = 0;
             _cloakTimer = 0;
             _flags2 &= ~PlayerFlags2::Cloaking;
-            GameState::KillStreak[_slotIndex] = 0;
+            ManagedAt(GameState::KillStreak(), _slotIndex) = 0;
             if (IsMainPlayer())
             {
                 HudEndDisrupted();
@@ -1947,7 +2049,7 @@ namespace MphRead::Entities
                     UpdateDoubleDamageSfx(0, false);
                     UpdateCloakSfx(0, false);
                     _soundSource.StopFreeSfxScripts();
-                    if (GameState::Multiplayer)
+                    if (GameState::Multiplayer())
                     {
                         PlayHunterSfx(HunterSfx::Death);
                     }
@@ -1966,7 +2068,7 @@ namespace MphRead::Entities
             }
             if (_isBot && RequireReference(AiData).Flags1)
             {
-                _health = RequireReference(AiData).HealthThreshold + 1;
+                _health = UncheckedAddInt32(RequireReference(AiData).HealthThreshold, 1);
                 RequireReference(AiData).Flags2 |= AiFlags2::Bit13;
             }
             else
@@ -1975,7 +2077,8 @@ namespace MphRead::Entities
             }
             UpdateZoom(false);
             _boostCharge = 0;
-            GameState::Deaths[_slotIndex]++;
+            ManagedAt(GameState::Deaths(), _slotIndex) = UncheckedAddInt32(
+                ManagedAt(GameState::Deaths(), _slotIndex), 1);
             if (this == Main().get() && beamType == MphRead::BeamType::OmegaCannon)
             {
                 RequireReference(_scene).SetFade(MphRead::FadeType::FadeInWhite, 90.0F / 30.0F, true);
@@ -1983,14 +2086,14 @@ namespace MphRead::Entities
             _speed = Vector3::Zero;
             _respawnTimer = RespawnTime();
             _timeSinceDead = 0;
-            if (GameState::SinglePlayer)
+            if (GameState::SinglePlayer())
             {
                 if (IsAltForm())
                 {
                     const std::int32_t effectId = IsMainPlayer() ? 10 : 216;
                     RequireReference(_scene).SpawnEffect(effectId, Vector3::UnitX, Vector3::UnitY, Position);
                 }
-                if (_isBot && GameState::GetAreaState(RequireReference(_scene).AreaId) == AreaState::Clear)
+                if (_isBot && GameState::GetAreaState(RequireReference(_scene).AreaId()) == AreaState::Clear)
                 {
                     bool unlockDoors = true;
                     auto spawnerEnumerator = RequireReference(_scene).GetEnemySpawnEntities().GetEnumerator();
@@ -2023,7 +2126,7 @@ namespace MphRead::Entities
                     }
                     if (unlockDoors)
                     {
-                        GameState::CompleteRandomEncounter(RequireReference(_scene).RoomId);
+                        GameState::CompleteRandomEncounter(RequireReference(_scene).RoomId());
                         auto doorEnumerator = RequireReference(_scene).GetDoorEntities().GetEnumerator();
                         while (doorEnumerator.MoveNext())
                         {
@@ -2038,7 +2141,7 @@ namespace MphRead::Entities
                                 value.SetFlags(value.Flags() & ~DoorFlags::ShowLock);
                             }
                             if (value.Id == -1
-                                || GameState::StorySave.GetRoomState(RequireReference(_scene).RoomId, value.Id) == 0)
+                                || RequireStorySave().GetRoomState(RequireReference(_scene).RoomId(), value.Id) == 0)
                             {
                                 value.Unlock(false, false);
                             }
@@ -2047,17 +2150,17 @@ namespace MphRead::Entities
                 }
                 if (IsMainPlayer())
                 {
-                    if (GameState::StorySave.Stats.Deaths != std::numeric_limits<std::uint32_t>::max())
+                    if (RequireReference(RequireStorySave().Stats).Deaths != std::numeric_limits<std::uint32_t>::max())
                     {
-                        GameState::StorySave.Stats.Deaths++;
+                        RequireReference(RequireStorySave().Stats).Deaths++;
                     }
                     if (attacker != nullptr && !attacker->IsMainPlayer()
                         && attacker->_hunter != MphRead::Hunter::Guardian
-                        && GameState::StorySave.Stats.EnemyHunterDeaths != std::numeric_limits<std::uint32_t>::max())
+                        && RequireReference(RequireStorySave().Stats).EnemyHunterDeaths != std::numeric_limits<std::uint32_t>::max())
                     {
-                        GameState::StorySave.Stats.EnemyHunterDeaths++;
+                        RequireReference(RequireStorySave().Stats).EnemyHunterDeaths++;
                     }
-                    GameState::PausePrevented = true;
+                    GameState::PausePrevented(true);
                     _deathCountdown = 150.0F / 30.0F;
                     _deathProcessed = false;
                     _deathLostOctolithSfxPlayed = false;
@@ -2065,8 +2168,8 @@ namespace MphRead::Entities
                     _respawnTimer = std::numeric_limits<std::uint16_t>::max();
                     RequireReference(_cameraInfo).SetShake(0.25F);
                     _lostOctolithEnemyIndex = -1;
-                    if (GameState::StorySave.CurrentOctoliths != 0 && _playerCount > 1
-                        && (GameState::EscapeTimer != 0 || GameState::EscapeState != EscapeState::Escape))
+                    if (RequireStorySave().CurrentOctoliths != 0 && _playerCount > 1
+                        && (GameState::EscapeTimer() != 0 || GameState::EscapeState() != EscapeState::Escape))
                     {
                         float minDistance = 0.0F;
                         for (std::int32_t i = 1; i < _playerCount; ++i)
@@ -2095,29 +2198,34 @@ namespace MphRead::Entities
                 }
                 else if (attacker != nullptr && attacker->IsMainPlayer())
                 {
-                    GameState::StorySave.DefeatedHunters |= static_cast<std::uint8_t>(1 << static_cast<std::int32_t>(_hunter));
-                    GameState::StorySave.AreaHunters[RequireReference(_scene).AreaId / 2]
-                        &= static_cast<std::uint8_t>(~(1 << static_cast<std::int32_t>(_hunter)));
-                    if (GameState::StorySave.Stats.HunterKills != std::numeric_limits<std::uint32_t>::max())
+                    const std::uint32_t hunterBit = ManagedShiftLeftInt32(
+                        1, static_cast<std::int32_t>(_hunter));
+                    RequireStorySave().DefeatedHunters |= static_cast<std::uint8_t>(hunterBit);
+                    ManagedAt(RequireStorySave().AreaHunters, RequireReference(_scene).AreaId() / 2)
+                        &= static_cast<std::uint8_t>(~hunterBit);
+                    if (RequireReference(RequireStorySave().Stats).HunterKills != std::numeric_limits<std::uint32_t>::max())
                     {
-                        GameState::StorySave.Stats.HunterKills++;
+                        RequireReference(RequireStorySave().Stats).HunterKills++;
                     }
                     if (_hunter == MphRead::Hunter::Guardian
-                        && GameState::StorySave.Stats.EnemyKills != std::numeric_limits<std::uint32_t>::max())
+                        && RequireReference(RequireStorySave().Stats).EnemyKills != std::numeric_limits<std::uint32_t>::max())
                     {
-                        GameState::StorySave.Stats.EnemyKills++;
+                        RequireReference(RequireStorySave().Stats).EnemyKills++;
                     }
 
                     const auto restoreOctolith = [](std::int32_t dropId)
                     {
-                        GameState::StorySave.LostOctoliths = GameState::StorySave.LostOctoliths
-                            & static_cast<std::uint32_t>(~(15 << (4 * dropId)) | (8 << (4 * dropId)));
-                        GameState::StorySave.CurrentOctoliths
-                            |= static_cast<std::uint16_t>(1 << dropId);
+                        const std::uint32_t shift = static_cast<std::uint32_t>(4 * dropId);
+                        const std::uint32_t lostMask
+                            = ~(std::uint32_t{15} << shift) | (std::uint32_t{8} << shift);
+                        RequireStorySave().LostOctoliths
+                            = RequireStorySave().LostOctoliths & lostMask;
+                        RequireStorySave().CurrentOctoliths
+                            |= static_cast<std::uint16_t>(std::uint32_t{1} << dropId);
                     };
 
                     std::int32_t dropId
-                        = GameState::StorySave.GetEnemyOctolithDrop(static_cast<std::int32_t>(_hunter));
+                        = RequireStorySave().GetEnemyOctolithDrop(static_cast<std::int32_t>(_hunter));
                     if (dropId < 8)
                     {
                         restoreOctolith(dropId);
@@ -2141,7 +2249,7 @@ namespace MphRead::Entities
                     }
                     while (true)
                     {
-                        dropId = GameState::StorySave.GetEnemyOctolithDrop(static_cast<std::int32_t>(_hunter));
+                        dropId = RequireStorySave().GetEnemyOctolithDrop(static_cast<std::int32_t>(_hunter));
                         if (dropId >= 8)
                         {
                             break;
@@ -2163,7 +2271,7 @@ namespace MphRead::Entities
                         }
                         else
                         {
-                            const std::string nickname = GameState::Nicknames[attacker->_slotIndex];
+                            const std::string nickname = ManagedAt(GameState::Nicknames(), attacker->_slotIndex);
                             std::string message = Strings::GetHudMessage(
                                 TestFlag(flags, DamageFlags::Headshot) ? 236 : 237);
                             QueueHudMessage(128, 70, 140, 90.0F / 30.0F, 2,
@@ -2224,21 +2332,24 @@ namespace MphRead::Entities
                     }
                     if (attacker == this)
                     {
-                        GameState::Suicides[_slotIndex]++;
-                        if (GameState::Mode == GameMode::Battle || GameState::Mode == GameMode::BattleTeams)
+                        ManagedAt(GameState::Suicides(), _slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::Suicides(), _slotIndex), 1);
+                        if (GameState::Mode() == GameMode::Battle || GameState::Mode() == GameMode::BattleTeams)
                         {
-                            GameState::Points[_slotIndex]--;
+                            ManagedAt(GameState::Points(), _slotIndex) = UncheckedSubtractInt32(
+                                ManagedAt(GameState::Points(), _slotIndex), 1);
                         }
                     }
                     else
                     {
                         if (attacker->_teamIndex == _teamIndex)
                         {
-                            GameState::FriendlyKills[attacker->_slotIndex]++;
-                            GameState::KillStreak[attacker->_slotIndex] = 0;
+                            ManagedAt(GameState::FriendlyKills(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::FriendlyKills(), attacker->_slotIndex), 1);
+                            ManagedAt(GameState::KillStreak(), attacker->_slotIndex) = 0;
                             if (attacker == Main().get())
                             {
-                                const std::string nickname = GameState::Nicknames[_slotIndex];
+                                const std::string nickname = ManagedAt(GameState::Nicknames(), _slotIndex);
                                 std::string message = Strings::GetHudMessage(240);
                                 QueueHudMessage(128, 70, 140, 60.0F / 30.0F, 2,
                                     ReplaceToken(std::move(message), "%s", nickname));
@@ -2248,7 +2359,7 @@ namespace MphRead::Entities
                         {
                             if (attacker == Main().get())
                             {
-                                const std::string nickname = GameState::Nicknames[_slotIndex];
+                                const std::string nickname = ManagedAt(GameState::Nicknames(), _slotIndex);
                                 std::string message = Strings::GetHudMessage(
                                     TestFlag(flags, DamageFlags::Headshot) ? 239 : 238);
                                 QueueHudMessage(128, 70, 140, 60.0F / 30.0F, 2,
@@ -2256,24 +2367,33 @@ namespace MphRead::Entities
                             }
                             if (TestFlag(flags, DamageFlags::Headshot))
                             {
-                                GameState::HeadshotKills[attacker->_slotIndex]++;
+                                ManagedAt(GameState::HeadshotKills(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::HeadshotKills(), attacker->_slotIndex), 1);
                             }
-                            GameState::Kills[attacker->_slotIndex]++;
+                            ManagedAt(GameState::Kills(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::Kills(), attacker->_slotIndex), 1);
                             if (attacker->IsPrimeHunter())
                             {
-                                GameState::KillsAsPrime[attacker->_slotIndex]++;
+                                ManagedAt(GameState::KillsAsPrime(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::KillsAsPrime(), attacker->_slotIndex), 1);
                             }
                             if (static_cast<std::int32_t>(beamType)
                                 <= static_cast<std::int32_t>(MphRead::BeamType::OmegaCannon))
                             {
-                                GameState::BeamKills[attacker->_slotIndex]
-                                    [static_cast<std::size_t>(beamType)]++;
+                                ManagedAt(
+                                    ManagedAt(GameState::BeamKills(), attacker->_slotIndex),
+                                    static_cast<std::int32_t>(beamType)) = UncheckedAddInt32(
+                                        ManagedAt(
+                                            ManagedAt(GameState::BeamKills(), attacker->_slotIndex),
+                                            static_cast<std::int32_t>(beamType)),
+                                        1);
                             }
-                            if (GameState::KillStreak[attacker->_slotIndex] < 255)
+                            if (ManagedAt(GameState::KillStreak(), attacker->_slotIndex) < 255)
                             {
-                                GameState::KillStreak[attacker->_slotIndex]++;
+                                ManagedAt(GameState::KillStreak(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::KillStreak(), attacker->_slotIndex), 1);
                             }
-                            if (GameState::KillStreak[attacker->_slotIndex] == 5)
+                            if (ManagedAt(GameState::KillStreak(), attacker->_slotIndex) == 5)
                             {
                                 _soundSource.QueueStream(VoiceId::VOICE_CONSECUTIVE_KILLS, 1);
                                 std::string message;
@@ -2283,56 +2403,62 @@ namespace MphRead::Entities
                                 }
                                 else
                                 {
-                                    const std::string nickname = GameState::Nicknames[attacker->_slotIndex];
+                                    const std::string nickname = ManagedAt(GameState::Nicknames(), attacker->_slotIndex);
                                     message = ReplaceToken(Strings::GetHudMessage(255), "%s", nickname);
                                 }
                                 QueueHudMessage(128, 70, 140, 90.0F / 30.0F, 2, message);
                             }
-                            if (GameState::Mode == GameMode::PrimeHunter)
+                            if (GameState::Mode() == GameMode::PrimeHunter)
                             {
                                 if (attacker->IsPrimeHunter())
                                 {
                                     attacker->GainHealth(70);
                                 }
                                 else if (attacker->_health > 0
-                                    && (GameState::PrimeHunter == -1 || IsPrimeHunter()))
+                                    && (GameState::PrimeHunter() == -1 || IsPrimeHunter()))
                                 {
-                                    GameState::PrimeHunter = attacker->_slotIndex;
-                                    GameState::PrimesKilled[attacker->_slotIndex]++;
-                                    if (Main()->IsPrimeHunter())
+                                    GameState::PrimeHunter(attacker->_slotIndex);
+                                    ManagedAt(GameState::PrimesKilled(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::PrimesKilled(), attacker->_slotIndex), 1);
+                                    if (RequireReference(Main()).IsPrimeHunter())
                                     {
                                         _soundSource.QueueStream(VoiceId::VOICE_PRIME, 1);
                                     }
-                                    const std::string nickname = GameState::Nicknames[attacker->_slotIndex];
+                                    const std::string nickname = ManagedAt(GameState::Nicknames(), attacker->_slotIndex);
                                     std::string message = Strings::GetHudMessage(241);
                                     QueueHudMessage(128, 70, 140, 90.0F / 30.0F, 2,
                                         ReplaceToken(std::move(message), "%s", nickname));
                                 }
                             }
-                            else if (GameState::Mode == GameMode::Battle || GameState::Mode == GameMode::BattleTeams)
+                            else if (GameState::Mode() == GameMode::Battle || GameState::Mode() == GameMode::BattleTeams)
                             {
-                                if (GameState::Points[attacker->_slotIndex] < 99999)
+                                if (ManagedAt(GameState::Points(), attacker->_slotIndex) < 99999)
                                 {
-                                    GameState::Points[attacker->_slotIndex]++;
+                                    ManagedAt(GameState::Points(), attacker->_slotIndex) = UncheckedAddInt32(
+                                        ManagedAt(GameState::Points(), attacker->_slotIndex), 1);
                                 }
                             }
-                            else if (GameState::IsOctolithMode && _octolithFlag != nullptr)
+                            else if (GameState::IsOctolithMode() && _octolithFlag != nullptr)
                             {
-                                GameState::OctolithStops[attacker->_slotIndex]++;
+                                ManagedAt(GameState::OctolithStops(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::OctolithStops(), attacker->_slotIndex), 1);
                             }
                             if (TestFlag(flags, DamageFlags::FromAlt))
                             {
-                                GameState::AltDamageCount[attacker->_slotIndex]++;
+                                ManagedAt(GameState::AltDamageCount(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::AltDamageCount(), attacker->_slotIndex), 1);
                             }
                         }
                     }
                 }
                 else
                 {
-                    GameState::Suicides[_slotIndex]++;
-                    if (GameState::Mode == GameMode::Battle || GameState::Mode == GameMode::BattleTeams)
+                    ManagedAt(GameState::Suicides(), _slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::Suicides(), _slotIndex), 1);
+                    if (GameState::Mode() == GameMode::Battle || GameState::Mode() == GameMode::BattleTeams)
                     {
-                        GameState::Points[_slotIndex]--;
+                        ManagedAt(GameState::Points(), _slotIndex) = UncheckedSubtractInt32(
+                                ManagedAt(GameState::Points(), _slotIndex), 1);
                     }
                 }
                 if (IsAltForm() || IsMorphing())
@@ -2351,14 +2477,14 @@ namespace MphRead::Entities
                 }
                 if (IsPrimeHunter())
                 {
-                    GameState::PrimeHunter = -1;
+                    GameState::PrimeHunter(-1);
                     QueueHudMessage(128, 70, 140, 90.0F / 30.0F, 2, 242);
                 }
             }
-            if (GameState::Multiplayer && attacker != nullptr && attacker != this)
+            if (GameState::Multiplayer() && attacker != nullptr && attacker != this)
             {
                 MphRead::ItemType itemType = MphRead::ItemType::UASmall;
-                if (RequireReference(attacker->_equipInfo).Weapon.AmmoType == 1)
+                if (RequireReference(RequireReference(attacker->_equipInfo).Weapon).AmmoType == 1)
                 {
                     itemType = MphRead::ItemType::MissileSmall;
                 }
@@ -2371,7 +2497,7 @@ namespace MphRead::Entities
         else
         {
             bool skipSfx = false;
-            _health -= std::bit_cast<std::int32_t>(damage);
+            _health = UncheckedSubtractInt32(_health, std::bit_cast<std::int32_t>(damage));
             if (beam != nullptr && !ignoreDamage)
             {
                 if (TestFlag(beam->Afflictions(), MphRead::Affliction::Freeze))
@@ -2394,7 +2520,7 @@ namespace MphRead::Entities
                             if (_timeSinceFrozen > 60 * 2)
                             {
                                 const std::int32_t time
-                                    = (GameState::Multiplayer || attacker != nullptr ? 75 : 30) * 2;
+                                    = (GameState::Multiplayer() || attacker != nullptr ? 75 : 30) * 2;
                                 _frozenTimer = static_cast<std::uint16_t>(time);
                             }
                             else if (_frozenTimer < 15 * 2)
@@ -2428,8 +2554,8 @@ namespace MphRead::Entities
                         std::uint16_t time = 150 * 2;
                         if (attacker != nullptr)
                         {
-                            const std::int32_t encounter = GameState::EncounterState[attacker->_slotIndex];
-                            if (attacker->_isBot && GameState::SinglePlayer
+                            const std::int32_t encounter = ManagedAt(GameState::EncounterState(), attacker->_slotIndex);
+                            if (attacker->_isBot && GameState::SinglePlayer()
                                 && (encounter == 1 || encounter == 3 || encounter == 4))
                             {
                                 time = 75 * 2;
@@ -2600,7 +2726,7 @@ namespace MphRead::Entities
     {
         for (std::int32_t i = 0; i < 8; ++i)
         {
-            const PlayerValues values = Metadata::PlayerValues[static_cast<std::size_t>(i)];
+            const PlayerValues values = ManagedReadOnlyListAt(Metadata::PlayerValues, i);
             float radius = Fixed::ToFloat(values.BipedColRadius);
             Vector3 center(0.0F, Fixed::ToFloat(values.MinPickupHeight) + radius, 0.0F);
             PlayerVolumes[static_cast<std::size_t>(i)][0] = CollisionVolume(center, radius);
@@ -2623,8 +2749,8 @@ namespace MphRead::Entities
             const auto& nodes = *RequireReference(model).Nodes;
             for (std::int32_t i = 0; i < 4; ++i)
             {
-                const Matrix4& transform1 = RequireReference(nodes[static_cast<std::size_t>(i)]).Transform;
-                const Matrix4& transform2 = RequireReference(nodes[static_cast<std::size_t>(i + 1)]).Transform;
+                const Matrix4& transform1 = RequireReference(ManagedReadOnlyListAt(nodes, i)).Transform;
+                const Matrix4& transform2 = RequireReference(ManagedReadOnlyListAt(nodes, i + 1)).Transform;
                 const Vector3 pos1(transform1.M41, transform1.M42, transform1.M43);
                 const Vector3 pos2(transform2.M41, transform2.M42, transform2.M43);
                 KandenAltNodeDistances[static_cast<std::size_t>(i)] = Distance(pos1, pos2);

@@ -386,7 +386,7 @@ namespace MphRead::Entities
             if (_data.ModelId < 0
                 || static_cast<std::size_t>(_data.ModelId) >= Metadata::ObjectVisPosOffsets.size())
             {
-                throw Memory::Detail::IndexOutOfRangeException();
+                throw Memory::Detail::ArgumentOutOfRangeException();
             }
             const Vector3 offset
                 = Metadata::ObjectVisPosOffsets[static_cast<std::size_t>(_data.ModelId)];

@@ -97,7 +97,8 @@ jobs:
         shell: bash
         env:
           CACHE_HIT: ${{ steps.android-sdk-cache.outputs.cache-hit }}
-        run: printf "Android SDK/NDK cache exact hit: %s\n" "${CACHE_HIT:-false}"
+        run: |
+          printf "Android SDK/NDK cache exact hit: %s\n" "${CACHE_HIT:-false}"
 
       - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@v3
@@ -131,7 +132,7 @@ jobs:
           sudo apt-get update
           versions="$(apt-cache policy libarchive-dev libcurl4-openssl-dev)"
           printf "%s\n" "$versions"
-          digest="$(printf "%s" "$versions" | sha256sum | cut -d" " -f1)
+          digest="$(printf "%s" "$versions" | sha256sum | cut -d" " -f1)"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Restore Android header apt cache
@@ -149,7 +150,8 @@ jobs:
         shell: bash
         env:
           CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
-        run: printf "Android header apt cache exact hit: %s\n" "${CACHE_HIT:-false}"
+        run: |
+          printf "Android header apt cache exact hit: %s\n" "${CACHE_HIT:-false}"
 
       - name: Install shared-source header dependencies
         shell: bash

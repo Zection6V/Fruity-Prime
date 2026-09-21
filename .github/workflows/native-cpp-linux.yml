@@ -50,7 +50,7 @@ jobs:
           sudo apt-get update
           versions="$(apt-cache policy libarchive-dev libcurl4-openssl-dev zlib1g-dev)"
           printf "%s\n" "$versions"
-          digest="$(printf "%s" "$versions" | sha256sum | cut -d" " -f1)
+          digest="$(printf "%s" "$versions" | sha256sum | cut -d" " -f1)"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Restore apt package cache
@@ -68,7 +68,8 @@ jobs:
         shell: bash
         env:
           CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
-        run: printf "apt package cache exact hit: %s\n" "${CACHE_HIT:-false}"
+        run: |
+          printf "apt package cache exact hit: %s\n" "${CACHE_HIT:-false}"
 
       - name: Install native dependencies on Linux
         shell: bash

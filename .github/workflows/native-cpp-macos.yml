@@ -46,7 +46,8 @@ jobs:
         shell: bash
         env:
           CACHE_HIT: ${{ steps.homebrew-cache.outputs.cache-hit }}
-        run: printf "Homebrew download cache exact hit: %s\n" "${CACHE_HIT:-false}"
+        run: |
+          printf "Homebrew download cache exact hit: %s\n" "${CACHE_HIT:-false}"
 
       - name: Verify Clang toolchain
         shell: bash

@@ -1,0 +1,24 @@
+name: Native C++ All Platforms
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows / MSVC
+    uses: ./.github/workflows/native-cpp-windows.yml
+
+  macos:
+    name: macOS / Clang
+    uses: ./.github/workflows/native-cpp-macos.yml
+
+  linux:
+    name: Linux / GCC
+    uses: ./.github/workflows/native-cpp-linux.yml
+
+  android:
+    name: Android / NDK (API 24, arm64-v8a + x86_64)
+    uses: ./.github/workflows/native-cpp-android.yml

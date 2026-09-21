@@ -1,0 +1,115 @@
+name: Native C++ Linux / GCC
+
+on:
+  push:
+    branches: [develop2]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - ".github/workflows/native-cpp-linux.yml"
+  pull_request:
+    branches: [develop2]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - ".github/workflows/native-cpp-linux.yml"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  APT_CACHE_DIR: ${{ github.workspace }}/.cache/apt/archives
+
+jobs:
+  linux-native:
+    name: Linux / GCC
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Verify GCC toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ --version
+          cmake --version
+
+      - name: Resolve apt dependency cache key
+        id: apt-deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          versions="$(apt-cache policy libarchive-dev libcurl4-openssl-dev zlib1g-dev)"
+          printf "%s\n" "$versions"
+          digest="$(printf "%s" "$versions" | sha256sum | cut -d" " -f1)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Restore apt package cache
+        id: apt-cache
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.APT_CACHE_DIR }}
+          key: native-apt-v1-${{ runner.os }}-${{ runner.arch }}-gcc-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-linux.yml') }}
+          restore-keys: |
+            native-apt-v1-${{ runner.os }}-${{ runner.arch }}-gcc-${{ steps.apt-deps.outputs.digest }}-
+            native-apt-v1-${{ runner.os }}-${{ runner.arch }}-gcc-
+
+      - name: Report apt cache result
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
+        run: printf "apt package cache exact hit: %s\n" "${CACHE_HIT:-false}"
+
+      - name: Install native dependencies on Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$APT_CACHE_DIR/partial"
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR" install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev zlib1g-dev
+          sudo rm -f "$APT_CACHE_DIR/lock"
+          sudo rm -rf "$APT_CACHE_DIR/partial"
+          sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
+
+      - name: Configure with GCC
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/native
+          cmake -S . -B build/native \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}" 2>&1 | tee build/native/configure.log
+
+      - name: Build shared native owners
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build/native \
+            --config RelWithDebInfo \
+            --parallel 2 \
+            --verbose \
+            --target fruity_ncsfplay_native fruity_mphread_native 2>&1 | tee build/native/build.log
+
+      - name: Upload native build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-cpp-gcc-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            build/native/CMakeCache.txt
+            build/native/CMakeFiles/CMakeConfigureLog.yaml
+            build/native/configure.log
+            build/native/build.log
+            build/native/**/*.a
+            build/native/**/*.lib

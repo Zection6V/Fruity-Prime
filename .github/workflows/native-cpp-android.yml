@@ -22,9 +22,14 @@ on:
       - "src/MphRead.Android/MphRead.Android.csproj"
       - ".github/workflows/native-cpp-android.yml"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
+
+env:
+  ANDROID_SDK_ROOT: ${{ github.workspace }}/.cache/android-sdk
+  APT_CACHE_DIR: ${{ github.workspace }}/.cache/apt/archives
 
 jobs:
   android_contract:
@@ -77,6 +82,23 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Restore pinned Android SDK and NDK cache
+        id: android-sdk-cache
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-${{ hashFiles('cmake/FruityNativeConfig.cmake', '.github/workflows/native-cpp-android.yml') }}
+          restore-keys: |
+            native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-
+            native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Report Android SDK cache result
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.android-sdk-cache.outputs.cache-hit }}
+        run: printf "Android SDK/NDK cache exact hit: %s\n" "${CACHE_HIT:-false}"
+
       - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@v3
         with:
@@ -101,12 +123,43 @@ jobs:
           test -f "${ndk_home}/build/cmake/android.toolchain.cmake"
           echo "ANDROID_NDK_HOME=${ndk_home}" >> "$GITHUB_ENV"
 
-      - name: Install shared-source header dependencies
+      - name: Resolve apt header cache key
+        id: apt-deps
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev
+          versions="$(apt-cache policy libarchive-dev libcurl4-openssl-dev)"
+          printf "%s\n" "$versions"
+          digest="$(printf "%s" "$versions" | sha256sum | cut -d" " -f1)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Android header apt cache
+        id: apt-cache
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.APT_CACHE_DIR }}
+          key: native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
+          restore-keys: |
+            native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-
+            native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Report Android header cache result
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
+        run: printf "Android header apt cache exact hit: %s\n" "${CACHE_HIT:-false}"
+
+      - name: Install shared-source header dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$APT_CACHE_DIR/partial"
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR" install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev
+          sudo rm -f "$APT_CACHE_DIR/lock"
+          sudo rm -rf "$APT_CACHE_DIR/partial"
+          sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
 
           include_root="$GITHUB_WORKSPACE/.native-deps/include"
           mkdir -p "$include_root"

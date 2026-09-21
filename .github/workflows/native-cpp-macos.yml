@@ -1,0 +1,97 @@
+name: Native C++ macOS / Clang
+
+on:
+  push:
+    branches: [develop2]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - ".github/workflows/native-cpp-macos.yml"
+  pull_request:
+    branches: [develop2]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - ".github/workflows/native-cpp-macos.yml"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-native:
+    name: macOS / Clang
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Restore Homebrew download cache
+        id: homebrew-cache
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: native-homebrew-v1-${{ runner.os }}-${{ runner.arch }}-clang-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-macos.yml') }}
+          restore-keys: |
+            native-homebrew-v1-${{ runner.os }}-${{ runner.arch }}-clang-
+
+      - name: Report Homebrew cache result
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.homebrew-cache.outputs.cache-hit }}
+        run: printf "Homebrew download cache exact hit: %s\n" "${CACHE_HIT:-false}"
+
+      - name: Verify Clang toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang++ --version
+          cmake --version
+
+      - name: Install native dependencies on macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install curl libarchive zlib
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib)" >> "$GITHUB_ENV"
+
+      - name: Configure with Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/native
+          cmake -S . -B build/native \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}" 2>&1 | tee build/native/configure.log
+
+      - name: Build shared native owners
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build/native \
+            --config RelWithDebInfo \
+            --parallel 2 \
+            --verbose \
+            --target fruity_ncsfplay_native fruity_mphread_native 2>&1 | tee build/native/build.log
+
+      - name: Upload native build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-cpp-clang-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            build/native/CMakeCache.txt
+            build/native/CMakeFiles/CMakeConfigureLog.yaml
+            build/native/configure.log
+            build/native/build.log
+            build/native/**/*.a
+            build/native/**/*.lib

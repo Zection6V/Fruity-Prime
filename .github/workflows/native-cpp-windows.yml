@@ -1,4 +1,4 @@
-name: Native C++ Desktop
+name: Native C++ Windows / MSVC
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
       - "cmake/**"
       - "src/MphRead.Native/**"
       - "src/NcsfPlay.Native/**"
-      - ".github/workflows/native-cpp-desktop.yml"
+      - ".github/workflows/native-cpp-windows.yml"
   pull_request:
     branches: [develop2]
     paths:
@@ -16,36 +16,42 @@ on:
       - "cmake/**"
       - "src/MphRead.Native/**"
       - "src/NcsfPlay.Native/**"
-      - ".github/workflows/native-cpp-desktop.yml"
+      - ".github/workflows/native-cpp-windows.yml"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
+env:
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.cache/vcpkg/archives
+
 jobs:
-  desktop-native:
-    name: ${{ matrix.label }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-2025
-            label: Windows / MSVC
-            toolchain: msvc
-          - os: macos-15
-            label: macOS / Clang
-            toolchain: clang
-          - os: ubuntu-24.04
-            label: Linux / GCC
-            toolchain: gcc
+  windows-native:
+    name: Windows / MSVC
+    runs-on: windows-2025
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-msvc-x64-windows-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-windows.yml') }}
+          restore-keys: |
+            native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-msvc-x64-windows-
+
+      - name: Report vcpkg cache result
+        shell: pwsh
+        env:
+          CACHE_HIT: ${{ steps.vcpkg-cache.outputs.cache-hit }}
+        run: Write-Host "vcpkg binary cache exact hit: $env:CACHE_HIT"
+
       - name: Verify MSVC toolchain
-        if: matrix.toolchain == 'msvc'
         shell: pwsh
         run: |
           cmake --version
@@ -55,24 +61,7 @@ jobs:
           if (-not $installation) { throw "MSVC x86/x64 C++ tools were not found." }
           Write-Host "MSVC installation: $installation"
 
-      - name: Verify Clang toolchain
-        if: matrix.toolchain == 'clang'
-        shell: bash
-        run: |
-          set -euo pipefail
-          clang++ --version
-          cmake --version
-
-      - name: Verify GCC toolchain
-        if: matrix.toolchain == 'gcc'
-        shell: bash
-        run: |
-          set -euo pipefail
-          g++ --version
-          cmake --version
-
       - name: Install native dependencies on Windows
-        if: matrix.toolchain == 'msvc'
         shell: pwsh
         run: |
           if (-not $env:VCPKG_INSTALLATION_ROOT) { throw "VCPKG_INSTALLATION_ROOT is not set on the runner." }
@@ -82,24 +71,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Install native dependencies on macOS
-        if: matrix.toolchain == 'clang'
-        shell: bash
-        run: |
-          set -euo pipefail
-          brew install curl libarchive zlib
-          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib)" >> "$GITHUB_ENV"
-
-      - name: Install native dependencies on Linux
-        if: matrix.toolchain == 'gcc'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev zlib1g-dev
-
       - name: Configure with MSVC
-        if: matrix.toolchain == 'msvc'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path build/native | Out-Null
@@ -107,16 +79,6 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
             -DVCPKG_TARGET_TRIPLET=x64-windows 2>&1 | Tee-Object -FilePath build/native/configure.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Configure with Unix toolchain
-        if: matrix.toolchain != 'msvc'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p build/native
-          cmake -S . -B build/native \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}" 2>&1 | tee build/native/configure.log
 
       - name: Build shared native owners
         shell: bash
@@ -132,7 +94,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-cpp-${{ matrix.toolchain }}-${{ github.sha }}
+          name: native-cpp-msvc-${{ github.sha }}
           if-no-files-found: warn
           retention-days: 7
           path: |

@@ -152,19 +152,23 @@ namespace
 
     [[nodiscard]] Matrix4 ClearScale(Matrix4 value) noexcept
     {
-        const Vector3 scale(
-            Length(Vector3(value.M11, value.M12, value.M13)),
-            Length(Vector3(value.M21, value.M22, value.M23)),
-            Length(Vector3(value.M31, value.M32, value.M33)));
-        value.M11 /= scale.X;
-        value.M12 /= scale.X;
-        value.M13 /= scale.X;
-        value.M21 /= scale.Y;
-        value.M22 /= scale.Y;
-        value.M23 /= scale.Y;
-        value.M31 /= scale.Z;
-        value.M32 /= scale.Z;
-        value.M33 /= scale.Z;
+        const float row0Scale
+            = 1.0F / Length(Vector3(value.M11, value.M12, value.M13));
+        value.M11 *= row0Scale;
+        value.M12 *= row0Scale;
+        value.M13 *= row0Scale;
+
+        const float row1Scale
+            = 1.0F / Length(Vector3(value.M21, value.M22, value.M23));
+        value.M21 *= row1Scale;
+        value.M22 *= row1Scale;
+        value.M23 *= row1Scale;
+
+        const float row2Scale
+            = 1.0F / Length(Vector3(value.M31, value.M32, value.M33));
+        value.M31 *= row2Scale;
+        value.M32 *= row2Scale;
+        value.M33 *= row2Scale;
         return value;
     }
 

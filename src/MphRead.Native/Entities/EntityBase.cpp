@@ -914,9 +914,16 @@ namespace MphRead::Entities
     {
         if (Active)
         {
-            for (std::size_t i = 0; i < _models.Size(); i++)
+            for (std::int32_t i = 0;
+                i < static_cast<std::int32_t>(_models.Size()); ++i)
             {
-                UpdateAnimFrames(_models[i]);
+                const std::shared_ptr<ModelInstance>& instValue
+                    = ManagedReadOnlyListAt(_models.Items(), i);
+                Scene& scene = RequireReference(_scene);
+                if (scene.FrameCount() != 0 && scene.FrameCount() % 2 == 0)
+                {
+                    RequireReference(instValue).UpdateAnimFrames();
+                }
             }
         }
         return true;

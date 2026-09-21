@@ -56,7 +56,7 @@ namespace
     {
         if (index < 0 || static_cast<std::size_t>(index) >= Size)
         {
-            throw MphRead::Memory::Detail::ArgumentOutOfRangeException();
+            throw System::ArgumentOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -159,7 +159,7 @@ namespace
         const float det = a * a11 + b * a12 + c * a13 + d * a14;
         if (std::abs(det) < std::numeric_limits<float>::denorm_min())
         {
-            throw std::runtime_error("Matrix is singular and cannot be inverted.");
+            throw MphRead::SceneDetail::InvalidOperationException();
         }
 
         const float invDet = 1.0F / det;
@@ -199,7 +199,7 @@ namespace
         return result;
     }
 
-    [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(
             value.X * scale,
@@ -311,7 +311,7 @@ namespace MphRead::Entities
         _spin = std::fmod(
             static_cast<float>(
                 _spin
-                + RequireReference(_scene).FrameTime * 360.0F * _spinSpeed),
+                + RequireReference(_scene).FrameTime() * 360.0F * _spinSpeed),
             360.0F);
         return EntityBase::Process();
     }
@@ -371,8 +371,8 @@ namespace MphRead::Entities
         _scanId = GetListItem(
             _scanIds,
             static_cast<std::int32_t>(data.ItemType));
-        if (GameState::Multiplayer
-            && GameState::AffinityWeapons
+        if (GameState::Multiplayer()
+            && GameState::AffinityWeapons()
             && (_itemType == MphRead::ItemType::VoltDriver
                 || _itemType == MphRead::ItemType::Battlehammer
                 || _itemType == MphRead::ItemType::Imperialist
@@ -511,10 +511,10 @@ namespace MphRead::Entities
             if (_owner != nullptr)
             {
                 _owner->SetItem(nullptr);
-                if (GameState::SinglePlayer)
+                if (GameState::SinglePlayer())
                 {
                     auto storySave = GameState::StorySave;
-                    const std::int32_t roomId = RequireReference(_scene).RoomId;
+                    const std::int32_t roomId = RequireReference(_scene).RoomId();
                     const std::int32_t ownerId = _owner->Id;
                     RequireReference(storySave).SetRoomState(
                         roomId,
@@ -545,13 +545,13 @@ namespace MphRead::Entities
         }
 
         if (_owner == nullptr
-            && GameState::SinglePlayer)
+            && GameState::SinglePlayer())
         {
             auto&& conditionMainValue = PlayerEntity::Main();
             PlayerEntity& conditionMain = RequireReference(conditionMainValue);
             auto&& conditionEquipValue = conditionMain.EquipInfo();
             EquipInfo& conditionEquip = RequireReference(conditionEquipValue);
-            auto&& conditionWeaponValue = conditionEquip.Weapon();
+            auto&& conditionWeaponValue = conditionEquip.Weapon;
             if (conditionWeaponValue != nullptr)
             {
                 auto&& mainValue = PlayerEntity::Main();
@@ -559,8 +559,8 @@ namespace MphRead::Entities
                 auto&& equipValue = main.EquipInfo();
                 EquipInfo& equip = RequireReference(equipValue);
 
-                const auto chargeLevel = equip.ChargeLevel();
-                auto&& weaponValue = equip.Weapon();
+                const auto chargeLevel = equip.ChargeLevel;
+                auto&& weaponValue = equip.Weapon;
                 WeaponInfo& weapon = RequireReference(weaponValue);
                 if (chargeLevel >= weapon.MinCharge * 2)
                 {
@@ -576,7 +576,7 @@ namespace MphRead::Entities
                         const float div = distance / 20.0F;
                         const float pct = (1.0F - div) / distance;
                         Position = static_cast<Vector3>(Position)
-                            + Scale(
+                            + ScaleVector(
                                 between,
                                 pct / static_cast<float>(4 * 2));
                     }
@@ -594,7 +594,7 @@ namespace MphRead::Entities
         {
             _owner->OnItemPickedUp();
         }
-        if (GameState::SinglePlayer)
+        if (GameState::SinglePlayer())
         {
             const std::int32_t scanId = GetScanId();
             auto storySave = GameState::StorySave;

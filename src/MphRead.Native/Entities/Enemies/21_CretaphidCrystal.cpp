@@ -85,6 +85,17 @@ namespace MphRead::Entities::Enemies
             return values[static_cast<std::size_t>(index)];
         }
 
+        template <typename T>
+        [[nodiscard]] const T& VectorAt(
+            const std::vector<T>& values, std::int32_t index)
+        {
+            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+            {
+                throw SceneDetail::IndexOutOfRangeException();
+            }
+            return values[static_cast<std::size_t>(index)];
+        }
+
         [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
         {
             value.Y += amount;

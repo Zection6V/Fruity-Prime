@@ -351,8 +351,9 @@ namespace MphRead::Entities::Enemies
             = static_cast<Vector3>(MainPlayer().Position)
             - static_cast<Vector3>(Position);
         PlayerEntity& player = MainPlayer();
-        player.Speed = player.Speed
-            + DivideVector(DivideVector(between, 4.0F), 2.0F);
+        const Vector3 speed = player.Speed();
+        player.SetSpeed(
+            speed + DivideVector(DivideVector(between, 4.0F), 2.0F));
         MainPlayer().TakeDamage(
             10, DamageFlags::None, std::nullopt, this);
     }
@@ -534,9 +535,9 @@ namespace MphRead::Entities::Enemies
         }
 
         const Vector3 spherePos = RequireReference(_sealSphere).Position;
-        CollisionResult res{};
-        const bool blocked = CollisionDetection::CheckBetweenPoints(
-            spherePos, _laserTargetPos, TestFlags::None, _scene, res);
+        Formats::CollisionResult res{};
+        const bool blocked = Formats::CollisionDetection::CheckBetweenPoints(
+            spherePos, _laserTargetPos, Formats::TestFlags::None, _scene, res);
         if (blocked)
         {
             GoreaFlags |= Gorea2Flags::LaserBlocked;
@@ -567,13 +568,13 @@ namespace MphRead::Entities::Enemies
         bool laserHit = TestFlag(GoreaFlags, Gorea2Flags::LaserOnTarget);
         if (!laserHit)
         {
-            CollisionResult discard{};
+            Formats::CollisionResult discard{};
             if (Length(_laserTargetPos - spherePos) < 0.5F)
             {
                 laserHit = true;
             }
-            else if (CollisionDetection::CheckCylinderOverlapVolume(
-                MainPlayer().Volume(), spherePos, _laserTargetPos,
+            else if (Formats::CollisionDetection::CheckCylinderOverlapVolume(
+                &MainPlayer().Volume(), spherePos, _laserTargetPos,
                 0.5F, discard))
             {
                 laserHit = true;
@@ -1214,11 +1215,11 @@ namespace MphRead::Entities::Enemies
         {
             const Vector3 chosenPos
                 = chosen->Data().Header.Position.ToFloatVector();
-            CollisionResult discard{};
+            Formats::CollisionResult discard{};
             if (checkCollision
-                && CollisionDetection::CheckBetweenPoints(
+                && Formats::CollisionDetection::CheckBetweenPoints(
                     chosenPos, MainPlayer().Position,
-                    TestFlags::None, _scene, discard))
+                    Formats::TestFlags::None, _scene, discard))
             {
                 return nullptr;
             }
@@ -1321,7 +1322,7 @@ namespace MphRead::Entities::Enemies
                 60.0F / 30.0F,
                 FadeType::FadeOutBlack,
                 0.0F,
-                AfterMovie::EndGame);
+                static_cast<AfterMovie>(2));
         }
 
         if (Behavior03())

@@ -690,9 +690,9 @@ public: \
     void EndCutscene(bool resetFade = false); \
     void ResetFrameCount(); \
     std::shared_ptr<MphRead::Entities::BeamEffectEntity> InitBeamEffect(const MphRead::Entities::BeamEffectEntityData& data); \
-    void UnlinkBeamEffect(MphRead::Entities::BeamEffectEntity* entry); \
+    void UnlinkBeamEffect(const std::shared_ptr<MphRead::Entities::BeamEffectEntity>& entry); \
     std::shared_ptr<MphRead::Entities::BombEntity> InitBomb(); \
-    void UnlinkBomb(MphRead::Entities::BombEntity* entry); \
+    void UnlinkBomb(const std::shared_ptr<MphRead::Entities::BombEntity>& entry); \
     void AddSingleParticle(MphRead::SingleType type, OpenTK::Mathematics::Vector3 position, \
         OpenTK::Mathematics::Vector3 color, float alpha, float scale); \
     void UnlinkEffectEntry(const std::shared_ptr<MphRead::Effects::EffectEntry>& entry); \
@@ -773,6 +773,10 @@ public: \
     [[nodiscard]] bool InitEntities() const noexcept; \
     void InitEntities(bool value) noexcept; \
 private: \
+    friend class MphRead::Entities::BeamEffectEntity; \
+    friend class MphRead::Entities::BombEntity; \
+    void UnlinkBeamEffect(MphRead::Entities::BeamEffectEntity* entry); \
+    void UnlinkBomb(MphRead::Entities::BombEntity* entry); \
     struct FlatColor final \
     { \
         float _red = 0.0F; \

@@ -33,6 +33,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -311,6 +312,21 @@ namespace
             if (door.get() == target)
             {
                 return door;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] std::shared_ptr<MphRead::Entities::RoomEntity> FindRoomShared(
+        MphRead::Scene& scene, MphRead::Entities::RoomEntity* target)
+    {
+        auto enumerator = scene.Entities();
+        while (enumerator.MoveNext())
+        {
+            std::shared_ptr<MphRead::Entities::EntityBase> entity = enumerator.Current();
+            if (entity.get() == target)
+            {
+                return std::shared_ptr<MphRead::Entities::RoomEntity>(entity, target);
             }
         }
         return nullptr;
@@ -875,7 +891,9 @@ namespace MphRead::Entities
                 PlayerEntity::PlayerCount = UncheckedIncrement(PlayerEntity::PlayerCount);
             }
         }
-        ProcessTransition(std::shared_ptr<const std::atomic_bool>{});
+        const std::shared_ptr<RoomEntity> self = FindRoomShared(scene, this);
+        assert(self != nullptr);
+        ProcessTransition(std::shared_ptr<const std::atomic_bool>{}, self);
         EndTransition();
         GameState::PausePrevented = false;
         Sound::Music::TryPlayRoomMusic(
@@ -985,21 +1003,21 @@ namespace MphRead::Entities
         if (fromDoor)
         {
             const std::shared_ptr<const std::atomic_bool> token = _cts;
-            std::thread([this, token]()
+            if (token->load())
             {
-                if (token != nullptr && token->load())
+                return;
+            }
+            const std::shared_ptr<RoomEntity> self = FindRoomShared(scene, this);
+            assert(self != nullptr);
+            std::packaged_task<void()> task([self, token]()
+            {
+                if (token->load())
                 {
                     return;
                 }
-                try
-                {
-                    ProcessTransition(token);
-                }
-                catch (...)
-                {
-                    // Task.Run captures worker exceptions in its Task; there is no synchronous throw here.
-                }
-            }).detach();
+                self->ProcessTransition(token, self);
+            });
+            std::thread(std::move(task)).detach();
         }
     }
 
@@ -1008,7 +1026,8 @@ namespace MphRead::Entities
         _cts->store(true);
     }
 
-    void RoomEntity::ProcessTransition(std::shared_ptr<const std::atomic_bool> token)
+    void RoomEntity::ProcessTransition(std::shared_ptr<const std::atomic_bool> token,
+        std::shared_ptr<RoomEntity> self)
     {
         assert(GameState::TransitionRoomId != -1);
         const RoomMetadata* roomMeta = Metadata::GetRoomById(GameState::TransitionRoomId);
@@ -1024,7 +1043,7 @@ namespace MphRead::Entities
         }
         auto setup = SceneSetup::SetUpRoom(
             GameState::Mode, Mods::Network::NetRoomChange::RoomPlayerCount,
-            BossFlags::Unspecified, 0, entityLayer, roomMeta, this, _scene, true);
+            BossFlags::Unspecified, 0, entityLayer, roomMeta, self, _scene, true);
         const auto& entities = std::get<1>(setup);
         if (token != nullptr && token->load())
         {

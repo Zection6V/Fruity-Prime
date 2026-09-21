@@ -105,7 +105,8 @@ namespace MphRead::Entities
         [[nodiscard]] const std::vector<std::shared_ptr<Node>>& Nodes() const;
         [[nodiscard]] Formats::Culling::NodeRef AddDoorPortal(DoorEntity* door);
         void StartTransition(bool fromDoor, bool resume = false);
-        void ProcessTransition(std::shared_ptr<const std::atomic_bool> token);
+        void ProcessTransition(std::shared_ptr<const std::atomic_bool> token,
+            std::shared_ptr<RoomEntity> self);
         void EndTransition();
 
         [[nodiscard]] std::shared_ptr<Formats::Culling::RoomPartVisInfo>

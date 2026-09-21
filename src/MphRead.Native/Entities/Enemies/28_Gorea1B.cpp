@@ -1099,7 +1099,7 @@ namespace MphRead::Entities::Enemies
             }
             else
             {
-                RequireReference(_scene).StartMovies(Movie::BadEndingPart1, Movie::BadEndingPart2, FadeType::FadeOutInWhite, 45.0F / 30.0F, FadeType::FadeOutBlack, 0.0F, AfterMovie::EndGame);
+                RequireReference(_scene).StartMovies(Movie::BadEndingPart1, Movie::BadEndingPart2, FadeType::FadeOutInWhite, 45.0F / 30.0F, FadeType::FadeOutBlack, 0.0F, static_cast<AfterMovie>(2));
             }
             return true;
         }

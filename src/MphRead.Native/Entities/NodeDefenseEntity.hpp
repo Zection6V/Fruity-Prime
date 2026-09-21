@@ -35,7 +35,7 @@ namespace MphRead::Entities
         [[nodiscard]] std::int32_t CurrentTeam() const noexcept;
         [[nodiscard]] std::int32_t OccupyingTeam() const noexcept;
         [[nodiscard]] bool Blinking() const noexcept;
-        [[nodiscard]] const std::vector<bool>& OccupiedBy() const noexcept;
+        [[nodiscard]] std::shared_ptr<const std::vector<bool>> OccupiedBy() const noexcept;
         [[nodiscard]] bool IsOccupied() const;
         [[nodiscard]] float Progress() const noexcept;
         [[nodiscard]] std::shared_ptr<Formats::NodeData3> ClosestNode() const noexcept;
@@ -62,7 +62,7 @@ namespace MphRead::Entities
 
         std::int32_t _currentTeam = 4;
         std::int32_t _occupyingTeam = 4;
-        std::vector<bool> _occupiedBy;
+        std::shared_ptr<std::vector<bool>> _occupiedBy;
         float _blinkTimer = 0.0F;
         std::shared_ptr<PlayerEntity> _capturedPlayer{};
         float _progress = 0.0F;

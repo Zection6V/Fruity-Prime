@@ -1919,7 +1919,7 @@ namespace MphRead::Entities
                         _nodeBonusOpponent = team;
                 }
             }
-            if (ManagedAt(defense->OccupiedBy(), SlotIndex()))
+            if (ManagedAt(RequireReference(defense->OccupiedBy()), SlotIndex()))
             {
                 showBar = true;
                 if (_nodesHudState == 0)

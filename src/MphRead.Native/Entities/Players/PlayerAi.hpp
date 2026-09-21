@@ -1978,15 +1978,15 @@ namespace MphRead::Entities
         std::int32_t Func3_213B4A0(AiContext& c,const Formats::AiPersonalityData5& p){return (Flags2&AiFlags2::TargetDefense)!=AiFlags2::None&&Func3_213B4E4(c,p)==0?1:0;}
         std::int32_t Func3_213B45C(AiContext&,const Formats::AiPersonalityData5&){if((Flags2&AiFlags2::TargetDefense)==AiFlags2::None)return 0;assert(_targetDefense);return _targetDefense->CapturedPlayer()&&_targetDefense->CapturedPlayer()->TeamIndex()==_player->TeamIndex()?1:0;}
         std::int32_t Func3_213B3F0(AiContext&,const Formats::AiPersonalityData5&){for (auto _enumerator13 = _scene.GetNodeDefenseEntities().GetEnumerator(); _enumerator13.MoveNext(); )
-            if (const auto d = _enumerator13.Current(); true)if(d->CapturedPlayer()&&d->CapturedPlayer()->TeamIndex()==_player->TeamIndex()&&!d->OccupiedBy().empty())return 1;return 0;}
-        std::int32_t Func3_213B3A0(AiContext&,const Formats::AiPersonalityData5&){if((Flags2&AiFlags2::TargetDefense)==AiFlags2::None)return 0;assert(_targetDefense);return _targetDefense->CapturedPlayer()&&_targetDefense->CapturedPlayer()->TeamIndex()==_player->TeamIndex()&&!_targetDefense->OccupiedBy().empty()?1:0;}
+            if (const auto d = _enumerator13.Current(); true)if(d->CapturedPlayer()&&d->CapturedPlayer()->TeamIndex()==_player->TeamIndex()&&!d->OccupiedBy()->empty())return 1;return 0;}
+        std::int32_t Func3_213B3A0(AiContext&,const Formats::AiPersonalityData5&){if((Flags2&AiFlags2::TargetDefense)==AiFlags2::None)return 0;assert(_targetDefense);return _targetDefense->CapturedPlayer()&&_targetDefense->CapturedPlayer()->TeamIndex()==_player->TeamIndex()&&!_targetDefense->OccupiedBy()->empty()?1:0;}
         std::int32_t Func3_213B37C(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213B3A0(c,p)^1;}
         std::int32_t Func3_213B34C(AiContext&,const Formats::AiPersonalityData5&){if((Flags2&AiFlags2::TargetDefense)!=AiFlags2::None){assert(_targetDefense);return _targetDefense->Contested()?1:0;}return 0;}
         std::int32_t Func3_213B328(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213B34C(c,p)^1;}
         std::int32_t Func3_213B284(AiContext&,const Formats::AiPersonalityData5& p){if((Flags2&AiFlags2::TargetDefense)==AiFlags2::None)return 0;assert(_targetDefense);float d=p.Param1/4096.0F;return DistanceSquared(_targetDefense->Position,_player->Position)<d*d?1:0;}
         std::int32_t Func3_213B260(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213B284(c,p)^1;}
         std::int32_t Func3_213B1F0(AiContext&,const Formats::AiPersonalityData5&){for (auto _enumerator14 = _scene.GetNodeDefenseEntities().GetEnumerator(); _enumerator14.MoveNext(); )
-            if (const auto d = _enumerator14.Current(); true)if(!d->CapturedPlayer()||d->CapturedPlayer()->TeamIndex()!=_player->TeamIndex()||!d->OccupiedBy().empty())return 0;return 1;}
+            if (const auto d = _enumerator14.Current(); true)if(!d->CapturedPlayer()||d->CapturedPlayer()->TeamIndex()!=_player->TeamIndex()||!d->OccupiedBy()->empty())return 0;return 1;}
         std::int32_t Func3_213B1D8(AiContext&,const Formats::AiPersonalityData5&){return _weapon2==0?1:0;}
         std::int32_t Func3_213B1C0(AiContext&,const Formats::AiPersonalityData5&){return _weapon2!=0?1:0;}
         std::int32_t Func3_213B1A8(AiContext&,const Formats::AiPersonalityData5&){return _weapon2==1?1:0;}

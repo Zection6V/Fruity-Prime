@@ -196,13 +196,13 @@ namespace MphRead::Entities
     NodeDefenseEntity::NodeDefenseEntity(NodeDefenseEntityData data, Scene* scene)
         : EntityBase(EntityType::NodeDefense, scene),
           _data(data),
-          _occupiedBy(PlayerEntity::SlotCapacity, false)
+          _occupiedBy(std::make_shared<std::vector<bool>>(PlayerEntity::SlotCapacity, false))
     {
         Id = data.Header.EntityId;
         SetTransform(data.Header.FacingVector, data.Header.UpVector, data.Header.Position);
         _volume = CollisionVolume::Move(_data.Volume, Position);
 
-        const GameMode mode = GameState::Mode;
+        const GameMode mode = GameState::Mode();
         if (mode == GameMode::Defender || mode == GameMode::DefenderTeams
             || mode == GameMode::Nodes || mode == GameMode::NodesTeams)
         {
@@ -254,17 +254,17 @@ namespace MphRead::Entities
         return _blinkTimer > 0.0F;
     }
 
-    const std::vector<bool>& NodeDefenseEntity::OccupiedBy() const noexcept
+    std::shared_ptr<const std::vector<bool>> NodeDefenseEntity::OccupiedBy() const noexcept
     {
         return _occupiedBy;
     }
 
     bool NodeDefenseEntity::IsOccupied() const
     {
-        return _occupiedBy[CheckedOccupiedIndex(0)]
-            || _occupiedBy[CheckedOccupiedIndex(1)]
-            || _occupiedBy[CheckedOccupiedIndex(2)]
-            || _occupiedBy[CheckedOccupiedIndex(3)];
+        return RequireReference(_occupiedBy)[CheckedOccupiedIndex(0)]
+            || RequireReference(_occupiedBy)[CheckedOccupiedIndex(1)]
+            || RequireReference(_occupiedBy)[CheckedOccupiedIndex(2)]
+            || RequireReference(_occupiedBy)[CheckedOccupiedIndex(3)];
     }
 
     float NodeDefenseEntity::Progress() const noexcept
@@ -284,7 +284,8 @@ namespace MphRead::Entities
 
     std::size_t NodeDefenseEntity::CheckedOccupiedIndex(std::int32_t index) const
     {
-        if (index < 0 || static_cast<std::size_t>(index) >= _occupiedBy.size())
+        if (index < 0
+            || static_cast<std::size_t>(index) >= RequireReference(_occupiedBy).size())
         {
             throw Memory::Detail::IndexOutOfRangeException();
         }
@@ -345,8 +346,10 @@ namespace MphRead::Entities
             std::tie(speed, rotation)
                 = ConstantAcceleration(0.25F, _spinSpeed,
                     std::numeric_limits<float>::lowest(), 8.0F * 30.0F);
-            float& teamTime = GameState::TeamTime[CheckedSlotIndex(team)];
-            const float frameTime = RequireReference(_scene).FrameTime;
+            auto& teamTimes = GameState::TeamTime();
+            const std::size_t teamIndex = CheckedSlotIndex(team);
+            float& teamTime = teamTimes[teamIndex];
+            const float frameTime = RequireReference(_scene).FrameTime();
             teamTime += frameTime;
         }
         _spinSpeed = speed;
@@ -366,8 +369,8 @@ namespace MphRead::Entities
         for (std::int32_t i = 0; i < 4; ++i)
         {
             const std::size_t index = CheckedOccupiedIndex(i);
-            prevOccupiedBy[index] = _occupiedBy[index];
-            _occupiedBy[index] = false;
+            prevOccupiedBy[index] = RequireReference(_occupiedBy)[index];
+            RequireReference(_occupiedBy)[index] = false;
         }
 
         _contested = false;
@@ -385,13 +388,13 @@ namespace MphRead::Entities
             {
                 if (_occupyingTeam == player.TeamIndex())
                 {
-                    _occupiedBy[CheckedOccupiedIndex(player.SlotIndex())] = true;
+                    RequireReference(_occupiedBy)[CheckedOccupiedIndex(player.SlotIndex())] = true;
                     occupiedByAny = true;
                     slot = player.SlotIndex();
                 }
                 else if (_occupyingTeam == 4 && _currentTeam != player.TeamIndex())
                 {
-                    _occupiedBy[CheckedOccupiedIndex(player.SlotIndex())] = true;
+                    RequireReference(_occupiedBy)[CheckedOccupiedIndex(player.SlotIndex())] = true;
                     occupiedByAny = true;
                     _occupyingTeam = player.TeamIndex();
                     _progress = 0.0F;
@@ -412,7 +415,7 @@ namespace MphRead::Entities
             if (_contested)
             {
                 PlayerEntity& main = RequireReference(PlayerEntity::Main());
-                if (_occupiedBy[CheckedOccupiedIndex(main.SlotIndex())])
+                if (RequireReference(_occupiedBy)[CheckedOccupiedIndex(main.SlotIndex())])
                 {
                     _soundSource.SetPausedFreeSfxScripts(true);
                 }
@@ -420,24 +423,24 @@ namespace MphRead::Entities
             else if (_currentTeam != _occupyingTeam)
             {
                 PlayerEntity& main = RequireReference(PlayerEntity::Main());
-                if (_occupiedBy[CheckedOccupiedIndex(main.SlotIndex())])
+                if (RequireReference(_occupiedBy)[CheckedOccupiedIndex(main.SlotIndex())])
                 {
                     if (!_inProgress && _progress >= 10.0F / 30.0F)
                     {
-                        Music::PlayRoomMusic(RequireReference(_scene).RoomId, 2);
+                        Music::PlayRoomMusic(RequireReference(_scene).RoomId(), 2);
                         value1 = 1;
                         _inProgress = true;
                     }
                     _soundSource.SetPausedFreeSfxScripts(false);
                 }
 
-                _progress += RequireReference(_scene).FrameTime;
+                _progress += RequireReference(_scene).FrameTime();
                 const float spinSpeed
                     = _progress / (300.0F / 30.0F) * (15.0F * 30.0F);
                 const float firstRotationTerm
-                    = _spinSpeed * RequireReference(_scene).FrameTime;
+                    = _spinSpeed * RequireReference(_scene).FrameTime();
                 const float secondRotationFactor = (spinSpeed - _spinSpeed) / 2.0F;
-                const float secondFrameTime = RequireReference(_scene).FrameTime;
+                const float secondFrameTime = RequireReference(_scene).FrameTime();
                 const float secondRotationTerm = secondRotationFactor * secondFrameTime;
                 rotation = firstRotationTerm + secondRotationTerm;
                 _spinSpeed = spinSpeed;
@@ -453,7 +456,7 @@ namespace MphRead::Entities
             PlayerEntity& main = RequireReference(PlayerEntity::Main());
             if (prevOccupiedBy[CheckedOccupiedIndex(main.SlotIndex())])
             {
-                Music::PlayRoomMusic(RequireReference(_scene).RoomId, 0);
+                Music::PlayRoomMusic(RequireReference(_scene).RoomId(), 0);
                 if (value1 != 2)
                 {
                     value1 = 3;
@@ -493,14 +496,15 @@ namespace MphRead::Entities
 
         if (_currentTeam != 4 && !occupiedByAny)
         {
-            _scoreTimer += RequireReference(_scene).FrameTime;
+            _scoreTimer += RequireReference(_scene).FrameTime();
             if (_scoreTimer >= scoreThreshold)
             {
                 assert(_capturedPlayer != nullptr);
+                auto& points = GameState::Points();
                 PlayerEntity& capturedPlayer = RequireReference(_capturedPlayer);
                 const std::size_t capturedSlot = CheckedSlotIndex(capturedPlayer.SlotIndex());
-                GameState::Points[capturedSlot]
-                    = Memory::Detail::UncheckedAdd(GameState::Points[capturedSlot], 1);
+                std::int32_t& capturedPoints = points[capturedSlot];
+                capturedPoints = Memory::Detail::UncheckedAdd(capturedPoints, 1);
                 _scoreTimer = 0.0F;
             }
 
@@ -568,7 +572,7 @@ namespace MphRead::Entities
             }
             else if (_blinkTimer > 0.0F)
             {
-                _blinkTimer -= RequireReference(_scene).FrameTime;
+                _blinkTimer -= RequireReference(_scene).FrameTime();
             }
         }
     }
@@ -589,11 +593,11 @@ namespace MphRead::Entities
             std::shared_ptr<PlayerEntity> playerValue
                 = PlayerEntity::Players()[static_cast<std::size_t>(i)];
             const std::size_t index = CheckedOccupiedIndex(i);
-            if (_occupiedBy[index])
+            if (RequireReference(_occupiedBy)[index])
             {
-                GameState::NodesCaptured[static_cast<std::size_t>(i)]
-                    = Memory::Detail::UncheckedAdd(
-                        GameState::NodesCaptured[static_cast<std::size_t>(i)], 1);
+                auto& nodesCaptured = GameState::NodesCaptured();
+                std::int32_t& capturedCount = nodesCaptured[static_cast<std::size_t>(i)];
+                capturedCount = Memory::Detail::UncheckedAdd(capturedCount, 1);
                 if (TypeExtensions::TestFlag(
                     RequireReference(playerValue).LoadFlags(), LoadFlags::Active))
                 {
@@ -602,16 +606,15 @@ namespace MphRead::Entities
             }
             else if (_currentTeam == RequireReference(playerValue).TeamIndex())
             {
-                GameState::NodesLost[static_cast<std::size_t>(i)]
-                    = Memory::Detail::UncheckedAdd(
-                        GameState::NodesLost[static_cast<std::size_t>(i)], 1);
+                auto& nodesLost = GameState::NodesLost();
+                std::int32_t& lostCount = nodesLost[static_cast<std::size_t>(i)];
+                lostCount = Memory::Detail::UncheckedAdd(lostCount, 1);
             }
-            _occupiedBy[index] = false;
+            RequireReference(_occupiedBy)[index] = false;
         }
 
-        PlayerEntity* capturedPlayer = _capturedPlayer.get();
-        PlayerEntity* mainPlayer = PlayerEntity::Main();
-        if (capturedPlayer == mainPlayer)
+        std::shared_ptr<PlayerEntity> mainPlayer = PlayerEntity::Main();
+        if (_capturedPlayer == mainPlayer)
         {
             RequireReference(PlayerEntity::Main()).QueueHudMessage(
                 128, 133, 90.0F / 30.0F, 1, 206);
@@ -624,7 +627,7 @@ namespace MphRead::Entities
         _scoreTimer = 150.0F / 30.0F;
         if (_currentTeam == RequireReference(PlayerEntity::Main()).TeamIndex())
         {
-            Music::PlayRoomMusic(RequireReference(_scene).RoomId, 0);
+            Music::PlayRoomMusic(RequireReference(_scene).RoomId(), 0);
             dest1 = 2;
         }
         else
@@ -642,7 +645,7 @@ namespace MphRead::Entities
         {
             if (blinking)
             {
-                if (GameState::Teams)
+                if (GameState::Teams())
                 {
                     color = CheckedTeamColor(_occupyingTeam);
                 }
@@ -656,7 +659,7 @@ namespace MphRead::Entities
                 }
             }
         }
-        else if (GameState::Teams)
+        else if (GameState::Teams())
         {
             if (blinking)
             {
@@ -714,7 +717,7 @@ namespace MphRead::Entities
 
     void NodeDefenseEntity::GetDisplayVolumes()
     {
-        if (RequireReference(_scene).ShowVolumes == VolumeDisplay::DefenseNode)
+        if (RequireReference(_scene).ShowVolumes() == VolumeDisplay::DefenseNode)
         {
             AddVolumeItem(_volume, Vector3(1.0F, 1.0F, 1.0F));
         }

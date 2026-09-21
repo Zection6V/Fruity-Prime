@@ -2345,7 +2345,7 @@ namespace MphRead::Entities
                     else
                     {
                         Vector3 muzzleTarget=targetPos-_player->_muzzlePos;float muzzleDist=Length(muzzleTarget);vec = ScaleVector(vec, muzzleDist);
-                        std::uint16_t decay=weapon.SpeedDecayTimes[isCharged?1:0];float finalSpeed;
+                        std::uint16_t decay=(*weapon.SpeedDecayTimes)[isCharged ? 1 : 0];float finalSpeed;
                         if(decay==0)finalSpeed=speed;
                         else if(isCharged)finalSpeed=(weapon.MinChargeFinalSpeed+((weapon.ChargedFinalSpeed-weapon.MinChargeFinalSpeed)*chargePct))/4096.0F/2;
                         else finalSpeed=weapon.UnchargedFinalSpeed/4096.0F/2;

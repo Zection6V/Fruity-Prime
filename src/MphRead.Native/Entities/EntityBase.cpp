@@ -3,8 +3,10 @@
 #include "../Formats/Collision.hpp"
 #include "../Formats/Entity.hpp"
 #include "../Mods/Network/DemoPlayback.hpp"
+#include "../Messaging.hpp"
 #include "../Read.hpp"
 #include "../Renderer.hpp"
+#include "../Scene.hpp"
 #include "../Selection.hpp"
 
 #include <algorithm>
@@ -19,6 +21,71 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
+
+    template <typename T>
+    [[nodiscard]] T& RequireReference(T* value)
+    {
+        if (value == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    template <typename T>
+    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
+    {
+        if (value == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& ManagedReadOnlyListAt(
+        const std::vector<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+        {
+            throw System::ArgumentOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T>
+    [[nodiscard]] T& ManagedListAt(
+        std::vector<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+        {
+            throw System::ArgumentOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T, std::size_t Size>
+    [[nodiscard]] T& ManagedArrayAt(
+        std::array<T, Size>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= Size)
+        {
+            throw MphRead::SceneDetail::IndexOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    [[nodiscard]] std::vector<float> CopyManagedArray(
+        const MphRead::ManagedArray<float>& values)
+    {
+        std::vector<float> result;
+        result.reserve(values.Length());
+        for (std::size_t i = 0; i < values.Length(); ++i)
+        {
+            result.push_back(values[i]);
+        }
+        return result;
+    }
 
     [[nodiscard]] constexpr Matrix4 IdentityMatrix() noexcept
     {
@@ -371,7 +438,7 @@ namespace
     {
         if (minimum > maximum)
         {
-            throw std::invalid_argument("'min' cannot be greater than max.");
+            throw System::ArgumentException();
         }
         if (value < minimum)
         {
@@ -483,14 +550,18 @@ namespace MphRead::Entities
         return _items.size();
     }
 
-    ModelInstance& EntityBase::ModelList::operator[](std::size_t index)
+    ModelInstance& EntityBase::ModelList::operator[](std::int32_t index)
     {
-        return *_items.at(index);
+        const std::shared_ptr<ModelInstance>& value
+            = ManagedReadOnlyListAt(_items, index);
+        return RequireReference(value);
     }
 
-    const ModelInstance& EntityBase::ModelList::operator[](std::size_t index) const
+    const ModelInstance& EntityBase::ModelList::operator[](std::int32_t index) const
     {
-        return *_items.at(index);
+        const std::shared_ptr<ModelInstance>& value
+            = ManagedReadOnlyListAt(_items, index);
+        return RequireReference(value);
     }
 
     void EntityBase::ModelList::Add(std::shared_ptr<ModelInstance> value)
@@ -648,10 +719,15 @@ namespace MphRead::Entities
     void EntityBase::Initialize()
     {
         bool anyLighting = false;
-        for (const std::shared_ptr<ModelInstance>& inst : _models.Items())
+        for (const std::shared_ptr<ModelInstance>& instValue : _models.Items())
         {
-            for (const Material& material : inst->Model->Materials)
+            ModelInstance& inst = RequireReference(instValue);
+            const std::shared_ptr<Model> modelValue = inst.Model();
+            Model& model = RequireReference(modelValue);
+            const auto& materials = RequireReference(model.Materials);
+            for (const std::shared_ptr<Material>& materialValue : materials)
             {
+                Material& material = RequireReference(materialValue);
                 if (material.Lighting != 0)
                 {
                     anyLighting = true;
@@ -666,7 +742,7 @@ namespace MphRead::Entities
         _anyLighting = _anyLighting | anyLighting;
         if (_nodeName.has_value())
         {
-            NodeRef = _scene->GetNodeRefByName(*_nodeName);
+            NodeRef = RequireReference(_scene).GetNodeRefByName(*_nodeName);
         }
     }
 
@@ -684,36 +760,50 @@ namespace MphRead::Entities
     }
 
     void EntityBase::SetCollision(
-        MphRead::Formats::Collision::CollisionInstance* collision,
+        const std::shared_ptr<MphRead::Formats::Collision::CollisionInstance>& collision,
         std::int32_t slot, ModelInstance* attach)
     {
-        auto entCol = std::make_shared<MphRead::Formats::Collision::EntityCollision>(collision, this);
+        auto entCol = std::make_shared<MphRead::Formats::Collision::EntityCollision>(
+            collision, this);
         SetCollisionMaxAvg(*entCol);
-        EntityCollision.at(static_cast<std::size_t>(slot)) = entCol;
+        ManagedArrayAt(EntityCollision, slot) = entCol;
         _drawColUpdated = false;
         UpdateCollisionTransform(slot, ClearScale(Transform));
         UpdateLinkedInverse(slot);
         if (entCol->Collision != nullptr)
         {
-            entCol->DrawPoints.insert(entCol->DrawPoints.end(),
-                entCol->Collision->Info->Points.begin(), entCol->Collision->Info->Points.end());
+            auto& info = RequireReference(entCol->Collision->Info);
+            const auto& points = RequireReference(info.Points);
+            auto& drawPoints = RequireReference(entCol->DrawPoints);
+            const std::int32_t count = static_cast<std::int32_t>(points.size());
+            for (std::int32_t i = 0; i < count; ++i)
+            {
+                drawPoints.push_back(ManagedReadOnlyListAt(points, i));
+            }
         }
         if (attach != nullptr)
         {
-            _colAttachNode = attach->Model->GetNodeByName("attach");
+            const std::shared_ptr<Model> modelValue = attach->Model();
+            Model& model = RequireReference(modelValue);
+            const std::shared_ptr<Node> node = model.GetNodeByName("attach");
+            _colAttachNode = node.get();
         }
     }
 
-    void EntityBase::SetCollisionMaxAvg(MphRead::Formats::Collision::EntityCollision& entCol)
+    void EntityBase::SetCollisionMaxAvg(
+        MphRead::Formats::Collision::EntityCollision& entCol)
     {
         if (entCol.Collision == nullptr)
         {
             return;
         }
-        const std::size_t count = entCol.Collision->Info->Points.size();
+        auto& info = RequireReference(entCol.Collision->Info);
+        const auto& points = RequireReference(info.Points);
+        const std::int32_t count = static_cast<std::int32_t>(points.size());
         Vector3 average = Vector3::Zero;
-        for (Vector3 point : entCol.Collision->Info->Points)
+        for (std::int32_t i = 0; i < count; ++i)
         {
+            const Vector3 point = ManagedReadOnlyListAt(points, i);
             average.X += point.X;
             average.Y += point.Y;
             average.Z += point.Z;
@@ -721,9 +811,10 @@ namespace MphRead::Entities
         average = Divide(average, static_cast<float>(count));
         entCol.InitialCenter = average;
         float maxDistance = 0.0F;
-        for (Vector3 point : entCol.Collision->Info->Points)
+        for (std::int32_t i = 0; i < count; ++i)
         {
-            const float distance = Vector3::Distance(point, average);
+            const Vector3 point = ManagedReadOnlyListAt(points, i);
+            const float distance = Vector3::Distance(average, point);
             if (distance > maxDistance)
             {
                 maxDistance = distance;
@@ -735,19 +826,20 @@ namespace MphRead::Entities
     void EntityBase::UpdateCollisionTransform(std::int32_t slot, Matrix4 transform)
     {
         std::shared_ptr<MphRead::Formats::Collision::EntityCollision>& entCol
-            = EntityCollision.at(static_cast<std::size_t>(slot));
+            = ManagedArrayAt(EntityCollision, slot);
         if (entCol != nullptr)
         {
             entCol->Transform = transform;
             entCol->Inverse1 = Invert(transform);
-            entCol->CurrentCenter = Matrix::Vec3MultMtx4(entCol->InitialCenter, transform);
+            entCol->CurrentCenter = Matrix::Vec3MultMtx4(
+                entCol->InitialCenter, transform);
         }
     }
 
     void EntityBase::UpdateLinkedInverse(std::int32_t slot)
     {
         std::shared_ptr<MphRead::Formats::Collision::EntityCollision>& entCol
-            = EntityCollision.at(static_cast<std::size_t>(slot));
+            = ManagedArrayAt(EntityCollision, slot);
         if (entCol != nullptr)
         {
             entCol->Inverse2 = Invert(entCol->Transform);
@@ -759,15 +851,20 @@ namespace MphRead::Entities
         if (!_drawColUpdated || _colAttachNode != nullptr)
         {
             const Matrix4 transform = CollisionTransform();
-            for (std::size_t i = 0; i < 2; i++)
+            for (std::int32_t i = 0; i < 2; ++i)
             {
-                const std::shared_ptr<MphRead::Formats::Collision::EntityCollision>& entCol = EntityCollision[i];
+                const std::shared_ptr<MphRead::Formats::Collision::EntityCollision>& entCol
+                    = EntityCollision[static_cast<std::size_t>(i)];
                 if (entCol != nullptr && entCol->Collision != nullptr)
                 {
-                    const std::vector<Vector3>& points = entCol->Collision->Info->Points;
-                    for (std::size_t j = 0; j < points.size(); j++)
+                    auto& info = RequireReference(entCol->Collision->Info);
+                    const auto& points = RequireReference(info.Points);
+                    auto& drawPoints = RequireReference(entCol->DrawPoints);
+                    const std::int32_t count = static_cast<std::int32_t>(points.size());
+                    for (std::int32_t j = 0; j < count; ++j)
                     {
-                        entCol->DrawPoints.at(j) = Matrix::Vec3MultMtx4(points[j], transform);
+                        ManagedListAt(drawPoints, j) = Matrix::Vec3MultMtx4(
+                            ManagedReadOnlyListAt(points, j), transform);
                     }
                 }
             }
@@ -782,7 +879,9 @@ namespace MphRead::Entities
     Matrix4 EntityBase::GetModelTransform(ModelInstance& inst, std::int32_t index)
     {
         (void)index;
-        return Multiply(CreateScale(inst.Model->Scale), _transform);
+        const std::shared_ptr<Model> modelValue = inst.Model();
+        Model& model = RequireReference(modelValue);
+        return Multiply(CreateScale(model.Scale), _transform);
     }
 
     void EntityBase::GetPosition(Vector3& position)
@@ -826,7 +925,8 @@ namespace MphRead::Entities
 
     void EntityBase::UpdateAnimFrames(ModelInstance& inst)
     {
-        if (_scene->FrameCount != 0 && _scene->FrameCount % 2 == 0)
+        Scene& scene = RequireReference(_scene);
+        if (scene.FrameCount() != 0 && scene.FrameCount() % 2 == 0)
         {
             inst.UpdateAnimFrames();
         }
@@ -864,8 +964,9 @@ namespace MphRead::Entities
 
     LightInfo EntityBase::GetLightInfo()
     {
-        return LightInfo(_scene->Light1Vector, _scene->Light1Color,
-            _scene->Light2Vector, _scene->Light2Color);
+        Scene& scene = RequireReference(_scene);
+        return LightInfo(scene.Light1Vector(), scene.Light1Color(),
+            scene.Light2Vector(), scene.Light2Color());
     }
 
     std::optional<std::int32_t> EntityBase::GetBindingOverride(
@@ -879,82 +980,132 @@ namespace MphRead::Entities
 
     void EntityBase::UpdateTransforms(ModelInstance& inst, std::int32_t index)
     {
-        Model& model = *inst.Model;
+        const std::shared_ptr<Model> modelValue = inst.Model();
+        Model& model = RequireReference(modelValue);
         model.AnimateMaterials(inst.AnimInfo);
         model.AnimateTextures(inst.AnimInfo);
         model.ComputeNodeMatrices(0);
         const Matrix4 transform = GetModelTransform(inst, index);
-        model.AnimateNodes(0, UseNodeTransform() || _scene->TransformRoomNodes,
-            transform, model.Scale, inst.AnimInfo);
+        const bool useNodeTransform = UseNodeTransform()
+            || RequireReference(_scene).TransformRoomNodes();
+        model.AnimateNodes(0, useNodeTransform, transform, model.Scale, inst.AnimInfo);
         model.UpdateMatrixStack();
-        _scene->UpdateMaterials(model, GetModelRecolor(inst, index));
-        if (_scene->ShowCollision)
+        Scene* scene = _scene;
+        const std::int32_t modelRecolor = GetModelRecolor(inst, index);
+        RequireReference(scene).UpdateMaterials(modelValue, modelRecolor);
+        if (RequireReference(_scene).ShowCollision())
         {
             UpdateDrawCollision();
         }
     }
 
-    void EntityBase::UpdateTransforms(ModelInstance& inst, Matrix4 transform, std::int32_t recolor)
+    void EntityBase::UpdateTransforms(
+        ModelInstance& inst, Matrix4 transform, std::int32_t recolor)
     {
-        Model& model = *inst.Model;
+        const std::shared_ptr<Model> modelValue = inst.Model();
+        Model& model = RequireReference(modelValue);
         model.AnimateMaterials(inst.AnimInfo);
         model.AnimateTextures(inst.AnimInfo);
         model.ComputeNodeMatrices(0);
         model.AnimateNodes(0, UseNodeTransform(), transform, model.Scale, inst.AnimInfo);
         model.UpdateMatrixStack();
-        _scene->UpdateMaterials(model, recolor);
+        RequireReference(_scene).UpdateMaterials(modelValue, recolor);
     }
 
     void EntityBase::UpdateMaterials(ModelInstance& inst, std::int32_t recolor)
     {
-        Model& model = *inst.Model;
+        const std::shared_ptr<Model> modelValue = inst.Model();
+        Model& model = RequireReference(modelValue);
         model.AnimateMaterials(inst.AnimInfo);
         model.AnimateTextures(inst.AnimInfo);
-        _scene->UpdateMaterials(model, recolor);
+        RequireReference(_scene).UpdateMaterials(modelValue, recolor);
     }
 
-    void EntityBase::GetDrawItems(ModelInstance& inst, std::int32_t i, std::optional<LightInfo> lightInfo)
+    void EntityBase::GetDrawItems(
+        ModelInstance& inst, std::int32_t i, std::optional<LightInfo> lightInfo)
     {
-        const std::int32_t polygonId = _scene->GetNextPolygonId();
-        Model& model = *inst.Model;
+        const std::int32_t polygonId = RequireReference(_scene).GetNextPolygonId();
+
+        const std::shared_ptr<Model> rootModelValue = inst.Model();
+        Model& rootModel = RequireReference(rootModelValue);
+        const auto& rootNodes = RequireReference(rootModel.Nodes);
+        const std::shared_ptr<Node>& rootNodeValue = ManagedReadOnlyListAt(rootNodes, 0);
+        Node& rootNode = RequireReference(rootNodeValue);
+
         auto getItems = [&](auto&& self, Node& node) -> void
         {
+            const std::shared_ptr<Model> modelValue = inst.Model();
+            Model& model = RequireReference(modelValue);
             if (node.Enabled)
             {
                 const std::int32_t start = node.MeshId / 2;
-                for (std::int32_t k = 0; k < node.MeshCount; k++)
+                const auto& meshes = RequireReference(model.Meshes);
+                const auto& materials = RequireReference(model.Materials);
+                for (std::int32_t k = 0; k < node.MeshCount; ++k)
                 {
-                    Mesh& mesh = model.Meshes.at(static_cast<std::size_t>(start + k));
+                    const std::shared_ptr<Mesh>& meshValue
+                        = ManagedReadOnlyListAt(meshes, start + k);
+                    Mesh& mesh = RequireReference(meshValue);
                     if (!mesh.Visible)
                     {
                         continue;
                     }
-                    Material& material = model.Materials.at(static_cast<std::size_t>(mesh.MaterialId));
-                    const Vector3 emission = GetEmission(inst, material, mesh.MaterialId);
-                    const Matrix4 texcoordMatrix = GetTexcoordMatrix(inst, material,
-                        mesh.MaterialId, node);
+                    const std::shared_ptr<Material>& materialValue
+                        = ManagedReadOnlyListAt(materials, mesh.MaterialId);
+                    Material& material = RequireReference(materialValue);
+                    const Vector3 emission = GetEmission(
+                        inst, material, mesh.MaterialId);
+                    const Matrix4 texcoordMatrix = GetTexcoordMatrix(
+                        inst, material, mesh.MaterialId, node);
                     const std::optional<Vector4> color = inst.IsPlaceholder
                         ? GetOverrideColor(inst, i) : std::nullopt;
-                    const SelectionType selectionType = Selection::CheckSelection(this, inst, node, mesh);
+                    const SelectionType selectionType
+                        = Selection::CheckSelection(this, inst, node, mesh);
                     const std::optional<std::int32_t> bindingOverride
                         = GetBindingOverride(inst, material, mesh.MaterialId);
-                    _scene->AddRenderItem(material, polygonId, Alpha, emission,
-                        lightInfo.has_value() ? *lightInfo : GetLightInfo(), texcoordMatrix,
-                        node.Animation, mesh.ListId, static_cast<std::int32_t>(model.NodeMatrixIds.size()),
-                        model.MatrixStackValues, color, PaletteOverride(), selectionType,
-                        node.BillboardMode, _drawScale, bindingOverride);
+
+                    Scene* renderScene = _scene;
+                    const LightInfo resolvedLightInfo = lightInfo.has_value()
+                        ? *lightInfo : GetLightInfo();
+                    const Matrix4 nodeAnimation = node.Animation;
+                    const std::int32_t listId = mesh.ListId;
+                    const auto& nodeMatrixIds
+                        = RequireReference(model.NodeMatrixIds);
+                    const std::int32_t matrixStackCount
+                        = static_cast<std::int32_t>(nodeMatrixIds.size());
+                    const auto& matrixStackValues
+                        = RequireReference(model.MatrixStackValues);
+                    const std::vector<float> matrixStack
+                        = CopyManagedArray(matrixStackValues);
+                    const std::optional<Vector4> paletteOverride
+                        = PaletteOverride();
+                    const BillboardMode billboardMode = node.BillboardMode;
+
+                    RequireReference(renderScene).AddRenderItem(
+                        material, polygonId, Alpha, emission, resolvedLightInfo,
+                        texcoordMatrix, nodeAnimation, listId, matrixStackCount,
+                        matrixStack, color, paletteOverride, selectionType,
+                        billboardMode, _drawScale, bindingOverride);
                 }
                 if (node.ChildIndex != -1)
                 {
-                    self(self, model.Nodes.at(static_cast<std::size_t>(node.ChildIndex)));
+                    const auto& nodes = RequireReference(model.Nodes);
+                    const std::shared_ptr<Node>& childValue
+                        = ManagedReadOnlyListAt(nodes, node.ChildIndex);
+                    Node& child = RequireReference(childValue);
+                    self(self, child);
                 }
             }
             if (node.NextIndex != -1)
             {
-                self(self, model.Nodes.at(static_cast<std::size_t>(node.NextIndex)));
+                const auto& nodes = RequireReference(model.Nodes);
+                const std::shared_ptr<Node>& nextValue
+                    = ManagedReadOnlyListAt(nodes, node.NextIndex);
+                Node& next = RequireReference(nextValue);
+                self(self, next);
             }
         };
-        getItems(getItems, model.Nodes.at(0));
+        getItems(getItems, rootNode);
     }
 
     void EntityBase::UpdateNodeRefVolume()
@@ -964,22 +1115,24 @@ namespace MphRead::Entities
 
     bool EntityBase::IsAudible(MphRead::Formats::Culling::NodeRef nodeRef)
     {
-        if (nodeRef == MphRead::Formats::Culling::NodeRef::None || _scene->CameraMode != CameraMode::Player)
+        if (nodeRef == MphRead::Formats::Culling::NodeRef::None
+            || RequireReference(_scene).CameraMode() != CameraMode::Player)
         {
             return true;
         }
-        return _scene->IsNodeRefAudible(nodeRef);
+        return RequireReference(_scene).IsNodeRefAudible(nodeRef);
     }
 
     bool EntityBase::IsVisible(MphRead::Formats::Culling::NodeRef nodeRef)
     {
         if (nodeRef == MphRead::Formats::Culling::NodeRef::None
-            || _scene->CameraMode != CameraMode::Player || _scene->ShowInvisibleEntities
+            || RequireReference(_scene).CameraMode() != CameraMode::Player
+            || RequireReference(_scene).ShowInvisibleEntities()
             || MphRead::Mods::Network::DemoPlayback::IsActive)
         {
             return true;
         }
-        return _scene->IsNodeRefVisible(nodeRef);
+        return RequireReference(_scene).IsNodeRefVisible(nodeRef);
     }
 
     bool EntityBase::ScanVisible()
@@ -989,22 +1142,26 @@ namespace MphRead::Entities
 
     void EntityBase::GetDrawInfo()
     {
-        for (std::size_t i = 0; i < _models.Size(); i++)
+        for (std::int32_t i = 0;
+            i < static_cast<std::int32_t>(_models.Size()); ++i)
         {
             ModelInstance& inst = _models[i];
-            if ((!inst.Active && !_scene->ShowAllEntities)
-                || (inst.IsPlaceholder && !_scene->ShowInvisibleEntities && !_scene->ShowAllEntities))
+            if ((!inst.Active && !RequireReference(_scene).ShowAllEntities())
+                || (inst.IsPlaceholder
+                    && !RequireReference(_scene).ShowInvisibleEntities()
+                    && !RequireReference(_scene).ShowAllEntities()))
             {
                 continue;
             }
-            UpdateTransforms(inst, static_cast<std::int32_t>(i));
+            UpdateTransforms(inst, i);
             if (!Hidden)
             {
-                GetDrawItems(inst, static_cast<std::int32_t>(i));
+                GetDrawItems(inst, i);
             }
         }
-        if (_scene->ShowCollision
-            && (_scene->ColEntDisplay == EntityType::All || _scene->ColEntDisplay == Type))
+        if (RequireReference(_scene).ShowCollision()
+            && (RequireReference(_scene).ColEntDisplay() == EntityType::All
+                || RequireReference(_scene).ColEntDisplay() == Type))
         {
             GetCollisionDrawInfo();
         }
@@ -1012,13 +1169,15 @@ namespace MphRead::Entities
 
     void EntityBase::GetCollisionDrawInfo()
     {
-        for (std::size_t i = 0; i < 2; i++)
+        for (std::size_t i = 0; i < 2; ++i)
         {
-            const std::shared_ptr<MphRead::Formats::Collision::EntityCollision>& entCol = EntityCollision[i];
-            if (entCol != nullptr && entCol->Collision != nullptr && entCol->Collision->Active)
+            const std::shared_ptr<MphRead::Formats::Collision::EntityCollision>& entCol
+                = EntityCollision[i];
+            if (entCol != nullptr && entCol->Collision != nullptr
+                && entCol->Collision->Active)
             {
-                entCol->Collision->Info->GetDrawInfo(entCol->DrawPoints,
-                    Vector3::Zero, Type, _scene);
+                auto& info = RequireReference(entCol->Collision->Info);
+                info.GetDrawInfo(entCol->DrawPoints, Vector3::Zero, Type, _scene);
             }
         }
     }
@@ -1032,41 +1191,61 @@ namespace MphRead::Entities
     }
 
     Matrix4 EntityBase::GetTexcoordMatrix(
-        ModelInstance& inst, Material& material, std::int32_t materialId, Node& node,
-        std::int32_t recolor)
+        ModelInstance& inst, Material& material, std::int32_t materialId,
+        Node& node, std::int32_t recolor)
     {
         (void)materialId;
         (void)node;
-        Model& model = *inst.Model;
+        const std::shared_ptr<Model> modelValue = inst.Model();
+        Model& model = RequireReference(modelValue);
         Matrix4 texcoordMatrix = IdentityMatrix();
-        TexcoordAnimationGroup* group = inst.AnimInfo.Texcoord.Group;
+
+        AnimationInfo& animInfo = RequireReference(inst.AnimInfo);
+        TexcoordAnimationInfo& texcoordInfo = RequireReference(animInfo.Texcoord);
+        const std::shared_ptr<TexcoordAnimationGroup> group = texcoordInfo.Group;
+        std::shared_ptr<const TexcoordAnimationDictionary> animationsValue;
         const TexcoordAnimation* animation = nullptr;
         if (group != nullptr)
         {
-            const auto found = group->Animations.find(material.Name);
-            if (found != group->Animations.end())
+            animationsValue = group->Animations;
+            const auto& animations = RequireReference(animationsValue);
+            const auto found = animations.find(material.Name);
+            if (found != animations.end())
             {
                 animation = &found->second;
             }
         }
-        if (group != nullptr && animation != nullptr
-            && (!inst.Model->FirstHunt || material.TexgenMode != TexgenMode::None))
+        if (group != nullptr && animation != nullptr)
         {
-            texcoordMatrix = model.AnimateTexcoords(*group, *animation, inst.AnimInfo.TexcoordFrame());
+            const std::shared_ptr<Model> currentModelValue = inst.Model();
+            Model& currentModel = RequireReference(currentModelValue);
+            if (!currentModel.FirstHunt
+                || material.TexgenMode != TexgenMode::None)
+            {
+                texcoordMatrix = model.AnimateTexcoords(
+                    group, *animation, animInfo.TexcoordFrame());
+            }
         }
         if (material.TexgenMode != TexgenMode::None)
         {
             Matrix4 materialMatrix;
-            if (!model.TextureMatrices.empty())
+            const auto& textureMatrices
+                = RequireReference(model.TextureMatrices);
+            if (!textureMatrices.empty())
             {
-                materialMatrix = model.TextureMatrices.at(static_cast<std::size_t>(material.MatrixId));
+                materialMatrix = ManagedReadOnlyListAt(
+                    textureMatrices, material.MatrixId);
             }
             else
             {
-                materialMatrix = CreateTranslation(material.ScaleS * material.TranslateS,
+                materialMatrix = CreateTranslation(
+                    material.ScaleS * material.TranslateS,
                     material.ScaleT * material.TranslateT, 0.0F);
-                materialMatrix = Multiply(CreateScale(material.ScaleS, material.ScaleT, 1.0F), materialMatrix);
-                materialMatrix = Multiply(CreateRotationZ(material.RotateZ), materialMatrix);
+                materialMatrix = Multiply(
+                    CreateScale(material.ScaleS, material.ScaleT, 1.0F),
+                    materialMatrix);
+                materialMatrix = Multiply(
+                    CreateRotationZ(material.RotateZ), materialMatrix);
             }
             if (group == nullptr || animation == nullptr)
             {
@@ -1074,11 +1253,21 @@ namespace MphRead::Entities
             }
             if (material.TexgenMode == TexgenMode::Normal)
             {
-                const Texture& texture = model.Recolors
-                    .at(static_cast<std::size_t>(recolor == -1 ? Recolor() : recolor))
-                    .Textures.at(static_cast<std::size_t>(material.TextureId));
+                const auto recolorsValue = model.Recolors;
+                const std::int32_t recolorIndex
+                    = recolor == -1 ? Recolor() : recolor;
+                const auto& recolors = RequireReference(recolorsValue);
+                const std::shared_ptr<MphRead::Recolor>& recolorValue
+                    = ManagedReadOnlyListAt(recolors, recolorIndex);
+                MphRead::Recolor& recolorEntry
+                    = RequireReference(recolorValue);
+                const auto& textures = RequireReference(recolorEntry.Textures);
+                const Texture& texture = ManagedReadOnlyListAt(
+                    textures, material.TextureId);
+
                 Matrix4 texgenMatrix = IdentityMatrix();
-                if (model.Scale.X != 1.0F || model.Scale.Y != 1.0F || model.Scale.Z != 1.0F)
+                if (model.Scale.X != 1.0F || model.Scale.Y != 1.0F
+                    || model.Scale.Z != 1.0F)
                 {
                     texgenMatrix = CreateScale(model.Scale);
                 }
@@ -1091,11 +1280,15 @@ namespace MphRead::Entities
                 product.M33 *= -1.0F;
                 product = Multiply(product, materialMatrix);
                 product = Multiply(product, texcoordMatrix);
-                product = Multiply(product, 1.0F / static_cast<float>(texture.Width / 2));
+                product = Multiply(
+                    product, 1.0F / static_cast<float>(texture.Width / 2));
                 texcoordMatrix = Matrix4(
-                    Vector4(product.M11 * 16.0F, product.M12 * 16.0F, product.M13 * 16.0F, product.M14 * 16.0F),
-                    Vector4(product.M21 * 16.0F, product.M22 * 16.0F, product.M23 * 16.0F, product.M24 * 16.0F),
-                    Vector4(product.M31 * 16.0F, product.M32 * 16.0F, product.M33 * 16.0F, product.M34 * 16.0F),
+                    Vector4(product.M11 * 16.0F, product.M12 * 16.0F,
+                        product.M13 * 16.0F, product.M14 * 16.0F),
+                    Vector4(product.M21 * 16.0F, product.M22 * 16.0F,
+                        product.M23 * 16.0F, product.M24 * 16.0F),
+                    Vector4(product.M31 * 16.0F, product.M32 * 16.0F,
+                        product.M33 * 16.0F, product.M34 * 16.0F),
                     product.Row3());
             }
         }
@@ -1234,9 +1427,10 @@ namespace MphRead::Entities
                 }
             }
         }
-        const CullingMode cullingMode = volume.TestPoint(_scene->CameraPosition)
+        Scene& scene = RequireReference(_scene);
+        const CullingMode cullingMode = volume.TestPoint(scene.CameraPosition())
             ? CullingMode::Front : CullingMode::Back;
-        _scene->AddRenderItem(cullingMode, _scene->GetNextPolygonId(),
+        scene.AddRenderItem(cullingMode, scene.GetNextPolygonId(),
             Vector4(color, alpha), static_cast<RenderItemType>(static_cast<std::int32_t>(volume.Type) + 1),
             verts);
     }
@@ -1306,17 +1500,20 @@ namespace MphRead::Entities
     std::tuple<float, float> EntityBase::ConstantAcceleration(
         float step, float velocity, float minVelocity, float maxVelocity)
     {
-        float newVelocity = velocity + step * 30.0F * 31.0F * _scene->FrameTime;
+        float newVelocity = velocity + step * 30.0F * 31.0F
+            * RequireReference(_scene).FrameTime();
         newVelocity = Clamp(newVelocity, minVelocity, maxVelocity);
-        const float displacement = velocity * _scene->FrameTime
-            + (newVelocity - velocity) / 2.0F * _scene->FrameTime;
+        const float displacement = velocity * RequireReference(_scene).FrameTime()
+            + (newVelocity - velocity) / 2.0F
+                * RequireReference(_scene).FrameTime();
         return {newVelocity, displacement};
     }
 
     std::tuple<float, float> EntityBase::Drag(float step, float velocity)
     {
         const float decay = std::pow(step, 30.0F);
-        const float newVelocity = velocity * std::pow(decay, _scene->FrameTime);
+        const float newVelocity = velocity
+            * std::pow(decay, RequireReference(_scene).FrameTime());
         const float displacement = (newVelocity - velocity) / std::log(decay);
         return {newVelocity, displacement};
     }
@@ -1324,7 +1521,8 @@ namespace MphRead::Entities
     float EntityBase::ExponentialDecay(float step, float value)
     {
         const float decay = std::pow(step, 30.0F);
-        return value * std::pow(decay, _scene->FrameTime);
+        return value * std::pow(
+            decay, RequireReference(_scene).FrameTime());
     }
 
     ModelEntity::ModelEntity(std::shared_ptr<ModelInstance> model, Scene* scene, std::int32_t recolor)

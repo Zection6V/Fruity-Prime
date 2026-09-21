@@ -205,7 +205,7 @@ namespace MphRead::Entities::Enemies
         std::int32_t _crystalUpTimer = 0;
 
     public:
-        std::array<std::shared_ptr<EquipInfo>, 2> EquipInfo{};
+        std::array<std::shared_ptr<::MphRead::EquipInfo>, 2> EquipInfo{};
 
     private:
         std::int32_t _ammo0 = 1000;

@@ -128,14 +128,13 @@ namespace MphRead::Entities::Enemies
         _hurtVolumeInit = CollisionVolume(Vector3::Zero, 1.0F);
         _boundingRadius = 1.0F;
 
-        const std::shared_ptr<WeaponInfo> weapon = VectorAt(Weapons::BossWeapons, 0);
-        std::shared_ptr<EquipInfo> equipInfo = std::make_shared<EquipInfo>();
-        RequireReference(equipInfo).SetWeapon(weapon);
-        RequireReference(equipInfo).SetBeams(RequireReference(_beams));
-        _equipInfo = std::move(equipInfo);
-        RequireReference(_equipInfo).SetGetAmmo([this]() { return _ammo; });
-        RequireReference(_equipInfo).SetSetAmmo(
-            [this](std::int32_t newAmmo) { _ammo = newAmmo; });
+        const Weapons::WeaponList& bossWeapons
+            = RequireReference(Weapons::BossWeapons);
+        const std::shared_ptr<WeaponInfo> weapon = VectorAt(bossWeapons, 0);
+        _equipInfo = std::make_shared<EquipInfo>(weapon, _beams);
+        RequireReference(_equipInfo).GetAmmo = [this]() { return _ammo; };
+        RequireReference(_equipInfo).SetAmmo
+            = [this](std::int32_t newAmmo) { _ammo = newAmmo; };
     }
 
     void Enemy21Entity::EnemyProcess()
@@ -156,9 +155,9 @@ namespace MphRead::Entities::Enemies
     void Enemy21Entity::SpawnBeam(std::uint16_t damage)
     {
         EquipInfo& equipInfo = RequireReference(_equipInfo);
-        equipInfo.SetUnchargedDamage(damage);
-        equipInfo.SetSplashDamage(damage);
-        equipInfo.SetHeadshotDamage(damage);
+        equipInfo.UnchargedDamage(damage);
+        equipInfo.SplashDamage(damage);
+        equipInfo.HeadshotDamage(damage);
 
         const Vector3 spawnDir
             = (AddY(MainPlayer().Position, 0.5F) - Position).Normalized();

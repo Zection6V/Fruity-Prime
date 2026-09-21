@@ -1,4 +1,5 @@
 #include "AiPersonality.hpp"
+#include "Formats.hpp"
 
 #include "../Entities/Players/PlayerAi.hpp"
 #include "../GameState.hpp"
@@ -21,12 +22,6 @@
 #include <unordered_map>
 #include <utility>
 
-namespace MphRead::Paths
-{
-    // Exact declaration seam for the C# Paths.MphKey property. The Paths owner
-    // supplies the storage/accessor; this migration unit only consumes it.
-    [[nodiscard]] const std::string& MphKey();
-}
 
 namespace
 {
@@ -174,15 +169,15 @@ namespace MphRead::Formats
 
     void AiPersonality::LoadAll(GameMode mode)
     {
-        for (std::size_t i = 0; i < Entities::PlayerEntity::Players.size(); ++i)
+        for (std::size_t i = 0; i < Entities::PlayerEntity::Players().size(); ++i)
         {
-            std::shared_ptr<Entities::PlayerEntity> player = Entities::PlayerEntity::Players[i];
+            std::shared_ptr<Entities::PlayerEntity> player = Entities::PlayerEntity::Players()[i];
             if (!player || !player->AiData)
             {
                 throw System::NullReferenceException();
             }
             player->AiData->Reset();
-            if (!player->IsBot)
+            if (!player->IsBot())
             {
                 continue;
             }
@@ -190,8 +185,8 @@ namespace MphRead::Formats
             std::int32_t aiOffset = 32896;
             if (mode == GameMode::SinglePlayer)
             {
-                const std::int32_t encounterState = GameState::EncounterState[i];
-                if (player->Hunter == Hunter::Guardian)
+                const std::int32_t encounterState = GameState::EncounterState()[i];
+                if (player->Hunter() == Hunter::Guardian)
                 {
                     aiOffset = encounterState == 2 ? 32932 : 13480;
                 }
@@ -212,7 +207,7 @@ namespace MphRead::Formats
                         default: index = 0; break;
                         }
                         aiOffset = _encounterAiOffsets.at(static_cast<std::size_t>(index)).at(
-                            static_cast<std::size_t>(player->Hunter));
+                            static_cast<std::size_t>(player->Hunter()));
                     }
                     player->AiData->Flags1 = true;
                 }
@@ -241,12 +236,12 @@ namespace MphRead::Formats
 
     std::shared_ptr<AiPersonalityData1> AiPersonality::LoadData(std::int32_t offset)
     {
-        if (Paths::MphKey() != _cachedVersion)
+        if (Paths::MphKey != _cachedVersion)
         {
             _aiPersonalityData.reset();
             _data1Cache.clear();
             _data2Cache.clear();
-            _cachedVersion = Paths::MphKey();
+            _cachedVersion = Paths::MphKey;
         }
         if (!_aiPersonalityData.has_value())
         {

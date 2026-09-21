@@ -255,7 +255,7 @@ namespace MphRead::Entities
     {
         _target = std::move(attacker);
         _targetTimer = 30 * 2;
-        const std::int64_t product = 61LL * static_cast<std::int64_t>(damage);
+        const std::uint32_t product = 61U * damage;
         _cooldownFactor -= static_cast<float>(product);
         if (_cooldownFactor < 0.7F)
         {
@@ -567,10 +567,10 @@ namespace MphRead::Entities
         {
             return;
         }
-        PlayerEntity& owner = RequireReference(_owner);
         ModelInstance& inst = _models[0];
         Model& model = RequireReference(inst.Model());
         const std::shared_ptr<AnimationInfo>& animInfo = inst.AnimInfo;
+        PlayerEntity& owner = RequireReference(_owner);
         if (_timeSinceDamage < owner.Values().DamageFlashTime * 2)
         {
             SetPaletteOverride(Metadata::RedPalette);
@@ -644,7 +644,7 @@ namespace MphRead::Entities
                 = RequireReference(doubleDamageInstance).Model();
             const auto& recolors = RequireReference(
                 RequireReference(doubleDamageModel).Recolors);
-            const std::shared_ptr<Recolor> doubleDamageRecolor
+            const std::shared_ptr<MphRead::Recolor> doubleDamageRecolor
                 = ReadOnlyListAt(recolors, 0);
             const auto& textures = RequireReference(
                 RequireReference(doubleDamageRecolor).Textures);

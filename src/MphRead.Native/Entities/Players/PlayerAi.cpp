@@ -493,7 +493,7 @@ namespace MphRead::Entities
             for (const auto& data4Value : data2.Data4)
             {
                 const Formats::AiPersonalityData4& data4 = *data4Value;
-                if (ExecuteFuncs3(context, data4.Func3Id, data4.Parameters) == 0)
+                if (ExecuteFuncs3(context, data4.Func3Id, *data4.Parameters) == 0)
                 {
                     noUpdate = true;
                     break;
@@ -505,7 +505,7 @@ namespace MphRead::Entities
             if ((data2.Weight >= 100000 && data2.Func3Id != 210) || _scene.FrameCount() % 2 == 0)
             {
                 context.Weights[static_cast<std::size_t>(weightIndex)] +=
-                    ExecuteFuncs3(context, data2.Func3Id, data2.Parameters) * data2.Weight;
+                    ExecuteFuncs3(context, data2.Func3Id, *data2.Parameters) * data2.Weight;
                 if (context.Weights[static_cast<std::size_t>(weightIndex)] >= 100000)
                 {
                     result = data2.Data1SelectIndex;

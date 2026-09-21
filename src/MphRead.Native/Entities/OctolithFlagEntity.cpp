@@ -4,10 +4,12 @@
 #include "../Formats/CollisionDetection.hpp"
 #include "../GameState.hpp"
 #include "../MemoryArrays.hpp"
+#include "../Metadata/Rooms.hpp"
 #include "../Renderer.hpp"
 #include "../Scene.hpp"
 #include "../Sound/Music.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "RoomEntity.hpp"
 
 #include <cassert>
 #include <cstddef>
@@ -69,7 +71,7 @@ namespace MphRead::Entities
     {
         Id = data.Header.EntityId;
         SetTransform(data.Header.FacingVector, data.Header.UpVector, data.Header.Position);
-        const GameMode mode = GameState::Mode;
+        const GameMode mode = GameState::Mode();
         SetRecolor(mode == GameMode::Capture
             ? static_cast<std::int32_t>(data.TeamId)
             : 2);
@@ -202,7 +204,7 @@ namespace MphRead::Entities
 
             if (!_atBase && _carrier == nullptr)
             {
-                _resetTimer += RequireReference(_scene).FrameTime;
+                _resetTimer += RequireReference(_scene).FrameTime();
                 if (_resetTimer >= 20.0F)
                 {
                     Reset();
@@ -215,7 +217,7 @@ namespace MphRead::Entities
             _atBase = false;
             _grounded = true;
             _resetTimer = 0.0F;
-            _closestNode = _carrier->ClosestNode();
+            _closestNode = _carrier->ClosestNode;
             Position = Vector3(
                 _carrier->Position.X + -0.35F * _carrier->Field70(),
                 _carrier->Position.Y + 1.05F,
@@ -226,7 +228,7 @@ namespace MphRead::Entities
                 || _carrier->IsMorphing()
                 || !TypeExtensions::TestFlag(_carrier->LoadFlags(), LoadFlags::Active))
             {
-                const bool reset = _carrier->Health() == 0 && GameState::OctolithReset;
+                const bool reset = _carrier->Health() == 0 && GameState::OctolithReset();
                 OnDropped(reset);
             }
             else if (pickedUp)
@@ -239,7 +241,7 @@ namespace MphRead::Entities
                         _soundSource.QueueStream(
                             VoiceId::VOICE_OCTO_PICKUP, 1.0F, 2.0F);
                         RequireReference(PlayerEntity::Main()).StartFlagCarrySfx();
-                        Music::PlayRoomMusic(RequireReference(_scene).RoomId, 1);
+                        Music::PlayRoomMusic(RequireReference(_scene).RoomId(), 1);
                     }
                     else
                     {
@@ -248,8 +250,9 @@ namespace MphRead::Entities
                 }
                 else
                 {
-                    Music::PlayRoomMusic(RequireReference(_scene).RoomId, 1);
-                    if (_carrier.get() == PlayerEntity::Main())
+                    Music::PlayRoomMusic(RequireReference(_scene).RoomId(), 1);
+                    const std::shared_ptr<PlayerEntity> main = PlayerEntity::Main();
+                    if (_carrier == main)
                     {
                         _soundSource.QueueStream(
                             VoiceId::VOICE_OCTO_PICKUP, 1.0F, 2.0F);
@@ -308,8 +311,8 @@ namespace MphRead::Entities
             }
 
             Scene& scene = RequireReference(_scene);
-            assert(scene.Room != nullptr);
-            if (Position.Y < RequireReference(scene.Room).Meta.KillHeight)
+            assert(scene.Room() != nullptr);
+            if (Position.Y < RequireReference(scene.Room()).Meta().KillHeight)
             {
                 Reset();
             }
@@ -322,9 +325,10 @@ namespace MphRead::Entities
         PlayerEntity& player = RequireReference(playerValue);
         if (_lastCarrier != nullptr && player.TeamIndex() != _lastCarrier->TeamIndex())
         {
+            auto& octolithStops = GameState::OctolithStops();
             const std::size_t index = CheckedSlotIndex(player.SlotIndex());
-            GameState::OctolithStops[index]
-                = Memory::Detail::UncheckedAdd(GameState::OctolithStops[index], 1);
+            octolithStops[index]
+                = Memory::Detail::UncheckedAdd(octolithStops[index], 1);
         }
 
         if (!_bounty && player.TeamIndex() == static_cast<std::int32_t>(_data.TeamId))
@@ -387,10 +391,11 @@ namespace MphRead::Entities
     void OctolithFlagEntity::OnDropped(bool reset)
     {
         assert(_carrier != nullptr);
+        auto& octolithDrops = GameState::OctolithDrops();
         const std::size_t dropIndex
             = CheckedSlotIndex(RequireReference(_carrier).SlotIndex());
-        GameState::OctolithDrops[dropIndex]
-            = Memory::Detail::UncheckedAdd(GameState::OctolithDrops[dropIndex], 1);
+        octolithDrops[dropIndex]
+            = Memory::Detail::UncheckedAdd(octolithDrops[dropIndex], 1);
 
         std::int32_t messageId;
         if (!_bounty)
@@ -437,7 +442,7 @@ namespace MphRead::Entities
         RequireReference(PlayerEntity::Main()).QueueHudMessage(
             128, 133, 60.0F / 30.0F, 1, messageId);
         RequireReference(PlayerEntity::Main()).StopFlagCarrySfx();
-        Music::PlayRoomMusic(RequireReference(_scene).RoomId, 0);
+        Music::PlayRoomMusic(RequireReference(_scene).RoomId(), 0);
         if (reset)
         {
             SetAtBase();
@@ -474,10 +479,10 @@ namespace MphRead::Entities
         }
         else
         {
-            if ((Bugfixes::CorrectBountySfx
+            if ((Bugfixes::CorrectBountySfx()
                     && RequireReference(_carrier).TeamIndex()
                         == RequireReference(PlayerEntity::Main()).TeamIndex())
-                || (!Bugfixes::CorrectBountySfx
+                || (!Bugfixes::CorrectBountySfx()
                     && RequireReference(_carrier).IsMainPlayer()))
             {
                 _soundSource.QueueStream(
@@ -493,17 +498,19 @@ namespace MphRead::Entities
         }
 
         RequireReference(PlayerEntity::Main()).StopFlagCarrySfx();
-        Music::PlayRoomMusic(RequireReference(_scene).RoomId, 0);
+        Music::PlayRoomMusic(RequireReference(_scene).RoomId(), 0);
 
+        auto& points = GameState::Points();
         const std::size_t pointsIndex
             = CheckedSlotIndex(RequireReference(_carrier).SlotIndex());
-        GameState::Points[pointsIndex]
-            = Memory::Detail::UncheckedAdd(GameState::Points[pointsIndex], 1);
+        points[pointsIndex]
+            = Memory::Detail::UncheckedAdd(points[pointsIndex], 1);
 
+        auto& octolithScores = GameState::OctolithScores();
         const std::size_t scoresIndex
             = CheckedSlotIndex(RequireReference(_carrier).SlotIndex());
-        GameState::OctolithScores[scoresIndex]
-            = Memory::Detail::UncheckedAdd(GameState::OctolithScores[scoresIndex], 1);
+        octolithScores[scoresIndex]
+            = Memory::Detail::UncheckedAdd(octolithScores[scoresIndex], 1);
         SetAtBase();
     }
 

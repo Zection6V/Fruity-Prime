@@ -147,7 +147,7 @@ namespace MphRead::Entities
     using Formats::CollisionResult;
     using Formats::TestFlags;
 
-    std::shared_ptr<std::vector<std::shared_ptr<BeamProjectileEntity>>>
+    std::shared_ptr<MphRead::BeamProjectileArray>
         EnemyInstanceEntity::_beams{};
 
     EnemyInstanceEntity::EnemyInstanceEntity(EnemyInstanceEntityData data,

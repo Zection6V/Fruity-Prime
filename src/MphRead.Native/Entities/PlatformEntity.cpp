@@ -399,7 +399,7 @@ namespace MphRead::Cheats
 
 namespace MphRead::Entities
 {
-    std::shared_ptr<std::vector<std::shared_ptr<BeamProjectileEntity>>>
+    std::shared_ptr<MphRead::BeamProjectileArray>
         PlatformEntity::_beams{};
 
     std::array<PlatformEntity::BeamSfxInfo, 4> PlatformEntity::_beamSfx{{

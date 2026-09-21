@@ -1441,7 +1441,7 @@ namespace MphRead
         SceneSetupInterop::DebugAssert(size > 0);
         if (size < 0)
         {
-            throw std::overflow_error("Array dimensions exceeded supported range.");
+            throw Memory::Detail::OverflowException();
         }
         auto beams = std::shared_ptr<BeamProjectileArray>(new BeamProjectileArray(size));
         for (std::int32_t i = 0; i < size; ++i)

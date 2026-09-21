@@ -170,8 +170,8 @@ namespace MphRead::Entities
         {
         public:
             [[nodiscard]] std::size_t Size() const noexcept;
-            [[nodiscard]] ModelInstance& operator[](std::size_t index);
-            [[nodiscard]] const ModelInstance& operator[](std::size_t index) const;
+            [[nodiscard]] ModelInstance& operator[](std::int32_t index);
+            [[nodiscard]] const ModelInstance& operator[](std::int32_t index) const;
             void Add(std::shared_ptr<ModelInstance> value);
             [[nodiscard]] const std::vector<std::shared_ptr<ModelInstance>>& Items() const noexcept;
 
@@ -195,7 +195,8 @@ namespace MphRead::Entities
 
         ModelInstance& SetUpModel(std::string name, std::int32_t animIndex = 0,
             AnimFlags animFlags = AnimFlags::None, bool firstHunt = false);
-        void SetCollision(MphRead::Formats::Collision::CollisionInstance* collision,
+        void SetCollision(
+            const std::shared_ptr<MphRead::Formats::Collision::CollisionInstance>& collision,
             std::int32_t slot = 0, ModelInstance* attach = nullptr);
         void UpdateCollisionTransform(std::int32_t slot, ::OpenTK::Mathematics::Matrix4 transform);
         void UpdateLinkedInverse(std::int32_t slot);

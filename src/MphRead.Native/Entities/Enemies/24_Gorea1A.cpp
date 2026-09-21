@@ -130,13 +130,6 @@ namespace MphRead::Entities::Enemies
             return values[static_cast<std::size_t>(index)];
         }
 
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(
-            const std::shared_ptr<const std::vector<T>>& values, std::int32_t index)
-        {
-            return VectorAt(RequireReference(values), index);
-        }
-
         [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
         {
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
@@ -773,8 +766,10 @@ namespace MphRead::Entities::Enemies
         {
             Music::PlayMusic(ArrayAt(_musicTracks, _weaponIndex));
         }
+        const Weapons::WeaponList& goreaWeapons
+            = RequireReference(Weapons::GoreaWeapons);
         const std::shared_ptr<WeaponInfo> weapon
-            = VectorAt(Weapons::GoreaWeapons, _weaponIndex);
+            = VectorAt(goreaWeapons, _weaponIndex);
         const std::int32_t effectiveness
             = VectorAt(Metadata::GoreaEffectiveness, _weaponIndex);
         for (std::int32_t i = 0; i < 2; ++i)
@@ -1426,8 +1421,10 @@ namespace MphRead::Entities::Enemies
             && RequireReference(_scene).FrameCount() > 0
             && RequireReference(_scene).FrameCount() % 2 == 0)
         {
+            const Weapons::WeaponList& goreaWeapons
+                = RequireReference(Weapons::GoreaWeapons);
             const std::uint16_t charge
-                = RequireReference(VectorAt(Weapons::GoreaWeapons, WeaponIndex())).FullCharge;
+                = RequireReference(VectorAt(goreaWeapons, WeaponIndex())).FullCharge;
             for (std::int32_t i = 0; i < 2; ++i)
             {
                 Enemy26Entity& arm = RequireReference(ArrayAt(_arms, i));
@@ -1508,7 +1505,9 @@ namespace MphRead::Entities::Enemies
         const std::shared_ptr<Enemy26Entity>& armR = ArrayAt(_arms, 1);
         RequireReference(RequireReference(armL).EquipInfo()).ChargeLevel = 0;
         RequireReference(RequireReference(armR).EquipInfo()).ChargeLevel = 0;
-        const std::shared_ptr<WeaponInfo> weapon = VectorAt(Weapons::GoreaWeapons, WeaponIndex());
+        const Weapons::WeaponList& goreaWeapons
+            = RequireReference(Weapons::GoreaWeapons);
+        const std::shared_ptr<WeaponInfo> weapon = VectorAt(goreaWeapons, WeaponIndex());
         WeaponInfo& weaponRef = RequireReference(weapon);
         RequireReference(armL).Cooldown = MulInt32Unchecked(weaponRef.ShotCooldown, 2);
         RequireReference(armR).Cooldown = MulInt32Unchecked(weaponRef.AutofireCooldown, 2);
@@ -1527,7 +1526,9 @@ namespace MphRead::Entities::Enemies
         {
             RequireReference(armL).ArmFlags |= GoreaArmFlags::Bit2;
             RequireReference(armR).ArmFlags |= GoreaArmFlags::Bit2;
-            WeaponInfo& weapon = RequireReference(VectorAt(Weapons::GoreaWeapons, WeaponIndex()));
+            const Weapons::WeaponList& goreaWeapons
+                = RequireReference(Weapons::GoreaWeapons);
+            WeaponInfo& weapon = RequireReference(VectorAt(goreaWeapons, WeaponIndex()));
             RequireReference(RequireReference(armL).EquipInfo()).ChargeLevel
                 = IntToUInt16Unchecked(static_cast<std::int32_t>(weapon.FullCharge) * 2);
             RequireReference(armL).Cooldown = MulInt32Unchecked(weapon.ShotCooldown, 2);

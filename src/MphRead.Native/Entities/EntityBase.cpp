@@ -1083,14 +1083,14 @@ namespace MphRead::Entities
                         = RequireReference(model.NodeMatrixIds);
                     const std::int32_t matrixStackCount
                         = static_cast<std::int32_t>(nodeMatrixIds.size());
-                    const auto& matrixStackValues
-                        = RequireReference(model.MatrixStackValues);
-                    const std::vector<float> matrixStack
-                        = CopyManagedArray(matrixStackValues);
+                    const std::shared_ptr<const ManagedArray<float>>
+                        matrixStackValues = model.MatrixStackValues;
                     const std::optional<Vector4> paletteOverride
                         = PaletteOverride();
                     const BillboardMode billboardMode = node.BillboardMode;
                     const float drawScale = _drawScale;
+                    const std::vector<float> matrixStack
+                        = CopyManagedArray(RequireReference(matrixStackValues));
 
                     RequireReference(renderScene).AddRenderItem(
                         material, polygonId, alpha, emission, resolvedLightInfo,

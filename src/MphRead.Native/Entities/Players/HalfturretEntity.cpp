@@ -255,7 +255,7 @@ namespace MphRead::Entities
     {
         _target = std::move(attacker);
         _targetTimer = 30 * 2;
-        const std::uint32_t product = 61U * damage;
+        const std::int64_t product = 61LL * static_cast<std::int64_t>(damage);
         _cooldownFactor -= static_cast<float>(product);
         if (_cooldownFactor < 0.7F)
         {

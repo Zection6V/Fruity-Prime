@@ -166,7 +166,7 @@ namespace MphRead::Entities::Enemies
             _spawner->Data.Fields.S02().Volume1, position);
         _activeVolume = CollisionVolume::Move(
             _spawner->Data.Fields.S02().Volume2, position);
-        _targetPos = position + _spawner->Data.Fields.S02.PathVector.ToFloatVector();
+        _targetPos = position + _spawner->Data.Fields.S02().PathVector.ToFloatVector();
 
         if (11 >= static_cast<std::int32_t>(Metadata::EnemyModelNames.size()))
         {

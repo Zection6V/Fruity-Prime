@@ -42,7 +42,7 @@ jobs:
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         continue-on-error: true
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-msvc-x64-windows-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-windows.yml') }}
@@ -76,6 +76,14 @@ jobs:
           & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows --clean-after-build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Save vcpkg binary cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-msvc-x64-windows-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-windows.yml') }}
 
       - name: Configure with MSVC
         shell: pwsh

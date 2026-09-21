@@ -85,7 +85,7 @@ jobs:
       - name: Restore pinned Android SDK and NDK cache
         id: android-sdk-cache
         continue-on-error: true
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.ANDROID_SDK_ROOT }}
           key: native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-${{ hashFiles('cmake/FruityNativeConfig.cmake', '.github/workflows/native-cpp-android.yml') }}
@@ -124,6 +124,14 @@ jobs:
           test -f "${ndk_home}/build/cmake/android.toolchain.cmake"
           echo "ANDROID_NDK_HOME=${ndk_home}" >> "$GITHUB_ENV"
 
+      - name: Save pinned Android SDK and NDK cache
+        if: steps.android-sdk-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-${{ hashFiles('cmake/FruityNativeConfig.cmake', '.github/workflows/native-cpp-android.yml') }}
+
       - name: Resolve apt header cache key
         id: apt-deps
         shell: bash
@@ -138,7 +146,7 @@ jobs:
       - name: Restore Android header apt cache
         id: apt-cache
         continue-on-error: true
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.APT_CACHE_DIR }}
           key: native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
@@ -177,6 +185,14 @@ jobs:
           cp "$archive_entry_h" "$include_root/archive_entry.h"
           cp -a "$(dirname "$curl_h")" "$include_root/curl"
           echo "FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR=${include_root}" >> "$GITHUB_ENV"
+
+      - name: Save Android header apt cache
+        if: steps.apt-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.APT_CACHE_DIR }}
+          key: native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
 
       - name: Verify pinned NDK toolchain
         shell: bash

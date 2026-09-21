@@ -35,7 +35,7 @@ jobs:
       - name: Restore Homebrew download cache
         id: homebrew-cache
         continue-on-error: true
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/Library/Caches/Homebrew/downloads
           key: native-homebrew-v1-${{ runner.os }}-${{ runner.arch }}-clang-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-macos.yml') }}
@@ -62,6 +62,14 @@ jobs:
           set -euo pipefail
           brew install curl libarchive zlib
           echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib)" >> "$GITHUB_ENV"
+
+      - name: Save Homebrew download cache
+        if: steps.homebrew-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: native-homebrew-v1-${{ runner.os }}-${{ runner.arch }}-clang-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-macos.yml') }}
 
       - name: Configure with Clang
         shell: bash

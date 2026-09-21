@@ -4,6 +4,7 @@
 #include "26_GoreaArm.hpp"
 #include "27_GoreaLeg.hpp"
 #include "28_Gorea1B.hpp"
+#include "29_GoreaSealSphere1.hpp"
 #include "../../Metadata/Enemies.hpp"
 #include "../../Metadata/SoundMeta.hpp"
 #include "../../Metadata/Weapons.hpp"
@@ -879,7 +880,7 @@ namespace MphRead::Entities::Enemies
         between = LengthSquared(between) > 1.0F / 128.0F
             ? between.Normalized()
             : FacingVector();
-        player.Speed = static_cast<Vector3>(player.Speed) + ScaleVector(between, 1.0F / 4.0F);
+        player.SetSpeed(player.Speed() + ScaleVector(between, 1.0F / 4.0F));
         player.TakeDamage(10, DamageFlags::None, std::nullopt, this);
     }
 
@@ -1233,7 +1234,7 @@ namespace MphRead::Entities::Enemies
                 }
                 between = TypeExtensions::AddY(ScaleVector(between, 1.5F), Fixed::ToFloat(682));
                 MainPlayer().TakeDamage(40, DamageFlags::None, between, this);
-                MainPlayer().CameraInfo.SetShake(0.75F);
+                RequireReference(MainPlayer().CameraInfo()).SetShake(0.75F);
             }
             SpawnEffect(71, Position);
         }
@@ -1290,7 +1291,7 @@ namespace MphRead::Entities::Enemies
                 }
                 between = TypeExtensions::AddY(ScaleVector(between, 1.5F), Fixed::ToFloat(682));
                 MainPlayer().TakeDamage(25, DamageFlags::None, between, this);
-                MainPlayer().CameraInfo.SetShake(0.75F);
+                RequireReference(MainPlayer().CameraInfo()).SetShake(0.75F);
             }
         }
         (void)CallSubroutine<Enemy24Entity>(Metadata::Enemy24Subroutines, this);
@@ -1637,7 +1638,7 @@ namespace MphRead::Entities::Enemies
     {
         Vector3 ignoredBetween;
         float ignoredDistance;
-        if (TypeExtensions::TestFlag(MainPlayer().Flags1, PlayerFlags1::AltForm)
+        if (TypeExtensions::TestFlag(MainPlayer().Flags1(), PlayerFlags1::AltForm)
             && GetHorizontalToPlayer(25.0F, ignoredBetween, ignoredDistance))
         {
             _speed = Vector3::Zero;
@@ -1654,7 +1655,7 @@ namespace MphRead::Entities::Enemies
     {
         Vector3 between;
         float distance;
-        if (!TypeExtensions::TestFlag(MainPlayer().Flags1, PlayerFlags1::AltForm)
+        if (!TypeExtensions::TestFlag(MainPlayer().Flags1(), PlayerFlags1::AltForm)
             && GetHorizontalToPlayer(37.5F, between, distance))
         {
             _speed = Vector3::Zero;

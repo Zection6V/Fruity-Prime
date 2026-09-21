@@ -1,5 +1,6 @@
 #include "PlatformEntity.hpp"
 
+#include "../Features.hpp"
 #include "../Formats/Collision.hpp"
 #include "../GameState.hpp"
 #include "../MemoryArrays.hpp"
@@ -167,7 +168,7 @@ namespace
             value.X * value.X + value.Y * value.Y + value.Z * value.Z);
     }
 
-    [[nodiscard]] Vector3 Scale(Vector3 value, float scalar) noexcept
+    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scalar) noexcept
     {
         return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
     }
@@ -392,11 +393,6 @@ namespace
     }
 }
 
-namespace MphRead::Cheats
-{
-    extern bool SkipPlanetIntros;
-}
-
 namespace MphRead::Entities
 {
     std::shared_ptr<MphRead::BeamProjectileArray>
@@ -516,11 +512,11 @@ namespace MphRead::Entities
         if (data.BeamId > -1)
         {
             _ammo = 1000;
-            assert(static_cast<std::size_t>(data.BeamId) < Weapons::PlatformWeapons.size());
-            const auto weapon = ListAt(Weapons::PlatformWeapons, data.BeamId);
-            _equipInfo = std::make_shared<EquipInfo>();
-            _equipInfo->SetWeapon(weapon);
-            _equipInfo->SetBeams(RequireReference(_beams));
+            assert(static_cast<std::size_t>(data.BeamId)
+                < RequireReference(Weapons::PlatformWeapons).size());
+            const auto weapon = ListAt(
+                RequireReference(Weapons::PlatformWeapons), data.BeamId);
+            _equipInfo = std::make_shared<EquipInfo>(weapon, _beams);
             _equipInfo->SetGetAmmo([this]() { return _ammo; });
             _equipInfo->SetSetAmmo([this](std::int32_t newAmmo) { _ammo = newAmmo; });
             _beamSpawnPos = data.BeamSpawnPos.ToFloatVector();
@@ -543,13 +539,13 @@ namespace MphRead::Entities
             SfxData(PlatformSfxAt(_data.ModelId, 3)));
 
         _animFlags |= PlatAnimFlags::Draw;
-        assert(GameState::Mode == GameMode::SinglePlayer);
+        assert(GameState::Mode() == GameMode::SinglePlayer);
 
         if (TestFlag(_flags, PlatformFlags::UseRoomState)
             && !TestFlag(_flags, PlatformFlags::PersistRoomState))
         {
             const std::int32_t state = RequireStorySave().GetRoomState(
-                RequireReference(scene).RoomId, Id);
+                RequireReference(scene).RoomId(), Id);
             if (state == 1)
             {
                 _fromIndex = static_cast<std::int32_t>(_data.PositionCount) - 1;
@@ -561,11 +557,11 @@ namespace MphRead::Entities
             }
         }
 
-        if (TestFlag(_flags, PlatformFlags::SamusShip) && !Cheats::SkipPlanetIntros)
+        if (TestFlag(_flags, PlatformFlags::SamusShip) && !Cheats::SkipPlanetIntros())
         {
             SleepWake(true, true);
             _currentAnimState = -2;
-            if (RequireStorySave().CheckVisitedRoom(RequireReference(scene).RoomId))
+            if (RequireStorySave().CheckVisitedRoom(RequireReference(scene).RoomId()))
             {
                 SetPlatAnimation(PlatAnimId::InstantWake, AnimFlags::None);
             }
@@ -593,7 +589,7 @@ namespace MphRead::Entities
             if (TestFlag(_flags, PlatformFlags::PersistRoomState))
             {
                 if (RequireStorySave().InitRoomState(
-                    RequireReference(_scene).RoomId, Id, _data.Active != 0) != 0)
+                    RequireReference(_scene).RoomId(), Id, _data.Active != 0) != 0)
                 {
                     _animFlags |= PlatAnimFlags::Active;
                 }
@@ -909,7 +905,7 @@ namespace MphRead::Entities
                     _soundSource.StopAllSfx();
                 }
                 RequireStorySave().SetRoomState(
-                    RequireReference(_scene).RoomId, Id, 3);
+                    RequireReference(_scene).RoomId(), Id, 3);
             }
         }
     }
@@ -921,7 +917,7 @@ namespace MphRead::Entities
             && TestFlag(_flags, PlatformFlags::PersistRoomState))
         {
             RequireStorySave().SetRoomState(
-                RequireReference(_scene).RoomId, Id, 3);
+                RequireReference(_scene).RoomId(), Id, 3);
         }
 
         if (_state == PlatformState::Inactive)
@@ -929,7 +925,7 @@ namespace MphRead::Entities
             if (TestFlag(_flags, PlatformFlags::DripMoat))
             {
                 RequireReference(_scene).SendMessage(
-                    Message::DripMoatPlatform, this, PlayerEntity::Main(),
+                    Message::DripMoatPlatform, this, PlayerEntity::Main().get(),
                     BoxInt32(1), BoxInt32(0));
             }
             if (_data.PositionCount >= 2)
@@ -970,12 +966,12 @@ namespace MphRead::Entities
                 && TestFlag(_flags, PlatformFlags::PersistRoomState))
             {
                 RequireStorySave().SetRoomState(
-                    RequireReference(_scene).RoomId, Id, 1);
+                    RequireReference(_scene).RoomId(), Id, 1);
             }
             if (TestFlag(_flags, PlatformFlags::DripMoat))
             {
                 RequireReference(_scene).SendMessage(
-                    Message::DripMoatPlatform, this, PlayerEntity::Main(),
+                    Message::DripMoatPlatform, this, PlayerEntity::Main().get(),
                     BoxInt32(0), BoxInt32(0));
             }
         }
@@ -1118,7 +1114,7 @@ namespace MphRead::Entities
                 }
 
                 if (TestFlag(_animFlags, PlatAnimFlags::SeekPlayerHeight)
-                    && PlayerEntity::PlayerCount > 0)
+                    && PlayerEntity::PlayerCount() > 0)
                 {
                     PlayerEntity& mainPlayer = RequireReference(PlayerEntity::Main());
                     const float offset
@@ -1182,8 +1178,8 @@ namespace MphRead::Entities
                     _beamSpawnDir, transform).Normalized();
 
                 BeamSpawnFlags spawnFlags = BeamSpawnFlags::None;
-                const auto weapon = equip.Weapon();
-                if (TestFlag(RequireReference(weapon).Flags(), WeaponFlags::Continuous))
+                const auto weapon = equip.Weapon;
+                if (TestFlag(RequireReference(weapon).Flags, WeaponFlags::Continuous))
                 {
                     spawnFlags = BeamSpawnFlags::DestroyMuzzle;
                 }
@@ -1195,14 +1191,14 @@ namespace MphRead::Entities
                 const BeamSfxInfo& sfxInfo = ArrayAt(_beamSfx, _data.BeamId);
                 if (sfxInfo.Data.Id != -1)
                 {
-                    const Vector3 sfxPos = spawnPos + Scale(spawnDir, sfxInfo.Offset);
+                    const Vector3 sfxPos = spawnPos + ScaleVector(spawnDir, sfxInfo.Offset);
                     _soundSource.Update(sfxPos, sfxInfo.RangeIndex);
                     PlaySfx(sfxInfo.Data);
                     soundUpdated = true;
                 }
 
                 if (!TestFlag(
-                    RequireReference(weapon).Flags(), WeaponFlags::RepeatFire))
+                    RequireReference(weapon).Flags, WeaponFlags::RepeatFire))
                 {
                     _beamActive = false;
                 }
@@ -1399,7 +1395,7 @@ namespace MphRead::Entities
             }
         }
 
-        _velocity = Scale(velocity, factor);
+        _velocity = ScaleVector(velocity, factor);
         _toRotation = ListAt(_rotList, _toIndex);
         _movePercent = 0.0F;
         _moveIncrement = factor;
@@ -1595,13 +1591,13 @@ namespace MphRead::Entities
                     if (_fromIndex == 0)
                     {
                         RequireStorySave().SetRoomState(
-                            RequireReference(_scene).RoomId, Id, 1);
+                            RequireReference(_scene).RoomId(), Id, 1);
                     }
                     else if (_fromIndex
                         == static_cast<std::int32_t>(_data.PositionCount) - 1)
                     {
                         RequireStorySave().SetRoomState(
-                            RequireReference(_scene).RoomId, Id, 2);
+                            RequireReference(_scene).RoomId(), Id, 2);
                     }
                 }
 
@@ -2011,7 +2007,7 @@ namespace MphRead::Entities
                                 }
                                 RequireReference(_scene).SpawnEffect(
                                     effectId, spawnFacing, spawnUp,
-                                    spawnPos, entCol);
+                                    spawnPos, false, entCol);
                             }
                         }
                     }
@@ -2169,6 +2165,6 @@ namespace MphRead::Entities
         const float distance = Length(velocity);
         _moveTimer = ConvertToInt32Net9(distance / _speed);
         const float factor = _speed / distance;
-        _velocity = Scale(velocity, factor);
+        _velocity = ScaleVector(velocity, factor);
     }
 }

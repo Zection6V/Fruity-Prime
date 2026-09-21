@@ -1,6 +1,7 @@
 #include "PlayerAi.hpp"
 
 #include "HalfturretEntity.hpp"
+#include "../RoomEntity.hpp"
 #include "../../Formats/CollisionDetection.hpp"
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -126,8 +127,8 @@ namespace MphRead::Entities
             Vector3 pos1 = player1->CameraInfo()->Position;
             Vector3 pos2 = player2->CameraInfo()->Position;
             if (VectorEqual(pos1, pos2)) { pos1 = player1->Position; pos2 = player2->Position; }
-            CollisionResult discard{};
-            if (!CollisionDetection::CheckBetweenPoints(pos1, pos2, TestFlags::None, scene, discard))
+            Formats::CollisionResult discard{};
+            if (!Formats::CollisionDetection::CheckBetweenPoints(pos1, pos2, Formats::TestFlags::None, &scene, discard))
             {
                 _playerVisibility[_visIndex1][_visIndex2] = true;
                 _playerVisibility[_visIndex2][_visIndex1] = true;
@@ -150,8 +151,8 @@ namespace MphRead::Entities
         std::shared_ptr<Formats::NodeData3> node = (*global.NodeData)[static_cast<std::size_t>(global.NodeDataIndex)];
         Vector3 pos1 = AddY(player->Position, player->IsAltForm() ? 0.5F : 1.0F);
         Vector3 pos2 = AddY(node->Position, 0.5F);
-        CollisionResult discard{};
-        if (CollisionDetection::CheckBetweenPoints(pos1, pos2, TestFlags::None, scene, discard))
+        Formats::CollisionResult discard{};
+        if (Formats::CollisionDetection::CheckBetweenPoints(pos1, pos2, Formats::TestFlags::None, &scene, discard))
         {
             ++global.NodeDataIndex;
             --global.Field4;
@@ -227,8 +228,9 @@ namespace MphRead::Entities
 
     void PlayerEntity::PlayerAiData::InitializeMain()
     {
-        if (_scene.Room() == nullptr || _scene.Room()->NodeData == nullptr) return;
-        _nodeData = _scene.Room()->NodeData;
+        const std::shared_ptr<RoomEntity> room = _scene.Room();
+        if (room == nullptr || room->NodeData() == nullptr) return;
+        _nodeData = _scene.Room()->NodeData();
         SetClosestNodeList(_player->Position);
         if (GameState::Mode() == GameMode::Capture)
         {
@@ -271,37 +273,37 @@ namespace MphRead::Entities
         for (AiButton* button : _buttons.AllButtons)
         {
             Keybind* control = nullptr;
-            if (button == &_buttons.Up) control = _player->IsAltForm() ? &_player->Controls.RollUp : &_player->Controls.AimUp;
-            else if (button == &_buttons.Down) control = _player->IsAltForm() ? &_player->Controls.RollDown : &_player->Controls.AimDown;
-            else if (button == &_buttons.Left) control = _player->IsAltForm() ? &_player->Controls.RolltLeft : &_player->Controls.AimLeft;
-            else if (button == &_buttons.Right) control = _player->IsAltForm() ? &_player->Controls.RollRight : &_player->Controls.AimRight;
-            else if (button == &_buttons.A) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls.AimRight : &_player->Controls.MoveRight;
-            else if (button == &_buttons.B) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls.AimDown : &_player->Controls.MoveDown;
-            else if (button == &_buttons.X) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls.AimUp : &_player->Controls.MoveUp;
-            else if (button == &_buttons.Y) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls.AimLeft : &_player->Controls.MoveLeft;
-            else if (button == &_buttons.L) control = _player->IsAltForm() ? &_player->Controls.AltAttack : &_player->Controls.Jump;
-            else if (button == &_buttons.R) control = _player->IsAltForm() ? &_player->Controls.Boost : &_player->Controls.Shoot;
-            else if (button == &_buttons.Start) control = &_player->Controls.Pause;
-            else if (button == &_buttons.Select) control = &_player->Controls.Zoom;
+            if (button == &_buttons.Up) control = _player->IsAltForm() ? &_player->Controls().RollUp() : &_player->Controls().AimUp();
+            else if (button == &_buttons.Down) control = _player->IsAltForm() ? &_player->Controls().RollDown() : &_player->Controls().AimDown();
+            else if (button == &_buttons.Left) control = _player->IsAltForm() ? &_player->Controls().RolltLeft() : &_player->Controls().AimLeft();
+            else if (button == &_buttons.Right) control = _player->IsAltForm() ? &_player->Controls().RollRight() : &_player->Controls().AimRight();
+            else if (button == &_buttons.A) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls().AimRight() : &_player->Controls().MoveRight();
+            else if (button == &_buttons.B) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls().AimDown() : &_player->Controls().MoveDown();
+            else if (button == &_buttons.X) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls().AimUp() : &_player->Controls().MoveUp();
+            else if (button == &_buttons.Y) control = _player->IsAltForm() && _player->Values().AltFormStrafe == 0 ? &_player->Controls().AimLeft() : &_player->Controls().MoveLeft();
+            else if (button == &_buttons.L) control = _player->IsAltForm() ? &_player->Controls().AltAttack() : &_player->Controls().Jump();
+            else if (button == &_buttons.R) control = _player->IsAltForm() ? &_player->Controls().Boost() : &_player->Controls().Shoot();
+            else if (button == &_buttons.Start) control = &_player->Controls().Pause();
+            else if (button == &_buttons.Select) control = &_player->Controls().Zoom();
             else throw std::runtime_error("Unreachable AI button.");
-            bool prevDown = control->IsDown;
+            bool prevDown = control->IsDown();
             if (button->IsDown)
             {
                 Flags3 &= ~AiFlags3::NoInput;
                 button->FramesUp = 0;
                 if (button->FramesDown < 6000) ++button->FramesDown;
                 button->IsDown = false;
-                control->IsDown = true;
-                control->IsPressed = !prevDown;
-                control->IsReleased = false;
+                control->SetIsDown(true);
+                control->SetIsPressed(!prevDown);
+                control->SetIsReleased(false);
             }
             else
             {
                 button->FramesDown = 0;
                 if (button->FramesUp < 6000) ++button->FramesUp;
-                control->IsDown = false;
-                control->IsPressed = false;
-                control->IsReleased = prevDown;
+                control->SetIsDown(false);
+                control->SetIsPressed(false);
+                control->SetIsReleased(prevDown);
             }
         }
         if (_hasTouch)

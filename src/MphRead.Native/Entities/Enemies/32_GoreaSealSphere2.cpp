@@ -182,7 +182,7 @@ namespace MphRead::Entities::Enemies
     {
         Formats::CollisionResult discard{};
         _visible = !Formats::CollisionDetection::CheckBetweenPoints(
-            Position, MainPlayer().CameraInfo().Position,
+            Position, RequireReference(MainPlayer().CameraInfo()).Position,
             Formats::TestFlags::None, _scene, discard);
     }
 

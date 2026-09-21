@@ -7,6 +7,43 @@
 #include <memory>
 #include <utility>
 
+namespace
+{
+    template <typename T>
+    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
+    {
+        if (!value)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    template <typename T>
+    [[nodiscard]] std::shared_ptr<T> ResolveSceneEntity(MphRead::Scene& scene, T* value)
+    {
+        if (value == nullptr)
+        {
+            return nullptr;
+        }
+        auto enumerator = scene.Entities().GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            std::shared_ptr<MphRead::Entities::EntityBase> entity = enumerator.Current();
+            if (entity.get() == value)
+            {
+                std::shared_ptr<T> typed = std::dynamic_pointer_cast<T>(entity);
+                if (!typed)
+                {
+                    throw MphRead::SceneDetail::InvalidCastException();
+                }
+                return typed;
+            }
+        }
+        throw System::NullReferenceException();
+    }
+}
+
 namespace MphRead::Entities
 {
     const ::OpenTK::Mathematics::Vector3 MorphCameraEntity::_volumeColor(1.0F, 1.0F, 0.0F);
@@ -54,12 +91,12 @@ namespace MphRead::Entities
                     if (Formats::CollisionDetection::CheckVolumesOverlap(
                         &_volume, &playerVolume, discard))
                     {
-                        player.SetMorphCamera(this);
-                        player.CameraInfo().NodeRef = NodeRef;
+                        player.SetMorphCamera(ResolveSceneEntity(*_scene, this));
+                        RequireReference(player.CameraInfo()).NodeRef = NodeRef;
                         player.RefreshExternalCamera();
                     }
                 }
-                else if (player.MorphCamera() == this)
+                else if (player.MorphCamera().get() == this)
                 {
                     CollisionVolume playerVolume = player.Volume();
                     if (!Formats::CollisionDetection::CheckVolumesOverlap(
@@ -86,7 +123,7 @@ namespace MphRead::Entities
         {
             throw System::NullReferenceException();
         }
-        if (_scene->ShowVolumes == VolumeDisplay::MorphCamera)
+        if (_scene->ShowVolumes() == VolumeDisplay::MorphCamera)
         {
             AddVolumeItem(_volume, _volumeColor);
         }
@@ -114,7 +151,7 @@ namespace MphRead::Entities
         {
             throw System::NullReferenceException();
         }
-        if (_scene->ShowVolumes == VolumeDisplay::MorphCamera)
+        if (_scene->ShowVolumes() == VolumeDisplay::MorphCamera)
         {
             AddVolumeItem(_volume, _volumeColor);
         }

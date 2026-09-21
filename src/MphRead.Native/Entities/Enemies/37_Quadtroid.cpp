@@ -80,7 +80,7 @@ namespace MphRead::Entities::Enemies
             return RequireReference(PlayerEntity::Main());
         }
 
-        [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scalar) noexcept
+        [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scalar) noexcept
         {
             return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
         }
@@ -244,7 +244,7 @@ namespace MphRead::Entities::Enemies
             _soundSource.PlaySfx(SfxId::DRIPSTANK_IDLE, true);
             Func214DCB8();
             UpdateCollision();
-            _speed = Scale(UpVector(), Fixed::ToFloat(-307));
+            _speed = ScaleVector(UpVector(), Fixed::ToFloat(-307));
             _speed = Divide(_speed, 2.0F);
             Func214D954();
             if (Func214E110())
@@ -273,7 +273,7 @@ namespace MphRead::Entities::Enemies
             _soundSource.PlaySfx(SfxId::DRIPSTANK_IDLE, true);
             Func214DCB8();
             UpdateCollision();
-            _speed = Scale(UpVector(), Fixed::ToFloat(-307));
+            _speed = ScaleVector(UpVector(), Fixed::ToFloat(-307));
             _speed = Divide(_speed, 2.0F);
             Func214E708([this]() { Func214EC60(); });
             Func214EF68([this]() { Func214EDD0(); });
@@ -282,7 +282,7 @@ namespace MphRead::Entities::Enemies
         {
             Func214DCB8();
             UpdateCollision();
-            _speed = Scale(UpVector(), Fixed::ToFloat(-307));
+            _speed = ScaleVector(UpVector(), Fixed::ToFloat(-307));
             _speed = Divide(_speed, 2.0F);
             Func214E708([this]() { Func214EDD0(); });
             Func214EF68([this]() { Func214EDD0(); });
@@ -292,7 +292,7 @@ namespace MphRead::Entities::Enemies
             _soundSource.PlaySfx(SfxId::DRIPSTANK_IDLE, true);
             Func214DCB8();
             UpdateCollision();
-            _speed = Scale(UpVector(), Fixed::ToFloat(-307));
+            _speed = ScaleVector(UpVector(), Fixed::ToFloat(-307));
             _speed = Divide(_speed, 2.0F);
             Func214D954();
             if (Func214E110())
@@ -306,7 +306,7 @@ namespace MphRead::Entities::Enemies
             _soundSource.PlaySfx(SfxId::DRIPSTANK_IDLE, true);
             Func214DCB8();
             UpdateCollision();
-            _speed = Scale(UpVector(), Fixed::ToFloat(-307));
+            _speed = ScaleVector(UpVector(), Fixed::ToFloat(-307));
             _speed = Divide(_speed, 2.0F);
             Func214D954();
             if (Func214E110())
@@ -338,7 +338,7 @@ namespace MphRead::Entities::Enemies
             Func214DCB8();
             UpdateCollision();
             Func214E4D8(_target);
-            _speed = Scale(UpVector(), Fixed::ToFloat(-307));
+            _speed = ScaleVector(UpVector(), Fixed::ToFloat(-307));
             _speed = Divide(_speed, 2.0F);
             Func214E708([this]() { Func214E9F4(); });
         }
@@ -372,7 +372,7 @@ namespace MphRead::Entities::Enemies
             _hitByBomb = false;
             Func214D9F8();
             PlayerEntity& target = RequireReference(_target);
-            if (TypeExtensions::TestFlag(target.Flags1, PlayerFlags1::Morphing))
+            if (TypeExtensions::TestFlag(target.Flags1(), PlayerFlags1::Morphing))
             {
                 Func214E8D4();
             }
@@ -383,7 +383,7 @@ namespace MphRead::Entities::Enemies
             _hitByBeam = false;
             _hitByBomb = false;
             PlayerEntity& target = RequireReference(_target);
-            Position = Scale(target.FacingVector(), Fixed::ToFloat(819))
+            Position = ScaleVector(target.FacingVector(), Fixed::ToFloat(819))
                 + static_cast<Vector3>(target.Position);
             Func214E708([this]() { Func214E82C(); });
         }
@@ -401,10 +401,10 @@ namespace MphRead::Entities::Enemies
             {
                 Vector3 facing = FacingVector();
                 _speed = Vector3(0.0F, Fixed::ToFloat(218), 0.0F);
-                _speed = _speed + Scale(facing, Fixed::ToFloat(-364));
+                _speed = _speed + ScaleVector(facing, Fixed::ToFloat(-364));
                 _speed = Divide(_speed, 2.0F);
                 _field224 = Vector3(0.0F, Fixed::ToFloat(-17), 0.0F);
-                _field224 = _field224 + Scale(facing, Fixed::ToFloat(5));
+                _field224 = _field224 + ScaleVector(facing, Fixed::ToFloat(5));
             }
         }
         else if (_state1 == 14)
@@ -494,7 +494,7 @@ namespace MphRead::Entities::Enemies
         PlayerEntity& target2 = RequireReference(_target);
         const bool targetHasAttached = target2.AttachedEnemy() != nullptr;
         PlayerEntity& target3 = RequireReference(_target);
-        const bool targetAttachedIsNotSelf = target3.AttachedEnemy() != this;
+        const bool targetAttachedIsNotSelf = target3.AttachedEnemy().get() != this;
         PlayerEntity& target4 = RequireReference(_target);
         if (!func(&target4) || targetDead || (targetHasAttached && targetAttachedIsNotSelf))
         {
@@ -517,7 +517,7 @@ namespace MphRead::Entities::Enemies
         {
             Vector3 between = static_cast<Vector3>(player.Position)
                 - static_cast<Vector3>(Position);
-            player.Speed = static_cast<Vector3>(player.Speed) + Divide(between, 4.0F);
+            player.SetSpeed(player.Speed() + Divide(between, 4.0F));
             player.TakeDamage(3, DamageFlags::None, std::nullopt, this);
         }
     }
@@ -536,7 +536,7 @@ namespace MphRead::Entities::Enemies
     {
         Vector3 up = UpVector();
         dest = Divide(up, 2.0F);
-        Vector3 testVec = Scale(up, dist);
+        Vector3 testVec = ScaleVector(up, dist);
         Vector3 testPos = static_cast<Vector3>(Position) + testVec;
         ManagedArray<Formats::CollisionResult> results(8);
         const std::int32_t count = Formats::CollisionDetection::CheckInRadius(
@@ -557,7 +557,7 @@ namespace MphRead::Entities::Enemies
                     v37 = _boundingRadius + result.Plane.W - Vector3::Dot(testPos, plane);
                 }
                 const Vector3 plane(result.Plane.X, result.Plane.Y, result.Plane.Z);
-                Vector3 posDelta = Scale(plane, v37);
+                Vector3 posDelta = ScaleVector(plane, v37);
                 if (Vector3::Dot(posDelta, _speed) <= 0.0F)
                 {
                     if (Vector3::Dot(someVec, plane) < Fixed::ToFloat(4094))
@@ -577,7 +577,7 @@ namespace MphRead::Entities::Enemies
                 dest = someVec;
             }
             Vector3 newUp = dest - up;
-            newUp = Scale(newUp, Fixed::ToFloat(409)) + up;
+            newUp = ScaleVector(newUp, Fixed::ToFloat(409)) + up;
             newUp = newUp.Normalized();
             Vector3 newFacing = Vector3::Cross(newUp, right).Normalized();
             SetTransform(newFacing, newUp, newPosition);
@@ -598,11 +598,11 @@ namespace MphRead::Entities::Enemies
     void Enemy37Entity::Func214E668(float a2)
     {
         Vector3 up = UpVector();
-        _speed = Scale(up, Fixed::ToFloat(-307));
+        _speed = ScaleVector(up, Fixed::ToFloat(-307));
         const float dot = Vector3::Dot(_field1D0, up);
         if (dot >= Fixed::ToFloat(1731))
         {
-            _speed = _speed + Scale(FacingVector(), a2);
+            _speed = _speed + ScaleVector(FacingVector(), a2);
             if (dot >= Fixed::ToFloat(4094))
             {
                 _field1DC = _field1D0;
@@ -866,13 +866,13 @@ namespace MphRead::Entities::Enemies
         }
         else
         {
-            targetPos = AddY(target.CameraInfo().Position, -0.5F);
+            targetPos = AddY(RequireReference(target.CameraInfo()).Position, -0.5F);
         }
         Vector3 between = targetPos - static_cast<Vector3>(Position);
         if (LengthSquared(between) > 0.375F)
         {
             between = between.Normalized();
-            Position = static_cast<Vector3>(Position) + Scale(between, Fixed::ToFloat(872));
+            Position = static_cast<Vector3>(Position) + ScaleVector(between, Fixed::ToFloat(872));
             return false;
         }
         return true;
@@ -930,7 +930,7 @@ namespace MphRead::Entities::Enemies
         if (playerRef.IsAltForm())
         {
             Vector3 position = playerRef.Position;
-            if (!Equal(static_cast<Vector3>(playerRef.Speed), Vector3::Zero))
+            if (!Equal(playerRef.Speed(), Vector3::Zero))
             {
                 position.Y += 0.4F;
                 AnimationInfo& animInfo = RequireAnimInfo(_models[0]);
@@ -987,19 +987,19 @@ namespace MphRead::Entities::Enemies
     {
         assert(_target != nullptr);
         PlayerEntity& target = RequireReference(_target);
-        Vector3 pos = target.CameraInfo().Position;
+        Vector3 pos = RequireReference(target.CameraInfo()).Position;
         Vector3 targetFacing = target.FacingVector();
         Vector3 targetUp = target.UpVector();
         Vector3 targetRight = Vector3::Cross(targetUp, targetFacing).Normalized();
-        pos = pos + Scale(targetFacing, 0.74F);
-        pos = pos + Scale(targetUp, -1.1F);
-        pos = pos + Scale(targetRight, Fixed::ToFloat(97));
+        pos = pos + ScaleVector(targetFacing, 0.74F);
+        pos = pos + ScaleVector(targetUp, -1.1F);
+        pos = pos + ScaleVector(targetRight, Fixed::ToFloat(97));
         Vector3 vec = pos - _field224;
-        ModelInstance& bipedModel2 = target.BipedModel2();
+        ModelInstance& bipedModel2 = RequireReference(target.BipedModel2());
         AnimationInfo& animInfo = RequireAnimInfo(bipedModel2);
         const float div = static_cast<float>(RequireReference(animInfo.Frame)[0])
             / static_cast<float>(RequireReference(animInfo.FrameCount)[0]);
-        Position = Scale(vec, div) + _field224;
+        Position = ScaleVector(vec, div) + _field224;
     }
 
     void Enemy37Entity::Func214ED78()
@@ -1052,7 +1052,7 @@ namespace MphRead::Entities::Enemies
             _field1B8 = _field1B8.Normalized();
             if (facing.Y > 0.0F)
             {
-                _field1B8 = Scale(_field1B8, -1.0F);
+                _field1B8 = ScaleVector(_field1B8, -1.0F);
             }
             _flags |= QuadtroidFlags::Bit1;
             _flags |= QuadtroidFlags::Bit2;
@@ -1073,7 +1073,22 @@ namespace MphRead::Entities::Enemies
     {
         assert(_target != nullptr);
         PlayerEntity& target = RequireReference(_target);
-        target.SetAttachedEnemy(this);
+        std::shared_ptr<EnemyInstanceEntity> attachedEnemy{};
+        auto enumerator = RequireReference(_scene).GetEnemyInstanceEntities().GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            std::shared_ptr<EnemyInstanceEntity> current = enumerator.Current();
+            if (current.get() == this)
+            {
+                attachedEnemy = current;
+                break;
+            }
+        }
+        if (!attachedEnemy)
+        {
+            throw SceneDetail::InvalidOperationException();
+        }
+        target.SetAttachedEnemy(std::move(attachedEnemy));
         _models[0].SetAnimation(1, 0,
             SetFlags::Texture | SetFlags::Material | SetFlags::Node);
         _state1 = _state2 = 13;
@@ -1086,7 +1101,22 @@ namespace MphRead::Entities::Enemies
     {
         assert(_target != nullptr);
         PlayerEntity& target = RequireReference(_target);
-        target.SetAttachedEnemy(this);
+        std::shared_ptr<EnemyInstanceEntity> attachedEnemy{};
+        auto enumerator = RequireReference(_scene).GetEnemyInstanceEntities().GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            std::shared_ptr<EnemyInstanceEntity> current = enumerator.Current();
+            if (current.get() == this)
+            {
+                attachedEnemy = current;
+                break;
+            }
+        }
+        if (!attachedEnemy)
+        {
+            throw SceneDetail::InvalidOperationException();
+        }
+        target.SetAttachedEnemy(std::move(attachedEnemy));
         _flags |= QuadtroidFlags::Bit7;
         _flags |= QuadtroidFlags::Bit0;
         _models[0].SetAnimation(0, 0,
@@ -1183,14 +1213,14 @@ namespace MphRead::Entities::Enemies
         {
             return;
         }
-        Vector3 position = playerRef.CameraInfo().Position;
+        Vector3 position = RequireReference(playerRef.CameraInfo()).Position;
         Vector3 facing = playerRef.FacingVector();
-        position = position + Scale(facing, 0.74F);
-        facing = Scale(facing, -1.0F);
+        position = position + ScaleVector(facing, 0.74F);
+        facing = ScaleVector(facing, -1.0F);
         Vector3 up = playerRef.UpVector();
-        position = position + Scale(up, -1.1F);
+        position = position + ScaleVector(up, -1.1F);
         Vector3 right = Vector3::Cross(facing, up).Normalized();
-        position = position + Scale(right, Fixed::ToFloat(97));
+        position = position + ScaleVector(right, Fixed::ToFloat(97));
         SetTransform(facing, up, position);
     }
 
@@ -1214,7 +1244,7 @@ namespace MphRead::Entities::Enemies
             return Vector3::Zero;
         }
         const float dot2 = Vector3::Dot(vec, axis);
-        return Divide(Scale(axis, dot2), dot1);
+        return Divide(ScaleVector(axis, dot2), dot1);
     }
 
     void Enemy37Entity::Func214E1C0(EntityBase* entity)
@@ -1228,7 +1258,7 @@ namespace MphRead::Entities::Enemies
         else if (entityRef.Type == EntityType::BeamProjectile)
         {
             BeamProjectileEntity& beam = CastReference<BeamProjectileEntity>(&entityRef);
-            vec = Scale(beam.Direction(), -1.0F);
+            vec = ScaleVector(beam.Direction(), -1.0F);
         }
         if (LengthSquared(vec) > 1.0F / 128.0F)
         {

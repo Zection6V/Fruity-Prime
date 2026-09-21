@@ -5,9 +5,9 @@
 #include "EntityBase.hpp"
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
-#include <stop_token>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -105,7 +105,7 @@ namespace MphRead::Entities
         [[nodiscard]] const std::vector<std::shared_ptr<Node>>& Nodes() const;
         [[nodiscard]] Formats::Culling::NodeRef AddDoorPortal(DoorEntity* door);
         void StartTransition(bool fromDoor, bool resume = false);
-        void ProcessTransition(std::stop_token token);
+        void ProcessTransition(std::shared_ptr<const std::atomic_bool> token);
         void EndTransition();
 
         [[nodiscard]] std::shared_ptr<Formats::Culling::RoomPartVisInfo>
@@ -173,7 +173,7 @@ namespace MphRead::Entities
         std::unordered_set<const Node*> _excludedNodes{};
         std::vector<std::shared_ptr<Node>> _morphCameraExcludeNodes{};
 
-        std::stop_source _cts{};
+        std::shared_ptr<std::atomic_bool> _cts = std::make_shared<std::atomic_bool>(false);
         std::shared_ptr<Model> _unloadModel{};
 
         std::array<bool, _roomPartMax> _activeRoomParts{};

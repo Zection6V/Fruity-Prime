@@ -875,7 +875,7 @@ namespace MphRead::Entities
                 PlayerEntity::PlayerCount = UncheckedIncrement(PlayerEntity::PlayerCount);
             }
         }
-        ProcessTransition(std::stop_token{});
+        ProcessTransition(std::shared_ptr<const std::atomic_bool>{});
         EndTransition();
         GameState::PausePrevented = false;
         Sound::Music::TryPlayRoomMusic(
@@ -984,10 +984,10 @@ namespace MphRead::Entities
         scene.AreaId = Metadata::GetAreaInfo(GameState::TransitionRoomId);
         if (fromDoor)
         {
-            const std::stop_token token = _cts.get_token();
+            const std::shared_ptr<const std::atomic_bool> token = _cts;
             std::thread([this, token]()
             {
-                if (token.stop_requested())
+                if (token != nullptr && token->load())
                 {
                     return;
                 }
@@ -1005,10 +1005,10 @@ namespace MphRead::Entities
 
     void RoomEntity::CancelTransition()
     {
-        _cts.request_stop();
+        _cts->store(true);
     }
 
-    void RoomEntity::ProcessTransition(std::stop_token token)
+    void RoomEntity::ProcessTransition(std::shared_ptr<const std::atomic_bool> token)
     {
         assert(GameState::TransitionRoomId != -1);
         const RoomMetadata* roomMeta = Metadata::GetRoomById(GameState::TransitionRoomId);
@@ -1026,7 +1026,7 @@ namespace MphRead::Entities
             GameState::Mode, Mods::Network::NetRoomChange::RoomPlayerCount,
             BossFlags::Unspecified, 0, entityLayer, roomMeta, this, _scene, true);
         const auto& entities = std::get<1>(setup);
-        if (token.stop_requested())
+        if (token != nullptr && token->load())
         {
             return;
         }
@@ -1034,12 +1034,12 @@ namespace MphRead::Entities
         {
             SceneSetup::InitHunterSpawns(_scene, entities, true);
         }
-        if (token.stop_requested())
+        if (token != nullptr && token->load())
         {
             return;
         }
         AiPersonality::LoadAll(GameState::Mode);
-        if (token.stop_requested())
+        if (token != nullptr && token->load())
         {
             return;
         }
@@ -1047,7 +1047,7 @@ namespace MphRead::Entities
             RequireReference(roomMeta).NodePath, RequireReference(roomMeta).Id,
             GameState::Mode, entities, RequireReference(roomMeta).FirstHunt));
         PlayerEntity::PlayerAiData::InitializeGlobals();
-        if (token.stop_requested())
+        if (token != nullptr && token->load())
         {
             return;
         }
@@ -1058,7 +1058,7 @@ namespace MphRead::Entities
             Scene& scene = RequireReference(_scene);
             scene.InsertEntity(entityValue);
             scene.LoadedEntities.Enqueue(entityValue);
-            if (token.stop_requested())
+            if (token != nullptr && token->load())
             {
                 return;
             }
@@ -1072,7 +1072,7 @@ namespace MphRead::Entities
             while (!RequireReference(_scene).LoadedEntities.IsEmpty())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                if (token.stop_requested())
+                if (token != nullptr && token->load())
                 {
                     return;
                 }
@@ -1091,7 +1091,7 @@ namespace MphRead::Entities
             DoorEntity& loaderRef = RequireReference(loader);
             const NodeRef portalRef = AddDoorPortal(&door);
             loaderRef.NodeRef = portalRef;
-            if (token.stop_requested())
+            if (token != nullptr && token->load())
             {
                 return;
             }

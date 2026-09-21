@@ -551,9 +551,9 @@ namespace MphRead::Entities::Enemies
         const std::shared_ptr<EquipInfo> equipInfo
             = equipInfos[static_cast<std::size_t>(BeamType)];
         EquipInfo& equip = RequireReference(equipInfo);
-        equip.SetUnchargedDamage(damage);
-        equip.SetSplashDamage(damage);
-        equip.SetHeadshotDamage(damage);
+        equip.UnchargedDamage(damage);
+        equip.SplashDamage(damage);
+        equip.HeadshotDamage(damage);
 
         const Vector3 facing = FacingVector();
         PlayerEntity& player = MainPlayer();

@@ -8,7 +8,7 @@
 #include "Shaders.hpp"
 #include "Sound/Music.hpp"
 #include "Sound/Sfx.hpp"
-#include "Text/Strings.hpp"
+#include "Strings.hpp"
 #include "Entities/EntityBase.hpp"
 #include "Entities/RoomEntity.hpp"
 #include "Entities/Players/PlayerEntity.hpp"

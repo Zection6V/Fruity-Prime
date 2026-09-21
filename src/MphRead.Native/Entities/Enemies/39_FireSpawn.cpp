@@ -353,15 +353,10 @@ namespace MphRead::Entities::Enemies
         _scanId = _values.ScanId;
 
         const std::shared_ptr<WeaponInfo> weapon
-            = VectorAt(Weapons::EnemyWeapons, version);
+            = VectorAt(RequireReference(Weapons::EnemyWeapons), version);
 
-        _equipInfo[0] = std::make_shared<EquipInfo>();
-        _equipInfo[0]->SetWeapon(weapon);
-        _equipInfo[0]->SetBeams(RequireReference(_beams));
-
-        _equipInfo[1] = std::make_shared<EquipInfo>();
-        _equipInfo[1]->SetWeapon(weapon);
-        _equipInfo[1]->SetBeams(RequireReference(_beams));
+        _equipInfo[0] = std::make_shared<EquipInfo>(weapon, _beams);
+        _equipInfo[1] = std::make_shared<EquipInfo>(weapon, _beams);
 
         _equipInfo[0]->SetGetAmmo([this]() { return _ammo0; });
         _equipInfo[0]->SetSetAmmo(
@@ -370,10 +365,10 @@ namespace MphRead::Entities::Enemies
         _equipInfo[1]->SetSetAmmo(
             [this](std::int32_t newAmmo) { _ammo1 = newAmmo; });
 
-        _equipInfo[0]->SetUnchargedDamage(_values.BeamDamage);
-        _equipInfo[0]->SetSplashDamage(_values.SplashDamage);
-        _equipInfo[1]->SetUnchargedDamage(_values.BeamDamage);
-        _equipInfo[1]->SetSplashDamage(_values.SplashDamage);
+        _equipInfo[0]->UnchargedDamage(_values.BeamDamage);
+        _equipInfo[0]->SplashDamage(_values.SplashDamage);
+        _equipInfo[1]->UnchargedDamage(_values.BeamDamage);
+        _equipInfo[1]->SplashDamage(_values.SplashDamage);
 
         _attackDelay = static_cast<std::int32_t>(_values.AttackDelay) * 2;
         _attackCount = RandomAttackCount(_values);
@@ -557,9 +552,9 @@ namespace MphRead::Entities::Enemies
                 std::shared_ptr<EquipInfo> equipInfo
                     = ArrayAt(_equipInfo, _wristId);
                 EquipInfo& equip = RequireReference(equipInfo);
-                equip.SetUnchargedDamage(_values.BeamDamage);
-                equip.SetSplashDamage(_values.SplashDamage);
-                equip.SetHeadshotDamage(_values.BeamDamage);
+                equip.UnchargedDamage(_values.BeamDamage);
+                equip.SplashDamage(_values.SplashDamage);
+                equip.HeadshotDamage(_values.BeamDamage);
 
                 (void)BeamProjectileEntity::Spawn(
                     SharedEntity(_scene, this),

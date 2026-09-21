@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <type_traits>
+#include <vector>
 
 namespace
 {
@@ -55,6 +56,29 @@ namespace
     }
 
     template <typename T>
+    [[nodiscard]] const T& ArrayBackedReadOnlyListAt(
+        const std::vector<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+        {
+            throw System::ArgumentOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& ManagedVectorArrayAt(
+        const std::shared_ptr<std::vector<T>>& values, std::int32_t index)
+    {
+        const std::vector<T>& array = RequireReference(values);
+        if (index < 0 || static_cast<std::size_t>(index) >= array.size())
+        {
+            throw MphRead::SceneDetail::IndexOutOfRangeException();
+        }
+        return array[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T>
     [[nodiscard]] T* ManagedCast(EntityBase* value)
     {
         if (value == nullptr)
@@ -84,7 +108,7 @@ namespace
         return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
     }
 
-    [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
+    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
     }
@@ -210,7 +234,8 @@ namespace MphRead::Entities
     {
         EntityBase::Initialize();
         _owner = _data.Spawner;
-        _scanId = Metadata::EnemyScanIds[static_cast<std::size_t>(_data.Type)];
+        _scanId = ArrayBackedReadOnlyListAt(
+            Metadata::EnemyScanIds, static_cast<std::int32_t>(_data.Type));
         Metadata::LoadEffectiveness(_data.Type, BeamEffectiveness);
         Flags = EnemyFlags::CollidePlayer | EnemyFlags::CollideBeam;
         EnemyInitialize();
@@ -362,8 +387,9 @@ namespace MphRead::Entities
                 {
                     DoMovement();
                 }
-                const std::int32_t rangeIndex
-                    = Metadata::EnemyAudioRangeIndices[static_cast<std::size_t>(EnemyType())];
+                const std::int32_t rangeIndex = ArrayBackedReadOnlyListAt(
+                    Metadata::EnemyAudioRangeIndices,
+                    static_cast<std::int32_t>(EnemyType()));
                 _soundSource.Update(static_cast<Vector3>(Position), rangeIndex);
                 UpdateNodeRefVolume();
                 ClearHitPlayers();
@@ -622,7 +648,7 @@ namespace MphRead::Entities
         }
         else
         {
-            if (doubleDead && Bugfixes::NoDoubleEnemyDeath)
+            if (doubleDead && Bugfixes::NoDoubleEnemyDeath())
             {
                 return;
             }
@@ -632,27 +658,31 @@ namespace MphRead::Entities
             }
             if (dead)
             {
-                auto& storySave = GameState::StorySave();
                 if (_data.Type != MphRead::EnemyType::CarnivorousPlant
-                    && _data.Type != MphRead::EnemyType::CretaphidEye
-                    && storySave.Stats.EnemyKills != std::numeric_limits<std::uint32_t>::max())
+                    && _data.Type != MphRead::EnemyType::CretaphidEye)
                 {
-                    ++storySave.Stats.EnemyKills;
+                    StorySave& storySave = RequireReference(GameState::StorySave);
+                    StorySave::SaveStats& stats = RequireReference(storySave.Stats);
+                    if (stats.EnemyKills != std::numeric_limits<std::uint32_t>::max())
+                    {
+                        ++stats.EnemyKills;
+                    }
                 }
                 if (_data.Type == MphRead::EnemyType::Temroid)
                 {
                     Detach();
                 }
                 _soundSource.StopAllSfx();
-                PlayEnemySfx(
-                    Metadata::EnemyDeathSfx[static_cast<std::size_t>(EnemyType())], true);
+                const std::int32_t deathSfx = ManagedVectorArrayAt(
+                    Metadata::EnemyDeathSfx(), static_cast<std::int32_t>(EnemyType()));
+                PlayEnemySfx(deathSfx, true);
                 std::int32_t effectId = 0;
                 if (EnemyType() == MphRead::EnemyType::FireSpawn)
                 {
                     assert(_owner != nullptr && _owner->Type == EntityType::EnemySpawn);
                     EnemySpawnEntity& spawner
                         = RequireReference(ManagedCast<EnemySpawnEntity>(_owner));
-                    effectId = spawner.Data.Fields.S06.EnemySubtype == 1 ? 217 : 218;
+                    effectId = spawner.Data.Fields.S06().EnemySubtype == 1 ? 217 : 218;
                 }
                 else
                 {
@@ -667,8 +697,9 @@ namespace MphRead::Entities
             else
             {
                 _timeSinceDamage = 0;
-                PlayEnemySfx(
-                    Metadata::EnemyDamageSfx[static_cast<std::size_t>(EnemyType())], false);
+                const std::int32_t damageSfx = ManagedVectorArrayAt(
+                    Metadata::EnemyDamageSfx(), static_cast<std::int32_t>(EnemyType()));
+                PlayEnemySfx(damageSfx, false);
                 switch (_data.Type)
                 {
                 case MphRead::EnemyType::Zoomer:
@@ -676,10 +707,18 @@ namespace MphRead::Entities
                 case MphRead::EnemyType::Petrasyl2:
                 case MphRead::EnemyType::Petrasyl3:
                 case MphRead::EnemyType::Petrasyl4:
+                    if (_models.Size() == 0)
+                    {
+                        throw System::ArgumentOutOfRangeException();
+                    }
                     _models[0].SetAnimation(1, AnimFlags::NoLoop);
                     break;
                 case MphRead::EnemyType::Blastcap:
                 {
+                    if (_models.Size() == 0)
+                    {
+                        throw System::ArgumentOutOfRangeException();
+                    }
                     _models[0].SetAnimation(0, AnimFlags::NoLoop);
                     Matrix4 transform = GetTransformMatrix(
                         Vector3(1.0F, 0.0F, 0.0F), Vector3(0.0F, 1.0F, 0.0F));
@@ -815,13 +854,13 @@ namespace MphRead::Entities
                 {
                     withGround = true;
                 }
-                Position = static_cast<Vector3>(Position) + Scale(result.Plane.Xyz(), v18);
+                Position = static_cast<Vector3>(Position) + ScaleVector(result.Plane.Xyz(), v18);
                 if (updateSpeed)
                 {
                     const float dot = Vector3::Dot(_speed, result.Plane.Xyz());
                     if (dot < 0.0F)
                     {
-                        _speed = _speed + Scale(result.Plane.Xyz(), -dot);
+                        _speed = _speed + ScaleVector(result.Plane.Xyz(), -dot);
                     }
                 }
             }
@@ -846,9 +885,9 @@ namespace MphRead::Entities
         const float oneMinusCosine = 1.0F - cosine;
         const Vector3 cross = Vector3::Cross(axis, vec);
         const float dot = Vector3::Dot(axis, vec);
-        return Scale(vec, cosine)
-            + Scale(cross, sine)
-            + Scale(axis, dot * oneMinusCosine);
+        return ScaleVector(vec, cosine)
+            + ScaleVector(cross, sine)
+            + ScaleVector(axis, dot * oneMinusCosine);
     }
 
     bool EnemyInstanceEntity::SeekTargetVector(

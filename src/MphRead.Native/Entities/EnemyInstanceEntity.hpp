@@ -318,7 +318,7 @@ namespace MphRead::Entities
         assert(enemy == this);
         if (static_cast<std::size_t>(_subId) >= subroutines.size())
         {
-            throw std::out_of_range("Index was outside the bounds of the array.");
+            throw System::ArgumentOutOfRangeException();
         }
         const EnemySubroutine<T>& subroutine = subroutines[static_cast<std::size_t>(_subId)];
         if (subroutine.Behaviors == nullptr)

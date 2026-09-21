@@ -16,6 +16,17 @@
 
 namespace System
 {
+    class ArgumentOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        ArgumentOutOfRangeException()
+            : std::out_of_range(
+                "Index was out of range. Must be non-negative and less than the size "
+                "of the collection. (Parameter 'index')")
+        {
+        }
+    };
+
     class ArgumentNullException final : public std::invalid_argument
     {
     public:

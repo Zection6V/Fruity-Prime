@@ -360,7 +360,7 @@ namespace MphRead::Formats::Collision
 
     EntityCollision::EntityCollision(
         std::shared_ptr<CollisionInstance> collision,
-        MphRead::EntityBase* entity)
+        MphRead::Entities::EntityBase* entity)
         : Entity(entity),
           Collision(std::move(collision)),
           DrawPoints(

@@ -25,6 +25,11 @@ namespace MphRead::Entities
     class EntityBase;
 }
 
+namespace MphRead
+{
+    using EntityBase = Entities::EntityBase;
+}
+
 namespace MphRead::Formats::Collision
 {
     class CollisionInstance;

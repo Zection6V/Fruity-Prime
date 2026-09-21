@@ -72,7 +72,7 @@ namespace MphRead::Entities::Enemies
             return std::sqrt(LengthSquared(value));
         }
 
-        [[nodiscard]] Vector3 Scale(Vector3 value, float factor) noexcept
+        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float factor) noexcept
         {
             return Vector3(
                 value.X * factor, value.Y * factor, value.Z * factor);
@@ -399,7 +399,7 @@ namespace MphRead::Entities::Enemies
             if (v12 > 0.0F)
             {
                 Position = static_cast<Vector3>(Position)
-                    + Scale(result.Plane.Xyz(), v12);
+                    + ScaleVector(result.Plane.Xyz(), v12);
                 if (result.Plane.Y >= 0.1F || result.Plane.Y <= -0.1F)
                 {
                     _groundCol = true;
@@ -411,7 +411,7 @@ namespace MphRead::Entities::Enemies
                 const float dot = Vector3::Dot(_speed, result.Plane.Xyz());
                 if (dot < 0.0F)
                 {
-                    _speed = _speed + Scale(result.Plane.Xyz(), -dot);
+                    _speed = _speed + ScaleVector(result.Plane.Xyz(), -dot);
                 }
             }
         }
@@ -485,7 +485,7 @@ namespace MphRead::Entities::Enemies
             MainPlayer().TakeDamage(
                 10,
                 DamageFlags::NoDmgInvuln,
-                Scale(_speed, 2.0F),
+                ScaleVector(_speed, 2.0F),
                 this);
             _delayTimer = 30 * 2;
         }
@@ -675,7 +675,7 @@ namespace MphRead::Entities::Enemies
         {
             const Vector3 facing = FacingVector();
             const Vector3 destPos
-                = static_cast<Vector3>(Position) + Scale(facing, 2.0F);
+                = static_cast<Vector3>(Position) + ScaleVector(facing, 2.0F);
             if (HandleCollision(Position) || HandleCollision(destPos))
             {
                 SetNodeAnim(10, AnimFlags::NoLoop);
@@ -779,7 +779,7 @@ namespace MphRead::Entities::Enemies
         _speed.Z = 0.0F;
         SetNodeAnim(9, AnimFlags::NoLoop);
         mainPlayer.TakeDamage(
-            15, DamageFlags::None, Scale(_speed, 2.0F), this);
+            15, DamageFlags::None, ScaleVector(_speed, 2.0F), this);
         return true;
     }
 
@@ -839,7 +839,7 @@ namespace MphRead::Entities::Enemies
         const float distance = Length(travel);
         _stepCount = static_cast<std::uint16_t>(
             (distance / _stepDistance) + 1.0F);
-        _speed = Scale(travel, _stepDistance / distance);
+        _speed = ScaleVector(travel, _stepDistance / distance);
         SetNodeAnim(12, AnimFlags::NoLoop);
         _soundSource.PlaySfx(SfxId::HANGING_TERROR_DROP);
         return true;
@@ -874,7 +874,7 @@ namespace MphRead::Entities::Enemies
         }
         const Vector3 destPos
             = static_cast<Vector3>(Position)
-            + Scale(FacingVector(), -2.0F);
+            + ScaleVector(FacingVector(), -2.0F);
         Formats::CollisionResult discard{};
         if (Formats::CollisionDetection::CheckBetweenPoints(
                 Position,
@@ -898,7 +898,7 @@ namespace MphRead::Entities::Enemies
             --_stepCount;
             return false;
         }
-        _speed = Scale(FacingVector(), Fixed::ToFloat(1800));
+        _speed = ScaleVector(FacingVector(), Fixed::ToFloat(1800));
         _speed.Y = Fixed::ToFloat(600);
         _speed = Divide(_speed, 2.0F);
         _stepCount = 7 * 2;

@@ -5,6 +5,7 @@
 #include "../MemoryArrays.hpp"
 #include "../Metadata/Metadata.hpp"
 #include "../Scene.hpp"
+#include "../SceneSetup.hpp"
 #include "BeamProjectileEntity.hpp"
 #include "Players/PlayerEntity.hpp"
 
@@ -119,6 +120,16 @@ namespace
             throw MphRead::Memory::Detail::NullReferenceException();
         }
         return entity.get();
+    }
+
+    [[nodiscard]] MphRead::BeamProjectileArray& RequireBeams(
+        const std::shared_ptr<MphRead::EquipInfo>& equip)
+    {
+        if (!equip || !equip->Beams)
+        {
+            throw MphRead::Memory::Detail::NullReferenceException();
+        }
+        return *equip->Beams;
     }
 }
 
@@ -292,9 +303,9 @@ namespace MphRead::Entities
             {
                 PlayerEntity* player = RequirePlayer(enumerator.Current());
 
-                for (std::size_t i = 0; i < player->EquipInfo().Beams().size(); ++i)
+                for (std::int32_t i = 0; i < RequireBeams(player->EquipInfo()).Length(); ++i)
                 {
-                    BeamProjectileEntity* beam = RequireBeam(player->EquipInfo().Beams()[i]);
+                    BeamProjectileEntity* beam = RequireBeam(RequireBeams(player->EquipInfo())[i]);
                     if (beam->Lifespan() > 0)
                     {
                         Formats::CollisionResult discard{};

@@ -12,6 +12,7 @@
 #include "../Mods/Network/NetLog.hpp"
 #include "../Read.hpp"
 #include "../Scene.hpp"
+#include "../SceneSetup.hpp"
 #include "../Utility/Rng.hpp"
 #include "BeamEffectEntity.hpp"
 #include "DoorEntity.hpp"
@@ -1750,7 +1751,7 @@ namespace MphRead::Entities
         auto& beams = RequireReference(equipRef.Beams);
         if (TestFlag(weapon.Flags, WeaponFlags::Continuous))
         {
-            for (std::size_t i = 0; i < beams.size(); ++i)
+            for (std::int32_t i = 0; i < beams.Length(); ++i)
             {
                 const std::shared_ptr<BeamProjectileEntity>& beam = beams[i];
                 BeamProjectileEntity& beamRef = RequireReference(beam);
@@ -1763,7 +1764,7 @@ namespace MphRead::Entities
                 }
             }
         }
-        for (std::size_t i = 0; i < beams.size(); ++i)
+        for (std::int32_t i = 0; i < beams.Length(); ++i)
         {
             const std::shared_ptr<BeamProjectileEntity>& beam = beams[i];
             BeamProjectileEntity& beamRef = RequireReference(beam);
@@ -1779,11 +1780,7 @@ namespace MphRead::Entities
                 return beam;
             }
         }
-        if (beams.empty())
-        {
-            throw Memory::Detail::IndexOutOfRangeException();
-        }
-        return beams.back();
+        return beams[beams.Length() - 1];
     }
 
     BeamResultFlags BeamProjectileEntity::Spawn(

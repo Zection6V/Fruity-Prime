@@ -6,6 +6,7 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Renderer.hpp"
 #include "../Scene.hpp"
+#include "../SceneSetup.hpp"
 #include "BeamProjectileEntity.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "TriggerVolumeEntity.hpp"
@@ -442,7 +443,7 @@ namespace MphRead::Entities
                 continue;
             }
 
-            for (std::size_t i = 0; i < RequireBeams(player->EquipInfo()).size(); ++i)
+            for (std::int32_t i = 0; i < RequireBeams(player->EquipInfo()).Length(); ++i)
             {
                 BeamProjectileEntity* beam = RequireBeam(RequireBeams(player->EquipInfo())[i]);
                 if (beam->Lifespan() > 0)

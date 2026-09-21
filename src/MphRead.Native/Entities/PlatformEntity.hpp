@@ -14,6 +14,7 @@
 
 namespace MphRead
 {
+    class BeamProjectileArray;
     class EquipInfo;
     class PlatformMetadata;
     enum class PlatAnimId : std::int32_t;
@@ -397,7 +398,7 @@ namespace MphRead::Entities
         const std::optional<OpenTK::Mathematics::Vector4> _overrideColor
             = ColorRgb(0x2F, 0x4F, 0x4F).AsVector4();
 
-        static std::shared_ptr<std::vector<std::shared_ptr<BeamProjectileEntity>>> _beams;
+        static std::shared_ptr<MphRead::BeamProjectileArray> _beams;
         static std::array<BeamSfxInfo, 4> _beamSfx;
     };
 

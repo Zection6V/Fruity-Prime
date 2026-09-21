@@ -1,6 +1,7 @@
 #include "SceneSetup.hpp"
 
 #include "Scene.hpp"
+#include "MemoryArrays.hpp"
 #include "Read.hpp"
 #include "Formats/Entity.hpp"
 #include "Formats/Formats.hpp"
@@ -1416,7 +1417,7 @@ namespace MphRead
     {
         if (index < 0 || index >= _length)
         {
-            throw std::out_of_range("Index was outside the bounds of the array.");
+            throw Memory::Detail::IndexOutOfRangeException();
         }
     }
 

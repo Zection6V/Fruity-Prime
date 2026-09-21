@@ -48,6 +48,7 @@ private: \
 
 namespace MphRead
 {
+    class BeamProjectileArray;
     class EquipInfo;
     struct WeaponInfo;
     class Scene;
@@ -834,7 +835,7 @@ namespace MphRead::Entities
         AvailableArray _availableWeapons{};
         AvailableArray _availableCharges{};
         AbilityFlags _abilities{};
-        std::shared_ptr<MphRead::ManagedArray<std::shared_ptr<BeamProjectileEntity>>> _beams{};
+        std::shared_ptr<MphRead::BeamProjectileArray> _beams{};
         std::shared_ptr<MphRead::EquipInfo> _equipInfo{};
         MphRead::BeamType _currentWeapon{};
         MphRead::BeamType _previousWeapon{};

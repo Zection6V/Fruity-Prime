@@ -16,6 +16,11 @@
 #include <utility>
 #include <vector>
 
+namespace MphRead
+{
+    class BeamProjectileArray;
+}
+
 namespace MphRead::Entities
 {
     class BeamProjectileEntity;
@@ -228,7 +233,7 @@ namespace MphRead::Entities
         float _boundingRadius = 0.0F;
         std::shared_ptr<ManagedArray<std::function<void()>>> _stateProcesses{};
 
-        static std::shared_ptr<std::vector<std::shared_ptr<BeamProjectileEntity>>> _beams;
+        static std::shared_ptr<MphRead::BeamProjectileArray> _beams;
 
         [[nodiscard]] OpenTK::Mathematics::Vector3 FixParallelVectors(
             OpenTK::Mathematics::Vector3 facing,

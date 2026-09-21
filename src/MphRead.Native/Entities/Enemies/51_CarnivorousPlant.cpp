@@ -1,5 +1,6 @@
 #include "51_CarnivorousPlant.hpp"
 
+#include "../../Metadata/Metadata.hpp"
 #include "../EnemySpawnEntity.hpp"
 
 #include <cassert>
@@ -8,6 +9,16 @@ namespace MphRead::Entities::Enemies
 {
     namespace
     {
+        template <typename T>
+        [[nodiscard]] T& RequireReference(T* value)
+        {
+            if (value == nullptr)
+            {
+                throw System::NullReferenceException();
+            }
+            return *value;
+        }
+
         EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
         {
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
@@ -25,22 +36,24 @@ namespace MphRead::Entities::Enemies
 
     void Enemy51Entity::EnemyInitialize()
     {
-        Transform = _data.Spawner->Transform;
+        Transform = RequireReference(_data.Spawner).Transform;
         _prevPos = Position;
         Flags |= EnemyFlags::Visible;
         Flags |= EnemyFlags::Static;
         Flags |= EnemyFlags::NoMaxDistance; // the game doesn't set this
-        _health = _healthMax = _spawner->Data.Fields.S07.EnemyHealth;
+        EnemySpawnEntity& spawner = RequireReference(_spawner);
+        _health = _healthMax = spawner.Data.Fields.S07().EnemyHealth;
         _boundingRadius = Fixed::ToFloat(1843);
         _hurtVolumeInit = CollisionVolume(
             ::OpenTK::Mathematics::Vector3(0.0F, Fixed::ToFloat(409), 0.0F), _boundingRadius);
         _hurtVolume = CollisionVolume::Transform(_hurtVolumeInit, Transform);
-        ObjectMetadata meta = Metadata::GetObjectById(_spawner->Data.Fields.S07.EnemySubtype);
+        const ObjectMetadata& meta = Metadata::GetObjectById(spawner.Data.Fields.S07().EnemySubtype);
         SetUpModel(meta.Name);
     }
 
     void Enemy51Entity::EnemyProcess()
     {
-        ContactDamagePlayer(_spawner->Data.Fields.S07.EnemyDamage, false);
+        EnemySpawnEntity& spawner = RequireReference(_spawner);
+        ContactDamagePlayer(spawner.Data.Fields.S07().EnemyDamage, false);
     }
 }

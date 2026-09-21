@@ -129,6 +129,13 @@ namespace MphRead::Entities::Enemies
             return values[static_cast<std::size_t>(index)];
         }
 
+        template <typename T>
+        [[nodiscard]] const T& VectorAt(
+            const std::shared_ptr<const std::vector<T>>& values, std::int32_t index)
+        {
+            return VectorAt(RequireReference(values), index);
+        }
+
         [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
         {
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;

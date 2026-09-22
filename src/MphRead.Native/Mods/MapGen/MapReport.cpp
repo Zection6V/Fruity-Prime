@@ -29,8 +29,7 @@ namespace
 
     [[noreturn]] void ThrowListIndex()
     {
-        throw std::out_of_range(
-            "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
+        throw System::ArgumentOutOfRangeException();
     }
 
     template <typename T>

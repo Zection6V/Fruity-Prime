@@ -1367,7 +1367,7 @@ namespace MphRead::Entities
                                 if (target.Type == EntityType::Object)
                                 {
                                     const auto object = ManagedCast<ObjectEntity>(entity);
-                                    if (!TestFlag(object->Data.EffectFlags, ObjEffFlags::WeaponZoom))
+                                    if (!TestFlag(object->Data().EffectFlags, ObjEffFlags::WeaponZoom))
                                     {
                                         continue;
                                     }

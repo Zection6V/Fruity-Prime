@@ -906,6 +906,7 @@ namespace MphRead
 
         MPHREAD_SCENE_RENDERER_MEMBERS
 
+        public:
         [[nodiscard]] bool MoviePlaying() const noexcept;
         void SkipMovie();
 

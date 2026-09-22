@@ -360,6 +360,14 @@ namespace MphRead::Mods::Update
                         return;
                     }
                 }
+                if (error == EROFS)
+                {
+                    struct stat info{};
+                    if (::lstat(NativePath(path).c_str(), &info) != 0 && errno == ENOENT)
+                    {
+                        return;
+                    }
+                }
                 if (error == EISDIR)
                 {
                     throw UnauthorizedAccessException(

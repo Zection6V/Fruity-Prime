@@ -1004,7 +1004,11 @@ namespace
         return DecodeUtf8Text(bytes);
     }
 
-    void ReportAsyncLine(const Report& report, const std::string& line) noexcept
+    struct AsyncReportAbort final
+    {
+    };
+
+    void ReportAsyncLine(const Report& report, const std::string& line)
     {
         try
         {
@@ -1012,10 +1016,21 @@ namespace
         }
         catch (...)
         {
-            // .NET 9 AsyncStreamReader rethrows user callback exceptions on
-            // a ThreadPool thread. Keep that exception unhandled instead of
-            // silently turning a failed callback into reader EOF.
-            std::terminate();
+            // .NET 9 AsyncStreamReader captures a user callback exception,
+            // queues a ThreadPool work item that rethrows it unhandled, then
+            // stops that asynchronous reader. A detached C++ thread preserves
+            // the same asynchronous unhandled-exception boundary; the marker
+            // is swallowed by ReaderThread so it never surfaces via RunSetup.
+            const std::exception_ptr failure = std::current_exception();
+            try
+            {
+                std::thread([failure]() { std::rethrow_exception(failure); }).detach();
+            }
+            catch (...)
+            {
+                std::terminate();
+            }
+            throw AsyncReportAbort{};
         }
     }
 

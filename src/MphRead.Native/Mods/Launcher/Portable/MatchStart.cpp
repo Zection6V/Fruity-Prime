@@ -28,7 +28,6 @@ namespace MphRead::Mods::Launcher::Detail
     // They carry no MatchStart policy: each operation is the C# call at that
     // exact evaluation point, and its owner supplies the behavior.
     void MatchStartRunWindow(MphRead::RenderWindow& renderer);
-    void MatchStartSetBotLevel(MphRead::Entities::PlayerEntity& player, std::int32_t level);
 }
 
 namespace MphRead::Mods::Launcher
@@ -245,7 +244,7 @@ namespace MphRead::Mods::Launcher
             }
             if (player->IsBot())
             {
-                Detail::MatchStartSetBotLevel(*player, level);
+                player->SetBotLevel(level);
             }
         }
     }

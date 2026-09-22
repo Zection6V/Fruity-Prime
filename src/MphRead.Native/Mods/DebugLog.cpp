@@ -1359,11 +1359,11 @@ namespace
     void Hook()
     {
         State& state = GetState();
-        bool expected = false;
-        if (!state.Hooked.compare_exchange_strong(expected, true))
+        if (state.Hooked.load())
         {
             return;
         }
+        state.Hooked.store(true);
 
         {
             std::lock_guard<std::mutex> consoleGuard(state.ConsoleStateLock);

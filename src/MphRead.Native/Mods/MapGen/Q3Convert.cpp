@@ -42,6 +42,27 @@
 #include <dlfcn.h>
 #endif
 
+namespace System
+{
+    class IndexOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        IndexOutOfRangeException()
+            : std::out_of_range("Index was outside the bounds of the array.")
+        {
+        }
+    };
+
+    class InvalidOperationException final : public std::runtime_error
+    {
+    public:
+        InvalidOperationException()
+            : std::runtime_error("Sequence contains no elements")
+        {
+        }
+    };
+}
+
 namespace
 {
     using MphRead::ItemType;
@@ -63,7 +84,7 @@ namespace
 
     [[noreturn]] void ArrayBounds()
     {
-        throw std::out_of_range("Index was outside the bounds of the array.");
+        throw System::IndexOutOfRangeException();
     }
 
     template <typename T>
@@ -91,8 +112,7 @@ namespace
     {
         if (index < 0 || static_cast<std::size_t>(index) >= values.size())
         {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
+            throw System::ArgumentOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -1072,8 +1092,7 @@ namespace
     {
         if (path.find('\0') != std::string::npos)
         {
-            throw std::invalid_argument(
-                "Null character in path. (Parameter 'path')");
+            throw System::ArgumentException();
         }
     }
 
@@ -1096,13 +1115,11 @@ namespace
     {
         if (path.empty())
         {
-            throw std::invalid_argument(
-                "The value cannot be an empty string. (Parameter 'path')");
+            throw System::ArgumentException();
         }
         if (WindowsEffectivelyEmpty(path))
         {
-            throw std::invalid_argument(
-                "The path is empty. (Parameter 'path')");
+            throw System::ArgumentException();
         }
         ValidatePathText(path);
         return PathToUtf8(
@@ -1139,13 +1156,11 @@ namespace
     {
         if (path.empty())
         {
-            throw std::invalid_argument(
-                "The value cannot be an empty string. (Parameter 'path')");
+            throw System::ArgumentException();
         }
         if (WindowsEffectivelyEmpty(path))
         {
-            throw std::invalid_argument(
-                "The path is empty. (Parameter 'path')");
+            throw System::ArgumentException();
         }
         ValidatePathText(path);
         (void)std::filesystem::create_directories(
@@ -1233,8 +1248,7 @@ namespace
     {
         if (values.empty())
         {
-            throw std::invalid_argument(
-                "Sequence contains no elements");
+            throw System::InvalidOperationException();
         }
 
         double sum = static_cast<double>(
@@ -2124,8 +2138,7 @@ namespace MphRead::Mods::MapGen
                 if (clipBrushes
                     == std::numeric_limits<std::int32_t>::max())
                 {
-                    throw std::overflow_error(
-                        "Arithmetic operation resulted in an overflow.");
+                    throw System::OverflowException();
                 }
                 ++clipBrushes;
             }
@@ -2371,8 +2384,7 @@ namespace MphRead::Mods::MapGen
                     > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())
                         - starts.size())
             {
-                throw std::overflow_error(
-                    "Arithmetic operation resulted in an overflow.");
+                throw System::OverflowException();
             }
             const std::size_t count = starts.size() + fallbacks.size();
             concatenated.reserve(count);

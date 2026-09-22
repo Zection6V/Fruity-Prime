@@ -746,7 +746,7 @@ public: \
         std::optional<OpenTK::Mathematics::Vector3> afterPosition = std::nullopt, \
         std::optional<OpenTK::Mathematics::Vector3> afterFacing = std::nullopt, \
         std::optional<MphRead::Movie> afterMovieId = std::nullopt, \
-        MphRead::AfterMovie afterMovieAction = MphRead::AfterMovie::LoadRoom); \
+        MphRead::AfterMovie afterMovieAction = static_cast<MphRead::AfterMovie>(1)); \
     void StartMovie(MphRead::Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
         MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, MphRead::AfterMovie afterMovieAction); \
     void DoCleanup(); \

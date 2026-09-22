@@ -987,9 +987,9 @@ namespace MphRead::Mods
                 throw std::runtime_error("Could not open controls file.");
             }
 
-            const std::string bytes(
-                std::istreambuf_iterator<char>(stream),
-                std::istreambuf_iterator<char>());
+            const auto bytesBegin = std::istreambuf_iterator<char>(stream);
+            const auto bytesEnd = std::istreambuf_iterator<char>();
+            const std::string bytes(bytesBegin, bytesEnd);
             if (stream.bad())
             {
                 throw std::runtime_error("Could not read controls file.");

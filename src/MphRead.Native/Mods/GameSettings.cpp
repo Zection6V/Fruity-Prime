@@ -3,6 +3,7 @@
 #include "Render/FrameTiming.hpp"
 #include "RenderOptions.hpp"
 #include "../Formats/Enums.hpp"
+#include "../Formats/Formats.hpp"
 #include "../Formats/Types.hpp"
 #include "../GameState.hpp"
 #include "../Menu.hpp"
@@ -652,7 +653,7 @@ namespace MphRead::Mods
         Language language{};
         if (TryParseLanguage(settings->Language, language))
         {
-            Scene::Language(Paths::MphKey() == "AMHK0"
+            Scene::Language(Paths::MphKey == "AMHK0"
                 ? Language::Japanese
                 : language);
         }

@@ -45,6 +45,18 @@ namespace MphRead::Mods::MapGen::MapTextureBakeInterop
     [[nodiscard]] DecodedImage LoadRgb(std::span<const std::uint8_t> bytes);
 }
 
+namespace System
+{
+    class IndexOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        IndexOutOfRangeException()
+            : std::out_of_range("Index was outside the bounds of the array.")
+        {
+        }
+    };
+}
+
 namespace
 {
     using MphRead::Mods::MapGen::MapTextureBakeInterop::DecodedImage;
@@ -111,8 +123,7 @@ namespace
     {
         if (value < 0)
         {
-            throw std::overflow_error(
-                "Arithmetic operation resulted in an overflow.");
+            throw System::OverflowException();
         }
         return static_cast<std::size_t>(value);
     }
@@ -268,9 +279,7 @@ namespace
             if (textureIndex < 0
                 || static_cast<std::uint64_t>(textureIndex) >= textures.size())
             {
-                throw std::out_of_range(
-                    "Index was out of range. Must be non-negative and less than "
-                    "the size of the collection. (Parameter 'index')");
+                throw System::ArgumentOutOfRangeException();
             }
             const std::shared_ptr<Q3Texture>& textureRef
                 = textures[static_cast<std::size_t>(textureIndex)];
@@ -332,8 +341,7 @@ namespace
         if (index < 0
             || static_cast<std::uint64_t>(index) >= values.size())
         {
-            throw std::out_of_range(
-                "Index was outside the bounds of the array.");
+            throw System::IndexOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -346,8 +354,7 @@ namespace
         if (index < 0
             || static_cast<std::uint64_t>(index) >= values.size())
         {
-            throw std::out_of_range(
-                "Index was outside the bounds of the array.");
+            throw System::IndexOutOfRangeException();
         }
         values[static_cast<std::size_t>(index)] = value;
     }
@@ -766,8 +773,7 @@ namespace
                 if (index < 0
                     || static_cast<std::uint64_t>(index) >= lookup.size())
                 {
-                    throw std::out_of_range(
-                        "Index was outside the bounds of the array.");
+                    throw System::IndexOutOfRangeException();
                 }
                 lookup[static_cast<std::size_t>(index)]
                     = static_cast<std::uint8_t>(i);
@@ -801,13 +807,11 @@ namespace
         const std::string path = RequirePath(outputPath);
         if (path.empty())
         {
-            throw std::invalid_argument(
-                "The value cannot be an empty string. (Parameter 'path')");
+            throw System::ArgumentException();
         }
         if (path.find('\0') != std::string::npos)
         {
-            throw std::invalid_argument(
-                "Null character in path. (Parameter 'path')");
+            throw System::ArgumentException();
         }
 
         const std::filesystem::path absolute

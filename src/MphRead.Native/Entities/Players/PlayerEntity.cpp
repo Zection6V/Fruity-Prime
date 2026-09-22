@@ -914,7 +914,7 @@ namespace MphRead::Entities
         _gunViewBob = 0.0F;
         _walkViewBob = 0.0F;
 
-        if (GameState::SinglePlayer() && MphRead::CameraSequence::Current() != nullptr)
+        if (GameState::SinglePlayer() && MphRead::Formats::CameraSequence::Current() != nullptr)
         {
             _camSwitchTimer = static_cast<std::uint16_t>(_values.CamSwitchTime * 2);
             _viewTiltAngleH = 0.0F;
@@ -922,12 +922,12 @@ namespace MphRead::Entities
         }
         else
         {
-            MphRead::CameraSequence* currentSequence = nullptr;
+            MphRead::Formats::CameraSequence* currentSequence = nullptr;
             if (IsMainPlayer() && GameState::Multiplayer()
-                && (currentSequence = MphRead::CameraSequence::Current()) != nullptr
+                && (currentSequence = MphRead::Formats::CameraSequence::Current()) != nullptr
                 && currentSequence->IsIntro())
             {
-                currentSequence->End();
+                RequireReference(MphRead::Formats::CameraSequence::Current()).End();
             }
             RequireReference(_cameraInfo).Reset();
             RequireReference(_cameraInfo).Position = Position;
@@ -1079,7 +1079,7 @@ namespace MphRead::Entities
     {
         assert(_enemySpawner != nullptr);
         assert(GameState::Mode() == GameMode::SinglePlayer);
-        EnemySpawnFields09 data = RequireReference(_enemySpawner).Data.Fields.S09;
+        EnemySpawnFields09 data = RequireReference(_enemySpawner).Data.Fields.S09();
         _healthMax = data.HunterHealthMax;
         _health = data.HunterHealth;
         RequireReference(AiData).HealthThreshold = data.HunterHealthThreshold;
@@ -1805,9 +1805,9 @@ namespace MphRead::Entities
         {
             return;
         }
-        MphRead::CameraSequence* currentSequence = nullptr;
+        MphRead::Formats::CameraSequence* currentSequence = nullptr;
         if (IsMainPlayer()
-            && (currentSequence = MphRead::CameraSequence::Current()) != nullptr
+            && (currentSequence = MphRead::Formats::CameraSequence::Current()) != nullptr
             && currentSequence->BlockInput())
         {
             if (!TestFlag(flags, DamageFlags::Death))

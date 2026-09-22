@@ -1040,7 +1040,7 @@ namespace MphRead::Entities
                     * (Mods::InputSettings::InvertMouseX() ? -1.0F : 1.0F);
                 if ((Formats::CameraSequence::Current() != nullptr
                         && TestFlag(Formats::CameraSequence::Current()->Flags(), Formats::CamSeqFlags::BlockInput))
-                    || RequireReference(_scene).FrameAdvance() || RequireReference(_scene).FrameAdvance()LastFrame())
+                    || RequireReference(_scene).FrameAdvance() || RequireReference(_scene).FrameAdvanceLastFrame())
                 {
                     aimX = aimY = 0.0F;
                 }
@@ -1768,7 +1768,7 @@ namespace MphRead::Entities
                         * (Mods::InputSettings::InvertMouseX() ? -1.0F : 1.0F);
                     if ((Formats::CameraSequence::Current() != nullptr
                             && TestFlag(Formats::CameraSequence::Current()->Flags(), Formats::CamSeqFlags::BlockInput))
-                        || RequireReference(_scene).FrameAdvance() || RequireReference(_scene).FrameAdvance()LastFrame())
+                        || RequireReference(_scene).FrameAdvance() || RequireReference(_scene).FrameAdvanceLastFrame())
                     {
                         aimX = aimY = 0.0F;
                     }

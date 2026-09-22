@@ -19,6 +19,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #else
+#include <fcntl.h>
 #include <spawn.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -255,11 +256,99 @@ namespace MphRead::Mods::Update
                 urlArgument.data(),
                 nullptr
             };
+
+#if defined(__ANDROID__) && __ANDROID_API__ < 28
+            // Android did not expose posix_spawnp until API 28, while this
+            // target supports API 24. Mirror Process.Start's synchronous
+            // exec-failure reporting with a close-on-exec pipe instead.
+            int pipefd[2]{-1, -1};
+            if (::pipe(pipefd) != 0)
+            {
+                return false;
+            }
+            const int flags = ::fcntl(pipefd[1], F_GETFD);
+            if (flags < 0 || ::fcntl(pipefd[1], F_SETFD, flags | FD_CLOEXEC) < 0)
+            {
+                ::close(pipefd[0]);
+                ::close(pipefd[1]);
+                return false;
+            }
+
+            child = ::fork();
+            if (child < 0)
+            {
+                ::close(pipefd[0]);
+                ::close(pipefd[1]);
+                return false;
+            }
+            if (child == 0)
+            {
+                ::close(pipefd[0]);
+                ::execvp(program, argv);
+
+                const int error = errno;
+                const char* bytes = reinterpret_cast<const char*>(&error);
+                std::size_t written = 0;
+                while (written < sizeof(error))
+                {
+                    const ssize_t count = ::write(
+                        pipefd[1], bytes + written, sizeof(error) - written);
+                    if (count > 0)
+                    {
+                        written += static_cast<std::size_t>(count);
+                    }
+                    else if (count < 0 && errno == EINTR)
+                    {
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                ::_exit(127);
+            }
+
+            ::close(pipefd[1]);
+            int launchError = 0;
+            std::size_t received = 0;
+            while (received < sizeof(launchError))
+            {
+                const ssize_t count = ::read(
+                    pipefd[0],
+                    reinterpret_cast<char*>(&launchError) + received,
+                    sizeof(launchError) - received);
+                if (count > 0)
+                {
+                    received += static_cast<std::size_t>(count);
+                }
+                else if (count == 0)
+                {
+                    break;
+                }
+                else if (errno == EINTR)
+                {
+                    continue;
+                }
+                else
+                {
+                    received = sizeof(launchError);
+                    break;
+                }
+            }
+            ::close(pipefd[0]);
+            if (received != 0)
+            {
+                ReapChild(child);
+                return false;
+            }
+#else
             const int error = ::posix_spawnp(&child, program, nullptr, nullptr, argv, environ);
             if (error != 0)
             {
                 return false;
             }
+#endif
             try
             {
                 std::thread(ReapChild, child).detach();

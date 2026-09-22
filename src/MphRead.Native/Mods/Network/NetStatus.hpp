@@ -15,7 +15,8 @@ namespace MphRead::Mods::Network
     namespace Detail
     {
         struct NetStatusEndPoint;
-        using NetStatusSocketHandle = std::uintptr_t;
+        struct NetStatusSocketState;
+        using NetStatusSocketHandle = NetStatusSocketState*;
     }
 
     struct ServerStatus

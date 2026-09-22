@@ -66,6 +66,12 @@ namespace MphRead::Mods::Network::Detail
     constexpr NetStatusNativeSocket NetStatusInvalidSocket = -1;
 #endif
 
+    struct NetStatusSocketState
+    {
+        NetStatusNativeSocket Native = NetStatusInvalidSocket;
+        bool BroadcastEnabled = false;
+    };
+
     class NetStatusSocketException final : public std::system_error
     {
     public:
@@ -121,26 +127,6 @@ namespace MphRead::Mods::Network::Detail
     {
     }
 #endif
-
-    [[nodiscard]] NetStatusSocketHandle NetStatusToHandle(
-        NetStatusNativeSocket socket) noexcept
-    {
-#if defined(_WIN32)
-        return static_cast<NetStatusSocketHandle>(socket);
-#else
-        return static_cast<NetStatusSocketHandle>(static_cast<std::intptr_t>(socket));
-#endif
-    }
-
-    [[nodiscard]] NetStatusNativeSocket NetStatusFromHandle(
-        NetStatusSocketHandle handle) noexcept
-    {
-#if defined(_WIN32)
-        return static_cast<NetStatusNativeSocket>(handle);
-#else
-        return static_cast<NetStatusNativeSocket>(static_cast<std::intptr_t>(handle));
-#endif
-    }
 
     [[nodiscard]] sockaddr_in NetStatusToSockAddr(
         const NetStatusEndPoint& endPoint) noexcept
@@ -212,15 +198,15 @@ namespace MphRead::Mods::Network::Detail
 
     NetStatusSocketHandle NetStatusUdpClientCreateInterNetwork()
     {
+        auto state = std::make_unique<NetStatusSocketState>();
         NetStatusEnsureWinsock();
-        const NetStatusNativeSocket socket
-            = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (socket == NetStatusInvalidSocket)
+        state->Native = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (state->Native == NetStatusInvalidSocket)
         {
             throw NetStatusSocketException(
                 NetStatusLastSocketError(), "socket");
         }
-        return NetStatusToHandle(socket);
+        return state.release();
     }
 
     void NetStatusUdpClientSetReceiveTimeout(
@@ -231,7 +217,7 @@ namespace MphRead::Mods::Network::Detail
             throw std::out_of_range("timeoutMs");
         }
         const std::int32_t value = timeoutMs == -1 ? 0 : timeoutMs;
-        const NetStatusNativeSocket native = NetStatusFromHandle(socket);
+        const NetStatusNativeSocket native = socket->Native;
 #if defined(_WIN32)
         const DWORD timeout = static_cast<DWORD>(value);
         if (setsockopt(native, SOL_SOCKET, SO_RCVTIMEO,
@@ -256,7 +242,32 @@ namespace MphRead::Mods::Network::Detail
         const std::uint8_t* data, std::int32_t length,
         const NetStatusEndPoint& endPoint)
     {
-        const NetStatusNativeSocket native = NetStatusFromHandle(socket);
+        const NetStatusNativeSocket native = socket->Native;
+        const bool broadcast = endPoint.Address.Family == NetStatusAddressFamily::InterNetwork
+            && endPoint.Address.Bytes[0] == 0xFFU
+            && endPoint.Address.Bytes[1] == 0xFFU
+            && endPoint.Address.Bytes[2] == 0xFFU
+            && endPoint.Address.Bytes[3] == 0xFFU;
+        if (broadcast && !socket->BroadcastEnabled)
+        {
+            // UdpClient.CheckForBroadcast marks the instance before setting the
+            // socket option, and never retries that option on later sends.
+            socket->BroadcastEnabled = true;
+#if defined(_WIN32)
+            const BOOL enabled = TRUE;
+            if (setsockopt(native, SOL_SOCKET, SO_BROADCAST,
+                    reinterpret_cast<const char*>(&enabled), sizeof(enabled)) == SOCKET_ERROR)
+#else
+            const int enabled = 1;
+            if (setsockopt(native, SOL_SOCKET, SO_BROADCAST,
+                    &enabled, sizeof(enabled)) != 0)
+#endif
+            {
+                throw NetStatusSocketException(
+                    NetStatusLastSocketError(), "setsockopt(SO_BROADCAST)");
+            }
+        }
+
         const sockaddr_in target = NetStatusToSockAddr(endPoint);
 #if defined(_WIN32)
         const int sent = sendto(native,
@@ -278,7 +289,7 @@ namespace MphRead::Mods::Network::Detail
     std::vector<std::uint8_t> NetStatusUdpClientReceive(
         NetStatusSocketHandle socket, NetStatusEndPoint& from)
     {
-        const NetStatusNativeSocket native = NetStatusFromHandle(socket);
+        const NetStatusNativeSocket native = socket->Native;
         std::vector<std::uint8_t> data(65535);
         sockaddr_in sender{};
 #if defined(_WIN32)
@@ -309,16 +320,17 @@ namespace MphRead::Mods::Network::Detail
 
     void NetStatusUdpClientDispose(NetStatusSocketHandle socket)
     {
-        const NetStatusNativeSocket native = NetStatusFromHandle(socket);
-        if (native == NetStatusInvalidSocket)
+        std::unique_ptr<NetStatusSocketState> state(socket);
+        if (!state || state->Native == NetStatusInvalidSocket)
         {
             return;
         }
 #if defined(_WIN32)
-        (void)closesocket(native);
+        (void)closesocket(state->Native);
 #else
-        (void)::close(native);
+        (void)::close(state->Native);
 #endif
+        state->Native = NetStatusInvalidSocket;
     }
 
     std::int64_t NetStatusDateTimeUtcNowTicks()

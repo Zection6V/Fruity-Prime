@@ -1086,7 +1086,7 @@ namespace MphRead::Mods::Update
             client.AddUserAgent(std::string(Mods::Branding::FileName) + "/"
                 + BuildVersion::Display());
             client.AddAccept("application/vnd.github+json");
-            CurlRequestMessage request(std::string(Api));
+            CurlRequestMessage request{std::string(Api)};
             std::unique_ptr<HttpResponseMessage> response = SyncHttp::Send(&client,
                 &request, HttpCompletionOption::ResponseContentRead, cancel);
             auto* concrete = dynamic_cast<CurlResponseMessage*>(response.get());

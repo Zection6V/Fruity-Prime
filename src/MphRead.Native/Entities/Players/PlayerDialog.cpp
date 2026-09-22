@@ -400,20 +400,15 @@ namespace MphRead::Entities
         std::int32_t duration, bool unpause)
     {
         auto message = Text::Strings::GetHudMessage(messageId);
-        if (!message)
-        {
-            CloseDialogs();
-            return;
-        }
         if (_overlayMessage1)
         {
-            if (RequireOptional(_overlayMessage1) == RequireOptional(message))
+            if (RequireOptional(_overlayMessage1) == message)
             {
                 _overlayTimer = duration / 30.0F;
             }
             return;
         }
-        _overlayMessage1 = RequireOptional(message);
+        _overlayMessage1 = message;
         _overlayMessage2.reset();
         _dialogValue1.reset();
         _dialogValue2.reset();
@@ -445,22 +440,22 @@ namespace MphRead::Entities
         EndWeaponMenu();
         if (entry->Prefix == 'G')
         {
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::GUNSHIP_TRANSMISSION);
+            _soundSource.PlayFreeSfx(SfxId::GUNSHIP_TRANSMISSION);
         }
         else if (entry->Prefix == 'H')
         {
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::GAME_HINT);
+            _soundSource.PlayFreeSfx(SfxId::GAME_HINT);
         }
         else if (entry->Prefix == 'T')
         {
-            RequireReference(_soundSource).StopFreeSfxScripts();
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::TELEPATHIC_MESSAGE);
+            _soundSource.StopFreeSfxScripts();
+            _soundSource.PlayFreeSfx(SfxId::TELEPATHIC_MESSAGE);
         }
         else if (entry->Prefix == 'B')
         {
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::GUNSHIP_TRANSMISSION);
-            RequireReference(_soundSource).StopFreeSfxScripts();
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::TELEPATHIC_MESSAGE);
+            _soundSource.PlayFreeSfx(SfxId::GUNSHIP_TRANSMISSION);
+            _soundSource.StopFreeSfxScripts();
+            _soundSource.PlayFreeSfx(SfxId::TELEPATHIC_MESSAGE);
         }
         GameState::PauseDialog();
         _overlayMessage1 = entry->Value1;
@@ -531,7 +526,7 @@ namespace MphRead::Entities
             || _eventType == ::MphRead::Entities::EventType::UATank)
         {
             Music::FadeVolume(50.0F / 127.0F, 5.0F / 30.0F);
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::GET_ITEM);
+            _soundSource.PlayFreeSfx(SfxId::GET_ITEM);
             _dialogConfirmTimer = 60.0F / 30.0F;
             if (_eventType != ::MphRead::Entities::EventType::UATank)
             {
@@ -544,7 +539,7 @@ namespace MphRead::Entities
         {
             Music::Pause();
             Music::PlaySeq(SeqId::GET_WEAPON);
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::WEAPON_POWER_UP);
+            _soundSource.PlayFreeSfx(SfxId::WEAPON_POWER_UP);
             _dialogConfirmTimer = 150.0F / 30.0F;
             RequireReference(_dialogPickupInst).SetIndex(
                 static_cast<std::int32_t>(_eventType), RequireReference(_scene));
@@ -553,7 +548,7 @@ namespace MphRead::Entities
             || _eventType == ::MphRead::Entities::EventType::Artifact)
         {
             Music::FadeVolume(50.0F / 127.0F, 5.0F / 30.0F);
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::GET_ITEM2);
+            _soundSource.PlayFreeSfx(SfxId::GET_ITEM2);
             _dialogConfirmTimer = 60.0F / 30.0F;
             if (_eventType == ::MphRead::Entities::EventType::OmegaCannon)
             {
@@ -602,7 +597,7 @@ namespace MphRead::Entities
         RequireReference(_dialogButtonInst).SetIndex(0, RequireReference(_scene));
         RequireReference(_dialogArrowInst).SetIndex(0, RequireReference(_scene));
         RequireReference(_dialogCrystalInst).SetIndex(0, RequireReference(_scene));
-        RequireReference(_scene).Layer5Info.BindingId = -1;
+        RequireReference(RequireReference(_scene).Layer5Info()).BindingId = -1;
     }
 
     void PlayerEntity::UpdateDialogs()
@@ -614,7 +609,7 @@ namespace MphRead::Entities
             if (_dialogType == ::MphRead::Entities::DialogType::Overlay
                 || _dialogType == ::MphRead::Entities::DialogType::Hud)
             {
-                _overlayTimer -= scene.FrameTime;
+                _overlayTimer -= scene.FrameTime();
                 if (_overlayTimer <= 0.0F)
                 {
                     CloseDialogs();
@@ -624,7 +619,7 @@ namespace MphRead::Entities
             messageBox.ProcessAnimation(scene);
             if (messageBox.Time - messageBox.Timer >= 16.0F / 30.0F)
             {
-                _dialogCharTimer += scene.FrameTime;
+                _dialogCharTimer += scene.FrameTime();
             }
             if (messageBox.CurrentFrame >= 5)
             {
@@ -682,7 +677,7 @@ namespace MphRead::Entities
                         RestartLongSfx();
                     }
                     const bool scan = _dialogType == ::MphRead::Entities::DialogType::Scan;
-                    RequireReference(_soundSource).PlayFreeSfx(SfxId::SCAN_OK);
+                    _soundSource.PlayFreeSfx(SfxId::SCAN_OK);
                     CloseDialogs();
                     _dialogConfirmState = ::MphRead::Entities::ConfirmState::Okay;
                     GameState::UnpauseDialog();
@@ -702,7 +697,7 @@ namespace MphRead::Entities
                 {
                     if (_dialogPageIndex != ManagedSubtract(_dialogPageCount, 1))
                     {
-                        RequireReference(_soundSource).PlayFreeSfx(SfxId::SCAN_SCROLL_BUTTONS);
+                        _soundSource.PlayFreeSfx(SfxId::SCAN_SCROLL_BUTTONS);
                         _dialogPageIndex = ManagedIncrement(_dialogPageIndex);
                     }
                 }
@@ -710,13 +705,13 @@ namespace MphRead::Entities
                 {
                     if (_dialogPageIndex != 0)
                     {
-                        RequireReference(_soundSource).PlayFreeSfx(SfxId::SCAN_SCROLL_BUTTONS);
+                        _soundSource.PlayFreeSfx(SfxId::SCAN_SCROLL_BUTTONS);
                         _dialogPageIndex = ManagedDecrement(_dialogPageIndex);
                     }
                 }
                 if (_dialogConfirmTimer > 0.0F)
                 {
-                    _dialogConfirmTimer -= scene.FrameTime;
+                    _dialogConfirmTimer -= scene.FrameTime();
                 }
                 if (_dialogPageIndex == ManagedSubtract(_dialogPageCount, 1))
                 {
@@ -812,8 +807,8 @@ namespace MphRead::Entities
                 if (characters > _prevOverlayCharacters
                     && characters <= ManagedStringLength(RequireOptional(_overlayMessage1)))
                 {
-                    RequireReference(_soundSource).StopFreeSfx(SfxId::LETTER_BLIP);
-                    RequireReference(_soundSource).PlayFreeSfx(SfxId::LETTER_BLIP);
+                    _soundSource.StopFreeSfx(SfxId::LETTER_BLIP);
+                    _soundSource.PlayFreeSfx(SfxId::LETTER_BLIP);
                     _prevOverlayCharacters = characters;
                 }
             }
@@ -869,7 +864,7 @@ namespace MphRead::Entities
             assert(_overlayMessage1.has_value());
             auto text = Text::Strings::GetHudMessage(102);
             DrawText2D(128.0F + _objShiftX, 58.0F + _objShiftY,
-                Hud::Align::Center, 0, RequireOptional(text));
+                Hud::Align::Center, 0, text);
             auto iconInst = ManagedAt(_scanIconInsts, ManagedMultiply(_scanCategoryIndex, 2));
             auto& icon = RequireReference(iconInst);
             icon.PositionX = 20.0F / 256.0F;
@@ -903,10 +898,10 @@ namespace MphRead::Entities
             DrawText2D(128.0F, 134.0F + static_cast<float>(scanYOffset),
                 Hud::Align::Center, 0, text);
             RequireReference(_textInst).SetPaletteData(_textPaletteData, scene);
-            scene.Layer5Info.BindingId = ManagedAt(_dialogBindingIds, layerIndex);
-            scene.Layer5Info.Alpha = 1.0F;
-            scene.Layer5Info.ScaleX = 1.0F;
-            scene.Layer5Info.ScaleY = 1.0F;
+            RequireReference(scene.Layer5Info()).BindingId = ManagedAt(_dialogBindingIds, layerIndex);
+            RequireReference(scene.Layer5Info()).Alpha = 1.0F;
+            RequireReference(scene.Layer5Info()).ScaleX = 1.0F;
+            RequireReference(scene.Layer5Info()).ScaleY = 1.0F;
             if (_dialogPageIndex != ManagedSubtract(_dialogPageCount, 1))
             {
                 auto& arrow = RequireReference(_dialogArrowInst);
@@ -946,10 +941,10 @@ namespace MphRead::Entities
             scene.DrawHudObject(_dialogButtonInst);
             auto text = Text::Strings::GetHudMessage(105);
             float textPosX = posX - static_cast<float>(button.Width / 2);
-            DrawText2D(textPosX, posY + 5.0F, Hud::Align::Center, 0, RequireOptional(text));
+            DrawText2D(textPosX, posY + 5.0F, Hud::Align::Center, 0, text);
             text = Text::Strings::GetHudMessage(106);
             textPosX = posX + static_cast<float>(button.Width) * 1.5F + 1.0F;
-            DrawText2D(textPosX, posY + 5.0F, Hud::Align::Center, 0, RequireOptional(text));
+            DrawText2D(textPosX, posY + 5.0F, Hud::Align::Center, 0, text);
         }
         else
         {
@@ -958,17 +953,17 @@ namespace MphRead::Entities
             scene.DrawHudObject(_dialogButtonInst);
             auto text = Text::Strings::GetHudMessage(104);
             DrawText2D(posX + static_cast<float>(button.Width / 2) + 1.0F,
-                posY + 5.0F, Hud::Align::Center, 0, RequireOptional(text));
+                posY + 5.0F, Hud::Align::Center, 0, text);
         }
     }
 
     bool PlayerEntity::CheckButtonPressed(DialogButton type)
     {
-        if (Input::ClickX() >= 0.0F && Input::ClickY() >= 0.0F)
+        if (_input.ClickX >= 0.0F && _input.ClickY >= 0.0F)
         {
             const auto& scene = RequireReference(_scene);
-            const float clickX = Input::ClickX() / scene.Size.X;
-            const float clickY = Input::ClickY() / scene.Size.Y;
+            const float clickX = _input.ClickX / scene.Size().X;
+            const float clickY = _input.ClickY / scene.Size().Y;
             const ButtonInfo info = ManagedAt(_buttonInfo, static_cast<std::int32_t>(type));
             if (clickX >= info.Left && clickX < info.Right
                 && clickY >= info.Top && clickY < info.Bottom)

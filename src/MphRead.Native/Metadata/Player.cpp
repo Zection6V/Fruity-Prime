@@ -5,7 +5,7 @@ namespace MphRead::Metadata
 {
     using OpenTK::Mathematics::Vector3;
 
-    const std::array<Vector3, 16> SpireAltVectors = {
+    std::array<Vector3, 16> SpireAltVectors = {
         Vector3(Fixed::ToFloat(262), Fixed::ToFloat(-2465), Fixed::ToFloat(-1417)),
         Vector3(Fixed::ToFloat(724), Fixed::ToFloat(3129), Fixed::ToFloat(192)),
         Vector3(Fixed::ToFloat(2772), Fixed::ToFloat(-770), Fixed::ToFloat(-311)),
@@ -24,10 +24,10 @@ namespace MphRead::Metadata
         Vector3(Fixed::ToFloat(-536), Fixed::ToFloat(-737), Fixed::ToFloat(-3047))
     };
 
-    const std::array<float, 4> SlipSpeedFactors = { 0.0F, -0.5F, 0.9F, 0.94F };
-    const std::array<float, 4> TractionFactors = { 1.0F, 0.2F, 0.6F, 0.5F };
+    std::array<float, 4> SlipSpeedFactors = { 0.0F, -0.5F, 0.9F, 0.94F };
+    std::array<float, 4> TractionFactors = { 1.0F, 0.2F, 0.6F, 0.5F };
 
-    const std::array<Vector3, 8> MuzzleOffests = {
+    std::array<Vector3, 8> MuzzleOffests = {
         Vector3(0.63F, -0.02F, 0.0F),
         Vector3(0.6F, 0.0F, 0.0F),
         Vector3(1.2F, 0.0F, -0.2F),
@@ -38,11 +38,11 @@ namespace MphRead::Metadata
         Vector3(0.0F, 0.0F, 0.32F)
     };
 
-    const std::array<std::int32_t, 9> MuzzleEffectIds = { 62, 57, 62, 60, 63, 59, 61, 58, 62 };
-    const std::array<std::int32_t, 9> ChargeEffectIds = { 169, 165, 170, 169, 169, 166, 168, 169, 169 };
-    const std::array<std::int32_t, 9> ChargeLoopEffectIds = { 198, 194, 197, 198, 198, 195, 196, 198, 198 };
+    std::array<std::int32_t, 9> MuzzleEffectIds = { 62, 57, 62, 60, 63, 59, 61, 58, 62 };
+    std::array<std::int32_t, 9> ChargeEffectIds = { 169, 165, 170, 169, 169, 166, 168, 169, 169 };
+    std::array<std::int32_t, 9> ChargeLoopEffectIds = { 198, 194, 197, 198, 198, 195, 196, 198, 198 };
 
-    const std::array<std::array<std::array<std::int32_t, 10>, 13>, 8> GunAnimationIds = {{
+    std::array<std::array<std::array<std::int32_t, 10>, 13>, 8> GunAnimationIds = {{
         // Samus
         {{
             {{ 0, -1, 3, -1, 25, 48, 17, 33, 10, -1 }},

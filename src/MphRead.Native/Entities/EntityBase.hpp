@@ -22,7 +22,6 @@ namespace MphRead
     class MessageInfo;
     class Node;
     class Scene;
-    struct DamageResult;
 
     namespace Formats::Collision
     {
@@ -33,6 +32,8 @@ namespace MphRead
 
 namespace MphRead::Entities
 {
+    struct DamageResult;
+
     class EntityBase
     {
     private:

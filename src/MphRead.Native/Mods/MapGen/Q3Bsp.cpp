@@ -1,5 +1,6 @@
 #include "Q3Bsp.hpp"
 
+#include "../../Formats/Types.hpp"
 #include "../../Program.hpp"
 
 #include <algorithm>
@@ -29,6 +30,27 @@
 #include <locale.h>
 #include <dlfcn.h>
 #endif
+
+namespace System::IO
+{
+    class EndOfStreamException final : public std::runtime_error
+    {
+    public:
+        EndOfStreamException()
+            : std::runtime_error("Unable to read beyond the end of the stream.")
+        {
+        }
+    };
+
+    class InvalidDataException final : public std::runtime_error
+    {
+    public:
+        explicit InvalidDataException(const std::string& message)
+            : std::runtime_error(message)
+        {
+        }
+    };
+}
 
 namespace
 {
@@ -342,7 +364,7 @@ namespace
     {
         if (position > bytes.size() || bytes.size() - position < 2)
         {
-            throw std::runtime_error("Unexpected end of data.");
+            throw System::IO::InvalidDataException("Unexpected end of data.");
         }
         return static_cast<std::uint16_t>(bytes[position])
             | static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes[position + 1]) << 8);
@@ -352,7 +374,7 @@ namespace
     {
         if (position > bytes.size() || bytes.size() - position < 4)
         {
-            throw std::runtime_error("Unexpected end of data.");
+            throw System::IO::InvalidDataException("Unexpected end of data.");
         }
         return static_cast<std::uint32_t>(bytes[position])
             | (static_cast<std::uint32_t>(bytes[position + 1]) << 8)
@@ -402,7 +424,7 @@ namespace
     {
         if (offset > bytes.size() || count > bytes.size() - offset)
         {
-            throw std::out_of_range("ASCII byte range is outside the source array.");
+            throw System::ArgumentOutOfRangeException();
         }
         return DecodeAscii(bytes.data() + offset, count);
     }
@@ -462,7 +484,7 @@ namespace
         {
             if (value < 0)
             {
-                throw std::out_of_range("Stream position cannot be negative.");
+                throw System::ArgumentOutOfRangeException();
             }
             _position = static_cast<std::uint64_t>(value);
         }
@@ -518,8 +540,7 @@ namespace
                 {
                     // Decoder.GetChars throws when a complete surrogate pair cannot
                     // fit in the remaining destination rather than splitting it.
-                    throw std::runtime_error(
-                        "The output char buffer is too small to contain the decoded characters.");
+                    throw System::ArgumentException();
                 }
                 AppendUtf8(result, scalar);
                 charCount += units;
@@ -535,7 +556,7 @@ namespace
         {
             if (_position > _bytes.size() || _bytes.size() - static_cast<std::size_t>(_position) < 4)
             {
-                throw std::runtime_error("Unable to read beyond the end of the stream.");
+                throw System::IO::EndOfStreamException();
             }
             const std::uint32_t value = ReadU32(_bytes, static_cast<std::size_t>(_position));
             _position += 4;
@@ -561,7 +582,7 @@ namespace
             {
                 if (_bitPosition >= _bytes.size() * 8ULL)
                 {
-                    throw std::runtime_error("Invalid deflate stream.");
+                    throw System::IO::InvalidDataException("Invalid deflate stream.");
                 }
                 const std::size_t byteIndex = _bitPosition >> 3;
                 const std::size_t bitIndex = _bitPosition & 7;
@@ -592,7 +613,7 @@ namespace
         {
             if (length > MaxBits)
             {
-                throw std::runtime_error("Invalid deflate Huffman code length.");
+                throw System::IO::InvalidDataException("Invalid deflate Huffman code length.");
             }
             if (length != 0)
             {
@@ -630,7 +651,7 @@ namespace
             }
             if (nodes[node].symbol >= 0)
             {
-                throw std::runtime_error("Invalid deflate Huffman tree.");
+                throw System::IO::InvalidDataException("Invalid deflate Huffman tree.");
             }
             nodes[node].symbol = static_cast<std::int32_t>(symbol);
         }
@@ -650,10 +671,10 @@ namespace
             node = tree[node].child[bit];
             if (node < 0)
             {
-                throw std::runtime_error("Invalid deflate Huffman code.");
+                throw System::IO::InvalidDataException("Invalid deflate Huffman code.");
             }
         }
-        throw std::runtime_error("Invalid deflate Huffman code.");
+        throw System::IO::InvalidDataException("Invalid deflate Huffman code.");
     }
 
     [[nodiscard]] bool InflateCodes(BitReader& reader, ByteVector& output,
@@ -685,7 +706,7 @@ namespace
             }
             if (symbol < 257 || symbol > 285)
             {
-                throw std::runtime_error("Invalid deflate length code.");
+                throw System::IO::InvalidDataException("Invalid deflate length code.");
             }
             const std::size_t lengthIndex = static_cast<std::size_t>(symbol - 257);
             std::int32_t length = LengthBase[lengthIndex];
@@ -704,7 +725,7 @@ namespace
             const std::int32_t distanceCodeCount = deflate64 ? 32 : 30;
             if (distanceSymbol < 0 || distanceSymbol >= distanceCodeCount)
             {
-                throw std::runtime_error("Invalid deflate distance code.");
+                throw System::IO::InvalidDataException("Invalid deflate distance code.");
             }
             std::int32_t distance = DistanceBase[distanceSymbol];
             if (DistanceExtra[distanceSymbol] != 0)
@@ -713,7 +734,7 @@ namespace
             }
             if (distance <= 0 || static_cast<std::size_t>(distance) > output.size())
             {
-                throw std::runtime_error("Invalid deflate distance.");
+                throw System::IO::InvalidDataException("Invalid deflate distance.");
             }
             for (std::int32_t i = 0; i < length; ++i)
             {
@@ -739,20 +760,20 @@ namespace
                 std::size_t position = reader.BytePosition();
                 if (position > input.size() || input.size() - position < 4)
                 {
-                    throw std::runtime_error("Invalid stored deflate block.");
+                    throw System::IO::InvalidDataException("Invalid stored deflate block.");
                 }
                 const std::uint16_t length = ReadU16(input, position);
                 const std::uint16_t complement = ReadU16(input, position + 2);
                 position += 4;
                 if (static_cast<std::uint16_t>(~length) != complement)
                 {
-                    throw std::runtime_error("Invalid stored deflate block.");
+                    throw System::IO::InvalidDataException("Invalid stored deflate block.");
                 }
                 const std::size_t remaining = outputLimit - output.size();
                 const std::size_t copyCount = std::min<std::size_t>(length, remaining);
                 if (position > input.size() || copyCount > input.size() - position)
                 {
-                    throw std::runtime_error("Invalid stored deflate block.");
+                    throw System::IO::InvalidDataException("Invalid stored deflate block.");
                 }
                 output.insert(output.end(),
                     input.begin() + static_cast<std::ptrdiff_t>(position),
@@ -795,7 +816,7 @@ namespace
                     }
                     else if (symbol == 16)
                     {
-                        if (lengths.empty()) throw std::runtime_error("Invalid deflate repeat code.");
+                        if (lengths.empty()) throw System::IO::InvalidDataException("Invalid deflate repeat code.");
                         const std::int32_t repeat = static_cast<std::int32_t>(reader.ReadBits(2)) + 3;
                         const std::uint8_t value = lengths.back();
                         for (std::int32_t i = 0; i < repeat; ++i) lengths.push_back(value);
@@ -812,11 +833,11 @@ namespace
                     }
                     else
                     {
-                        throw std::runtime_error("Invalid deflate code-length symbol.");
+                        throw System::IO::InvalidDataException("Invalid deflate code-length symbol.");
                     }
                     if (static_cast<std::int32_t>(lengths.size()) > literalCount + distanceCount)
                     {
-                        throw std::runtime_error("Invalid deflate code lengths.");
+                        throw System::IO::InvalidDataException("Invalid deflate code lengths.");
                     }
                 }
                 std::vector<std::uint8_t> literalLengths(lengths.begin(), lengths.begin() + literalCount);
@@ -826,7 +847,7 @@ namespace
             }
             else
             {
-                throw std::runtime_error("Invalid deflate block type.");
+                throw System::IO::InvalidDataException("Invalid deflate block type.");
             }
         }
         return output;
@@ -849,13 +870,13 @@ namespace
     {
         if (position > field.size() || field.size() - position < 8)
         {
-            throw std::runtime_error("Invalid ZIP64 extra field.");
+            throw System::IO::InvalidDataException("Invalid ZIP64 extra field.");
         }
         const std::uint64_t value = ReadU64(field, position);
         position += 8;
         if (value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
         {
-            throw std::runtime_error("ZIP64 field is too large.");
+            throw System::IO::InvalidDataException("ZIP64 field is too large.");
         }
         return value;
     }
@@ -940,7 +961,7 @@ namespace
     {
         if (archive.size() < 22)
         {
-            throw std::runtime_error("Central Directory corrupt.");
+            throw System::IO::InvalidDataException("Central Directory corrupt.");
         }
         const std::size_t searchStart = archive.size() > 65557
             ? archive.size() - 65557 : 0;
@@ -959,20 +980,20 @@ namespace
         }
         if (eocd == std::numeric_limits<std::size_t>::max())
         {
-            throw std::runtime_error("End of Central Directory record could not be found.");
+            throw System::IO::InvalidDataException("End of Central Directory record could not be found.");
         }
 
         const std::uint16_t eocdDisk = ReadU16(archive, eocd + 4);
         const std::uint16_t eocdCentralDisk = ReadU16(archive, eocd + 6);
         if (eocdDisk != eocdCentralDisk)
         {
-            throw std::runtime_error("Split or spanned ZIP archives are not supported.");
+            throw System::IO::InvalidDataException("Split or spanned ZIP archives are not supported.");
         }
         const std::uint16_t entriesOnDisk = ReadU16(archive, eocd + 8);
         const std::uint16_t totalEntries = ReadU16(archive, eocd + 10);
         if (entriesOnDisk != totalEntries)
         {
-            throw std::runtime_error("Split or spanned ZIP archives are not supported.");
+            throw System::IO::InvalidDataException("Split or spanned ZIP archives are not supported.");
         }
 
         std::uint32_t archiveDiskNumber = eocdDisk;
@@ -987,13 +1008,13 @@ namespace
             if (zip64Offset > static_cast<std::uint64_t>(
                     std::numeric_limits<std::int64_t>::max()))
             {
-                throw std::runtime_error("ZIP64 End of Central Directory offset is too large.");
+                throw System::IO::InvalidDataException("ZIP64 End of Central Directory offset is too large.");
             }
             if (zip64Offset > archive.size()
                 || archive.size() - static_cast<std::size_t>(zip64Offset) < 56
                 || ReadU32(archive, static_cast<std::size_t>(zip64Offset)) != 0x06064B50U)
             {
-                throw std::runtime_error("ZIP64 End of Central Directory record is invalid.");
+                throw System::IO::InvalidDataException("ZIP64 End of Central Directory record is invalid.");
             }
 
             const std::size_t offset = static_cast<std::size_t>(zip64Offset);
@@ -1004,16 +1025,16 @@ namespace
             if (zip64EntryCount > static_cast<std::uint64_t>(
                     std::numeric_limits<std::int64_t>::max()))
             {
-                throw std::runtime_error("ZIP64 entry count is too large.");
+                throw System::IO::InvalidDataException("ZIP64 entry count is too large.");
             }
             if (zip64CentralOffset > static_cast<std::uint64_t>(
                     std::numeric_limits<std::int64_t>::max()))
             {
-                throw std::runtime_error("ZIP64 Central Directory offset is too large.");
+                throw System::IO::InvalidDataException("ZIP64 Central Directory offset is too large.");
             }
             if (zip64EntryCount != zip64EntriesOnDisk)
             {
-                throw std::runtime_error("Split or spanned ZIP archives are not supported.");
+                throw System::IO::InvalidDataException("Split or spanned ZIP archives are not supported.");
             }
             entryCount = zip64EntryCount;
             centralOffset = zip64CentralOffset;
@@ -1021,13 +1042,13 @@ namespace
 
         if (centralOffset > archive.size())
         {
-            throw std::runtime_error("Central Directory corrupt.");
+            throw System::IO::InvalidDataException("Central Directory corrupt.");
         }
         if (entryCount > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
             || entryCount > static_cast<std::uint64_t>(
                 std::numeric_limits<std::size_t>::max()))
         {
-            throw std::length_error("Too many ZIP entries.");
+            throw System::IO::InvalidDataException("Too many ZIP entries.");
         }
 
         std::vector<ZipEntry> entries;
@@ -1037,7 +1058,7 @@ namespace
         {
             if (archive.size() - cursor < 46)
             {
-                throw std::runtime_error("Central Directory corrupt.");
+                throw System::IO::InvalidDataException("Central Directory corrupt.");
             }
 
             ZipEntry entry;
@@ -1055,7 +1076,7 @@ namespace
                 + static_cast<std::size_t>(commentLength);
             if (46 + variable > archive.size() - cursor)
             {
-                throw std::runtime_error("Central Directory corrupt.");
+                throw System::IO::InvalidDataException("Central Directory corrupt.");
             }
 
             entry.name = DecodeZipName(archive.data() + cursor + 46, nameLength);
@@ -1080,7 +1101,7 @@ namespace
 
         if (entries.size() != static_cast<std::size_t>(entryCount))
         {
-            throw std::runtime_error("Central Directory entry count is incorrect.");
+            throw System::IO::InvalidDataException("Central Directory entry count is incorrect.");
         }
         return entries;
     }
@@ -1089,21 +1110,21 @@ namespace
     {
         if (entry.method != 0 && entry.method != 8 && entry.method != 9)
         {
-            throw std::runtime_error("The ZIP entry uses an unsupported compression method.");
+            throw System::IO::InvalidDataException("The ZIP entry uses an unsupported compression method.");
         }
         if (entry.diskNumberStart != entry.archiveDiskNumber)
         {
-            throw std::runtime_error("Split or spanned ZIP archives are not supported.");
+            throw System::IO::InvalidDataException("Split or spanned ZIP archives are not supported.");
         }
         if (entry.localOffset > archive.size()
             || archive.size() - static_cast<std::size_t>(entry.localOffset) < 30)
         {
-            throw std::runtime_error("Local file header is invalid.");
+            throw System::IO::InvalidDataException("Local file header is invalid.");
         }
         const std::size_t local = static_cast<std::size_t>(entry.localOffset);
         if (ReadU32(archive, local) != 0x04034B50U)
         {
-            throw std::runtime_error("Local file header is invalid.");
+            throw System::IO::InvalidDataException("Local file header is invalid.");
         }
         const std::uint16_t nameLength = ReadU16(archive, local + 26);
         const std::uint16_t extraLength = ReadU16(archive, local + 28);
@@ -1111,14 +1132,14 @@ namespace
         if (dataOffset64 > archive.size()
             || entry.compressedSize > archive.size() - static_cast<std::size_t>(dataOffset64))
         {
-            throw std::runtime_error("ZIP entry data is invalid.");
+            throw System::IO::InvalidDataException("ZIP entry data is invalid.");
         }
         if (entry.compressedSize
             > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
             || entry.uncompressedSize
             > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
         {
-            throw std::length_error("ZIP entry is too large.");
+            throw System::IO::InvalidDataException("ZIP entry is too large.");
         }
 
         const std::size_t dataOffset = static_cast<std::size_t>(dataOffset64);
@@ -1138,7 +1159,7 @@ namespace
         {
             return InflateRaw(compressed, static_cast<std::size_t>(entry.uncompressedSize), true);
         }
-        throw std::runtime_error("The ZIP entry uses an unsupported compression method.");
+        throw System::IO::InvalidDataException("The ZIP entry uses an unsupported compression method.");
     }
 
     [[nodiscard]] bool CultureLess(const std::string& left, const std::string& right)
@@ -1216,7 +1237,7 @@ namespace
         const std::int32_t count = lump.second / size;
         if (count < 0)
         {
-            throw std::out_of_range("List capacity cannot be negative.");
+            throw System::ArgumentOutOfRangeException();
         }
         std::vector<T> results;
         results.reserve(static_cast<std::size_t>(count));
@@ -1721,7 +1742,7 @@ namespace MphRead::Mods::MapGen
     {
         if (bspReference == nullptr)
         {
-            throw std::runtime_error("Object reference not set to an instance of an object.");
+            throw System::NullReferenceException();
         }
         const std::vector<std::uint8_t>& bsp = *bspReference;
         constexpr std::size_t HeaderSize = 8 + 17 * 8;
@@ -1753,7 +1774,7 @@ namespace MphRead::Mods::MapGen
             const std::size_t count = static_cast<std::size_t>(length);
             if (begin > bsp.size() || count > bsp.size() - begin)
             {
-                throw std::out_of_range("Source span is outside the BSP array.");
+                throw System::ArgumentOutOfRangeException();
             }
             output.insert(output.end(),
                 bsp.begin() + static_cast<std::ptrdiff_t>(begin),
@@ -1857,7 +1878,7 @@ namespace MphRead::Mods::MapGen
     {
         if (source == nullptr)
         {
-            throw std::runtime_error("Object reference not set to an instance of an object.");
+            throw System::NullReferenceException();
         }
         const std::string& sourceText = *source;
         if (OrdinalIgnoreCaseEquals(Extension(sourceText), ".bsp"))
@@ -1900,7 +1921,7 @@ namespace MphRead::Mods::MapGen
             || static_cast<std::uint64_t>(entityOffset) > bytes.size()
             || static_cast<std::uint64_t>(entityLength) > bytes.size() - static_cast<std::size_t>(entityOffset))
         {
-            throw std::out_of_range("Entity lump is outside the BSP array.");
+            throw System::ArgumentOutOfRangeException();
         }
         bsp->_entities = ParseEntities(DecodeAscii(bytes,
             static_cast<std::size_t>(entityOffset), static_cast<std::size_t>(entityLength)));

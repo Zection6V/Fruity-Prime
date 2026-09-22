@@ -1029,14 +1029,17 @@ namespace MphRead::Mods::Update
 
         [[nodiscard]] bool FetchCore(
             const std::string& url,
-            const std::string& path,
+            const std::string* path,
             const std::string& partial,
             std::int64_t expectedBytes,
             const std::function<void(float)>& progress,
             CancellationToken cancel,
             std::chrono::milliseconds timeout)
         {
-            CreateParentDirectory(path);
+            if (path != nullptr)
+            {
+                CreateParentDirectory(*path);
+            }
 
             CurlClient client(timeout);
             client.AddUserAgent(std::string(Mods::Branding::FileName) + "/"
@@ -1095,11 +1098,21 @@ namespace MphRead::Mods::Update
                 target.Close();
             }
 
-            if (FileExists(path))
+            if (path != nullptr && FileExists(*path))
             {
-                DeleteFile(path);
+                DeleteFile(*path);
             }
-            MoveFile(partial, path);
+            if (path == nullptr)
+            {
+                throw std::invalid_argument(
+                    "Value cannot be null. (Parameter 'destFileName')");
+            }
+            if (path->empty())
+            {
+                throw std::invalid_argument(
+                    "The value cannot be an empty string. (Parameter 'destFileName')");
+            }
+            MoveFile(partial, *path);
             if (progress)
             {
                 progress(1.0F);
@@ -1129,6 +1142,50 @@ namespace MphRead::Mods::Update
         const std::function<void(float)>& progress,
         CancellationToken cancel)
     {
+        return FetchPath(url, &path, expectedBytes, progress, cancel);
+    }
+
+    bool UpdateDownload::Fetch(
+        std::nullptr_t,
+        const std::string&,
+        std::int64_t,
+        const std::function<void(float)>&,
+        CancellationToken)
+    {
+        SetLastError(std::nullopt);
+        SetLastError("that download address is not GitHub's");
+        return false;
+    }
+
+    bool UpdateDownload::Fetch(
+        const std::string& url,
+        std::nullptr_t,
+        std::int64_t expectedBytes,
+        const std::function<void(float)>& progress,
+        CancellationToken cancel)
+    {
+        return FetchPath(url, nullptr, expectedBytes, progress, cancel);
+    }
+
+    bool UpdateDownload::Fetch(
+        std::nullptr_t,
+        std::nullptr_t,
+        std::int64_t,
+        const std::function<void(float)>&,
+        CancellationToken)
+    {
+        SetLastError(std::nullopt);
+        SetLastError("that download address is not GitHub's");
+        return false;
+    }
+
+    bool UpdateDownload::FetchPath(
+        const std::string& url,
+        const std::string* path,
+        std::int64_t expectedBytes,
+        const std::function<void(float)>& progress,
+        CancellationToken cancel)
+    {
         SetLastError(std::nullopt);
         if (!IsAllowed(url))
         {
@@ -1136,7 +1193,9 @@ namespace MphRead::Mods::Update
             return false;
         }
 
-        const std::string partial = path + ".part";
+        const std::string partial = path == nullptr
+            ? std::string(".part")
+            : *path + ".part";
         bool result = false;
         try
         {

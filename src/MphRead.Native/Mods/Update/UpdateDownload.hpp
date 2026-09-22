@@ -3,6 +3,7 @@
 #include "SyncHttp.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -23,6 +24,27 @@ namespace MphRead::Mods::Update
             const std::function<void(float)>& progress = {},
             CancellationToken cancel = nullptr);
 
+        [[nodiscard]] static bool Fetch(
+            std::nullptr_t url,
+            const std::string& path,
+            std::int64_t expectedBytes = 0,
+            const std::function<void(float)>& progress = {},
+            CancellationToken cancel = nullptr);
+
+        [[nodiscard]] static bool Fetch(
+            const std::string& url,
+            std::nullptr_t path,
+            std::int64_t expectedBytes = 0,
+            const std::function<void(float)>& progress = {},
+            CancellationToken cancel = nullptr);
+
+        [[nodiscard]] static bool Fetch(
+            std::nullptr_t url,
+            std::nullptr_t path,
+            std::int64_t expectedBytes = 0,
+            const std::function<void(float)>& progress = {},
+            CancellationToken cancel = nullptr);
+
         UpdateDownload() = delete;
         UpdateDownload(const UpdateDownload&) = delete;
         UpdateDownload& operator=(const UpdateDownload&) = delete;
@@ -32,6 +54,13 @@ namespace MphRead::Mods::Update
             "objects.githubusercontent.com";
         inline static constexpr std::string_view _releaseHost = "github.com";
         inline static constexpr std::chrono::minutes _timeout{10};
+
+        [[nodiscard]] static bool FetchPath(
+            const std::string& url,
+            const std::string* path,
+            std::int64_t expectedBytes,
+            const std::function<void(float)>& progress,
+            CancellationToken cancel);
 
         [[nodiscard]] static bool IsAllowed(const std::string& url);
         static void SetLastError(std::optional<std::string> value);

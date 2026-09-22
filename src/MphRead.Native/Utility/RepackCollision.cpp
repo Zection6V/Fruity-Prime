@@ -4,6 +4,7 @@
 #include "../Metadata/Rooms.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../Scene.hpp"
 #include "../SceneSetup.hpp"
 
 #include <algorithm>
@@ -32,6 +33,18 @@
 #else
 #define REPACK_COLLISION_DEBUG_ASSERT(condition) do { } while (false)
 #endif
+
+namespace System
+{
+    class InvalidOperationException final : public std::logic_error
+    {
+    public:
+        explicit InvalidOperationException(const std::string& message)
+            : std::logic_error(message)
+        {
+        }
+    };
+}
 
 namespace
 {
@@ -82,8 +95,7 @@ namespace
     {
         if (index < 0 || static_cast<std::size_t>(index) >= values.size())
         {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
+            throw System::ArgumentOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -93,8 +105,7 @@ namespace
     {
         if (index < 0 || static_cast<std::size_t>(index) >= values.size())
         {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
+            throw System::ArgumentOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -183,7 +194,7 @@ namespace
     {
         if (points.empty())
         {
-            throw std::invalid_argument("Sequence contains no elements");
+            throw System::InvalidOperationException("Sequence contains no elements");
         }
         const auto get = [component](Vector3 value)
         {
@@ -213,7 +224,7 @@ namespace
     {
         if (points.empty())
         {
-            throw std::invalid_argument("Sequence contains no elements");
+            throw System::InvalidOperationException("Sequence contains no elements");
         }
         const auto get = [component](Vector3 value)
         {
@@ -296,7 +307,7 @@ namespace
         const auto iterator = MphRead::Metadata::RoomMetadata.find(room);
         if (iterator == MphRead::Metadata::RoomMetadata.end())
         {
-            throw std::out_of_range("The given key was not present in the dictionary.");
+            throw MphRead::SceneDetail::KeyNotFoundException();
         }
         return Require(iterator->second);
     }
@@ -464,7 +475,11 @@ namespace
         {
             return GetEditors(*mphInfo);
         }
-        return GetEditors(dynamic_cast<FhCollisionInfo&>(info));
+        if (auto* fhInfo = dynamic_cast<FhCollisionInfo*>(std::addressof(info)))
+        {
+            return GetEditors(*fhInfo);
+        }
+        throw MphRead::SceneDetail::InvalidCastException();
     }
 
     [[nodiscard]] bool TestIntersection(
@@ -1280,34 +1295,30 @@ namespace
 
         const auto& packPoints = Require(pack.Points);
 #if defined(DEBUG)
-        const auto& infoPoints = Require(info.Points);
-        REPACK_COLLISION_DEBUG_ASSERT(packPoints.size() == infoPoints.size());
+        REPACK_COLLISION_DEBUG_ASSERT(
+            packPoints.size() == Require(info.Points).size());
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packPoints.size()); ++i)
         {
-#if defined(DEBUG)
             const Vector3 left = ManagedAt(packPoints, i);
-            const Vector3 right = ManagedAt(infoPoints, i);
+            const Vector3 right = ManagedAt(Require(info.Points), i);
             REPACK_COLLISION_DEBUG_ASSERT(left.X == right.X);
             REPACK_COLLISION_DEBUG_ASSERT(left.Y == right.Y);
             REPACK_COLLISION_DEBUG_ASSERT(left.Z == right.Z);
-#endif
         }
         const auto& packPlanes = Require(pack.Planes);
 #if defined(DEBUG)
-        const auto& infoPlanes = Require(info.Planes);
-        REPACK_COLLISION_DEBUG_ASSERT(packPlanes.size() == infoPlanes.size());
+        REPACK_COLLISION_DEBUG_ASSERT(
+            packPlanes.size() == Require(info.Planes).size());
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packPlanes.size()); ++i)
         {
-#if defined(DEBUG)
             const Vector4 left = ManagedAt(packPlanes, i);
-            const Vector4 right = ManagedAt(infoPlanes, i);
+            const Vector4 right = ManagedAt(Require(info.Planes), i);
             REPACK_COLLISION_DEBUG_ASSERT(left.X == right.X);
             REPACK_COLLISION_DEBUG_ASSERT(left.Y == right.Y);
             REPACK_COLLISION_DEBUG_ASSERT(left.Z == right.Z);
             REPACK_COLLISION_DEBUG_ASSERT(left.W == right.W);
-#endif
         }
         REPACK_COLLISION_DEBUG_ASSERT(
             Require(pack.PointIndices).size() == Require(info.PointIndices).size());
@@ -1340,17 +1351,15 @@ namespace
 
         const auto& packEntries = Require(pack.Entries);
 #if defined(DEBUG)
-        const auto& infoEntries = Require(info.Entries);
-        REPACK_COLLISION_DEBUG_ASSERT(packEntries.size() == infoEntries.size());
+        REPACK_COLLISION_DEBUG_ASSERT(
+            packEntries.size() == Require(info.Entries).size());
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packEntries.size()); ++i)
         {
-#if defined(DEBUG)
             const CollisionEntry& left = ManagedAt(packEntries, i);
-            const CollisionEntry& right = ManagedAt(infoEntries, i);
+            const CollisionEntry& right = ManagedAt(Require(info.Entries), i);
             REPACK_COLLISION_DEBUG_ASSERT(left.DataCount == right.DataCount);
             REPACK_COLLISION_DEBUG_ASSERT(left.DataStartIndex == right.DataStartIndex);
-#endif
         }
 
         const auto portals = Read::DoOffsets<RawCollisionPortal>(

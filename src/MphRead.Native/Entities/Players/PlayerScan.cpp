@@ -260,8 +260,8 @@ namespace MphRead::Entities
             Vector3 targetPos{};
             Vector2 distPos{};
             const Vector3 cameraPosition = RequireReference(CameraInfo()).Position;
-            const auto viewMatrix = RequireReference(_scene).ViewMatrix;
-            const auto perspectiveMatrix = RequireReference(_scene).PerspectiveMatrix;
+            const auto viewMatrix = RequireReference(_scene).ViewMatrix();
+            const auto perspectiveMatrix = RequireReference(_scene).PerspectiveMatrix();
             Matrix::GetProjectedValues(entPos, cameraPosition, viewMatrix, perspectiveMatrix,
                 dist, depth, scaleInv, targetPos, distPos);
             const Vector2 screenPos((distPos.X + 1.0F) / 2.0F, (1.0F - distPos.Y) / 2.0F);
@@ -295,7 +295,7 @@ namespace MphRead::Entities
             target.Position = targetPos;
             target.ScreenX = screenPos.X;
             target.ScreenY = screenPos.Y;
-            target.Dim = RequireReference(GameState::StorySave()).CheckLogbook(scanId);
+            target.Dim = RequireReference(GameState::StorySave).CheckLogbook(scanId);
             target.Distance = dist;
             if (pixelX > 58 && pixelX < 198 && pixelY > 64 && pixelY < 128)
             {
@@ -362,7 +362,7 @@ namespace MphRead::Entities
             }
         }
 
-        const float scale = RequireReference(_scene).FrameTime / (1.0F / 30.0F);
+        const float scale = RequireReference(_scene).FrameTime() / (1.0F / 30.0F);
         if (current.Entity)
         {
             if (_boxCornerFac < 1.0F)
@@ -455,7 +455,7 @@ namespace MphRead::Entities
         if (_scanning && _scanningTimer < _scanningTime)
         {
             assert(current.Entity != nullptr);
-            auto storySave = GameState::StorySave();
+            auto storySave = GameState::StorySave;
             const std::int32_t scanId = RequireReference(current.Entity).GetScanId();
             if (RequireReference(storySave).CheckLogbook(scanId))
             {
@@ -466,7 +466,7 @@ namespace MphRead::Entities
             else
             {
                 UpdateScanSfx(1, true);
-                _scanningTimer += RequireReference(_scene).FrameTime;
+                _scanningTimer += RequireReference(_scene).FrameTime();
             }
         }
         else if (_scanning && _scanningTimer >= _scanningTime
@@ -508,10 +508,10 @@ namespace MphRead::Entities
         RequireReference(_scanningEntity).OnScanned();
         const std::int32_t scanId = RequireReference(_scanningEntity).GetScanId();
         const std::int32_t altScanId = RequireReference(_scanningEntity).GetScanId(true);
-        RequireReference(GameState::StorySave()).UpdateLogbook(scanId);
+        RequireReference(GameState::StorySave).UpdateLogbook(scanId);
         if (altScanId != scanId)
         {
-            RequireReference(GameState::StorySave()).UpdateLogbook(altScanId);
+            RequireReference(GameState::StorySave).UpdateLogbook(altScanId);
         }
         RestartLongSfx();
         ResetScanValues();
@@ -564,7 +564,7 @@ namespace MphRead::Entities
                 icon.Center = true;
                 icon.Alpha = 9.0F / 16.0F;
                 icon.UseMask = true;
-                RequireReference(_scene).DrawHudObject(icon);
+                RequireReference(_scene).DrawHudObject(iconInst);
             }
         }
 
@@ -609,29 +609,29 @@ namespace MphRead::Entities
             cornerInst.PositionY = topPos;
             cornerInst.FlipHorizontal = false;
             cornerInst.FlipVertical = false;
-            RequireReference(_scene).DrawHudObject(cornerInst, 1);
+            RequireReference(_scene).DrawHudObject(_scanCornerInst, 1);
             cornerInst.PositionX = rightPos;
             cornerInst.PositionY = topPos;
             cornerInst.FlipHorizontal = true;
             cornerInst.FlipVertical = false;
-            RequireReference(_scene).DrawHudObject(cornerInst, 1);
+            RequireReference(_scene).DrawHudObject(_scanCornerInst, 1);
             cornerInst.PositionX = rightPos;
             cornerInst.PositionY = bottomPos;
             cornerInst.FlipHorizontal = true;
             cornerInst.FlipVertical = true;
-            RequireReference(_scene).DrawHudObject(cornerInst, 1);
+            RequireReference(_scene).DrawHudObject(_scanCornerInst, 1);
             cornerInst.PositionX = leftPos;
             cornerInst.PositionY = bottomPos;
             cornerInst.FlipHorizontal = false;
             cornerInst.FlipVertical = true;
-            RequireReference(_scene).DrawHudObject(cornerInst, 1);
+            RequireReference(_scene).DrawHudObject(_scanCornerInst, 1);
 
             float curX = 16.0F / 256.0F;
             lineHoriz.PositionY = _boxCornerY;
             for (std::int32_t i = 0; i < 10; ++i)
             {
                 lineHoriz.PositionX = _boxCornerX + offsetX + curX;
-                RequireReference(_scene).DrawHudObject(lineHoriz);
+                RequireReference(_scene).DrawHudObject(_scanLineHorizInst);
                 curX += 16.0F / 256.0F;
             }
             curX = 32.0F / 256.0F;
@@ -639,7 +639,7 @@ namespace MphRead::Entities
             for (std::int32_t i = 0; i < 10; ++i)
             {
                 lineHoriz.PositionX = _boxCornerX - offsetX - curX;
-                RequireReference(_scene).DrawHudObject(lineHoriz);
+                RequireReference(_scene).DrawHudObject(_scanLineHorizInst);
                 curX += 16.0F / 256.0F;
             }
 
@@ -648,7 +648,7 @@ namespace MphRead::Entities
             for (std::int32_t i = 0; i < 10; ++i)
             {
                 lineVert.PositionY = _boxCornerY + offsetY + curY;
-                RequireReference(_scene).DrawHudObject(lineVert);
+                RequireReference(_scene).DrawHudObject(_scanLineVertInst);
                 curY += 16.0F / 192.0F;
             }
             curY = 32.0F / 192.0F;
@@ -656,7 +656,7 @@ namespace MphRead::Entities
             for (std::int32_t i = 0; i < 10; ++i)
             {
                 lineVert.PositionY = _boxCornerY - offsetY - curY;
-                RequireReference(_scene).DrawHudObject(lineVert);
+                RequireReference(_scene).DrawHudObject(_scanLineVertInst);
                 curY += 16.0F / 192.0F;
             }
         }
@@ -683,7 +683,7 @@ namespace MphRead::Entities
     {
         if (_visorMessageTimer > 0.0F && _visorMessageId != 0)
         {
-            _visorMessageTimer -= RequireReference(_scene).FrameTime;
+            _visorMessageTimer -= RequireReference(_scene).FrameTime();
             if (_visorMessageTimer <= 0.0F)
             {
                 if (_visorMessageScrollOut)

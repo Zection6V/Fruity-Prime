@@ -21,6 +21,18 @@
 #include <utility>
 #include <vector>
 
+namespace System
+{
+    class IndexOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        IndexOutOfRangeException()
+            : std::out_of_range("Index was outside the bounds of the array.")
+        {
+        }
+    };
+}
+
 namespace
 {
     using MphRead::Utility::CollisionDataEditor;
@@ -351,7 +363,7 @@ namespace MphRead::Mods::MapGen
                             x);
                         if (index < 0 || index >= cellCount)
                         {
-                            throw std::out_of_range("Index was outside the bounds of the array.");
+                            throw System::IndexOutOfRangeException();
                         }
                         auto& cell = cells.at(static_cast<std::size_t>(index));
                         if (!cell)

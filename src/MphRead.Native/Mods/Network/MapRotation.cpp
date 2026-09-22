@@ -1,45 +1,15 @@
 #include "MapRotation.hpp"
 
+#include "../../Formats/Formats.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+
 #include <algorithm>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-namespace MphRead::Mods::Network::Detail
-{
-    // GameMode is owned by a different C# source file and does not yet have a
-    // Native declaration on develop2. These seams preserve MapRotation.cs's
-    // exact enum defaults, parsing, equality values, and enum ToString behavior
-    // without defining a partial or competing Native GameMode.
-    GameMode MapRotationGameModeNone();
-    GameMode MapRotationGameModeBattle();
-    bool MapRotationGameModeTryParseIgnoreCase(std::string_view value, GameMode& result);
-    std::string MapRotationGameModeToString(GameMode value);
-
-    // C++ has no exact System.String.Trim/current-culture System.Int32 or
-    // current-culture custom numeric-format equivalent. Keep those BCL
-    // semantics at a narrow runtime boundary rather than substituting a C++
-    // locale approximation.
-    std::string MapRotationStringTrim(std::string_view value);
-    bool MapRotationInt32TryParseCurrentCulture(std::string_view value, std::int32_t& result);
-    std::string MapRotationFormatSingle0PointHashCurrentCulture(float value);
-    std::string MapRotationFormatInt32CurrentCulture(std::int32_t value);
-
-    // The invariant Single.TryParse overload is likewise kept explicit so its
-    // NumberStyles.Float grammar, IEEE-754 conversion, and overflow behavior
-    // remain the C# contract.
-    bool MapRotationSingleTryParseInvariantFloat(std::string_view value, float& result);
-
-    // File and Console are runtime-owned in C#. These boundaries must preserve
-    // File.ReadAllLines/File.WriteAllLines/File.Exists and Console.WriteLine,
-    // including encoding/newline/error behavior and side-effect ordering.
-    std::vector<std::string> MapRotationFileReadAllLines(std::string_view path);
-    void MapRotationFileWriteAllLines(std::string_view path,
-        const std::vector<std::string>& lines);
-    bool MapRotationFileExists(std::string_view path);
-    void MapRotationConsoleWriteLine(std::string_view value);
-}
 
 namespace
 {
@@ -71,7 +41,7 @@ namespace MphRead::Mods::Network
 {
     RotationEntry::RotationEntry()
         : RoomKey("MP3 PROVING GROUND"),
-          Mode(Detail::MapRotationGameModeBattle()),
+          Mode(GameMode::Battle),
           TimeLimit(7.0f * 60.0f),
           PointGoal(7)
     {
@@ -90,11 +60,11 @@ namespace MphRead::Mods::Network
     {
         std::string value = RoomKey;
         value += " (";
-        value += Detail::MapRotationGameModeToString(Mode);
+        value += ::MphRead::ToString(Mode);
         value += ", ";
-        value += Detail::MapRotationFormatSingle0PointHashCurrentCulture(TimeLimit / 60.0f);
+        value += NativeRuntime::SingleToStringZeroPointHash(TimeLimit / 60.0f);
         value += " min, ";
-        value += Detail::MapRotationFormatInt32CurrentCulture(PointGoal);
+        value += NativeRuntime::Int32ToString(PointGoal);
         value += " pts)";
         return value;
     }
@@ -144,8 +114,8 @@ namespace MphRead::Mods::Network
         GameMode mode, float timeLimit, std::int32_t pointGoal)
     {
         auto rotation = std::make_shared<MapRotation>();
-        const GameMode actualMode = mode == Detail::MapRotationGameModeNone()
-            ? Detail::MapRotationGameModeBattle()
+        const GameMode actualMode = mode == GameMode::None
+            ? GameMode::Battle
             : mode;
         rotation->_entries.emplace_back(new RotationEntry(
             roomKey, actualMode, timeLimit, pointGoal));
@@ -155,7 +125,7 @@ namespace MphRead::Mods::Network
     void MapRotation::PlayNext(const std::string& roomKey, GameMode mode)
     {
         const std::shared_ptr<const RotationEntry> current = Current();
-        const GameMode actualMode = mode == Detail::MapRotationGameModeNone()
+        const GameMode actualMode = mode == GameMode::None
             ? current->Mode
             : mode;
         _pending = std::shared_ptr<const RotationEntry>(new RotationEntry(
@@ -185,7 +155,7 @@ namespace MphRead::Mods::Network
     std::shared_ptr<MapRotation> MapRotation::Load(const std::string& path)
     {
         auto rotation = std::make_shared<MapRotation>();
-        for (const std::string& raw : Detail::MapRotationFileReadAllLines(path))
+        for (const std::string& raw : NativeRuntime::FileReadAllLines(std::string(path)))
         {
             std::string line = raw;
             const std::size_t comment = line.find('#');
@@ -193,26 +163,26 @@ namespace MphRead::Mods::Network
             {
                 line = line.substr(0, comment);
             }
-            line = Detail::MapRotationStringTrim(line);
+            line = NativeRuntime::StringTrim(std::string(line));
             if (line.empty())
             {
                 continue;
             }
 
             const std::vector<std::string> parts = SplitOnPipe(line);
-            const std::string roomKey = Detail::MapRotationStringTrim(parts[0]);
+            const std::string roomKey = NativeRuntime::StringTrim(std::string(parts[0]));
             if (roomKey.empty())
             {
                 continue;
             }
 
-            GameMode mode = Detail::MapRotationGameModeBattle();
+            GameMode mode = GameMode::Battle;
             if (parts.size() > 1)
             {
-                std::string modeText = Detail::MapRotationStringTrim(parts[1]);
+                std::string modeText = NativeRuntime::StringTrim(std::string(parts[1]));
                 RemoveAsciiSpaces(modeText);
                 GameMode parsedMode = mode;
-                if (Detail::MapRotationGameModeTryParseIgnoreCase(modeText, parsedMode))
+                if (::MphRead::TryParse(modeText, true, parsedMode))
                 {
                     mode = parsedMode;
                 }
@@ -221,9 +191,9 @@ namespace MphRead::Mods::Network
             float timeLimit = 7.0f * 60.0f;
             if (parts.size() > 2)
             {
-                const std::string minutesText = Detail::MapRotationStringTrim(parts[2]);
+                const std::string minutesText = NativeRuntime::StringTrim(std::string(parts[2]));
                 float minutes = 0.0f;
-                if (Detail::MapRotationSingleTryParseInvariantFloat(minutesText, minutes))
+                if (NativeRuntime::SingleTryParseInvariantFloat(std::string(minutesText), minutes))
                 {
                     timeLimit = minutes * 60.0f;
                 }
@@ -232,9 +202,9 @@ namespace MphRead::Mods::Network
             std::int32_t pointGoal = 7;
             if (parts.size() > 3)
             {
-                const std::string pointsText = Detail::MapRotationStringTrim(parts[3]);
+                const std::string pointsText = NativeRuntime::StringTrim(std::string(parts[3]));
                 std::int32_t parsedPoints = 0;
-                if (Detail::MapRotationInt32TryParseCurrentCulture(pointsText, parsedPoints))
+                if (NativeRuntime::Int32TryParseCurrentCulture(pointsText, parsedPoints))
                 {
                     pointGoal = parsedPoints;
                 }
@@ -248,7 +218,7 @@ namespace MphRead::Mods::Network
 
     void MapRotation::WriteDefault(const std::string& path)
     {
-        Detail::MapRotationFileWriteAllLines(path,
+        NativeRuntime::FileWriteAllLines(std::string(path),
         {
             "# MphRead dedicated server map rotation.",
             "# One match per line:  ROOM KEY | mode | minutes | points",
@@ -266,16 +236,16 @@ namespace MphRead::Mods::Network
 
     std::shared_ptr<MapRotation> MapRotation::LoadOrCreate(const std::string& path)
     {
-        if (!Detail::MapRotationFileExists(path))
+        if (!NativeRuntime::FileExists(std::string(path)))
         {
             WriteDefault(path);
-            Detail::MapRotationConsoleWriteLine(
+            NativeRuntime::ConsoleWriteLine(
                 std::string("[server] wrote a starter rotation to ") + path);
         }
         std::shared_ptr<MapRotation> rotation = Load(path);
         if (rotation->_entries.empty())
         {
-            Detail::MapRotationConsoleWriteLine(
+            NativeRuntime::ConsoleWriteLine(
                 std::string("[server] ") + path
                 + " has no usable entries; using a single default map");
             rotation->_entries.push_back(_fallback);

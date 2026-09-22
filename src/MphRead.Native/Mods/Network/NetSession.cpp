@@ -2,11 +2,15 @@
 
 #include "../../NativeRuntime/System/Enum.hpp"
 
+#include "../../GameState.hpp"
+#include "../../Metadata/Metadata.hpp"
 #include "../../Utility/Rng.hpp"
+#include "../SpectatorMode.hpp"
 #include "../Chat/ChatBox.hpp"
 #include "DemoRecorder.hpp"
 #include "NetDamage.hpp"
 #include "NetHitPrediction.hpp"
+#include "MapVote.hpp"
 #include "NetLog.hpp"
 #include "NetMatchEnd.hpp"
 #include "NetMatchSync.hpp"
@@ -14,6 +18,8 @@
 #include "NetPlayerSetup.hpp"
 #include "NetRoomChange.hpp"
 #include "NetSlotManager.hpp"
+#include "NetUnlagged.hpp"
+#include "PlayerColors.hpp"
 
 #include <algorithm>
 #include <array>
@@ -49,35 +55,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
-
-namespace MphRead::Mods::Network::Detail
-{
-    // These owners occur after NetSession in the Native implementation order.
-    // The seams carry exactly the referenced C# operation and add no fallback.
-    void NetSessionSpectatorModeReset();
-    void NetSessionMapVoteReset();
-    void NetSessionMapVoteApply(const VoteStatePacket& state);
-    std::int32_t NetSessionPlayerColorsClamp(std::int32_t color);
-    void NetSessionSetPlayerColorChoice(std::int32_t slot, std::int32_t color);
-    void NetSessionNetUnlaggedReset();
-    void NetSessionNetUnlaggedRecord(std::uint32_t frame);
-
-    [[nodiscard]] std::int32_t NetSessionNicknameLength();
-    [[nodiscard]] std::optional<std::string> NetSessionNickname(std::int32_t slot);
-    void NetSessionSetNickname(std::int32_t slot, std::optional<std::string> value);
-    [[nodiscard]] std::int32_t NetSessionPoints(std::int32_t slot);
-    [[nodiscard]] std::int32_t NetSessionKills(std::int32_t slot);
-    [[nodiscard]] std::int32_t NetSessionDeaths(std::int32_t slot);
-
-    // PlayerEntity contributors later in W7 own these partial members.
-    [[nodiscard]] bool NetSessionPlayerInPlay(const Entities::PlayerEntity& player);
-    [[nodiscard]] bool NetSessionPlayerZoomed(const Entities::PlayerEntity& player);
-    [[nodiscard]] bool NetSessionPlayerFrozen(const Entities::PlayerEntity& player);
-    [[nodiscard]] bool NetSessionPlayerDisrupted(const Entities::PlayerEntity& player);
-    [[nodiscard]] bool NetSessionPlayerBurning(const Entities::PlayerEntity& player);
-    [[nodiscard]] std::string NetSessionVector3ToString(
-        OpenTK::Mathematics::Vector3 value);
-}
 
 namespace
 {
@@ -789,7 +766,7 @@ namespace MphRead::Mods::Network
         _localSlot = -1;
         _netFrame = 0;
         _lastError.reset();
-        Detail::NetSessionNetUnlaggedReset();
+        NetUnlagged::Reset();
         NetHitPrediction::Reset();
     }
 
@@ -854,7 +831,7 @@ namespace MphRead::Mods::Network
 
     void NetSession::RewindPlayback()
     {
-        Detail::NetSessionNetUnlaggedReset();
+        NetUnlagged::Reset();
         NetHitPrediction::Reset();
         _lastSnapshotFrame = 0;
         _lastSlotIntentFrame.fill(0);
@@ -915,7 +892,7 @@ namespace MphRead::Mods::Network
     void NetSession::Stop()
     {
         NetPlayerSetup::Reset();
-        Detail::NetSessionSpectatorModeReset();
+        SpectatorMode::Reset();
         DemoRecorder::Stop();
         NetMatchSync::Reset();
         NetSlotManager::Reset();
@@ -940,7 +917,7 @@ namespace MphRead::Mods::Network
         _peers.clear();
         _hostEndPoint.reset();
         _role = NetRole::Offline;
-        Detail::NetSessionMapVoteReset();
+        MapVote::Reset();
         _connectionLost = false;
         _localSlot = 0;
         RemoteStateValid.fill(false);
@@ -966,7 +943,7 @@ namespace MphRead::Mods::Network
         _statesApplied = 0;
         _intentsReceived = 0;
         _serverMatch.reset();
-        Detail::NetSessionNetUnlaggedReset();
+        NetUnlagged::Reset();
         NetHitPrediction::Reset();
     }
 
@@ -981,7 +958,7 @@ namespace MphRead::Mods::Network
             name.size(), static_cast<std::size_t>(RosterPacket::MaxNameBytes));
         _scratch[0] = static_cast<std::uint8_t>(_localHunter);
         _scratch[1] = static_cast<std::uint8_t>(
-            Detail::NetSessionPlayerColorsClamp(_localColor));
+            PlayerColors::Clamp(_localColor));
         std::copy_n(name.begin(), count, _scratch.begin() + 2);
         _transport->Send(_hostEndPoint, PacketType::Identify,
             std::span<const std::uint8_t>(_scratch).first(count + 2));
@@ -1076,10 +1053,10 @@ namespace MphRead::Mods::Network
             SendIdentify();
         }
         else if (_role == NetRole::Client && _netFrame % 120U == 0U
-            && _localSlot >= 0 && _localSlot < Detail::NetSessionNicknameLength())
+            && _localSlot >= 0 && _localSlot < static_cast<std::int32_t>(GameState::Nicknames().size()))
         {
             const std::optional<std::string> nickname
-                = Detail::NetSessionNickname(_localSlot);
+                = GameState::Nicknames()[_localSlot];
             const bool different = !nickname.has_value() || nickname.value() != _playerName;
             if (different)
             {
@@ -1214,7 +1191,7 @@ namespace MphRead::Mods::Network
                 const std::span<const std::uint8_t> payload = packet.Payload();
                 if (payload.size() >= VoteStatePacket::Size)
                 {
-                    Detail::NetSessionMapVoteApply(VoteStatePacket::Read(payload));
+                    MapVote::Apply(VoteStatePacket::Read(payload));
                 }
             }
             break;
@@ -1247,10 +1224,10 @@ namespace MphRead::Mods::Network
             }
             peer->LastSeenTime = time;
             chat.Slot = static_cast<std::uint8_t>(peer->SlotIndex);
-            if (peer->SlotIndex < Detail::NetSessionNicknameLength())
+            if (peer->SlotIndex < static_cast<std::int32_t>(GameState::Nicknames().size()))
             {
                 const std::optional<std::string> nickname
-                    = Detail::NetSessionNickname(peer->SlotIndex);
+                    = GameState::Nicknames()[peer->SlotIndex];
                 if (nickname.has_value() && !nickname->empty())
                 {
                     chat.Name = nickname;
@@ -1486,14 +1463,14 @@ namespace MphRead::Mods::Network
             }
             const std::size_t index = static_cast<std::size_t>(slot);
             SlotOccupied[index] = true;
-            Detail::NetSessionSetNickname(slot, RequireVector(roster.Names).at(row));
+            GameState::Nicknames()[slot]
+                = RequireVector(roster.Names).at(row).value_or(std::string());
             if (HunterDefined(RequireVector(roster.Hunters).at(row)))
             {
                 SlotHunter[index] = static_cast<Hunter>(
                     RequireVector(roster.Hunters).at(row));
             }
-            Detail::NetSessionSetPlayerColorChoice(slot,
-                Detail::NetSessionPlayerColorsClamp(
+            PlayerColors::Choice[slot] = (PlayerColors::Clamp(
                     RequireVector(roster.Colors).at(row)));
             SlotPing[index] = RequireVector(roster.Pings).at(row);
         }
@@ -1723,7 +1700,7 @@ namespace MphRead::Mods::Network
             {
                 NetLog::Event("slot " + Int32Text(static_cast<std::int32_t>(i))
                     + " not published: position is "
-                    + Detail::NetSessionVector3ToString(player.Position));
+                    + static_cast<OpenTK::Mathematics::Vector3>(player.Position).ToString());
                 continue;
             }
 
@@ -1732,13 +1709,13 @@ namespace MphRead::Mods::Network
             state.Flags = static_cast<std::uint8_t>(
                 PlayerState::FlagActive
                 | (player.IsAltForm() ? PlayerState::FlagAltForm : 0)
-                | (Detail::NetSessionPlayerInPlay(player) ? PlayerState::FlagSpawned : 0)
-                | (Detail::NetSessionPlayerZoomed(player) ? PlayerState::FlagZoomed : 0)
+                | (player.ModIsInPlay() ? PlayerState::FlagSpawned : 0)
+                | (player.EquipInfo()->Zoomed ? PlayerState::FlagZoomed : 0)
                 | (HasFlag(player.Flags2(), Entities::PlayerFlags2::Spectating)
                     ? PlayerState::FlagSpectating : 0)
-                | (Detail::NetSessionPlayerFrozen(player) ? PlayerState::FlagFrozen : 0)
-                | (Detail::NetSessionPlayerDisrupted(player) ? PlayerState::FlagDisrupted : 0)
-                | (Detail::NetSessionPlayerBurning(player) ? PlayerState::FlagBurning : 0));
+                | (player.ModFrozen() ? PlayerState::FlagFrozen : 0)
+                | (player.ModDisrupted() ? PlayerState::FlagDisrupted : 0)
+                | (player.ModBurning() ? PlayerState::FlagBurning : 0));
             state.Position = player.Position;
             state.Speed = player.Speed();
             state.Facing = player.FacingVector();
@@ -1748,14 +1725,14 @@ namespace MphRead::Mods::Network
             state.CurrentWeapon = static_cast<std::uint8_t>(player.CurrentWeapon());
             state.Team = static_cast<std::uint8_t>(player.Team());
             state.Points = static_cast<std::int16_t>(
-                std::clamp(Detail::NetSessionPoints(static_cast<std::int32_t>(i)),
+                std::clamp(GameState::Points()[static_cast<std::int32_t>(i)],
                     static_cast<std::int32_t>(std::numeric_limits<std::int16_t>::min()),
                     static_cast<std::int32_t>(std::numeric_limits<std::int16_t>::max())));
             state.Kills = static_cast<std::uint16_t>(
-                std::clamp(Detail::NetSessionKills(static_cast<std::int32_t>(i)), 0,
+                std::clamp(GameState::Kills()[static_cast<std::int32_t>(i)], 0,
                     static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
             state.Deaths = static_cast<std::uint16_t>(
-                std::clamp(Detail::NetSessionDeaths(static_cast<std::int32_t>(i)), 0,
+                std::clamp(GameState::Deaths()[static_cast<std::int32_t>(i)], 0,
                     static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
             NetDamage::Write(static_cast<std::int32_t>(i), state);
             state.Write(std::span<std::uint8_t>(_scratch).subspan(offset));
@@ -1770,7 +1747,7 @@ namespace MphRead::Mods::Network
         header.PlayerCount = static_cast<std::uint8_t>(count);
         header.Write(_scratch);
         IncrementInt64(_snapshotsSent);
-        Detail::NetSessionNetUnlaggedRecord(header.Frame);
+        NetUnlagged::Record(header.Frame);
         DemoRecorder::RecordOwnSnapshot(
             std::span<const std::uint8_t>(_scratch).first(offset));
         if (asServer)

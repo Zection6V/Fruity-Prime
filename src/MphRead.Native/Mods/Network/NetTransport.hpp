@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../NativeRuntime/System/Net.hpp"
+
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -15,39 +17,6 @@
 namespace MphRead::Mods::Network
 {
     enum class PacketType : std::uint8_t;
-}
-
-namespace System::Net
-{
-    // Thin IPv4 IPEndPoint equivalent used by the Native networking slices.
-    // Instances are passed by shared_ptr so queued packets retain the same
-    // reference identity as System.Net.IPEndPoint references in C#.
-    class IPEndPoint final
-    {
-    public:
-        IPEndPoint(std::array<std::uint8_t, 4> addressBytes, std::int32_t port);
-        ~IPEndPoint() = default;
-
-        IPEndPoint(const IPEndPoint&) = delete;
-        IPEndPoint(IPEndPoint&&) = delete;
-        IPEndPoint& operator=(const IPEndPoint&) = delete;
-        IPEndPoint& operator=(IPEndPoint&&) = delete;
-
-        [[nodiscard]] static std::shared_ptr<IPEndPoint> Any(std::int32_t port = 0);
-        [[nodiscard]] static std::shared_ptr<IPEndPoint> Loopback(std::int32_t port = 0);
-
-        [[nodiscard]] std::array<std::uint8_t, 4> AddressBytes() const;
-        void SetAddressBytes(std::array<std::uint8_t, 4> addressBytes);
-        [[nodiscard]] std::int32_t Port() const;
-        void SetPort(std::int32_t port);
-
-        [[nodiscard]] bool Equals(const IPEndPoint& other) const;
-        [[nodiscard]] std::string ToString() const;
-
-    private:
-        struct State;
-        std::shared_ptr<State> _state;
-    };
 }
 
 namespace MphRead::Mods::Network

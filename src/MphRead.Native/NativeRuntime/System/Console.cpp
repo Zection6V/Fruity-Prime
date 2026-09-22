@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <optional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -208,6 +210,18 @@ namespace MphRead::NativeRuntime
         // through them.
         std::fflush(stdout);
         std::fflush(stderr);
+    }
+
+    std::optional<std::string> EnvironmentGetVariable(const std::string& name)
+    {
+        // Environment.GetEnvironmentVariable returns null both for a missing
+        // variable and for an empty one on Windows; getenv reports the same.
+        const char* const value = std::getenv(name.c_str());
+        if (value == nullptr)
+        {
+            return std::nullopt;
+        }
+        return std::string(value);
     }
 
     std::string EnvironmentMachineName()

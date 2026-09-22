@@ -1,10 +1,16 @@
 #include "NetSlotManager.hpp"
 
+#include "../../GameState.hpp"
+#include "../../Metadata/Metadata.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "NetDamage.hpp"
 #include "NetHitPrediction.hpp"
 #include "NetLog.hpp"
 #include "NetPlayerBridge.hpp"
 #include "NetScoreboard.hpp"
+#include "NetSession.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -13,40 +19,6 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
-
-namespace MphRead::Mods::Network::Detail
-{
-    // NetSession is being ported independently. These declarations are the
-    // narrow reads/writes this C# file performs and do not introduce session
-    // state or substitute behavior.
-    [[nodiscard]] bool NetSlotManagerSessionActive();
-    [[nodiscard]] std::int32_t NetSlotManagerSessionLocalSlot();
-    [[nodiscard]] bool NetSlotManagerSessionIsServer();
-    [[nodiscard]] std::int32_t NetSlotManagerSlotOccupiedLength();
-    [[nodiscard]] bool NetSlotManagerSlotOccupied(std::int32_t slot);
-    [[nodiscard]] MphRead::Hunter NetSlotManagerSlotHunter(std::int32_t slot);
-    void NetSlotManagerSessionForgetSlot(std::int32_t slot);
-
-    // Direct C# dependencies whose Native owners are outside this slice.
-    [[nodiscard]] bool NetSlotManagerWeaponsCurrentIsNull();
-    [[nodiscard]] bool NetSlotManagerGameStateTeams();
-    [[nodiscard]] std::string NetSlotManagerNicknameText(std::int32_t slot);
-
-    // PlayerEntity has direct Native storage for these values, but the two
-    // mutators below belong to contributor-owned slices rather than this file.
-    void NetSlotManagerSetBotLevel(Entities::PlayerEntity& player, std::int32_t value);
-    void NetSlotManagerSetHunter(Entities::PlayerEntity& player, MphRead::Hunter hunter);
-
-    // Preserve the managed null-dereference failure without inventing a Native
-    // exception type in this slice.
-    [[noreturn]] void NetSlotManagerThrowNullReference();
-
-    // C# interpolation formats numeric and enum values through the managed
-    // formatting rules before Console.WriteLine/NetLog receive the string.
-    [[nodiscard]] std::string NetSlotManagerFormatInt32(std::int32_t value);
-    [[nodiscard]] std::string NetSlotManagerFormatHunter(MphRead::Hunter hunter);
-    void NetSlotManagerConsoleWriteLine(std::string_view value);
-}
 
 namespace
 {
@@ -62,7 +34,7 @@ namespace
     {
         if (!player)
         {
-            MphRead::Mods::Network::Detail::NetSlotManagerThrowNullReference();
+            throw ::System::NullReferenceException();
         }
         return *player;
     }
@@ -79,9 +51,9 @@ namespace MphRead::Mods::Network
 
     void NetSlotManager::Sync()
     {
-        if (!Detail::NetSlotManagerSessionActive()
-            || (Detail::NetSlotManagerSessionLocalSlot() < 0
-                && !Detail::NetSlotManagerSessionIsServer()))
+        if (!NetSession::Active()
+            || (NetSession::LocalSlot() < 0
+                && !NetSession::IsServer()))
         {
             return;
         }
@@ -97,45 +69,44 @@ namespace MphRead::Mods::Network
                 continue;
             }
 
-            const bool occupied = slot == Detail::NetSlotManagerSessionLocalSlot()
-                || (slot < Detail::NetSlotManagerSlotOccupiedLength()
-                    && Detail::NetSlotManagerSlotOccupied(slot));
+            const bool occupied = slot == NetSession::LocalSlot()
+                || (slot < static_cast<std::int32_t>(NetSession::SlotOccupied.size())
+                    && NetSession::SlotOccupied[slot]);
 
             if (occupied && !_activated.at(static_cast<std::size_t>(slot)))
             {
-                if (Detail::NetSlotManagerWeaponsCurrentIsNull())
+                if ((Weapons::Current == nullptr))
                 {
                     continue;
                 }
                 Activate(*player, slot);
             }
-            else if (occupied && slot != Detail::NetSlotManagerSessionLocalSlot())
+            else if (occupied && slot != NetSession::LocalSlot())
             {
                 const MphRead::Hunter rosterHunter
-                    = Detail::NetSlotManagerSlotHunter(slot);
+                    = NetSession::SlotHunter[slot];
                 const MphRead::Hunter playerHunter = player->Hunter();
                 if (rosterHunter != playerHunter)
                 {
-                    Detail::NetSlotManagerSetHunter(
-                        *player, Detail::NetSlotManagerSlotHunter(slot));
+                    player->ModSetHunter(NetSession::SlotHunter[slot]);
                     player->Initialize();
 
                     std::string consoleMessage = "[net] slot ";
-                    consoleMessage += Detail::NetSlotManagerFormatInt32(slot);
+                    consoleMessage += NativeRuntime::Int32ToString(slot);
                     consoleMessage += " is playing ";
-                    consoleMessage += Detail::NetSlotManagerFormatHunter(player->Hunter());
-                    Detail::NetSlotManagerConsoleWriteLine(consoleMessage);
+                    consoleMessage += ::MphRead::ToString(player->Hunter());
+                    NativeRuntime::ConsoleWriteLine(consoleMessage);
 
                     std::string logMessage = "slot ";
-                    logMessage += Detail::NetSlotManagerFormatInt32(slot);
+                    logMessage += NativeRuntime::Int32ToString(slot);
                     logMessage += " is playing ";
-                    logMessage += Detail::NetSlotManagerFormatHunter(player->Hunter());
+                    logMessage += ::MphRead::ToString(player->Hunter());
                     NetLog::Event(logMessage);
                 }
             }
             else if (!occupied
                 && _activated.at(static_cast<std::size_t>(slot))
-                && slot != Detail::NetSlotManagerSessionLocalSlot())
+                && slot != NetSession::LocalSlot())
             {
                 Deactivate(*player, slot);
             }
@@ -148,7 +119,7 @@ namespace MphRead::Mods::Network
 
         NetPlayerBridge::ForgetSlot(slot);
         NetDamage::ForgetSlot(slot);
-        Detail::NetSlotManagerSessionForgetSlot(slot);
+        NetSession::ForgetSlot(slot);
         NetScoreboard::ForgetSlot(slot);
         NetHitPrediction::ForgetSlot(slot);
 
@@ -156,13 +127,13 @@ namespace MphRead::Mods::Network
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::Active);
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::Initial);
         player.SetIsBot(false);
-        Detail::NetSlotManagerSetBotLevel(player, 0);
+        player.SetBotLevel(0);
 
-        const std::int32_t wanted = Detail::NetSlotManagerGameStateTeams()
+        const std::int32_t wanted = GameState::Teams()
             ? slot % 2
             : slot;
         if (player.TeamIndex() != wanted
-            && (Detail::NetSlotManagerGameStateTeams()
+            && (GameState::Teams()
                 ? player.TeamIndex() < 0 || player.TeamIndex() > 1
                 : player.TeamIndex() < 0
                     || player.TeamIndex() >= Entities::PlayerEntity::MaxPlayers()
@@ -172,14 +143,13 @@ namespace MphRead::Mods::Network
             player.SetTeam(player.TeamIndex() % 2 == 0 ? Team::Orange : Team::Green);
         }
 
-        if (slot != Detail::NetSlotManagerSessionLocalSlot())
+        if (slot != NetSession::LocalSlot())
         {
-            const MphRead::Hunter rosterHunter = Detail::NetSlotManagerSlotHunter(slot);
+            const MphRead::Hunter rosterHunter = NetSession::SlotHunter[slot];
             const MphRead::Hunter playerHunter = player.Hunter();
             if (rosterHunter != playerHunter)
             {
-                Detail::NetSlotManagerSetHunter(
-                    player, Detail::NetSlotManagerSlotHunter(slot));
+                player.ModSetHunter(NetSession::SlotHunter[slot]);
             }
         }
 
@@ -187,21 +157,21 @@ namespace MphRead::Mods::Network
         Entities::PlayerEntity::SetPlayerCount(CountActive());
 
         std::string consoleMessage = "[net] slot ";
-        consoleMessage += Detail::NetSlotManagerFormatInt32(slot);
+        consoleMessage += NativeRuntime::Int32ToString(slot);
         consoleMessage += " activated (";
-        consoleMessage += Detail::NetSlotManagerNicknameText(slot);
+        consoleMessage += GameState::Nicknames()[slot];
         consoleMessage += ") -- ";
-        consoleMessage += Detail::NetSlotManagerFormatInt32(
+        consoleMessage += NativeRuntime::Int32ToString(
             Entities::PlayerEntity::PlayerCount());
         consoleMessage += " player(s) in scene";
-        Detail::NetSlotManagerConsoleWriteLine(consoleMessage);
+        NativeRuntime::ConsoleWriteLine(consoleMessage);
 
         std::string logMessage = "slot ";
-        logMessage += Detail::NetSlotManagerFormatInt32(slot);
+        logMessage += NativeRuntime::Int32ToString(slot);
         logMessage += " activated (";
-        logMessage += Detail::NetSlotManagerNicknameText(slot);
+        logMessage += GameState::Nicknames()[slot];
         logMessage += "), ";
-        logMessage += Detail::NetSlotManagerFormatInt32(
+        logMessage += NativeRuntime::Int32ToString(
             Entities::PlayerEntity::PlayerCount());
         logMessage += " player(s) in scene";
         NetLog::Event(logMessage);
@@ -265,7 +235,7 @@ namespace MphRead::Mods::Network
 
         NetPlayerBridge::ForgetSlot(slot);
         NetDamage::ForgetSlot(slot);
-        Detail::NetSlotManagerSessionForgetSlot(slot);
+        NetSession::ForgetSlot(slot);
         NetHitPrediction::ForgetSlot(slot);
         NetScoreboard::ForgetSlot(slot);
 
@@ -275,12 +245,12 @@ namespace MphRead::Mods::Network
         Entities::PlayerEntity::SetPlayerCount(std::max(CountActive(), 1));
 
         std::string consoleMessage = "[net] slot ";
-        consoleMessage += Detail::NetSlotManagerFormatInt32(slot);
+        consoleMessage += NativeRuntime::Int32ToString(slot);
         consoleMessage += " deactivated -- player left";
-        Detail::NetSlotManagerConsoleWriteLine(consoleMessage);
+        NativeRuntime::ConsoleWriteLine(consoleMessage);
 
         std::string logMessage = "slot ";
-        logMessage += Detail::NetSlotManagerFormatInt32(slot);
+        logMessage += NativeRuntime::Int32ToString(slot);
         logMessage += " deactivated";
         NetLog::Event(logMessage);
     }

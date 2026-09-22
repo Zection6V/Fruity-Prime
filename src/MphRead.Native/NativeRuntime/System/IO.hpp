@@ -27,6 +27,17 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] bool FileExists(const std::string& path) noexcept;
     // Directory.Exists(path).
     [[nodiscard]] bool DirectoryExists(const std::string& path) noexcept;
+    // File.ReadAllLines(path): UTF-8, with CR, LF and CRLF all ending a line
+    // and the byte-order mark stripped.
+    [[nodiscard]] std::vector<std::string> FileReadAllLines(const std::string& path);
+    // File.WriteAllLines(path, lines): every line followed by Environment.NewLine.
+    void FileWriteAllLines(const std::string& path, const std::vector<std::string>& lines);
+    // File.ReadAllText(path): UTF-8, byte-order mark stripped.
+    [[nodiscard]] std::string FileReadAllText(const std::string& path);
+    // File.WriteAllText(path, text).
+    void FileWriteAllText(const std::string& path, std::string_view text);
+    // Directory.CreateDirectory(path), parents included.
+    void DirectoryCreateDirectory(const std::string& path);
     // Path.GetInvalidFileNameChars().
     [[nodiscard]] std::vector<char> PathGetInvalidFileNameChars();
 }

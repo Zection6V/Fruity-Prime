@@ -1,5 +1,7 @@
 #include "PlayerEntity.hpp"
 
+#include "../../NativeRuntime/System/Enum.hpp"
+
 #include "HalfturretEntity.hpp"
 #include "../ArtifactEntity.hpp"
 #include "../BeamProjectileEntity.hpp"
@@ -2819,5 +2821,30 @@ namespace MphRead::Entities
                 KandenAltNodeDistances[static_cast<std::size_t>(i)] = Distance(pos1, pos2);
             }
         }
+    }
+}
+
+namespace MphRead::Entities
+{
+    namespace
+    {
+        // PlayerEntity.cs [Flags] LoadFlags : byte
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry LoadFlagsNames[] = {
+            {0x0ULL, "None"},
+            {0x1ULL, "Connected"},
+            {0x2ULL, "WasConnected"},
+            {0x4ULL, "Disconnected"},
+            {0x8ULL, "Initial"},
+            {0x10ULL, "Unknown4"},
+            {0x20ULL, "Active"},
+            {0x40ULL, "SlotActive"},
+            {0x80ULL, "Spawned"},
+        };
+    }
+
+    std::string ToString(LoadFlags value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, LoadFlagsNames, std::size(LoadFlagsNames), true);
     }
 }

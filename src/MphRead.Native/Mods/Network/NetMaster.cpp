@@ -1,5 +1,15 @@
 #include "NetMaster.hpp"
 
+#include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../Formats/Formats.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/DateTime.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Net.hpp"
+#include "../../NativeRuntime/System/Tasks.hpp"
+#include "../Update/ServerUpdate.hpp"
+
 #include "DedicatedServer.hpp"
 #include "MapRotation.hpp"
 
@@ -20,54 +30,8 @@
 #include <utility>
 #include <vector>
 
-namespace MphRead::Mods::Network::Detail
-{
-    using NetMasterSocketHandle = std::uintptr_t;
-
-    class NetMasterSocketException final : public std::runtime_error
-    {
-    public:
-        explicit NetMasterSocketException(std::string message)
-            : std::runtime_error(std::move(message))
-        {
-        }
-    };
-
-    // Narrow runtime/provider seams. These are the direct C# contracts touched
-    // by NetMaster.cs but owned by System.Net/System.Threading, GameMode /
-    // PlayerEntity, or the later W10 ServerUpdate slice. They deliberately do
-    // not introduce replacement policy here.
-    std::vector<std::array<std::uint8_t, 4>> NetMasterDnsGetIPv4Addresses(
-        const std::string& host);
-    NetMasterSocketHandle NetMasterUdpClientCreateInterNetwork();
-    void NetMasterUdpClientSetReceiveTimeout(NetMasterSocketHandle socket,
-        std::int32_t timeoutMs);
-    void NetMasterUdpClientSend(NetMasterSocketHandle socket,
-        std::span<const std::uint8_t> data,
-        const std::shared_ptr<System::Net::IPEndPoint>& endPoint);
-    std::vector<std::uint8_t> NetMasterUdpClientReceive(NetMasterSocketHandle socket,
-        std::shared_ptr<System::Net::IPEndPoint>& from);
-    void NetMasterUdpClientDispose(NetMasterSocketHandle socket);
-    [[noreturn]] void NetMasterThrowNullReferenceException();
-
-    std::int64_t NetMasterDateTimeUtcNowTicks();
-    std::string NetMasterDateTimeNowHHmmssCurrentCulture();
-    void NetMasterConsoleWriteLine(std::string_view message);
-    std::string NetMasterFormatInt32CurrentCulture(std::int32_t value);
-    std::int32_t NetMasterSingleToInt32Unchecked(float value);
-
-    bool NetMasterGameModeIsDefined(std::uint8_t value);
-    GameMode NetMasterGameModeBattle();
-    std::string NetMasterGameModeToString(GameMode value);
-    std::int32_t NetMasterPlayerSlotCapacity();
-    bool NetMasterServerUpdateShouldRestart(std::int32_t hostedCount);
-    void NetMasterSetCurrentThreadName(const std::string& name);
-}
-
 namespace
 {
-    using MphRead::Mods::Network::Detail::NetMasterSocketHandle;
-
     constexpr std::int64_t TicksPerMillisecond = 10'000;
 
     std::string IPv4ToString(const std::array<std::uint8_t, 4>& address)
@@ -90,7 +54,7 @@ namespace
     }
 
     template <typename TBody>
-    auto WithUdpClient(NetMasterSocketHandle socket, TBody&& body)
+    auto WithUdpClient(::MphRead::NativeRuntime::SocketHandle socket, TBody&& body)
         -> decltype(body())
     {
         using TResult = decltype(body());
@@ -107,12 +71,31 @@ namespace
 
         // C# using-var disposal runs on both return and exception. If Dispose
         // throws, it replaces the pending completion.
-        MphRead::Mods::Network::Detail::NetMasterUdpClientDispose(socket);
+        ::MphRead::NativeRuntime::UdpClientDispose(socket);
         if (pending != nullptr)
         {
             std::rethrow_exception(pending);
         }
         return std::move(*result);
+    }
+}
+
+namespace
+{
+    // The IPv4 addresses Dns.GetHostAddresses returns, in its own order.
+    [[nodiscard]] std::vector<std::array<std::uint8_t, 4>> DnsGetIPv4Addresses(
+        const std::string& host)
+    {
+        std::vector<std::array<std::uint8_t, 4>> result;
+        for (const ::MphRead::NativeRuntime::Address& address
+            : ::MphRead::NativeRuntime::DnsGetHostAddresses(host))
+        {
+            if (address.Family == ::MphRead::NativeRuntime::AddressFamily::InterNetwork)
+            {
+                result.push_back(address.Bytes);
+            }
+        }
+        return result;
     }
 }
 
@@ -180,9 +163,9 @@ namespace MphRead::Mods::Network
             std::copy(_scratch.begin(), _scratch.end(), datagram.begin() + 1);
             if (!_socket.has_value())
             {
-                Detail::NetMasterThrowNullReferenceException();
+                throw ::System::NullReferenceException();
             }
-            Detail::NetMasterUdpClientSend(*_socket, datagram, _endPoint);
+            ::MphRead::NativeRuntime::UdpClientSend(*_socket, datagram, _endPoint);
         }
         catch (const std::exception& ex)
         {
@@ -202,7 +185,7 @@ namespace MphRead::Mods::Network
             datagram[0] = static_cast<std::uint8_t>(PacketType::Bye);
             datagram[1] = static_cast<std::uint8_t>(port);
             datagram[2] = static_cast<std::uint8_t>(port >> 8);
-            Detail::NetMasterUdpClientSend(*_socket, datagram, _endPoint);
+            ::MphRead::NativeRuntime::UdpClientSend(*_socket, datagram, _endPoint);
         }
         catch (const std::exception&)
         {
@@ -216,7 +199,7 @@ namespace MphRead::Mods::Network
             return true;
         }
         const std::vector<std::array<std::uint8_t, 4>> addresses
-            = Detail::NetMasterDnsGetIPv4Addresses(_host);
+            = DnsGetIPv4Addresses(_host);
         if (addresses.empty())
         {
             Complain(_host + " has no IPv4 address");
@@ -226,7 +209,7 @@ namespace MphRead::Mods::Network
         _endPoint = std::make_shared<System::Net::IPEndPoint>(addresses.front(), _port);
         if (!_socket.has_value())
         {
-            _socket = Detail::NetMasterUdpClientCreateInterNetwork();
+            _socket = ::MphRead::NativeRuntime::UdpClientCreateInterNetwork();
         }
         _complained = false;
         return true;
@@ -239,17 +222,17 @@ namespace MphRead::Mods::Network
             return;
         }
         _complained = true;
-        Detail::NetMasterConsoleWriteLine("[master] not listed on " + _host + ":"
-            + Detail::NetMasterFormatInt32CurrentCulture(_port) + " -- " + message);
-        Detail::NetMasterConsoleWriteLine("[master] the server is running normally; "
-            "pass -nomaster to stop trying, or -master HOST to point elsewhere");
+        NativeRuntime::ConsoleWriteLine(("[master] not listed on " + _host + ":"
+            + NativeRuntime::Int32ToString(_port) + " -- " + message));
+        NativeRuntime::ConsoleWriteLine(("[master] the server is running normally; "
+            "pass -nomaster to stop trying, or -master HOST to point elsewhere"));
     }
 
     void MasterReporter::Dispose()
     {
         if (_socket.has_value())
         {
-            Detail::NetMasterUdpClientDispose(*_socket);
+            ::MphRead::NativeRuntime::UdpClientDispose((*_socket));
         }
         _socket.reset();
     }
@@ -275,7 +258,7 @@ namespace MphRead::Mods::Network
         try
         {
             const std::vector<std::array<std::uint8_t, 4>> resolved
-                = Detail::NetMasterDnsGetIPv4Addresses(host);
+                = DnsGetIPv4Addresses(host);
             if (resolved.empty())
             {
                 Log("cannot publish local servers as \"" + host + "\": no IPv4 address");
@@ -324,7 +307,7 @@ namespace MphRead::Mods::Network
         _transport = std::make_unique<NetTransport>(_port);
         _running.store(true);
         Log("listening on UDP "
-            + Detail::NetMasterFormatInt32CurrentCulture(_transport->LocalPort()));
+            + NativeRuntime::Int32ToString((_transport->LocalPort())));
         Log("servers are dropped after 50 s of silence");
         if (_publicAddress != 0)
         {
@@ -332,8 +315,8 @@ namespace MphRead::Mods::Network
         }
         Log(CanHost()
             ? "can start games on ports "
-                + Detail::NetMasterFormatInt32CurrentCulture(_hostPortFirst) + "-"
-                + Detail::NetMasterFormatInt32CurrentCulture(_hostPortLast)
+                + NativeRuntime::Int32ToString(_hostPortFirst) + "-"
+                + NativeRuntime::Int32ToString(_hostPortLast)
                 + " for players who cannot open one of their own"
             : "not starting games for anybody (no host port range)");
         _clockStart = std::chrono::steady_clock::now();
@@ -347,7 +330,7 @@ namespace MphRead::Mods::Network
             }
             Expire(now);
             ReapHosted(now);
-            if (Detail::NetMasterServerUpdateShouldRestart(
+            if (Update::ServerUpdate::ShouldRestart(
                 static_cast<std::int32_t>(_hosted.size())))
             {
                 Log("shutting down to come back on the new build");
@@ -357,12 +340,10 @@ namespace MphRead::Mods::Network
             if (now - lastReport >= 60.0)
             {
                 lastReport = now;
-                std::string message = Detail::NetMasterFormatInt32CurrentCulture(
-                    static_cast<std::int32_t>(_entries.size())) + " server(s) listed";
+                std::string message = NativeRuntime::Int32ToString((static_cast<std::int32_t>(_entries.size()))) + " server(s) listed";
                 if (!_hosted.empty())
                 {
-                    message += ", " + Detail::NetMasterFormatInt32CurrentCulture(
-                        static_cast<std::int32_t>(_hosted.size())) + " started here";
+                    message += ", " + NativeRuntime::Int32ToString((static_cast<std::int32_t>(_hosted.size()))) + " started here";
                 }
                 Log(message);
             }
@@ -437,9 +418,9 @@ namespace MphRead::Mods::Network
             if (request.Protocol != static_cast<std::uint8_t>(NetConfig::ProtocolVersion))
             {
                 reply.Reason = "this directory speaks protocol "
-                    + Detail::NetMasterFormatInt32CurrentCulture(NetConfig::ProtocolVersion)
+                    + NativeRuntime::Int32ToString(NetConfig::ProtocolVersion)
                     + ", your build speaks "
-                    + Detail::NetMasterFormatInt32CurrentCulture(request.Protocol);
+                    + NativeRuntime::Int32ToString(request.Protocol);
             }
             else if (!CanHost())
             {
@@ -479,13 +460,12 @@ namespace MphRead::Mods::Network
         if (port < 0)
         {
             HostReplyPacket result{};
-            result.Reason = "all " + Detail::NetMasterFormatInt32CurrentCulture(
-                UncheckedSlotCount(_hostPortFirst, _hostPortLast)) + " game slots are busy";
+            result.Reason = "all " + NativeRuntime::Int32ToString((UncheckedSlotCount(_hostPortFirst, _hostPortLast))) + " game slots are busy";
             return result;
         }
-        const GameMode mode = Detail::NetMasterGameModeIsDefined(request.Mode)
+        const GameMode mode = ::MphRead::IsDefinedGameMode(request.Mode)
             ? static_cast<GameMode>(request.Mode)
-            : Detail::NetMasterGameModeBattle();
+            : GameMode::Battle;
         const std::string& requestedName = request.ServerName.value();
         const std::string name = !requestedName.empty() ? requestedName : "Hosted game";
         const std::string& roomKey = request.RoomKey.value();
@@ -493,7 +473,7 @@ namespace MphRead::Mods::Network
             static_cast<float>(request.TimeLimit), request.PointGoal);
         const auto server = std::make_shared<DedicatedServer>(port,
             std::clamp(static_cast<std::int32_t>(request.MaxPlayers), 2,
-                Detail::NetMasterPlayerSlotCapacity()), rotation);
+                Entities::PlayerEntity::SlotCapacity), rotation);
         server->ServerName(name);
         server->Reporter(std::make_shared<MasterReporter>("127.0.0.1", _port));
 
@@ -509,8 +489,8 @@ namespace MphRead::Mods::Network
 
         std::thread thread([server, cancel, port]()
         {
-            Detail::NetMasterSetCurrentThreadName("MphRead hosted "
-                + Detail::NetMasterFormatInt32CurrentCulture(port));
+            NativeRuntime::SetCurrentThreadName("MphRead hosted "
+                + NativeRuntime::Int32ToString(port));
             try
             {
                 server->Run(cancel->get_token());
@@ -518,7 +498,7 @@ namespace MphRead::Mods::Network
             catch (const std::exception& ex)
             {
                 MasterServer::Log("game on "
-                    + Detail::NetMasterFormatInt32CurrentCulture(port)
+                    + NativeRuntime::Int32ToString(port)
                     + " stopped: " + ex.what());
             }
         });
@@ -534,14 +514,14 @@ namespace MphRead::Mods::Network
             server->Stop();
             HostReplyPacket result{};
             result.Reason = "could not listen on port "
-                + Detail::NetMasterFormatInt32CurrentCulture(port);
+                + NativeRuntime::Int32ToString(port);
             return result;
         }
         _hosted.push_back(entry);
         Log("started \"" + name + "\" on port "
-            + Detail::NetMasterFormatInt32CurrentCulture(port) + " for "
+            + NativeRuntime::Int32ToString(port) + " for "
             + IPv4ToString(askerAddress) + " (" + roomKey + ", "
-            + Detail::NetMasterGameModeToString(mode) + ")");
+            + ::MphRead::ToString(mode) + ")");
         HostReplyPacket result{};
         result.Started = true;
         result.Port = static_cast<std::uint16_t>(port);
@@ -605,7 +585,7 @@ namespace MphRead::Mods::Network
         const std::string& why)
     {
         Log("stopping \"" + entry->Name + "\" on port "
-            + Detail::NetMasterFormatInt32CurrentCulture(entry->Port) + ": " + why);
+            + NativeRuntime::Int32ToString(entry->Port) + ": " + why);
         entry->Cancel->request_stop();
         entry->Server->Stop();
         for (std::int32_t i = 0; i < 100 && entry->Server->Listening(); ++i)
@@ -732,15 +712,15 @@ namespace MphRead::Mods::Network
 
     void MasterServer::Log(const std::string& message)
     {
-        Detail::NetMasterConsoleWriteLine("[" + Detail::NetMasterDateTimeNowHHmmssCurrentCulture()
-            + "] [master] " + message);
+        NativeRuntime::ConsoleWriteLine(("[" + NativeRuntime::DateTimeToString(NativeRuntime::DateTimeNow(), "HH:mm:ss")
+            + "] [master] " + message));
     }
 
     std::string MasterListing::Endpoint() const
     {
         return Port == NetConfig::DefaultPort
             ? Address
-            : Address + ":" + Detail::NetMasterFormatInt32CurrentCulture(Port);
+            : Address + ":" + NativeRuntime::Int32ToString(Port);
     }
 
     HostedGame NetMasterClient::RequestGame(const std::string& masterHost,
@@ -752,7 +732,7 @@ namespace MphRead::Mods::Network
         try
         {
             const std::vector<std::array<std::uint8_t, 4>> resolved
-                = Detail::NetMasterDnsGetIPv4Addresses(masterHost);
+                = DnsGetIPv4Addresses(masterHost);
             if (resolved.empty())
             {
                 HostedGame result{};
@@ -770,17 +750,17 @@ namespace MphRead::Mods::Network
 
         try
         {
-            const NetMasterSocketHandle socket = Detail::NetMasterUdpClientCreateInterNetwork();
+            const ::MphRead::NativeRuntime::SocketHandle socket = ::MphRead::NativeRuntime::UdpClientCreateInterNetwork();
             return WithUdpClient(socket, [&]() -> HostedGame
             {
-                Detail::NetMasterUdpClientSetReceiveTimeout(socket, timeoutMs);
+                ::MphRead::NativeRuntime::UdpClientSetReceiveTimeout(socket, timeoutMs);
                 HostRequestPacket request{};
                 request.Protocol = static_cast<std::uint8_t>(NetConfig::ProtocolVersion);
                 request.MaxPlayers = static_cast<std::uint8_t>(std::clamp(maxPlayers, 2,
-                    Detail::NetMasterPlayerSlotCapacity()));
+                    Entities::PlayerEntity::SlotCapacity));
                 request.Mode = static_cast<std::uint8_t>(static_cast<std::int32_t>(mode));
                 request.TimeLimit = static_cast<std::uint16_t>(std::clamp(
-                    Detail::NetMasterSingleToInt32Unchecked(timeLimit), 0,
+                    static_cast<std::int32_t>(timeLimit), 0,
                     static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
                 request.PointGoal = static_cast<std::uint16_t>(std::clamp(pointGoal, 0,
                     static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
@@ -791,14 +771,14 @@ namespace MphRead::Mods::Network
                 datagram[0] = static_cast<std::uint8_t>(PacketType::HostRequest);
                 request.Write(std::span<std::uint8_t>(datagram.data() + 1,
                     HostRequestPacket::Size));
-                Detail::NetMasterUdpClientSend(socket, datagram, endPoint);
+                ::MphRead::NativeRuntime::UdpClientSend(socket, datagram, endPoint);
                 std::shared_ptr<System::Net::IPEndPoint> from = System::Net::IPEndPoint::Any();
-                const std::int64_t deadline = Detail::NetMasterDateTimeUtcNowTicks()
+                const std::int64_t deadline = NativeRuntime::DateTimeUtcNowTicks()
                     + static_cast<std::int64_t>(timeoutMs) * TicksPerMillisecond;
-                while (Detail::NetMasterDateTimeUtcNowTicks() < deadline)
+                while (NativeRuntime::DateTimeUtcNowTicks() < deadline)
                 {
                     const std::vector<std::uint8_t> reply
-                        = Detail::NetMasterUdpClientReceive(socket, from);
+                        = ::MphRead::NativeRuntime::UdpClientReceive(socket, from);
                     if (reply.size() < static_cast<std::size_t>(1 + HostReplyPacket::Size)
                         || reply[0] != static_cast<std::uint8_t>(PacketType::HostReply))
                     {
@@ -818,11 +798,11 @@ namespace MphRead::Mods::Network
                 return result;
             });
         }
-        catch (const Detail::NetMasterSocketException&)
+        catch (const ::MphRead::NativeRuntime::SocketException&)
         {
             HostedGame result{};
             result.Reason = "no answer from " + masterHost + ":"
-                + Detail::NetMasterFormatInt32CurrentCulture(masterPort)
+                + NativeRuntime::Int32ToString(masterPort)
                 + " -- it may be down, or UDP may not reach it";
             return result;
         }
@@ -843,7 +823,7 @@ namespace MphRead::Mods::Network
         try
         {
             const std::vector<std::array<std::uint8_t, 4>> resolved
-                = Detail::NetMasterDnsGetIPv4Addresses(host);
+                = DnsGetIPv4Addresses(host);
             if (resolved.empty())
             {
                 return {found, false};
@@ -857,24 +837,24 @@ namespace MphRead::Mods::Network
 
         try
         {
-            const NetMasterSocketHandle socket = Detail::NetMasterUdpClientCreateInterNetwork();
+            const ::MphRead::NativeRuntime::SocketHandle socket = ::MphRead::NativeRuntime::UdpClientCreateInterNetwork();
             return WithUdpClient(socket, [&]() -> MasterListResult
             {
-                Detail::NetMasterUdpClientSetReceiveTimeout(socket, timeoutMs);
+                ::MphRead::NativeRuntime::UdpClientSetReceiveTimeout(socket, timeoutMs);
                 const std::array<std::uint8_t, 2> query = {
                     static_cast<std::uint8_t>(PacketType::MasterQuery),
                     static_cast<std::uint8_t>(NetConfig::ProtocolVersion)
                 };
-                Detail::NetMasterUdpClientSend(socket, query, endPoint);
+                ::MphRead::NativeRuntime::UdpClientSend(socket, query, endPoint);
                 std::shared_ptr<System::Net::IPEndPoint> from = System::Net::IPEndPoint::Any();
-                const std::int64_t deadline = Detail::NetMasterDateTimeUtcNowTicks()
+                const std::int64_t deadline = NativeRuntime::DateTimeUtcNowTicks()
                     + static_cast<std::int64_t>(timeoutMs) * TicksPerMillisecond;
                 std::int32_t total = -1;
-                while (Detail::NetMasterDateTimeUtcNowTicks() < deadline
+                while (NativeRuntime::DateTimeUtcNowTicks() < deadline
                     && (total < 0 || static_cast<std::int32_t>(found->size()) < total))
                 {
                     const std::vector<std::uint8_t> reply
-                        = Detail::NetMasterUdpClientReceive(socket, from);
+                        = ::MphRead::NativeRuntime::UdpClientReceive(socket, from);
                     if (reply.size() < 3
                         || reply[0] != static_cast<std::uint8_t>(PacketType::MasterList))
                     {
@@ -906,9 +886,9 @@ namespace MphRead::Mods::Network
                         listing.Port = entry.Port;
                         listing.ServerName = entry.ServerName.value();
                         listing.RoomKey = entry.RoomKey.value();
-                        listing.Mode = Detail::NetMasterGameModeIsDefined(entry.Mode)
+                        listing.Mode = ::MphRead::IsDefinedGameMode(entry.Mode)
                             ? static_cast<GameMode>(entry.Mode)
-                            : Detail::NetMasterGameModeBattle();
+                            : GameMode::Battle;
                         listing.Players = entry.Players;
                         listing.MaxPlayers = entry.MaxPlayers;
                         listing.Protocol = entry.Protocol;
@@ -922,7 +902,7 @@ namespace MphRead::Mods::Network
                 return {found, answered};
             });
         }
-        catch (const Detail::NetMasterSocketException&)
+        catch (const ::MphRead::NativeRuntime::SocketException&)
         {
         }
         catch (const std::exception&)

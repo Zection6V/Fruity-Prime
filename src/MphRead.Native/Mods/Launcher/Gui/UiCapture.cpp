@@ -246,13 +246,13 @@ namespace MphRead::Mods::Launcher::Gui
         demos->reserve(3);
         demos->emplace_back(
             "MP3 PROVING GROUND_2026-09-04_18-22-07.fpdemo",
-            "MP3 PROVING GROUND", Network::DemoLibraryDateTime(NowTicks), 1'512'320);
+            "MP3 PROVING GROUND", ::MphRead::NativeRuntime::ManagedDateTime{NowTicks, 2}, 1'512'320);
         demos->emplace_back(
             "COMBAT HALL_2026-09-02_21-04-55.fpdemo",
-            "COMBAT HALL", Network::DemoLibraryDateTime(NowTicks - TwoDaysTicks), 402'112);
+            "COMBAT HALL", ::MphRead::NativeRuntime::ManagedDateTime{NowTicks - TwoDaysTicks, 2}, 402'112);
         demos->emplace_back(
             "sent-to-me.fpdemo", "",
-            Network::DemoLibraryDateTime(NowTicks - NineDaysTicks), 88'400);
+            ::MphRead::NativeRuntime::ManagedDateTime{NowTicks - NineDaysTicks, 2}, 88'400);
         return demos;
     }
 

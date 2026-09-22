@@ -1,4 +1,6 @@
 #include "WeaponDps.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include "NetLaunch.hpp"
 #include "NetTestScript.hpp"
@@ -516,10 +518,9 @@ namespace MphRead::Mods::Network
     {
         if (!_placed || _firingFrames == 0)
         {
-            Detail::WeaponDpsConsoleWriteLine(
-                "DPSFAIL " + _room + " | "
+            NativeRuntime::ConsoleWriteLine(("DPSFAIL " + _room + " | "
                 + HunterName(_hunter) + " " + BeamName(_beam)
-                + " | never got set up");
+                + " | never got set up"));
             return 1;
         }
 
@@ -528,26 +529,25 @@ namespace MphRead::Mods::Network
             ? static_cast<double>(_killFrames) / 60.0
             : seconds;
         const std::string kill = _killFrames > 0
-            ? "killed " + Detail::WeaponDpsFormatInt32(_startHealth) + " hp in "
+            ? "killed " + NativeRuntime::Int32ToString(_startHealth) + " hp in "
                 + Detail::WeaponDpsFormatFixed(
                     static_cast<double>(_killFrames) / 60.0, 2)
                 + " s"
-            : "did not kill " + Detail::WeaponDpsFormatInt32(_startHealth) + " hp in "
+            : "did not kill " + NativeRuntime::Int32ToString(_startHealth) + " hp in "
                 + Detail::WeaponDpsFormatFixed(seconds, 1)
                 + " s";
         const std::string action = _bombs
             ? std::string("laying bombs")
             : "holding " + BeamName(_beam);
 
-        Detail::WeaponDpsConsoleWriteLine(
-            "DPS " + _room
+        NativeRuntime::ConsoleWriteLine(("DPS " + _room
             + " | " + HunterName(_hunter) + " " + action
             + " at "
             + Detail::WeaponDpsFormatFixed(
                 static_cast<double>(_bombs ? 0.6F : _distance), 1)
             + " units | " + kill
-            + " | damage " + Detail::WeaponDpsFormatInt32(_damage)
-            + " | hits " + Detail::WeaponDpsFormatInt32(_hits)
+            + " | damage " + NativeRuntime::Int32ToString(_damage)
+            + " | hits " + NativeRuntime::Int32ToString(_hits)
             + " | "
             + Detail::WeaponDpsFormatFixed(
                 static_cast<double>(_damage) / window, 1)
@@ -561,15 +561,15 @@ namespace MphRead::Mods::Network
             + Detail::WeaponDpsFormatFixed(
                 static_cast<double>(_hits) / window, 1)
             + " hits per second | beam alive on "
-            + Detail::WeaponDpsFormatInt32(_beamFrames) + " of "
-            + Detail::WeaponDpsFormatInt32(_firingFrames) + " frame(s)"
-            + " | shockCoilTimer " + Detail::WeaponDpsFormatInt32(_worstShockCoilTimer)
+            + NativeRuntime::Int32ToString(_beamFrames) + " of "
+            + NativeRuntime::Int32ToString(_firingFrames) + " frame(s)"
+            + " | shockCoilTimer " + NativeRuntime::Int32ToString(_worstShockCoilTimer)
             + " (ramp needs 60 for +1, 240 for +4)"
-            + " | victim ended on " + Detail::WeaponDpsFormatInt32(_lastHealth)
-            + " hp | healed shooter " + Detail::WeaponDpsFormatInt32(_healed)
-            + " hp | shooter ammo " + Detail::WeaponDpsFormatInt32(_lastAmmo)
-            + " | last hit on firing frame " + Detail::WeaponDpsFormatInt32(_lastHitFrame)
-            + " of " + Detail::WeaponDpsFormatInt32(_firingFrames));
+            + " | victim ended on " + NativeRuntime::Int32ToString(_lastHealth)
+            + " hp | healed shooter " + NativeRuntime::Int32ToString(_healed)
+            + " hp | shooter ammo " + NativeRuntime::Int32ToString(_lastAmmo)
+            + " | last hit on firing frame " + NativeRuntime::Int32ToString(_lastHitFrame)
+            + " of " + NativeRuntime::Int32ToString(_firingFrames)));
         return 0;
     }
 
@@ -599,12 +599,10 @@ namespace MphRead::Mods::Network
             }
             catch (const std::exception& ex)
             {
-                Detail::WeaponDpsConsoleWriteLine(
-                    "DPSCRASH " + room + " | "
+                NativeRuntime::ConsoleWriteLine(("DPSCRASH " + room + " | "
                     + Detail::WeaponDpsExceptionTypeName(ex) + ": "
-                    + Detail::WeaponDpsExceptionMessage(ex));
-                Detail::WeaponDpsConsoleWriteLine(
-                    Detail::WeaponDpsExceptionStackTrace(ex));
+                    + Detail::WeaponDpsExceptionMessage(ex)));
+                NativeRuntime::ConsoleWriteLineNullable(Detail::WeaponDpsExceptionStackTrace(ex));
                 result = 1;
             }
         }

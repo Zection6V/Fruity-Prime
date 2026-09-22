@@ -30,6 +30,8 @@ namespace MphRead::NativeRuntime
     // Console.Out.Flush().
     void ConsoleFlush();
 
+    // Environment.GetEnvironmentVariable(name): null when it is not set.
+    [[nodiscard]] std::optional<std::string> EnvironmentGetVariable(const std::string& name);
     // Environment.MachineName.
     [[nodiscard]] std::string EnvironmentMachineName();
 }

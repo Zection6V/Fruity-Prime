@@ -1,9 +1,12 @@
 #include "NetPlayerBridge.hpp"
 
+#include "../../GameState.hpp"
+#include "../EndScreen.hpp"
 #include "NetDamage.hpp"
 #include "NetHitPrediction.hpp"
 #include "NetLog.hpp"
 #include "NetRoomChange.hpp"
+#include "NetSession.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,72 +31,6 @@
 #include <langinfo.h>
 #include <locale.h>
 #endif
-
-namespace MphRead::Mods::Network::Detail
-{
-    // Later-wave providers. These are declaration seams only: each operation
-    // is the direct Native counterpart of a C# member consumed by this file.
-    [[nodiscard]] Entities::PlayerControls& NetPlayerBridgeControls(
-        Entities::PlayerEntity& player);
-    [[nodiscard]] Entities::Keybind& NetPlayerBridgeControl(
-        Entities::PlayerControls& controls, std::int32_t index);
-    [[nodiscard]] bool NetPlayerBridgeKeybindIsDown(const Entities::Keybind& bind);
-    [[nodiscard]] bool NetPlayerBridgeKeybindIsPressed(const Entities::Keybind& bind);
-    void NetPlayerBridgeSetKeybindDown(Entities::Keybind& bind, bool value);
-    void NetPlayerBridgeSetKeybindPressed(Entities::Keybind& bind, bool value);
-    void NetPlayerBridgeSetKeybindReleased(Entities::Keybind& bind, bool value);
-
-    [[nodiscard]] bool NetPlayerBridgeZoomed(Entities::PlayerEntity& player);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 NetPlayerBridgeGunVector(
-        Entities::PlayerEntity& player);
-    [[nodiscard]] std::int32_t NetPlayerBridgeAmmoUa(Entities::PlayerEntity& player);
-    [[nodiscard]] std::int32_t NetPlayerBridgeAmmoMissiles(Entities::PlayerEntity& player);
-    [[nodiscard]] bool NetPlayerBridgeEndScreenReady();
-    [[nodiscard]] std::uint32_t NetPlayerBridgeLastSnapshotFrame();
-
-    void NetPlayerBridgeSetWeapon(Entities::PlayerEntity& player, MphRead::BeamType weapon);
-    void NetPlayerBridgeSetAmmo(
-        Entities::PlayerEntity& player, std::int32_t ua, std::int32_t missiles);
-    void NetPlayerBridgeNoteInput(Entities::PlayerEntity& player);
-    void NetPlayerBridgeSetZoom(Entities::PlayerEntity& player, bool zoomed);
-    void NetPlayerBridgeSetSpectating(Entities::PlayerEntity& player, bool spectating);
-    [[nodiscard]] std::string NetPlayerBridgeFormState(Entities::PlayerEntity& player);
-    [[nodiscard]] bool NetPlayerBridgeIsAuthority();
-
-    void NetPlayerBridgeNetDie(Entities::PlayerEntity& player);
-    void NetPlayerBridgeNetSpawn(
-        Entities::PlayerEntity& player,
-        OpenTK::Mathematics::Vector3 position,
-        OpenTK::Mathematics::Vector3 facing);
-    [[nodiscard]] bool NetPlayerBridgePlacementBelongsHere(
-        Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 position);
-    void NetPlayerBridgeSetFrozen(Entities::PlayerEntity& player, bool frozen);
-    void NetPlayerBridgeSetFacing(
-        Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 facing);
-    void NetPlayerBridgeSetEquipZoomed(Entities::PlayerEntity& player, bool zoomed);
-    void NetPlayerBridgeSetDisrupted(Entities::PlayerEntity& player, bool disrupted);
-    void NetPlayerBridgeSetBurning(Entities::PlayerEntity& player, bool burning);
-    void NetPlayerBridgeStartFormSwitch(Entities::PlayerEntity& player);
-    void NetPlayerBridgeForceForm(Entities::PlayerEntity& player, bool altForm);
-
-    [[nodiscard]] std::int32_t NetPlayerBridgePointsLength();
-    void NetPlayerBridgeSetPoints(std::int32_t slot, std::int32_t value);
-    void NetPlayerBridgeSetKills(std::int32_t slot, std::int32_t value);
-    void NetPlayerBridgeSetDeaths(std::int32_t slot, std::int32_t value);
-
-    [[nodiscard]] std::int32_t NetPlayerBridgeSlotPingLength();
-    [[nodiscard]] std::int32_t NetPlayerBridgeSlotPing(std::int32_t slot);
-    [[nodiscard]] std::uint32_t NetPlayerBridgeNetFrame();
-    [[nodiscard]] bool NetPlayerBridgeGetNetworkPosition(
-        Entities::PlayerEntity& player,
-        std::uint32_t frame,
-        OpenTK::Mathematics::Vector3& position);
-
-    [[nodiscard]] bool NetPlayerBridgeFrozen(Entities::PlayerEntity& player);
-    void NetPlayerBridgeRefreshNodeRef(
-        Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 previous);
-    void NetPlayerBridgeRefreshVolume(Entities::PlayerEntity& player);
-}
 
 namespace
 {
@@ -351,25 +288,52 @@ namespace
             + ", " + SingleText(value.Z) + ")";
     }
 
+    [[nodiscard]] bool IsPressedOn(const MphRead::Entities::Keybind& bind)
+    {
+        return bind.IsPressed();
+    }
+
+    [[nodiscard]] bool IsDownOn(const MphRead::Entities::Keybind& bind)
+    {
+        return bind.IsDown();
+    }
+
     [[nodiscard]] MphRead::Entities::Keybind& ControlFor(
         MphRead::Entities::PlayerControls& controls, Control control)
     {
-        return MphRead::Mods::Network::Detail::NetPlayerBridgeControl(
-            controls, static_cast<std::int32_t>(control));
+        switch (control)
+        {
+        case Control::MoveLeft: return controls.MoveLeft();
+        case Control::MoveRight: return controls.MoveRight();
+        case Control::MoveUp: return controls.MoveUp();
+        case Control::MoveDown: return controls.MoveDown();
+        case Control::Shoot: return controls.Shoot();
+        case Control::Zoom: return controls.Zoom();
+        case Control::Jump: return controls.Jump();
+        case Control::Morph: return controls.Morph();
+        case Control::Boost: return controls.Boost();
+        case Control::AltAttack: return controls.AltAttack();
+        case Control::ScanVisor: return controls.ScanVisor();
+        case Control::NextWeapon: return controls.NextWeapon();
+        case Control::PrevWeapon: return controls.PrevWeapon();
+        case Control::RollLeft: return controls.RolltLeft();
+        case Control::RollRight: return controls.RollRight();
+        case Control::RollUp: return controls.RollUp();
+        case Control::RollDown: return controls.RollDown();
+        }
+        return controls.MoveLeft();
     }
 
     [[nodiscard]] bool IsPressed(
         MphRead::Entities::PlayerControls& controls, Control control)
     {
-        return MphRead::Mods::Network::Detail::NetPlayerBridgeKeybindIsPressed(
-            ControlFor(controls, control));
+        return IsPressedOn(ControlFor(controls, control));
     }
 
     [[nodiscard]] bool IsDown(
         MphRead::Entities::PlayerControls& controls, Control control)
     {
-        return MphRead::Mods::Network::Detail::NetPlayerBridgeKeybindIsDown(
-            ControlFor(controls, control));
+        return IsDownOn(ControlFor(controls, control));
     }
 }
 
@@ -430,7 +394,7 @@ namespace MphRead::Mods::Network
 
     void NetPlayerBridge::RecordPresses(Entities::PlayerEntity& player)
     {
-        Entities::PlayerControls& controls = Detail::NetPlayerBridgeControls(player);
+        Entities::PlayerControls& controls = player.Controls();
         IntentButtons pressed = IntentButtons::None;
         if (IsPressed(controls, Control::MoveLeft)) pressed |= IntentButtons::MoveLeft;
         if (IsPressed(controls, Control::MoveRight)) pressed |= IntentButtons::MoveRight;
@@ -460,7 +424,7 @@ namespace MphRead::Mods::Network
 
     IntentPacket NetPlayerBridge::CaptureIntent(Entities::PlayerEntity& player)
     {
-        Entities::PlayerControls& controls = Detail::NetPlayerBridgeControls(player);
+        Entities::PlayerControls& controls = player.Controls();
         IntentButtons buttons = IntentButtons::None;
         if (IsDown(controls, Control::MoveLeft)) buttons |= IntentButtons::MoveLeft;
         if (IsDown(controls, Control::MoveRight)) buttons |= IntentButtons::MoveRight;
@@ -479,7 +443,7 @@ namespace MphRead::Mods::Network
         if (IsDown(controls, Control::RollRight)) buttons |= IntentButtons::RollRight;
         if (IsDown(controls, Control::RollUp)) buttons |= IntentButtons::RollUp;
         if (IsDown(controls, Control::RollDown)) buttons |= IntentButtons::RollDown;
-        if (Detail::NetPlayerBridgeZoomed(player))
+        if (player.EquipInfo()->Zoomed)
         {
             buttons |= IntentButtons::ZoomedState;
         }
@@ -495,21 +459,21 @@ namespace MphRead::Mods::Network
         {
             buttons |= IntentButtons::SpectatingState;
         }
-        if (Detail::NetPlayerBridgeEndScreenReady())
+        if (Mods::EndScreen::Ready())
         {
             buttons |= IntentButtons::ReadyState;
         }
 
         IntentPacket result{};
         result.Buttons = buttons;
-        result.Aim = Detail::NetPlayerBridgeGunVector(player);
+        result.Aim = player.ModGunVector();
         result.Position = player.Position;
         result.WeaponSelect = static_cast<std::uint8_t>(player.CurrentWeapon());
-        result.AmmoUa = ClampUInt16(Detail::NetPlayerBridgeAmmoUa(player));
-        result.AmmoMissiles = ClampUInt16(Detail::NetPlayerBridgeAmmoMissiles(player));
+        result.AmmoUa = ClampUInt16(player.ModAmmo().first);
+        result.AmmoMissiles = ClampUInt16(player.ModAmmo().second);
         result.Presses = std::make_shared<std::vector<std::uint32_t>>(
             _pressHistory.begin(), _pressHistory.end());
-        result.AckFrame = Detail::NetPlayerBridgeLastSnapshotFrame();
+        result.AckFrame = NetSession::LastSnapshotFrame();
         return result;
     }
 
@@ -524,7 +488,7 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        Entities::PlayerControls& controls = Detail::NetPlayerBridgeControls(player);
+        Entities::PlayerControls& controls = player.Controls();
         const IntentButtons missed = MissedPresses(player.SlotIndex(), intent);
         Set(ControlFor(controls, Control::MoveLeft), HasFlag(intent.Buttons, IntentButtons::MoveLeft), HasFlag(missed, IntentButtons::MoveLeft));
         Set(ControlFor(controls, Control::MoveRight), HasFlag(intent.Buttons, IntentButtons::MoveRight), HasFlag(missed, IntentButtons::MoveRight));
@@ -534,10 +498,10 @@ namespace MphRead::Mods::Network
         Set(ControlFor(controls, Control::Zoom), HasFlag(intent.Buttons, IntentButtons::Zoom), HasFlag(missed, IntentButtons::Zoom));
         Set(ControlFor(controls, Control::Jump), HasFlag(intent.Buttons, IntentButtons::Jump), HasFlag(missed, IntentButtons::Jump));
         Set(ControlFor(controls, Control::Morph), HasFlag(intent.Buttons, IntentButtons::Morph), HasFlag(missed, IntentButtons::Morph));
-        if (Detail::NetPlayerBridgeKeybindIsPressed(ControlFor(controls, Control::Morph)))
+        if (IsPressedOn(ControlFor(controls, Control::Morph)))
         {
             NetLog::Event("slot " + Int32Text(player.SlotIndex())
-                + " morph press received, now " + Detail::NetPlayerBridgeFormState(player));
+                + " morph press received, now " + player.ModFormState());
         }
         Set(ControlFor(controls, Control::Boost), HasFlag(intent.Buttons, IntentButtons::Boost), HasFlag(missed, IntentButtons::Boost));
         Set(ControlFor(controls, Control::AltAttack), HasFlag(intent.Buttons, IntentButtons::AltAttack), HasFlag(missed, IntentButtons::AltAttack));
@@ -551,19 +515,16 @@ namespace MphRead::Mods::Network
 
         if (intent.WeaponSelect != 0xFFU)
         {
-            Detail::NetPlayerBridgeSetWeapon(
-                player, static_cast<MphRead::BeamType>(intent.WeaponSelect));
+            player.ModSetWeapon(static_cast<MphRead::BeamType>(intent.WeaponSelect));
         }
-        Detail::NetPlayerBridgeSetAmmo(player, intent.AmmoUa, intent.AmmoMissiles);
+        player.ModSetAmmo(intent.AmmoUa, intent.AmmoMissiles);
         if ((intent.Buttons & PressedButtons) != IntentButtons::None)
         {
-            Detail::NetPlayerBridgeNoteInput(player);
+            player.ModNoteInput();
         }
-        Detail::NetPlayerBridgeSetZoom(
-            player, HasFlag(intent.Buttons, IntentButtons::ZoomedState));
-        Detail::NetPlayerBridgeSetSpectating(
-            player, HasFlag(intent.Buttons, IntentButtons::SpectatingState));
-        if (Detail::NetPlayerBridgeIsAuthority())
+        player.ModSetZoom(HasFlag(intent.Buttons, IntentButtons::ZoomedState));
+        player.ModSetSpectating(HasFlag(intent.Buttons, IntentButtons::SpectatingState));
+        if (NetSession::IsAuthority())
         {
             ApplyForm(player, HasFlag(intent.Buttons, IntentButtons::AltFormState));
         }
@@ -606,10 +567,10 @@ namespace MphRead::Mods::Network
 
     void NetPlayerBridge::Set(Entities::Keybind& bind, bool down, bool pressed)
     {
-        const bool wasDown = Detail::NetPlayerBridgeKeybindIsDown(bind);
-        Detail::NetPlayerBridgeSetKeybindDown(bind, down || pressed);
-        Detail::NetPlayerBridgeSetKeybindPressed(bind, pressed);
-        Detail::NetPlayerBridgeSetKeybindReleased(bind, !down && wasDown && !pressed);
+        const bool wasDown = IsDownOn(bind);
+        bind.SetIsDown(down || pressed);
+        bind.SetIsPressed(pressed);
+        bind.SetIsReleased(!down && wasDown && !pressed);
     }
 
     void NetPlayerBridge::ApplyState(
@@ -640,19 +601,19 @@ namespace MphRead::Mods::Network
         {
             _authoritySpawned[static_cast<std::size_t>(slot)] = spawned;
         }
-        if (slot >= 0 && slot < Detail::NetPlayerBridgePointsLength()
+        if (slot >= 0 && slot < static_cast<std::int32_t>(GameState::Points().size())
             && !NetRoomChange::Settling())
         {
-            Detail::NetPlayerBridgeSetPoints(slot, state.Points);
-            Detail::NetPlayerBridgeSetKills(slot, state.Kills);
-            Detail::NetPlayerBridgeSetDeaths(slot, state.Deaths);
+            GameState::Points()[slot] = state.Points;
+            GameState::Kills()[slot] = state.Kills;
+            GameState::Deaths()[slot] = state.Deaths;
         }
         NetDamage::Replay(player, state);
         if (!spawned)
         {
             if (wasInPlay && state.Health == 0 && player.Health() > 0)
             {
-                Detail::NetPlayerBridgeNetDie(player);
+                player.ModNetDie();
             }
             player.SetHealth(state.Health);
             if (state.Health == 0)
@@ -668,7 +629,7 @@ namespace MphRead::Mods::Network
                 return;
             }
             NetHitPrediction::NoteRespawn(slot);
-            Detail::NetPlayerBridgeNetSpawn(player, state.Position, state.Facing);
+            player.ModNetSpawn(state.Position, state.Facing);
         }
         if (isLocal)
         {
@@ -677,7 +638,7 @@ namespace MphRead::Mods::Network
             }
             else if (justPlaced)
             {
-                if (Detail::NetPlayerBridgePlacementBelongsHere(player, state.Position))
+                if (player.ModPlacementBelongsHere(state.Position))
                 {
                     Move(player, state.Position);
                 }
@@ -702,8 +663,7 @@ namespace MphRead::Mods::Network
                 _divergedFrames[static_cast<std::size_t>(slot)] = 0;
             }
             player.SetHealth(NetHitPrediction::LocalHealthFor(player, state.Health));
-            Detail::NetPlayerBridgeSetFrozen(
-                player, (state.Flags & PlayerState::FlagFrozen) != 0);
+            player.ModSetFrozen((state.Flags & PlayerState::FlagFrozen) != 0);
             ApplyAfflictions(player, state);
             return;
         }
@@ -712,26 +672,20 @@ namespace MphRead::Mods::Network
             (state.Flags & PlayerState::FlagAltForm) != 0));
         player.SetSpeed(state.Speed);
         player.SetHealth(NetHitPrediction::HealthFor(slot, state.Health));
-        Detail::NetPlayerBridgeSetFacing(player, state.Facing);
-        Detail::NetPlayerBridgeSetWeapon(
-            player, static_cast<MphRead::BeamType>(state.CurrentWeapon));
-        Detail::NetPlayerBridgeSetEquipZoomed(
-            player, (state.Flags & PlayerState::FlagZoomed) != 0);
+        player.ModSetFacing(state.Facing);
+        player.ModSetWeapon(static_cast<MphRead::BeamType>(state.CurrentWeapon));
+        player.EquipInfo()->Zoomed = (state.Flags & PlayerState::FlagZoomed) != 0;
         ApplyForm(player, (state.Flags & PlayerState::FlagAltForm) != 0);
-        Detail::NetPlayerBridgeSetSpectating(
-            player, (state.Flags & PlayerState::FlagSpectating) != 0);
-        Detail::NetPlayerBridgeSetFrozen(
-            player, (state.Flags & PlayerState::FlagFrozen) != 0);
+        player.ModSetSpectating((state.Flags & PlayerState::FlagSpectating) != 0);
+        player.ModSetFrozen((state.Flags & PlayerState::FlagFrozen) != 0);
         ApplyAfflictions(player, state);
     }
 
     void NetPlayerBridge::ApplyAfflictions(
         Entities::PlayerEntity& player, PlayerState state)
     {
-        Detail::NetPlayerBridgeSetDisrupted(
-            player, (state.Flags & PlayerState::FlagDisrupted) != 0);
-        Detail::NetPlayerBridgeSetBurning(
-            player, (state.Flags & PlayerState::FlagBurning) != 0);
+        player.ModSetDisrupted((state.Flags & PlayerState::FlagDisrupted) != 0);
+        player.ModSetBurning((state.Flags & PlayerState::FlagBurning) != 0);
     }
 
     void NetPlayerBridge::ApplyForm(Entities::PlayerEntity& player, bool altForm)
@@ -757,11 +711,11 @@ namespace MphRead::Mods::Network
         if (_formAttempts[index] == 0)
         {
             _formAttempts[index] = 1;
-            Detail::NetPlayerBridgeStartFormSwitch(player);
+            player.ModStartFormSwitch();
             return;
         }
         _formAttempts[index] = 0;
-        Detail::NetPlayerBridgeForceForm(player, altForm);
+        player.ModForceForm(altForm);
     }
 
     bool NetPlayerBridge::Diverged(
@@ -774,17 +728,16 @@ namespace MphRead::Mods::Network
         const std::size_t index = static_cast<std::size_t>(slot);
         OpenTK::Mathematics::Vector3 then = player.Position;
         std::int32_t lagFrames = 0;
-        if (slot < Detail::NetPlayerBridgeSlotPingLength())
+        if (slot < static_cast<std::int32_t>(NetSession::SlotPing.size()))
         {
-            const std::int32_t ping = Detail::NetPlayerBridgeSlotPing(slot);
+            const std::int32_t ping = NetSession::SlotPing[slot];
             const std::int32_t frames = UncheckedMultiply(ping, 60) / 1000;
             lagFrames = std::clamp(frames, 0, 100);
         }
         OpenTK::Mathematics::Vector3 past{};
         if (lagFrames > 0
-            && Detail::NetPlayerBridgeNetFrame() > static_cast<std::uint32_t>(lagFrames)
-            && Detail::NetPlayerBridgeGetNetworkPosition(
-                player, Detail::NetPlayerBridgeNetFrame()
+            && NetSession::NetFrame() > static_cast<std::uint32_t>(lagFrames)
+            && player.ModGetNetworkPosition(NetSession::NetFrame()
                     - static_cast<std::uint32_t>(lagFrames), past))
         {
             then = past;
@@ -994,7 +947,7 @@ namespace MphRead::Mods::Network
 
     bool NetPlayerBridge::FrozenInPlace(Entities::PlayerEntity& player)
     {
-        return Detail::NetPlayerBridgeFrozen(player);
+        return player.ModFrozen();
     }
 
     void NetPlayerBridge::Move(
@@ -1003,7 +956,7 @@ namespace MphRead::Mods::Network
         const OpenTK::Mathematics::Vector3 previous = player.Position;
         player.Position = position;
         player.SetPrevPosition(position);
-        Detail::NetPlayerBridgeRefreshNodeRef(player, previous);
-        Detail::NetPlayerBridgeRefreshVolume(player);
+        player.ModRefreshNodeRef(previous);
+        player.ModRefreshVolume();
     }
 }

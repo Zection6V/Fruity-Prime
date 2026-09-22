@@ -1,4 +1,8 @@
 #include "NetLaunch.hpp"
+#include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../Formats/Formats.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "NetProtocol.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -140,7 +144,7 @@ namespace MphRead::Mods::Network
         Detail::NetLaunchSetSessionLocalHunter(Detail::NetLaunchResolveHunter(hunter));
         Detail::NetLaunchSetSessionLocalColor(Detail::NetLaunchClampPlayerColor(
             color < 0 ? Detail::NetLaunchLastColor() : color));
-        Detail::NetLaunchSetPlayerMaxPlayers(Detail::NetLaunchPlayerSlotCapacity());
+        Detail::NetLaunchSetPlayerMaxPlayers(Entities::PlayerEntity::SlotCapacity);
         Detail::NetLaunchStartClient(address, port);
         if (!Detail::NetLaunchSessionActive())
         {
@@ -156,7 +160,7 @@ namespace MphRead::Mods::Network
             if (Detail::NetLaunchSessionRefused())
             {
                 _lastJoinError = Detail::NetLaunchDescribeRefusedReason(Endpoint(address, port));
-                Detail::NetLaunchConsoleWriteLine("[net] " + _lastJoinError);
+                NativeRuntime::ConsoleWriteLine(("[net] " + _lastJoinError));
                 return false;
             }
 
@@ -178,12 +182,12 @@ namespace MphRead::Mods::Network
                 std::string message = "[net] joining ";
                 message += state.RoomKey.value_or(std::string{});
                 message += " (";
-                message += Detail::NetLaunchGameModeToString(state.Mode);
+                message += ::MphRead::ToString(static_cast<GameMode>(state.Mode));
                 message += "), ";
                 message += Detail::NetLaunchFormatZeroDecimals(state.TimeRemaining);
                 message += " s remaining, slot ";
                 message += std::to_string(Detail::NetLaunchSessionLocalSlot());
-                Detail::NetLaunchConsoleWriteLine(message);
+                NativeRuntime::ConsoleWriteLine(message);
                 DisableCheatsForMatch();
                 return true;
             }
@@ -197,7 +201,7 @@ namespace MphRead::Mods::Network
         }
 
         _lastJoinError = DescribeJoinFailure(address, port);
-        Detail::NetLaunchConsoleWriteLine("[net] " + _lastJoinError);
+        NativeRuntime::ConsoleWriteLine(("[net] " + _lastJoinError));
         return false;
     }
 
@@ -223,11 +227,11 @@ namespace MphRead::Mods::Network
                 + std::to_string(status.MaxPlayers)
                 + " players). Try again when somebody leaves.";
         }
-        if (status.Protocol > 0 && status.Protocol != Detail::NetLaunchProtocolVersion())
+        if (status.Protocol > 0 && status.Protocol != NetConfig::ProtocolVersion)
         {
             return endpoint + " is running protocol " + std::to_string(status.Protocol)
                 + " and this build speaks "
-                + std::to_string(Detail::NetLaunchProtocolVersion())
+                + std::to_string(NetConfig::ProtocolVersion)
                 + ". One of you needs updating.";
         }
         return endpoint + " answered, but would not admit this client ("
@@ -256,8 +260,7 @@ namespace MphRead::Mods::Network
         if (!turnedOff.empty())
         {
             const std::string list = JoinNames(turnedOff);
-            Detail::NetLaunchConsoleWriteLine(
-                "[net] cheats are off while connected (" + list + ")");
+            NativeRuntime::ConsoleWriteLine(("[net] cheats are off while connected (" + list + ")"));
             Detail::NetLaunchNetLogEvent(
                 "cheats disabled for this session: " + list);
         }
@@ -342,8 +345,7 @@ namespace MphRead::Mods::Network
         Detail::NetLaunchSetMainPlayerIndex(mainIndex);
         Detail::NetLaunchResolvePlayerColors();
         Detail::NetLaunchResetRespawnChoice();
-        Detail::NetLaunchConsoleWriteLine(
-            "[net] player slots built, main player = slot " + std::to_string(mainIndex));
+        NativeRuntime::ConsoleWriteLine(("[net] player slots built, main player = slot " + std::to_string(mainIndex)));
         Detail::NetLaunchNetLogEvent(
             "player slots built, main = slot " + std::to_string(mainIndex));
     }

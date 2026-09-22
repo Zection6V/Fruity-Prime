@@ -1,5 +1,9 @@
 #include "PlayerColors.hpp"
 
+#include "../../GameState.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+
 #include "../../Entities/Players/HalfturretEntity.hpp"
 #include "NetLog.hpp"
 
@@ -8,20 +12,6 @@
 #include <memory>
 #include <string>
 #include <string_view>
-
-namespace MphRead::Mods::Network::Detail
-{
-    // Narrow later-owner boundary for GameState.Teams.
-    [[nodiscard]] bool PlayerColorsGameStateTeams();
-
-    // C# interpolated strings format these values through the framework.
-    [[nodiscard]] std::string PlayerColorsFormatInt32(std::int32_t value);
-    [[nodiscard]] std::string PlayerColorsFormatHunter(MphRead::Hunter value);
-
-    // Models the single Console.WriteLine call. The supplied string excludes
-    // the line terminator, just as the C# string argument does.
-    void PlayerColorsConsoleWriteLine(std::string_view value);
-}
 
 namespace MphRead::Mods::Network
 {
@@ -50,7 +40,7 @@ namespace MphRead::Mods::Network
 
     void PlayerColors::Resolve()
     {
-        if (Detail::PlayerColorsGameStateTeams())
+        if (GameState::Teams())
         {
             return;
         }
@@ -82,26 +72,26 @@ namespace MphRead::Mods::Network
                 _applied[static_cast<std::size_t>(slot)] = color;
 
                 std::string consoleMessage = "[net] slot ";
-                consoleMessage += Detail::PlayerColorsFormatInt32(slot);
+                consoleMessage += NativeRuntime::Int32ToString(slot);
                 consoleMessage += " (";
-                consoleMessage += Detail::PlayerColorsFormatHunter(player->Hunter());
+                consoleMessage += ::MphRead::ToString(player->Hunter());
                 consoleMessage += ") wears suit ";
-                consoleMessage += Detail::PlayerColorsFormatInt32(color + 1);
+                consoleMessage += NativeRuntime::Int32ToString(color + 1);
                 if (color != want)
                 {
                     consoleMessage += " -- asked for ";
-                    consoleMessage += Detail::PlayerColorsFormatInt32(want + 1);
+                    consoleMessage += NativeRuntime::Int32ToString(want + 1);
                 }
-                Detail::PlayerColorsConsoleWriteLine(consoleMessage);
+                NativeRuntime::ConsoleWriteLine(consoleMessage);
 
                 std::string logMessage = "slot ";
-                logMessage += Detail::PlayerColorsFormatInt32(slot);
+                logMessage += NativeRuntime::Int32ToString(slot);
                 logMessage += " ";
-                logMessage += Detail::PlayerColorsFormatHunter(player->Hunter());
+                logMessage += ::MphRead::ToString(player->Hunter());
                 logMessage += " suit ";
-                logMessage += Detail::PlayerColorsFormatInt32(color + 1);
+                logMessage += NativeRuntime::Int32ToString(color + 1);
                 logMessage += " (asked ";
-                logMessage += Detail::PlayerColorsFormatInt32(want + 1);
+                logMessage += NativeRuntime::Int32ToString(want + 1);
                 logMessage += ")";
                 NetLog::Event(logMessage);
             }

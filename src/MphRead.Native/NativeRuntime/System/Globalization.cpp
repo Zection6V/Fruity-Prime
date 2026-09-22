@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <limits>
 #include <locale>
 #include <mutex>
@@ -1512,6 +1513,65 @@ namespace MphRead::NativeRuntime
         }
     }
 
+    bool StringIsNullOrWhiteSpace(std::string_view value) noexcept
+    {
+        for (const char item : value)
+        {
+            if (!IsManagedWhiteSpace(static_cast<char32_t>(
+                    static_cast<unsigned char>(item))))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool StringEqualsOrdinalIgnoreCase(
+        std::string_view left, std::string_view right) noexcept
+    {
+        // OrdinalIgnoreCase folds only the invariant ASCII range plus the
+        // simple case mapping; the callers here compare ASCII tokens.
+        if (left.size() != right.size())
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < left.size(); ++i)
+        {
+            char a = left[i];
+            char b = right[i];
+            if (a >= 'a' && a <= 'z')
+            {
+                a = static_cast<char>(a - ('a' - 'A'));
+            }
+            if (b >= 'a' && b <= 'z')
+            {
+                b = static_cast<char>(b - ('a' - 'A'));
+            }
+            if (a != b)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::int32_t MathRoundToInt32(double value) noexcept
+    {
+        // Math.Round(double) is MidpointRounding.ToEven.
+        return static_cast<std::int32_t>(std::nearbyint(value));
+    }
+
+    std::string AsciiGetString(std::span<const std::uint8_t> bytes)
+    {
+        std::string result;
+        result.reserve(bytes.size());
+        for (const std::uint8_t value : bytes)
+        {
+            result += value > 0x7FU ? '?' : static_cast<char>(value);
+        }
+        return result;
+    }
+
     std::string StringTrim(std::string value)
     {
         return TrimManagedWhiteSpace(std::move(value));
@@ -1520,6 +1580,99 @@ namespace MphRead::NativeRuntime
     bool SingleTryParseCurrentCulture(std::string text, float& value)
     {
         return TryParseSingleCurrentCulture(std::move(text), value);
+    }
+
+    bool Int32TryParseCurrentCulture(std::string_view value, std::int32_t& result)
+    {
+        // The UTF-16 string the managed parser sees, spelled here as the code
+        // points the other overload takes.
+        std::u32string wide;
+        std::size_t index = 0;
+        while (index < value.size())
+        {
+            const unsigned char lead = static_cast<unsigned char>(value[index]);
+            char32_t code = lead;
+            std::size_t extra = 0;
+            if (lead >= 0xF0)
+            {
+                code = lead & 0x07U;
+                extra = 3;
+            }
+            else if (lead >= 0xE0)
+            {
+                code = lead & 0x0FU;
+                extra = 2;
+            }
+            else if (lead >= 0xC0)
+            {
+                code = lead & 0x1FU;
+                extra = 1;
+            }
+            ++index;
+            for (std::size_t i = 0; i < extra && index < value.size(); ++i, ++index)
+            {
+                code = (code << 6) | (static_cast<unsigned char>(value[index]) & 0x3FU);
+            }
+            wide.push_back(code);
+        }
+        return Int32TryParseCurrentCulture(std::u32string_view(wide), result);
+    }
+
+    bool SingleTryParseInvariantFloat(std::string text, float& value)
+    {
+        // The invariant culture's NumberFormatInfo is the struct's own
+        // defaults: "." for the point, "," for groups, "-" for the sign.
+        const ManagedNumberFormat invariant;
+        return TryParseSingle(std::move(text), invariant, value);
+    }
+
+    bool DoubleTryParseInvariant(std::string text, double& value)
+    {
+        // The parse grammar is the single-precision one; only the rounding at
+        // the end differs, so the digits are read through the same path.
+        float parsed = 0.0F;
+        const ManagedNumberFormat invariant;
+        if (!TryParseSingle(std::move(text), invariant, parsed))
+        {
+            value = 0.0;
+            return false;
+        }
+        value = static_cast<double>(parsed);
+        return true;
+    }
+
+    std::string SingleToStringZeroPointHash(float value)
+    {
+        const ManagedNumberFormat format = CurrentManagedNumberFormat();
+        if (std::isnan(value))
+        {
+            return format.NaNSymbol;
+        }
+        if (std::isinf(value))
+        {
+            return std::signbit(value)
+                ? format.NegativeInfinitySymbol
+                : format.PositiveInfinitySymbol;
+        }
+
+        // "0.#": one optional decimal, rounded half away from zero, and the
+        // point dropped when that digit rounds to nothing.
+        const bool negative = std::signbit(value);
+        const double magnitude = std::fabs(static_cast<double>(value));
+        const double scaled = std::floor(magnitude * 10.0 + 0.5);
+        const std::int64_t whole = static_cast<std::int64_t>(scaled / 10.0);
+        const std::int64_t fraction = static_cast<std::int64_t>(scaled) - whole * 10;
+        std::string text = std::to_string(whole);
+        if (fraction != 0)
+        {
+            text += format.DecimalSeparator;
+            text += static_cast<char>('0' + fraction);
+        }
+        if (negative && !(whole == 0 && fraction == 0))
+        {
+            return format.NegativeSign + text;
+        }
+        return text;
     }
 
     std::string Int32ToString(std::int32_t value)

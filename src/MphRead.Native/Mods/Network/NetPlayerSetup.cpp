@@ -1,37 +1,13 @@
 #include "NetPlayerSetup.hpp"
 
+#include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "NetSession.hpp"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
-
-namespace MphRead::Mods::Network::Detail
-{
-    // Narrow integration boundary for the C# state this isolated port touches.
-    // PlayerAt must model PlayerEntity.Players[slot] exactly: return nullptr for
-    // a null slot and preserve the backing array's out-of-range failure rather
-    // than clamping or synthesizing a slot. The returned opaque handle denotes
-    // that one PlayerEntity reference for the remainder of the iteration.
-    struct NetPlayerSetupPlayer;
-
-    bool NetPlayerSetupSessionActive();
-    std::int32_t NetPlayerSetupLocalSlot();
-    bool NetPlayerSetupIsServer();
-
-    std::int32_t NetPlayerSetupMaxPlayers();
-    void NetPlayerSetupSetMainPlayerIndex(std::int32_t value);
-    NetPlayerSetupPlayer* NetPlayerSetupPlayerAt(std::int32_t slot);
-    void NetPlayerSetupSetIsBot(NetPlayerSetupPlayer& player, bool value);
-    void NetPlayerSetupSetBotLevel(NetPlayerSetupPlayer& player, std::int32_t value);
-    std::uint8_t NetPlayerSetupLoadFlags(const NetPlayerSetupPlayer& player);
-
-    // C# interpolation formats Int32 with the current culture before the
-    // resulting string is passed to Console.WriteLine. Keep that framework
-    // formatting at the same bridge boundary instead of using std::to_string.
-    std::string NetPlayerSetupConsoleFormatInt32(std::int32_t value);
-    // Models the single Console.WriteLine call; the supplied string excludes
-    // the line terminator, just as the C# string argument does.
-    void NetPlayerSetupConsoleWriteLine(std::string_view value);
-}
 
 namespace
 {
@@ -49,53 +25,55 @@ namespace MphRead::Mods::Network
 
     void NetPlayerSetup::ApplyOnce()
     {
-        if (_applied || !Detail::NetPlayerSetupSessionActive())
+        if (_applied || !NetSession::Active())
         {
             return;
         }
-        if (Detail::NetPlayerSetupLocalSlot() < 0 && !Detail::NetPlayerSetupIsServer())
+        if (NetSession::LocalSlot() < 0 && !NetSession::IsServer())
         {
             return;
         }
         _applied = true;
 
-        const std::int32_t local = Detail::NetPlayerSetupLocalSlot();
-        if (local >= 0 && local < Detail::NetPlayerSetupMaxPlayers())
+        const std::int32_t local = NetSession::LocalSlot();
+        if (local >= 0 && local < Entities::PlayerEntity::MaxPlayers())
         {
-            Detail::NetPlayerSetupSetMainPlayerIndex(local);
+            Entities::PlayerEntity::SetMainPlayerIndex(local);
         }
-        for (std::int32_t slot = 0; slot < Detail::NetPlayerSetupMaxPlayers(); slot++)
+        for (std::int32_t slot = 0; slot < Entities::PlayerEntity::MaxPlayers(); slot++)
         {
-            Detail::NetPlayerSetupPlayer* player = Detail::NetPlayerSetupPlayerAt(slot);
+            const std::shared_ptr<Entities::PlayerEntity> player
+                = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot));
             if (player == nullptr)
             {
                 continue;
             }
             if (slot == local)
             {
-                Detail::NetPlayerSetupSetIsBot(*player, false);
+                player->SetIsBot(false);
                 continue;
             }
-            Detail::NetPlayerSetupSetIsBot(*player, false);
-            Detail::NetPlayerSetupSetBotLevel(*player, 0);
+            player->SetIsBot(false);
+            player->SetBotLevel(0);
         }
 
         std::string message = "[net] player slots prepared -- local slot ";
-        message += Detail::NetPlayerSetupConsoleFormatInt32(local);
+        message += NativeRuntime::Int32ToString(local);
         message += ", ";
-        message += Detail::NetPlayerSetupConsoleFormatInt32(CountActive());
+        message += NativeRuntime::Int32ToString(CountActive());
         message += " active, AI disabled on remote slots";
-        Detail::NetPlayerSetupConsoleWriteLine(message);
+        NativeRuntime::ConsoleWriteLine(message);
     }
 
     std::int32_t NetPlayerSetup::CountActive()
     {
         std::int32_t count = 0;
-        for (std::int32_t i = 0; i < Detail::NetPlayerSetupMaxPlayers(); i++)
+        for (std::int32_t i = 0; i < Entities::PlayerEntity::MaxPlayers(); i++)
         {
-            Detail::NetPlayerSetupPlayer* player = Detail::NetPlayerSetupPlayerAt(i);
+            const std::shared_ptr<Entities::PlayerEntity> player
+                = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i));
             if (player != nullptr
-                && (Detail::NetPlayerSetupLoadFlags(*player) & LoadFlagsActive) != 0)
+                && (static_cast<std::uint8_t>(player->LoadFlags()) & LoadFlagsActive) != 0)
             {
                 count++;
             }

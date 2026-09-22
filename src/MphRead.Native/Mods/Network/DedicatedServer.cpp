@@ -1,5 +1,14 @@
 #include "DedicatedServer.hpp"
 
+#include "../../GameState.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/DateTime.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../Update/ServerUpdate.hpp"
+#include "NetMaster.hpp"
+#include "NetSession.hpp"
+#include "ServerSim.hpp"
+
 #include "MapRotation.hpp"
 #include "NetTransport.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -17,67 +26,16 @@
 #include <utility>
 #include <vector>
 
-namespace MphRead::Mods::Network::Detail
-{
-    // Narrow seams for owners/runtime facilities that are not part of this C#
-    // slice. They preserve the referenced C# contracts without defining a
-    // competing Native implementation in DedicatedServer.
-    GameMode DedicatedServerGameModeBattle();
-    std::string DedicatedServerGameModeToString(GameMode value);
-    std::string DedicatedServerHunterToString(std::uint8_t value);
-    std::int32_t DedicatedServerPlayerSlotCapacity();
-    double DedicatedServerMatchEndingSeconds();
-
-    std::string DedicatedServerMachineName();
-    std::string DedicatedServerDateTimeNowHHmmssCurrentCulture();
-    void DedicatedServerConsoleWriteLine(std::string_view message);
-    bool DedicatedServerStringEqualsOrdinalIgnoreCase(std::string_view left,
-        std::string_view right);
-    bool DedicatedServerStringIsNullOrWhiteSpace(std::string_view value);
-    std::string DedicatedServerStringTrim(std::string_view value);
-    std::string DedicatedServerAsciiGetString(std::span<const std::uint8_t> value);
-    std::int32_t DedicatedServerRoundToInt32(double value);
-    std::string DedicatedServerFormatInt32CurrentCulture(std::int32_t value);
-    std::string DedicatedServerFormatInt64CurrentCulture(std::int64_t value);
-    std::string DedicatedServerFormatDouble0CurrentCulture(double value);
-
-    bool DedicatedServerServerSimAvailable(std::string& why);
-    std::shared_ptr<ServerSim> DedicatedServerCreateServerSim();
-    bool DedicatedServerServerSimRunning(const std::shared_ptr<ServerSim>& sim);
-    bool DedicatedServerServerSimStart(const std::shared_ptr<ServerSim>& sim,
-        const std::string& roomKey, GameMode mode, std::int32_t maxPlayers,
-        std::function<void(std::span<const std::uint8_t>)> sendSnapshot,
-        std::function<void()> matchEnded);
-    void DedicatedServerServerSimAdvance(const std::shared_ptr<ServerSim>& sim, double now);
-    std::string DedicatedServerServerSimDescribe(const std::shared_ptr<ServerSim>& sim);
-    std::string DedicatedServerServerSimDescribeUnlagged(const std::shared_ptr<ServerSim>& sim);
-    void DedicatedServerServerSimStop(const std::shared_ptr<ServerSim>& sim);
-
-    void DedicatedServerApplyMatchState(const MatchStatePacket& state, bool rotated);
-    void DedicatedServerApplyRoster(const RosterPacket& roster);
-    void DedicatedServerAcceptSlotIntent(std::int32_t slotIndex, const IntentPacket& intent);
-
-    void DedicatedServerReporterBeat(const std::shared_ptr<MasterReporter>& reporter,
-        double now, const std::string& serverName, std::uint16_t port,
-        std::uint8_t players, std::uint8_t maxPlayers, std::uint8_t mode,
-        const std::string& roomKey);
-    void DedicatedServerReporterFarewell(const std::shared_ptr<MasterReporter>& reporter,
-        std::uint16_t port);
-    void DedicatedServerReporterDispose(const std::shared_ptr<MasterReporter>& reporter);
-
-    bool DedicatedServerServerUpdateShouldRestart(std::int32_t peerCount);
-}
-
 namespace MphRead::Mods::Network
 {
     DedicatedServer::DedicatedServer(std::int32_t port, std::int32_t maxPlayers,
         std::shared_ptr<MapRotation> rotation)
-        : _voteMode(Detail::DedicatedServerGameModeBattle()),
+        : _voteMode(GameMode::Battle),
           _port(port),
-          _maxPlayers(std::clamp(maxPlayers, 2, Detail::DedicatedServerPlayerSlotCapacity())),
+          _maxPlayers(std::clamp(maxPlayers, 2, Entities::PlayerEntity::SlotCapacity)),
           _rotation(rotation != nullptr ? std::move(rotation) : std::make_shared<MapRotation>()),
           _boundPort(port),
-          _serverName(Detail::DedicatedServerMachineName())
+          _serverName(NativeRuntime::EnvironmentMachineName())
     {
     }
 
@@ -175,7 +133,7 @@ namespace MphRead::Mods::Network
 
     bool DedicatedServer::Simulating() const
     {
-        return _sim != nullptr && Detail::DedicatedServerServerSimRunning(_sim);
+        return _sim != nullptr && _sim->Running();
     }
 
     double DedicatedServer::EndSequenceFor() const
@@ -192,7 +150,7 @@ namespace MphRead::Mods::Network
             }
         }
         const double wait = counted == 0 || all ? AllReadySeconds : ReadyWaitSeconds;
-        const double endSequenceSeconds = 3.0 + Detail::DedicatedServerMatchEndingSeconds() + 1.0;
+        const double endSequenceSeconds = 3.0 + GameState::MatchEndingSeconds + 1.0;
         return std::max(endSequenceSeconds, wait);
     }
 
@@ -203,16 +161,15 @@ namespace MphRead::Mods::Network
         _listening.store(true);
         _running.store(true);
         Log("listening on UDP "
-            + Detail::DedicatedServerFormatInt32CurrentCulture(_transport->LocalPort())
-            + ", up to " + Detail::DedicatedServerFormatInt32CurrentCulture(_maxPlayers)
+            + NativeRuntime::Int32ToString((_transport->LocalPort()))
+            + ", up to " + NativeRuntime::Int32ToString(_maxPlayers)
             + " players");
         StartSimulation();
         Log(Simulating()
             ? "authority mode: this server simulates the match itself"
             : "relay mode: the first client to connect is the simulation authority");
         Log("rotation: "
-            + Detail::DedicatedServerFormatInt32CurrentCulture(
-                static_cast<std::int32_t>(_rotation->Entries().size()))
+            + NativeRuntime::Int32ToString((static_cast<std::int32_t>(_rotation->Entries().size())))
             + " map(s), starting on " + _rotation->Current()->ToString());
 
         const std::uint16_t listenPort = static_cast<std::uint16_t>(_transport->LocalPort());
@@ -235,7 +192,7 @@ namespace MphRead::Mods::Network
                 DropTimedOut(now);
                 if (_sim != nullptr)
                 {
-                    Detail::DedicatedServerServerSimAdvance(_sim, now);
+                    _sim->Advance(now);
                 }
 
                 const float limit = _rotation->Current()->TimeLimit;
@@ -263,7 +220,7 @@ namespace MphRead::Mods::Network
                     }
                     if (_reporter != nullptr)
                     {
-                        Detail::DedicatedServerReporterBeat(_reporter, now, _serverName,
+                        _reporter->Beat(now, _serverName,
                             listenPort, static_cast<std::uint8_t>(_peers.size()),
                             static_cast<std::uint8_t>(_maxPlayers),
                             static_cast<std::uint8_t>(_rotation->Current()->Mode),
@@ -272,7 +229,7 @@ namespace MphRead::Mods::Network
                 }
 
                 if (_autoUpdate
-                    && Detail::DedicatedServerServerUpdateShouldRestart(
+                    && Update::ServerUpdate::ShouldRestart(
                         static_cast<std::int32_t>(_peers.size())))
                 {
                     Log("shutting down to come back on the new build");
@@ -291,33 +248,29 @@ namespace MphRead::Mods::Network
                     else if (_authority != nullptr)
                     {
                         authority = ", authority = slot "
-                            + Detail::DedicatedServerFormatInt32CurrentCulture(
-                                _authority->SlotIndex);
+                            + NativeRuntime::Int32ToString(_authority->SlotIndex);
                     }
                     else
                     {
                         authority = ", no authority";
                     }
-                    std::string line = Detail::DedicatedServerFormatInt32CurrentCulture(
-                        static_cast<std::int32_t>(_peers.size()))
+                    std::string line = NativeRuntime::Int32ToString((static_cast<std::int32_t>(_peers.size())))
                         + " peer(s) connected" + authority
                         + ", map " + _rotation->Current()->RoomKey;
                     if (limit > 0.0F)
                     {
-                        line += ", " + Detail::DedicatedServerFormatDouble0CurrentCulture(
-                            std::max(0.0, static_cast<double>(limit) - (now - _matchStarted)))
+                        line += ", " + NativeRuntime::DoubleToStringNoDecimals((std::max(0.0, static_cast<double>(limit) - (now - _matchStarted))))
                             + " s left";
                     }
                     if (_transport != nullptr && _transport->PacketsDropped() > 0)
                     {
-                        line += ", " + Detail::DedicatedServerFormatInt64CurrentCulture(
-                            _transport->PacketsDropped()) + " packet(s) dropped";
+                        line += ", " + NativeRuntime::Int64ToString((_transport->PacketsDropped())) + " packet(s) dropped";
                     }
                     Log(line);
                     if (_sim != nullptr)
                     {
-                        Log("sim: " + Detail::DedicatedServerServerSimDescribe(_sim));
-                        Log("sim: " + Detail::DedicatedServerServerSimDescribeUnlagged(_sim));
+                        Log("sim: " + _sim->Describe());
+                        Log("sim: " + _sim->DescribeUnlagged());
                     }
                 }
 
@@ -341,7 +294,7 @@ namespace MphRead::Mods::Network
         {
             if (_reporter != nullptr)
             {
-                Detail::DedicatedServerReporterFarewell(_reporter, listenPort);
+                _reporter->Farewell(listenPort);
             }
         }
         catch (...)
@@ -349,7 +302,7 @@ namespace MphRead::Mods::Network
         }
         if (_reporter != nullptr)
         {
-            Detail::DedicatedServerReporterDispose(_reporter);
+            _reporter->Dispose();
         }
         _reporter.reset();
         if (_transport != nullptr)
@@ -361,7 +314,7 @@ namespace MphRead::Mods::Network
         _listening.store(false);
         if (_sim != nullptr)
         {
-            Detail::DedicatedServerServerSimStop(_sim);
+            _sim->Stop();
         }
         _sim.reset();
     }
@@ -375,7 +328,7 @@ namespace MphRead::Mods::Network
         _matchEndedAt = now;
         Log("match over on " + _rotation->Current()->RoomKey + " (" + reason + "); "
             + _rotation->Next()->RoomKey + " in "
-            + Detail::DedicatedServerFormatDouble0CurrentCulture(EndSequenceFor()) + " s");
+            + NativeRuntime::DoubleToStringNoDecimals((EndSequenceFor())) + " s");
         BroadcastMatchState(now);
     }
 
@@ -403,7 +356,7 @@ namespace MphRead::Mods::Network
         MatchStatePacket state = BuildState(now);
         if (_sim != nullptr)
         {
-            Detail::DedicatedServerApplyMatchState(state, true);
+            NetSession::ApplyMatchState(state, true);
         }
         state.Write(_scratch);
         for (std::size_t i = 0; i < _peers.size(); i++)
@@ -445,7 +398,7 @@ namespace MphRead::Mods::Network
         MatchStatePacket state = BuildState(now);
         if (_sim != nullptr)
         {
-            Detail::DedicatedServerApplyMatchState(state, false);
+            NetSession::ApplyMatchState(state, false);
         }
         if (_peers.empty())
         {
@@ -469,15 +422,15 @@ namespace MphRead::Mods::Network
             return;
         }
         std::string why;
-        if (!Detail::DedicatedServerServerSimAvailable(why))
+        if (!ServerSim::Available(why))
         {
             Log("-simulate asked for, but " + why);
             Log("carrying on as a relay; the first client to connect will be the authority");
             return;
         }
-        std::shared_ptr<ServerSim> sim = Detail::DedicatedServerCreateServerSim();
+        std::shared_ptr<ServerSim> sim = std::make_shared<ServerSim>();
         const std::shared_ptr<const RotationEntry> entry = _rotation->Current();
-        if (!Detail::DedicatedServerServerSimStart(sim, entry->RoomKey, entry->Mode,
+        if (!sim->Start(entry->RoomKey, entry->Mode,
             _maxPlayers,
             [this](std::span<const std::uint8_t> payload) { SendSnapshot(payload); },
             [this]() { EndMatch(_now, "score"); }))
@@ -507,8 +460,8 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        Detail::DedicatedServerApplyRoster(BuildRoster());
-        Detail::DedicatedServerApplyMatchState(BuildState(now), false);
+        NetSession::ApplyRoster(BuildRoster());
+        NetSession::ApplyMatchState(BuildState(now), false);
     }
 
     void DedicatedServer::Stop() noexcept
@@ -612,8 +565,7 @@ namespace MphRead::Mods::Network
         if (sinceVote < VoteCooldownSeconds)
         {
             Tell(peer, "another vote may be called in "
-                + Detail::DedicatedServerFormatDouble0CurrentCulture(
-                    VoteCooldownSeconds - sinceVote)
+                + NativeRuntime::DoubleToStringNoDecimals((VoteCooldownSeconds - sinceVote))
                 + " s");
             return;
         }
@@ -621,8 +573,7 @@ namespace MphRead::Mods::Network
         if (sinceMine < ProposalCooldownSeconds)
         {
             Tell(peer, "you may propose again in "
-                + Detail::DedicatedServerFormatDouble0CurrentCulture(
-                    ProposalCooldownSeconds - sinceMine)
+                + NativeRuntime::DoubleToStringNoDecimals((ProposalCooldownSeconds - sinceMine))
                 + " s");
             return;
         }
@@ -632,8 +583,7 @@ namespace MphRead::Mods::Network
             Tell(peer, "no map called \"" + roomKey + "\"");
             return;
         }
-        if (Detail::DedicatedServerStringEqualsOrdinalIgnoreCase(
-            *resolved, _rotation->Current()->RoomKey))
+        if (NativeRuntime::StringEqualsOrdinalIgnoreCase((*resolved), (_rotation->Current()->RoomKey)))
         {
             Tell(peer, "that is the map you are on");
             return;
@@ -643,7 +593,7 @@ namespace MphRead::Mods::Network
         _voteMode = ModeForRoom(*resolved);
         _voteProposer = !peer->Name.empty()
             ? peer->Name
-            : "Player" + Detail::DedicatedServerFormatInt32CurrentCulture(peer->SlotIndex + 1);
+            : "Player" + NativeRuntime::Int32ToString((peer->SlotIndex + 1));
         _voteProposerSlot = peer->SlotIndex;
         _voteStartedAt = now;
         _voteResult = VoteStatePacket::StateIdle;
@@ -656,9 +606,9 @@ namespace MphRead::Mods::Network
         Announce(_voteProposer + " proposes " + *resolved
             + " -- F1 to accept, F2 to deny");
         Log("vote started by slot "
-            + Detail::DedicatedServerFormatInt32CurrentCulture(peer->SlotIndex)
+            + NativeRuntime::Int32ToString(peer->SlotIndex)
             + " for " + *resolved + " ("
-            + Detail::DedicatedServerGameModeToString(_voteMode) + ")");
+            + ::MphRead::ToString(_voteMode) + ")");
         BroadcastVoteState(now);
         Tally(now);
     }
@@ -673,22 +623,22 @@ namespace MphRead::Mods::Network
         if (yes >= needed)
         {
             ResolveVote(now, true,
-                Detail::DedicatedServerFormatInt32CurrentCulture(yes) + " of "
-                    + Detail::DedicatedServerFormatInt32CurrentCulture(eligible));
+                NativeRuntime::Int32ToString(yes) + " of "
+                    + NativeRuntime::Int32ToString(eligible));
             return;
         }
         if (eligible - no < needed)
         {
             ResolveVote(now, false,
-                Detail::DedicatedServerFormatInt32CurrentCulture(yes) + " of "
-                    + Detail::DedicatedServerFormatInt32CurrentCulture(eligible));
+                NativeRuntime::Int32ToString(yes) + " of "
+                    + NativeRuntime::Int32ToString(eligible));
             return;
         }
         if (now - _voteStartedAt >= VoteSeconds)
         {
             ResolveVote(now, false,
-                Detail::DedicatedServerFormatInt32CurrentCulture(yes) + " of "
-                    + Detail::DedicatedServerFormatInt32CurrentCulture(eligible));
+                NativeRuntime::Int32ToString(yes) + " of "
+                    + NativeRuntime::Int32ToString(eligible));
         }
     }
 
@@ -757,11 +707,11 @@ namespace MphRead::Mods::Network
 
     std::optional<std::string> DedicatedServer::ResolveRoomKey(const std::string& roomKey)
     {
-        if (Detail::DedicatedServerStringIsNullOrWhiteSpace(roomKey))
+        if (NativeRuntime::StringIsNullOrWhiteSpace(roomKey))
         {
             return std::nullopt;
         }
-        const std::string wanted = Detail::DedicatedServerStringTrim(roomKey);
+        const std::string wanted = NativeRuntime::StringTrim(std::string(roomKey));
         for (const auto& entry : Metadata::RoomMetadata)
         {
             if (entry.second == nullptr)
@@ -769,7 +719,7 @@ namespace MphRead::Mods::Network
                 throw std::runtime_error("Metadata.RoomMetadata contains a null value.");
             }
             if (entry.second->Multiplayer
-                && Detail::DedicatedServerStringEqualsOrdinalIgnoreCase(entry.first, wanted))
+                && NativeRuntime::StringEqualsOrdinalIgnoreCase(entry.first, wanted))
             {
                 return entry.first;
             }
@@ -781,7 +731,7 @@ namespace MphRead::Mods::Network
     {
         for (const std::shared_ptr<const RotationEntry>& entry : _rotation->Entries())
         {
-            if (Detail::DedicatedServerStringEqualsOrdinalIgnoreCase(entry->RoomKey, roomKey))
+            if (NativeRuntime::StringEqualsOrdinalIgnoreCase(entry->RoomKey, roomKey))
             {
                 return entry->Mode;
             }
@@ -872,7 +822,7 @@ namespace MphRead::Mods::Network
             if (oldDropped == 0)
             {
                 Log("chat from slot "
-                    + Detail::DedicatedServerFormatInt32CurrentCulture(peer->SlotIndex)
+                    + NativeRuntime::Int32ToString(peer->SlotIndex)
                     + " (" + peer->EndPoint->ToString() + ") dropped: too fast");
             }
             return;
@@ -882,7 +832,7 @@ namespace MphRead::Mods::Network
         chat.Slot = static_cast<std::uint8_t>(peer->SlotIndex);
         chat.Name = !peer->Name.empty()
             ? peer->Name
-            : "Player" + Detail::DedicatedServerFormatInt32CurrentCulture(peer->SlotIndex);
+            : "Player" + NativeRuntime::Int32ToString(peer->SlotIndex);
         chat.Kind = ChatPacket::KindSay;
         chat.Write(_scratch);
         for (std::size_t i = 0; i < _peers.size(); i++)
@@ -957,7 +907,7 @@ namespace MphRead::Mods::Network
                 if (_peers[i]->ClientId == clientId)
                 {
                     peer = _peers[i];
-                    Log("slot " + Detail::DedicatedServerFormatInt32CurrentCulture(peer->SlotIndex)
+                    Log("slot " + NativeRuntime::Int32ToString(peer->SlotIndex)
                         + " (" + peer->Name + ") came back on " + packet.Sender->ToString()
                         + ", was " + peer->EndPoint->ToString());
                     peer->EndPoint = packet.Sender;
@@ -999,13 +949,13 @@ namespace MphRead::Mods::Network
             {
                 _authority = peer;
                 Log(packet.Sender->ToString() + " joined as slot "
-                    + Detail::DedicatedServerFormatInt32CurrentCulture(slot) + " (authority)");
+                    + NativeRuntime::Int32ToString(slot) + " (authority)");
                 NotifyAuthority(peer);
             }
             else
             {
                 Log(packet.Sender->ToString() + " joined as slot "
-                    + Detail::DedicatedServerFormatInt32CurrentCulture(slot));
+                    + NativeRuntime::Int32ToString(slot));
                 if (Simulating() && _lastSnapshot != nullptr && _transport != nullptr)
                 {
                     _transport->Send(peer->EndPoint, PacketType::Snapshot, *_lastSnapshot);
@@ -1079,12 +1029,12 @@ namespace MphRead::Mods::Network
         }
         const std::uint8_t hunter = payload[0];
         const std::uint8_t color = payload[1];
-        std::string name = Detail::DedicatedServerAsciiGetString(payload.subspan(2));
+        std::string name = NativeRuntime::AsciiGetString(payload.subspan(2));
         while (!name.empty() && name.back() == '\0')
         {
             name.pop_back();
         }
-        name = Detail::DedicatedServerStringTrim(name);
+        name = NativeRuntime::StringTrim(std::string(name));
         if (name.empty())
         {
             return;
@@ -1101,10 +1051,10 @@ namespace MphRead::Mods::Network
         peer->Name = name;
         peer->Hunter = hunter;
         peer->Color = color;
-        Log("slot " + Detail::DedicatedServerFormatInt32CurrentCulture(peer->SlotIndex)
+        Log("slot " + NativeRuntime::Int32ToString(peer->SlotIndex)
             + " is \"" + name + "\" playing "
-            + Detail::DedicatedServerHunterToString(hunter)
-            + " in suit " + Detail::DedicatedServerFormatInt32CurrentCulture(color + 1));
+            + ::MphRead::ToString(static_cast<MphRead::Hunter>(hunter))
+            + " in suit " + NativeRuntime::Int32ToString((color + 1)));
         if (firstName)
         {
             Announce(name + " joined");
@@ -1161,8 +1111,7 @@ namespace MphRead::Mods::Network
         }
         peer->PingPending = false;
         peer->LastSeen = now;
-        std::int32_t rtt = Detail::DedicatedServerRoundToInt32(
-            (now - peer->PingSentAt) * 1000.0);
+        std::int32_t rtt = NativeRuntime::MathRoundToInt32(((now - peer->PingSentAt) * 1000.0));
         rtt = std::clamp(rtt, 0, 9999);
         peer->Ping = peer->Ping == 0 ? rtt : (peer->Ping * 2 + rtt) / 3;
     }
@@ -1180,8 +1129,7 @@ namespace MphRead::Mods::Network
                 std::clamp(_peers[i]->Ping, 0, 9999));
             (*roster.Names)[roster.Count] = !_peers[i]->Name.empty()
                 ? _peers[i]->Name
-                : "Player" + Detail::DedicatedServerFormatInt32CurrentCulture(
-                    _peers[i]->SlotIndex + 1);
+                : "Player" + NativeRuntime::Int32ToString((_peers[i]->SlotIndex + 1));
             roster.Count++;
         }
         return roster;
@@ -1192,7 +1140,7 @@ namespace MphRead::Mods::Network
         RosterPacket roster = BuildRoster();
         if (_sim != nullptr)
         {
-            Detail::DedicatedServerApplyRoster(roster);
+            NetSession::ApplyRoster(roster);
         }
         if (_peers.empty())
         {
@@ -1223,7 +1171,7 @@ namespace MphRead::Mods::Network
             const IntentPacket intent = IntentPacket::Read(payload);
             if (_sim != nullptr)
             {
-                Detail::DedicatedServerAcceptSlotIntent(peer->SlotIndex, intent);
+                NetSession::AcceptSlotIntent(peer->SlotIndex, intent);
             }
             if (peer->LastIntentFrame != 0 && intent.Frame <= peer->LastIntentFrame
                 && peer->LastIntentFrame - intent.Frame < IntentResetGap)
@@ -1303,7 +1251,7 @@ namespace MphRead::Mods::Network
         BroadcastRoster();
         ReviewVote(_now);
         Log(peer->EndPoint->ToString() + " " + reason + " (slot "
-            + Detail::DedicatedServerFormatInt32CurrentCulture(peer->SlotIndex) + ")");
+            + NativeRuntime::Int32ToString(peer->SlotIndex) + ")");
         if (!peer->Name.empty())
         {
             Announce(peer->Name + " " + reason);
@@ -1315,7 +1263,7 @@ namespace MphRead::Mods::Network
         _authority = !_peers.empty() ? _peers[0] : nullptr;
         Log(_authority != nullptr
             ? "authority moved to slot "
-                + Detail::DedicatedServerFormatInt32CurrentCulture(_authority->SlotIndex)
+                + NativeRuntime::Int32ToString(_authority->SlotIndex)
             : "no peers left; waiting for a new authority");
         if (_authority != nullptr)
         {
@@ -1371,8 +1319,8 @@ namespace MphRead::Mods::Network
 
     void DedicatedServer::Log(const std::string& message)
     {
-        Detail::DedicatedServerConsoleWriteLine("["
-            + Detail::DedicatedServerDateTimeNowHHmmssCurrentCulture()
-            + "] [server] " + message);
+        NativeRuntime::ConsoleWriteLine(("["
+            + NativeRuntime::DateTimeToString(NativeRuntime::DateTimeNow(), "HH:mm:ss")
+            + "] [server] " + message));
     }
 }

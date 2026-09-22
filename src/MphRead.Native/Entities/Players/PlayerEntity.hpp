@@ -87,6 +87,9 @@ namespace MphRead::Entities
         Spawned = 0x80
     };
 
+    // LoadFlags.ToString(): a [Flags] enum.
+    [[nodiscard]] std::string ToString(LoadFlags value);
+
     [[nodiscard]] constexpr LoadFlags operator|(LoadFlags left, LoadFlags right) noexcept
     {
         return static_cast<LoadFlags>(static_cast<std::uint8_t>(left) | static_cast<std::uint8_t>(right));

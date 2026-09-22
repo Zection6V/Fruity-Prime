@@ -1,5 +1,13 @@
 #include "NetRoomChange.hpp"
 
+#include "../../GameState.hpp"
+#include "../../Scene.hpp"
+#include "NetPlayerBridge.hpp"
+#include "NetSession.hpp"
+#include "NetSlotManager.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+
 #include "NetDamage.hpp"
 #include "NetHitPrediction.hpp"
 #include "NetLaunch.hpp"
@@ -28,17 +36,17 @@ namespace MphRead::Mods::Network
     bool NetRoomChange::Settling()
     {
         return _loadedFrame != 0
-            && Detail::NetRoomChangeSessionNetFrame() - _loadedFrame < SettleFrames;
+            && NetSession::NetFrame() - _loadedFrame < SettleFrames;
     }
 
     std::int32_t NetRoomChange::RoomPlayerCount()
     {
-        return Detail::NetRoomChangeSessionActive() ? NetLaunch::RoomPlayerCount : 0;
+        return NetSession::Active() ? NetLaunch::RoomPlayerCount : 0;
     }
 
     bool NetRoomChange::Rebuilding()
     {
-        return Detail::NetRoomChangeSessionActive();
+        return NetSession::Active();
     }
 
     void NetRoomChange::Reset()
@@ -51,14 +59,14 @@ namespace MphRead::Mods::Network
 
     void NetRoomChange::Sync(Scene& scene)
     {
-        if (!Detail::NetRoomChangeSessionActive()
-            || !Detail::NetRoomChangeSceneHasRoom(scene)
-            || Detail::NetRoomChangeGameStateInRoomTransition())
+        if (!NetSession::Active()
+            || !(scene.Room() != nullptr)
+            || GameState::InRoomTransition())
         {
             return;
         }
         std::optional<MatchStatePacket> state
-            = Detail::NetRoomChangeSessionServerMatch();
+            = NetSession::ServerMatch();
         std::string wanted;
         if (state.has_value() && state->RoomKey.has_value())
         {
@@ -70,7 +78,7 @@ namespace MphRead::Mods::Network
         }
         const std::uint16_t match = state.value().MatchId;
         const RoomMetadata* currentMeta = Metadata::GetRoomById(
-            Detail::NetRoomChangeSceneRoomId(scene), true);
+            scene.RoomId(), true);
         const std::string current = currentMeta == nullptr
             ? std::string{}
             : currentMeta->Name;
@@ -81,7 +89,7 @@ namespace MphRead::Mods::Network
             return;
         }
         if (_requested == wanted && _loadedMatch == match
-            && Detail::NetRoomChangeSessionNetFrame() - _requestedFrame < 300U)
+            && NetSession::NetFrame() - _requestedFrame < 300U)
         {
             return;
         }
@@ -89,25 +97,23 @@ namespace MphRead::Mods::Network
         static_cast<void>(ignored);
         if (meta == nullptr)
         {
-            Detail::NetRoomChangeConsoleWriteLine(
-                "[net] server switched to \"" + wanted
-                + "\", which this build does not know");
+            NativeRuntime::ConsoleWriteLine(("[net] server switched to \"" + wanted
+                + "\", which this build does not know"));
             NetLog::Event("unknown server map \"" + wanted + "\"");
             _requested = wanted;
-            _requestedFrame = Detail::NetRoomChangeSessionNetFrame();
+            _requestedFrame = NetSession::NetFrame();
             return;
         }
         _requested = wanted;
-        _requestedFrame = Detail::NetRoomChangeSessionNetFrame();
+        _requestedFrame = NetSession::NetFrame();
         _loadedMatch = match;
-        Detail::NetRoomChangeConsoleWriteLine(current == wanted
+        NativeRuntime::ConsoleWriteLine((current == wanted
             ? "[net] server started a new match on " + wanted + "; loading it"
-            : "[net] server rotated to " + wanted + "; loading it");
+            : "[net] server rotated to " + wanted + "; loading it"));
         NetLog::Event("loading " + wanted + " for match "
-            + Detail::NetRoomChangeFormatCurrentCultureUInt16(match));
-        Detail::NetRoomChangeSetTransitionRoomId(meta->Id);
-        Detail::NetRoomChangeSceneSetFadeOutBlackLoadRoom(
-            scene, 10.0F / 30.0F, true);
+            + NativeRuntime::Int32ToString(match));
+        GameState::TransitionRoomId(meta->Id);
+        scene.SetFade(FadeType::FadeOutBlack, 10.0F / 30.0F, true, AfterFade::LoadRoom);
     }
 
     std::shared_ptr<Entities::PlayerEntity> NetRoomChange::RebuildPlayers(
@@ -115,12 +121,12 @@ namespace MphRead::Mods::Network
     {
         static_cast<void>(scene);
         const std::int32_t localSlot
-            = std::max(Detail::NetRoomChangeSessionLocalSlot(), 0);
+            = std::max(NetSession::LocalSlot(), 0);
         for (std::int32_t slot = 0; slot < Entities::PlayerEntity::MaxPlayers(); ++slot)
         {
             const Hunter slotHunter = slot == localSlot
                 ? hunter
-                : Detail::NetRoomChangeSessionSlotHunter(slot);
+                : NetSession::SlotHunter[slot];
             std::shared_ptr<Entities::PlayerEntity> created
                 = Entities::PlayerEntity::Create(
                     slotHunter, slot == localSlot ? recolor : 0);
@@ -132,12 +138,12 @@ namespace MphRead::Mods::Network
             created->SetLoadFlags(created->LoadFlags() | Entities::LoadFlags::Active);
             created->SetLoadFlags(created->LoadFlags() | Entities::LoadFlags::Initial);
             created->NodeRef = Formats::Culling::NodeRef::None;
-            Detail::NetRoomChangeSetPlayerCameraNodeRefNone(*created);
+            created->CameraInfo()->NodeRef = Formats::Culling::NodeRef::None;
             created->SetIsBot(false);
-            Detail::NetRoomChangeSetPlayerBotLevel(*created, 0);
+            created->SetBotLevel(0);
             const bool occupied = slot == localSlot
-                || (slot < Detail::NetRoomChangeSessionSlotOccupiedLength()
-                    && Detail::NetRoomChangeSessionSlotOccupied(slot));
+                || (slot < static_cast<std::int32_t>(NetSession::SlotOccupied.size())
+                    && NetSession::SlotOccupied[slot]);
             if (!occupied)
             {
                 created->SetLoadFlags(
@@ -146,22 +152,21 @@ namespace MphRead::Mods::Network
         }
         Entities::PlayerEntity::SetPlayerCount(1);
         Entities::PlayerEntity::SetMainPlayerIndex(localSlot);
-        Detail::NetRoomChangeSlotManagerReset();
+        NetSlotManager::Reset();
         NetPlayerSetup::Reset();
         NetDamage::ResetForRoomChange();
         NetHitPrediction::ForgetPending();
         ResetScores();
-        Detail::NetRoomChangeConsoleWriteLine(
-            "[net] player slots rebuilt for the new room, main player = slot "
-            + Detail::NetRoomChangeFormatCurrentCultureInt32(localSlot));
+        NativeRuntime::ConsoleWriteLine(("[net] player slots rebuilt for the new room, main player = slot "
+            + NativeRuntime::Int32ToString(localSlot)));
         return Entities::PlayerEntity::Players().at(
             static_cast<std::size_t>(localSlot));
     }
 
     void NetRoomChange::AfterRebuild(Scene& scene)
     {
-        _loadedFrame = std::max(Detail::NetRoomChangeSessionNetFrame(), 1U);
-        Detail::NetRoomChangePlayerBridgeNoteRoomChanged();
+        _loadedFrame = std::max(NetSession::NetFrame(), 1U);
+        NetPlayerBridge::NoteRoomChanged();
         NetLaunch::DisableCheatsForMatch();
         ReloadIntroCamSeq(scene);
         for (std::int32_t slot = 0;
@@ -178,17 +183,17 @@ namespace MphRead::Mods::Network
                 == Entities::LoadFlags::None)
             {
                 NetLog::Event("slot "
-                    + Detail::NetRoomChangeFormatCurrentCultureInt32(slot)
+                    + NativeRuntime::Int32ToString(slot)
                     + " skipped on rebuild: flags="
-                    + Detail::NetRoomChangeFormatLoadFlags(player->LoadFlags()));
+                    + ::MphRead::Entities::ToString(player->LoadFlags()));
                 continue;
             }
-            Detail::NetRoomChangeSceneInsertPlayer(scene, player);
+            scene.InsertEntity(player);
             player->Initialize();
-            Detail::NetRoomChangeSceneInitPlayer(scene, player);
-            Detail::NetRoomChangeSceneInitHalfturret(scene, player);
+            scene.InitEntity(player);
+            scene.InitEntity(player);
             NetLog::Event("slot "
-                + Detail::NetRoomChangeFormatCurrentCultureInt32(slot)
+                + NativeRuntime::Int32ToString(slot)
                 + " re-inserted into the new room");
         }
     }
@@ -197,12 +202,12 @@ namespace MphRead::Mods::Network
     {
         Formats::CameraSequence::Current(nullptr);
         Formats::CameraSequence::Intro(nullptr);
-        if (!Detail::NetRoomChangeGameStateMultiplayer()
+        if (!GameState::Multiplayer()
             || Entities::PlayerEntity::PlayerCount() == 0)
         {
             return;
         }
-        const std::int32_t seqId = Detail::NetRoomChangeSceneRoomId(scene) - 93 + 172;
+        const std::int32_t seqId = scene.RoomId() - 93 + 172;
         if (seqId < 172 || seqId >= 199)
         {
             return;
@@ -220,18 +225,17 @@ namespace MphRead::Mods::Network
         catch (const std::exception& ex)
         {
             const std::int32_t consoleRoomId
-                = Detail::NetRoomChangeSceneRoomId(scene);
+                = scene.RoomId();
             const std::string consoleMessage = ex.what();
-            Detail::NetRoomChangeConsoleWriteLine(
-                "[net] no intro camera for room "
-                + Detail::NetRoomChangeFormatCurrentCultureInt32(consoleRoomId)
-                + ": " + consoleMessage);
+            NativeRuntime::ConsoleWriteLine(("[net] no intro camera for room "
+                + NativeRuntime::Int32ToString(consoleRoomId)
+                + ": " + consoleMessage));
             const std::int32_t logRoomId
-                = Detail::NetRoomChangeSceneRoomId(scene);
+                = scene.RoomId();
             const std::string logMessage = ex.what();
             NetLog::Event(
                 "no intro camera for room "
-                + Detail::NetRoomChangeFormatCurrentCultureInt32(logRoomId)
+                + NativeRuntime::Int32ToString(logRoomId)
                 + ": " + logMessage);
         }
     }
@@ -240,18 +244,18 @@ namespace MphRead::Mods::Network
     {
         for (std::int32_t i = 0; i < Entities::PlayerEntity::SlotCapacity; ++i)
         {
-            Detail::NetRoomChangeSetPoints(i, 0);
-            Detail::NetRoomChangeSetTeamPoints(i, 0);
-            Detail::NetRoomChangeSetKills(i, 0);
-            Detail::NetRoomChangeSetTeamKills(i, 0);
-            Detail::NetRoomChangeSetDeaths(i, 0);
-            Detail::NetRoomChangeSetTeamDeaths(i, 0);
-            Detail::NetRoomChangeSetStandings(i, 0);
-            Detail::NetRoomChangeSetTeamStandings(i, 0);
-            Detail::NetRoomChangeSetDamageCount(i, 0);
-            Detail::NetRoomChangeSetKillStreak(i, 0);
+            GameState::Points()[i] = 0;
+            GameState::TeamPoints()[i] = 0;
+            GameState::Kills()[i] = 0;
+            GameState::TeamKills()[i] = 0;
+            GameState::Deaths()[i] = 0;
+            GameState::TeamDeaths()[i] = 0;
+            GameState::Standings()[i] = 0;
+            GameState::TeamStandings()[i] = 0;
+            GameState::DamageCount()[i] = 0;
+            GameState::KillStreak()[i] = 0;
         }
-        Detail::NetRoomChangeGameStateResetMatchProgress();
+        GameState::ResetMatchProgress();
         NetMatchEnd::Reset();
     }
 }

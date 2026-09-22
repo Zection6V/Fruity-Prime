@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <type_traits>
 
 namespace MphRead::NativeRuntime
@@ -29,6 +30,15 @@ namespace MphRead::NativeRuntime
         bool isFlags,
         const EnumNameEntry* names,
         std::size_t count);
+
+    // Enum.TryParse(text, ignoreCase, out result) for a non-[Flags] enum: a
+    // name match, or the decimal digits of the underlying type.
+    [[nodiscard]] bool ManagedEnumTryParse(
+        std::string_view text,
+        bool ignoreCase,
+        const EnumNameEntry* names,
+        std::size_t count,
+        std::uint64_t& raw);
 
     template <typename T>
     [[nodiscard]] std::string ManagedEnumToString(

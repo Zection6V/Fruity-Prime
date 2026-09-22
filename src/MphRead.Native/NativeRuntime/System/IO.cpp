@@ -458,7 +458,7 @@ namespace MphRead::NativeRuntime
             return false;
         }
 #if defined(_WIN32)
-        const std::wstring wide = Utf8ToUtf16(path);
+        const std::wstring wide = Widen(path);
         const DWORD attributes = GetFileAttributesW(wide.c_str());
         return attributes != INVALID_FILE_ATTRIBUTES
             && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
@@ -479,7 +479,7 @@ namespace MphRead::NativeRuntime
             return false;
         }
 #if defined(_WIN32)
-        const std::wstring wide = Utf8ToUtf16(path);
+        const std::wstring wide = Widen(path);
         const DWORD attributes = GetFileAttributesW(wide.c_str());
         return attributes != INVALID_FILE_ATTRIBUTES
             && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -503,7 +503,7 @@ namespace MphRead::NativeRuntime
         {
             result.push_back(value);
         }
-        for (const char value : {'"', '<', '>', '|', ':', '*', '?', '\', '/'})
+        for (const char value : {'"', '<', '>', '|', ':', '*', '?', '\\', '/'})
         {
             result.push_back(value);
         }
@@ -512,6 +512,182 @@ namespace MphRead::NativeRuntime
         // Path.Unix: the separator and the terminator, and nothing else.
         return std::vector<char>{'\0', '/'};
 #endif
+    }
+
+
+    std::vector<std::string> FileReadAllLines(const std::string& path)
+    {
+        // StreamReader's default encoding is UTF-8 with BOM detection; the
+        // bytes are handed back unchanged either way, so only the mark is
+        // dropped here.
+        const std::vector<std::uint8_t> bytes = FileReadAllBytes(path);
+        std::size_t index = 0;
+        if (bytes.size() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        {
+            index = 3;
+        }
+        std::vector<std::string> lines;
+        std::string current;
+        while (index < bytes.size())
+        {
+            const char value = static_cast<char>(bytes[index]);
+            if (value == '\r')
+            {
+                // CR, LF and CRLF each end exactly one line.
+                if (index + 1 < bytes.size() && bytes[index + 1] == '\n')
+                {
+                    ++index;
+                }
+                lines.push_back(current);
+                current.clear();
+            }
+            else if (value == '\n')
+            {
+                lines.push_back(current);
+                current.clear();
+            }
+            else
+            {
+                current += value;
+            }
+            ++index;
+        }
+        if (!current.empty())
+        {
+            // A final line with no terminator is still a line; a file ending
+            // in one does not add an empty entry.
+            lines.push_back(current);
+        }
+        return lines;
+    }
+
+    namespace
+    {
+        void WriteAllBytes(const std::string& path, const std::string& text)
+        {
+            const std::string fullPath = PathGetFullPath(path);
+#if defined(_WIN32)
+            HANDLE file = ::CreateFileW(Widen(fullPath).c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file == INVALID_HANDLE_VALUE)
+            {
+                ThrowForWin32Error(::GetLastError(), fullPath);
+            }
+            std::size_t offset = 0;
+            while (offset < text.size())
+            {
+                DWORD written = 0;
+                const DWORD wanted = static_cast<DWORD>(text.size() - offset);
+                if (!::WriteFile(file, text.data() + offset, wanted, &written, nullptr))
+                {
+                    const DWORD error = ::GetLastError();
+                    ::CloseHandle(file);
+                    ThrowForWin32Error(error, fullPath);
+                }
+                offset += written;
+            }
+            ::CloseHandle(file);
+#else
+            const int fd = ::open(
+                fullPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+            if (fd < 0)
+            {
+                const int error = errno;
+                ThrowForErrno(
+                    error, fullPath,
+                    error == ENOENT && !DirectoryExists(DirectoryName(fullPath)));
+            }
+            std::size_t offset = 0;
+            while (offset < text.size())
+            {
+                const ssize_t written = ::write(fd, text.data() + offset, text.size() - offset);
+                if (written < 0)
+                {
+                    const int error = errno;
+                    ::close(fd);
+                    ThrowForErrno(error, fullPath, false);
+                }
+                offset += static_cast<std::size_t>(written);
+            }
+            ::close(fd);
+#endif
+        }
+    }
+
+    void FileWriteAllLines(const std::string& path, const std::vector<std::string>& lines)
+    {
+        std::string text;
+        for (const std::string& line : lines)
+        {
+            text += line;
+#if defined(_WIN32)
+            text += "\r\n";
+#else
+            text += "\n";
+#endif
+        }
+        WriteAllBytes(path, text);
+    }
+
+    std::string FileReadAllText(const std::string& path)
+    {
+        const std::vector<std::uint8_t> bytes = FileReadAllBytes(path);
+        std::size_t index = 0;
+        if (bytes.size() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        {
+            index = 3;
+        }
+        return std::string(
+            reinterpret_cast<const char*>(bytes.data()) + index, bytes.size() - index);
+    }
+
+    void FileWriteAllText(const std::string& path, std::string_view text)
+    {
+        WriteAllBytes(path, std::string(text));
+    }
+
+    void DirectoryCreateDirectory(const std::string& path)
+    {
+        if (path.empty())
+        {
+            throw System::ArgumentException(
+                "The value cannot be an empty string. (Parameter 'path')");
+        }
+        const std::string fullPath = PathGetFullPath(path);
+        // Directory.CreateDirectory walks up to the first parent that exists
+        // and creates everything below it; an existing directory is a no-op.
+        const std::size_t rootLength = PathRootLength(fullPath);
+        std::vector<std::string> pending;
+        std::string current = fullPath;
+        while (current.size() > rootLength
+            && !::MphRead::NativeRuntime::DirectoryExists(current))
+        {
+            pending.push_back(current);
+            const std::size_t slash = current.find_last_of("/\\");
+            if (slash == std::string::npos || slash < rootLength)
+            {
+                break;
+            }
+            current = current.substr(0, slash);
+        }
+        for (std::size_t i = pending.size(); i-- > 0;)
+        {
+#if defined(_WIN32)
+            if (::CreateDirectoryW(Widen(pending[i]).c_str(), nullptr) == FALSE)
+            {
+                const DWORD error = ::GetLastError();
+                if (error != ERROR_ALREADY_EXISTS)
+                {
+                    ThrowForWin32Error(error, pending[i]);
+                }
+            }
+#else
+            if (::mkdir(pending[i].c_str(), 0777) != 0 && errno != EEXIST)
+            {
+                ThrowForErrno(errno, pending[i], false);
+            }
+#endif
+        }
     }
 
 }

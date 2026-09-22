@@ -1,4 +1,5 @@
 #include "DemoFile.hpp"
+#include "NetProtocol.hpp"
 
 #include "../../Utility/Compress.hpp"
 
@@ -54,7 +55,7 @@ namespace MphRead::Mods::Network
         Detail::DemoFileStreamWrite(_stream, DemoFile::Magic);
         Detail::DemoFileStreamWriteByte(_stream, DemoFile::FormatVersion);
         Detail::DemoFileStreamWriteByte(_stream,
-            static_cast<std::uint8_t>(Detail::DemoFileProtocolVersion()));
+            static_cast<std::uint8_t>(NetConfig::ProtocolVersion));
         Detail::DemoFileStreamFlush(_stream);
         _deflate = Detail::DemoFileCreateDeflateFastest(_stream, true);
     }

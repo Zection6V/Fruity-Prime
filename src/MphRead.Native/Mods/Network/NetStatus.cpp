@@ -1,5 +1,6 @@
 #include "NetStatus.hpp"
 
+#include "../../NativeRuntime/System/Net.hpp"
 #include "NetProtocol.hpp"
 #include "../../Formats/Formats.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -41,561 +42,6 @@
 
 namespace MphRead::Mods::Network::Detail
 {
-    enum class NetStatusAddressFamily : std::uint8_t
-    {
-        InterNetwork,
-        Other
-    };
-
-    struct NetStatusAddress
-    {
-        NetStatusAddressFamily Family = NetStatusAddressFamily::Other;
-        std::array<std::uint8_t, 4> Bytes{};
-    };
-
-    struct NetStatusEndPoint
-    {
-        NetStatusAddress Address{};
-        std::int32_t Port = 0;
-    };
-
-#if defined(_WIN32)
-    using NetStatusNativeSocket = SOCKET;
-    constexpr NetStatusNativeSocket NetStatusInvalidSocket = INVALID_SOCKET;
-#else
-    using NetStatusNativeSocket = int;
-    constexpr NetStatusNativeSocket NetStatusInvalidSocket = -1;
-#endif
-
-    struct NetStatusSocketState
-    {
-        NetStatusSocketState()
-            : ReceiveBuffer(0x10000U)
-        {
-        }
-
-        NetStatusNativeSocket Native = NetStatusInvalidSocket;
-        bool BroadcastEnabled = false;
-        std::vector<std::uint8_t> ReceiveBuffer;
-    };
-
-    class NetStatusSocketException final : public std::system_error
-    {
-    public:
-        NetStatusSocketException(int error, std::string operation)
-#if defined(_WIN32)
-            : std::system_error(error, std::system_category(), std::move(operation))
-#else
-            : std::system_error(error, std::generic_category(), std::move(operation))
-#endif
-        {
-        }
-    };
-
-    [[nodiscard]] int NetStatusLastSocketError() noexcept
-    {
-#if defined(_WIN32)
-        return WSAGetLastError();
-#else
-        return errno;
-#endif
-    }
-
-#if defined(_WIN32)
-    class NetStatusWinsockRuntime final
-    {
-    public:
-        NetStatusWinsockRuntime()
-        {
-            WSADATA data{};
-            const int result = WSAStartup(MAKEWORD(2, 2), &data);
-            if (result != 0)
-            {
-                throw NetStatusSocketException(result, "WSAStartup");
-            }
-        }
-
-        ~NetStatusWinsockRuntime()
-        {
-            WSACleanup();
-        }
-
-        NetStatusWinsockRuntime(const NetStatusWinsockRuntime&) = delete;
-        NetStatusWinsockRuntime& operator=(const NetStatusWinsockRuntime&) = delete;
-    };
-
-    void NetStatusEnsureWinsock()
-    {
-        static NetStatusWinsockRuntime runtime;
-        (void)runtime;
-    }
-#else
-    void NetStatusEnsureWinsock()
-    {
-    }
-#endif
-
-    [[nodiscard]] sockaddr_in NetStatusToSockAddr(
-        const NetStatusEndPoint& endPoint) noexcept
-    {
-        sockaddr_in address{};
-        address.sin_family = AF_INET;
-        std::memcpy(&address.sin_addr.s_addr,
-            endPoint.Address.Bytes.data(), endPoint.Address.Bytes.size());
-        address.sin_port = htons(static_cast<std::uint16_t>(endPoint.Port));
-        return address;
-    }
-
-    [[nodiscard]] bool NetStatusTryParseManagedIPv4(
-        const std::string& text, std::array<std::uint8_t, 4>& bytes) noexcept
-    {
-        if (text.empty() || text.find(':') != std::string::npos)
-        {
-            return false;
-        }
-
-        std::array<std::uint64_t, 4> parts{};
-        std::size_t part = 0;
-        std::size_t index = 0;
-        while (true)
-        {
-            if (part >= parts.size() || index >= text.size())
-            {
-                return false;
-            }
-
-            std::uint32_t base = 10;
-            bool haveDigit = false;
-            std::uint64_t value = 0;
-            if (text[index] == '0')
-            {
-                base = 8;
-                ++index;
-                haveDigit = true;
-                if (index < text.size()
-                    && (text[index] == 'x' || text[index] == 'X'))
-                {
-                    base = 16;
-                    ++index;
-                    haveDigit = false;
-                }
-            }
-
-            while (index < text.size())
-            {
-                const unsigned char ch = static_cast<unsigned char>(text[index]);
-                std::uint32_t digit = 0;
-                bool isDigit = false;
-                if ((base == 10 || base == 16) && ch >= '0' && ch <= '9')
-                {
-                    digit = ch - '0';
-                    isDigit = true;
-                }
-                else if (base == 8 && ch >= '0' && ch <= '7')
-                {
-                    digit = ch - '0';
-                    isDigit = true;
-                }
-                else if (base == 16 && ch >= 'a' && ch <= 'f')
-                {
-                    digit = ch + 10U - 'a';
-                    isDigit = true;
-                }
-                else if (base == 16 && ch >= 'A' && ch <= 'F')
-                {
-                    digit = ch + 10U - 'A';
-                    isDigit = true;
-                }
-
-                if (!isDigit)
-                {
-                    break;
-                }
-
-                value = value * base + digit;
-                if (value > 0xFFFFFFFFULL)
-                {
-                    return false;
-                }
-                haveDigit = true;
-                ++index;
-            }
-
-            if (!haveDigit)
-            {
-                return false;
-            }
-
-            parts[part] = value;
-            if (index == text.size())
-            {
-                break;
-            }
-            if (text[index] != '.' || part >= 3 || value > 0xFFU)
-            {
-                return false;
-            }
-            ++part;
-            ++index;
-        }
-
-        std::uint64_t value = 0;
-        switch (part)
-        {
-            case 0:
-                value = parts[0];
-                break;
-            case 1:
-                if (parts[1] > 0xFFFFFFU)
-                {
-                    return false;
-                }
-                value = (parts[0] << 24) | parts[1];
-                break;
-            case 2:
-                if (parts[2] > 0xFFFFU)
-                {
-                    return false;
-                }
-                value = (parts[0] << 24) | (parts[1] << 16) | parts[2];
-                break;
-            case 3:
-                if (parts[3] > 0xFFU)
-                {
-                    return false;
-                }
-                value = (parts[0] << 24) | (parts[1] << 16)
-                    | (parts[2] << 8) | parts[3];
-                break;
-            default:
-                return false;
-        }
-
-        bytes = {
-            static_cast<std::uint8_t>((value >> 24) & 0xFFU),
-            static_cast<std::uint8_t>((value >> 16) & 0xFFU),
-            static_cast<std::uint8_t>((value >> 8) & 0xFFU),
-            static_cast<std::uint8_t>(value & 0xFFU)
-        };
-        return true;
-    }
-
-    [[nodiscard]] std::size_t NetStatusManagedUtf16Length(
-        const std::string& value) noexcept
-    {
-        std::size_t length = 0;
-        for (std::size_t index = 0; index < value.size();)
-        {
-            const auto first = static_cast<unsigned char>(value[index]);
-            std::size_t consumed = 1;
-            std::uint32_t codePoint = first;
-
-            if (first >= 0xC2U && first <= 0xDFU
-                && index + 1 < value.size()
-                && (static_cast<unsigned char>(value[index + 1]) & 0xC0U) == 0x80U)
-            {
-                codePoint = (static_cast<std::uint32_t>(first & 0x1FU) << 6)
-                    | static_cast<std::uint32_t>(
-                        static_cast<unsigned char>(value[index + 1]) & 0x3FU);
-                consumed = 2;
-            }
-            else if (first >= 0xE0U && first <= 0xEFU
-                && index + 2 < value.size())
-            {
-                const auto b1 = static_cast<unsigned char>(value[index + 1]);
-                const auto b2 = static_cast<unsigned char>(value[index + 2]);
-                if ((b1 & 0xC0U) == 0x80U && (b2 & 0xC0U) == 0x80U
-                    && (first != 0xE0U || b1 >= 0xA0U)
-                    && (first != 0xEDU || b1 <= 0x9FU))
-                {
-                    codePoint = (static_cast<std::uint32_t>(first & 0x0FU) << 12)
-                        | (static_cast<std::uint32_t>(b1 & 0x3FU) << 6)
-                        | static_cast<std::uint32_t>(b2 & 0x3FU);
-                    consumed = 3;
-                }
-            }
-            else if (first >= 0xF0U && first <= 0xF4U
-                && index + 3 < value.size())
-            {
-                const auto b1 = static_cast<unsigned char>(value[index + 1]);
-                const auto b2 = static_cast<unsigned char>(value[index + 2]);
-                const auto b3 = static_cast<unsigned char>(value[index + 3]);
-                if ((b1 & 0xC0U) == 0x80U && (b2 & 0xC0U) == 0x80U
-                    && (b3 & 0xC0U) == 0x80U
-                    && (first != 0xF0U || b1 >= 0x90U)
-                    && (first != 0xF4U || b1 <= 0x8FU))
-                {
-                    codePoint = (static_cast<std::uint32_t>(first & 0x07U) << 18)
-                        | (static_cast<std::uint32_t>(b1 & 0x3FU) << 12)
-                        | (static_cast<std::uint32_t>(b2 & 0x3FU) << 6)
-                        | static_cast<std::uint32_t>(b3 & 0x3FU);
-                    consumed = 4;
-                }
-            }
-
-            length += codePoint > 0xFFFFU ? 2U : 1U;
-            index += consumed;
-        }
-        return length;
-    }
-
-    std::vector<NetStatusAddress> NetStatusDnsGetHostAddresses(
-        const std::string& address)
-    {
-        // Dns.GetHostAddresses first runs IPAddress.TryParse. For IPv4 this
-        // accepts .NET's legacy decimal/octal/hex forms and bypasses DNS.
-        std::array<std::uint8_t, 4> parsedIPv4{};
-        if (NetStatusTryParseManagedIPv4(address, parsedIPv4))
-        {
-            if (parsedIPv4 == std::array<std::uint8_t, 4>{0, 0, 0, 0})
-            {
-                // Dns.GetHostAddresses rejects IPAddress.Any before resolution.
-                throw std::invalid_argument("hostNameOrAddress");
-            }
-            return {
-                NetStatusAddress{NetStatusAddressFamily::InterNetwork, parsedIPv4}
-            };
-        }
-
-        const std::size_t managedLength = NetStatusManagedUtf16Length(address);
-        if (managedLength > 255U
-            || (managedLength == 255U
-                && (address.empty() || address.back() != '.')))
-        {
-            throw std::out_of_range("hostName");
-        }
-
-        NetStatusEnsureWinsock();
-        std::vector<NetStatusAddress> resolved;
-
-#if defined(_WIN32)
-        // Dns.GetHostAddresses on the net9.0 Windows target reaches
-        // GetAddrInfoW. Native strings carry managed text as UTF-8, so use the
-        // wide Winsock entry point rather than the ANSI getaddrinfo wrapper.
-        const int wideLength = MultiByteToWideChar(
-            CP_UTF8, MB_ERR_INVALID_CHARS, address.c_str(), -1, nullptr, 0);
-        if (wideLength == 0)
-        {
-            throw std::runtime_error("MultiByteToWideChar failed");
-        }
-        std::wstring wideAddress(static_cast<std::size_t>(wideLength), L'\0');
-        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                address.c_str(), -1, wideAddress.data(), wideLength) == 0)
-        {
-            throw std::runtime_error("MultiByteToWideChar failed");
-        }
-
-        ADDRINFOW hints{};
-        hints.ai_family = AF_UNSPEC;
-        ADDRINFOW* raw = nullptr;
-        const int result = GetAddrInfoW(wideAddress.c_str(), nullptr, &hints, &raw);
-        if (result != 0)
-        {
-            throw NetStatusSocketException(result, "GetAddrInfoW");
-        }
-
-        std::unique_ptr<ADDRINFOW, decltype(&FreeAddrInfoW)> owner(raw, &FreeAddrInfoW);
-        for (ADDRINFOW* current = raw; current != nullptr; current = current->ai_next)
-        {
-            if (current->ai_family != AF_INET || current->ai_addr == nullptr
-                || current->ai_addrlen != sizeof(sockaddr_in))
-            {
-                continue;
-            }
-            const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
-            NetStatusAddress item;
-            item.Family = NetStatusAddressFamily::InterNetwork;
-            std::memcpy(item.Bytes.data(), &ipv4->sin_addr.s_addr, item.Bytes.size());
-            resolved.push_back(item);
-        }
-#else
-        addrinfo hints{};
-        hints.ai_family = AF_UNSPEC;
-        addrinfo* raw = nullptr;
-        const int result = getaddrinfo(address.c_str(), nullptr, &hints, &raw);
-        if (result != 0)
-        {
-            const char* message = gai_strerror(result);
-            throw std::runtime_error(message != nullptr ? message : "getaddrinfo failed");
-        }
-
-        std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> owner(raw, &freeaddrinfo);
-        for (addrinfo* current = raw; current != nullptr; current = current->ai_next)
-        {
-            if (current->ai_family != AF_INET || current->ai_addr == nullptr
-                || current->ai_addrlen
-                    != static_cast<decltype(current->ai_addrlen)>(sizeof(sockaddr_in)))
-            {
-                continue;
-            }
-            const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
-            NetStatusAddress item;
-            item.Family = NetStatusAddressFamily::InterNetwork;
-            std::memcpy(item.Bytes.data(), &ipv4->sin_addr.s_addr, item.Bytes.size());
-            resolved.push_back(item);
-        }
-#endif
-        return resolved;
-    }
-
-    NetStatusEndPoint NetStatusCreateIPEndPoint(
-        const NetStatusAddress& address, std::int32_t port)
-    {
-        if (port < 0 || port > 65535)
-        {
-            throw std::out_of_range("port");
-        }
-        return NetStatusEndPoint{address, port};
-    }
-
-    NetStatusEndPoint NetStatusCreateIPv4AnyEndPoint()
-    {
-        NetStatusAddress address;
-        address.Family = NetStatusAddressFamily::InterNetwork;
-        address.Bytes = {0, 0, 0, 0};
-        return NetStatusEndPoint{address, 0};
-    }
-
-    NetStatusSocketHandle NetStatusUdpClientCreateInterNetwork()
-    {
-        auto state = std::make_unique<NetStatusSocketState>();
-        NetStatusEnsureWinsock();
-        state->Native = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (state->Native == NetStatusInvalidSocket)
-        {
-            throw NetStatusSocketException(
-                NetStatusLastSocketError(), "socket");
-        }
-        return state.release();
-    }
-
-    void NetStatusUdpClientSetReceiveTimeout(
-        NetStatusSocketHandle socket, std::int32_t timeoutMs)
-    {
-        if (timeoutMs < -1)
-        {
-            throw std::out_of_range("timeoutMs");
-        }
-        const std::int32_t value = timeoutMs == -1 ? 0 : timeoutMs;
-        const NetStatusNativeSocket native = socket->Native;
-#if defined(_WIN32)
-        const DWORD timeout = static_cast<DWORD>(value);
-        if (setsockopt(native, SOL_SOCKET, SO_RCVTIMEO,
-                reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == SOCKET_ERROR)
-        {
-            throw NetStatusSocketException(
-                NetStatusLastSocketError(), "setsockopt(SO_RCVTIMEO)");
-        }
-#else
-        timeval timeout{};
-        timeout.tv_sec = value / 1000;
-        timeout.tv_usec = (value % 1000) * 1000;
-        if (setsockopt(native, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0)
-        {
-            throw NetStatusSocketException(
-                NetStatusLastSocketError(), "setsockopt(SO_RCVTIMEO)");
-        }
-#endif
-    }
-
-    void NetStatusUdpClientSend(NetStatusSocketHandle socket,
-        const std::uint8_t* data, std::int32_t length,
-        const NetStatusEndPoint& endPoint)
-    {
-        const NetStatusNativeSocket native = socket->Native;
-        const bool broadcast = endPoint.Address.Family == NetStatusAddressFamily::InterNetwork
-            && endPoint.Address.Bytes[0] == 0xFFU
-            && endPoint.Address.Bytes[1] == 0xFFU
-            && endPoint.Address.Bytes[2] == 0xFFU
-            && endPoint.Address.Bytes[3] == 0xFFU;
-        if (broadcast && !socket->BroadcastEnabled)
-        {
-            // UdpClient.CheckForBroadcast marks the instance before setting the
-            // socket option, and never retries that option on later sends.
-            socket->BroadcastEnabled = true;
-#if defined(_WIN32)
-            const BOOL enabled = TRUE;
-            if (setsockopt(native, SOL_SOCKET, SO_BROADCAST,
-                    reinterpret_cast<const char*>(&enabled), sizeof(enabled)) == SOCKET_ERROR)
-#else
-            const int enabled = 1;
-            if (setsockopt(native, SOL_SOCKET, SO_BROADCAST,
-                    &enabled, sizeof(enabled)) != 0)
-#endif
-            {
-                throw NetStatusSocketException(
-                    NetStatusLastSocketError(), "setsockopt(SO_BROADCAST)");
-            }
-        }
-
-        const sockaddr_in target = NetStatusToSockAddr(endPoint);
-#if defined(_WIN32)
-        const int sent = sendto(native,
-            reinterpret_cast<const char*>(data), length, 0,
-            reinterpret_cast<const sockaddr*>(&target), sizeof(target));
-        if (sent == SOCKET_ERROR)
-#else
-        const ssize_t sent = sendto(native,
-            data, static_cast<std::size_t>(length), 0,
-            reinterpret_cast<const sockaddr*>(&target), sizeof(target));
-        if (sent < 0)
-#endif
-        {
-            throw NetStatusSocketException(
-                NetStatusLastSocketError(), "sendto");
-        }
-    }
-
-    std::vector<std::uint8_t> NetStatusUdpClientReceive(
-        NetStatusSocketHandle socket, NetStatusEndPoint& from)
-    {
-        const NetStatusNativeSocket native = socket->Native;
-        sockaddr_in sender{};
-#if defined(_WIN32)
-        int senderLength = sizeof(sender);
-        const int received = recvfrom(native,
-            reinterpret_cast<char*>(socket->ReceiveBuffer.data()),
-            static_cast<int>(socket->ReceiveBuffer.size()), 0,
-            reinterpret_cast<sockaddr*>(&sender), &senderLength);
-        if (received == SOCKET_ERROR)
-#else
-        socklen_t senderLength = sizeof(sender);
-        const ssize_t received = recvfrom(native,
-            socket->ReceiveBuffer.data(), socket->ReceiveBuffer.size(), 0,
-            reinterpret_cast<sockaddr*>(&sender), &senderLength);
-        if (received < 0)
-#endif
-        {
-            throw NetStatusSocketException(
-                NetStatusLastSocketError(), "recvfrom");
-        }
-
-        from.Address.Family = NetStatusAddressFamily::InterNetwork;
-        std::memcpy(from.Address.Bytes.data(),
-            &sender.sin_addr.s_addr, from.Address.Bytes.size());
-        from.Port = static_cast<std::int32_t>(ntohs(sender.sin_port));
-        return std::vector<std::uint8_t>(
-            socket->ReceiveBuffer.begin(),
-            socket->ReceiveBuffer.begin() + static_cast<std::size_t>(received));
-    }
-
-    void NetStatusUdpClientDispose(NetStatusSocketHandle socket)
-    {
-        std::unique_ptr<NetStatusSocketState> state(socket);
-        if (!state || state->Native == NetStatusInvalidSocket)
-        {
-            return;
-        }
-#if defined(_WIN32)
-        (void)shutdown(state->Native, SD_BOTH);
-        (void)closesocket(state->Native);
-#else
-        (void)shutdown(state->Native, SHUT_RDWR);
-        (void)::close(state->Native);
-#endif
-        state->Native = NetStatusInvalidSocket;
-    }
-
     std::int64_t NetStatusDateTimeUtcNowTicks()
     {
         constexpr std::int64_t unixEpochTicks = 621355968000000000LL;
@@ -833,15 +279,15 @@ namespace MphRead::Mods::Network
             return ServerStatus::Offline("No server address.");
         }
 
-        Detail::NetStatusEndPoint endPoint;
+        ::MphRead::NativeRuntime::EndPoint endPoint;
         try
         {
-            std::vector<Detail::NetStatusAddress> resolved
-                = Detail::NetStatusDnsGetHostAddresses(address);
-            const Detail::NetStatusAddress* ipv4 = nullptr;
-            for (const Detail::NetStatusAddress& candidate : resolved)
+            std::vector<::MphRead::NativeRuntime::Address> resolved
+                = ::MphRead::NativeRuntime::DnsGetHostAddresses(address);
+            const ::MphRead::NativeRuntime::Address* ipv4 = nullptr;
+            for (const ::MphRead::NativeRuntime::Address& candidate : resolved)
             {
-                if (candidate.Family == Detail::NetStatusAddressFamily::InterNetwork)
+                if (candidate.Family == ::MphRead::NativeRuntime::AddressFamily::InterNetwork)
                 {
                     ipv4 = &candidate;
                     break;
@@ -851,21 +297,21 @@ namespace MphRead::Mods::Network
             {
                 return ServerStatus::Offline("Cannot find " + address + ".");
             }
-            endPoint = Detail::NetStatusCreateIPEndPoint(*ipv4, port);
+            endPoint = ::MphRead::NativeRuntime::CreateIPEndPoint(*ipv4, port);
         }
         catch (...)
         {
             return ServerStatus::Offline("Cannot find " + address + ".");
         }
 
-        const Detail::NetStatusSocketHandle socket
-            = Detail::NetStatusUdpClientCreateInterNetwork();
+        const ::MphRead::NativeRuntime::SocketHandle socket
+            = ::MphRead::NativeRuntime::UdpClientCreateInterNetwork();
         return CSharpTryFinally(
             [&]() -> ServerStatus
             {
                 // Deliberately outside the operation try/catch, like the C#
                 // ReceiveTimeout assignment. A setter failure propagates.
-                Detail::NetStatusUdpClientSetReceiveTimeout(socket, timeoutMs);
+                ::MphRead::NativeRuntime::UdpClientSetReceiveTimeout(socket, timeoutMs);
 
                 try
                 {
@@ -874,17 +320,17 @@ namespace MphRead::Mods::Network
                         static_cast<std::uint8_t>(PacketType::StatusQuery),
                         static_cast<std::uint8_t>(Detail::NetStatusProtocolVersion())
                     };
-                    Detail::NetStatusUdpClientSend(socket, query, 2, endPoint);
+                    ::MphRead::NativeRuntime::UdpClientSend(socket, query, 2, endPoint);
 
-                    Detail::NetStatusEndPoint from
-                        = Detail::NetStatusCreateIPv4AnyEndPoint();
+                    ::MphRead::NativeRuntime::EndPoint from
+                        = ::MphRead::NativeRuntime::CreateIPv4AnyEndPoint();
                     constexpr std::int64_t ticksPerMillisecond = 10'000;
                     const std::int64_t deadline = Detail::NetStatusDateTimeUtcNowTicks()
                         + static_cast<std::int64_t>(timeoutMs) * ticksPerMillisecond;
                     while (Detail::NetStatusDateTimeUtcNowTicks() < deadline)
                     {
                         std::vector<std::uint8_t> reply
-                            = Detail::NetStatusUdpClientReceive(socket, from);
+                            = ::MphRead::NativeRuntime::UdpClientReceive(socket, from);
                         if (reply.size() >= 1U
                                 + static_cast<std::size_t>(ServerStatusPacket::Size)
                             && reply[0]
@@ -898,7 +344,7 @@ namespace MphRead::Mods::Network
                         }
                     }
                 }
-                catch (const Detail::NetStatusSocketException&)
+                catch (const ::MphRead::NativeRuntime::SocketException&)
                 {
                 }
                 catch (const std::exception& ex)
@@ -914,12 +360,12 @@ namespace MphRead::Mods::Network
             },
             [&]()
             {
-                Detail::NetStatusUdpClientDispose(socket);
+                ::MphRead::NativeRuntime::UdpClientDispose(socket);
             });
     }
 
-    ServerStatus NetStatus::JoinProbe(Detail::NetStatusSocketHandle socket,
-        const Detail::NetStatusEndPoint& endPoint, const std::string& address,
+    ServerStatus NetStatus::JoinProbe(::MphRead::NativeRuntime::SocketHandle socket,
+        const ::MphRead::NativeRuntime::EndPoint& endPoint, const std::string& address,
         std::int32_t timeoutMs)
     {
         try
@@ -929,10 +375,10 @@ namespace MphRead::Mods::Network
                 static_cast<std::uint8_t>(Detail::NetStatusProtocolVersion()),
                 0xFFU
             };
-            Detail::NetStatusUdpClientSend(socket, hello, 3, endPoint);
+            ::MphRead::NativeRuntime::UdpClientSend(socket, hello, 3, endPoint);
 
-            Detail::NetStatusEndPoint from
-                = Detail::NetStatusCreateIPv4AnyEndPoint();
+            ::MphRead::NativeRuntime::EndPoint from
+                = ::MphRead::NativeRuntime::CreateIPv4AnyEndPoint();
             constexpr std::int64_t ticksPerMillisecond = 10'000;
             const std::int64_t deadline = Detail::NetStatusDateTimeUtcNowTicks()
                 + static_cast<std::int64_t>(timeoutMs) * ticksPerMillisecond;
@@ -940,7 +386,7 @@ namespace MphRead::Mods::Network
             while (Detail::NetStatusDateTimeUtcNowTicks() < deadline)
             {
                 std::vector<std::uint8_t> reply
-                    = Detail::NetStatusUdpClientReceive(socket, from);
+                    = ::MphRead::NativeRuntime::UdpClientReceive(socket, from);
                 if (!reply.empty()
                     && reply[0] == static_cast<std::uint8_t>(PacketType::Welcome))
                 {
@@ -954,7 +400,7 @@ namespace MphRead::Mods::Network
                     const std::uint8_t bye[] = {
                         static_cast<std::uint8_t>(PacketType::Bye)
                     };
-                    Detail::NetStatusUdpClientSend(socket, bye, 1, endPoint);
+                    ::MphRead::NativeRuntime::UdpClientSend(socket, bye, 1, endPoint);
 
                     MatchStatePacket match = MatchStatePacket::Read(
                         std::span<const std::uint8_t>(reply).subspan(1));
@@ -976,7 +422,7 @@ namespace MphRead::Mods::Network
                 const std::uint8_t bye[] = {
                     static_cast<std::uint8_t>(PacketType::Bye)
                 };
-                Detail::NetStatusUdpClientSend(socket, bye, 1, endPoint);
+                ::MphRead::NativeRuntime::UdpClientSend(socket, bye, 1, endPoint);
 
                 ServerStatus status;
                 status.Online = true;

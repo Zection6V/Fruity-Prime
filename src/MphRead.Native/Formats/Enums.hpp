@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace MphRead
 {
@@ -472,6 +473,9 @@ namespace MphRead
         Guardian = 7,
         Random = 8
     };
+
+    // Hunter.ToString().
+    [[nodiscard]] std::string ToString(Hunter value);
 
     enum class Language : std::int32_t
     {

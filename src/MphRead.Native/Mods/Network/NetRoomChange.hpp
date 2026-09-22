@@ -21,60 +21,6 @@ namespace MphRead
 
 namespace MphRead::Mods::Network
 {
-    namespace Detail
-    {
-        // Pair-local runtime closure for owners that have not reached Native yet.
-        // These are mechanical dependency adapters only and must not add policy.
-        [[nodiscard]] bool NetRoomChangeSessionActive();
-        [[nodiscard]] std::uint32_t NetRoomChangeSessionNetFrame();
-        [[nodiscard]] std::optional<MatchStatePacket> NetRoomChangeSessionServerMatch();
-        [[nodiscard]] std::int32_t NetRoomChangeSessionLocalSlot();
-        [[nodiscard]] Hunter NetRoomChangeSessionSlotHunter(std::int32_t slot);
-        [[nodiscard]] std::int32_t NetRoomChangeSessionSlotOccupiedLength();
-        [[nodiscard]] bool NetRoomChangeSessionSlotOccupied(std::int32_t slot);
-
-        [[nodiscard]] bool NetRoomChangeSceneHasRoom(const Scene& scene);
-        [[nodiscard]] std::int32_t NetRoomChangeSceneRoomId(const Scene& scene);
-        [[nodiscard]] bool NetRoomChangeGameStateInRoomTransition();
-        void NetRoomChangeSetTransitionRoomId(std::int32_t roomId);
-        void NetRoomChangeSceneSetFadeOutBlackLoadRoom(
-            Scene& scene, float length, bool overwrite);
-
-        void NetRoomChangeSetPlayerCameraNodeRefNone(Entities::PlayerEntity& player);
-        void NetRoomChangeSetPlayerBotLevel(
-            Entities::PlayerEntity& player, std::int32_t value);
-        [[nodiscard]] std::string NetRoomChangeFormatLoadFlags(
-            Entities::LoadFlags flags);
-
-        void NetRoomChangeSlotManagerReset();
-        void NetRoomChangePlayerBridgeNoteRoomChanged();
-        void NetRoomChangeSceneInsertPlayer(
-            Scene& scene, const std::shared_ptr<Entities::PlayerEntity>& player);
-        void NetRoomChangeSceneInitPlayer(
-            Scene& scene, const std::shared_ptr<Entities::PlayerEntity>& player);
-        void NetRoomChangeSceneInitHalfturret(
-            Scene& scene, const std::shared_ptr<Entities::PlayerEntity>& player);
-
-        [[nodiscard]] bool NetRoomChangeGameStateMultiplayer();
-        void NetRoomChangeSetPoints(std::int32_t index, std::int32_t value);
-        void NetRoomChangeSetTeamPoints(std::int32_t index, std::int32_t value);
-        void NetRoomChangeSetKills(std::int32_t index, std::int32_t value);
-        void NetRoomChangeSetTeamKills(std::int32_t index, std::int32_t value);
-        void NetRoomChangeSetDeaths(std::int32_t index, std::int32_t value);
-        void NetRoomChangeSetTeamDeaths(std::int32_t index, std::int32_t value);
-        void NetRoomChangeSetStandings(std::int32_t index, std::int32_t value);
-        void NetRoomChangeSetTeamStandings(std::int32_t index, std::int32_t value);
-        void NetRoomChangeSetDamageCount(std::int32_t index, std::int32_t value);
-        void NetRoomChangeSetKillStreak(std::int32_t index, std::int32_t value);
-        void NetRoomChangeGameStateResetMatchProgress();
-
-        [[nodiscard]] std::string NetRoomChangeFormatCurrentCultureInt32(
-            std::int32_t value);
-        [[nodiscard]] std::string NetRoomChangeFormatCurrentCultureUInt16(
-            std::uint16_t value);
-        void NetRoomChangeConsoleWriteLine(const std::string& value);
-    }
-
     class NetRoomChange final
     {
     public:

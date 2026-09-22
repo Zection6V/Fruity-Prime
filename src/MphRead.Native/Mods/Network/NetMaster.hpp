@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../NativeRuntime/System/Net.hpp"
+
 #include "NetProtocol.hpp"
 #include "NetTransport.hpp"
 
@@ -63,7 +65,7 @@ namespace MphRead::Mods::Network
 
         const std::string _host;
         const std::int32_t _port;
-        std::optional<std::uintptr_t> _socket{};
+        std::optional<::MphRead::NativeRuntime::SocketHandle> _socket{};
         std::shared_ptr<System::Net::IPEndPoint> _endPoint{};
         double _lastBeat = -std::numeric_limits<double>::infinity();
         double _lastResolve = -std::numeric_limits<double>::infinity();

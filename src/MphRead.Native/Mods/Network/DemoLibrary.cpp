@@ -1,4 +1,6 @@
 #include "DemoLibrary.hpp"
+#include "../../NativeRuntime/System/DateTime.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include "DemoFile.hpp"
 #include "../../Read.hpp"
@@ -12,8 +14,6 @@
 
 namespace
 {
-    using MphRead::Mods::Network::DemoLibraryDateTime;
-
     constexpr std::int64_t TicksPerSecond = 10'000'000;
     constexpr std::int64_t TicksPerMinute = TicksPerSecond * 60;
     constexpr std::int64_t TicksPerHour = TicksPerMinute * 60;
@@ -45,7 +45,7 @@ namespace
     }
 
     [[nodiscard]] bool TryParseInvariantTimestamp(
-        std::string_view stamp, DemoLibraryDateTime& parsed) noexcept
+        std::string_view stamp, ::MphRead::NativeRuntime::ManagedDateTime& parsed) noexcept
     {
         // Exact C# format: yyyy-MM-dd_HH-mm-ss, DateTimeStyles.None.
         if (stamp.size() != 19
@@ -97,7 +97,7 @@ namespace
             + static_cast<std::int64_t>(hour) * TicksPerHour
             + static_cast<std::int64_t>(minute) * TicksPerMinute
             + static_cast<std::int64_t>(second) * TicksPerSecond;
-        parsed = DemoLibraryDateTime(ticks);
+        parsed = ::MphRead::NativeRuntime::ManagedDateTime(ticks);
         return true;
     }
 
@@ -125,7 +125,7 @@ namespace
 namespace MphRead::Mods::Network
 {
     DemoRecording::DemoRecording(std::string path, std::string room,
-        DemoLibraryDateTime recorded, std::int64_t bytes)
+        ::MphRead::NativeRuntime::ManagedDateTime recorded, std::int64_t bytes)
         : _path(std::move(path)),
           _room(std::move(room)),
           _recorded(recorded),
@@ -143,7 +143,7 @@ namespace MphRead::Mods::Network
         return _room;
     }
 
-    DemoLibraryDateTime DemoRecording::Recorded() const noexcept
+    ::MphRead::NativeRuntime::ManagedDateTime DemoRecording::Recorded() const noexcept
     {
         return _recorded;
     }
@@ -169,7 +169,7 @@ namespace MphRead::Mods::Network
         try
         {
             const std::string directory = Directory();
-            if (!Detail::DemoLibraryDirectoryExists(directory))
+            if (!NativeRuntime::DirectoryExists(std::string(directory)))
             {
                 return found;
             }
@@ -186,7 +186,7 @@ namespace MphRead::Mods::Network
 
                     // Null-coalescing in C#: a parsed file-name timestamp avoids
                     // evaluating FileInfo.LastWriteTime entirely.
-                    const DemoLibraryDateTime recorded = stamp.has_value()
+                    const ::MphRead::NativeRuntime::ManagedDateTime recorded = stamp.has_value()
                         ? *stamp
                         : Detail::DemoLibraryFileInfoLastWriteTime(info);
                     const std::int64_t bytes = Detail::DemoLibraryFileInfoLength(info);
@@ -213,12 +213,12 @@ namespace MphRead::Mods::Network
         // that contract rather than imposing stable ordering on equal stamps.
         std::sort(found->begin(), found->end(), [](const DemoRecording& a, const DemoRecording& b)
         {
-            return b.Recorded().CompareTo(a.Recorded()) < 0;
+            return b.Recorded().Ticks < a.Recorded().Ticks;
         });
         return found;
     }
 
-    std::pair<std::string, std::optional<DemoLibraryDateTime>>
+    std::pair<std::string, std::optional<::MphRead::NativeRuntime::ManagedDateTime>>
         DemoLibrary::ReadName(const std::string& fileName)
     {
         std::string name = Detail::DemoLibraryGetFileNameWithoutExtension(fileName);
@@ -230,7 +230,7 @@ namespace MphRead::Mods::Network
         }
 
         const std::string_view stamp(name.data() + name.size() - stampLength, stampLength);
-        DemoLibraryDateTime parsed;
+        ::MphRead::NativeRuntime::ManagedDateTime parsed;
         if (!TryParseInvariantTimestamp(stamp, parsed))
         {
             return {std::move(name), std::nullopt};
@@ -241,8 +241,7 @@ namespace MphRead::Mods::Network
 
     std::string DemoLibrary::Describe(const DemoRecording& demo)
     {
-        return Detail::DemoLibraryFormatCurrentCultureDateTime(
-            demo.Recorded(), "d MMM yyyy, HH:mm")
+        return NativeRuntime::DateTimeToString((demo.Recorded()), ("d MMM yyyy, HH:mm"))
             + " — " + Size(demo.Bytes());
     }
 

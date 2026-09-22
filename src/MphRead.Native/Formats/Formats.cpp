@@ -2173,6 +2173,31 @@ namespace MphRead
         };
     }
 
+    bool IsDefinedGameMode(std::uint64_t value)
+    {
+        for (const ::MphRead::NativeRuntime::EnumNameEntry& entry : GameModeNames)
+        {
+            if (entry.Value == value)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool TryParse(std::string_view value, bool ignoreCase, GameMode& result)
+    {
+        std::uint64_t raw = 0;
+        if (!::MphRead::NativeRuntime::ManagedEnumTryParse(
+                value, ignoreCase, GameModeNames, std::size(GameModeNames), raw))
+        {
+            result = GameMode::None;
+            return false;
+        }
+        result = static_cast<GameMode>(static_cast<std::uint8_t>(raw));
+        return true;
+    }
+
     std::string ToString(GameMode value)
     {
         return ::MphRead::NativeRuntime::ManagedEnumToString(

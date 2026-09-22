@@ -1,5 +1,9 @@
 #include "NetHostSession.hpp"
 
+#include "../../GameState.hpp"
+#include "NetLaunch.hpp"
+#include "NetMaster.hpp"
+
 #include "DedicatedServer.hpp"
 #include "MapRotation.hpp"
 
@@ -13,19 +17,6 @@
 #include <thread>
 #include <tuple>
 #include <utility>
-
-namespace MphRead::Mods::Network::Detail
-{
-    // Narrow seams for owners/runtime facilities that are not part of this C#
-    // slice. They preserve the referenced C# contracts without defining
-    // competing Native implementations in NetHostSession.
-    bool NetHostSessionGameStateFriendlyFire();
-    bool NetHostSessionGameStateShadowFreeze();
-    std::shared_ptr<MasterReporter> NetHostSessionCreateMasterReporter(
-        const std::string& host, std::int32_t port);
-    bool NetHostSessionJoin(const std::string& host, std::int32_t port,
-        const std::string& playerName, Hunter hunter);
-}
 
 namespace MphRead::Mods::Network
 {
@@ -63,14 +54,14 @@ namespace MphRead::Mods::Network
         std::shared_ptr<MapRotation> rotation
             = MapRotation::SingleMatch(roomKey, mode, timeLimit, pointGoal);
         auto server = std::make_shared<DedicatedServer>(port, maxPlayers, rotation);
-        server->FriendlyFire(Detail::NetHostSessionGameStateFriendlyFire());
-        server->ShadowFreeze(Detail::NetHostSessionGameStateShadowFreeze());
+        server->FriendlyFire(GameState::FriendlyFire());
+        server->ShadowFreeze(GameState::ShadowFreeze());
 
         if (listing.has_value())
         {
             const auto& value = listing.value();
             server->ServerName(std::get<2>(value));
-            server->Reporter(Detail::NetHostSessionCreateMasterReporter(
+            server->Reporter(std::make_shared<MasterReporter>(
                 std::get<0>(value), std::get<1>(value)));
             std::cout << "[net] listing this game on " << std::get<0>(value)
                 << ":" << std::get<1>(value) << " as \""
@@ -100,7 +91,7 @@ namespace MphRead::Mods::Network
             Stop();
             return false;
         }
-        if (!Detail::NetHostSessionJoin("127.0.0.1", port, playerName, hunter))
+        if (!NetLaunch::Join("127.0.0.1", port, playerName, hunter))
         {
             Stop();
             return false;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../NativeRuntime/System/DateTime.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -11,23 +13,6 @@
 
 namespace MphRead::Mods::Network
 {
-    struct DemoLibraryDateTime final
-    {
-        std::int64_t Ticks = 0;
-
-        constexpr DemoLibraryDateTime() noexcept = default;
-        explicit constexpr DemoLibraryDateTime(std::int64_t ticks) noexcept
-            : Ticks(ticks)
-        {
-        }
-
-        [[nodiscard]] constexpr std::int32_t CompareTo(DemoLibraryDateTime other) const noexcept
-        {
-            return Ticks < other.Ticks ? -1 : (Ticks > other.Ticks ? 1 : 0);
-        }
-
-        friend constexpr bool operator==(DemoLibraryDateTime, DemoLibraryDateTime) noexcept = default;
-    };
 
     namespace Detail
     {
@@ -68,13 +53,13 @@ namespace MphRead::Mods::Network
             DemoLibraryCreateFileInfo(const std::string& path);
         [[nodiscard]] std::string DemoLibraryFileInfoName(
             const std::shared_ptr<DemoLibraryFileInfoHandle>& info);
-        [[nodiscard]] DemoLibraryDateTime DemoLibraryFileInfoLastWriteTime(
+        [[nodiscard]] ::MphRead::NativeRuntime::ManagedDateTime DemoLibraryFileInfoLastWriteTime(
             const std::shared_ptr<DemoLibraryFileInfoHandle>& info);
         [[nodiscard]] std::int64_t DemoLibraryFileInfoLength(
             const std::shared_ptr<DemoLibraryFileInfoHandle>& info);
 
         [[nodiscard]] std::string DemoLibraryFormatCurrentCultureDateTime(
-            DemoLibraryDateTime value, std::string_view format);
+            ::MphRead::NativeRuntime::ManagedDateTime value, std::string_view format);
         [[nodiscard]] std::string DemoLibraryFormatCurrentCultureInt64(std::int64_t value);
     }
 
@@ -85,18 +70,18 @@ namespace MphRead::Mods::Network
     {
         DemoRecording() = default;
         DemoRecording(std::string path, std::string room,
-            DemoLibraryDateTime recorded, std::int64_t bytes);
+            ::MphRead::NativeRuntime::ManagedDateTime recorded, std::int64_t bytes);
 
         [[nodiscard]] const std::string& Path() const noexcept;
         [[nodiscard]] const std::string& Room() const noexcept;
-        [[nodiscard]] DemoLibraryDateTime Recorded() const noexcept;
+        [[nodiscard]] ::MphRead::NativeRuntime::ManagedDateTime Recorded() const noexcept;
         [[nodiscard]] std::int64_t Bytes() const noexcept;
         [[nodiscard]] std::string FileName() const;
 
     private:
         std::string _path{};
         std::string _room{};
-        DemoLibraryDateTime _recorded{};
+        ::MphRead::NativeRuntime::ManagedDateTime _recorded{};
         std::int64_t _bytes = 0;
     };
 
@@ -113,7 +98,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::string Describe(const DemoRecording& demo);
 
     private:
-        [[nodiscard]] static std::pair<std::string, std::optional<DemoLibraryDateTime>>
+        [[nodiscard]] static std::pair<std::string, std::optional<::MphRead::NativeRuntime::ManagedDateTime>>
             ReadName(const std::string& fileName);
         [[nodiscard]] static std::string Size(std::int64_t bytes);
     };

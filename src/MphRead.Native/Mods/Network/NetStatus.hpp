@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../NativeRuntime/System/Net.hpp"
+
 #include <cstdint>
 #include <string>
 
@@ -14,9 +16,7 @@ namespace MphRead::Mods::Network
 
     namespace Detail
     {
-        struct NetStatusEndPoint;
-        struct NetStatusSocketState;
-        using NetStatusSocketHandle = NetStatusSocketState*;
+
     }
 
     struct ServerStatus
@@ -51,8 +51,8 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::string ModeName(GameMode mode);
 
     private:
-        [[nodiscard]] static ServerStatus JoinProbe(Detail::NetStatusSocketHandle socket,
-            const Detail::NetStatusEndPoint& endPoint, const std::string& address,
+        [[nodiscard]] static ServerStatus JoinProbe(::MphRead::NativeRuntime::SocketHandle socket,
+            const ::MphRead::NativeRuntime::EndPoint& endPoint, const std::string& address,
             std::int32_t timeoutMs);
 
         [[nodiscard]] static ServerStatus Describe(ServerStatusPacket status,

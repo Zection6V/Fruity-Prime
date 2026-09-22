@@ -149,6 +149,20 @@ namespace MphRead::NativeRuntime
             {
                 result += PadLeft(date.Month, 2);
             }
+            else if (token == "d")
+            {
+                result += std::to_string(date.Day);
+            }
+            else if (token == "MMM")
+            {
+                // The current culture's abbreviated month names; the invariant
+                // ones are what a culture-less build has.
+                static const char* const months[] = {
+                    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                };
+                result += months[(date.Month - 1) % 12];
+            }
             else if (token == "dd")
             {
                 result += PadLeft(date.Day, 2);
@@ -179,7 +193,8 @@ namespace MphRead::NativeRuntime
                 result += PadLeft((magnitude / 60) % 60, 2);
             }
             else if (run == 1 && (specifier == '-' || specifier == '_' || specifier == ':'
-                || specifier == ' ' || specifier == '.' || specifier == '/'))
+                || specifier == ' ' || specifier == '.' || specifier == '/'
+                || specifier == ','))
             {
                 // A literal in every format this program uses. The culture's
                 // date and time separators are not substituted here because

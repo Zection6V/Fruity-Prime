@@ -1081,6 +1081,10 @@ namespace MphRead
 
     // GameMode.ToString().
     [[nodiscard]] std::string ToString(GameMode value);
+    // Enum.IsDefined(typeof(GameMode), value).
+    [[nodiscard]] bool IsDefinedGameMode(std::uint64_t value);
+    // Enum.TryParse<GameMode>(value, ignoreCase, out result).
+    [[nodiscard]] bool TryParse(std::string_view value, bool ignoreCase, GameMode& result);
 
     enum class MatAnimFlags : std::uint8_t
     {

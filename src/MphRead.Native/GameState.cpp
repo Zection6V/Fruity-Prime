@@ -1,5 +1,11 @@
 #include "GameState.hpp"
 
+#include "Menu.hpp"
+#include "Mods/Headless.hpp"
+#include "Mods/Network/NetMatchEnd.hpp"
+#include "Mods/Network/NetSession.hpp"
+#include "NativeRuntime/System/IO.hpp"
+
 #include "NativeRuntime/System/Enum.hpp"
 
 #include "Features.hpp"
@@ -32,103 +38,10 @@
 #include <utility>
 #include <vector>
 
-namespace MphRead
-{
-    enum class AfterFade : std::int32_t;
-    enum class AfterMovie : std::int32_t;
-    enum class Movie : std::int32_t;
-}
-
 namespace MphRead::GameStateDetail
 {
-    // Declaration-only seams for referenced owners/runtime facilities outside
-    // GameState.cs. They bind this slice to those contracts without defining
-    // competing behavior here.
-    [[nodiscard]] GameMode GameModeNone();
-    [[nodiscard]] GameMode GameModeSinglePlayer();
-    [[nodiscard]] GameMode GameModeBattle();
-    [[nodiscard]] GameMode GameModeBattleTeams();
-    [[nodiscard]] GameMode GameModeSurvival();
-    [[nodiscard]] GameMode GameModeSurvivalTeams();
-    [[nodiscard]] GameMode GameModeCapture();
-    [[nodiscard]] GameMode GameModeBounty();
-    [[nodiscard]] GameMode GameModeBountyTeams();
-    [[nodiscard]] GameMode GameModeNodes();
-    [[nodiscard]] GameMode GameModeNodesTeams();
-    [[nodiscard]] GameMode GameModeDefender();
-    [[nodiscard]] GameMode GameModeDefenderTeams();
-    [[nodiscard]] GameMode GameModePrimeHunter();
-
-    [[nodiscard]] AreaState AreaStateNone();
-    [[nodiscard]] AreaState AreaStateClear();
-
-    [[nodiscard]] BossFlags BossFlagsUnit1B1Kill();
-    [[nodiscard]] BossFlags BossFlagsUnit1B1Done();
-    [[nodiscard]] BossFlags BossFlagsUnit1B2Kill();
-    [[nodiscard]] BossFlags BossFlagsUnit1B2Done();
-    [[nodiscard]] BossFlags BossFlagsUnit2B1Kill();
-    [[nodiscard]] BossFlags BossFlagsUnit2B1Done();
-    [[nodiscard]] BossFlags BossFlagsUnit2B2Kill();
-    [[nodiscard]] BossFlags BossFlagsUnit2B2Done();
-    [[nodiscard]] BossFlags BossFlagsUnit3B1Kill();
-    [[nodiscard]] BossFlags BossFlagsUnit3B1Done();
-    [[nodiscard]] BossFlags BossFlagsUnit3B2Kill();
-    [[nodiscard]] BossFlags BossFlagsUnit3B2Done();
-    [[nodiscard]] BossFlags BossFlagsUnit4B1Kill();
-    [[nodiscard]] BossFlags BossFlagsUnit4B1Done();
-    [[nodiscard]] BossFlags BossFlagsUnit4B2Kill();
-    [[nodiscard]] BossFlags BossFlagsUnit4B2Done();
-
-    [[nodiscard]] Movie MovieNone();
-    [[nodiscard]] Movie MovieAlinosTakeoff();
-    [[nodiscard]] Movie MovieCATakeoff();
-    [[nodiscard]] Movie MovieVDOTakeoff();
-    [[nodiscard]] Movie MovieArcterraTakeoff();
-    [[nodiscard]] Movie MovieOublietteUnlock();
-    [[nodiscard]] Movie MovieGorea1Intro();
-    [[nodiscard]] AfterFade AfterFadeExit();
-    [[nodiscard]] AfterFade AfterFadeEnterShip();
-    [[nodiscard]] AfterFade AfterFadeLoadRoom();
-    [[nodiscard]] AfterMovie AfterMovieEndGame();
-
-    [[nodiscard]] bool HeadlessActive();
-    [[nodiscard]] bool NetMatchEndMayEndOnScore();
-    [[nodiscard]] bool NetMatchEndShouldLeaveAfterMatch();
-    [[nodiscard]] bool NetSessionActive();
-    [[nodiscard]] std::uint8_t MenuSaveSlot();
-
-    [[nodiscard]] float SceneFrameTime(Scene* scene);
-    [[nodiscard]] std::uint64_t SceneFrameCount(Scene* scene);
-    [[nodiscard]] float SceneElapsedTime(Scene* scene);
-    [[nodiscard]] float SceneGlobalElapsedTime(Scene* scene);
-    [[nodiscard]] bool SceneMoviePlaying(Scene* scene);
-    [[nodiscard]] FadeType SceneFadeType(Scene* scene);
-    [[nodiscard]] bool SceneHasRoom(Scene* scene);
-    [[nodiscard]] std::int32_t SceneRoomId(Scene* scene);
-    [[nodiscard]] std::int32_t SceneAreaId(Scene* scene);
-    void SceneSetFade(Scene* scene, FadeType type, float length, bool overwrite);
-    void SceneSetFade(Scene* scene, FadeType type, float length, bool overwrite, AfterFade afterFade);
-    void SceneStartMovie(Scene* scene, Movie movie, FadeType fadeOut, float fadeOutLength,
-        FadeType fadeIn, float fadeInLength);
-    void SceneStartMovie(Scene* scene, Movie movie, FadeType fadeOut, float fadeOutLength,
-        FadeType fadeIn, float fadeInLength, AfterMovie afterMovie);
-
-    [[nodiscard]] bool PlayerPausePressed(Entities::PlayerEntity* player);
-    void PlayerPausePressed(Entities::PlayerEntity* player, bool value);
-    void PlayerEndMenuPauseHud(Entities::PlayerEntity* player);
-    void PlayerSetUpMenuPauseHud(Entities::PlayerEntity* player);
-    void PlayerProcessPauseMenu(Entities::PlayerEntity* player);
-    void PlayerHudEndDisrupted(Entities::PlayerEntity* player);
-    void PlayerBeginWhiteout(Entities::PlayerEntity* player);
-
-    [[nodiscard]] std::string PathsCombine(
-        const std::string& left, const std::string& right);
-    [[nodiscard]] bool FileExists(const std::string& path);
-    [[nodiscard]] std::string FileReadAllText(const std::string& path);
-    void FileWriteAllText(const std::string& path, const std::string& value);
-    [[nodiscard]] bool DirectoryExists(const std::string& path);
-    void DirectoryCreate(const std::string& path);
-
+    // System.Text.Json, which has no reproduction in NativeRuntime yet. These
+    // are the only GameState.cs calls still behind a declaration.
     [[nodiscard]] std::shared_ptr<StorySave> DeserializeStorySave(
         const std::string& json);
     [[nodiscard]] std::string SerializeStorySave(
@@ -140,9 +53,13 @@ namespace MphRead::GameStateDetail
         const std::unordered_map<std::string, std::string>& features,
         const std::shared_ptr<MenuSettings>& menuSettings);
     [[nodiscard]] std::shared_ptr<MenuSettings> NewMenuSettings();
+}
 
-    [[nodiscard]] char StringTableEntryCategory(
-        const std::shared_ptr<StringTableEntry>& entry);
+namespace MphRead
+{
+    enum class AfterFade : std::int32_t;
+    enum class AfterMovie : std::int32_t;
+    enum class Movie : std::int32_t;
 }
 
 namespace
@@ -374,7 +291,7 @@ namespace
 
 namespace MphRead
 {
-    GameMode GameState::_mode = GameStateDetail::GameModeSinglePlayer();
+    GameMode GameState::_mode = GameMode::SinglePlayer;
     bool GameState::_pausePrevented = false;
     bool GameState::_menuPause = false;
     bool GameState::_dialogPause = false;
@@ -468,14 +385,14 @@ namespace MphRead
     void GameState::Mode(GameMode value) noexcept { _mode = value; }
     bool GameState::SinglePlayer()
     {
-        return _mode == GameStateDetail::GameModeSinglePlayer();
+        return _mode == GameMode::SinglePlayer;
     }
     bool GameState::Multiplayer() { return !SinglePlayer(); }
     bool GameState::IsOctolithMode()
     {
-        return _mode == GameStateDetail::GameModeCapture()
-            || _mode == GameStateDetail::GameModeBounty()
-            || _mode == GameStateDetail::GameModeBountyTeams();
+        return _mode == GameMode::Capture
+            || _mode == GameMode::Bounty
+            || _mode == GameMode::BountyTeams;
     }
     bool GameState::PausePrevented() noexcept { return _pausePrevented; }
     void GameState::PausePrevented(bool value) noexcept { _pausePrevented = value; }
@@ -888,7 +805,7 @@ namespace MphRead
              i < static_cast<std::int32_t>(logbook->size()); ++i)
         {
             const auto& entry = (*logbook)[static_cast<std::size_t>(i)];
-            const char category = GameStateDetail::StringTableEntryCategory(entry);
+            const char category = static_cast<char>(entry->Category);
             bool categoryMatch = false;
             for (std::int32_t c = 0;
                  c < static_cast<std::int32_t>(categories->Length()); ++c)
@@ -1105,12 +1022,12 @@ namespace MphRead
 
     bool GameState::IsTeamMode(GameMode mode)
     {
-        return mode == GameStateDetail::GameModeBattleTeams()
-            || mode == GameStateDetail::GameModeSurvivalTeams()
-            || mode == GameStateDetail::GameModeCapture()
-            || mode == GameStateDetail::GameModeBountyTeams()
-            || mode == GameStateDetail::GameModeNodesTeams()
-            || mode == GameStateDetail::GameModeDefenderTeams();
+        return mode == GameMode::BattleTeams
+            || mode == GameMode::SurvivalTeams
+            || mode == GameMode::Capture
+            || mode == GameMode::BountyTeams
+            || mode == GameMode::NodesTeams
+            || mode == GameMode::DefenderTeams;
     }
 
     void GameState::Setup(Scene* scene)
@@ -1131,48 +1048,48 @@ namespace MphRead
         }
 
         _modeState = &GameState::ModeStateAdventure;
-        if (_mode == GameStateDetail::GameModeBattle()
-            || _mode == GameStateDetail::GameModeBattleTeams())
+        if (_mode == GameMode::Battle
+            || _mode == GameMode::BattleTeams)
         {
             _pointGoal = 7;
             _matchTime = static_cast<float>(7 * 60);
             _modeState = &GameState::ModeStateBattle;
         }
-        else if (_mode == GameStateDetail::GameModeSurvival()
-            || _mode == GameStateDetail::GameModeSurvivalTeams())
+        else if (_mode == GameMode::Survival
+            || _mode == GameMode::SurvivalTeams)
         {
             _pointGoal = 2;
             _matchTime = static_cast<float>(15 * 60);
             _modeState = &GameState::ModeStateSurvival;
         }
-        else if (_mode == GameStateDetail::GameModeBounty()
-            || _mode == GameStateDetail::GameModeBountyTeams())
+        else if (_mode == GameMode::Bounty
+            || _mode == GameMode::BountyTeams)
         {
             _pointGoal = 3;
             _matchTime = static_cast<float>(15 * 60);
             _modeState = &GameState::ModeStateBounty;
         }
-        else if (_mode == GameStateDetail::GameModeCapture())
+        else if (_mode == GameMode::Capture)
         {
             _pointGoal = 5;
             _matchTime = static_cast<float>(15 * 60);
             _modeState = &GameState::ModeStateCapture;
         }
-        else if (_mode == GameStateDetail::GameModeDefender()
-            || _mode == GameStateDetail::GameModeDefenderTeams())
+        else if (_mode == GameMode::Defender
+            || _mode == GameMode::DefenderTeams)
         {
             _timeGoal = 1.5F * 60.0F;
             _matchTime = static_cast<float>(15 * 60);
             _modeState = &GameState::ModeStateDefender;
         }
-        else if (_mode == GameStateDetail::GameModeNodes()
-            || _mode == GameStateDetail::GameModeNodesTeams())
+        else if (_mode == GameMode::Nodes
+            || _mode == GameMode::NodesTeams)
         {
             _pointGoal = 70;
             _matchTime = static_cast<float>(15 * 60);
             _modeState = &GameState::ModeStateNodes;
         }
-        else if (_mode == GameStateDetail::GameModePrimeHunter())
+        else if (_mode == GameMode::PrimeHunter)
         {
             _timeGoal = 1.5F * 60.0F;
             _matchTime = static_cast<float>(15 * 60);
@@ -1185,8 +1102,7 @@ namespace MphRead
             auto camera = RequireShared(MainPlayer()->CameraInfo());
             Require(Formats::CameraSequence::Intro())->SetUp(*camera, 0);
             OrCamFlag(Formats::CameraSequence::Intro(), Formats::CamSeqFlags::Loop);
-            GameStateDetail::SceneSetFade(
-                scene, FadeType::FadeInBlack, 20.0F / 30.0F, true);
+            scene->SetFade(FadeType::FadeInBlack, 20.0F / 30.0F, true);
         }
 
         _forceEndGame = false;
@@ -1213,7 +1129,7 @@ namespace MphRead
         if (_matchTime > 0.0F)
         {
             _matchTime = std::max(
-                _matchTime - GameStateDetail::SceneFrameTime(scene), 0.0F);
+                _matchTime - scene->FrameTime(), 0.0F);
         }
     }
 
@@ -1223,7 +1139,7 @@ namespace MphRead
 
         Formats::CameraSequence* current = Formats::CameraSequence::Current();
         if (Multiplayer() && current != nullptr && current->IsIntro()
-            && !GameStateDetail::HeadlessActive())
+            && !Mods::Headless::Active())
         {
             assert(current->CamInfoRef() == MainPlayer()->CameraInfo().get());
             current->Process();
@@ -1232,32 +1148,32 @@ namespace MphRead
         if (_matchState == MphRead::MatchState::InProgress)
         {
             if (SinglePlayer() && !_pausePrevented
-                && !GameStateDetail::SceneMoviePlaying(scene))
+                && !scene->MoviePlaying())
             {
                 if (_menuPause
-                    && GameStateDetail::PlayerPausePressed(MainPlayer()))
+                    && MainPlayer()->Controls().Pause().IsPressed())
                 {
                     SfxInstance()->PlayFreeSfx(SfxId::MENU_CANCEL);
                     UnpauseMenu();
-                    GameStateDetail::PlayerEndMenuPauseHud(MainPlayer());
-                    GameStateDetail::PlayerPausePressed(MainPlayer(), false);
+                    MainPlayer()->EndMenuPauseHud();
+                    MainPlayer()->Controls().Pause().SetIsPressed(false);
                     return;
                 }
 
                 current = Formats::CameraSequence::Current();
                 if (!_menuPause
                     && !(current != nullptr && current->BlockInput())
-                    && GameStateDetail::PlayerPausePressed(MainPlayer()))
+                    && MainPlayer()->Controls().Pause().IsPressed())
                 {
-                    GameStateDetail::PlayerPausePressed(MainPlayer(), false);
+                    MainPlayer()->Controls().Pause().SetIsPressed(false);
                     PauseMenu();
-                    GameStateDetail::PlayerSetUpMenuPauseHud(MainPlayer());
+                    MainPlayer()->SetUpMenuPauseHud();
                     SfxInstance()->PlayFreeSfx(SfxId::MENU_CONFIRM);
                 }
 
                 if (_menuPause)
                 {
-                    GameStateDetail::PlayerProcessPauseMenu(MainPlayer());
+                    MainPlayer()->ProcessPauseMenu();
                     return;
                 }
             }
@@ -1267,7 +1183,7 @@ namespace MphRead
             {
                 const MessageInfo message = queue[i];
                 if (message.Message == Message::Complete
-                    && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                    && message.ExecuteFrame == scene->FrameCount())
                 {
                     _matchTime = 0.0F;
                 }
@@ -1307,11 +1223,11 @@ namespace MphRead
             {
                 current = Formats::CameraSequence::Current();
                 if (!_escapePaused && !_menuPause && !_dialogPause
-                    && GameStateDetail::SceneFadeType(scene) == FadeType::None
+                    && scene->FadeType() == FadeType::None
                     && !(current != nullptr
                         && HasCamFlag(current->Flags(), Formats::CamSeqFlags::BlockInput)))
                 {
-                    _escapeTimer -= GameStateDetail::SceneFrameTime(scene);
+                    _escapeTimer -= scene->FrameTime();
                     if (_escapeState == MphRead::EscapeState::Escape)
                     {
                         Music::UpdateEscapeMusic();
@@ -1361,13 +1277,13 @@ namespace MphRead
                         }
 
                         if (_lastAlarmTime == 0.0F
-                            || GameStateDetail::SceneElapsedTime(scene)
+                            || scene->ElapsedTime()
                                 - _lastAlarmTime >= comparison)
                         {
                             SfxInstance()->PlaySample(
                                 static_cast<std::int32_t>(SfxId::ALARM),
                                 nullptr, false, false, -1.0F, false, false);
-                            _lastAlarmTime = GameStateDetail::SceneElapsedTime(scene);
+                            _lastAlarmTime = scene->ElapsedTime();
                             _nextAlarmIndex = WrapAdd(_nextAlarmIndex, 1);
                             if (_nextAlarmIndex
                                 >= static_cast<std::int32_t>(_alarmIntervals.size()))
@@ -1380,10 +1296,10 @@ namespace MphRead
             }
             else
             {
-                GameStateDetail::PlayerHudEndDisrupted(MainPlayer());
+                MainPlayer()->HudEndDisrupted();
 
-                if ((_mode == GameStateDetail::GameModeSurvival()
-                    || _mode == GameStateDetail::GameModeSurvivalTeams())
+                if ((_mode == GameMode::Survival
+                    || _mode == GameMode::SurvivalTeams)
                     && !_forceEndGame)
                 {
                     for (std::int32_t i = 0;
@@ -1404,10 +1320,9 @@ namespace MphRead
 
                 _matchState = MphRead::MatchState::GameOver;
                 _matchTime = 90.0F / 30.0F;
-                GameStateDetail::SceneSetFade(
-                    scene, FadeType::None, 0.0F, true);
+                scene->SetFade(FadeType::None, 0.0F, true);
                 _stateChanged = true;
-                _matchEndTime = GameStateDetail::SceneGlobalElapsedTime(scene);
+                _matchEndTime = scene->GlobalElapsedTime();
                 SfxInstance()->StopFreeSfxScripts();
                 SfxInstance()->StopAllSound();
                 MainPlayer()->StopLongSfx();
@@ -1431,7 +1346,7 @@ namespace MphRead
                 }
                 MainPlayer()->UpdateMatchEndCamera(
                     winner,
-                    GameStateDetail::SceneGlobalElapsedTime(scene) - _matchEndTime);
+                    scene->GlobalElapsedTime() - _matchEndTime);
             }
             else
             {
@@ -1450,10 +1365,10 @@ namespace MphRead
             if (_matchTime == 0.0F)
             {
                 _matchTime = -1.0F;
-                if (GameStateDetail::NetMatchEndShouldLeaveAfterMatch())
+                if (Mods::Network::NetMatchEnd::ShouldLeaveAfterMatch())
                 {
-                    GameStateDetail::SceneSetFade(scene, FadeType::FadeOutBlack,
-                        20.0F / 30.0F, true, GameStateDetail::AfterFadeExit());
+                    scene->SetFade(FadeType::FadeOutBlack,
+                        20.0F / 30.0F, true, AfterFade::Exit);
                 }
             }
         }
@@ -1480,7 +1395,7 @@ namespace MphRead
         }
         if (save == nullptr)
         {
-            return GameStateDetail::AreaStateNone();
+            return AreaState::None;
         }
         const std::int32_t shift = WrapMultiply(2, areaId);
         const std::int32_t value = ArithmeticShiftRight(
@@ -1499,8 +1414,8 @@ namespace MphRead
         if ((save->Areas & 0x100) == 0)
         {
             if (_queuedOublietteUnlockMessage
-                && GameStateDetail::SceneFadeType(scene) == FadeType::FadeInBlack
-                && !GameStateDetail::SceneMoviePlaying(scene))
+                && scene->FadeType() == FadeType::FadeInBlack
+                && !scene->MoviePlaying())
             {
                 save->Areas = static_cast<std::uint16_t>(save->Areas | 0x100);
                 save->CurrentOctoliths = 0;
@@ -1513,13 +1428,12 @@ namespace MphRead
             {
                 const MessageInfo message = queue[i];
                 if (message.Message == Message::UnlockOubliette
-                    && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                    && message.ExecuteFrame == scene->FrameCount())
                 {
                     if (save->CurrentOctoliths == 0xFF)
                     {
                         _pausePrevented = true;
-                        GameStateDetail::SceneStartMovie(
-                            scene, GameStateDetail::MovieOublietteUnlock(),
+                        scene->StartMovie(Movie::OublietteUnlock,
                             FadeType::FadeOutInWhite, 20.0F / 30.0F,
                             FadeType::FadeOutInBlack, 5.0F / 30.0F);
                         _queuedOublietteUnlockMessage = true;
@@ -1547,13 +1461,13 @@ namespace MphRead
             {
                 const MessageInfo message = queue[i];
                 if (message.Message == Message::Checkpoint
-                    && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                    && message.ExecuteFrame == scene->FrameCount())
                 {
-                    assert(GameStateDetail::SceneHasRoom(scene));
+                    assert((scene->Room() != nullptr));
                     scene->SendMessage(Message::SetActive, nullptr,
                         message.Sender, BoxInt(0), BoxInt(0));
                     save->CheckpointEntityId = Require(message.Sender)->Id;
-                    save->CheckpointRoomId = GameStateDetail::SceneRoomId(scene);
+                    save->CheckpointRoomId = scene->RoomId();
                     UpdateCleanSave(false);
                     break;
                 }
@@ -1563,11 +1477,10 @@ namespace MphRead
             {
                 const MessageInfo message = queue[i];
                 if (message.Message == Message::LoadOubliette
-                    && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                    && message.ExecuteFrame == scene->FrameCount())
                 {
                     _transitionRoomId = 91;
-                    GameStateDetail::SceneStartMovie(
-                        scene, GameStateDetail::MovieGorea1Intro(),
+                    scene->StartMovie(Movie::Gorea1Intro,
                         FadeType::FadeOutInWhite, 10.0F / 30.0F,
                         FadeType::FadeOutInWhite, 10.0F / 30.0F);
                     break;
@@ -1578,7 +1491,7 @@ namespace MphRead
 
     void GameState::EndIfPointGoalReached()
     {
-        if (_pointGoal <= 0 || !GameStateDetail::NetMatchEndMayEndOnScore())
+        if (_pointGoal <= 0 || !Mods::Network::NetMatchEnd::MayEndOnScore())
         {
             return;
         }
@@ -1617,7 +1530,7 @@ namespace MphRead
                 && (player->Health() > 0
                     || ArrayAt(_teamDeaths, player->TeamIndex()) <= _pointGoal))
             {
-                ArrayAt(_time, i) += GameStateDetail::SceneFrameTime(scene);
+                ArrayAt(_time, i) += scene->FrameTime();
                 if (player->IsBot())
                 {
                     botsAlive = WrapAdd(botsAlive, 1);
@@ -1672,7 +1585,7 @@ namespace MphRead
     void GameState::ModeStateDefender(Scene* scene)
     {
         (void)scene;
-        if (!GameStateDetail::NetMatchEndMayEndOnScore())
+        if (!Mods::Network::NetMatchEnd::MayEndOnScore())
         {
             return;
         }
@@ -1709,14 +1622,14 @@ namespace MphRead
             return;
         }
 
-        if (GameStateDetail::SceneFrameCount(scene) % (10 * 2) == 0)
+        if (scene->FrameCount() % (10 * 2) == 0)
         {
             player->TakeDamage(1, Entities::DamageFlags::NoDmgInvuln,
                 std::nullopt, nullptr);
         }
         if (_primeHunter != -1)
         {
-            ArrayAt(_time, _primeHunter) += GameStateDetail::SceneFrameTime(scene);
+            ArrayAt(_time, _primeHunter) += scene->FrameTime();
             if (ArrayAt(_time, _primeHunter) >= _timeGoal)
             {
                 _matchTime = 0.0F;
@@ -1732,8 +1645,8 @@ namespace MphRead
 
         const auto quit = [scene]()
         {
-            GameStateDetail::SceneSetFade(scene, FadeType::FadeOutBlack,
-                10.0F / 30.0F, true, GameStateDetail::AfterFadeExit());
+            scene->SetFade(FadeType::FadeOutBlack,
+                10.0F / 30.0F, true, AfterFade::Exit);
             Music::Stop(10.0F / 30.0F);
             SfxInstance()->PlaySample(
                 static_cast<std::int32_t>(SfxId::QUIT_GAME),
@@ -1749,40 +1662,38 @@ namespace MphRead
                 if (prompt == Entities::PromptType::ShipHatch)
                 {
                     EnterShip();
-                    assert(GameStateDetail::SceneHasRoom(scene));
-                    const std::int32_t roomId = GameStateDetail::SceneRoomId(scene);
-                    Movie movieId = GameStateDetail::MovieNone();
+                    assert((scene->Room() != nullptr));
+                    const std::int32_t roomId = scene->RoomId();
+                    Movie movieId = Movie::None;
                     if (roomId == 27)
                     {
-                        movieId = GameStateDetail::MovieAlinosTakeoff();
+                        movieId = Movie::AlinosTakeoff;
                     }
                     else if (roomId == 45)
                     {
-                        movieId = GameStateDetail::MovieCATakeoff();
+                        movieId = Movie::CATakeoff;
                     }
                     else if (roomId == 65)
                     {
-                        movieId = GameStateDetail::MovieVDOTakeoff();
+                        movieId = Movie::VDOTakeoff;
                     }
                     else if (roomId == 77)
                     {
-                        movieId = GameStateDetail::MovieArcterraTakeoff();
+                        movieId = Movie::ArcterraTakeoff;
                     }
 
-                    if (movieId != GameStateDetail::MovieNone()
+                    if (movieId != Movie::None
                         && !Cheats::SkipPlanetIntros())
                     {
-                        GameStateDetail::SceneStartMovie(
-                            scene, movieId,
+                        scene->StartMovie(movieId,
                             FadeType::FadeOutInWhite, 20.0F / 30.0F,
                             FadeType::FadeOutBlack, 5.0F / 30.0F,
-                            GameStateDetail::AfterMovieEndGame());
+                            AfterMovie::EndGame);
                     }
                     else
                     {
-                        GameStateDetail::SceneSetFade(
-                            scene, FadeType::FadeOutWhite, 20.0F / 30.0F,
-                            true, GameStateDetail::AfterFadeEnterShip());
+                        scene->SetFade(FadeType::FadeOutWhite, 20.0F / 30.0F,
+                            true, AfterFade::EnterShip);
                     }
                     Music::Stop(20.0F / 30.0F);
                     _pausePrevented = true;
@@ -1794,20 +1705,20 @@ namespace MphRead
                 {
                     RestoreCleanSave();
                     StorySaveValue* save = Require(StorySave.get());
-                    assert(GameStateDetail::SceneHasRoom(scene));
+                    assert((scene->Room() != nullptr));
 
                     if (Cheats::ContinueFromCurrentRoom())
                     {
-                        if (save->CheckpointRoomId != GameStateDetail::SceneRoomId(scene))
+                        if (save->CheckpointRoomId != scene->RoomId())
                         {
                             save->CheckpointEntityId = -1;
                         }
-                        save->CheckpointRoomId = GameStateDetail::SceneRoomId(scene);
+                        save->CheckpointRoomId = scene->RoomId();
                     }
                     else if (save->CheckpointRoomId == -1)
                     {
                         save->CheckpointEntityId = -1;
-                        const std::int32_t areaId = GameStateDetail::SceneAreaId(scene);
+                        const std::int32_t areaId = scene->AreaId();
                         if (areaId == 0 || areaId == 1)
                         {
                             save->CheckpointRoomId = 27;
@@ -1839,9 +1750,8 @@ namespace MphRead
                         static_cast<std::int32_t>(SfxId::MENU_CONFIRM),
                         nullptr, false, false, -1.0F, false, false);
                     _pausePrevented = true;
-                    GameStateDetail::SceneSetFade(
-                        scene, FadeType::FadeOutWhite, 10.0F / 30.0F,
-                        true, GameStateDetail::AfterFadeLoadRoom());
+                    scene->SetFade(FadeType::FadeOutWhite, 10.0F / 30.0F,
+                        true, AfterFade::LoadRoom);
                     UnpauseDialog();
                     MainPlayer()->RestartLongSfx(true);
                 }
@@ -1872,14 +1782,14 @@ namespace MphRead
                 {
                     const MessageInfo message = queue[i];
                     if (message.Message == Message::ShipHatch
-                        && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                        && message.ExecuteFrame == scene->FrameCount())
                     {
-                        assert(GameStateDetail::SceneHasRoom(scene));
+                        assert((scene->Room() != nullptr));
                         ResetEscapeState(false);
                         MainPlayer()->DialogPromptType(Entities::PromptType::ShipHatch);
                         StorySaveValue* save = Require(StorySave.get());
                         save->CheckpointEntityId = Require(message.Sender)->Id;
-                        save->CheckpointRoomId = GameStateDetail::SceneRoomId(scene);
+                        save->CheckpointRoomId = scene->RoomId();
                         UpdateCleanSave(true);
                         MainPlayer()->ShowDialog(Entities::DialogType::YesNo, 1);
                         SfxInstance()->StopFreeSfxScripts();
@@ -1894,7 +1804,7 @@ namespace MphRead
                 {
                     const MessageInfo message = queue[i];
                     if (message.Message == Message::EscapeUpdate1
-                        && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                        && message.ExecuteFrame == scene->FrameCount())
                     {
                         UpdateEscapeState(
                             WrapMultiply(UnboxInt(message.Param1), 30),
@@ -1906,7 +1816,7 @@ namespace MphRead
                 {
                     const MessageInfo message = queue[i];
                     if (message.Message == Message::EscapeUpdate2
-                        && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                        && message.ExecuteFrame == scene->FrameCount())
                     {
                         UpdateEscapeState(
                             UnboxInt(message.Param1), UnboxInt(message.Param2));
@@ -1917,7 +1827,7 @@ namespace MphRead
                 {
                     const MessageInfo message = queue[i];
                     if (message.Message == Message::ShowPrompt
-                        && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                        && message.ExecuteFrame == scene->FrameCount())
                     {
                         const std::int32_t promptType = UnboxInt(message.Param2);
                         if (promptType == 0)
@@ -1938,7 +1848,7 @@ namespace MphRead
             {
                 const MessageInfo message = queue[i];
                 if (message.Message == Message::ShowWarning
-                    && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                    && message.ExecuteFrame == scene->FrameCount())
                 {
                     const std::int32_t messageId = UnboxInt(message.Param1);
                     std::int32_t duration = UnboxInt(message.Param2);
@@ -1955,7 +1865,7 @@ namespace MphRead
             {
                 const MessageInfo message = queue[i];
                 if (message.Message == Message::ShowOverlay
-                    && message.ExecuteFrame == GameStateDetail::SceneFrameCount(scene))
+                    && message.ExecuteFrame == scene->FrameCount())
                 {
                     const std::int32_t messageId = UnboxInt(message.Param1);
                     const std::int32_t duration = UnboxInt(message.Param2);
@@ -1966,8 +1876,8 @@ namespace MphRead
         }
 
         if (_queuedOctolithMessageId != -1
-            && GameStateDetail::SceneFadeType(scene) == FadeType::FadeInWhite
-            && !GameStateDetail::SceneMoviePlaying(scene))
+            && scene->FadeType() == FadeType::FadeInWhite
+            && !scene->MoviePlaying())
         {
             MainPlayer()->ShowDialog(Entities::DialogType::Event, 7,
                 static_cast<std::int32_t>(Entities::EventType::Octolith));
@@ -2004,7 +1914,7 @@ namespace MphRead
             }
             else if (countdown <= 50.0F / 30.0F && !_whiteoutStarted)
             {
-                GameStateDetail::PlayerBeginWhiteout(MainPlayer());
+                MainPlayer()->BeginWhiteout();
                 _whiteoutStarted = true;
             }
         }
@@ -2029,29 +1939,29 @@ namespace MphRead
         triggerState = static_cast<std::uint8_t>(triggerState & 0x7F);
 
         ReplaceBossFlag(save->BossFlags,
-            GameStateDetail::BossFlagsUnit1B1Kill(),
-            GameStateDetail::BossFlagsUnit1B1Done());
+            BossFlags::Unit1B1Kill,
+            BossFlags::Unit1B1Done);
         ReplaceBossFlag(save->BossFlags,
-            GameStateDetail::BossFlagsUnit1B2Kill(),
-            GameStateDetail::BossFlagsUnit1B2Done());
+            BossFlags::Unit1B2Kill,
+            BossFlags::Unit1B2Done);
         ReplaceBossFlag(save->BossFlags,
-            GameStateDetail::BossFlagsUnit2B1Kill(),
-            GameStateDetail::BossFlagsUnit2B1Done());
+            BossFlags::Unit2B1Kill,
+            BossFlags::Unit2B1Done);
         ReplaceBossFlag(save->BossFlags,
-            GameStateDetail::BossFlagsUnit2B2Kill(),
-            GameStateDetail::BossFlagsUnit2B2Done());
+            BossFlags::Unit2B2Kill,
+            BossFlags::Unit2B2Done);
         ReplaceBossFlag(save->BossFlags,
-            GameStateDetail::BossFlagsUnit3B1Kill(),
-            GameStateDetail::BossFlagsUnit3B1Done());
+            BossFlags::Unit3B1Kill,
+            BossFlags::Unit3B1Done);
         ReplaceBossFlag(save->BossFlags,
-            GameStateDetail::BossFlagsUnit3B2Kill(),
-            GameStateDetail::BossFlagsUnit3B2Done());
+            BossFlags::Unit3B2Kill,
+            BossFlags::Unit3B2Done);
         ReplaceBossFlag(save->BossFlags,
-            GameStateDetail::BossFlagsUnit4B1Kill(),
-            GameStateDetail::BossFlagsUnit4B1Done());
+            BossFlags::Unit4B1Kill,
+            BossFlags::Unit4B1Done);
         ReplaceBossFlag(save->BossFlags,
-            GameStateDetail::BossFlagsUnit4B2Kill(),
-            GameStateDetail::BossFlagsUnit4B2Done());
+            BossFlags::Unit4B2Kill,
+            BossFlags::Unit4B2Done);
     }
 
     void GameState::ResetEscapeState(bool updateSounds)
@@ -2137,8 +2047,8 @@ namespace MphRead
             ArrayAt(_teamPoints, i) = 0;
             ArrayAt(_teamDeaths, i) = 0;
             ArrayAt(_teamKills, i) = 0;
-            if (_mode == GameStateDetail::GameModeSurvival()
-                || _mode == GameStateDetail::GameModeSurvivalTeams())
+            if (_mode == GameMode::Survival
+                || _mode == GameMode::SurvivalTeams)
             {
                 ArrayAt(_teamTime, i) = 0.0F;
             }
@@ -2160,28 +2070,28 @@ namespace MphRead
             std::int32_t& teamKills = ArrayAt(_teamKills, player->TeamIndex());
             teamKills = WrapAdd(teamKills, ArrayAt(_kills, i));
 
-            if (_mode == GameStateDetail::GameModeSurvival()
-                || _mode == GameStateDetail::GameModeSurvivalTeams())
+            if (_mode == GameMode::Survival
+                || _mode == GameMode::SurvivalTeams)
             {
                 if (ArrayAt(_teamTime, player->TeamIndex()) < ArrayAt(_time, i))
                 {
                     ArrayAt(_teamTime, player->TeamIndex()) = ArrayAt(_time, i);
                 }
             }
-            else if (_mode == GameStateDetail::GameModeDefender()
-                || _mode == GameStateDetail::GameModeDefenderTeams())
+            else if (_mode == GameMode::Defender
+                || _mode == GameMode::DefenderTeams)
             {
                 ArrayAt(_time, i) = ArrayAt(_teamTime, player->TeamIndex());
             }
         }
 
-        if (_mode == GameStateDetail::GameModeBattle()
-            || _mode == GameStateDetail::GameModeBattleTeams()
-            || _mode == GameStateDetail::GameModeCapture()
-            || _mode == GameStateDetail::GameModeBounty()
-            || _mode == GameStateDetail::GameModeBountyTeams()
-            || _mode == GameStateDetail::GameModeNodes()
-            || _mode == GameStateDetail::GameModeNodesTeams())
+        if (_mode == GameMode::Battle
+            || _mode == GameMode::BattleTeams
+            || _mode == GameMode::Capture
+            || _mode == GameMode::Bounty
+            || _mode == GameMode::BountyTeams
+            || _mode == GameMode::Nodes
+            || _mode == GameMode::NodesTeams)
         {
             const std::int32_t teamIndex = MainPlayer()->TeamIndex();
             const std::int32_t teamPoints = ArrayAt(_teamPoints, teamIndex);
@@ -2192,8 +2102,8 @@ namespace MphRead
                     VoiceId::VOICE_ONE_KILL_TO_WIN, 1.0F);
             }
         }
-        else if (_mode == GameStateDetail::GameModeSurvival()
-            || _mode == GameStateDetail::GameModeSurvivalTeams())
+        else if (_mode == GameMode::Survival
+            || _mode == GameMode::SurvivalTeams)
         {
             std::int32_t opponents = 0;
             std::int32_t lastTeam = -1;
@@ -2362,8 +2272,8 @@ namespace MphRead
         const std::int32_t points2 = ArrayAt(_points, slot2);
         float time1 = ArrayAt(_time, slot1);
         float time2 = ArrayAt(_time, slot2);
-        if (_mode == GameStateDetail::GameModeSurvival()
-            || _mode == GameStateDetail::GameModeSurvivalTeams())
+        if (_mode == GameMode::Survival
+            || _mode == GameMode::SurvivalTeams)
         {
             if (time1 == -1.0F)
             {
@@ -2379,38 +2289,38 @@ namespace MphRead
         const std::int32_t kills1 = ArrayAt(_kills, slot1);
         const std::int32_t kills2 = ArrayAt(_kills, slot2);
 
-        if (_mode == GameStateDetail::GameModeBattle()
-            || _mode == GameStateDetail::GameModeBattleTeams())
+        if (_mode == GameMode::Battle
+            || _mode == GameMode::BattleTeams)
         {
             if (points1 == points2 && deaths1 == deaths2) return 0;
             if (points1 < points2 || (points1 == points2 && deaths1 > deaths2)) return -1;
             return 1;
         }
-        if (_mode == GameStateDetail::GameModeSurvival()
-            || _mode == GameStateDetail::GameModeSurvivalTeams())
+        if (_mode == GameMode::Survival
+            || _mode == GameMode::SurvivalTeams)
         {
             if (time1 == time2 && deaths1 == deaths2) return 0;
             if (time1 < time2 || (time1 == time2 && deaths1 > deaths2)) return -1;
             return 1;
         }
-        if (_mode == GameStateDetail::GameModeDefender()
-            || _mode == GameStateDetail::GameModeDefenderTeams())
+        if (_mode == GameMode::Defender
+            || _mode == GameMode::DefenderTeams)
         {
             if (time1 == time2 && kills1 == kills2) return 0;
             if (time1 < time2 || (time1 == time2 && kills1 < kills2)) return -1;
             return 1;
         }
-        if (_mode == GameStateDetail::GameModeCapture()
-            || _mode == GameStateDetail::GameModeNodes()
-            || _mode == GameStateDetail::GameModeNodesTeams()
-            || _mode == GameStateDetail::GameModeBounty()
-            || _mode == GameStateDetail::GameModeBountyTeams())
+        if (_mode == GameMode::Capture
+            || _mode == GameMode::Nodes
+            || _mode == GameMode::NodesTeams
+            || _mode == GameMode::Bounty
+            || _mode == GameMode::BountyTeams)
         {
             if (points1 == points2 && kills1 == kills2) return 0;
             if (points1 < points2 || (points1 == points2 && kills1 < kills2)) return -1;
             return 1;
         }
-        if (_mode == GameStateDetail::GameModePrimeHunter())
+        if (_mode == GameMode::PrimeHunter)
         {
             if (time1 == time2 && kills1 == kills2) return 0;
             if (time1 < time2 || (time1 == time2 && kills1 < kills2)) return -1;
@@ -2426,8 +2336,8 @@ namespace MphRead
         const std::int32_t points2 = ArrayAt(_teamPoints, slot2);
         float time1 = ArrayAt(_teamTime, slot1);
         float time2 = ArrayAt(_teamTime, slot2);
-        if (_mode == GameStateDetail::GameModeSurvival()
-            || _mode == GameStateDetail::GameModeSurvivalTeams())
+        if (_mode == GameMode::Survival
+            || _mode == GameMode::SurvivalTeams)
         {
             if (time1 == -1.0F) time1 = std::numeric_limits<float>::max();
             if (time2 == -1.0F) time2 = std::numeric_limits<float>::max();
@@ -2437,27 +2347,27 @@ namespace MphRead
         const std::int32_t kills1 = ArrayAt(_teamKills, slot1);
         const std::int32_t kills2 = ArrayAt(_teamKills, slot2);
 
-        if (_mode == GameStateDetail::GameModeBattleTeams())
+        if (_mode == GameMode::BattleTeams)
         {
             if (points1 == points2 && deaths1 == deaths2) return 0;
             if (points1 < points2 || (points1 == points2 && deaths1 > deaths2)) return -1;
             return 1;
         }
-        if (_mode == GameStateDetail::GameModeSurvivalTeams())
+        if (_mode == GameMode::SurvivalTeams)
         {
             if (time1 == time2 && deaths1 == deaths2) return 0;
             if (time1 < time2 || (time1 == time2 && deaths1 > deaths2)) return -1;
             return 1;
         }
-        if (_mode == GameStateDetail::GameModeDefenderTeams())
+        if (_mode == GameMode::DefenderTeams)
         {
             if (time1 == time2 && kills1 == kills2) return 0;
             if (time1 < time2 || (time1 == time2 && kills1 < kills2)) return -1;
             return 1;
         }
-        if (_mode == GameStateDetail::GameModeCapture()
-            || _mode == GameStateDetail::GameModeNodesTeams()
-            || _mode == GameStateDetail::GameModeBattleTeams())
+        if (_mode == GameMode::Capture
+            || _mode == GameMode::NodesTeams
+            || _mode == GameMode::BattleTeams)
         {
             if (points1 == points2 && kills1 == kills2) return 0;
             if (points1 < points2 || (points1 == points2 && kills1 < kills2)) return -1;
@@ -2542,12 +2452,12 @@ namespace MphRead
         number[0] = static_cast<char>('0' + slot / 100);
         number[1] = static_cast<char>('0' + (slot / 10) % 10);
         number[2] = static_cast<char>('0' + slot % 10);
-        return GameStateDetail::PathsCombine("Savedata", "save" + number + ".json");
+        return Paths::Combine("Savedata", "save" + number + ".json");
     }
 
     std::string GameState::GetSettingsPath()
     {
-        return GameStateDetail::PathsCombine("Savedata", "settings.json");
+        return Paths::Combine("Savedata", "settings.json");
     }
 
     void GameState::LoadSave()
@@ -2563,13 +2473,13 @@ namespace MphRead
     std::shared_ptr<GameState::StorySaveValue> GameState::ReadSave()
     {
         std::shared_ptr<StorySaveValue> save{};
-        if (GameStateDetail::MenuSaveSlot() != 0)
+        if (::MphRead::Menu::SaveSlot != 0)
         {
-            const std::string path = GetSavePath(GameStateDetail::MenuSaveSlot());
-            if (GameStateDetail::FileExists(path))
+            const std::string path = GetSavePath(::MphRead::Menu::SaveSlot);
+            if (NativeRuntime::FileExists(path))
             {
-                save = GameStateDetail::DeserializeStorySave(
-                    GameStateDetail::FileReadAllText(path));
+                save = MphRead::GameStateDetail::DeserializeStorySave(
+                    NativeRuntime::FileReadAllText(path));
             }
         }
         return save ? std::move(save) : std::make_shared<StorySaveValue>();
@@ -2577,7 +2487,7 @@ namespace MphRead
 
     bool GameState::SaveExists(std::uint8_t slot)
     {
-        return slot != 0 && GameStateDetail::FileExists(GetSavePath(slot));
+        return slot != 0 && NativeRuntime::FileExists(GetSavePath(slot));
     }
 
     std::shared_ptr<GameState::StorySaveValue> GameState::PeekSave(std::uint8_t slot)
@@ -2588,8 +2498,8 @@ namespace MphRead
         }
         try
         {
-            return GameStateDetail::DeserializeStorySave(
-                GameStateDetail::FileReadAllText(GetSavePath(slot)));
+            return MphRead::GameStateDetail::DeserializeStorySave(
+                NativeRuntime::FileReadAllText(GetSavePath(slot)));
         }
         catch (const std::exception&)
         {
@@ -2599,13 +2509,13 @@ namespace MphRead
 
     void GameState::CommitSave()
     {
-        if (GameStateDetail::MenuSaveSlot() == 0)
+        if (::MphRead::Menu::SaveSlot == 0)
         {
             return;
         }
-        if (!GameStateDetail::DirectoryExists("Savedata"))
+        if (!NativeRuntime::DirectoryExists("Savedata"))
         {
-            GameStateDetail::DirectoryCreate("Savedata");
+            NativeRuntime::DirectoryCreateDirectory("Savedata");
         }
 
         const auto& storySave = RequireShared(StorySave);
@@ -2627,20 +2537,20 @@ namespace MphRead
             }
         }
 
-        GameStateDetail::FileWriteAllText(
-            GetSavePath(GameStateDetail::MenuSaveSlot()),
-            GameStateDetail::SerializeStorySave(storySave));
+        NativeRuntime::FileWriteAllText(
+            GetSavePath(::MphRead::Menu::SaveSlot),
+            MphRead::GameStateDetail::SerializeStorySave(storySave));
     }
 
     std::shared_ptr<MenuSettings> GameState::LoadSettings()
     {
         const std::string path = GetSettingsPath();
-        if (GameStateDetail::FileExists(path))
+        if (NativeRuntime::FileExists(path))
         {
             std::shared_ptr<const std::unordered_map<std::string, std::string>> features{};
             std::shared_ptr<MenuSettings> menuSettings{};
-            GameStateDetail::DeserializeSettings(
-                GameStateDetail::FileReadAllText(path), features, menuSettings);
+            MphRead::GameStateDetail::DeserializeSettings(
+                NativeRuntime::FileReadAllText(path), features, menuSettings);
             if (features)
             {
                 Features::Load(*features);
@@ -2650,21 +2560,21 @@ namespace MphRead
                 return menuSettings;
             }
         }
-        return GameStateDetail::NewMenuSettings();
+        return MphRead::GameStateDetail::NewMenuSettings();
     }
 
     void GameState::CommitSettings(
         const std::shared_ptr<MenuSettings>& menuSettings)
     {
-        if (!GameStateDetail::DirectoryExists("Savedata"))
+        if (!NativeRuntime::DirectoryExists("Savedata"))
         {
-            GameStateDetail::DirectoryCreate("Savedata");
+            NativeRuntime::DirectoryCreateDirectory("Savedata");
         }
         const std::unordered_map<std::string, std::string> features
             = Features::Commit();
-        GameStateDetail::FileWriteAllText(
+        NativeRuntime::FileWriteAllText(
             GetSettingsPath(),
-            GameStateDetail::SerializeSettings(features, menuSettings));
+            MphRead::GameStateDetail::SerializeSettings(features, menuSettings));
     }
 
     void GameState::Reset()
@@ -2680,7 +2590,7 @@ namespace MphRead
         _transitionAltForm = false;
         _activePlayers = 0;
 
-        const bool keepNames = GameStateDetail::NetSessionActive();
+        const bool keepNames = Mods::Network::NetSession::Active();
         for (std::int32_t i = 0;
              i < Entities::PlayerEntity::SlotCapacity; ++i)
         {
@@ -2754,52 +2664,52 @@ namespace MphRead::SceneSetupInterop
 {
     GameMode GameModeNone()
     {
-        return GameStateDetail::GameModeNone();
+        return GameMode::None;
     }
 
     GameMode GameModeSinglePlayer()
     {
-        return GameStateDetail::GameModeSinglePlayer();
+        return GameMode::SinglePlayer;
     }
 
     GameMode GameModeBattle()
     {
-        return GameStateDetail::GameModeBattle();
+        return GameMode::Battle;
     }
 
     GameMode GameModeBounty()
     {
-        return GameStateDetail::GameModeBounty();
+        return GameMode::Bounty;
     }
 
     GameMode GameModeCapture()
     {
-        return GameStateDetail::GameModeCapture();
+        return GameMode::Capture;
     }
 
     GameMode GameModeNodes()
     {
-        return GameStateDetail::GameModeNodes();
+        return GameMode::Nodes;
     }
 
     GameMode GameModeNodesTeams()
     {
-        return GameStateDetail::GameModeNodesTeams();
+        return GameMode::NodesTeams;
     }
 
     GameMode GameModeDefender()
     {
-        return GameStateDetail::GameModeDefender();
+        return GameMode::Defender;
     }
 
     GameMode GameModeDefenderTeams()
     {
-        return GameStateDetail::GameModeDefenderTeams();
+        return GameMode::DefenderTeams;
     }
 
     AreaState AreaStateClear()
     {
-        return GameStateDetail::AreaStateClear();
+        return AreaState::Clear;
     }
 
     GameMode GetGameMode()

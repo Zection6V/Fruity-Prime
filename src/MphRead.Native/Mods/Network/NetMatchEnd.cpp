@@ -1,5 +1,9 @@
 #include "NetMatchEnd.hpp"
 
+#include "../../GameState.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "NetSession.hpp"
+
 #include "NetLog.hpp"
 #include "NetProtocol.hpp"
 
@@ -7,22 +11,6 @@
 #include <cstdint>
 #include <optional>
 #include <string_view>
-
-namespace MphRead::Mods::Network::Detail
-{
-    [[nodiscard]] bool NetMatchEndNetSessionActive();
-    [[nodiscard]] bool NetMatchEndNetSessionIsAuthority();
-    [[nodiscard]] bool NetMatchEndNetSessionIsHost();
-    [[nodiscard]] std::optional<MatchStatePacket> NetMatchEndNetSessionServerMatch();
-    [[nodiscard]] std::uint32_t NetMatchEndNetSessionNetFrame();
-    void NetMatchEndNetSessionSendMatchEnd();
-
-    [[nodiscard]] bool NetMatchEndGameStateMatchInProgress();
-    void NetMatchEndSetGameStateMatchTime(float value);
-    void NetMatchEndGameStateResetMatchProgress();
-
-    void NetMatchEndConsoleWriteLine(std::string_view value);
-}
 
 namespace MphRead::Mods::Network
 {
@@ -41,48 +29,48 @@ namespace MphRead::Mods::Network
 
     bool NetMatchEnd::MayEndOnScore()
     {
-        return !Detail::NetMatchEndNetSessionActive()
-            || Detail::NetMatchEndNetSessionIsAuthority()
-            || Detail::NetMatchEndNetSessionIsHost();
+        return !NetSession::Active()
+            || NetSession::IsAuthority()
+            || NetSession::IsHost();
     }
 
     bool NetMatchEnd::InIntermission()
     {
-        if (!Detail::NetMatchEndNetSessionActive())
+        if (!NetSession::Active())
         {
             return false;
         }
-        if (!Detail::NetMatchEndGameStateMatchInProgress())
+        if (!(GameState::MatchState() == MphRead::MatchState::InProgress))
         {
             return true;
         }
         const std::optional<MatchStatePacket> serverMatch
-            = Detail::NetMatchEndNetSessionServerMatch();
+            = NetSession::ServerMatch();
         return serverMatch.has_value() && serverMatch->Ending();
     }
 
     void NetMatchEnd::Sync()
     {
-        if (!Detail::NetMatchEndNetSessionActive())
+        if (!NetSession::Active())
         {
             return;
         }
 
         const std::optional<MatchStatePacket> serverMatch
-            = Detail::NetMatchEndNetSessionServerMatch();
+            = NetSession::ServerMatch();
         const bool serverEnding = serverMatch.has_value() && serverMatch->Ending();
-        if (serverEnding && Detail::NetMatchEndGameStateMatchInProgress())
+        if (serverEnding && (GameState::MatchState() == MphRead::MatchState::InProgress))
         {
-            Detail::NetMatchEndSetGameStateMatchTime(0.0F);
+            GameState::MatchTime(0.0F);
         }
 
         RecoverIfStranded(serverEnding);
-        if (!Detail::NetMatchEndNetSessionIsAuthority()
-            && !Detail::NetMatchEndNetSessionIsHost())
+        if (!NetSession::IsAuthority()
+            && !NetSession::IsHost())
         {
             return;
         }
-        if (Detail::NetMatchEndGameStateMatchInProgress())
+        if ((GameState::MatchState() == MphRead::MatchState::InProgress))
         {
             _reported = false;
             _acknowledged = false;
@@ -99,23 +87,23 @@ namespace MphRead::Mods::Network
             return;
         }
         if (_reported
-            && Detail::NetMatchEndNetSessionNetFrame() - _lastReport < ReportInterval)
+            && NetSession::NetFrame() - _lastReport < ReportInterval)
         {
             return;
         }
 
         _reported = true;
-        _lastReport = Detail::NetMatchEndNetSessionNetFrame();
-        Detail::NetMatchEndNetSessionSendMatchEnd();
+        _lastReport = NetSession::NetFrame();
+        NetSession::SendMatchEnd();
     }
 
     void NetMatchEnd::RecoverIfStranded(bool serverEnding)
     {
         const std::optional<MatchStatePacket> state
-            = Detail::NetMatchEndNetSessionServerMatch();
+            = NetSession::ServerMatch();
         const bool serverRunning = state.has_value() && !serverEnding
             && (state->Flags & MatchStatePacket::FlagInProgress) != 0;
-        if (!serverRunning || Detail::NetMatchEndGameStateMatchInProgress())
+        if (!serverRunning || (GameState::MatchState() == MphRead::MatchState::InProgress))
         {
             _strandedSince = 0;
             return;
@@ -123,24 +111,24 @@ namespace MphRead::Mods::Network
         if (_strandedSince == 0)
         {
             _strandedSince = std::max(
-                Detail::NetMatchEndNetSessionNetFrame(), std::uint32_t{1});
+                NetSession::NetFrame(), std::uint32_t{1});
             return;
         }
-        if (Detail::NetMatchEndNetSessionNetFrame() - _strandedSince < StrandedFrames)
+        if (NetSession::NetFrame() - _strandedSince < StrandedFrames)
         {
             return;
         }
 
         _strandedSince = 0;
-        Detail::NetMatchEndConsoleWriteLine(
+        NativeRuntime::ConsoleWriteLine(
             "[net] the server's match is still running; leaving the results screen");
         NetLog::Event("recovered from a results screen the server did not ask for");
-        Detail::NetMatchEndGameStateResetMatchProgress();
-        Detail::NetMatchEndSetGameStateMatchTime(state->TimeRemaining);
+        GameState::ResetMatchProgress();
+        GameState::MatchTime(state->TimeRemaining);
     }
 
     bool NetMatchEnd::ShouldLeaveAfterMatch()
     {
-        return !Detail::NetMatchEndNetSessionActive();
+        return !NetSession::Active();
     }
 }

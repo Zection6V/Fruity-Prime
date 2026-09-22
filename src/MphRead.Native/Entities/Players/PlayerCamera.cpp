@@ -251,7 +251,7 @@ namespace MphRead::Entities
         }
         else
         {
-            camera.Position = Position;
+            camera.Position = position;
             camera.Target = camera.Position + _facingVector;
         }
         camera.Target.Y += Fixed::ToFloat(Values().ViewTiltFactor)

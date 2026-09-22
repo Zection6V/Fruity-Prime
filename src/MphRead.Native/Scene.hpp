@@ -2,6 +2,7 @@
 
 #include "Entities/EntityBase.hpp"
 #include "Formats/Enums.hpp"
+#include "Formats/Movie.hpp"
 #include "Formats/Types.hpp"
 #include "Messaging.hpp"
 #include "Renderer.hpp"
@@ -905,6 +906,9 @@ namespace MphRead
         [[nodiscard]] LinkedListIteratorSpecialized<Entities::FhMorphCameraEntity> GetFhMorphCameraEntities() const;
 
         MPHREAD_SCENE_RENDERER_MEMBERS
+
+        [[nodiscard]] bool MoviePlaying() const noexcept;
+        void SkipMovie();
 
         MPHREAD_SCENE_MESSAGING_MEMBERS
 

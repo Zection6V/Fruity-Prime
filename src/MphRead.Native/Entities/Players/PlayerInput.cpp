@@ -4,6 +4,7 @@
 #include "PlayerHud.hpp"
 #include "../BeamProjectileEntity.hpp"
 #include "../BombEntity.hpp"
+#include "../CamSeq/CameraSequence.hpp"
 #include "../EnemyInstanceEntity.hpp"
 #include "../ObjectEntity.hpp"
 #include "../../Features.hpp"
@@ -596,7 +597,7 @@ namespace MphRead::Entities
             if (!_isBot)
             {
                 ProcessTouchInput();
-                if (GameState::Multiplayer && !TestFlag(_flags1, PlayerFlags1::WeaponMenuOpen)
+                if (GameState::Multiplayer() && !TestFlag(_flags1, PlayerFlags1::WeaponMenuOpen)
                     && _controls.Pause().IsDown())
                 {
                     _showScoreboard = true;
@@ -624,7 +625,7 @@ namespace MphRead::Entities
                     else if (TestFlag(_flags2, PlayerFlags2::DrawnThirdPerson))
                     {
                         const std::int32_t lod = TestFlag(_flags2, PlayerFlags2::Lod1) ? 1 : 0;
-                        CreateIceBreakEffectBiped(RequireReference(ManagedAt(_bipedModelLods, lod)).Model());
+                        CreateIceBreakEffectBiped(RequireReference(RequireReference(ManagedAt(_bipedModelLods, lod)).Model()));
                     }
                 }
             }
@@ -643,7 +644,7 @@ namespace MphRead::Entities
         }
         else
         {
-            _showScoreboard = GameState::Multiplayer && _controls.Pause().IsDown();
+            _showScoreboard = GameState::Multiplayer() && _controls.Pause().IsDown();
         }
         if (IsAltForm() || IsMorphing())
         {
@@ -691,7 +692,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::ProcessTouchInput()
     {
-        if (GameState::SinglePlayer && _controls.ScanVisor().IsPressed()
+        if (GameState::SinglePlayer() && _controls.ScanVisor().IsPressed()
             && !TestFlag(_flags1, PlayerFlags1::WeaponMenuOpen)
             && !IsAltForm() && !IsMorphing())
         {
@@ -705,7 +706,7 @@ namespace MphRead::Entities
                 UpdateZoom(false);
             }
         }
-        if ((GameState::Multiplayer || _weaponSlots[2] != BeamType::OmegaCannon)
+        if ((GameState::Multiplayer() || _weaponSlots[2] != BeamType::OmegaCannon)
             && _controls.WeaponMenu().IsDown())
         {
             _flags1 |= PlayerFlags1::NoAimInput;
@@ -807,7 +808,8 @@ namespace MphRead::Entities
         {
             return false;
         }
-        const WeaponInfo& info = Weapons::Current[BeamIndex(beam)];
+        const WeaponInfo& info = RequireReference(ManagedAt(
+            RequireReference(Weapons::Current), static_cast<std::int32_t>(beam)));
         const std::int32_t ammo = ManagedAt(_ammo, info.AmmoType);
         return beam == BeamType::PowerBeam || ammo == -1 || ammo >= info.AmmoCost;
     }
@@ -835,7 +837,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateAimFacing()
     {
-        if (Features::FixedCrosshair)
+        if (Features::FixedCrosshair())
         {
             _facingVector = _gunVec1;
             return;
@@ -942,7 +944,7 @@ namespace MphRead::Entities
                 _pastAimY[static_cast<std::size_t>(i + 1)] = past;
             }
             _pastAimY[0] = amount;
-            if (Features::HudSway && !Features::FixedWeapon)
+            if (Features::HudSway() && !Features::FixedWeapon())
             {
                 const float average = (sum + amount) / 8.0F;
                 _hudShiftY = std::clamp(-DotNetRound(average), -8.0F, 8.0F);
@@ -967,7 +969,7 @@ namespace MphRead::Entities
                 _pastAimX[static_cast<std::size_t>(i + 1)] = past;
             }
             _pastAimX[0] = amount;
-            if (Features::HudSway && !Features::FixedWeapon)
+            if (Features::HudSway() && !Features::FixedWeapon())
             {
                 const float average = (sum + amount) / 8.0F;
                 _hudShiftX = std::clamp(DotNetRound(average), -8.0F, 8.0F);
@@ -982,17 +984,17 @@ namespace MphRead::Entities
 
     void PlayerEntity::ProcessBiped()
     {
-        if (IsMainPlayer() && GameState::SinglePlayer && CameraSequence::Current != nullptr)
+        if (IsMainPlayer() && GameState::SinglePlayer() && Formats::CameraSequence::Current() != nullptr)
         {
             _timeIdle = 0;
         }
-        if (_equipInfo->SmokeLevel < _equipInfo->Weapon.SmokeDrain)
+        if (_equipInfo->SmokeLevel < RequireReference(_equipInfo->Weapon).SmokeDrain)
         {
             _equipInfo->SmokeLevel = 0;
         }
         else
         {
-            _equipInfo->SmokeLevel -= _equipInfo->Weapon.SmokeDrain;
+            _equipInfo->SmokeLevel -= RequireReference(_equipInfo->Weapon).SmokeDrain;
         }
         Vector3 speedDelta{};
         PlayerAnimation anim1 = PlayerAnimation::None;
@@ -1036,9 +1038,9 @@ namespace MphRead::Entities
                     * (Mods::InputSettings::InvertMouseY() ? -1.0F : 1.0F);
                 float aimX = -_input.MouseDeltaX() / 4.0F * Mods::InputSettings::MouseSensitivity()
                     * (Mods::InputSettings::InvertMouseX() ? -1.0F : 1.0F);
-                if ((CameraSequence::Current != nullptr
-                        && TestFlag(CameraSequence::Current->Flags, CamSeqFlags::BlockInput))
-                    || RequireReference(_scene).FrameAdvance || RequireReference(_scene).FrameAdvanceLastFrame)
+                if ((Formats::CameraSequence::Current() != nullptr
+                        && TestFlag(Formats::CameraSequence::Current()->Flags(), Formats::CamSeqFlags::BlockInput))
+                    || RequireReference(_scene).FrameAdvance() || RequireReference(_scene).FrameAdvance()LastFrame())
                 {
                     aimX = aimY = 0.0F;
                 }
@@ -1201,7 +1203,7 @@ namespace MphRead::Entities
                 {
                     _viewTiltAngleV *= 0.9F;
                 }
-                if (Cheats::UnlimitedJumps)
+                if (Cheats::UnlimitedJumps())
                 {
                     _flags1 &= ~PlayerFlags1::UsedJump;
                 }
@@ -1283,7 +1285,7 @@ namespace MphRead::Entities
                 {
                     bool releaseCharge = false;
                     if (!TestFlag(_flags2, PlayerFlags2::Shooting)
-                        || _equipInfo->Ammo < equipWeapon.ChargeCost)
+                        || _equipInfo->Ammo() < equipWeapon.ChargeCost)
                     {
                         releaseCharge = true;
                     }
@@ -1292,7 +1294,7 @@ namespace MphRead::Entities
                         if (_equipInfo->ChargeLevel > 0 && _gunAnimation != GunAnimation::MissileClose)
                         {
                             if (_currentWeapon != BeamType::PowerBeam
-                                || _equipInfo->ChargeLevel >= _equipInfo->Weapon.MinCharge * 2)
+                                || _equipInfo->ChargeLevel >= RequireReference(_equipInfo->Weapon).MinCharge * 2)
                             {
                                 PlayBeamChargeSfx(_currentWeapon);
                             }
@@ -1321,7 +1323,7 @@ namespace MphRead::Entities
                                 const std::int32_t minCost = equipWeapon.MinChargeCost * 2;
                                 const std::int32_t cost = minCost + (chargeCost - minCost)
                                     * (_equipInfo->ChargeLevel - minCharge) / (fullCharge - minCharge);
-                                if (_equipInfo->Ammo < cost / 2)
+                                if (_equipInfo->Ammo() < cost / 2)
                                 {
                                     --_equipInfo->ChargeLevel;
                                 }
@@ -1347,14 +1349,16 @@ namespace MphRead::Entities
                     {
                         UpdateZoom(!_equipInfo->Zoomed);
                     }
-                    if (_equipInfo->Zoomed && CameraSequence::Current == nullptr)
+                    if (_equipInfo->Zoomed && Formats::CameraSequence::Current() == nullptr)
                     {
-                        float zoomFov = Fixed::ToFloat(_equipInfo->Weapon.ZoomFov);
+                        float zoomFov = Fixed::ToFloat(RequireReference(_equipInfo->Weapon).ZoomFov);
                         const Vector3 facing = _facingVector;
                         const auto checkZoomTargets = [&](EntityType type)
                         {
-                            for (const auto& entity : RequireReference(_scene).Entities())
+                            auto enumerator = RequireReference(_scene).Entities().GetEnumerator();
+                            while (enumerator.MoveNext())
                             {
+                                const std::shared_ptr<EntityBase> entity = enumerator.Current();
                                 EntityBase& target = RequireReference(entity);
                                 if (target.Type != type || entity.get() == this || !target.GetTargetable())
                                 {
@@ -1420,8 +1424,8 @@ namespace MphRead::Entities
 
                 if ((!TestFlag(_flags2, PlayerFlags2::BipedStuck)
                         && TestFlag(_abilities, AbilityFlags::AltForm) && _controls.Morph().IsPressed())
-                    || (IsMainPlayer() && CameraSequence::Current != nullptr
-                        && CameraSequence::Current->ForceAlt))
+                    || (IsMainPlayer() && Formats::CameraSequence::Current() != nullptr
+                        && Formats::CameraSequence::Current()->ForceAlt()))
                 {
                     if (TrySwitchForms() && IsMainPlayer() && IsMorphing())
                     {
@@ -1537,12 +1541,13 @@ namespace MphRead::Entities
             shotVec.Z += Fixed::ToFloat(static_cast<std::int32_t>(Rng::GetRandomInt2(24576)) - 12288);
         }
         shotVec = shotVec.Normalized();
-        const WeaponInfo curWeapon = _equipInfo->Weapon;
+        const std::shared_ptr<WeaponInfo> curWeapon = _equipInfo->Weapon;
         if (IsPrimeHunter())
         {
-            _equipInfo->Weapon = ManagedAt(Weapons::Current, static_cast<std::int32_t>(_currentWeapon) + 9);
+            _equipInfo->Weapon = ManagedAt(RequireReference(Weapons::Current),
+                static_cast<std::int32_t>(_currentWeapon) + 9);
         }
-        if (_isBot && GameState::SinglePlayer)
+        if (_isBot && GameState::SinglePlayer())
         {
             UpdateAdventureModeBotWeapon();
         }
@@ -1563,7 +1568,7 @@ namespace MphRead::Entities
         if (result == BeamResultFlags::NoSpawn)
         {
             _equipInfo->Weapon = curWeapon;
-            PlayBeamEmptySfx(_equipInfo->Weapon.Beam);
+            PlayBeamEmptySfx(RequireReference(_equipInfo->Weapon).Beam);
             return false;
         }
         _timeSinceShot = 0;
@@ -1575,7 +1580,7 @@ namespace MphRead::Entities
         {
             _flags1 |= PlayerFlags1::ShotMissile;
         }
-        if (_equipInfo->ChargeLevel < _equipInfo->Weapon.MinCharge * 2)
+        if (_equipInfo->ChargeLevel < RequireReference(_equipInfo->Weapon).MinCharge * 2)
         {
             _flags1 |= PlayerFlags1::ShotUncharged;
         }
@@ -1583,7 +1588,7 @@ namespace MphRead::Entities
         {
             _flags1 |= PlayerFlags1::ShotCharged;
         }
-        if (_muzzleEffect == nullptr || !TestFlag(_equipInfo->Weapon.Flags, WeaponFlags::Continuous))
+        if (_muzzleEffect == nullptr || !TestFlag(RequireReference(_equipInfo->Weapon).Flags, WeaponFlags::Continuous))
         {
             if (_muzzleEffect != nullptr)
             {
@@ -1597,15 +1602,15 @@ namespace MphRead::Entities
                 _muzzleEffect->SetDrawEnabled(false);
             }
         }
-        const bool charged = TestFlag(_equipInfo->Weapon.Flags, WeaponFlags::PartialCharge)
+        const bool charged = TestFlag(RequireReference(_equipInfo->Weapon).Flags, WeaponFlags::PartialCharge)
             ? TestFlag(_flags1, PlayerFlags1::ShotCharged)
-            : _equipInfo->ChargeLevel >= _equipInfo->Weapon.FullCharge * 2;
-        const bool continuous = TestFlag(_equipInfo->Weapon.Flags, WeaponFlags::Continuous);
+            : _equipInfo->ChargeLevel >= RequireReference(_equipInfo->Weapon).FullCharge * 2;
+        const bool continuous = TestFlag(RequireReference(_equipInfo->Weapon).Flags, WeaponFlags::Continuous);
         const bool homing = TestFlag(result, BeamResultFlags::Homing);
         const float amountA = 0x3FFF * _shockCoilTimer / (30.0F * 2.0F);
-        PlayBeamShotSfx(_equipInfo->Weapon.Beam, charged, continuous, homing, amountA);
-        if (_equipInfo->Weapon.Beam == BeamType::Imperialist
-            && _equipInfo->Ammo >= _equipInfo->Weapon.AmmoCost)
+        PlayBeamShotSfx(RequireReference(_equipInfo->Weapon).Beam, charged, continuous, homing, amountA);
+        if (RequireReference(_equipInfo->Weapon).Beam == BeamType::Imperialist
+            && _equipInfo->Ammo() >= RequireReference(_equipInfo->Weapon).AmmoCost)
         {
             _soundSource.PlaySfx(SfxId::SNIPER_RELOAD);
         }
@@ -1620,27 +1625,27 @@ namespace MphRead::Entities
         _equipInfo->DrawFuncIds[1] = 255;
         _equipInfo->DmgDirTypes[0] = 255;
         _equipInfo->DmgDirTypes[1] = 255;
-        _equipInfo->UnchargedDamage = std::numeric_limits<std::uint16_t>::max();
-        _equipInfo->HeadshotDamage = std::numeric_limits<std::uint16_t>::max();
-        _equipInfo->MinChargeDamage = std::numeric_limits<std::uint16_t>::max();
-        _equipInfo->ChargedDamage = std::numeric_limits<std::uint16_t>::max();
-        _equipInfo->MinChargeHeadshotDamage = std::numeric_limits<std::uint16_t>::max();
-        _equipInfo->ChargedHeadshotDamage = std::numeric_limits<std::uint16_t>::max();
-        _equipInfo->SplashDamage = std::numeric_limits<std::uint16_t>::max();
-        _equipInfo->MinChargeSplashDamage = std::numeric_limits<std::uint16_t>::max();
-        _equipInfo->ChargedSplashDamage = std::numeric_limits<std::uint16_t>::max();
-        _equipInfo->HomingTolerance = std::numeric_limits<std::int32_t>::max();
+        _equipInfo->UnchargedDamage(std::numeric_limits<std::uint16_t>::max());
+        _equipInfo->HeadshotDamage(std::numeric_limits<std::uint16_t>::max());
+        _equipInfo->MinChargeDamage(std::numeric_limits<std::uint16_t>::max());
+        _equipInfo->ChargedDamage(std::numeric_limits<std::uint16_t>::max());
+        _equipInfo->MinChargeHeadshotDamage(std::numeric_limits<std::uint16_t>::max());
+        _equipInfo->ChargedHeadshotDamage(std::numeric_limits<std::uint16_t>::max());
+        _equipInfo->SplashDamage(std::numeric_limits<std::uint16_t>::max());
+        _equipInfo->MinChargeSplashDamage(std::numeric_limits<std::uint16_t>::max());
+        _equipInfo->ChargedSplashDamage(std::numeric_limits<std::uint16_t>::max());
+        _equipInfo->HomingTolerance(std::numeric_limits<std::int32_t>::max());
         _equipInfo->InfiniteAmmo = false;
     }
 
     void PlayerEntity::UpdateAdventureModeBotWeapon()
     {
-        const std::int32_t encounter = ManagedAt(GameState::EncounterState, _slotIndex);
+        const std::int32_t encounter = ManagedAt(GameState::EncounterState(), _slotIndex);
         if (encounter == 1 || encounter == 3 || encounter == 4)
         {
             if (_hunter == Hunter::Kanden)
             {
-                _equipInfo->HomingTolerance = 4006;
+                _equipInfo->HomingTolerance(4006);
             }
             else if (_hunter == Hunter::Spire || _hunter == Hunter::Weavel)
             {
@@ -1652,7 +1657,7 @@ namespace MphRead::Entities
         if (_hunter == Hunter::Guardian)
         {
             index = 0;
-            if (_equipInfo->Weapon.Beam == BeamType::Magmaul)
+            if (RequireReference(_equipInfo->Weapon).Beam == BeamType::Magmaul)
             {
                 _equipInfo->DrawFuncIds[0] = 22;
                 _equipInfo->DrawFuncIds[1] = 22;
@@ -1676,21 +1681,24 @@ namespace MphRead::Entities
         }
         if (encounter == 3 && _hunter == Hunter::Trace)
         {
-            _equipInfo->UnchargedDamage = 50;
-            _equipInfo->HeadshotDamage = 50;
+            _equipInfo->UnchargedDamage(50);
+            _equipInfo->HeadshotDamage(50);
         }
-        else if (_equipInfo->Weapon.Beam != BeamType::OmegaCannon)
+        else if (RequireReference(_equipInfo->Weapon).Beam != BeamType::OmegaCannon)
         {
-            const Weapons::BotWeaponValues values = ManagedAt(Weapons::BotWeapons, index)[BeamIndex(_equipInfo->Weapon.Beam)];
-            _equipInfo->UnchargedDamage = values.UnchargedDamage;
-            _equipInfo->HeadshotDamage = values.UnchargedDamage;
-            _equipInfo->MinChargeDamage = values.ChargedDamage;
-            _equipInfo->ChargedDamage = values.ChargedDamage;
-            _equipInfo->MinChargeHeadshotDamage = values.ChargedDamage;
-            _equipInfo->ChargedHeadshotDamage = values.ChargedDamage;
-            _equipInfo->SplashDamage = values.SplashDamage;
-            _equipInfo->MinChargeSplashDamage = values.ChargedSplashDamage;
-            _equipInfo->ChargedSplashDamage = values.ChargedSplashDamage;
+            const auto& botWeaponRow = RequireReference(ManagedAt(
+                RequireReference(Weapons::BotWeapons), index));
+            const Weapons::BotWeaponValues& values = RequireReference(ManagedAt(
+                botWeaponRow, static_cast<std::int32_t>(RequireReference(_equipInfo->Weapon).Beam)));
+            _equipInfo->UnchargedDamage(values.UnchargedDamage);
+            _equipInfo->HeadshotDamage(values.UnchargedDamage);
+            _equipInfo->MinChargeDamage(values.ChargedDamage);
+            _equipInfo->ChargedDamage(values.ChargedDamage);
+            _equipInfo->MinChargeHeadshotDamage(values.ChargedDamage);
+            _equipInfo->ChargedHeadshotDamage(values.ChargedDamage);
+            _equipInfo->SplashDamage(values.SplashDamage);
+            _equipInfo->MinChargeSplashDamage(values.ChargedSplashDamage);
+            _equipInfo->ChargedSplashDamage(values.ChargedSplashDamage);
         }
         _equipInfo->InfiniteAmmo = true;
     }
@@ -1758,9 +1766,9 @@ namespace MphRead::Entities
                         * (Mods::InputSettings::InvertMouseY() ? -1.0F : 1.0F);
                     float aimX = -_input.MouseDeltaX() / 4.0F * Mods::InputSettings::MouseSensitivity()
                         * (Mods::InputSettings::InvertMouseX() ? -1.0F : 1.0F);
-                    if ((CameraSequence::Current != nullptr
-                            && TestFlag(CameraSequence::Current->Flags, CamSeqFlags::BlockInput))
-                        || RequireReference(_scene).FrameAdvance || RequireReference(_scene).FrameAdvanceLastFrame)
+                    if ((Formats::CameraSequence::Current() != nullptr
+                            && TestFlag(Formats::CameraSequence::Current()->Flags(), Formats::CamSeqFlags::BlockInput))
+                        || RequireReference(_scene).FrameAdvance() || RequireReference(_scene).FrameAdvance()LastFrame())
                     {
                         aimX = aimY = 0.0F;
                     }
@@ -1966,8 +1974,8 @@ namespace MphRead::Entities
                         _flags2 |= PlayerFlags2::AltAttack;
                         float attackHSpeed = Fixed::ToFloat(_values.LungeHSpeed);
                         float attackVSpeed = Fixed::ToFloat(_values.LungeVSpeed);
-                        if (_isBot && GameState::SinglePlayer
-                            && ManagedAt(GameState::EncounterState, _slotIndex) == 1)
+                        if (_isBot && GameState::SinglePlayer()
+                            && ManagedAt(GameState::EncounterState(), _slotIndex) == 1)
                         {
                             attackHSpeed = 0.3F;
                             attackVSpeed = 0.45F;
@@ -2025,7 +2033,7 @@ namespace MphRead::Entities
                         }
                         if (_boostCharge > _values.BoostChargeMin * 2)
                         {
-                            if (Features::FullBoostCharge)
+                            if (Features::FullBoostCharge())
                             {
                                 _boostCharge = static_cast<std::uint16_t>(_values.BoostChargeMax * 2);
                             }
@@ -2091,8 +2099,8 @@ namespace MphRead::Entities
                 _speed = WithZ(WithX(_speed, _speed.X / 2.0F), _speed.Z / 2.0F);
             }
             if ((TestFlag(_abilities, AbilityFlags::AltForm) && _controls.Morph().IsPressed())
-                || (IsMainPlayer() && CameraSequence::Current != nullptr
-                    && CameraSequence::Current->ForceBiped))
+                || (IsMainPlayer() && Formats::CameraSequence::Current() != nullptr
+                    && Formats::CameraSequence::Current()->ForceBiped()))
             {
                 (void)TrySwitchForms();
             }
@@ -2173,10 +2181,10 @@ namespace MphRead::Entities
             bomb->SetSelfRadius(Fixed::ToFloat(_values.BombSelfRadius));
             bomb->SetDamage(static_cast<std::uint16_t>(_values.BombDamage));
             bomb->SetEnemyDamage(static_cast<std::uint16_t>(_values.BombEnemyDamage));
-            if (_isBot && GameState::SinglePlayer
+            if (_isBot && GameState::SinglePlayer()
                 && (_hunter == Hunter::Kanden || _hunter == Hunter::Sylux))
             {
-                const std::int32_t encounter = ManagedAt(GameState::EncounterState, _slotIndex);
+                const std::int32_t encounter = ManagedAt(GameState::EncounterState(), _slotIndex);
                 std::uint16_t damage;
                 if (encounter == 1 || encounter == 3 || encounter == 4
                     || (encounter == 0 && BotLevel() == 0))
@@ -2231,8 +2239,8 @@ namespace MphRead::Entities
         {
             if (TestFlag(_flags2, PlayerFlags2::AltAttack))
             {
-                if (_isBot && GameState::SinglePlayer
-                    && ManagedAt(GameState::EncounterState, _slotIndex) == 1)
+                if (_isBot && GameState::SinglePlayer()
+                    && ManagedAt(GameState::EncounterState(), _slotIndex) == 1)
                 {
                     _altAttackCooldown = 20;
                 }
@@ -2693,7 +2701,7 @@ namespace MphRead::Entities
                     }
                     else if (control.Type() == ButtonType::Mouse)
                     {
-                        if (GameState::DialogPause)
+                        if (GameState::DialogPause())
                         {
                             continue;
                         }
@@ -2753,7 +2761,7 @@ namespace MphRead::Entities
                 player._input.ClickX = -1.0F;
                 player._input.ClickY = -1.0F;
             }
-            if (i == 0 && RequireReference(player._scene).MoviePlaying)
+            if (i == 0 && RequireReference(player._scene).MoviePlaying())
             {
                 bool skipMovie = false;
                 Keybind& skipControl = player._controls.Shoot();

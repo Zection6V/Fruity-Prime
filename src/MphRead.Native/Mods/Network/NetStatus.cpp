@@ -29,6 +29,7 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #else
 #include <cerrno>
 #include <netdb.h>
@@ -143,23 +144,60 @@ namespace MphRead::Mods::Network::Detail
         const std::string& address)
     {
         NetStatusEnsureWinsock();
+        std::vector<NetStatusAddress> resolved;
 
+#if defined(_WIN32)
+        // Dns.GetHostAddresses on the net9.0 Windows target reaches
+        // GetAddrInfoW. Native strings carry managed text as UTF-8, so use the
+        // wide Winsock entry point rather than the ANSI getaddrinfo wrapper.
+        const int wideLength = MultiByteToWideChar(
+            CP_UTF8, MB_ERR_INVALID_CHARS, address.c_str(), -1, nullptr, 0);
+        if (wideLength == 0)
+        {
+            throw std::runtime_error("MultiByteToWideChar failed");
+        }
+        std::wstring wideAddress(static_cast<std::size_t>(wideLength), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                address.c_str(), -1, wideAddress.data(), wideLength) == 0)
+        {
+            throw std::runtime_error("MultiByteToWideChar failed");
+        }
+
+        ADDRINFOW hints{};
+        hints.ai_family = AF_UNSPEC;
+        ADDRINFOW* raw = nullptr;
+        const int result = GetAddrInfoW(wideAddress.c_str(), nullptr, &hints, &raw);
+        if (result != 0)
+        {
+            throw NetStatusSocketException(result, "GetAddrInfoW");
+        }
+
+        std::unique_ptr<ADDRINFOW, decltype(&FreeAddrInfoW)> owner(raw, &FreeAddrInfoW);
+        for (ADDRINFOW* current = raw; current != nullptr; current = current->ai_next)
+        {
+            if (current->ai_family != AF_INET || current->ai_addr == nullptr
+                || current->ai_addrlen < sizeof(sockaddr_in))
+            {
+                continue;
+            }
+            const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
+            NetStatusAddress item;
+            item.Family = NetStatusAddressFamily::InterNetwork;
+            std::memcpy(item.Bytes.data(), &ipv4->sin_addr.s_addr, item.Bytes.size());
+            resolved.push_back(item);
+        }
+#else
         addrinfo hints{};
         hints.ai_family = AF_UNSPEC;
         addrinfo* raw = nullptr;
         const int result = getaddrinfo(address.c_str(), nullptr, &hints, &raw);
         if (result != 0)
         {
-#if defined(_WIN32)
-            const char* message = gai_strerrorA(result);
-#else
             const char* message = gai_strerror(result);
-#endif
             throw std::runtime_error(message != nullptr ? message : "getaddrinfo failed");
         }
 
         std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> owner(raw, &freeaddrinfo);
-        std::vector<NetStatusAddress> resolved;
         for (addrinfo* current = raw; current != nullptr; current = current->ai_next)
         {
             if (current->ai_family != AF_INET || current->ai_addr == nullptr
@@ -168,13 +206,13 @@ namespace MphRead::Mods::Network::Detail
             {
                 continue;
             }
-
             const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
             NetStatusAddress item;
             item.Family = NetStatusAddressFamily::InterNetwork;
             std::memcpy(item.Bytes.data(), &ipv4->sin_addr.s_addr, item.Bytes.size());
             resolved.push_back(item);
         }
+#endif
         return resolved;
     }
 

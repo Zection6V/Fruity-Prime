@@ -390,7 +390,11 @@ namespace MphRead::Mods::Launcher::Gui
         std::shared_ptr<PadRowDispatcherTimer> watch =
             _control.CreateDispatcherTimer(std::chrono::milliseconds(30),
                 PadRowDispatcherPriority::Input, [this]() { Check(); });
+        // Avalonia's interval/priority/callback constructor starts the timer
+        // before it returns, so preserve that start before assigning _watch.
+        watch->Start();
         _watch = std::move(watch);
+        // The C# source then calls Start() again; Avalonia makes it idempotent.
         _watch->Start();
         _control.InvalidateVisual();
     }

@@ -214,6 +214,10 @@ namespace MphRead::Mods::Launcher::Gui
             GuiRect rect, PadRowPoint point) const = 0;
         virtual void InvalidateVisual() = 0;
 
+        // Mechanical primitive for the Avalonia timer construction used by PadRow.
+        // Create and configure the timer, but leave it stopped: Listen() performs
+        // the callback constructor's implicit Start() before assigning _watch,
+        // then preserves the C# source's explicit, idempotent Start() afterward.
         [[nodiscard]] virtual std::shared_ptr<PadRowDispatcherTimer>
             CreateDispatcherTimer(std::chrono::milliseconds interval,
                 PadRowDispatcherPriority priority, Tick tick) = 0;

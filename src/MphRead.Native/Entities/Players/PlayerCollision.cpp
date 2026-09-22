@@ -174,12 +174,12 @@ namespace
         return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
     }
 
-    [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scale) noexcept
+    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
     }
 
-    [[nodiscard]] constexpr Vector4 Scale(Vector4 value, float scale) noexcept
+    [[nodiscard]] constexpr Vector4 ScaleVector(Vector4 value, float scale) noexcept
     {
         return Vector4(value.X * scale, value.Y * scale, value.Z * scale, value.W * scale);
     }
@@ -279,7 +279,7 @@ namespace MphRead::Entities
                     toTurret = toTurret.Normalized();
                     turretRes.Field0 = 0;
                     turretRes.Plane = Vector4(toTurret);
-                    toTurret = Scale(toTurret, 0.45F);
+                    toTurret = ScaleVector(toTurret, 0.45F);
                     toTurret = toTurret + static_cast<Vector3>(halfturret.Position);
                     turretRes.Plane.W = Vector3::Dot(toTurret, turretRes.Plane.Xyz());
                     other.HandleCollision(turretRes);
@@ -321,8 +321,8 @@ namespace MphRead::Entities
                 float dist = std::sqrt(distSqr);
                 between = Divide(between, dist);
                 float dot = Vector3::Dot(Speed(), between);
-                SetSpeed(Speed() - Scale(between, dot));
-                Vector3 posAdd = Scale(between, radii - dist);
+                SetSpeed(Speed() - ScaleVector(between, dot));
+                Vector3 posAdd = ScaleVector(between, radii - dist);
                 Position = static_cast<Vector3>(Position) + posAdd;
                 _volume = CollisionVolume::Move(
                     _volume, _volume.SpherePosition + posAdd);
@@ -415,10 +415,10 @@ namespace MphRead::Entities
                     dir.Z = z / factor;
                 }
                 std::uint16_t damage = source.Values().AltAttackDamage;
-                if (source.IsBot() && GameState::SinglePlayer)
+                if (source.IsBot() && GameState::SinglePlayer())
                 {
                     std::int32_t encounter
-                        = ManagedAt(GameState::EncounterState, source.SlotIndex());
+                        = ManagedAt(GameState::EncounterState(), source.SlotIndex());
                     if (encounter == 1 || encounter == 3 || encounter == 4
                         || (encounter == 0 && source.BotLevel() == 0))
                     {
@@ -473,10 +473,10 @@ namespace MphRead::Entities
                     victim.SetAcceleration(dir);
                     victim._accelerationTimer = 8 * 2;
                     std::uint16_t damage = source.Values().AltAttackDamage;
-                    if (source.IsBot() && GameState::SinglePlayer)
+                    if (source.IsBot() && GameState::SinglePlayer())
                     {
                         std::int32_t encounter
-                            = ManagedAt(GameState::EncounterState, source.SlotIndex());
+                            = ManagedAt(GameState::EncounterState(), source.SlotIndex());
                         if (encounter == 1 || encounter == 3 || encounter == 4
                             || (encounter == 0 && source.BotLevel() == 0))
                         {
@@ -540,10 +540,10 @@ namespace MphRead::Entities
                 source.Values().AltAttackKnockbackTime * 2);
         }
         std::uint16_t damage = source.Values().AltAttackDamage;
-        if (source.IsBot() && GameState::SinglePlayer)
+        if (source.IsBot() && GameState::SinglePlayer())
         {
             std::int32_t encounter
-                = ManagedAt(GameState::EncounterState, source.SlotIndex());
+                = ManagedAt(GameState::EncounterState(), source.SlotIndex());
             if (encounter == 1 || encounter == 3 || encounter == 4)
             {
                 damage = static_cast<std::uint16_t>(
@@ -669,7 +669,7 @@ namespace MphRead::Entities
                 && TestFlag(Flags2(), PlayerFlags2::AltAttack))
             || (Hunter() == MphRead::Hunter::Noxus
                 && _altAttackTime >= Values().AltAttackStartup * 2)
-            || (Features::BoostOpensDoors
+            || (Features::BoostOpensDoors()
                 && Hunter() == MphRead::Hunter::Samus
                 && TestFlag(Flags1(), PlayerFlags1::Boosting)))
         {
@@ -758,7 +758,7 @@ namespace MphRead::Entities
                 MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.Z), point2.Z) + margin);
         }
         bool includeEntities
-            = GameState::TransitionState == MphRead::TransitionState::None;
+            = GameState::TransitionState() == MphRead::TransitionState::None;
         const auto& candidates = CollisionDetection::GetCandidatesForLimits(
             point1, point2, margin, limitMin, limitMax, includeEntities, _scene);
         if (IsAltForm())
@@ -812,7 +812,7 @@ namespace MphRead::Entities
                             float dot = Vector3::Dot(between, edge);
                             float div = std::clamp(
                                 dot / LengthSquared(edge), 0.0F, 1.0F);
-                            between = result.EdgePoint1 + Scale(edge, div);
+                            between = result.EdgePoint1 + ScaleVector(edge, div);
                             between = point2 - between;
                             float magSqr = LengthSquared(between);
                             if (magSqr > 0.0F
@@ -835,7 +835,7 @@ namespace MphRead::Entities
                             {
                                 ManagedAt(_kandenSegPos, i)
                                     = ManagedAt(_kandenSegPos, i)
-                                    + Scale(result.Plane.Xyz(), dot);
+                                    + ScaleVector(result.Plane.Xyz(), dot);
                             }
                         }
                     }
@@ -872,7 +872,7 @@ namespace MphRead::Entities
             float dot = Vector3::Dot(between, doorFacing);
             if (dot <= 1.25F && dot >= -1.25F)
             {
-                between = between - Scale(doorFacing, dot);
+                between = between - ScaleVector(doorFacing, dot);
                 if (LengthSquared(between) < door.RadiusSquared())
                 {
                     CollisionResult doorResult{};
@@ -933,7 +933,7 @@ namespace MphRead::Entities
                     ffResult.Plane = forcePlane;
                     if (dot2 < 0.0F)
                     {
-                        ffResult.Plane = Scale(ffResult.Plane, -1.0F);
+                        ffResult.Plane = ScaleVector(ffResult.Plane, -1.0F);
                     }
                     HandleCollision(ffResult);
                 }
@@ -1011,7 +1011,7 @@ namespace MphRead::Entities
                 float div = std::clamp(
                     dot / LengthSquared(edge), 0.0F, 1.0F);
                 between = altPos
-                    - (result.EdgePoint1 + Scale(edge, div));
+                    - (result.EdgePoint1 + ScaleVector(edge, div));
                 float magSqr = LengthSquared(between);
                 if (magSqr >= altRad * altRad || magSqr <= 0.0F)
                 {
@@ -1208,7 +1208,7 @@ namespace MphRead::Entities
         {
             if (result.Plane.Y < 0.1F && result.Plane.Y > -0.1F)
             {
-                if (Cheats::WalkThroughWalls && !IsAltForm())
+                if (Cheats::WalkThroughWalls() && !IsAltForm())
                 {
                     return;
                 }
@@ -1274,7 +1274,7 @@ namespace MphRead::Entities
                         SetSpeed(speed);
                     }
                 }
-                SetSpeed(Speed() + Scale(result.Plane.Xyz(), -dot));
+                SetSpeed(Speed() + ScaleVector(result.Plane.Xyz(), -dot));
                 if (!v163 && !IsAltForm() && result.Field0 != 1)
                 {
                     float hMagSqr
@@ -1286,7 +1286,7 @@ namespace MphRead::Entities
                             / std::sqrt(hMagSqr);
                         if (div < 0.0F)
                         {
-                            SetSpeed(Scale(Speed(), div + 1.0F));
+                            SetSpeed(ScaleVector(Speed(), div + 1.0F));
                         }
                     }
                 }
@@ -1299,13 +1299,13 @@ namespace MphRead::Entities
                 = Hunter() == MphRead::Hunter::Spire && result.Field0 == 0;
             if (climbing)
             {
-                if ((RequireReference(_scene).RoomId == 30
-                        || RequireReference(_scene).RoomId == 67)
+                if ((RequireReference(_scene).RoomId() == 30
+                        || RequireReference(_scene).RoomId() == 67)
                     && result.Plane.Y == 0.0F && result.Plane.Z == 0.0F)
                 {
                     climbing = false;
                 }
-                else if (RequireReference(_scene).RoomId == 80
+                else if (RequireReference(_scene).RoomId() == 80
                     && Formats::CameraSequence::Current() != nullptr)
                 {
                     climbing = false;
@@ -1324,7 +1324,7 @@ namespace MphRead::Entities
                         assert(!IsZero(vec - static_cast<Vector3>(Position)));
                         v164 = true;
                         Position = static_cast<Vector3>(Position)
-                            + Scale(result.Plane.Xyz(), dot);
+                            + ScaleVector(result.Plane.Xyz(), dot);
                         vec = Vector3(
                             static_cast<Vector3>(Position).X - vec.X,
                             0.0F,

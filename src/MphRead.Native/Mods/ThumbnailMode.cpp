@@ -20,10 +20,10 @@ namespace MphRead::Mods
         {
             return;
         }
-        _sfxVolume = Sound::Sfx::Volume();
+        _sfxVolume = Sound::Sfx::Volume;
         _musicVolume = Music::UserVolume();
         _active = true;
-        Sound::Sfx::Volume(0.0f);
+        Sound::Sfx::Volume = 0.0f;
         Music::UserVolume(0.0f);
     }
 
@@ -34,7 +34,7 @@ namespace MphRead::Mods
             return;
         }
         _active = false;
-        Sound::Sfx::Volume(_sfxVolume);
+        Sound::Sfx::Volume = _sfxVolume;
         Music::SetUserVolume(_musicVolume);
     }
 }

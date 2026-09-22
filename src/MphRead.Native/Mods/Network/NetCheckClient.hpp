@@ -1,14 +1,10 @@
 #pragma once
 
+#include "../../Renderer.hpp"
+
 #include "../../Formats/Enums.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 
-#include <OpenTK/Mathematics/Vector2i.hpp>
-#include <OpenTK/Mathematics/Vector3.hpp>
-#include <OpenTK/Windowing/Common/FrameEventArgs.hpp>
-#include <OpenTK/Windowing/Desktop/GameWindow.hpp>
-#include <OpenTK/Windowing/Desktop/GameWindowSettings.hpp>
-#include <OpenTK/Windowing/Desktop/NativeWindowSettings.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -18,23 +14,30 @@
 #include <string>
 #include <vector>
 
-namespace System::ComponentModel
-{
-    class CancelEventArgs;
-}
-
 namespace MphRead
 {
     class Scene;
-    enum class GameMode : std::int32_t;
+    enum class GameMode : std::uint8_t;
 }
 
 namespace MphRead::Mods::Network
 {
     class NetFeatureCheck;
 
-    class NetCheckClient final : public OpenTK::Windowing::Desktop::GameWindow
+    class NetCheckClient final : public MphRead::RendererPlatform::WindowEvents
     {
+    private:
+        std::shared_ptr<MphRead::RendererPlatform::Window> _window;
+
+        [[nodiscard]] OpenTK::Mathematics::Vector2i ClientSize() const;
+        void Close();
+        void SwapBuffers();
+
+    public:
+        void Run();
+        // GameWindow.Dispose: releases the window; the object stays usable.
+        void Dispose();
+
     private:
         class RemoteView final
         {
@@ -94,8 +97,8 @@ namespace MphRead::Mods::Network
         bool _rebound = false;
         std::unique_ptr<MphRead::Scene> _scene{};
 
-        [[nodiscard]] static OpenTK::Windowing::Desktop::GameWindowSettings GameSettings();
-        [[nodiscard]] static OpenTK::Windowing::Desktop::NativeWindowSettings WindowSettings(
+        [[nodiscard]] static MphRead::RendererPlatform::WindowSettings GameSettings();
+        [[nodiscard]] static MphRead::RendererPlatform::WindowSettings WindowSettings(
             std::int32_t width, std::int32_t height);
 
         NetCheckClient(
@@ -126,8 +129,8 @@ namespace MphRead::Mods::Network
 
     protected:
         void OnLoad() override;
-        void OnRenderFrame(OpenTK::Windowing::Common::FrameEventArgs args) override;
-        void OnClosing(System::ComponentModel::CancelEventArgs& e) override;
+        void OnRenderFrame(const MphRead::RendererPlatform::FrameEventArgs& args) override;
+        void OnClosing() override;
 
     public:
         NetCheckClient(const NetCheckClient&) = delete;

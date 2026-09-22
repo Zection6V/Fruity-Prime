@@ -1,56 +1,33 @@
 #include "PlayerEntityVoteHud.hpp"
 
 #include "../../Entities/Players/DynamicLightEntity.hpp"
+#include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../HUD/HudInfo.hpp"
+#include "../../Renderer.hpp"
+#include "../../Scene.hpp"
+#include "../Network/MapVote.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 
-namespace System
+namespace
 {
-    class Math
+    float DotNetMax(float val1, float val2) noexcept
     {
-    public:
-        Math() = delete;
-
-        [[nodiscard]] static float Max(float val1, float val2);
-    };
-
-    class OperatingSystem
-    {
-    public:
-        OperatingSystem() = delete;
-
-        [[nodiscard]] static bool IsAndroid();
-    };
-}
-
-namespace MphRead
-{
-    class Scene
-    {
-    public:
-        void DrawHudFlatBox(float left, float top, float right, float bottom,
-            OpenTK::Mathematics::Vector4 colour);
-    };
-}
-
-namespace MphRead::Mods::Network
-{
-    class MapVote final
-    {
-    public:
-        MapVote() = delete;
-
-        [[nodiscard]] static bool Active();
-        [[nodiscard]] static bool Answered();
-        [[nodiscard]] static std::string PromptLine();
-        [[nodiscard]] static std::string TallyLine();
-        static void NoteLayout(Mods::EndScreen::Hit accept, Mods::EndScreen::Hit deny);
-    };
+        if (val1 != val2)
+        {
+            if (!std::isnan(val1))
+            {
+                return val2 < val1 ? val1 : val2;
+            }
+            return val1;
+        }
+        return std::signbit(val2) ? val1 : val2;
+    }
 }
 
 namespace
@@ -67,22 +44,6 @@ namespace
 
 namespace MphRead::Entities
 {
-    class PlayerEntity final : public DynamicLightEntityBase,
-        public std::enable_shared_from_this<PlayerEntity>
-    {
-    public:
-        [[nodiscard]] bool IsMainPlayer() const;
-
-    private:
-        [[nodiscard]] float HudAspectFix() const;
-        OpenTK::Mathematics::Vector2 DrawText2D(float x, float y, Hud::Align type,
-            std::int32_t palette, std::string_view text,
-            std::optional<ColorRgba> color = std::nullopt, float alpha = 1.0F,
-            float fontSpacing = -1.0F, std::int32_t maxLength = -1, float scale = 1.0F);
-
-        MPHREAD_PLAYER_VOTE_HUD_MEMBERS
-    };
-
     const OpenTK::Mathematics::Vector4 PlayerEntity::_votePanel(0.0F, 0.0F, 0.0F, 0.42F);
     const OpenTK::Mathematics::Vector4 PlayerEntity::_voteAccept(0.24F, 0.78F, 0.33F, 0.40F);
     const OpenTK::Mathematics::Vector4 PlayerEntity::_voteAcceptLit(0.30F, 0.92F, 0.40F, 0.60F);
@@ -93,17 +54,17 @@ namespace MphRead::Entities
 
     float PlayerEntity::VoteLeft()
     {
-        return System::OperatingSystem::IsAndroid() ? 52.0F : 6.0F;
+        return NativeRuntime::IsAndroid() ? 52.0F : 6.0F;
     }
 
     float PlayerEntity::VoteTop()
     {
-        return System::OperatingSystem::IsAndroid() ? 42.0F : 8.0F;
+        return NativeRuntime::IsAndroid() ? 42.0F : 8.0F;
     }
 
     float PlayerEntity::VoteButtonScale()
     {
-        return System::OperatingSystem::IsAndroid() ? 1.35F : 1.0F;
+        return NativeRuntime::IsAndroid() ? 1.35F : 1.0F;
     }
 
     float PlayerEntity::VoteButtonWidth()
@@ -123,7 +84,7 @@ namespace MphRead::Entities
 
     bool PlayerEntity::VoteByTouch()
     {
-        return System::OperatingSystem::IsAndroid();
+        return NativeRuntime::IsAndroid();
     }
 
     void PlayerEntity::ModDrawVote()
@@ -146,7 +107,7 @@ namespace MphRead::Entities
         bool buttons = VoteByTouch() && !MapVote::Answered();
         float height = VoteLineHeight * 2.0F + 4.0F
             + (buttons ? VoteButtonHeight() + VoteButtonGap() : 0.0F);
-        float width = System::Math::Max(
+        float width = DotNetMax(
             118.0F, VoteButtonWidth() * 2.0F + VoteButtonGap() + 6.0F);
         float right = VoteLeft() + width * aspect;
 

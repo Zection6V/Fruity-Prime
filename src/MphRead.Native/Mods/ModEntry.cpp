@@ -33,7 +33,9 @@
 #include "Network/NetDiagnostics.hpp"
 #include "Network/NetHitPrediction.hpp"
 #include "Network/NetLag.hpp"
+#include "MapGen/MapDefinition.hpp"
 #include "Network/NetMaster.hpp"
+#include "Network/NetStatus.hpp"
 #include "Network/NetUnlagged.hpp"
 #include "Network/ServerSimCheck.hpp"
 #include "Network/WeaponDps.hpp"
@@ -102,6 +104,16 @@ namespace MphRead::NativeRuntime
 
 namespace
 {
+    template <typename T>
+    [[nodiscard]] T& Deref(const std::shared_ptr<T>& value)
+    {
+        if (!value)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
     using MphRead::BeamType;
     using MphRead::GameMode;
     using MphRead::Hunter;
@@ -965,7 +977,7 @@ namespace
         const std::optional<std::string> fpsCap = ValueAfter(args, "fpscap");
         if (fpsCap.has_value() && !StartsWithHyphen(fpsCap))
         {
-            FrameTiming::FrameRateCap(
+            FrameTiming::SetFrameRateCap(
                 FrameTiming::ParseCap(*fpsCap, FrameTiming::FrameRateCap()));
         }
 
@@ -1021,13 +1033,13 @@ namespace
         const std::optional<std::string> crosshair = ValueAfter(args, "crosshair");
         if (crosshair.has_value() && !StartsWithHyphen(crosshair))
         {
-            Crosshair::Style(Crosshair::ParseStyle(*crosshair, Crosshair::Style()));
+            Crosshair::Style = Crosshair::ParseStyle(*crosshair, Crosshair::Style);
         }
 
         const std::optional<std::string> crosshairSize = ValueAfter(args, "crosshairsize");
         if (crosshairSize.has_value() && !StartsWithHyphen(crosshairSize))
         {
-            Crosshair::Size(Crosshair::ParseSize(*crosshairSize, Crosshair::Size()));
+            Crosshair::Size = Crosshair::ParseSize(*crosshairSize, Crosshair::Size);
         }
     }
 
@@ -1092,14 +1104,14 @@ namespace
                 + " -- it may be down, or UDP may not reach it");
             return;
         }
-        if (result.Servers.empty())
+        if (Deref(result.Servers).empty())
         {
             WriteLine("[servers] the directory is up and has nobody listed");
             return;
         }
-        WriteLine("[servers] " + std::to_string(result.Servers.size())
+        WriteLine("[servers] " + std::to_string(Deref(result.Servers).size())
             + " listed; asking each one");
-        for (const auto& listing : result.Servers)
+        for (const auto& listing : Deref(result.Servers))
         {
             const auto status = NetStatus::Query(listing.Address, listing.Port,
                 false /* allowJoinProbe */);
@@ -1114,12 +1126,12 @@ namespace
             }
             else
             {
-                name = listing.Endpoint;
+                name = listing.Endpoint();
             }
             if (!status.Online)
             {
                 WriteLine("  " + LeftAlign(name, 24) + " "
-                    + LeftAlign(listing.Endpoint, 26) + " did not answer");
+                    + LeftAlign(listing.Endpoint(), 26) + " did not answer");
                 continue;
             }
             const std::string players = status.MaxPlayers > 0
@@ -1129,7 +1141,7 @@ namespace
                 ? std::to_string(status.Latency) + " ms"
                 : std::string("-- ms");
             WriteLine("  " + LeftAlign(name, 24) + " "
-                + LeftAlign(listing.Endpoint, 26) + " "
+                + LeftAlign(listing.Endpoint(), 26) + " "
                 + LeftAlign(status.RoomKey, 20) + " "
                 + LeftAlign(NetStatus::ModeName(status.Mode), 14) + " "
                 + LeftAlign(players, 6) + " " + ping);
@@ -1176,7 +1188,7 @@ namespace
             WriteLine("[thumbnails] pass -force to re-render them");
             return;
         }
-        int jobs = ThumbnailBatch::DefaultParallelism;
+        int jobs = ThumbnailBatch::DefaultParallelism();
         const std::optional<std::string> jobsValue = ValueAfter(args, "jobs");
         std::int32_t parsedJobs = 0;
         if (jobsValue.has_value() && TryParseInt32(*jobsValue, parsedJobs))
@@ -1258,27 +1270,27 @@ namespace MphRead::Mods
         }
         if (HasFlag(args, "nounlagged"))
         {
-            Network::NetUnlagged::Enabled(false);
+            Network::NetUnlagged::SetEnabled(false);
             WriteLine("[net] lag compensation off: shots resolve against the present");
         }
         if (HasFlag(args, "nohitprediction"))
         {
-            Network::NetHitPrediction::Enabled(false);
+            Network::NetHitPrediction::SetEnabled(false);
             WriteLine("[net] hit prediction off: a client's hits land when the authority says so");
         }
         if (HasFlag(args, "nohitmarker"))
         {
-            Network::NetHitPrediction::MarkerEnabled(false);
+            Network::NetHitPrediction::SetMarkerEnabled(false);
             WriteLine("[hud] hit marker off");
         }
         if (HasFlag(args, "deathprediction"))
         {
-            Network::NetHitPrediction::DeathEnabled(true);
+            Network::NetHitPrediction::SetDeathEnabled(true);
             WriteLine("[net] death prediction on: a client's kills land the frame it lands them");
         }
         if (HasFlag(args, "nodeathprediction"))
         {
-            Network::NetHitPrediction::DeathEnabled(false);
+            Network::NetHitPrediction::SetDeathEnabled(false);
             WriteLine("[net] death prediction off: a client's kills land when the authority says so");
         }
         if (HasFlag(args, "credits"))
@@ -1302,24 +1314,24 @@ namespace MphRead::Mods
             int failed = 0;
             for (const auto& definition : MapGen::CustomRooms::Definitions())
             {
-                if (which.has_value() && !EqualsOrdinalIgnoreCase(*which, definition.Name)
+                if (which.has_value() && !EqualsOrdinalIgnoreCase(*which, Deref(definition).Name())
                     && !EqualsOrdinalIgnoreCase(*which, "all"))
                 {
                     continue;
                 }
-                if (!definition.SourcePath.has_value() || definition.BundlePath.has_value()
-                    || !definition.Import.has_value())
+                if (!Deref(definition).SourcePath().has_value() || Deref(definition).BundlePath().has_value()
+                    || Deref(definition).Import() == nullptr)
                 {
                     continue;
                 }
                 try
                 {
-                    MapGen::MapBundle::Cook(definition, *definition.SourcePath, outPath);
+                    MapGen::MapBundle::Cook(definition.get(), *Deref(definition).SourcePath(), outPath);
                     ++cooked;
                 }
                 catch (const std::exception& ex)
                 {
-                    WriteLine(definition.Name + ": " + ex.what());
+                    WriteLine(Deref(definition).Name() + ": " + ex.what());
                     ++failed;
                 }
             }
@@ -1338,11 +1350,11 @@ namespace MphRead::Mods
             const std::optional<Update::UpdateInfo> update = Update::Updater::Check();
             if (!update.has_value())
             {
-                WriteLine("[update] " + Update::UpdateCheck::LastReason());
+                WriteLine("[update] " + Update::UpdateCheck::LastReason().value_or(""));
                 return true;
             }
             WriteLine("[update] " + Update::Updater::Describe(*update));
-            WriteLine("[update] " + update->PageUrl);
+            WriteLine("[update] " + update->PageUrl.Get().value_or(""));
             (void)Update::Updater::OpenPage(*update);
             return true;
         }
@@ -1494,7 +1506,7 @@ namespace MphRead::Mods
         {
             rotationPath = CombinePath(AppBaseDirectory(), "maprotation.txt");
         }
-        Network::MapRotation rotation = Network::MapRotation::LoadOrCreate(rotationPath);
+        std::shared_ptr<Network::MapRotation> rotation = Network::MapRotation::LoadOrCreate(rotationPath);
         Network::DedicatedServer server(port, maxPlayers, rotation);
         std::string serverName;
         if (const std::optional<std::string> value = ValueAfter(args, "servername"); value.has_value())
@@ -1568,7 +1580,7 @@ namespace MphRead::Mods
         }
         if (HasFlag(args, "netdebug"))
         {
-            Network::NetDiagnostics::Enabled(true);
+            Network::NetDiagnostics::SetEnabled(true);
             Network::MapAudit::Diagnostic(true);
         }
 
@@ -1633,22 +1645,22 @@ namespace MphRead::Mods
             int failed = 0;
             for (const auto& definition : MapGen::CustomRooms::Definitions())
             {
-                if (only.has_value() && !EqualsOrdinalIgnoreCase(*only, definition.Name)
+                if (only.has_value() && !EqualsOrdinalIgnoreCase(*only, Deref(definition).Name())
                     && !EqualsOrdinalIgnoreCase(*only, "all"))
                 {
                     continue;
                 }
                 try
                 {
-                    MapGen::MapPacker::Generate(definition,
-                        MapGen::CustomRooms::ArchiveDirectory(definition),
+                    MapGen::MapPacker::Generate(definition.get(),
+                        MapGen::CustomRooms::ArchiveDirectory(definition.get()),
                         MapGen::CustomRooms::EntityDirectory(),
                         MapGen::CustomRooms::NodeDirectory(), true /* verbose */);
                     ++count;
                 }
                 catch (const std::exception& ex)
                 {
-                    WriteLine(definition.Name + ": " + ex.what());
+                    WriteLine(Deref(definition).Name() + ": " + ex.what());
                     ++failed;
                 }
             }
@@ -1816,7 +1828,7 @@ namespace MphRead::Mods
                     && TryParseInt32(split[1], auditHeight)
                     && auditWidth > 0 && auditHeight > 0)
                 {
-                    Network::MapAudit::WindowSize(auditWidth, auditHeight);
+                    Network::MapAudit::WindowSize(OpenTK::Mathematics::Vector2i(auditWidth, auditHeight));
                 }
             }
             SetExitCode(Network::MapAudit::Run(*mapTest, players, seconds, mode,

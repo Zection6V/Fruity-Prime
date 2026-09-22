@@ -95,7 +95,7 @@ namespace
         }
     }
 
-    [[nodiscard]] std::string Fixed(double value, std::int32_t decimals)
+    [[nodiscard]] std::string FormatFixed(double value, std::int32_t decimals)
     {
         if (std::isnan(value))
         {
@@ -208,7 +208,7 @@ namespace MphRead::Mods::Network
     {
         players = std::clamp(players, 1, PlayerEntity::SlotCapacity);
         std::cout << "[simcheck] \"" << room << "\" (" << GameModeName(mode) << "), "
-            << IntegerText(players) << " player(s), " << Fixed(seconds, 0) << " s\n";
+            << IntegerText(players) << " player(s), " << FormatFixed(seconds, 0) << " s\n";
 
         std::int64_t snapshotBytes = 0;
         std::int64_t snapshots = 0;
@@ -284,18 +284,18 @@ namespace MphRead::Mods::Network
             << " | steps " << IntegerText(sim.Frames())
             << " | spawned " << IntegerText(spawned) << '/' << IntegerText(players)
             << " | snapshots " << IntegerText(snapshots) << " ("
-            << Fixed(snapshots > 0
+            << FormatFixed(snapshots > 0
                 ? static_cast<double>(snapshotBytes) / static_cast<double>(snapshots)
                 : 0.0, 0)
             << " B mean)"
             << (matchEnds > 0 ? " | match ended" : "")
-            << " | load " << Fixed(loadSeconds, 1) << " s"
-            << " | step mean " << Fixed(meanStep, 2) << " ms ("
-            << Fixed(budget, 0) << "% of budget)"
-            << " worst " << Fixed(sim.WorstStepSeconds() * 1000.0, 1)
+            << " | load " << FormatFixed(loadSeconds, 1) << " s"
+            << " | step mean " << FormatFixed(meanStep, 2) << " ms ("
+            << FormatFixed(budget, 0) << "% of budget)"
+            << " worst " << FormatFixed(sim.WorstStepSeconds() * 1000.0, 1)
             << " ms overrun " << IntegerText(sim.OverrunSteps())
-            << " | wall " << Fixed(wallSeconds, 1) << " s for "
-            << Fixed(seconds, 0) << " s simulated"
+            << " | wall " << FormatFixed(wallSeconds, 1) << " s for "
+            << FormatFixed(seconds, 0) << " s simulated"
             << " | rss " << Mb(beforeLoad) << "->" << Mb(afterLoad) << "->"
             << Mb(afterRun) << " MB"
             << " | peak " << Mb(PeakWorkingSetBytes()) << " MB\n";
@@ -439,6 +439,6 @@ namespace MphRead::Mods::Network
 
     std::string ServerSimCheck::Mb(std::int64_t bytes)
     {
-        return Fixed(static_cast<double>(bytes) / 1024.0 / 1024.0, 0);
+        return FormatFixed(static_cast<double>(bytes) / 1024.0 / 1024.0, 0);
     }
 }

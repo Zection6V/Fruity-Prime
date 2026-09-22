@@ -257,7 +257,7 @@ namespace
         }
         if (path.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
         {
-            throw System::IO::PathTooLongException(path);
+            throw System::IO::PathTooLongException("The path '" + path + "' is too long, or a component of the specified path is too long.");
         }
         const int length = static_cast<int>(path.size());
         const int count = MultiByteToWideChar(
@@ -280,19 +280,19 @@ namespace
     {
         if (error == ERROR_FILE_NOT_FOUND)
         {
-            throw System::IO::FileNotFoundException(path);
+            throw System::IO::FileNotFoundException("Could not find file '" + path + "'.");
         }
         if (error == ERROR_PATH_NOT_FOUND || error == ERROR_INVALID_DRIVE)
         {
-            throw System::IO::DirectoryNotFoundException(path);
+            throw System::IO::DirectoryNotFoundException("Could not find a part of the path '" + path + "'.");
         }
         if (error == ERROR_ACCESS_DENIED)
         {
-            throw System::UnauthorizedAccessException(path);
+            throw System::UnauthorizedAccessException("Access to the path '" + path + "' is denied.");
         }
         if (error == ERROR_FILENAME_EXCED_RANGE)
         {
-            throw System::IO::PathTooLongException(path);
+            throw System::IO::PathTooLongException("The path '" + path + "' is too long, or a component of the specified path is too long.");
         }
         if (error == ERROR_SHARING_VIOLATION)
         {
@@ -451,23 +451,23 @@ namespace
     {
         if (error == EACCES || error == EBADF || error == EPERM || error == EISDIR)
         {
-            throw System::UnauthorizedAccessException(path);
+            throw System::UnauthorizedAccessException("Access to the path '" + path + "' is denied.");
         }
         if (error == ENOTDIR)
         {
-            throw System::IO::DirectoryNotFoundException(path);
+            throw System::IO::DirectoryNotFoundException("Could not find a part of the path '" + path + "'.");
         }
         if (error == ENOENT)
         {
             if (ParentDirectoryIsMissing(path))
             {
-                throw System::IO::DirectoryNotFoundException(path);
+                throw System::IO::DirectoryNotFoundException("Could not find a part of the path '" + path + "'.");
             }
-            throw System::IO::FileNotFoundException(path);
+            throw System::IO::FileNotFoundException("Could not find file '" + path + "'.");
         }
         if (error == ENAMETOOLONG)
         {
-            throw System::IO::PathTooLongException(path);
+            throw System::IO::PathTooLongException("The path '" + path + "' is too long, or a component of the specified path is too long.");
         }
 #if defined(EWOULDBLOCK)
         if (error == EWOULDBLOCK)
@@ -563,7 +563,7 @@ namespace
         }
         if (S_ISDIR(status.st_mode))
         {
-            throw System::UnauthorizedAccessException(path);
+            throw System::UnauthorizedAccessException("Access to the path '" + path + "' is denied.");
         }
 
         int lockResult = -1;

@@ -178,14 +178,14 @@ namespace MphRead::Entities
             Mods::EndScreen::HoveredNext(), aspect);
 
         static_cast<void>(DrawText2D(centre, EndRow(EndRowName), Hud::Align::Center, 0,
-            HunterUpperName(static_cast<Hunter>(hunter)), _endInk,
+            HunterUpperName(static_cast<MphRead::Hunter>(hunter)), _endInk,
             1.0F, 8.0F, -1, 0.6F * scale));
 
         const std::int32_t suit = Mods::EndScreen::Suit();
-        DrawEndSuits(static_cast<Hunter>(hunter), suit, left, EndRow(EndRowSuits), aspect);
+        DrawEndSuits(static_cast<MphRead::Hunter>(hunter), suit, left, EndRow(EndRowSuits), aspect);
         static_cast<void>(DrawText2D(centre, EndRow(EndRowSuitName), Hud::Align::Center, 0,
             std::string("SUIT: ") + Mods::HunterSuits::Name(
-                Mods::HunterSuits::Color(static_cast<Hunter>(hunter), suit)),
+                Mods::HunterSuits::Color(static_cast<MphRead::Hunter>(hunter), suit)),
             _endInk, 1.0F, 8.0F, -1, 0.45F * scale));
 
         const Mods::EndScreen::Hit ready = DrawEndReady(centre, EndRow(EndRowReady), aspect);
@@ -279,7 +279,7 @@ namespace MphRead::Entities
     }
 
     void PlayerEntity::DrawEndSuits(
-        Hunter hunter, std::int32_t chosen, float left, float top, float aspect)
+        MphRead::Hunter hunter, std::int32_t chosen, float left, float top, float aspect)
     {
         const float slot = 16.0F * EndScale();
         const float box = 11.0F * EndScale();

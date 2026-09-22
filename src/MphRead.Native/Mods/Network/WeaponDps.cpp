@@ -7,11 +7,6 @@
 #include "../../Formats/Culling.hpp"
 #include "../../Scene.hpp"
 
-#include <OpenTK/Graphics/OpenGL/GL.hpp>
-#include <OpenTK/Mathematics/Vector2i.hpp>
-#include <OpenTK/Mathematics/Vector3.hpp>
-#include <OpenTK/Windowing/Common/ContextFlags.hpp>
-#include <OpenTK/Windowing/Common/ContextProfile.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -194,35 +189,50 @@ namespace MphRead::Mods::Network
 {
     using OpenTK::Mathematics::Vector2i;
     using OpenTK::Mathematics::Vector3;
-    using OpenTK::Windowing::Common::ContextFlags;
-    using OpenTK::Windowing::Common::ContextProfile;
-    using OpenTK::Windowing::Common::FrameEventArgs;
-    using OpenTK::Windowing::Desktop::GameWindow;
-    using OpenTK::Windowing::Desktop::GameWindowSettings;
-    using OpenTK::Windowing::Desktop::NativeWindowSettings;
 
     std::int32_t WeaponDps::FullHealth(Entities::PlayerEntity& player)
     {
         return std::max<std::int32_t>(1, player.HealthMax());
     }
 
-    GameWindowSettings WeaponDps::GameSettings()
+    RendererPlatform::WindowSettings WeaponDps::GameSettings()
     {
-        GameWindowSettings settings{};
+        RendererPlatform::WindowSettings settings{};
         settings.UpdateFrequency = 60;
         return settings;
     }
 
-    NativeWindowSettings WeaponDps::WindowSettings()
+    RendererPlatform::WindowSettings WeaponDps::WindowSettings()
     {
-        NativeWindowSettings settings{};
+        RendererPlatform::WindowSettings settings = GameSettings();
         settings.ClientSize = Vector2i(320, 180);
         settings.Title = "MphRead weapon probe";
-        settings.Profile = ContextProfile::Compatability;
-        settings.Flags = ContextFlags::Default;
-        settings.APIVersion = {3, 2};
+        settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
+        settings.Flags = RendererPlatform::WindowSettings::ContextFlags::Default;
+        settings.ApiMajor = 3;
+        settings.ApiMinor = 2;
         settings.StartVisible = false;
         return settings;
+    }
+
+    void WeaponDps::Run()
+    {
+        _window->Run(*this);
+    }
+
+    OpenTK::Mathematics::Vector2i WeaponDps::ClientSize() const
+    {
+        return _window->Size();
+    }
+
+    void WeaponDps::Close()
+    {
+        _window->Close();
+    }
+
+    void WeaponDps::SwapBuffers()
+    {
+        _window->SwapBuffers();
     }
 
     WeaponDps::WeaponDps(
@@ -232,7 +242,7 @@ namespace MphRead::Mods::Network
         double seconds,
         float distance,
         bool bombs)
-        : GameWindow(GameSettings(), WindowSettings()),
+        : _window(RendererPlatform::CreateWindow(WindowSettings())),
           _room(std::move(room)),
           _hunter(hunter),
           _beam(beam),
@@ -279,15 +289,15 @@ namespace MphRead::Mods::Network
 
     void WeaponDps::OnLoad()
     {
-        Detail::WeaponDpsSceneSetSize(*_scene, ClientSize);
+        Detail::WeaponDpsSceneSetSize(*_scene, ClientSize());
         Detail::WeaponDpsSceneOnLoad(*_scene);
-        GameWindow::OnLoad();
+        _window->BaseOnLoad();
         OpenTK::Graphics::OpenGL::GL::Viewport(
-            0, 0, ClientSize.X, ClientSize.Y);
+            0, 0, ClientSize().X, ClientSize().Y);
         Detail::WeaponDpsSceneOnResize(*_scene);
     }
 
-    void WeaponDps::OnRenderFrame(FrameEventArgs args)
+    void WeaponDps::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
         Detail::WeaponDpsApplyPause();
         Detail::WeaponDpsSceneOnUpdateFrame(*_scene);
@@ -300,7 +310,7 @@ namespace MphRead::Mods::Network
         Step();
         SwapBuffers();
         Detail::WeaponDpsSceneAfterRenderFrame(*_scene);
-        GameWindow::OnRenderFrame(args);
+        _window->BaseOnRenderFrame(args);
 
         if (_placed
             && static_cast<double>(SubtractInt32Unchecked(_frame, _placedFrame))
@@ -584,7 +594,7 @@ namespace MphRead::Mods::Network
                     seconds,
                     ClampDistance(distance),
                     bombs));
-                window->GameWindow::Run();
+                window->Run();
                 result = window->Report();
             }
             catch (const std::exception& ex)

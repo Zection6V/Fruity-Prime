@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 #include <type_traits>
+#include <vector>
 namespace
 {
     std::shared_ptr<std::string> ES()
@@ -24,9 +25,399 @@ namespace
         }
         return length == 0 ? ES() : std::make_shared<std::string>(value, length);
     }
+    struct EnumNameEntry
+    {
+        std::uint64_t Value;
+        const char* Name;
+    };
+    template <typename T>
+    struct ManagedEnumInfo;
+    // Formats\Enums.cs Message : uint
+    constexpr EnumNameEntry MessageNames[] = {
+        {0x0ULL, "None"},
+        {0x5ULL, "SetActive"},
+        {0x6ULL, "Destroyed"},
+        {0x7ULL, "Damage"},
+        {0x9ULL, "Trigger"},
+        {0xCULL, "UpdateMusic"},
+        {0xFULL, "Gravity"},
+        {0x10ULL, "Unlock"},
+        {0x11ULL, "Lock"},
+        {0x12ULL, "Activate"},
+        {0x13ULL, "Complete"},
+        {0x14ULL, "Impact"},
+        {0x15ULL, "Death"},
+        {0x16ULL, "Unused22"},
+        {0x17ULL, "ShipHatch"},
+        {0x18ULL, "Unused24"},
+        {0x19ULL, "Unused25"},
+        {0x1AULL, "ShowPrompt"},
+        {0x1BULL, "ShowWarning"},
+        {0x1CULL, "ShowOverlay"},
+        {0x1DULL, "MoveItemSpawner"},
+        {0x1EULL, "SetCamSeqAi"},
+        {0x1FULL, "PlayerCollideWith"},
+        {0x20ULL, "BeamCollideWith"},
+        {0x21ULL, "UnlockConnectors"},
+        {0x22ULL, "LockConnectors"},
+        {0x23ULL, "PreventFormSwitch"},
+        {0x24ULL, "Gorea2Trigger"},
+        {0x2AULL, "SetTriggerState"},
+        {0x2BULL, "ClearTriggerState"},
+        {0x2CULL, "PlatformWakeup"},
+        {0x2DULL, "PlatformSleep"},
+        {0x2EULL, "DripMoatPlatform"},
+        {0x30ULL, "ActivateTurret"},
+        {0x31ULL, "DecreaseTurretLights"},
+        {0x32ULL, "IncreaseTurretLights"},
+        {0x33ULL, "DeactivateTurret"},
+        {0x34ULL, "SetBeamReflection"},
+        {0x35ULL, "SetPlatformIndex"},
+        {0x36ULL, "PlaySfxScript"},
+        {0x38ULL, "UnlockOubliette"},
+        {0x39ULL, "Checkpoint"},
+        {0x3AULL, "EscapeUpdate1"},
+        {0x3BULL, "SetSeekPlayerY"},
+        {0x3CULL, "LoadOubliette"},
+        {0x3DULL, "EscapeUpdate2"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::Message>
+    {
+        static constexpr bool IsFlags = false;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = MessageNames;
+        static constexpr std::size_t Count = std::size(MessageNames);
+    };
+    // Formats\Enums.cs ItemType : int
+    constexpr EnumNameEntry ItemTypeNames[] = {
+        {0xFFFFFFFFULL, "None"},
+        {0x0ULL, "HealthMedium"},
+        {0x1ULL, "HealthSmall"},
+        {0x2ULL, "HealthBig"},
+        {0x3ULL, "DoubleDamage"},
+        {0x4ULL, "EnergyTank"},
+        {0x5ULL, "VoltDriver"},
+        {0x6ULL, "MissileExpansion"},
+        {0x7ULL, "Battlehammer"},
+        {0x8ULL, "Imperialist"},
+        {0x9ULL, "Judicator"},
+        {0xAULL, "Magmaul"},
+        {0xBULL, "ShockCoil"},
+        {0xCULL, "OmegaCannon"},
+        {0xDULL, "UASmall"},
+        {0xEULL, "UABig"},
+        {0xFULL, "MissileSmall"},
+        {0x10ULL, "MissileBig"},
+        {0x11ULL, "Cloak"},
+        {0x12ULL, "UAExpansion"},
+        {0x13ULL, "ArtifactKey"},
+        {0x14ULL, "Deathalt"},
+        {0x15ULL, "AffinityWeapon"},
+        {0x16ULL, "PickWpnMissile"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::ItemType>
+    {
+        static constexpr bool IsFlags = false;
+        static constexpr bool IsSigned = true;
+        static constexpr const EnumNameEntry* Names = ItemTypeNames;
+        static constexpr std::size_t Count = std::size(ItemTypeNames);
+    };
+    // Entities\PlatformEntity.cs [Flags] PlatformFlags : uint
+    constexpr EnumNameEntry PlatformFlagsNames[] = {
+        {0x0ULL, "None"},
+        {0x1ULL, "Hazard"},
+        {0x2ULL, "ContactDamage"},
+        {0x4ULL, "BeamSpawner"},
+        {0x8ULL, "BeamColEffect"},
+        {0x10ULL, "DamageReflect1"},
+        {0x20ULL, "DamageReflect2"},
+        {0x40ULL, "StandingColOnly"},
+        {0x80ULL, "StartSleep"},
+        {0x100ULL, "SleepAtEnd"},
+        {0x200ULL, "DripMoat"},
+        {0x400ULL, "SkipNodeRef"},
+        {0x800ULL, "DrawIfNodeRef"},
+        {0x1000ULL, "DrawAlways"},
+        {0x2000ULL, "HideOnSleep"},
+        {0x4000ULL, "SyluxShip"},
+        {0x8000ULL, "Bit15"},
+        {0x10000ULL, "BeamReflection"},
+        {0x20000ULL, "UseRoomState"},
+        {0x40000ULL, "BeamTarget"},
+        {0x80000ULL, "SamusShip"},
+        {0x100000ULL, "Breakable"},
+        {0x200000ULL, "PersistRoomState"},
+        {0x400000ULL, "NoBeamIfCull"},
+        {0x800000ULL, "NoRecoil"},
+        {0x1000000ULL, "Bit24"},
+        {0x2000000ULL, "Bit25"},
+        {0x4000000ULL, "Bit26"},
+        {0x8000000ULL, "Bit27"},
+        {0x10000000ULL, "Bit28"},
+        {0x20000000ULL, "Bit29"},
+        {0x40000000ULL, "Bit30"},
+        {0x80000000ULL, "Bit31"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::Entities::PlatformFlags>
+    {
+        static constexpr bool IsFlags = true;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = PlatformFlagsNames;
+        static constexpr std::size_t Count = std::size(PlatformFlagsNames);
+    };
+    // Formats\Enums.cs DoorType : uint
+    constexpr EnumNameEntry DoorTypeNames[] = {
+        {0x0ULL, "Standard"},
+        {0x1ULL, "MorphBall"},
+        {0x2ULL, "Boss"},
+        {0x3ULL, "Thin"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::DoorType>
+    {
+        static constexpr bool IsFlags = false;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = DoorTypeNames;
+        static constexpr std::size_t Count = std::size(DoorTypeNames);
+    };
+    // Entities\TriggerVolumeEntity.cs FhTriggerFlags : uint
+    constexpr EnumNameEntry FhTriggerFlagsNames[] = {
+        {0x0ULL, "None"},
+        {0x1ULL, "Beam"},
+        {0x2ULL, "PlayerBiped"},
+        {0x4ULL, "PlayerAlt"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::Entities::FhTriggerFlags>
+    {
+        static constexpr bool IsFlags = false;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = FhTriggerFlagsNames;
+        static constexpr std::size_t Count = std::size(FhTriggerFlagsNames);
+    };
+    // Entities\ObjectEntity.cs [Flags] ObjEffFlags : uint
+    constexpr EnumNameEntry ObjEffFlagsNames[] = {
+        {0x0ULL, "None"},
+        {0x1ULL, "UseEffectVolume"},
+        {0x2ULL, "UseEffectOffset"},
+        {0x4ULL, "RepeatScanMessage"},
+        {0x8ULL, "WeaponZoom"},
+        {0x10ULL, "AttachEffect"},
+        {0x20ULL, "DestroyEffect"},
+        {0x40ULL, "AlwaysUpdateEffect"},
+        {0x8000ULL, "Unknown"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::Entities::ObjEffFlags>
+    {
+        static constexpr bool IsFlags = true;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = ObjEffFlagsNames;
+        static constexpr std::size_t Count = std::size(ObjEffFlagsNames);
+    };
+    // Entities\ObjectEntity.cs [Flags] ObjectFlags : byte
+    constexpr EnumNameEntry ObjectFlagsNames[] = {
+        {0x0ULL, "None"},
+        {0x1ULL, "StateBit0"},
+        {0x2ULL, "StateBit1"},
+        {0x3ULL, "State"},
+        {0x4ULL, "NoAnimation"},
+        {0x8ULL, "EntityLinked"},
+        {0x10ULL, "IsVisible"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::Entities::ObjectFlags>
+    {
+        static constexpr bool IsFlags = true;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = ObjectFlagsNames;
+        static constexpr std::size_t Count = std::size(ObjectFlagsNames);
+    };
+    // Entities\TriggerVolumeEntity.cs [Flags] TriggerFlags : uint
+    constexpr EnumNameEntry TriggerFlagsNames[] = {
+        {0x0ULL, "None"},
+        {0x1ULL, "PowerBeam"},
+        {0x2ULL, "VoltDriver"},
+        {0x4ULL, "Missile"},
+        {0x8ULL, "Battlehammer"},
+        {0x10ULL, "Imperialist"},
+        {0x20ULL, "Judicator"},
+        {0x40ULL, "Magmaul"},
+        {0x80ULL, "ShockCoil"},
+        {0x100ULL, "BeamCharged"},
+        {0x200ULL, "PlayerBiped"},
+        {0x400ULL, "PlayerAlt"},
+        {0x800ULL, "Bit11"},
+        {0x1000ULL, "IncludeBots"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::Entities::TriggerFlags>
+    {
+        static constexpr bool IsFlags = true;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = TriggerFlagsNames;
+        static constexpr std::size_t Count = std::size(TriggerFlagsNames);
+    };
+    // Formats\Enums.cs FhItemType : int
+    constexpr EnumNameEntry FhItemTypeNames[] = {
+        {0xFFFFFFFFULL, "None"},
+        {0x0ULL, "AmmoSmall"},
+        {0x1ULL, "AmmoBig"},
+        {0x2ULL, "HealthSmall"},
+        {0x3ULL, "HealthBig"},
+        {0x4ULL, "DoubleDamage"},
+        {0x5ULL, "PowerBeam"},
+        {0x6ULL, "ElectroLob"},
+        {0x7ULL, "Missile"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::FhItemType>
+    {
+        static constexpr bool IsFlags = false;
+        static constexpr bool IsSigned = true;
+        static constexpr const EnumNameEntry* Names = FhItemTypeNames;
+        static constexpr std::size_t Count = std::size(FhItemTypeNames);
+    };
+    // Formats\Enums.cs FhMessage : uint
+    constexpr EnumNameEntry FhMessageNames[] = {
+        {0x0ULL, "None"},
+        {0x5ULL, "Activate"},
+        {0x6ULL, "Destroyed"},
+        {0x7ULL, "Damage"},
+        {0x9ULL, "Trigger"},
+        {0xFULL, "Gravity"},
+        {0x10ULL, "Unlock"},
+        {0x11ULL, "SetActive"},
+        {0x12ULL, "Complete"},
+        {0x13ULL, "Impact"},
+        {0x14ULL, "Death"},
+        {0x15ULL, "Unknown21"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::FhMessage>
+    {
+        static constexpr bool IsFlags = false;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = FhMessageNames;
+        static constexpr std::size_t Count = std::size(FhMessageNames);
+    };
+    // Formats\Enums.cs FhTriggerType : uint
+    constexpr EnumNameEntry FhTriggerTypeNames[] = {
+        {0x0ULL, "Sphere"},
+        {0x1ULL, "Box"},
+        {0x2ULL, "Cylinder"},
+        {0x3ULL, "Threshold"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::FhTriggerType>
+    {
+        static constexpr bool IsFlags = false;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = FhTriggerTypeNames;
+        static constexpr std::size_t Count = std::size(FhTriggerTypeNames);
+    };
+    // Formats\Enums.cs TriggerType : uint
+    constexpr EnumNameEntry TriggerTypeNames[] = {
+        {0x0ULL, "Volume"},
+        {0x1ULL, "Threshold"},
+        {0x2ULL, "Relay"},
+        {0x3ULL, "Automatic"},
+        {0x4ULL, "StateBits"},
+    };
+    template <> struct ManagedEnumInfo<MphRead::TriggerType>
+    {
+        static constexpr bool IsFlags = false;
+        static constexpr bool IsSigned = false;
+        static constexpr const EnumNameEntry* Names = TriggerTypeNames;
+        static constexpr std::size_t Count = std::size(TriggerTypeNames);
+    };
+
+    // Enum.ToString(): a defined name when one matches exactly; for [Flags] enums,
+    // the names found walking from the largest value down, printed in ascending
+    // order and joined with ", " (zero only by its own name); otherwise the number.
+    template <typename T>
+    std::string ManagedEnumToString(T value)
+    {
+        using Info = ManagedEnumInfo<T>;
+        using U = std::make_unsigned_t<std::underlying_type_t<T>>;
+        const std::uint64_t raw = static_cast<std::uint64_t>(static_cast<U>(value));
+        for (std::size_t i = 0; i < Info::Count; ++i)
+        {
+            if (Info::Names[i].Value == raw)
+            {
+                return Info::Names[i].Name;
+            }
+        }
+        if constexpr (Info::IsFlags)
+        {
+            if (raw != 0)
+            {
+                std::vector<const EnumNameEntry*> sorted;
+                for (std::size_t i = 0; i < Info::Count; ++i)
+                {
+                    sorted.push_back(&Info::Names[i]);
+                }
+                std::stable_sort(sorted.begin(), sorted.end(),
+                    [](const EnumNameEntry* left, const EnumNameEntry* right) { return left->Value < right->Value; });
+                std::uint64_t remaining = raw;
+                std::vector<const EnumNameEntry*> found;
+                for (std::size_t index = sorted.size(); index-- > 0;)
+                {
+                    const std::uint64_t current = sorted[index]->Value;
+                    if (index == 0 && current == 0)
+                    {
+                        break;
+                    }
+                    if ((remaining & current) == current)
+                    {
+                        remaining -= current;
+                        found.push_back(sorted[index]);
+                    }
+                }
+                if (remaining == 0)
+                {
+                    std::string result;
+                    for (std::size_t i = found.size(); i-- > 0;)
+                    {
+                        result += found[i]->Name;
+                        if (i > 0)
+                        {
+                            result += ", ";
+                        }
+                    }
+                    return result;
+                }
+            }
+        }
+        if constexpr (Info::IsSigned)
+        {
+            return std::to_string(static_cast<std::int64_t>(static_cast<std::underlying_type_t<T>>(value)));
+        }
+        else
+        {
+            return std::to_string(raw);
+        }
+    }
+    // ValueType.Equals for CollisionVolume: it holds float fields, so the runtime
+    // compares every declared field (overlapping ones included) with its Equals.
+    bool FloatEquals(float left, float right) noexcept { return left == right || (std::isnan(left) && std::isnan(right)); }
+    bool Vector3Equals(OpenTK::Mathematics::Vector3 left, OpenTK::Mathematics::Vector3 right) noexcept
+    {
+        return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
+    }
+    bool CollisionVolumeEquals(const MphRead::CollisionVolume &left, const MphRead::CollisionVolume &right) noexcept
+    {
+        return left.Type == right.Type
+            && Vector3Equals(left.BoxVector1, right.BoxVector1)
+            && Vector3Equals(left.BoxVector2, right.BoxVector2)
+            && Vector3Equals(left.BoxVector3, right.BoxVector3)
+            && Vector3Equals(left.BoxPosition, right.BoxPosition)
+            && FloatEquals(left.BoxDot1, right.BoxDot1)
+            && FloatEquals(left.BoxDot2, right.BoxDot2)
+            && FloatEquals(left.BoxDot3, right.BoxDot3)
+            && Vector3Equals(left.CylinderVector, right.CylinderVector)
+            && Vector3Equals(left.CylinderPosition, right.CylinderPosition)
+            && FloatEquals(left.CylinderRadius, right.CylinderRadius)
+            && FloatEquals(left.CylinderDot, right.CylinderDot)
+            && Vector3Equals(left.SpherePosition, right.SpherePosition)
+            && FloatEquals(left.SphereRadius, right.SphereRadius);
+    }
     bool EQ(float left, float right) noexcept { return left == right || (std::isnan(left) && std::isnan(right)); }
     bool EQ(OpenTK::Mathematics::Vector3 left, OpenTK::Mathematics::Vector3 right) noexcept { return EQ(left.X, right.X) && EQ(left.Y, right.Y) && EQ(left.Z, right.Z); }
     bool EQ(OpenTK::Mathematics::Vector4 left, OpenTK::Mathematics::Vector4 right) noexcept { return EQ(left.X, right.X) && EQ(left.Y, right.Y) && EQ(left.Z, right.Z) && EQ(left.W, right.W); }
+    bool EQ(const MphRead::CollisionVolume &left, const MphRead::CollisionVolume &right) noexcept { return CollisionVolumeEquals(left, right); }
     template <typename T>
     bool EQ(const T &left, const T &right)
     {
@@ -63,6 +454,14 @@ namespace
             std::ostringstream stream;
             stream << value;
             return stream.str();
+        }
+        else if constexpr (requires { ManagedEnumInfo<T>::Count; })
+        {
+            return ManagedEnumToString(value);
+        }
+        else if constexpr (std::is_same_v<T, MphRead::CollisionVolume>)
+        {
+            return "MphRead.CollisionVolume";
         }
         else if constexpr (std::is_enum_v<T>)
         {
@@ -105,7 +504,7 @@ namespace MphRead::Editor
         Position = header->Position;
         Up = header->UpVector;
         Facing = header->FacingVector;
-        NodeName = header->NodeName;
+        NodeName = header->NodeName ? std::make_shared<std::string>(*header->NodeName) : nullptr;
     }
     EntityEditorBase::~EntityEditorBase() = default;
     void EntityEditorBase::PrintValue(const std::shared_ptr<std::string> &value1, const std::shared_ptr<std::string> &value2, const char *name) const

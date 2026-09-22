@@ -1,5 +1,8 @@
 #include "PreviewPass.hpp"
 
+#include "../../Scene.hpp"
+#include "../../Shaders.hpp"
+
 #include "../EndScreen.hpp"
 #include "HunterPreview.hpp"
 
@@ -295,7 +298,7 @@ namespace MphRead
         Viewport(x, y, width, height);
         Matrix4 projection = CreatePerspectiveFieldOfView(
             DegreesToRadians(PreviewFov), width / static_cast<float>(height), 0.1F, 100.0F);
-        Matrix4 view = LookAt(_previewEye, _previewTarget, Vector3(0.0F, 1.0F, 0.0F));
+        Matrix4 view = ::LookAt(_previewEye, _previewTarget, Vector3(0.0F, 1.0F, 0.0F));
         if (!_shaderLocations)
         {
             throw System::NullReferenceException();
@@ -319,6 +322,6 @@ namespace MphRead
         UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
         UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
         Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
-        PolygonMode(FrontAndBack, Fill);
+        Mods::Render::PreviewPassInterop::PolygonMode(FrontAndBack, Fill);
     }
 }

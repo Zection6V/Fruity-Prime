@@ -20,9 +20,6 @@
 #include "../../Metadata/Metadata.hpp"
 #include "../../Scene.hpp"
 
-#include <OpenTK/Graphics/OpenGL/GL.hpp>
-#include <OpenTK/Windowing/Common/ContextFlags.hpp>
-#include <OpenTK/Windowing/Common/ContextProfile.hpp>
 
 #include <algorithm>
 #include <array>
@@ -62,7 +59,7 @@ namespace
             value.X * value.X + value.Y * value.Y + value.Z * value.Z);
     }
 
-    [[nodiscard]] std::string Fixed(double value, std::int32_t digits)
+    [[nodiscard]] std::string FormatFixed(double value, std::int32_t digits)
     {
         std::ostringstream stream;
         stream << std::fixed << std::setprecision(digits) << value;
@@ -369,24 +366,50 @@ namespace
 
 namespace MphRead::Mods::Network
 {
-    OpenTK::Windowing::Desktop::GameWindowSettings NetCheckClient::GameSettings()
+    RendererPlatform::WindowSettings NetCheckClient::GameSettings()
     {
-        OpenTK::Windowing::Desktop::GameWindowSettings settings{};
+        RendererPlatform::WindowSettings settings{};
         settings.UpdateFrequency = 60.0;
         return settings;
     }
 
-    OpenTK::Windowing::Desktop::NativeWindowSettings NetCheckClient::WindowSettings(
+    RendererPlatform::WindowSettings NetCheckClient::WindowSettings(
         std::int32_t width, std::int32_t height)
     {
-        OpenTK::Windowing::Desktop::NativeWindowSettings settings{};
+        RendererPlatform::WindowSettings settings = GameSettings();
         settings.ClientSize = OpenTK::Mathematics::Vector2i(width, height);
         settings.Title = "MphRead net check";
-        settings.Profile = OpenTK::Windowing::Common::ContextProfile::Compatability;
-        settings.Flags = OpenTK::Windowing::Common::ContextFlags::Default;
-        settings.APIVersion = {3, 2};
+        settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
+        settings.Flags = RendererPlatform::WindowSettings::ContextFlags::Default;
+        settings.ApiMajor = 3;
+        settings.ApiMinor = 2;
         settings.StartVisible = false;
         return settings;
+    }
+
+    void NetCheckClient::Run()
+    {
+        _window->Run(*this);
+    }
+
+    void NetCheckClient::Dispose()
+    {
+        _window.reset();
+    }
+
+    OpenTK::Mathematics::Vector2i NetCheckClient::ClientSize() const
+    {
+        return _window->Size();
+    }
+
+    void NetCheckClient::Close()
+    {
+        _window->Close();
+    }
+
+    void NetCheckClient::SwapBuffers()
+    {
+        _window->SwapBuffers();
     }
 
     NetCheckClient::NetCheckClient(
@@ -402,7 +425,7 @@ namespace MphRead::Mods::Network
         double spectateAt,
         double rejoinAt,
         std::int32_t color)
-        : GameWindow(GameSettings(), WindowSettings(width, height)),
+        : _window(RendererPlatform::CreateWindow(WindowSettings(width, height))),
           _name(std::move(name)),
           _shotDirectory(std::move(shotDirectory)),
           _seconds(seconds),
@@ -419,9 +442,9 @@ namespace MphRead::Mods::Network
             remote = std::make_unique<RemoteView>();
         }
         _scene = std::make_unique<MphRead::Scene>(
-            Size,
-            KeyboardState,
-            MouseState,
+            _window->Size(),
+            _window->Keyboard(),
+            _window->Mouse(),
             [](auto&&) {},
             [this]() { Close(); });
         NetLaunch::BuildPlayers(*_scene, hunter, color, GameState::IsTeamMode(mode));
@@ -442,14 +465,14 @@ namespace MphRead::Mods::Network
 
     void NetCheckClient::OnLoad()
     {
-        _scene->Size = ClientSize;
+        _scene->Size(ClientSize());
         _scene->OnLoad();
-        GameWindow::OnLoad();
-        OpenTK::Graphics::OpenGL::GL::Viewport(0, 0, ClientSize.X, ClientSize.Y);
+        _window->BaseOnLoad();
+        OpenTK::Graphics::OpenGL::GL::Viewport(0, 0, ClientSize().X, ClientSize().Y);
         _scene->OnResize();
     }
 
-    void NetCheckClient::OnRenderFrame(OpenTK::Windowing::Common::FrameEventArgs args)
+    void NetCheckClient::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
         GameState::ApplyPause();
         _scene->OnUpdateFrame();
@@ -468,11 +491,11 @@ namespace MphRead::Mods::Network
         {
             const std::string path = PathCombine(
                 *_shotDirectory, _name + "-" + TwoDigits(_shots) + ".png");
-            if (Mods::ScreenCapture::Save(*_scene, path))
+            if (Mods::ScreenCapture::Save(_scene.get(), path))
             {
                 ++_shots;
                 _litFraction = std::max(
-                    _litFraction, Mods::ScreenCapture::NonBlackFraction(*_scene));
+                    _litFraction, Mods::ScreenCapture::NonBlackFraction(_scene.get()));
             }
         }
         if (_shotDirectory.has_value() && _opponentInView && _duelShots < 8
@@ -480,7 +503,7 @@ namespace MphRead::Mods::Network
         {
             const std::string path = PathCombine(
                 *_shotDirectory, _name + "-duel-" + TwoDigits(_duelShots) + ".png");
-            if (Mods::ScreenCapture::Save(*_scene, path))
+            if (Mods::ScreenCapture::Save(_scene.get(), path))
             {
                 ++_duelShots;
                 _lastDuelShotFrame = _frame;
@@ -488,7 +511,7 @@ namespace MphRead::Mods::Network
         }
         SwapBuffers();
         _scene->AfterRenderFrame();
-        GameWindow::OnRenderFrame(args);
+        _window->BaseOnRenderFrame(args);
         if (_frame >= _seconds * 60.0)
         {
             Close();
@@ -578,8 +601,8 @@ namespace MphRead::Mods::Network
         {
             std::cout
                 << "[votetest] " << _name
-                << " sees " << MapVote::Proposer()
-                << " propose " << MapVote::RoomKey()
+                << " sees " << MapVote::Proposer().value_or("")
+                << " propose " << MapVote::RoomKey().value_or("")
                 << " (" << MapVote::Yes() << '/' << MapVote::Needed()
                 << " of " << MapVote::Eligible() << ")\n";
             MapVote::Cast(true);
@@ -619,7 +642,7 @@ namespace MphRead::Mods::Network
     void NetCheckClient::Observe()
     {
         _opponentInView = false;
-        if (_scene->RoomId != _lastRoomId)
+        if (_scene->RoomId() != _lastRoomId)
         {
             if (_lastRoomId != -1)
             {
@@ -634,7 +657,7 @@ namespace MphRead::Mods::Network
                 _lastLocalHealth = -1;
                 _wasAliveLocal = false;
             }
-            _lastRoomId = _scene->RoomId;
+            _lastRoomId = _scene->RoomId();
         }
         SayHello();
         const std::int32_t local = std::max(NetSession::LocalSlot(), 0);
@@ -740,17 +763,17 @@ namespace MphRead::Mods::Network
             if (me && other->Health() > 0 && !_opponentInView)
             {
                 const auto [turnX, turnY] = me->ModAimDeltaTowards(other->ModAimTarget());
-                const float distance = Length(other->Position - me->Position);
+                const float distance = Length(static_cast<OpenTK::Mathematics::Vector3>(other->Position) - static_cast<OpenTK::Mathematics::Vector3>(me->Position));
                 _opponentInView = distance < 25.0F && std::fabs(turnX) < 18.0F
                     && std::fabs(turnY) < 18.0F;
             }
         }
     }
 
-    void NetCheckClient::OnClosing(System::ComponentModel::CancelEventArgs& e)
+    void NetCheckClient::OnClosing()
     {
         _scene->DoCleanup();
-        GameWindow::OnClosing(e);
+        _window->BaseOnClosing();
     }
 
     void NetCheckClient::SayHello()
@@ -797,8 +820,8 @@ namespace MphRead::Mods::Network
     {
         std::cout
             << "  ran " << _frame << " frame(s) in "
-            << Fixed(ElapsedSeconds(), 1) << " s -- "
-            << Fixed(FramesPerSecond(), 1) << " fps\n";
+            << FormatFixed(ElapsedSeconds(), 1) << " s -- "
+            << FormatFixed(FramesPerSecond(), 1) << " fps\n";
         const std::int32_t local = std::max(NetSession::LocalSlot(), 0);
         std::cout << '\n';
         std::cout << "=== " << _name << ": what this client saw ===\n";
@@ -816,8 +839,8 @@ namespace MphRead::Mods::Network
         std::cout << "  " << NetUnlagged::Describe() << '\n';
         std::cout << "  " << NetHitPrediction::Describe() << '\n';
 
-        const std::shared_ptr<RoomMetadata> roomMetadata
-            = Metadata::GetRoomById(_scene->RoomId, true);
+        const RoomMetadata* roomMetadata
+            = Metadata::GetRoomById(_scene->RoomId(), true);
         const std::optional<MatchStatePacket> serverMatch = NetSession::ServerMatch();
         const std::string serverRoom = serverMatch.has_value() && serverMatch->RoomKey.has_value()
             ? *serverMatch->RoomKey
@@ -859,14 +882,14 @@ namespace MphRead::Mods::Network
             std::cout
                 << "  server silence: " << NetSession::ReAnnouncements()
                 << " re-announce(s), longest gap "
-                << Fixed(NetSession::LongestServerSilence(), 1)
+                << FormatFixed(NetSession::LongestServerSilence(), 1)
                 << " s of engine time ("
-                << Fixed(
+                << FormatFixed(
                     NetSession::LongestServerSilence() * 60.0
                         / std::max(FramesPerSecond(), 1.0),
                     1)
                 << " s of wall clock at this client's "
-                << Fixed(FramesPerSecond(), 0) << " fps), "
+                << FormatFixed(FramesPerSecond(), 0) << " fps), "
                 << NetSession::AuthorityStandDowns() << " authority stand-down(s)\n";
         }
         if (pings.tellp() > 0)
@@ -896,9 +919,9 @@ namespace MphRead::Mods::Network
                 << "spawned="
                 << (TestFlag(player->LoadFlags(), LoadFlags::Spawned) ? "y" : "n") << ' '
                 << "hp=" << PadRightManaged(std::to_string(player->Health()), 4) << ' '
-                << "pos=(" << Fixed(player->Position.X, 1)
-                << ',' << Fixed(player->Position.Y, 1)
-                << ',' << Fixed(player->Position.Z, 1) << ")\n";
+                << "pos=(" << FormatFixed(player->Position.X, 1)
+                << ',' << FormatFixed(player->Position.Y, 1)
+                << ',' << FormatFixed(player->Position.Z, 1) << ")\n";
         }
 
         std::cout << "  my player: ";
@@ -938,7 +961,7 @@ namespace MphRead::Mods::Network
                 << " (authority said alt form on " << view.AltFormWantedFrames
                 << ", disagreed on " << view.AltFormDisagreeFrames << ")\n";
             std::cout
-                << "    moved " << Fixed(view.Travelled, 1) << " units over "
+                << "    moved " << FormatFixed(view.Travelled, 1) << " units over "
                 << view.DistinctPositions << " distinct position(s); I saw them hit "
                 << view.Hits << " time(s), killed " << view.Deaths
                 << " time(s), lowest health "
@@ -977,7 +1000,7 @@ namespace MphRead::Mods::Network
                 << OptionalInterpolation(_shotDirectory)
                 << ", of which " << _duelShots
                 << " with an opponent in view, busiest frame "
-                << Fixed(_litFraction * 100.0, 1) << "% lit\n";
+                << FormatFixed(_litFraction * 100.0, 1) << "% lit\n";
         }
         std::int32_t featureFailures = 0;
         const bool featuresOk = _features->Report(featureFailures);
@@ -1019,7 +1042,7 @@ namespace MphRead::Mods::Network
             return 1;
         }
         NetTestScript::Reset();
-        NetTestScript::Enabled(true);
+        NetTestScript::SetEnabled(true);
 
         const auto roomOptional = NetLaunch::ServerRoom();
         const auto [roomKey, roomMode] = roomOptional.value();
@@ -1051,7 +1074,7 @@ namespace MphRead::Mods::Network
                 spectateAt,
                 rejoinAt,
                 NetSession::LocalColor()));
-            window->GameWindow::Run();
+            window->Run();
             window->Report();
             result = window->Passed() && window->_featureFailures == 0 ? 0 : 1;
         }
@@ -1076,7 +1099,7 @@ namespace MphRead::Mods::Network
             const std::optional<std::string> first = DemoClip::Save();
             std::cout
                 << "[netcheck] " << name << " clip held "
-                << Fixed(held, 1) << " s, "
+                << FormatFixed(held, 1) << " s, "
                 << (first.has_value() ? *first : std::string("nothing saved")) << '\n';
             const std::optional<std::string> second = DemoClip::Save();
             std::cout
@@ -1088,7 +1111,7 @@ namespace MphRead::Mods::Network
             window->Dispose();
         }
         SpectatorMode::Reset();
-        NetTestScript::Enabled(false);
+        NetTestScript::SetEnabled(false);
         NetSession::Stop();
         NetLog::Close();
         return result;

@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace System
@@ -23,6 +24,11 @@ namespace System
             : std::invalid_argument("Value does not fall within the expected range.")
         {
         }
+
+        explicit ArgumentException(std::string_view message)
+            : std::invalid_argument(std::string(message))
+        {
+        }
     };
 
     class ArgumentOutOfRangeException final : public std::out_of_range
@@ -32,6 +38,12 @@ namespace System
             : std::out_of_range(
                 "Index was out of range. Must be non-negative and less than the size "
                 "of the collection. (Parameter 'index')")
+        {
+        }
+
+        explicit ArgumentOutOfRangeException(std::string_view paramName)
+            : std::out_of_range("Specified argument was out of the range of valid values. (Parameter '"
+                + std::string(paramName) + "')")
         {
         }
     };
@@ -60,6 +72,63 @@ namespace System
     public:
         OverflowException()
             : std::overflow_error("Value was either too large or too small for an Int32.")
+        {
+        }
+    };
+
+    class UnauthorizedAccessException final : public std::runtime_error
+    {
+    public:
+        explicit UnauthorizedAccessException(std::string message)
+            : std::runtime_error(std::move(message))
+        {
+        }
+    };
+
+    namespace IO
+    {
+        class IOException : public std::runtime_error
+        {
+        public:
+            explicit IOException(std::string message)
+                : std::runtime_error(std::move(message))
+            {
+            }
+        };
+
+        class FileNotFoundException final : public IOException
+        {
+        public:
+            explicit FileNotFoundException(std::string message)
+                : IOException(std::move(message))
+            {
+            }
+        };
+
+        class DirectoryNotFoundException final : public IOException
+        {
+        public:
+            explicit DirectoryNotFoundException(std::string message)
+                : IOException(std::move(message))
+            {
+            }
+        };
+
+        class PathTooLongException final : public IOException
+        {
+        public:
+            explicit PathTooLongException(std::string message)
+                : IOException(std::move(message))
+            {
+            }
+        };
+    }
+
+    class NotImplementedException final : public std::logic_error
+    {
+    public:
+        NotImplementedException()
+            : std::logic_error("The method or operation is not implemented.")
         {
         }
     };
@@ -107,13 +176,26 @@ namespace OpenTK::Mathematics
         {
         }
 
+        [[nodiscard]] constexpr float LengthSquared() const noexcept
+        {
+            return (X * X) + (Y * Y) + (Z * Z);
+        }
+
         [[nodiscard]] Vector3 Normalized() const;
         [[nodiscard]] static Vector3 Cross(Vector3 left, Vector3 right) noexcept;
         [[nodiscard]] static float Dot(Vector3 left, Vector3 right) noexcept;
         [[nodiscard]] static float Distance(Vector3 left, Vector3 right);
 
         static const Vector3 Zero;
+        static const Vector3 UnitX;
+        static const Vector3 UnitY;
+        static const Vector3 UnitZ;
     };
+
+    [[nodiscard]] constexpr Vector3 operator-(Vector3 value) noexcept
+    {
+        return Vector3(-value.X, -value.Y, -value.Z);
+    }
 
     [[nodiscard]] constexpr Vector3 operator+(Vector3 left, Vector3 right) noexcept
     {
@@ -338,6 +420,7 @@ namespace MphRead
         }
 
         [[nodiscard]] std::size_t Length() const noexcept { return _values.size(); }
+        [[nodiscard]] const T* Data() const noexcept { return _values.data(); }
         [[nodiscard]] T& operator[](std::size_t index) { return _values.at(index); }
         [[nodiscard]] const T& operator[](std::size_t index) const { return _values.at(index); }
 

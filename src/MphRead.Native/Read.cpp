@@ -1,6 +1,7 @@
 #include "Read.hpp"
 
 #include "Export/Collada.hpp"
+#include "Formats/EntityEnemy.hpp"
 #include "Metadata/Rooms.hpp"
 #include "Mods/Headless.hpp"
 #include "Program.hpp"
@@ -154,7 +155,7 @@ namespace MphRead
         [[nodiscard]] const ModelMetadata* GetModelByName(
             std::string_view name, MetaDir dir = MetaDir::Models) noexcept;
         [[nodiscard]] const ModelMetadata* GetFirstHuntModelByName(std::string_view name) noexcept;
-        [[nodiscard]] std::pair<const RoomMetadata*, int> GetRoomByName(std::string_view name);
+        [[nodiscard]] std::pair<const ::MphRead::RoomMetadata*, int> GetRoomByName(std::string_view name);
     }
 
     namespace Mods
@@ -218,7 +219,7 @@ namespace
         return cache;
     }
 
-    [[nodiscard]] EffectCache& Effects()
+    [[nodiscard]] EffectCache& EffectsCache()
     {
         static EffectCache cache;
         return cache;
@@ -487,7 +488,7 @@ namespace MphRead
     {
         Models().clear();
         FhModels().clear();
-        Effects().clear();
+        EffectsCache().clear();
         Particles().clear();
     }
 
@@ -1468,8 +1469,8 @@ namespace MphRead
 
     std::shared_ptr<Effect> Read::GetEffect(std::int32_t id)
     {
-        const auto iterator = Effects().find(id);
-        return iterator == Effects().end() ? nullptr : iterator->second;
+        const auto iterator = EffectsCache().find(id);
+        return iterator == EffectsCache().end() ? nullptr : iterator->second;
     }
 
     std::shared_ptr<Effect> Read::LoadEffect(std::int32_t id, bool persistent)
@@ -1507,8 +1508,8 @@ namespace MphRead
     {
         if (id != -1)
         {
-            const auto iterator = Effects().find(id);
-            if (iterator != Effects().end())
+            const auto iterator = EffectsCache().find(id);
+            if (iterator != EffectsCache().end())
             {
                 return iterator->second;
             }
@@ -1570,7 +1571,7 @@ namespace MphRead
         auto effect = std::make_shared<Effect>(id, rawEffect, funcs, list2, elements, path);
         if (id != -1)
         {
-            if (!Effects().emplace(id, effect).second)
+            if (!EffectsCache().emplace(id, effect).second)
             {
                 throw std::invalid_argument("An item with the same key has already been added.");
             }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../Renderer.hpp"
+
 #include "../../Formats/Culling.hpp"
 #include "../../Formats/Enums.hpp"
 #include "../../Formats/Types.hpp"
@@ -7,11 +9,6 @@
 #include "../../Entities/EntityBase.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 
-#include <OpenTK/Mathematics/Vector2i.hpp>
-#include <OpenTK/Windowing/Common/FrameEventArgs.hpp>
-#include <OpenTK/Windowing/Desktop/GameWindow.hpp>
-#include <OpenTK/Windowing/Desktop/GameWindowSettings.hpp>
-#include <OpenTK/Windowing/Desktop/NativeWindowSettings.hpp>
 
 #include <array>
 #include <cstdint>
@@ -23,16 +20,11 @@
 #include <utility>
 #include <vector>
 
-namespace System::ComponentModel
-{
-    class CancelEventArgs;
-}
-
 namespace MphRead
 {
     class CollisionVolume;
     class Scene;
-    enum class GameMode : std::int32_t;
+    enum class GameMode : std::uint8_t;
 
     namespace Entities
     {
@@ -43,8 +35,20 @@ namespace MphRead
 
 namespace MphRead::Mods::Network
 {
-    class MapAudit final : public OpenTK::Windowing::Desktop::GameWindow
+    class MapAudit final : public MphRead::RendererPlatform::WindowEvents
     {
+    private:
+        std::shared_ptr<MphRead::RendererPlatform::Window> _window;
+
+        [[nodiscard]] OpenTK::Mathematics::Vector2i ClientSize() const;
+        void Close();
+        void SwapBuffers();
+
+    public:
+        void Run();
+        // GameWindow.Dispose: releases the window; the object stays usable.
+        void Dispose();
+
     private:
         std::string _room;
         std::int32_t _players;
@@ -144,8 +148,8 @@ namespace MphRead::Mods::Network
 
         std::int32_t _drawAdvancedTheGame = 0;
 
-        static OpenTK::Windowing::Desktop::GameWindowSettings GameSettings();
-        static OpenTK::Windowing::Desktop::NativeWindowSettings WindowSettings();
+        static MphRead::RendererPlatform::WindowSettings GameSettings();
+        static MphRead::RendererPlatform::WindowSettings WindowSettings();
 
         static bool _showWindow;
         static std::int32_t _drawRate;
@@ -194,7 +198,7 @@ namespace MphRead::Mods::Network
 
     protected:
         void OnLoad() override;
-        void OnRenderFrame(OpenTK::Windowing::Common::FrameEventArgs args) override;
+        void OnRenderFrame(const MphRead::RendererPlatform::FrameEventArgs& args) override;
 
     private:
         void Drive();
@@ -220,7 +224,7 @@ namespace MphRead::Mods::Network
         void SampleRender();
 
     protected:
-        void OnClosing(System::ComponentModel::CancelEventArgs& e) override;
+        void OnClosing() override;
 
     private:
         [[nodiscard]] std::int32_t Report();

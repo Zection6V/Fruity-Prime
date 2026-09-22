@@ -46,6 +46,17 @@
 #include "Mods/Network/NetSession.hpp"
 #include "Mods/Render/Crosshair.hpp"
 #include "Mods/Render/FrameTiming.hpp"
+#include "Export/Images.hpp"
+#include "Features.hpp"
+#include "Formats/Collision.hpp"
+#include "Formats/CollisionDetection.hpp"
+#include "Menu.hpp"
+#include "Mods/DebugLog.hpp"
+#include "Mods/Input/GamepadDesktop.hpp"
+#include "Mods/Launcher/Portable/LauncherPrefs.hpp"
+#include "Mods/Network/MapVote.hpp"
+#include "Mods/PauseMenu.hpp"
+#include "Mods/WindowMode.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -73,6 +84,9 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+// <windows.h> function-like macros that collide with names used below.
+#undef CreateWindow
+#undef SendMessage
 #else
 #include <dlfcn.h>
 #endif
@@ -82,6 +96,7 @@ using OpenTK::Mathematics::Vector2;
 using OpenTK::Mathematics::Vector2i;
 using OpenTK::Mathematics::Vector3;
 using OpenTK::Mathematics::Vector4;
+namespace GL = OpenTK::Graphics::OpenGL::GL;
 
 #if defined(DEBUG)
 #define MPHREAD_DEBUG_ASSERT(condition) \
@@ -1599,7 +1614,7 @@ namespace
     {
         [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
         {
-            return Matrix::Multiply44(left, right);
+            return MphRead::Matrix::Multiply44(left, right);
         }
 
         [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
@@ -1634,7 +1649,7 @@ namespace
 
         [[nodiscard]] Matrix4 CreateTranslation(Vector3 value) noexcept
         {
-            Matrix4 result = RendererDetail::IdentityMatrix();
+            Matrix4 result = MphRead::RendererDetail::IdentityMatrix();
             result.M41 = value.X;
             result.M42 = value.Y;
             result.M43 = value.Z;
@@ -2040,6 +2055,83 @@ namespace
 
 namespace MphRead
 {
+    using Entities::LoadFlags;
+    using Export::Images;
+    using Formats::CollisionDetection;
+    using Formats::TestFlags;
+
+    template <typename T>
+    [[nodiscard]] T& Deref(const std::shared_ptr<T>& value)
+    {
+        if (!value)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    // Path.GetFileName: everything after the last directory separator.
+    [[nodiscard]] std::string PathGetFileName(const std::string& path)
+    {
+        std::size_t root = 0;
+#if defined(_WIN32)
+        if (path.size() >= 2 && path[1] == ':'
+            && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')))
+        {
+            root = 2;
+        }
+#endif
+        for (std::size_t i = path.size(); i > root; --i)
+        {
+            const char c = path[i - 1];
+#if defined(_WIN32)
+            if (c == '\\' || c == '/')
+#else
+            if (c == '/')
+#endif
+            {
+                return path.substr(i);
+            }
+        }
+        return path.substr(root);
+    }
+
+    // WindowStartMode.ToString().
+    [[nodiscard]] std::string WindowStartModeName(Mods::WindowStartMode mode)
+    {
+        switch (mode)
+        {
+        case Mods::WindowStartMode::Windowed:
+            return "Windowed";
+        case Mods::WindowStartMode::BorderlessFullscreen:
+            return "BorderlessFullscreen";
+        }
+        return std::to_string(static_cast<std::int32_t>(mode));
+    }
+
+    [[nodiscard]] StorySave& RequireStorySave()
+    {
+        if (!GameState::StorySave)
+        {
+            throw System::NullReferenceException();
+        }
+        return *GameState::StorySave;
+    }
+
+    template <typename T>
+    [[nodiscard]] T& ManagedElement(const std::shared_ptr<ManagedArray<T>>& array, std::int32_t index)
+    {
+        if (!array)
+        {
+            throw System::NullReferenceException();
+        }
+        if (index < 0 || static_cast<std::size_t>(index) >= array->Length())
+        {
+            throw SceneDetail::IndexOutOfRangeException();
+        }
+        return (*array)[static_cast<std::size_t>(index)];
+    }
+
     using Effects::EffectEntry;
     using Effects::EffectElementEntry;
     using Effects::EffectParticle;
@@ -2082,7 +2174,7 @@ namespace MphRead
     bool Scene::ShowCursor() const
     {
         const auto main = Entities::PlayerEntity::Main();
-        return main && main->Flags1().TestFlag(PlayerFlags1::WeaponMenuOpen);
+        return main && TypeExtensions::TestFlag(main->Flags1(), Entities::PlayerFlags1::WeaponMenuOpen);
     }
     MphRead::Formats::Culling::FrustumInfo& Scene::FrustumInfo() const { return *_frustumInfo; }
     bool Scene::FrameAdvance() const noexcept { return _frameAdvanceOn; }
@@ -2154,15 +2246,20 @@ namespace MphRead
             + " players=" + std::to_string(playerCount) + " layers=" + std::to_string(nodeLayerMask)
             + "/" + std::to_string(entityLayerId));
         [[maybe_unused]] auto loadStep = Mods::DebugLog::Step("room", "load \"" + name + "\"");
-        auto loaded = SceneSetup::LoadGame(name, *this, playerCount, bossFlags, nodeLayerMask, entityLayerId);
-        auto room = loaded.Room;
-        const auto& meta = loaded.Meta;
-        const auto& entities = loaded.Entities;
+        auto [room, metaRef, collision, entitiesRef]
+            = SceneSetup::LoadGame(name, this, playerCount, bossFlags, nodeLayerMask, entityLayerId);
+        (void)collision;
+        if (metaRef == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        const RoomMetadata& meta = *metaRef;
+        const auto& entities = Deref(entitiesRef);
         Mods::DebugLog::Line("room", "\"" + name + "\" read: " + std::to_string(entities.size())
             + " entit(ies), id=" + std::to_string(RoomId()) + ", area=" + std::to_string(AreaId()));
-        GameState::StorySave().SetVisitedRoom(_roomId);
-        GameState::StorySave().Areas = static_cast<std::uint16_t>(
-            GameState::StorySave().Areas | static_cast<std::uint16_t>(1U << _areaId));
+        RequireStorySave().SetVisitedRoom(_roomId);
+        RequireStorySave().Areas = static_cast<std::uint16_t>(
+            RequireStorySave().Areas | static_cast<std::uint16_t>(1U << _areaId));
         if (GameState::Mode() == GameMode::None)
         {
             GameState::Mode(meta.Multiplayer ? GameMode::Battle : GameMode::SinglePlayer);
@@ -2182,11 +2279,11 @@ namespace MphRead
             InitEntity(entity);
             entity->Initialized = false;
         }
-        SceneSetup::LoadItemResources(*this);
-        SceneSetup::LoadObjectResources(*this);
-        SceneSetup::LoadPlatformResources(*this);
-        SceneSetup::LoadEnemyResources(*this);
-        GameState::Setup(*this);
+        SceneSetup::LoadItemResources(this);
+        SceneSetup::LoadObjectResources(this);
+        SceneSetup::LoadPlatformResources(this);
+        SceneSetup::LoadEnemyResources(this);
+        GameState::Setup(this);
         Entities::PlayerEntity::PlayerAiData::InitializeGlobals();
         if (GameState::Multiplayer())
         {
@@ -2250,7 +2347,7 @@ namespace MphRead
         _fogSlope = meta.FogSlope;
         if (meta.ClearFog && meta.FirstHunt)
         {
-            _clearColor = Color4(_fogColor.X, _fogColor.Y, _fogColor.Z, _fogColor.W);
+            _clearColor = Vector4(_fogColor.X, _fogColor.Y, _fogColor.Z, _fogColor.W);
         }
         _killHeight = meta.KillHeight;
         _farClip = meta.FarClip;
@@ -2362,7 +2459,7 @@ namespace MphRead
         CollisionDetection::Init();
         for (std::int32_t i = 0; i < _renderItemAlloc; ++i)
         {
-            _freeRenderItems.push(std::make_shared<RenderItem>());
+            _freeRenderItems.push(std::make_shared<MphRead::RenderItem>());
         }
         auto e = Entities().GetEnumerator();
         while (e.MoveNext())
@@ -2443,10 +2540,10 @@ namespace MphRead
         std::string fragmentLog;
         std::string vertexLog;
         std::int32_t vertexShader = GL::CreateShader(GL::ShaderType::VertexShader);
-        GL::ShaderSource(vertexShader, Shaders::VertexShader());
+        GL::ShaderSource(vertexShader, Shaders::VertexShader);
         GL::CompileShader(vertexShader);
         std::int32_t fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::FragmentShader());
+        GL::ShaderSource(fragmentShader, Shaders::FragmentShader);
         GL::CompileShader(fragmentShader);
         std::int32_t vertexStatus = 0;
         std::int32_t fragmentStatus = 0;
@@ -2476,10 +2573,10 @@ namespace MphRead
         GL::DeleteShader(vertexShader);
 
         vertexShader = GL::CreateShader(GL::ShaderType::VertexShader);
-        GL::ShaderSource(vertexShader, Shaders::RttVertexShader());
+        GL::ShaderSource(vertexShader, Shaders::RttVertexShader);
         GL::CompileShader(vertexShader);
         fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::RttFragmentShader());
+        GL::ShaderSource(fragmentShader, Shaders::RttFragmentShader);
         GL::CompileShader(fragmentShader);
         GL::GetShader(vertexShader, GL::ShaderParameter::CompileStatus, vertexStatus);
         GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
@@ -2505,7 +2602,7 @@ namespace MphRead
         GL::DeleteShader(fragmentShader);
 
         fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::ShiftFragmentShader());
+        GL::ShaderSource(fragmentShader, Shaders::ShiftFragmentShader);
         GL::CompileShader(fragmentShader);
         GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
         if (NativeRuntime::DebuggerAttached())
@@ -2529,7 +2626,7 @@ namespace MphRead
         GL::DeleteShader(fragmentShader);
 
         fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::CelFragmentShader());
+        GL::ShaderSource(fragmentShader, Shaders::CelFragmentShader);
         GL::CompileShader(fragmentShader);
         GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
         if (fragmentStatus == 0)
@@ -2749,7 +2846,7 @@ namespace MphRead
             switch (instruction.Code)
             {
             case InstructionCode::BEGIN_VTXS:
-                switch (instruction.Arguments[0])
+                switch (Deref(instruction.Arguments).at(static_cast<std::size_t>(0)))
                 {
                 case 0: GL::Begin(GL::PrimitiveType::Triangles); break;
                 case 1: GL::Begin(GL::PrimitiveType::Quads); break;
@@ -2760,14 +2857,14 @@ namespace MphRead
                 break;
             case InstructionCode::COLOR:
             {
-                const std::uint32_t rgb = instruction.Arguments[0];
+                const std::uint32_t rgb = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
                 GL::Color3(((rgb >> 0) & 0x1F) / 31.0F,
                     ((rgb >> 5) & 0x1F) / 31.0F, ((rgb >> 10) & 0x1F) / 31.0F);
                 break;
             }
             case InstructionCode::DIF_AMB:
             {
-                const std::uint32_t rgb = instruction.Arguments[0];
+                const std::uint32_t rgb = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
                 const std::uint32_t dr = (rgb >> 0) & 0x1F;
                 const std::uint32_t dg = (rgb >> 5) & 0x1F;
                 const std::uint32_t db = (rgb >> 10) & 0x1F;
@@ -2788,7 +2885,7 @@ namespace MphRead
             }
             case InstructionCode::NORMAL:
             {
-                const std::uint32_t xyz = instruction.Arguments[0];
+                const std::uint32_t xyz = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
                 auto sx10 = [](std::uint32_t v)
                 {
                     std::int32_t n = static_cast<std::int32_t>(v & 0x3FFU);
@@ -2801,7 +2898,7 @@ namespace MphRead
             case InstructionCode::TEXCOORD:
             {
                 MPHREAD_DEBUG_ASSERT(textureWidth > 0 && textureHeight > 0);
-                const std::uint32_t st = instruction.Arguments[0];
+                const std::uint32_t st = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
                 auto sx16 = [](std::uint32_t v)
                 {
                     std::int32_t n = static_cast<std::int32_t>(v & 0xFFFFU);
@@ -2821,10 +2918,10 @@ namespace MphRead
                     if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
                     return n;
                 };
-                const std::uint32_t xy = instruction.Arguments[0];
+                const std::uint32_t xy = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
                 vtxX = Fixed::ToFloat(sx16(xy));
                 vtxY = Fixed::ToFloat(sx16(xy >> 16));
-                vtxZ = Fixed::ToFloat(sx16(instruction.Arguments[1]));
+                vtxZ = Fixed::ToFloat(sx16(Deref(instruction.Arguments).at(static_cast<std::size_t>(1))));
                 GL::Vertex3(vtxX, vtxY, vtxZ);
                 break;
             }
@@ -2836,7 +2933,7 @@ namespace MphRead
                     if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
                     return n;
                 };
-                const std::uint32_t xyz = instruction.Arguments[0];
+                const std::uint32_t xyz = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
                 vtxX = sx10(xyz) / 64.0F;
                 vtxY = sx10(xyz >> 10) / 64.0F;
                 vtxZ = sx10(xyz >> 20) / 64.0F;
@@ -2853,7 +2950,7 @@ namespace MphRead
                     if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
                     return n;
                 };
-                const std::uint32_t pair = instruction.Arguments[0];
+                const std::uint32_t pair = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
                 if (instruction.Code == InstructionCode::VTX_XY)
                 {
                     vtxX = Fixed::ToFloat(sx16(pair));
@@ -2880,7 +2977,7 @@ namespace MphRead
                     if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
                     return n;
                 };
-                const std::uint32_t xyz = instruction.Arguments[0];
+                const std::uint32_t xyz = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
                 vtxX += Fixed::ToFloat(sx10(xyz));
                 vtxY += Fixed::ToFloat(sx10(xyz >> 10));
                 vtxZ += Fixed::ToFloat(sx10(xyz >> 20));
@@ -2889,7 +2986,7 @@ namespace MphRead
             }
             case InstructionCode::END_VTXS: GL::End(); break;
             case InstructionCode::MTX_RESTORE:
-                if (!isRoom) matrixId = instruction.Arguments[0];
+                if (!isRoom) matrixId = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
                 GL::TexCoord3(texX, texY, matrixId);
                 break;
             case InstructionCode::NOP: break;
@@ -3157,7 +3254,7 @@ namespace MphRead
             Entities::PlayerEntity::ProcessInput(*_keyboardState, *_mouseState, noPlayerInput);
             if (!noPlayerInput && !Mods::SpectatorMode::IsSpectating())
             {
-                Mods::Input::GamepadInput::Apply(*Entities::PlayerEntity::Main());
+                Mods::Input::GamepadInput::Apply(Entities::PlayerEntity::Main().get());
             }
             Mods::Network::NetHooks::AfterInput(*this);
             if (_room) _room->UpdateTransition();
@@ -3165,7 +3262,7 @@ namespace MphRead
         OnKeyHeld();
         if (ProcessFrame() && _room)
         {
-            GameState::ProcessFrame(*this);
+            GameState::ProcessFrame(this);
             ModStepPreview();
             if (GameState::MatchState() == MatchState::InProgress && !GameState::MenuPause())
             {
@@ -3196,13 +3293,13 @@ namespace MphRead
             if (!GameState::DialogPause() && !GameState::MenuPause())
             {
                 ++_frameCount;
-                GameState::UpdateTime(*this);
+                GameState::UpdateTime(this);
                 if (_movieFrameIndex != -1) UpdateMovie();
             }
         }
         _frameAdvanceLastFrame = _frameAdvanceOn;
-        _pendingEffectSteps = std::min(_pendingEffectSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps());
-        _pendingFadeSteps = std::min(_pendingFadeSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps());
+        _pendingEffectSteps = std::min(_pendingEffectSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
+        _pendingFadeSteps = std::min(_pendingFadeSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
         if (Mods::Headless::Active()) ModStepDrawPassTimers();
     }
 
@@ -3268,7 +3365,7 @@ namespace MphRead
         _perspectiveMatrix = GetPerspectiveMatrix(_cameraFov);
         GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
         auto main = Entities::PlayerEntity::Main();
-        const Vector3 camPos = main->CameraInfo().Position;
+        const Vector3 camPos = Deref(main->CameraInfo()).Position;
         const Vector3 camRight(_viewMatrix.M11, _viewMatrix.M12, -_viewMatrix.M13);
         const Vector3 camUp(_viewMatrix.M21, _viewMatrix.M22, -_viewMatrix.M23);
         const Vector3 camFacing(_viewMatrix.M31, _viewMatrix.M32, -_viewMatrix.M33);
@@ -3648,7 +3745,7 @@ namespace MphRead
             GL::Uniform1(_shaderLocations->LerpFactor, factor);
             GL::Uniform1(_shaderLocations->WhiteoutFactor, main->HudWhiteoutFactor());
             if (main->HudWhiteoutFactor() != 0.0F)
-                GL::Uniform1(_shaderLocations->WhiteoutTable, 192, Entities::PlayerEntity::HudWhiteoutTable().data());
+                GL::Uniform1(_shaderLocations->WhiteoutTable, 192, Entities::PlayerEntity::HudWhiteoutTable.data());
         }
         GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
         GL::Viewport(0, 0, _rendererSize.X, _rendererSize.Y);
@@ -3740,7 +3837,7 @@ namespace MphRead
                 continue;
             }
             bool stillUsed = false;
-            for (auto iterator = Entities(); auto enumerator = iterator.GetEnumerator(); enumerator.MoveNext();)
+            for (auto enumerator = Entities().GetEnumerator(); enumerator.MoveNext();)
             {
                 for (const auto& otherInst : enumerator.Current()->GetModels())
                 {
@@ -3802,8 +3899,8 @@ namespace MphRead
             if (_cameraMode == MphRead::CameraMode::Player)
             {
                 const auto main = Entities::PlayerEntity::Main();
-                _viewMatrix = main->CameraInfo().ViewMatrix;
-                const float fov = main->CameraInfo().Fov > 0.0F ? main->CameraInfo().Fov : 78.0F;
+                _viewMatrix = Deref(main->CameraInfo()).ViewMatrix;
+                const float fov = Deref(main->CameraInfo()).Fov > 0.0F ? Deref(main->CameraInfo()).Fov : 78.0F;
                 _cameraFov = DegreesToRadians(fov);
             }
             else
@@ -3849,7 +3946,7 @@ namespace MphRead
         }
         else if (_cameraMode == MphRead::CameraMode::Player)
         {
-            _cameraPosition = Entities::PlayerEntity::Main()->CameraInfo().Position;
+            _cameraPosition = Deref(Entities::PlayerEntity::Main()->CameraInfo()).Position;
         }
     }
 
@@ -4064,7 +4161,7 @@ namespace MphRead
         for (std::size_t i = 0; i < entry->Elements->size(); ++i)
         {
             auto element = entry->Elements->at(i);
-            if (TestFlag(element->Flags, EffElemFlags::DestroyOnDetach))
+            if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::DestroyOnDetach))
             {
                 UnlinkEffectElement(element);
             }
@@ -4230,7 +4327,7 @@ namespace MphRead
                 element->EffectEntry = entry;
                 entry->Elements->push_back(element);
             }
-            if (TestFlag(element->Flags, EffElemFlags::SpawnUnitVecs))
+            if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::SpawnUnitVecs))
             {
                 const Vector3 vec1(0.0F, 1.0F, 0.0F);
                 const Vector3 vec2(1.0F, 0.0F, 0.0F);
@@ -4314,7 +4411,7 @@ namespace MphRead
             auto element = _activeElements[static_cast<std::size_t>(i)];
             if (!element->Expired && _elapsedTime > element->ExpirationTime)
             {
-                if (!element->EffectEntry && !TestFlag(element->Flags, EffElemFlags::KeepAlive))
+                if (!element->EffectEntry && !TypeExtensions::TestFlag(element->Flags, EffElemFlags::KeepAlive))
                 {
                     UnlinkEffectElement(element);
                     --i;
@@ -4334,7 +4431,7 @@ namespace MphRead
             }
             else
             {
-                if (TestFlag(element->Flags, EffElemFlags::ElementExtension)
+                if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::ElementExtension)
                     && _elapsedTime - element->CreationTime > element->BufferTime)
                 {
                     element->CreationTime += element->BufferTime - element->DrainTime;
@@ -4379,7 +4476,7 @@ namespace MphRead
                         particle->InvokeVecFunc(info->second, times, temp);
                         particle->Speed = temp;
                     }
-                    if (!TestFlag(element->Flags, EffElemFlags::UseTransform))
+                    if (!TypeExtensions::TestFlag(element->Flags, EffElemFlags::UseTransform))
                     {
                         particle->Position = Matrix::Vec3MultMtx4(particle->Position, element->Transform);
                         particle->Speed = Matrix::Vec3MultMtx3(particle->Speed, element->Transform);
@@ -4459,8 +4556,8 @@ namespace MphRead
             for (std::int32_t j = 0; j < static_cast<std::int32_t>(element->Particles->size()); ++j)
             {
                 auto particle = element->Particles->at(static_cast<std::size_t>(j));
-                if (TestFlag(element->Flags, EffElemFlags::ElementExtension)
-                    && TestFlag(element->Flags, EffElemFlags::ParticleExtension)
+                if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::ElementExtension)
+                    && TypeExtensions::TestFlag(element->Flags, EffElemFlags::ParticleExtension)
                     && _elapsedTime - particle->CreationTime > element->BufferTime)
                 {
                     particle->CreationTime += element->BufferTime - element->DrainTime;
@@ -4508,7 +4605,7 @@ namespace MphRead
                     }
                     updateFloat(FuncAction::SetParticleScale, particle->Scale);
                     updateFloat(FuncAction::SetParticleRotation, particle->Rotation);
-                    if (TestFlag(element->Flags, EffElemFlags::UseAcceleration))
+                    if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::UseAcceleration))
                     {
                         particle->Speed = Vector3(
                             particle->Speed.X + element->Acceleration.X * (1.0F / 60.0F),
@@ -4520,11 +4617,11 @@ namespace MphRead
                         particle->Position.X + particle->Speed.X * (1.0F / 60.0F),
                         particle->Position.Y + particle->Speed.Y * (1.0F / 60.0F),
                         particle->Position.Z + particle->Speed.Z * (1.0F / 60.0F));
-                    if (TestFlag(element->Flags, EffElemFlags::CheckCollision))
+                    if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::CheckCollision))
                     {
-                        Formats::Collision::CollisionResult result{};
+                        Formats::CollisionResult result{};
                         if (CollisionDetection::CheckBetweenPoints(prevPos, particle->Position,
-                            TestFlags::None, *this, result))
+                            TestFlags::None, this, result))
                         {
                             particle->Position = result.Position;
                             particle->ExpirationTime = _elapsedTime;
@@ -4533,7 +4630,7 @@ namespace MphRead
                 }
                 else
                 {
-                    if (TestFlag(element->Flags, EffElemFlags::SpawnChildEffect) && element->ChildEffectId != 0)
+                    if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::SpawnChildEffect) && element->ChildEffectId != 0)
                     {
                         Vector3 vec1 = Negate(particle->Speed).Normalized();
                         Vector3 vec2 = (vec1.Z <= Fixed::ToFloat(-3686) || vec1.Z >= Fixed::ToFloat(3686))
@@ -4559,7 +4656,7 @@ namespace MphRead
             _freeRenderItems.pop();
             return item;
         }
-        return std::make_shared<RenderItem>();
+        return std::make_shared<MphRead::RenderItem>();
     }
 
     void Scene::AddRenderItem(const Material& material, std::int32_t polygonId, float alphaScale,
@@ -4757,7 +4854,7 @@ namespace MphRead
         AddRenderItem(item);
     }
 
-    void Scene::AddRenderItem(const std::shared_ptr<RenderItem>& item)
+    void Scene::AddRenderItem(const std::shared_ptr<MphRead::RenderItem>& item)
     {
         if (_collectingPreview)
         {
@@ -4811,7 +4908,7 @@ namespace MphRead
                 break;
             }
             InitializeEntity(entity);
-            SceneSetup::LoadEntityResources(entity, *this);
+            SceneSetup::LoadEntityResources(entity, this);
         }
     }
 
@@ -4837,7 +4934,7 @@ namespace MphRead
                 auto entity = enumerator.Current();
                 if (entity->Initialized && !entity->Process())
                 {
-                    SendMessage(Message::Destroyed, entity, nullptr, 0, 0, 1);
+                    SendMessage(Message::Destroyed, entity.get(), nullptr, 0, 0, 1);
                     entity->Destroy();
                     RemoveEntity(entity);
                 }
@@ -4858,7 +4955,7 @@ namespace MphRead
             {
                 main->ProcessModeHud();
             }
-            GameState::UpdateFrame(*this);
+            GameState::UpdateFrame(this);
             GameState::UpdateState();
         }
         else if (GameState::SinglePlayer())
@@ -4867,7 +4964,7 @@ namespace MphRead
             {
                 main->UpdateDialogs();
             }
-            GameState::UpdateFrame(*this);
+            GameState::UpdateFrame(this);
         }
     }
 
@@ -4929,19 +5026,19 @@ namespace MphRead
         _pendingEffectSteps = 0;
         for (const auto& element : _activeElements)
         {
-            if (TestFlag(element->Flags, EffElemFlags::DrawEnabled))
+            if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::DrawEnabled))
             {
                 for (const auto& particle : *element->Particles)
                 {
                     Matrix4 matrix = _viewMatrix;
-                    if (TestFlag(particle->Owner->Flags, EffElemFlags::UseTransform)
-                        && !TestFlag(particle->Owner->Flags, EffElemFlags::UseMesh))
+                    if (TypeExtensions::TestFlag(particle->Owner->Flags, EffElemFlags::UseTransform)
+                        && !TypeExtensions::TestFlag(particle->Owner->Flags, EffElemFlags::UseMesh))
                     {
                         matrix = Matrix::Multiply44(particle->Owner->Transform, matrix);
                     }
                     particle->InvokeSetVecsFunc(matrix);
                     particle->InvokeDrawFunc(1);
-                    if (particle->ShouldDraw)
+                    if (particle->ShouldDraw())
                     {
                         particle->AddRenderItem(this);
                     }
@@ -4955,7 +5052,7 @@ namespace MphRead
         for (std::int32_t i = 0; i < _singleParticleCount; ++i)
         {
             auto single = _singleParticles[static_cast<std::size_t>(i)];
-            if (single->ShouldDraw)
+            if (single->ShouldDraw())
             {
                 single->AddRenderItem(this);
             }
@@ -5002,8 +5099,8 @@ namespace MphRead
     }
 
     void Scene::StartMovies(Movie movieId, Movie afterMovieId,
-        FadeType fadeToMovieType, float fadeToMovieLength,
-        FadeType fadeFromMovieType, float fadeFromMovieLength,
+        MphRead::FadeType fadeToMovieType, float fadeToMovieLength,
+        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength,
         AfterMovie afterMovieAction)
     {
         _movieSettings.MovieId = movieId;
@@ -5028,8 +5125,8 @@ namespace MphRead
         SetFade(fadeToMovieType, fadeToMovieLength, true, AfterFade::PlayMovie);
     }
 
-    void Scene::StartMovie(Movie movieId, FadeType fadeToMovieType, float fadeToMovieLength,
-        FadeType fadeFromMovieType, float fadeFromMovieLength,
+    void Scene::StartMovie(Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength,
+        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength,
         std::optional<Vector3> afterPosition, std::optional<Vector3> afterFacing,
         std::optional<Movie> afterMovieId, AfterMovie afterMovieAction)
     {
@@ -5055,8 +5152,8 @@ namespace MphRead
         SetFade(fadeToMovieType, fadeToMovieLength, true, AfterFade::PlayMovie);
     }
 
-    void Scene::StartMovie(Movie movieId, FadeType fadeToMovieType, float fadeToMovieLength,
-        FadeType fadeFromMovieType, float fadeFromMovieLength, AfterMovie afterMovieAction)
+    void Scene::StartMovie(Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength,
+        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, AfterMovie afterMovieAction)
     {
         StartMovie(movieId, fadeToMovieType, fadeToMovieLength,
             fadeFromMovieType, fadeFromMovieLength, std::nullopt, std::nullopt,
@@ -5149,12 +5246,12 @@ namespace MphRead
         DoCleanup();
         if (GameState::SinglePlayer())
         {
-            Menu::NeededSave(enteringShip ? Menu::SaveFromShip : Menu::SaveFromExit);
+            Menu::NeededSave = enteringShip ? Menu::SaveFromShip : Menu::SaveFromExit;
             if (enteringShip)
             {
-                GameState::StorySave().Health = GameState::StorySave().HealthMax;
-                GameState::StorySave().Ammo[0] = GameState::StorySave().AmmoMax[0];
-                GameState::StorySave().Ammo[1] = GameState::StorySave().AmmoMax[1];
+                RequireStorySave().Health = RequireStorySave().HealthMax;
+                ManagedElement(RequireStorySave().Ammo, 0) = ManagedElement(RequireStorySave().AmmoMax, 0);
+                ManagedElement(RequireStorySave().Ammo, 1) = ManagedElement(RequireStorySave().AmmoMax, 1);
             }
         }
         _close();
@@ -5175,7 +5272,7 @@ namespace MphRead
             OutputStop();
             if (_decoderCts)
             {
-                _decoderCts->Cancel();
+                _decoderCts->request_stop();
             }
             Selection::Clear();
         }
@@ -5237,7 +5334,7 @@ namespace MphRead
         UseLight2(item->LightInfo.Light2Vector, item->LightInfo.Light2Color);
         if (item->MatrixStackCount > 0)
         {
-            GL::UniformMatrix4(_shaderLocations->MatrixStack, item->MatrixStackCount, false, *item->MatrixStack);
+            GL::UniformMatrix4(_shaderLocations->MatrixStack, item->MatrixStackCount, false, Deref(item->MatrixStack).Data());
         }
         else
         {
@@ -5583,8 +5680,8 @@ namespace MphRead
             GL::End();
         }
         const auto ring = Mods::Render::Crosshair::RingOf(style, scale);
-        const float radius = ring.first;
-        const float thickness = ring.second;
+        const float radius = std::get<0>(ring);
+        const float thickness = std::get<1>(ring);
         if (thickness > 0.0F)
         {
             constexpr std::int32_t segments = 40;
@@ -5952,8 +6049,8 @@ namespace MphRead
             return;
         }
         const auto main = Entities::PlayerEntity::Main();
-        _cameraPosition = main->CameraInfo().Position;
-        _cameraFacing = main->CameraInfo().Facing;
+        _cameraPosition = Deref(main->CameraInfo()).Position;
+        _cameraFacing = Deref(main->CameraInfo()).Facing;
         if (LengthSquared(_cameraFacing) < 0.0001F)
         {
             _cameraFacing = Vector3(0.0F, 0.0F, -1.0F);
@@ -6545,7 +6642,7 @@ namespace MphRead
     std::string Scene::OutputGetAll()
     {
         std::ostringstream out;
-        out << Mods::Branding::Name() << ' ' << Program::Version()
+        out << Mods::Branding::Name << ' ' << Program::Version.ToString()
             << (_recording ? " - Recording" : "")
             << (_frameAdvanceOn ? " - Frame Advance" : "") << '\n';
         _outputBuffer = out.str();
@@ -6841,7 +6938,7 @@ namespace MphRead
         }
         else if (const auto spawn = std::dynamic_pointer_cast<Entities::EnemySpawnEntity>(entity))
         {
-            out << " (" << EnumText(spawn->Data().EnemyType) << ")";
+            out << " (" << EnumText(spawn->Data.EnemyType) << ")";
         }
         else if (const auto enemy = std::dynamic_pointer_cast<Entities::EnemyInstanceEntity>(entity))
         {
@@ -7022,7 +7119,7 @@ namespace MphRead
         {
             RendererPlatform::WindowSettings value{};
             value.ClientSize = Vector2i(1280, 768);
-            value.Title = Mods::Branding::Name();
+            value.Title = Mods::Branding::Name;
             value.UpdateFrequency = 0.0;
             value.StartVisible = false;
             value.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
@@ -7043,7 +7140,7 @@ namespace MphRead
         // of those one-time settings values, so force that ordering here too.
         (void)Settings();
         Mods::DebugLog::Line("render", "creating the game window and GL context ("
-            + Mods::Launcher::LauncherPrefs::WindowModeString() + ")");
+            + WindowStartModeName(Mods::Launcher::LauncherPrefs::WindowMode()) + ")");
     }
 
     RenderWindow::RenderWindow()
@@ -7127,6 +7224,11 @@ namespace MphRead
             Mods::DebugLog::Line("window", std::string("could not size against the display: ") + ex.what());
         }
         _window->MinimumSize(floor);
+    }
+
+    void RenderWindow::Run()
+    {
+        _window->Run(*this);
     }
 
     void RenderWindow::OnClosing()
@@ -7361,17 +7463,17 @@ namespace MphRead
             _window->BaseOnKeyDown(e);
             return;
         }
-        if (e.Key == Key::Escape && Mods::Input::StylusZone::Placing())
+        if (e.Key == RendererPlatform::EscapeKey && Mods::Input::StylusZone::Placing())
         {
             Mods::Input::StylusZone::CancelPlacement();
             Mods::Chat::ChatBox::System("pen zone left as it was");
             _window->BaseOnKeyDown(e);
             return;
         }
-        if ((e.Key == Key::F1 || e.Key == Key::F2) && !e.Alt && !e.Control
+        if ((e.Key == RendererPlatform::F1Key || e.Key == RendererPlatform::F2Key) && !e.Alt && !e.Control
             && Mods::Network::MapVote::Active() && !Mods::Network::MapVote::Answered())
         {
-            Mods::Network::MapVote::Cast(e.Key == Key::F1);
+            Mods::Network::MapVote::Cast(e.Key == RendererPlatform::F1Key);
             _window->BaseOnKeyDown(e);
             return;
         }
@@ -7384,7 +7486,7 @@ namespace MphRead
             {
                 std::ostringstream line;
                 line << "saved the last " << std::fixed << std::setprecision(0) << held << " s to "
-                    << FileSystem::GetFileName(*clip);
+                    << PathGetFileName(*clip);
                 Mods::Chat::ChatBox::System(line.str());
             }
             else
@@ -7413,19 +7515,19 @@ namespace MphRead
             _window->BaseOnKeyDown(e);
             return;
         }
-        if (e.Key == Key::Escape
+        if (e.Key == RendererPlatform::EscapeKey
             && (_scene->CameraMode() == MphRead::CameraMode::Player || _scene->IsFreeCam())
             && Mods::PauseMenu::HandleEscape(*this))
         {
             _window->BaseOnKeyDown(e);
             return;
         }
-        if (e.Key == Key::Escape)
+        if (e.Key == RendererPlatform::EscapeKey)
         {
             _scene->DoCleanup();
             if (GameState::SinglePlayer())
             {
-                Menu::NeededSave(Menu::SaveFromExit);
+                Menu::NeededSave = Menu::SaveFromExit;
             }
             _window->Close();
         }

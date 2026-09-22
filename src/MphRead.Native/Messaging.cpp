@@ -46,40 +46,32 @@ namespace MphRead
             return static_cast<std::uint8_t>(std::uint32_t{1} << shift);
         }
 
-        template <typename T>
-        [[nodiscard]] std::uint8_t GetTriggerStateByte(T& triggerState, std::int32_t index)
+        [[nodiscard]] std::uint8_t GetTriggerStateByte(
+            const std::shared_ptr<ManagedArray<std::uint8_t>>& triggerState, std::int32_t index)
         {
-            if constexpr (requires { triggerState.Item(index); })
+            if (!triggerState)
             {
-                return triggerState.Item(index);
+                throw System::NullReferenceException();
             }
-            else
+            if (index < 0 || static_cast<std::size_t>(index) >= triggerState->Length())
             {
-                if (index < 0
-                    || static_cast<std::size_t>(index) >= triggerState.size())
-                {
-                    throw Memory::Detail::IndexOutOfRangeException();
-                }
-                return triggerState[static_cast<std::size_t>(index)];
+                throw Memory::Detail::IndexOutOfRangeException();
             }
+            return (*triggerState)[static_cast<std::size_t>(index)];
         }
 
-        template <typename T>
-        void SetTriggerStateByte(T& triggerState, std::int32_t index, std::uint8_t value)
+        void SetTriggerStateByte(const std::shared_ptr<ManagedArray<std::uint8_t>>& triggerState,
+            std::int32_t index, std::uint8_t value)
         {
-            if constexpr (requires { triggerState.Item(index, value); })
+            if (!triggerState)
             {
-                triggerState.Item(index, value);
+                throw System::NullReferenceException();
             }
-            else
+            if (index < 0 || static_cast<std::size_t>(index) >= triggerState->Length())
             {
-                if (index < 0
-                    || static_cast<std::size_t>(index) >= triggerState.size())
-                {
-                    throw Memory::Detail::IndexOutOfRangeException();
-                }
-                triggerState[static_cast<std::size_t>(index)] = value;
+                throw Memory::Detail::IndexOutOfRangeException();
             }
+            (*triggerState)[static_cast<std::size_t>(index)] = value;
         }
     }
 

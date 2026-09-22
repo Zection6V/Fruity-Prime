@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Formats/Types.hpp"
+
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -17,17 +19,6 @@ namespace System
     public:
         IndexOutOfRangeException()
             : std::out_of_range("Index was outside the bounds of the array.")
-        {
-        }
-    };
-
-    class ArgumentOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        explicit ArgumentOutOfRangeException(const char* parameter)
-            : std::out_of_range(
-                std::string("Specified argument was out of the range of valid values. (Parameter '")
-                + parameter + "')")
         {
         }
     };

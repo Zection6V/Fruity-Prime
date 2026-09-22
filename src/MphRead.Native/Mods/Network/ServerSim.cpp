@@ -57,7 +57,7 @@ namespace
         value = AddInt64Unchecked(value, 1);
     }
 
-    [[nodiscard]] std::string Fixed(double value, std::int32_t digits)
+    [[nodiscard]] std::string FormatFixed(double value, std::int32_t digits)
     {
         std::ostringstream stream;
         stream << std::fixed << std::setprecision(digits) << value;
@@ -295,8 +295,8 @@ namespace MphRead::Mods::Network
 
         std::string result = Room() + " (" + GameModeName(Detail::ServerSimGameStateMode())
             + "), " + std::to_string(_frames) + " step(s), "
-            + Fixed(mean, 2) + " ms mean, "
-            + Fixed(_worstStepSeconds * 1000.0, 1) + " ms worst, "
+            + FormatFixed(mean, 2) + " ms mean, "
+            + FormatFixed(_worstStepSeconds * 1000.0, 1) + " ms worst, "
             + std::to_string(_overrunSteps) + " overrun, "
             + std::to_string(_droppedSteps) + " dropped, "
             + std::to_string(_stalls) + " stall(s)";

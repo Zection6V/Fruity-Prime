@@ -66,7 +66,7 @@ namespace MphRead::Text
                              .first;
         }
         auto entries = std::make_shared<std::vector<std::shared_ptr<StringTableEntry>>>();
-        const std::string filename = name == StringTables::ScanLog && Paths::MphKey() == Ver::AMHK0
+        const std::string filename = name == StringTables::ScanLog && Paths::MphKey == Ver::AMHK0
                                          ? StringTables::ScanLogSorted
                                          : name;
         const std::string path = Paths::Combine(Paths::FileSystem(), GetFolder(), filename);
@@ -85,7 +85,8 @@ namespace MphRead::Text
         const std::span<const std::uint8_t> bytes(data.data(), data.size());
         const std::uint32_t count = Read::SpanReadUint(bytes, static_cast<std::int32_t>(0));
         const std::int32_t offset = name == StringTables::ScanLog ? 8 : 4;
-        for (const RawStringTableEntry &entry : Read::DoOffsets<RawStringTableEntry>(bytes, offset, count))
+        const auto rawEntries = Read::DoOffsets<RawStringTableEntry>(bytes, offset, count);
+        for (const RawStringTableEntry &entry : *rawEntries)
         {
             if (entry.Offset < bytes.size())
             {
@@ -136,7 +137,7 @@ namespace MphRead::Text
     std::string Strings::GetMessage(char type, std::uint32_t id, const std::string &table)
     {
         std::shared_ptr<StringTableEntry> entry = GetEntry(type, id, table);
-        return entry ? entry->Value1() : " ";
+        return entry ? entry->Value1 : " ";
     }
     std::shared_ptr<StringTableEntry> Strings::GetEntry(char type, std::int32_t id, const std::string &table)
     {
@@ -150,7 +151,7 @@ namespace MphRead::Text
         std::shared_ptr<const std::vector<std::shared_ptr<StringTableEntry>>> list = ReadStringTable(table);
         for (const std::shared_ptr<StringTableEntry> &entry : *list)
         {
-            if (entry->Id() == fullId)
+            if (entry->Id == fullId)
                 return entry;
         }
         return nullptr;
@@ -164,7 +165,7 @@ namespace MphRead::Text
         std::shared_ptr<StringTableEntry> entry = GetEntry('L', static_cast<std::uint32_t>(scanId), StringTables::ScanLog);
         if (!entry)
             return 0;
-        const auto found = _categoryMap.find(entry->Category());
+        const auto found = _categoryMap.find(entry->Category);
         if (found != _categoryMap.end())
             return found->second;
         return 5;
@@ -174,7 +175,7 @@ namespace MphRead::Text
         std::shared_ptr<StringTableEntry> entry = GetEntry('L', static_cast<std::uint32_t>(scanId), StringTables::ScanLog);
         if (!entry)
             return 60 / 30.0F;
-        return 10 * (entry->Speed() & 7) / 30.0F;
+        return 10 * (entry->Speed & 7) / 30.0F;
     }
     std::string Strings::GetFolder()
     {

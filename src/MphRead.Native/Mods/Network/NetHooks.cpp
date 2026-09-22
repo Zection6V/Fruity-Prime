@@ -210,7 +210,7 @@ namespace MphRead::Mods::Network
             }
             if (!Mods::SpectatorMode::IsSpectating())
             {
-                NetTestScript::Apply(*player);
+                NetTestScript::Apply(player);
             }
             NetPlayerBridge::RecordPresses(*player);
             if (NetSession::NetFrame() % NetConfig::IntentSendInterval == 0)

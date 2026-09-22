@@ -1,11 +1,9 @@
 #pragma once
 
+#include "../../Renderer.hpp"
+
 #include "../../Formats/Enums.hpp"
 
-#include <OpenTK/Windowing/Common/FrameEventArgs.hpp>
-#include <OpenTK/Windowing/Desktop/GameWindow.hpp>
-#include <OpenTK/Windowing/Desktop/GameWindowSettings.hpp>
-#include <OpenTK/Windowing/Desktop/NativeWindowSettings.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -23,8 +21,18 @@ namespace MphRead::Entities
 
 namespace MphRead::Mods::Network
 {
-    class WeaponDps final : public OpenTK::Windowing::Desktop::GameWindow
+    class WeaponDps final : public MphRead::RendererPlatform::WindowEvents
     {
+    private:
+        std::shared_ptr<MphRead::RendererPlatform::Window> _window;
+
+        [[nodiscard]] OpenTK::Mathematics::Vector2i ClientSize() const;
+        void Close();
+        void SwapBuffers();
+
+    public:
+        void Run();
+
     private:
         const std::string _room;
         const Hunter _hunter;
@@ -51,8 +59,8 @@ namespace MphRead::Mods::Network
         std::unique_ptr<MphRead::Scene> _scene;
 
         [[nodiscard]] static std::int32_t FullHealth(Entities::PlayerEntity& player);
-        [[nodiscard]] static OpenTK::Windowing::Desktop::GameWindowSettings GameSettings();
-        [[nodiscard]] static OpenTK::Windowing::Desktop::NativeWindowSettings WindowSettings();
+        [[nodiscard]] static MphRead::RendererPlatform::WindowSettings GameSettings();
+        [[nodiscard]] static MphRead::RendererPlatform::WindowSettings WindowSettings();
 
         WeaponDps(
             std::string room,
@@ -70,7 +78,7 @@ namespace MphRead::Mods::Network
 
     protected:
         void OnLoad() override;
-        void OnRenderFrame(OpenTK::Windowing::Common::FrameEventArgs args) override;
+        void OnRenderFrame(const MphRead::RendererPlatform::FrameEventArgs& args) override;
 
     public:
         WeaponDps(const WeaponDps&) = delete;

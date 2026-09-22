@@ -1285,7 +1285,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         (void)Heading(page, u"HUD");
         _state->ProHud = _adapter.ConstructToggleRow(
-            std::u16string(u"Pro mode HUD"), Features::ProHud);
+            std::u16string(u"Pro mode HUD"), Features::ProHud());
         _adapter.AddPanelChild(page, _state->ProHud.Control);
 
         _state->CrosshairSizeRow = _adapter.ConstructChoiceRow(
@@ -1319,7 +1319,7 @@ namespace MphRead::Mods::Launcher::Gui
         _state->WeaponStyleRow = _adapter.ConstructChoiceRow(
             std::u16string(u"Weapon"),
             Strings({u"Static (Quake)", u"Dynamic (Metroid)"}),
-            Features::ProHudFixedWeapon ? 0 : 1);
+            Features::ProHudFixedWeapon() ? 0 : 1);
         _adapter.AddPanelChild(page, _state->WeaponStyleRow.Control);
 
         Require(_state->ProHud.Value).AddChanged(
@@ -1751,10 +1751,10 @@ namespace MphRead::Mods::Launcher::Gui
         settings.CelShading = std::string(RenderOptions::OnOff(Require(_state->CelRow.Value).On()));
         settings.CelBands = "8";
         settings.CelEdge = "50";
-        Features::ProHud = Require(_state->ProHud.Value).On();
+        Features::ProHud(Require(_state->ProHud.Value).On());
         Crosshair::Size = static_cast<CrosshairSize>(Require(_state->CrosshairSizeRow.Value).Index());
         Crosshair::Style = static_cast<CrosshairStyle>(Require(_state->CrosshairStyleRow.Value).Index());
-        Features::ProHudFixedWeapon = Require(_state->WeaponStyleRow.Value).Index() == 0;
+        Features::ProHudFixedWeapon(Require(_state->WeaponStyleRow.Value).Index() == 0);
 
         settings.SfxVolume = FloatInvariant(
             static_cast<float>(Require(_state->SfxVolume.Value).Value()) / 100.0F);

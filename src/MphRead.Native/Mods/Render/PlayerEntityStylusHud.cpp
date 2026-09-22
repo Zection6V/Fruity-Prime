@@ -1,22 +1,14 @@
 #include "PlayerEntityStylusHud.hpp"
 
 #include "../../Entities/Players/DynamicLightEntity.hpp"
+#include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../Scene.hpp"
 #include "../Input/StylusZone.hpp"
 
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
-
-namespace MphRead
-{
-    class Scene
-    {
-    public:
-        void DrawHudFlatBox(float left, float top, float right, float bottom,
-            OpenTK::Mathematics::Vector4 colour);
-    };
-}
 
 namespace
 {
@@ -77,15 +69,6 @@ namespace
 
 namespace MphRead::Entities
 {
-    class PlayerEntity final : public DynamicLightEntityBase,
-        public std::enable_shared_from_this<PlayerEntity>
-    {
-    public:
-        [[nodiscard]] bool IsMainPlayer() const;
-
-        MPHREAD_PLAYER_STYLUS_HUD_MEMBERS
-    };
-
     const OpenTK::Mathematics::Vector4 PlayerEntity::_stylusInk(0.85F, 0.30F, 0.30F, 1.0F);
     const OpenTK::Mathematics::Vector4 PlayerEntity::_stylusFill(0.55F, 0.16F, 0.16F, 1.0F);
     const OpenTK::Mathematics::Vector4 PlayerEntity::_stylusLit(1.0F, 0.72F, 0.35F, 1.0F);

@@ -8,55 +8,55 @@ namespace MphRead
 {
     namespace
     {
-        using ModelMap = std::unordered_map<std::string, std::shared_ptr<ModelMetadata>>;
+        using ModelMap = std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>>;
 
         void AddModels(ModelMap& models, MetaDir dir, std::initializer_list<const char*> names)
         {
             for (const char* name : names)
             {
-                models.emplace(name, std::make_shared<ModelMetadata>(name, dir));
+                models.emplace(name, std::make_shared<::MphRead::ModelMetadata>(name, dir));
             }
         }
 
         ModelMap CreateHudModels()
         {
             ModelMap models;
-            models.emplace("unit1_land_cockpit", std::make_shared<ModelMetadata>(
+            models.emplace("unit1_land_cockpit", std::make_shared<::MphRead::ModelMetadata>(
                 "unit1_land_cockpit", R"(hud\unit1_land_cockpit_model.bin)", std::nullopt, std::nullopt));
-            models.emplace("unit2_land_cockpit", std::make_shared<ModelMetadata>(
+            models.emplace("unit2_land_cockpit", std::make_shared<::MphRead::ModelMetadata>(
                 "unit2_land_cockpit", R"(hud\unit2_land_cockpit_model.bin)", std::nullopt, std::nullopt));
-            models.emplace("unit3_land_cockpit", std::make_shared<ModelMetadata>(
+            models.emplace("unit3_land_cockpit", std::make_shared<::MphRead::ModelMetadata>(
                 "unit3_land_cockpit", R"(hud\unit3_land_cockpit_model.bin)", std::nullopt, std::nullopt));
-            models.emplace("unit4_land_cockpit", std::make_shared<ModelMetadata>(
+            models.emplace("unit4_land_cockpit", std::make_shared<::MphRead::ModelMetadata>(
                 "unit4_land_cockpit", R"(hud\unit4_land_cockpit_model.bin)", std::nullopt, std::nullopt));
-            models.emplace("gorea_land_cockpit", std::make_shared<ModelMetadata>(
+            models.emplace("gorea_land_cockpit", std::make_shared<::MphRead::ModelMetadata>(
                 "gorea_land_cockpit", R"(hud\gorea_land_cockpit_model.bin)", std::nullopt, std::nullopt));
 
-            models.emplace("unit1_1nav", std::make_shared<ModelMetadata>(
+            models.emplace("unit1_1nav", std::make_shared<::MphRead::ModelMetadata>(
                 "unit1_1nav", R"(hud\unit1_1nav_model.bin)", std::nullopt, std::nullopt));
-            models.emplace("unit1_2nav", std::make_shared<ModelMetadata>(
+            models.emplace("unit1_2nav", std::make_shared<::MphRead::ModelMetadata>(
                 "unit1_2nav", R"(hud\unit1_2nav_model.bin)", std::nullopt, std::nullopt));
-            models.emplace("unit2_1nav", std::make_shared<ModelMetadata>(
+            models.emplace("unit2_1nav", std::make_shared<::MphRead::ModelMetadata>(
                 "unit2_1nav", R"(hud\unit2_1NAV_Model.bin)", std::nullopt, std::nullopt));
-            models.emplace("unit2_2nav", std::make_shared<ModelMetadata>(
+            models.emplace("unit2_2nav", std::make_shared<::MphRead::ModelMetadata>(
                 "unit2_2nav", R"(hud\unit2_2nav_model.bin)", std::nullopt, std::nullopt));
-            models.emplace("unit3_1nav", std::make_shared<ModelMetadata>(
+            models.emplace("unit3_1nav", std::make_shared<::MphRead::ModelMetadata>(
                 "unit3_1nav", R"(hud\unit3_1nav_model.bin)", std::nullopt, std::nullopt));
-            models.emplace("unit3_2nav", std::make_shared<ModelMetadata>(
+            models.emplace("unit3_2nav", std::make_shared<::MphRead::ModelMetadata>(
                 "unit3_2nav", R"(hud\unit3_2nav_model.bin)", std::nullopt, std::nullopt));
-            models.emplace("unit4_1nav", std::make_shared<ModelMetadata>(
+            models.emplace("unit4_1nav", std::make_shared<::MphRead::ModelMetadata>(
                 "unit4_1nav", R"(hud\unit4_1nav_model.bin)", std::nullopt, std::nullopt));
 
-            models.emplace("Door_NAV", std::make_shared<ModelMetadata>("Door_NAV", MetaDir::Hud));
-            models.emplace("PlayerPos_NAV", std::make_shared<ModelMetadata>(
+            models.emplace("Door_NAV", std::make_shared<::MphRead::ModelMetadata>("Door_NAV", MetaDir::Hud));
+            models.emplace("PlayerPos_NAV", std::make_shared<::MphRead::ModelMetadata>(
                 "PlayerPos_NAV", MetaDir::Hud, std::optional<std::string>("PlayerPos")));
-            models.emplace("damage", std::make_shared<ModelMetadata>("damage", MetaDir::Hud));
-            models.emplace("icons", std::make_shared<ModelMetadata>(
+            models.emplace("damage", std::make_shared<::MphRead::ModelMetadata>("damage", MetaDir::Hud));
+            models.emplace("icons", std::make_shared<::MphRead::ModelMetadata>(
                 "icons", R"(models\icons_Tex.bin)", MetaDir::Hud));
-            models.emplace("hud_icon_arrow", std::make_shared<ModelMetadata>("hud_icon_arrow", MetaDir::Hud));
-            models.emplace("hud_icon_nodes", std::make_shared<ModelMetadata>("hud_icon_nodes", MetaDir::Hud));
-            models.emplace("hud_icon_octolith", std::make_shared<ModelMetadata>("hud_icon_octolith", MetaDir::Hud));
-            models.emplace("hud_icon_player", std::make_shared<ModelMetadata>("hud_icon_player", MetaDir::Hud));
+            models.emplace("hud_icon_arrow", std::make_shared<::MphRead::ModelMetadata>("hud_icon_arrow", MetaDir::Hud));
+            models.emplace("hud_icon_nodes", std::make_shared<::MphRead::ModelMetadata>("hud_icon_nodes", MetaDir::Hud));
+            models.emplace("hud_icon_octolith", std::make_shared<::MphRead::ModelMetadata>("hud_icon_octolith", MetaDir::Hud));
+            models.emplace("hud_icon_player", std::make_shared<::MphRead::ModelMetadata>("hud_icon_player", MetaDir::Hud));
             return models;
         }
 
@@ -224,8 +224,8 @@ namespace MphRead
         {
         }
 
-        const std::shared_ptr<ModelMetadata> Ad2Dm2
-            = std::make_shared<ModelMetadata>("ad2_dm2", MetaDir::Stage);
+        const std::shared_ptr<::MphRead::ModelMetadata> Ad2Dm2
+            = std::make_shared<::MphRead::ModelMetadata>("ad2_dm2", MetaDir::Stage);
 
         const std::vector<std::string> NavMapModelNames =
         {
@@ -238,11 +238,11 @@ namespace MphRead
             "unit4_1nav"
         };
 
-        const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> HudModels = CreateHudModels();
-        const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> TouchToStartModels = CreateTouchToStartModels();
-        const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> MultiplayerModels = CreateMultiplayerModels();
-        const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> LogoModels = CreateLogoModels();
-        const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> FrontendModels = CreateFrontendModels();
+        const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> HudModels = CreateHudModels();
+        const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> TouchToStartModels = CreateTouchToStartModels();
+        const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> MultiplayerModels = CreateMultiplayerModels();
+        const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> LogoModels = CreateLogoModels();
+        const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> FrontendModels = CreateFrontendModels();
 
         const std::vector<std::shared_ptr<MovieInfo>> MovieFiles =
         {

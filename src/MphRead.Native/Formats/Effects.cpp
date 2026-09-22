@@ -5,6 +5,7 @@
 #include "../Entities/EntityBase.hpp"
 #include "../Program.hpp"
 #include "../Renderer.hpp"
+#include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
 
 #include <bit>
@@ -18,14 +19,13 @@
 #include <utility>
 #include <vector>
 
-// External dependency gates intentionally remain unresolved in this pair:
-// - System::Buffers::ArrayPool<T> for ArrayPool<T>.Shared.Rent
-// - System::NotImplementedException for the CLR exception type
-// - System::Diagnostics::Debug for Debug.Assert semantics
-// - the shared managed IReadOnlyList/collection adapter for nullable parameter
-//   lists and CLR indexer exception taxonomy
-// These owners must be supplied by their one-to-one/shared Native units; Effects
-// does not redeclare or substitute them.
+// Debug.Assert is [Conditional("DEBUG")]: in other builds neither the call
+// nor its arguments are evaluated.
+#if defined(DEBUG)
+#define MPH_EFFECTS_DEBUG_ASSERT(condition, ...) ::MphRead::NativeRuntime::DebugAssert(condition)
+#else
+#define MPH_EFFECTS_DEBUG_ASSERT(condition, ...) do { } while (false)
+#endif
 
 namespace
 {
@@ -346,7 +346,7 @@ namespace MphRead::Effects
 
     void SingleParticle::AddRenderItem(Scene* scene)
     {
-        auto uvsAndVerts = System::Buffers::ArrayPool<Vector3>::Shared().Rent(8);
+        auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(8);
         (*uvsAndVerts)[0] = Vector3(_texcoord0.X, _texcoord0.Y, 0.0F);
         (*uvsAndVerts)[1] = _vertex0;
         (*uvsAndVerts)[2] = Vector3(_texcoord1.X, _texcoord1.Y, 0.0F);
@@ -359,7 +359,7 @@ namespace MphRead::Effects
         Particle& particleForModel = Require(ParticleDefinition);
         Model& materialModel = Require(particleForModel.Model);
         Particle& particleForMaterialId = Require(ParticleDefinition);
-        std::shared_ptr<Material> materialRef = materialModel.Materials.at(
+        std::shared_ptr<Material> materialRef = Require(materialModel.Materials).at(
             static_cast<std::size_t>(particleForMaterialId.MaterialId));
 
         // C# evaluates the instance expression, then arguments, and only then
@@ -373,7 +373,7 @@ namespace MphRead::Effects
         std::int32_t paletteId = material.PaletteId;
         Scene& sceneRef = Require(sceneTarget);
         std::int32_t bindingId = sceneRef.BindGetTexture(
-            bindingModel, textureId, paletteId, 0);
+            particleForBinding.Model, textureId, paletteId, 0);
         RepeatMode xRepeat = material.XRepeat;
         RepeatMode yRepeat = material.YRepeat;
         float scaleS = 1.0F;
@@ -1617,7 +1617,7 @@ namespace MphRead::Effects
 
     void EffectParticle::SetVecsD4()
     {
-        System::Diagnostics::Debug::Assert(false, "SetVecsD4 was called");
+        MPH_EFFECTS_DEBUG_ASSERT(false, "SetVecsD4 was called");
         Matrix4 viewMatrix = IdentityMatrix4();
         Vector3 vec1 = Speed.Normalized();
         Vector3 vec2(viewMatrix.M13, viewMatrix.M23, viewMatrix.M33);
@@ -1829,7 +1829,7 @@ namespace MphRead::Effects
             }
             else
             {
-                System::Diagnostics::Debug::Assert(false, "DrawDC was called with non-billboard");
+                MPH_EFFECTS_DEBUG_ASSERT(false, "DrawDC was called with non-billboard");
                 Vector4 ev1(Multiply(_effectVec1, Scale));
                 Vector4 ev2(Multiply(_effectVec2, Scale));
                 Vector4 ev3(Multiply(_effectVec3, Scale));
@@ -1942,13 +1942,13 @@ namespace MphRead::Effects
             Model& meshModel = Require(ownerForMeshModel.Model);
             Node& node = Require(nodeRef);
             std::int32_t meshIndex = node.MeshId / 2;
-            std::shared_ptr<Mesh> meshRef = meshModel.Meshes.at(
+            std::shared_ptr<Mesh> meshRef = Require(meshModel.Meshes).at(
                 static_cast<std::size_t>(meshIndex));
 
             EffectElementEntry& ownerForMaterialModel = Require(Owner);
             Model& materialModel = Require(ownerForMaterialModel.Model);
             std::int32_t materialIdForMaterial = MaterialId;
-            std::shared_ptr<Material> materialRef = materialModel.Materials.at(
+            std::shared_ptr<Material> materialRef = Require(materialModel.Materials).at(
                 static_cast<std::size_t>(materialIdForMaterial));
 
             Matrix4 transform = _nodeTransform;
@@ -1970,9 +1970,9 @@ namespace MphRead::Effects
             material.CurrentDiffuse = _color;
             material.CurrentAlpha = Alpha;
             Model& model = Require(modelRef);
-            System::Diagnostics::Debug::Assert(model.NodeMatrixIds.empty());
+            MPH_EFFECTS_DEBUG_ASSERT(Require(model.NodeMatrixIds).empty());
             Scene& updateScene = Require(scene);
-            updateScene.UpdateMaterials(model, 0);
+            updateScene.UpdateMaterials(modelRef, 0);
 
             // C# evaluates AddRenderItem arguments left-to-right.
             Material& renderMaterial = material;
@@ -1985,11 +1985,11 @@ namespace MphRead::Effects
             Mesh& mesh = Require(meshRef);
             std::int32_t renderListId = mesh.ListId;
             std::int32_t matrixStackCount = 0;
-            auto matrixStack = ManagedArray<float>::Empty();
+            const std::vector<float> matrixStack{};
             std::optional<Vector4> overrideColor = std::nullopt;
             std::optional<Vector4> paletteOverride = std::nullopt;
             SelectionType selection = SelectionType::None;
-            BillboardMode billboardMode = _billboardMode;
+            MphRead::BillboardMode billboardMode = _billboardMode;
             updateScene.AddRenderItem(
                 renderMaterial,
                 polygonId,
@@ -2013,12 +2013,12 @@ namespace MphRead::Effects
             EffectElementEntry& ownerForCount = Require(Owner);
             Model& modelForCount = Require(ownerForCount.Model);
             if (materialIdForCount
-                >= static_cast<std::int32_t>(modelForCount.Materials.size()))
+                >= static_cast<std::int32_t>(Require(modelForCount.Materials).size()))
             {
                 return;
             }
 
-            auto uvsAndVerts = System::Buffers::ArrayPool<Vector3>::Shared().Rent(8);
+            auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(8);
             (*uvsAndVerts)[0] = Vector3(_texcoord0.X, _texcoord0.Y, 0.0F);
             (*uvsAndVerts)[1] = _vertex0;
             (*uvsAndVerts)[2] = Vector3(_texcoord1.X, _texcoord1.Y, 0.0F);
@@ -2031,7 +2031,7 @@ namespace MphRead::Effects
             EffectElementEntry& ownerForMaterial = Require(Owner);
             Model& materialModel = Require(ownerForMaterial.Model);
             std::int32_t materialIdForMaterial = MaterialId;
-            std::shared_ptr<Material> materialRef = materialModel.Materials.at(
+            std::shared_ptr<Material> materialRef = Require(materialModel.Materials).at(
                 static_cast<std::size_t>(materialIdForMaterial));
 
             EffectElementEntry& ownerForBinding = Require(Owner);
@@ -2095,7 +2095,7 @@ namespace MphRead::Effects
             Matrix4 renderTransform = transform;
             auto renderPoints = uvsAndVerts;
             std::int32_t renderBindingId = bindingId;
-            BillboardMode renderBillboardMode = _billboardMode;
+            MphRead::BillboardMode renderBillboardMode = _billboardMode;
             Scene& sceneRef = Require(sceneTarget);
             sceneRef.AddRenderItem(
                 type,

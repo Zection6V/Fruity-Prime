@@ -29,6 +29,16 @@ namespace
         return *value;
     }
 
+    template <typename T>
+    [[nodiscard]] T& RequireReference(T* value)
+    {
+        if (value == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
     [[nodiscard]] std::u16string ToChatChars(std::string_view text)
     {
         std::u16string result;
@@ -225,7 +235,7 @@ namespace MphRead::Entities
                 inst.PositionX = x / 256.0F;
                 inst.PositionY = y / 192.0F;
                 inst.SetData(index, color, scene);
-                scene.DrawHudObject(inst, 1, ChatScale);
+                scene.DrawHudObject(_chatInst, 1, ChatScale);
             }
             x += static_cast<float>(ChatFont::Widths()[static_cast<std::size_t>(index)])
                 * ChatScale * aspect;

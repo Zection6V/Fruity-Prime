@@ -1347,7 +1347,9 @@ namespace
             }
             else if ((rate.ControlFlags & MinMax) == MinMax)
             {
-                maxRate = rate.MaxRate;
+                // MaxRate is the high WORD of the CpuRate union in the Windows SDK
+                // layout; MinGW-w64 headers omit the MinRate/MaxRate struct member.
+                maxRate = static_cast<WORD>(rate.CpuRate >> 16);
             }
 
             constexpr DWORD MaxCpuRate = 10000;

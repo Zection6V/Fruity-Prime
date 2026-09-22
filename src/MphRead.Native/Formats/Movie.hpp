@@ -31,25 +31,6 @@
 
 namespace System
 {
-    class ArgumentException final : public std::invalid_argument
-    {
-    public:
-        explicit ArgumentException(std::string message)
-            : std::invalid_argument(std::move(message))
-        {
-        }
-    };
-
-    class ArgumentOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        explicit ArgumentOutOfRangeException(std::string_view paramName)
-            : std::out_of_range("Specified argument was out of the range of valid values. (Parameter '"
-                + std::string(paramName) + "')")
-        {
-        }
-    };
-
     class IndexOutOfRangeException final : public std::out_of_range
     {
     public:
@@ -85,54 +66,6 @@ namespace System
         {
         }
     };
-
-    class UnauthorizedAccessException final : public std::runtime_error
-    {
-    public:
-        explicit UnauthorizedAccessException(std::string message)
-            : std::runtime_error(std::move(message))
-        {
-        }
-    };
-
-    namespace IO
-    {
-        class IOException : public std::runtime_error
-        {
-        public:
-            explicit IOException(std::string message)
-                : std::runtime_error(std::move(message))
-            {
-            }
-        };
-
-        class FileNotFoundException final : public IOException
-        {
-        public:
-            explicit FileNotFoundException(std::string message)
-                : IOException(std::move(message))
-            {
-            }
-        };
-
-        class DirectoryNotFoundException final : public IOException
-        {
-        public:
-            explicit DirectoryNotFoundException(std::string message)
-                : IOException(std::move(message))
-            {
-            }
-        };
-
-        class PathTooLongException final : public IOException
-        {
-        public:
-            explicit PathTooLongException(std::string message)
-                : IOException(std::move(message))
-            {
-            }
-        };
-    }
 
     class Decimal;
 
@@ -254,14 +187,14 @@ private: \
     std::array<std::uint8_t, static_cast<std::size_t>(_frameWidth) * _frameHeight * 3> _botImageBuffer{}; \
     std::shared_ptr<std::stop_source> _decoderCts{}; \
 public: \
-    void StartMovies(Movie movieId, Movie afterMovieId, FadeType fadeToMovieType, float fadeToMovieLength, \
-        FadeType fadeFromMovieType, float fadeFromMovieLength, AfterMovie afterMovieAction = AfterMovie::LoadRoom); \
-    void StartMovie(Movie movieId, FadeType fadeToMovieType, float fadeToMovieLength, FadeType fadeFromMovieType, \
-        float fadeFromMovieLength, std::optional<OpenTK::Mathematics::Vector3> afterPosition = std::nullopt, \
-        std::optional<OpenTK::Mathematics::Vector3> afterFacing = std::nullopt, \
-        std::optional<Movie> afterMovieId = std::nullopt, AfterMovie afterMovieAction = AfterMovie::LoadRoom); \
+    void StartMovies(::MphRead::Movie movieId, ::MphRead::Movie afterMovieId, ::MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
+        ::MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, ::MphRead::AfterMovie afterMovieAction = ::MphRead::AfterMovie::LoadRoom); \
+    void StartMovie(::MphRead::Movie movieId, ::MphRead::FadeType fadeToMovieType, float fadeToMovieLength, ::MphRead::FadeType fadeFromMovieType, \
+        float fadeFromMovieLength, std::optional<::OpenTK::Mathematics::Vector3> afterPosition = std::nullopt, \
+        std::optional<::OpenTK::Mathematics::Vector3> afterFacing = std::nullopt, \
+        std::optional<::MphRead::Movie> afterMovieId = std::nullopt, ::MphRead::AfterMovie afterMovieAction = ::MphRead::AfterMovie::LoadRoom); \
 private: \
-    void PlayMovie(Movie movieId); \
+    void PlayMovie(::MphRead::Movie movieId); \
     std::int32_t _audioHandle = -1; \
 public: \
     [[nodiscard]] std::int32_t MovieAudioHandle() const noexcept; \
@@ -270,13 +203,13 @@ private: \
     std::int32_t _audioBufferIndex = 0; \
     std::array<std::int32_t, _audioBufferCount> _audioBufferIds{}; \
     std::array<bool, _audioBufferCount> _audioBuffersAvailable{}; \
-    [[nodiscard]] Formats::MovieNativeRuntime::MovieTask UpdateMovieAudio(std::stop_token token); \
+    [[nodiscard]] ::MphRead::Formats::MovieNativeRuntime::MovieTask UpdateMovieAudio(std::stop_token token); \
     void StopMovie(); \
 public: \
     void SkipMovie(); \
 private: \
     void UpdateMovie(); \
-    [[nodiscard]] Formats::MovieNativeRuntime::MovieTask UpdateMovieImage(std::stop_token token); \
+    [[nodiscard]] ::MphRead::Formats::MovieNativeRuntime::MovieTask UpdateMovieImage(std::stop_token token); \
     void DrawMovieFrame();
 
 }

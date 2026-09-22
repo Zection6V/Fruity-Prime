@@ -2,17 +2,16 @@
 
 #include "../Metadata/Metadata.hpp"
 
-// Exact prerequisite counterparts. These are deliberately not replaced by
-// Collision-specific compatibility code.
-// #include "../Paths.hpp"
-// #include "../Read.hpp"
-// #include "../Scene.hpp"
+#include "../Read.hpp"
+#include "../Scene.hpp"
 
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
+#include <ios>
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -34,6 +33,35 @@
 #else
 #define MPHREAD_COLLISION_DEBUG_ASSERT(condition) ((void)0)
 #endif
+
+namespace
+{
+    // File.ReadAllBytes: the whole file, or an exception when it cannot be read.
+    [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
+    {
+        std::ifstream stream(path, std::ios::binary | std::ios::ate);
+        if (!stream)
+        {
+            throw std::ios_base::failure("Could not open file: " + path);
+        }
+        const std::streampos end = stream.tellg();
+        if (end < 0)
+        {
+            throw std::ios_base::failure("Could not determine file length: " + path);
+        }
+        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
+        stream.seekg(0, std::ios::beg);
+        if (!bytes.empty())
+        {
+            stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+            if (!stream)
+            {
+                throw std::ios_base::failure("Could not read file: " + path);
+            }
+        }
+        return bytes;
+    }
+}
 
 namespace MphRead::Formats::Collision
 {
@@ -729,21 +757,21 @@ namespace MphRead::Formats::Collision
             const CollisionData& data
                 = (*Data)[i];
 
-            if (scene.ColTerDisplay
+            if (scene.ColTerDisplay()
                     != MphRead::Terrain::All
-                && scene.ColTerDisplay
+                && scene.ColTerDisplay()
                     != data.Terrain())
             {
                 continue;
             }
 
-            if ((scene.ColTypeDisplay
+            if ((scene.ColTypeDisplay()
                         == CollisionType::Player
                     && data.IgnorePlayers())
-                || (scene.ColTypeDisplay
+                || (scene.ColTypeDisplay()
                         == CollisionType::Beam
                     && data.IgnoreBeams())
-                || (scene.ColTypeDisplay
+                || (scene.ColTypeDisplay()
                         == CollisionType::Both
                     && (data.IgnorePlayers()
                         || data.IgnoreBeams())))
@@ -753,7 +781,7 @@ namespace MphRead::Formats::Collision
 
             OpenTK::Mathematics::Vector4 color{};
 
-            if (scene.ColDisplayColor
+            if (scene.ColDisplayColor()
                 == CollisionColor::Entity)
             {
                 if (entityType
@@ -786,14 +814,14 @@ namespace MphRead::Formats::Collision
                             1.0F);
                 }
             }
-            else if (scene.ColDisplayColor
+            else if (scene.ColDisplayColor()
                 == CollisionColor::Terrain)
             {
                 color = Colors().at(
                     static_cast<std::size_t>(
                         data.Terrain()));
             }
-            else if (scene.ColDisplayColor
+            else if (scene.ColDisplayColor()
                 == CollisionColor::Type)
             {
                 if (data.IgnoreBeams())
@@ -834,16 +862,14 @@ namespace MphRead::Formats::Collision
                         1.0F);
             }
 
-            color.W = scene.ColDisplayAlpha;
+            color.W = scene.ColDisplayAlpha();
 
             MPHREAD_COLLISION_DEBUG_ASSERT(
                 data.PointIndexCount >= 3
                 && data.PointIndexCount <= 10);
 
-            auto verts = std::make_shared<
-                MphRead::ManagedArray<
-                    OpenTK::Mathematics::Vector3>>(
-                        data.PointIndexCount);
+            auto verts = MphRead::NativeRuntime::RentFromSharedArrayPool(
+                data.PointIndexCount);
 
             for (std::int32_t j = 0;
                 j < data.PointIndexCount;
@@ -1004,21 +1030,21 @@ namespace MphRead::Formats::Collision
             const CollisionData& data
                 = At(Data, dataIndex);
 
-            if (scene.ColTerDisplay
+            if (scene.ColTerDisplay()
                     != MphRead::Terrain::All
-                && scene.ColTerDisplay
+                && scene.ColTerDisplay()
                     != data.Terrain())
             {
                 continue;
             }
 
-            if ((scene.ColTypeDisplay
+            if ((scene.ColTypeDisplay()
                         == CollisionType::Player
                     && data.IgnorePlayers())
-                || (scene.ColTypeDisplay
+                || (scene.ColTypeDisplay()
                         == CollisionType::Beam
                     && data.IgnoreBeams())
-                || (scene.ColTypeDisplay
+                || (scene.ColTypeDisplay()
                         == CollisionType::Both
                     && (data.IgnorePlayers()
                         || data.IgnoreBeams())))
@@ -1028,7 +1054,7 @@ namespace MphRead::Formats::Collision
 
             OpenTK::Mathematics::Vector4 color{};
 
-            if (scene.ColDisplayColor
+            if (scene.ColDisplayColor()
                 == CollisionColor::Entity)
             {
                 if (entityType
@@ -1061,14 +1087,14 @@ namespace MphRead::Formats::Collision
                             1.0F);
                 }
             }
-            else if (scene.ColDisplayColor
+            else if (scene.ColDisplayColor()
                 == CollisionColor::Terrain)
             {
                 color = Colors().at(
                     static_cast<std::size_t>(
                         data.Terrain()));
             }
-            else if (scene.ColDisplayColor
+            else if (scene.ColDisplayColor()
                 == CollisionColor::Type)
             {
                 if (data.IgnoreBeams())
@@ -1109,16 +1135,14 @@ namespace MphRead::Formats::Collision
                         1.0F);
             }
 
-            color.W = scene.ColDisplayAlpha;
+            color.W = scene.ColDisplayAlpha();
 
             MPHREAD_COLLISION_DEBUG_ASSERT(
                 data.PointIndexCount >= 3
                 && data.PointIndexCount <= 10);
 
-            auto verts = std::make_shared<
-                MphRead::ManagedArray<
-                    OpenTK::Mathematics::Vector3>>(
-                        data.PointIndexCount);
+            auto verts = MphRead::NativeRuntime::RentFromSharedArrayPool(
+                data.PointIndexCount);
 
             for (std::int32_t j = 0;
                 j < data.PointIndexCount;
@@ -1144,9 +1168,8 @@ namespace MphRead::Formats::Collision
                 data.PointIndexCount);
         }
 
-        auto bverts = std::make_shared<
-            MphRead::ManagedArray<
-                OpenTK::Mathematics::Vector3>>(8);
+        auto bverts = MphRead::NativeRuntime::RentFromSharedArrayPool(
+                8);
 
         OpenTK::Mathematics::Vector3 point0
             = MinPosition;
@@ -1252,7 +1275,7 @@ namespace MphRead::Formats::Collision
                 1.0F, 0.0F, 0.0F),
             0.5F);
 
-        color.W = scene.ColDisplayAlpha;
+        color.W = scene.ColDisplayAlpha();
 
         const std::int32_t polygonId
             = scene.GetNextPolygonId();
@@ -1271,10 +1294,8 @@ namespace MphRead::Formats::Collision
                 data.VectorCount >= 3
                 && data.VectorCount <= 8);
 
-            auto verts = std::make_shared<
-                MphRead::ManagedArray<
-                    OpenTK::Mathematics::Vector3>>(
-                        data.VectorCount);
+            auto verts = MphRead::NativeRuntime::RentFromSharedArrayPool(
+                data.VectorCount);
 
             for (std::int32_t j = 0;
                 j < data.VectorCount;
@@ -1315,7 +1336,7 @@ namespace MphRead::Formats::Collision
 
         const std::int32_t entryIndex
             = static_cast<std::int32_t>(
-                scene.ShowVolumes);
+                scene.ShowVolumes());
 
         if (entryIndex <= 0)
         {
@@ -1327,7 +1348,7 @@ namespace MphRead::Formats::Collision
                 1.0F, 0.0F, 0.0F),
             0.5F);
 
-        color.W = scene.ColDisplayAlpha;
+        color.W = scene.ColDisplayAlpha();
 
         std::int32_t polygonId
             = scene.GetNextPolygonId();
@@ -1359,10 +1380,8 @@ namespace MphRead::Formats::Collision
                 data.VectorCount >= 3
                 && data.VectorCount <= 8);
 
-            auto verts = std::make_shared<
-                MphRead::ManagedArray<
-                    OpenTK::Mathematics::Vector3>>(
-                        data.VectorCount);
+            auto verts = MphRead::NativeRuntime::RentFromSharedArrayPool(
+                data.VectorCount);
 
             for (std::int32_t j = 0;
                 j < data.VectorCount;
@@ -1390,9 +1409,8 @@ namespace MphRead::Formats::Collision
                 data.VectorCount);
         }
 
-        auto bverts = std::make_shared<
-            MphRead::ManagedArray<
-                OpenTK::Mathematics::Vector3>>(8);
+        auto bverts = MphRead::NativeRuntime::RentFromSharedArrayPool(
+                8);
 
         const OpenTK::Mathematics::Vector3 minPoint
             = entry.MinBounds.ToFloatVector();
@@ -1572,12 +1590,12 @@ namespace MphRead::Formats::Collision
         const std::string fullPath
             = Paths::Combine(
                 firstHunt
-                    ? Paths::FhFileSystem
-                    : Paths::FileSystem,
+                    ? Paths::FhFileSystem()
+                    : Paths::FileSystem(),
                 *path);
 
         const std::vector<std::uint8_t> storage
-            = System::IO::File::ReadAllBytes(
+            = FileReadAllBytes(
                 fullPath);
 
         const std::span<const std::uint8_t> bytes(

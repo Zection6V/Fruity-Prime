@@ -1260,7 +1260,7 @@ namespace
     [[nodiscard]] std::shared_ptr<MphCollisionInfo> GetCollision(
         const std::vector<std::uint8_t>& bytes)
     {
-        const CollisionHeader header = Read::ReadStruct<CollisionHeader>(Span(bytes));
+        const CollisionHeader header = MphRead::Read::ReadStruct<CollisionHeader>(Span(bytes));
         return Collision::ReadMphCollision(header, Span(bytes), -1);
     }
 
@@ -1362,9 +1362,9 @@ namespace
             REPACK_COLLISION_DEBUG_ASSERT(left.DataStartIndex == right.DataStartIndex);
         }
 
-        const auto portals = Read::DoOffsets<RawCollisionPortal>(
+        const auto portals = MphRead::Read::DoOffsets<RawCollisionPortal>(
             Span(bytes), pack.Header.PortalOffset, pack.Header.PortalCount);
-        const auto otherPortals = Read::DoOffsets<RawCollisionPortal>(
+        const auto otherPortals = MphRead::Read::DoOffsets<RawCollisionPortal>(
             Span(bytes), info.Header.PortalOffset, info.Header.PortalCount);
         const auto& portalValues = Require(portals);
         for (std::int32_t i = 0; i < ToIntCount(portalValues.size()); ++i)

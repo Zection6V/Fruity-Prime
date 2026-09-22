@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../Formats/Types.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -13,15 +15,6 @@
 
 namespace System
 {
-    class UnauthorizedAccessException final : public std::runtime_error
-    {
-    public:
-        explicit UnauthorizedAccessException(const std::string& path)
-            : std::runtime_error("Access to the path '" + path + "' is denied.")
-        {
-        }
-    };
-
     class OperationCanceledException final : public std::runtime_error
     {
     public:
@@ -43,43 +36,6 @@ namespace System
 
     namespace IO
     {
-        class IOException : public std::runtime_error
-        {
-        public:
-            explicit IOException(std::string message)
-                : std::runtime_error(std::move(message))
-            {
-            }
-        };
-
-        class FileNotFoundException final : public IOException
-        {
-        public:
-            explicit FileNotFoundException(const std::string& path)
-                : IOException("Could not find file '" + path + "'.")
-            {
-            }
-        };
-
-        class DirectoryNotFoundException final : public IOException
-        {
-        public:
-            explicit DirectoryNotFoundException(const std::string& path)
-                : IOException("Could not find a part of the path '" + path + "'.")
-            {
-            }
-        };
-
-        class PathTooLongException final : public IOException
-        {
-        public:
-            explicit PathTooLongException(const std::string& path)
-                : IOException("The path '" + path
-                    + "' is too long, or a component of the specified path is too long.")
-            {
-            }
-        };
-
         class EndOfStreamException final : public IOException
         {
         public:

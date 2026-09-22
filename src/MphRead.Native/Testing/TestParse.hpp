@@ -9,18 +9,6 @@
 #include <string_view>
 #include <vector>
 
-namespace System
-{
-    class ArgumentException final : public std::invalid_argument
-    {
-    public:
-        explicit ArgumentException(std::string_view message)
-            : std::invalid_argument(std::string(message))
-        {
-        }
-    };
-}
-
 namespace MphRead::Testing
 {
     class TestParse final

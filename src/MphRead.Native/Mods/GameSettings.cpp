@@ -697,8 +697,7 @@ namespace MphRead::Mods
         }
 
         std::int32_t pointGoal = 0;
-        if (settings->PointGoal
-            && TryParseInt32(*settings->PointGoal, pointGoal)
+        if (TryParseInt32(settings->PointGoal, pointGoal)
             && pointGoal > 0)
         {
             GameState::PointGoal(pointGoal);

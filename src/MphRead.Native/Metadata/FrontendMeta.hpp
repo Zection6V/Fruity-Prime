@@ -23,15 +23,15 @@ namespace MphRead
                 std::optional<std::string> bottomScreenPath = std::nullopt);
         };
 
-        extern const std::shared_ptr<ModelMetadata> Ad2Dm2;
+        extern const std::shared_ptr<::MphRead::ModelMetadata> Ad2Dm2;
 
         extern const std::vector<std::string> NavMapModelNames;
 
-        extern const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> HudModels;
-        extern const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> TouchToStartModels;
-        extern const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> MultiplayerModels;
-        extern const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> LogoModels;
-        extern const std::unordered_map<std::string, std::shared_ptr<ModelMetadata>> FrontendModels;
+        extern const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> HudModels;
+        extern const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> TouchToStartModels;
+        extern const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> MultiplayerModels;
+        extern const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> LogoModels;
+        extern const std::unordered_map<std::string, std::shared_ptr<::MphRead::ModelMetadata>> FrontendModels;
 
         extern const std::vector<std::shared_ptr<MovieInfo>> MovieFiles;
         extern const std::vector<std::string> MovieDisplayInfo;

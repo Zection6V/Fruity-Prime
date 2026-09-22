@@ -26,6 +26,7 @@
 #include "Entities/OctolithFlagEntity.hpp"
 #include "Entities/PlatformEntity.hpp"
 #include "Entities/PlayerSpawnEntity.hpp"
+#include "Entities/Players/PlayerEntity.hpp"
 #include "Entities/PointModuleEntity.hpp"
 #include "Entities/RoomEntity.hpp"
 #include "Entities/TeleporterEntity.hpp"
@@ -1151,8 +1152,10 @@ namespace MphRead
 
     void SceneSetup::LoadObjectResources(Scene* scene)
     {
-        for (const auto& obj : scene->GetObjectEntities())
+        auto objEnumerator = scene->GetObjectEntities().GetEnumerator();
+        while (objEnumerator.MoveNext())
         {
+            const auto obj = objEnumerator.Current();
             LoadObjectResources(obj, scene);
         }
     }
@@ -1169,8 +1172,10 @@ namespace MphRead
 
     void SceneSetup::LoadPlatformResources(Scene* scene)
     {
-        for (const auto& platform : scene->GetPlatformEntities())
+        auto platformEnumerator = scene->GetPlatformEntities().GetEnumerator();
+        while (platformEnumerator.MoveNext())
         {
+            const auto platform = platformEnumerator.Current();
             LoadPlatformResources(platform, scene);
         }
     }
@@ -1209,8 +1214,10 @@ namespace MphRead
 
     void SceneSetup::LoadEnemyResources(Scene* scene)
     {
-        for (const auto& spawner : scene->GetEnemySpawnEntities())
+        auto spawnerEnumerator = scene->GetEnemySpawnEntities().GetEnumerator();
+        while (spawnerEnumerator.MoveNext())
         {
+            const auto spawner = spawnerEnumerator.Current();
             LoadEnemyResources(spawner, scene);
         }
     }
@@ -1367,8 +1374,10 @@ namespace MphRead
             LoadItem(ItemType::MissileSmall, scene);
             LoadItem(ItemType::MissileBig, scene);
         }
-        for (const auto& itemSpawner : scene->GetItemSpawnEntities())
+        auto itemSpawnerEnumerator = scene->GetItemSpawnEntities().GetEnumerator();
+        while (itemSpawnerEnumerator.MoveNext())
         {
+            const auto itemSpawner = itemSpawnerEnumerator.Current();
             LoadItemResources(itemSpawner, scene);
         }
     }

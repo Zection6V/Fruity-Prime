@@ -890,7 +890,7 @@ namespace MphRead::Mods::Network
 
     void NetFeatureCheck::Observe(MphRead::Scene& scene)
     {
-        Mods::WorldEvents::SetWatching(true);
+        Mods::WorldEvents::Watching(true);
         _localSlot = std::max(NetSession::LocalSlot(), 0);
 
         const bool localSamplePath
@@ -991,7 +991,7 @@ namespace MphRead::Mods::Network
             {
                 IncrementInt32(record.BombFrames);
             }
-            if (player.Controls().AltAttack.IsPressed())
+            if (player.Controls().AltAttack().IsPressed())
             {
                 IncrementInt32(record.AltAttackPresses);
             }
@@ -1024,7 +1024,7 @@ namespace MphRead::Mods::Network
             {
                 throw System::NullReferenceException();
             }
-            if (equipInfo->Zoomed())
+            if (equipInfo->Zoomed)
             {
                 IncrementInt32(record.ZoomFrames);
             }

@@ -1905,7 +1905,7 @@ namespace MphRead::Sound
         }
         _streamBuffer = Audio::GenBuffer();
         _streamInstance = Audio::GenSource();
-        if (!MphRead::Features::LogSpatialAudio)
+        if (!MphRead::Features::LogSpatialAudio())
         {
             Audio::LinearDistanceClamped();
         }

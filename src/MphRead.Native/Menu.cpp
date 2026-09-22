@@ -2295,7 +2295,7 @@ namespace MphRead
             if (Decimal::TryParse(settings.MusicVolume, decimalValue))
             {
                 _musicVolume = decimalValue;
-                Sound::Music::UserVolume = _musicVolume.ToFloat();
+                Music::UserVolume(_musicVolume.ToFloat());
             }
             std::int32_t integer = 0;
             if (TryParseInt32(settings.PointGoal, integer)) _pointGoal = Decimal::FromInt(integer);
@@ -2550,7 +2550,7 @@ namespace MphRead
                         else if (selection == 8) MenuDependency::PathsChooseFhPath();
                         else if (selection == 9) SetDefaultLanguage();
                         else if (selection == 10) { _sfxVolume = Decimal::Literal("0.35"); Sound::Sfx::Volume = _sfxVolume.ToFloat(); }
-                        else if (selection == 11) { _musicVolume = Decimal::Literal("0.50"); Sound::Music::UserVolume = _musicVolume.ToFloat(); }
+                        else if (selection == 11) { _musicVolume = Decimal::Literal("0.50"); Music::UserVolume(_musicVolume.ToFloat()); }
                         else if (selection == 12) _movieId = -1;
                     }
                     else if (keyInfo.Key == ConsoleKey::Add || keyInfo.Key == ConsoleKey::OemPlus || keyInfo.Key == ConsoleKey::RightArrow)
@@ -2639,7 +2639,7 @@ namespace MphRead
                         else if (selection == 11)
                         {
                             _musicVolume = std::min(_musicVolume + Decimal::Literal("0.05"), Decimal::Literal("1.0"));
-                            Sound::Music::UserVolume = _musicVolume.ToFloat();
+                            Music::UserVolume(_musicVolume.ToFloat());
                         }
                         else if (selection == 12)
                         {
@@ -2732,7 +2732,7 @@ namespace MphRead
                         else if (selection == 11)
                         {
                             _musicVolume = std::max(_musicVolume - Decimal::Literal("0.05"), Decimal::FromInt(0));
-                            Sound::Music::UserVolume = _musicVolume.ToFloat();
+                            Music::UserVolume(_musicVolume.ToFloat());
                         }
                         else if (selection == 12)
                         {
@@ -3006,42 +3006,42 @@ namespace MphRead
 
     void Menu::ResetFeatures()
     {
-        Features::NoRepeatEncounters = false;
-        Features::AllowInvalidTeams = true;
-        Features::TopScreenTargetInfo = true;
-        Features::SetHelmetOpacity(1.0F);
-        Features::SetVisorOpacity(0.5F);
-        Features::HudOpacity = 1.0F;
-        Features::ReticleOpacity = 1.0F;
-        Features::HudSway = true;
-        Features::TargetInfoSway = false;
-        Features::DelayedIdleSway = true;
-        Features::NoIdleSway = false;
-        Features::NoMapCentering = false;
-        Features::MaxRoomDetail = false;
-        Features::MaxPlayerDetail = true;
-        Features::LogSpatialAudio = false;
-        Features::HalfSecondAlarm = false;
-        Features::FullBoostCharge = false;
-        Features::BoostOpensDoors = false;
-        Features::AlternateHunters1P = true;
-        Cheats::FreeWeaponSelect = false;
-        Cheats::UnlimitedJumps = false;
-        Cheats::NoRandomEncounters = false;
-        Cheats::UnlockAllDoors = false;
-        Cheats::ContinueFromCurrentRoom = false;
-        Cheats::SkipPlanetIntros = false;
-        Cheats::StartWithAllUpgrades = false;
-        Cheats::StartWithAllOctoliths = false;
-        Cheats::WalkThroughWalls = false;
-        Cheats::AlwaysFightGorea2 = false;
-        Cheats::QuadrupleDamage = false;
-        Bugfixes::SmoothCamSeqHandoff = false;
-        Bugfixes::BetterCamSeqNodeRef = true;
-        Bugfixes::NoStrayRespawnText = false;
-        Bugfixes::CorrectBountySfx = true;
-        Bugfixes::NoDoubleEnemyDeath = true;
-        Bugfixes::NoSlenchRollTimerUnderflow = true;
+        Features::NoRepeatEncounters(false);
+        Features::AllowInvalidTeams(true);
+        Features::TopScreenTargetInfo(true);
+        Features::HelmetOpacity(1.0F);
+        Features::VisorOpacity(0.5F);
+        Features::HudOpacity(1.0F);
+        Features::ReticleOpacity(1.0F);
+        Features::HudSway(true);
+        Features::TargetInfoSway(false);
+        Features::DelayedIdleSway(true);
+        Features::NoIdleSway(false);
+        Features::NoMapCentering(false);
+        Features::MaxRoomDetail(false);
+        Features::MaxPlayerDetail(true);
+        Features::LogSpatialAudio(false);
+        Features::HalfSecondAlarm(false);
+        Features::FullBoostCharge(false);
+        Features::BoostOpensDoors(false);
+        Features::AlternateHunters1P(true);
+        Cheats::FreeWeaponSelect(false);
+        Cheats::UnlimitedJumps(false);
+        Cheats::NoRandomEncounters(false);
+        Cheats::UnlockAllDoors(false);
+        Cheats::ContinueFromCurrentRoom(false);
+        Cheats::SkipPlanetIntros(false);
+        Cheats::StartWithAllUpgrades(false);
+        Cheats::StartWithAllOctoliths(false);
+        Cheats::WalkThroughWalls(false);
+        Cheats::AlwaysFightGorea2(false);
+        Cheats::QuadrupleDamage(false);
+        Bugfixes::SmoothCamSeqHandoff(false);
+        Bugfixes::BetterCamSeqNodeRef(true);
+        Bugfixes::NoStrayRespawnText(false);
+        Bugfixes::CorrectBountySfx(true);
+        Bugfixes::NoDoubleEnemyDeath(true);
+        Bugfixes::NoSlenchRollTimerUnderflow(true);
     }
 
     bool Menu::ShowFeaturePrompts()
@@ -3074,50 +3074,50 @@ namespace MphRead
             else if (screen == 1)
             {
                 WriteLine("Features"); WriteLine();
-                WriteLine(X(s++) + " (E) No Repeat Encounters: " + OnOff(Features::NoRepeatEncounters));
-                WriteLine(X(s++) + " (T) Allow Invalid Teams: " + OnOff(Features::AllowInvalidTeams));
-                WriteLine(X(s++) + " (I) Target Info On Top Screen: " + OnOff(Features::TopScreenTargetInfo));
+                WriteLine(X(s++) + " (E) No Repeat Encounters: " + OnOff(Features::NoRepeatEncounters()));
+                WriteLine(X(s++) + " (T) Allow Invalid Teams: " + OnOff(Features::AllowInvalidTeams()));
+                WriteLine(X(s++) + " (I) Target Info On Top Screen: " + OnOff(Features::TopScreenTargetInfo()));
                 WriteLine(X(s++) + " (H) Helmet Opacity: " + PrintOpacity(Features::HelmetOpacity()));
                 WriteLine(X(s++) + " (V) Visor Opacity: " + PrintOpacity(Features::VisorOpacity()));
-                WriteLine(X(s++) + " (D) HUD Opacity: " + PrintOpacity(Features::HudOpacity));
-                WriteLine(X(s++) + " (C) Reticle Opacity: " + PrintOpacity(Features::ReticleOpacity));
-                WriteLine(X(s++) + " (S) HUD Sway: " + OnOff(Features::HudSway));
-                WriteLine(X(s++) + " (F) Target Info Sway: " + OnOff(Features::TargetInfoSway));
-                WriteLine(X(s++) + " (W) Delayed Idle Sway: " + OnOff(Features::DelayedIdleSway));
-                WriteLine(X(s++) + " (N) No Idle Sway: " + OnOff(Features::NoIdleSway));
-                WriteLine(X(s++) + " (M) No Map Centering: " + OnOff(Features::NoMapCentering));
-                WriteLine(X(s++) + " (R) Maximum Room Detail: " + OnOff(Features::MaxRoomDetail));
-                WriteLine(X(s++) + " (P) Maximum Player Detail: " + OnOff(Features::MaxPlayerDetail));
-                WriteLine(X(s++) + " (L) Logarithmic Spatial Audio: " + OnOff(Features::LogSpatialAudio));
-                WriteLine(X(s++) + " (A) Consistent Alarm Interval: " + OnOff(Features::HalfSecondAlarm));
-                WriteLine(X(s++) + " (G) Full Boost Charge: " + OnOff(Features::FullBoostCharge));
-                WriteLine(X(s++) + " (B) Boost Opens Doors: " + OnOff(Features::BoostOpensDoors));
-                WriteLine(X(s++) + " (1) Update Adventure Mode For Other Hunters: " + OnOff(Features::AlternateHunters1P));
+                WriteLine(X(s++) + " (D) HUD Opacity: " + PrintOpacity(Features::HudOpacity()));
+                WriteLine(X(s++) + " (C) Reticle Opacity: " + PrintOpacity(Features::ReticleOpacity()));
+                WriteLine(X(s++) + " (S) HUD Sway: " + OnOff(Features::HudSway()));
+                WriteLine(X(s++) + " (F) Target Info Sway: " + OnOff(Features::TargetInfoSway()));
+                WriteLine(X(s++) + " (W) Delayed Idle Sway: " + OnOff(Features::DelayedIdleSway()));
+                WriteLine(X(s++) + " (N) No Idle Sway: " + OnOff(Features::NoIdleSway()));
+                WriteLine(X(s++) + " (M) No Map Centering: " + OnOff(Features::NoMapCentering()));
+                WriteLine(X(s++) + " (R) Maximum Room Detail: " + OnOff(Features::MaxRoomDetail()));
+                WriteLine(X(s++) + " (P) Maximum Player Detail: " + OnOff(Features::MaxPlayerDetail()));
+                WriteLine(X(s++) + " (L) Logarithmic Spatial Audio: " + OnOff(Features::LogSpatialAudio()));
+                WriteLine(X(s++) + " (A) Consistent Alarm Interval: " + OnOff(Features::HalfSecondAlarm()));
+                WriteLine(X(s++) + " (G) Full Boost Charge: " + OnOff(Features::FullBoostCharge()));
+                WriteLine(X(s++) + " (B) Boost Opens Doors: " + OnOff(Features::BoostOpensDoors()));
+                WriteLine(X(s++) + " (1) Update Adventure Mode For Other Hunters: " + OnOff(Features::AlternateHunters1P()));
             }
             else if (screen == 2)
             {
                 WriteLine("Cheats"); WriteLine();
-                WriteLine(X(s++) + " (W) Free Weapon Selection: " + OnOff(Cheats::FreeWeaponSelect));
-                WriteLine(X(s++) + " (J) Unlimited Jumps: " + OnOff(Cheats::UnlimitedJumps));
-                WriteLine(X(s++) + " (E) No Random Encounters: " + OnOff(Cheats::NoRandomEncounters));
-                WriteLine(X(s++) + " (D) All Doors Unlocked: " + OnOff(Cheats::UnlockAllDoors));
-                WriteLine(X(s++) + " (R) Retry From Current Room: " + OnOff(Cheats::ContinueFromCurrentRoom));
-                WriteLine(X(s++) + " (I) Skip Planet Intros: " + OnOff(Cheats::SkipPlanetIntros));
-                WriteLine(X(s++) + " (U) Start With All Upgrades: " + OnOff(Cheats::StartWithAllUpgrades));
-                WriteLine(X(s++) + " (O) Start With All Octoliths: " + OnOff(Cheats::StartWithAllOctoliths));
-                WriteLine(X(s++) + " (G) Walk Through Walls: " + OnOff(Cheats::WalkThroughWalls));
-                WriteLine(X(s++) + " (2) Always Fight Gorea 2: " + OnOff(Cheats::AlwaysFightGorea2));
-                WriteLine(X(s++) + " (Q) Quadruple Damage: " + OnOff(Cheats::QuadrupleDamage));
+                WriteLine(X(s++) + " (W) Free Weapon Selection: " + OnOff(Cheats::FreeWeaponSelect()));
+                WriteLine(X(s++) + " (J) Unlimited Jumps: " + OnOff(Cheats::UnlimitedJumps()));
+                WriteLine(X(s++) + " (E) No Random Encounters: " + OnOff(Cheats::NoRandomEncounters()));
+                WriteLine(X(s++) + " (D) All Doors Unlocked: " + OnOff(Cheats::UnlockAllDoors()));
+                WriteLine(X(s++) + " (R) Retry From Current Room: " + OnOff(Cheats::ContinueFromCurrentRoom()));
+                WriteLine(X(s++) + " (I) Skip Planet Intros: " + OnOff(Cheats::SkipPlanetIntros()));
+                WriteLine(X(s++) + " (U) Start With All Upgrades: " + OnOff(Cheats::StartWithAllUpgrades()));
+                WriteLine(X(s++) + " (O) Start With All Octoliths: " + OnOff(Cheats::StartWithAllOctoliths()));
+                WriteLine(X(s++) + " (G) Walk Through Walls: " + OnOff(Cheats::WalkThroughWalls()));
+                WriteLine(X(s++) + " (2) Always Fight Gorea 2: " + OnOff(Cheats::AlwaysFightGorea2()));
+                WriteLine(X(s++) + " (Q) Quadruple Damage: " + OnOff(Cheats::QuadrupleDamage()));
             }
             else if (screen == 3)
             {
                 WriteLine("Bugfixes"); WriteLine();
-                WriteLine(X(s++) + " (C) Smooth Camera Sequence Handoff: " + OnOff(Bugfixes::SmoothCamSeqHandoff));
-                WriteLine(X(s++) + " (N) Better Camera Sequence Node Refs: " + OnOff(Bugfixes::BetterCamSeqNodeRef));
-                WriteLine(X(s++) + " (R) No Stray Respawn Text: " + OnOff(Bugfixes::NoStrayRespawnText));
-                WriteLine(X(s++) + " (S) Correct Bounty SFX: " + OnOff(Bugfixes::CorrectBountySfx));
-                WriteLine(X(s++) + " (E) Fix Double Enemy Death: " + OnOff(Bugfixes::NoDoubleEnemyDeath));
-                WriteLine(X(s++) + " (T) Fix Slench Roll Timer Underflow: " + OnOff(Bugfixes::NoSlenchRollTimerUnderflow));
+                WriteLine(X(s++) + " (C) Smooth Camera Sequence Handoff: " + OnOff(Bugfixes::SmoothCamSeqHandoff()));
+                WriteLine(X(s++) + " (N) Better Camera Sequence Node Refs: " + OnOff(Bugfixes::BetterCamSeqNodeRef()));
+                WriteLine(X(s++) + " (R) No Stray Respawn Text: " + OnOff(Bugfixes::NoStrayRespawnText()));
+                WriteLine(X(s++) + " (S) Correct Bounty SFX: " + OnOff(Bugfixes::CorrectBountySfx()));
+                WriteLine(X(s++) + " (E) Fix Double Enemy Death: " + OnOff(Bugfixes::NoDoubleEnemyDeath()));
+                WriteLine(X(s++) + " (T) Fix Slench Roll Timer Underflow: " + OnOff(Bugfixes::NoSlenchRollTimerUnderflow()));
             }
             WriteLine(X(s++) + " (B) Go Back");
             --s;
@@ -3159,25 +3159,25 @@ namespace MphRead
                 else if (keyInfo.Key == ConsoleKey::D1 || keyInfo.Key == ConsoleKey::NumPad1) selection = 16;
                 else if (keyInfo.Key == ConsoleKey::Backspace || keyInfo.Key == ConsoleKey::Delete)
                 {
-                    if (selection == 0) Features::NoRepeatEncounters = true;
-                    else if (selection == 1) Features::AllowInvalidTeams = true;
-                    else if (selection == 2) Features::TopScreenTargetInfo = true;
-                    else if (selection == 3) Features::SetHelmetOpacity(1.0F);
-                    else if (selection == 4) Features::SetVisorOpacity(0.5F);
-                    else if (selection == 5) Features::HudOpacity = 1.0F;
-                    else if (selection == 6) Features::ReticleOpacity = 1.0F;
-                    else if (selection == 7) Features::HudSway = true;
-                    else if (selection == 8) Features::TargetInfoSway = false;
-                    else if (selection == 9) Features::DelayedIdleSway = true;
-                    else if (selection == 10) Features::NoIdleSway = false;
-                    else if (selection == 11) Features::NoMapCentering = false;
-                    else if (selection == 12) Features::MaxRoomDetail = false;
-                    else if (selection == 13) Features::MaxPlayerDetail = true;
-                    else if (selection == 14) Features::LogSpatialAudio = false;
-                    else if (selection == 15) Features::HalfSecondAlarm = false;
-                    else if (selection == 16) Features::FullBoostCharge = false;
-                    else if (selection == 17) Features::BoostOpensDoors = false;
-                    else if (selection == 18) Features::AlternateHunters1P = true;
+                    if (selection == 0) Features::NoRepeatEncounters(true);
+                    else if (selection == 1) Features::AllowInvalidTeams(true);
+                    else if (selection == 2) Features::TopScreenTargetInfo(true);
+                    else if (selection == 3) Features::HelmetOpacity(1.0F);
+                    else if (selection == 4) Features::VisorOpacity(0.5F);
+                    else if (selection == 5) Features::HudOpacity(1.0F);
+                    else if (selection == 6) Features::ReticleOpacity(1.0F);
+                    else if (selection == 7) Features::HudSway(true);
+                    else if (selection == 8) Features::TargetInfoSway(false);
+                    else if (selection == 9) Features::DelayedIdleSway(true);
+                    else if (selection == 10) Features::NoIdleSway(false);
+                    else if (selection == 11) Features::NoMapCentering(false);
+                    else if (selection == 12) Features::MaxRoomDetail(false);
+                    else if (selection == 13) Features::MaxPlayerDetail(true);
+                    else if (selection == 14) Features::LogSpatialAudio(false);
+                    else if (selection == 15) Features::HalfSecondAlarm(false);
+                    else if (selection == 16) Features::FullBoostCharge(false);
+                    else if (selection == 17) Features::BoostOpensDoors(false);
+                    else if (selection == 18) Features::AlternateHunters1P(true);
                 }
                 else if (keyInfo.Key == ConsoleKey::Add || keyInfo.Key == ConsoleKey::OemPlus || keyInfo.Key == ConsoleKey::RightArrow
                     || keyInfo.Key == ConsoleKey::Subtract || keyInfo.Key == ConsoleKey::OemMinus || keyInfo.Key == ConsoleKey::LeftArrow)
@@ -3196,25 +3196,25 @@ namespace MphRead
                         if (value >= 1) return 0.5F;
                         return 0.0F;
                     };
-                    if (selection == 0) Features::NoRepeatEncounters = !Features::NoRepeatEncounters;
-                    else if (selection == 1) Features::AllowInvalidTeams = !Features::AllowInvalidTeams;
-                    else if (selection == 2) Features::TopScreenTargetInfo = !Features::TopScreenTargetInfo;
-                    else if (selection == 3) Features::SetHelmetOpacity(UpdateOpacity(Features::HelmetOpacity()));
-                    else if (selection == 4) Features::SetVisorOpacity(UpdateOpacity(Features::VisorOpacity()));
-                    else if (selection == 5) Features::HudOpacity = UpdateOpacity(Features::HudOpacity);
-                    else if (selection == 6) Features::ReticleOpacity = UpdateOpacity(Features::ReticleOpacity);
-                    else if (selection == 7) Features::HudSway = !Features::HudSway;
-                    else if (selection == 8) Features::TargetInfoSway = !Features::TargetInfoSway;
-                    else if (selection == 9) Features::DelayedIdleSway = !Features::DelayedIdleSway;
-                    else if (selection == 10) Features::NoIdleSway = !Features::NoIdleSway;
-                    else if (selection == 11) Features::NoMapCentering = !Features::NoMapCentering;
-                    else if (selection == 12) Features::MaxRoomDetail = !Features::MaxRoomDetail;
-                    else if (selection == 13) Features::MaxPlayerDetail = !Features::MaxPlayerDetail;
-                    else if (selection == 14) Features::LogSpatialAudio = !Features::LogSpatialAudio;
-                    else if (selection == 15) Features::HalfSecondAlarm = !Features::HalfSecondAlarm;
-                    else if (selection == 16) Features::FullBoostCharge = !Features::FullBoostCharge;
-                    else if (selection == 17) Features::BoostOpensDoors = !Features::BoostOpensDoors;
-                    else if (selection == 18) Features::AlternateHunters1P = !Features::AlternateHunters1P;
+                    if (selection == 0) Features::NoRepeatEncounters(!Features::NoRepeatEncounters());
+                    else if (selection == 1) Features::AllowInvalidTeams(!Features::AllowInvalidTeams());
+                    else if (selection == 2) Features::TopScreenTargetInfo(!Features::TopScreenTargetInfo());
+                    else if (selection == 3) Features::HelmetOpacity(UpdateOpacity(Features::HelmetOpacity()));
+                    else if (selection == 4) Features::VisorOpacity(UpdateOpacity(Features::VisorOpacity()));
+                    else if (selection == 5) Features::HudOpacity(UpdateOpacity(Features::HudOpacity()));
+                    else if (selection == 6) Features::ReticleOpacity(UpdateOpacity(Features::ReticleOpacity()));
+                    else if (selection == 7) Features::HudSway(!Features::HudSway());
+                    else if (selection == 8) Features::TargetInfoSway(!Features::TargetInfoSway());
+                    else if (selection == 9) Features::DelayedIdleSway(!Features::DelayedIdleSway());
+                    else if (selection == 10) Features::NoIdleSway(!Features::NoIdleSway());
+                    else if (selection == 11) Features::NoMapCentering(!Features::NoMapCentering());
+                    else if (selection == 12) Features::MaxRoomDetail(!Features::MaxRoomDetail());
+                    else if (selection == 13) Features::MaxPlayerDetail(!Features::MaxPlayerDetail());
+                    else if (selection == 14) Features::LogSpatialAudio(!Features::LogSpatialAudio());
+                    else if (selection == 15) Features::HalfSecondAlarm(!Features::HalfSecondAlarm());
+                    else if (selection == 16) Features::FullBoostCharge(!Features::FullBoostCharge());
+                    else if (selection == 17) Features::BoostOpensDoors(!Features::BoostOpensDoors());
+                    else if (selection == 18) Features::AlternateHunters1P(!Features::AlternateHunters1P());
                 }
             }
             else if (screen == 2)
@@ -3234,32 +3234,32 @@ namespace MphRead
                 else if (keyInfo.Key == ConsoleKey::Q) selection = 10;
                 else if (keyInfo.Key == ConsoleKey::Backspace || keyInfo.Key == ConsoleKey::Delete)
                 {
-                    if (selection == 0) Cheats::FreeWeaponSelect = false;
-                    else if (selection == 1) Cheats::UnlimitedJumps = false;
-                    else if (selection == 2) Cheats::NoRandomEncounters = false;
-                    else if (selection == 3) Cheats::UnlockAllDoors = false;
-                    else if (selection == 4) Cheats::ContinueFromCurrentRoom = false;
-                    else if (selection == 5) Cheats::SkipPlanetIntros = false;
-                    else if (selection == 6) Cheats::StartWithAllUpgrades = false;
-                    else if (selection == 7) Cheats::StartWithAllOctoliths = false;
-                    else if (selection == 8) Cheats::WalkThroughWalls = false;
-                    else if (selection == 9) Cheats::AlwaysFightGorea2 = false;
-                    else if (selection == 10) Cheats::QuadrupleDamage = false;
+                    if (selection == 0) Cheats::FreeWeaponSelect(false);
+                    else if (selection == 1) Cheats::UnlimitedJumps(false);
+                    else if (selection == 2) Cheats::NoRandomEncounters(false);
+                    else if (selection == 3) Cheats::UnlockAllDoors(false);
+                    else if (selection == 4) Cheats::ContinueFromCurrentRoom(false);
+                    else if (selection == 5) Cheats::SkipPlanetIntros(false);
+                    else if (selection == 6) Cheats::StartWithAllUpgrades(false);
+                    else if (selection == 7) Cheats::StartWithAllOctoliths(false);
+                    else if (selection == 8) Cheats::WalkThroughWalls(false);
+                    else if (selection == 9) Cheats::AlwaysFightGorea2(false);
+                    else if (selection == 10) Cheats::QuadrupleDamage(false);
                 }
                 else if (keyInfo.Key == ConsoleKey::Add || keyInfo.Key == ConsoleKey::OemPlus || keyInfo.Key == ConsoleKey::RightArrow
                     || keyInfo.Key == ConsoleKey::Subtract || keyInfo.Key == ConsoleKey::OemMinus || keyInfo.Key == ConsoleKey::LeftArrow)
                 {
-                    if (selection == 0) Cheats::FreeWeaponSelect = !Cheats::FreeWeaponSelect;
-                    else if (selection == 1) Cheats::UnlimitedJumps = !Cheats::UnlimitedJumps;
-                    else if (selection == 2) Cheats::NoRandomEncounters = !Cheats::NoRandomEncounters;
-                    else if (selection == 3) Cheats::UnlockAllDoors = !Cheats::UnlockAllDoors;
-                    else if (selection == 4) Cheats::ContinueFromCurrentRoom = !Cheats::ContinueFromCurrentRoom;
-                    else if (selection == 5) Cheats::SkipPlanetIntros = !Cheats::SkipPlanetIntros;
-                    else if (selection == 6) Cheats::StartWithAllUpgrades = !Cheats::StartWithAllUpgrades;
-                    else if (selection == 7) Cheats::StartWithAllOctoliths = !Cheats::StartWithAllOctoliths;
-                    else if (selection == 8) Cheats::WalkThroughWalls = !Cheats::WalkThroughWalls;
-                    else if (selection == 9) Cheats::AlwaysFightGorea2 = !Cheats::AlwaysFightGorea2;
-                    else if (selection == 10) Cheats::QuadrupleDamage = !Cheats::QuadrupleDamage;
+                    if (selection == 0) Cheats::FreeWeaponSelect(!Cheats::FreeWeaponSelect());
+                    else if (selection == 1) Cheats::UnlimitedJumps(!Cheats::UnlimitedJumps());
+                    else if (selection == 2) Cheats::NoRandomEncounters(!Cheats::NoRandomEncounters());
+                    else if (selection == 3) Cheats::UnlockAllDoors(!Cheats::UnlockAllDoors());
+                    else if (selection == 4) Cheats::ContinueFromCurrentRoom(!Cheats::ContinueFromCurrentRoom());
+                    else if (selection == 5) Cheats::SkipPlanetIntros(!Cheats::SkipPlanetIntros());
+                    else if (selection == 6) Cheats::StartWithAllUpgrades(!Cheats::StartWithAllUpgrades());
+                    else if (selection == 7) Cheats::StartWithAllOctoliths(!Cheats::StartWithAllOctoliths());
+                    else if (selection == 8) Cheats::WalkThroughWalls(!Cheats::WalkThroughWalls());
+                    else if (selection == 9) Cheats::AlwaysFightGorea2(!Cheats::AlwaysFightGorea2());
+                    else if (selection == 10) Cheats::QuadrupleDamage(!Cheats::QuadrupleDamage());
                 }
             }
             else if (screen == 3)
@@ -3274,22 +3274,22 @@ namespace MphRead
                 else if (keyInfo.Key == ConsoleKey::T) selection = 5;
                 else if (keyInfo.Key == ConsoleKey::Backspace || keyInfo.Key == ConsoleKey::Delete)
                 {
-                    if (selection == 0) Bugfixes::SmoothCamSeqHandoff = false;
-                    else if (selection == 1) Bugfixes::BetterCamSeqNodeRef = true;
-                    else if (selection == 2) Bugfixes::NoStrayRespawnText = false;
-                    else if (selection == 3) Bugfixes::CorrectBountySfx = true;
-                    else if (selection == 4) Bugfixes::NoDoubleEnemyDeath = true;
-                    else if (selection == 5) Bugfixes::NoSlenchRollTimerUnderflow = true;
+                    if (selection == 0) Bugfixes::SmoothCamSeqHandoff(false);
+                    else if (selection == 1) Bugfixes::BetterCamSeqNodeRef(true);
+                    else if (selection == 2) Bugfixes::NoStrayRespawnText(false);
+                    else if (selection == 3) Bugfixes::CorrectBountySfx(true);
+                    else if (selection == 4) Bugfixes::NoDoubleEnemyDeath(true);
+                    else if (selection == 5) Bugfixes::NoSlenchRollTimerUnderflow(true);
                 }
                 else if (keyInfo.Key == ConsoleKey::Add || keyInfo.Key == ConsoleKey::OemPlus || keyInfo.Key == ConsoleKey::RightArrow
                     || keyInfo.Key == ConsoleKey::Subtract || keyInfo.Key == ConsoleKey::OemMinus || keyInfo.Key == ConsoleKey::LeftArrow)
                 {
-                    if (selection == 0) Bugfixes::SmoothCamSeqHandoff = !Bugfixes::SmoothCamSeqHandoff;
-                    else if (selection == 1) Bugfixes::BetterCamSeqNodeRef = !Bugfixes::BetterCamSeqNodeRef;
-                    else if (selection == 2) Bugfixes::NoStrayRespawnText = !Bugfixes::NoStrayRespawnText;
-                    else if (selection == 3) Bugfixes::CorrectBountySfx = !Bugfixes::CorrectBountySfx;
-                    else if (selection == 4) Bugfixes::NoDoubleEnemyDeath = !Bugfixes::NoDoubleEnemyDeath;
-                    else if (selection == 5) Bugfixes::NoSlenchRollTimerUnderflow = !Bugfixes::NoSlenchRollTimerUnderflow;
+                    if (selection == 0) Bugfixes::SmoothCamSeqHandoff(!Bugfixes::SmoothCamSeqHandoff());
+                    else if (selection == 1) Bugfixes::BetterCamSeqNodeRef(!Bugfixes::BetterCamSeqNodeRef());
+                    else if (selection == 2) Bugfixes::NoStrayRespawnText(!Bugfixes::NoStrayRespawnText());
+                    else if (selection == 3) Bugfixes::CorrectBountySfx(!Bugfixes::CorrectBountySfx());
+                    else if (selection == 4) Bugfixes::NoDoubleEnemyDeath(!Bugfixes::NoDoubleEnemyDeath());
+                    else if (selection == 5) Bugfixes::NoSlenchRollTimerUnderflow(!Bugfixes::NoSlenchRollTimerUnderflow());
                 }
             }
         }

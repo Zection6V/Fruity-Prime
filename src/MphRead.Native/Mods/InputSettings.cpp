@@ -1659,7 +1659,7 @@ namespace MphRead::Mods
         {
             std::vector<std::string> lines =
             {
-                "# " + Branding::Name()
+                "# " + std::string(Branding::Name)
                     + " controls. Delete a line to go back to the default.",
                 "sensitivity=" + FloatToCustom(MouseSensitivity(), 3),
                 "invert_y=" + BoolToLower(InvertMouseY()),

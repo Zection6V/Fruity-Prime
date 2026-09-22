@@ -1,5 +1,8 @@
 #include "CollisionDetection.hpp"
 
+#include "../Scene.hpp"
+#include "../Entities/RoomEntity.hpp"
+
 #include "../Entities/EntityBase.hpp"
 #include "../Renderer.hpp"
 #include "../Mods/Network/NetLog.hpp"
@@ -1643,17 +1646,17 @@ namespace MphRead::Formats
     {
         Scene& sceneRef = Require(scene);
 
-        if (sceneRef.Room == nullptr)
+        if (sceneRef.Room() == nullptr)
         {
             return;
         }
 
         for (std::size_t i = 0;
-            i < sceneRef.Room->RoomCollision.size();
+            i < sceneRef.Room()->RoomCollision().size();
             i++)
         {
             const std::shared_ptr<CollisionInstance>& instPtr
-                = sceneRef.Room->RoomCollision[i];
+                = sceneRef.Room()->RoomCollision()[i];
 
             CollisionInstance& inst = Require(instPtr);
             CollisionInfo& baseInfo = Require(inst.Info);
@@ -1904,8 +1907,10 @@ namespace MphRead::Formats
     {
         Scene& sceneRef = Require(scene);
 
-        for (const auto& entityPtr : sceneRef.Entities)
+        auto entityEnumerator = sceneRef.Entities().GetEnumerator();
+        while (entityEnumerator.MoveNext())
         {
+            const std::shared_ptr<MphRead::Entities::EntityBase> entityPtr = entityEnumerator.Current();
             MphRead::Entities::EntityBase& entity
                 = Require(entityPtr);
 
@@ -2041,17 +2046,17 @@ namespace MphRead::Formats
     {
         Scene& sceneRef = Require(scene);
 
-        if (sceneRef.Room == nullptr)
+        if (sceneRef.Room() == nullptr)
         {
             return;
         }
 
         for (std::size_t roomIndex = 0;
-            roomIndex < sceneRef.Room->RoomCollision.size();
+            roomIndex < sceneRef.Room()->RoomCollision().size();
             roomIndex++)
         {
             const std::shared_ptr<CollisionInstance>& instPtr
-                = sceneRef.Room->RoomCollision[roomIndex];
+                = sceneRef.Room()->RoomCollision()[roomIndex];
 
             CollisionInstance& inst = Require(instPtr);
             CollisionInfo& baseInfo = Require(inst.Info);

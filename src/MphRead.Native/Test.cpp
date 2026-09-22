@@ -233,7 +233,7 @@ namespace
 
     void DebuggerBreakFallback()
     {
-#if defined(_MSC_VER)
+#if defined(_WIN32)
         __debugbreak();
 #else
         std::raise(SIGTRAP);
@@ -518,7 +518,7 @@ namespace
             std::error_code error;
             if (!std::filesystem::exists(path, error) && !error)
             {
-                throw System::IO::FileNotFoundException(path);
+                throw System::IO::FileNotFoundException("Could not find file '" + path + "'.");
             }
             throw System::IO::IOException("I/O error occurred.");
         }
@@ -562,7 +562,7 @@ namespace
             std::filesystem::recursive_directory_iterator iterator(path, error);
             if (error)
             {
-                throw System::IO::DirectoryNotFoundException(path);
+                throw System::IO::DirectoryNotFoundException("Could not find a part of the path '" + path + "'.");
             }
             const std::filesystem::recursive_directory_iterator end;
             for (; iterator != end; iterator.increment(error))
@@ -587,7 +587,7 @@ namespace
             std::filesystem::directory_iterator iterator(path, error);
             if (error)
             {
-                throw System::IO::DirectoryNotFoundException(path);
+                throw System::IO::DirectoryNotFoundException("Could not find a part of the path '" + path + "'.");
             }
             const std::filesystem::directory_iterator end;
             for (; iterator != end; iterator.increment(error))

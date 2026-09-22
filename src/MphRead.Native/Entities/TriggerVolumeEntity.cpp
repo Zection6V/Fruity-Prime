@@ -79,7 +79,7 @@ namespace
         {
             throw MphRead::Memory::Detail::NullReferenceException();
         }
-        return scene->RoomId;
+        return scene->RoomId();
     }
 
     [[nodiscard]] MphRead::StorySave& RequireStorySave()
@@ -93,7 +93,7 @@ namespace
 
     void SetRoomState(MphRead::Scene* scene, std::int32_t id, std::int32_t state)
     {
-        MphRead::StorySave* storySave = MphRead::GameState::StorySave;
+        MphRead::StorySave* storySave = MphRead::GameState::StorySave.get();
         const std::int32_t roomId = GetRoomId(scene);
         if (storySave == nullptr)
         {
@@ -148,7 +148,7 @@ namespace MphRead::Entities
         AddPlaceholderModel();
 
         assert(GameState::Mode == GameMode::SinglePlayer);
-        StorySave* storySave = GameState::StorySave;
+        StorySave* storySave = GameState::StorySave.get();
         const std::int32_t roomId = GetRoomId(_scene);
         if (storySave == nullptr)
         {
@@ -210,11 +210,11 @@ namespace MphRead::Entities
     void TriggerVolumeEntity::GetDisplayVolumes()
     {
         if (_data.Subtype == TriggerType::Volume
-            && (_scene->ShowVolumes == VolumeDisplay::TriggerParent
-                || _scene->ShowVolumes == VolumeDisplay::TriggerChild))
+            && (_scene->ShowVolumes() == VolumeDisplay::TriggerParent
+                || _scene->ShowVolumes() == VolumeDisplay::TriggerChild))
         {
             const ::OpenTK::Mathematics::Vector3 color
-                = _scene->ShowVolumes == VolumeDisplay::TriggerParent
+                = _scene->ShowVolumes() == VolumeDisplay::TriggerParent
                 ? _parentEventColor
                 : _childEventColor;
             AddVolumeItem(_volume, color);
@@ -360,9 +360,14 @@ namespace MphRead::Entities
         else if (_data.Subtype == TriggerType::StateBits)
         {
             const std::int32_t index = static_cast<std::int32_t>(_data.RequiredStateBit);
-            const auto& triggerState = RequireStorySave().TriggerState;
+            const auto& triggerStateRef = RequireStorySave().TriggerState;
+            if (!triggerStateRef)
+            {
+                throw Memory::Detail::NullReferenceException();
+            }
+            const auto& triggerState = *triggerStateRef;
             const std::size_t byteIndex = static_cast<std::size_t>(index / 8);
-            if (byteIndex >= triggerState.size())
+            if (byteIndex >= triggerState.Length())
             {
                 throw Memory::Detail::IndexOutOfRangeException();
             }
@@ -379,7 +384,7 @@ namespace MphRead::Entities
     void TriggerVolumeEntity::Deactivate()
     {
         Active = false;
-        StorySave* storySave = GameState::StorySave;
+        StorySave* storySave = GameState::StorySave.get();
         const std::int32_t roomId = GetRoomId(_scene);
         if (storySave == nullptr)
         {
@@ -487,11 +492,11 @@ namespace MphRead::Entities
     void FhTriggerVolumeEntity::GetDisplayVolumes()
     {
         if (_data.Subtype != FhTriggerType::Threshold
-            && (_scene->ShowVolumes == VolumeDisplay::TriggerParent
-                || _scene->ShowVolumes == VolumeDisplay::TriggerChild))
+            && (_scene->ShowVolumes() == VolumeDisplay::TriggerParent
+                || _scene->ShowVolumes() == VolumeDisplay::TriggerChild))
         {
             const ::OpenTK::Mathematics::Vector3 color
-                = _scene->ShowVolumes == VolumeDisplay::TriggerParent
+                = _scene->ShowVolumes() == VolumeDisplay::TriggerParent
                 ? _parentEventColor
                 : _childEventColor;
             AddVolumeItem(_volume, color);

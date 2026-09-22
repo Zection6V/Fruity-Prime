@@ -633,7 +633,7 @@ namespace MphRead::Utility
 
         void DebugBreak()
         {
-#if defined(_MSC_VER)
+#if defined(_WIN32)
             __debugbreak();
 #else
             std::raise(SIGTRAP);

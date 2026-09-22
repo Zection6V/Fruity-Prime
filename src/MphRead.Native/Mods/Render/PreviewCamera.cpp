@@ -1,5 +1,7 @@
 #include "PreviewCamera.hpp"
 
+#include "../../Scene.hpp"
+
 namespace MphRead
 {
     void Scene::SetPreviewCamera(OpenTK::Mathematics::Vector3 position,

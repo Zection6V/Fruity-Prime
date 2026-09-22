@@ -1,6 +1,7 @@
 #include "Memory.hpp"
 
 #include "Formats/Types.hpp"
+#include "MemoryArrays.hpp"
 #include "MemoryClasses.hpp"
 #include "Program.hpp"
 #include "Scene.hpp"

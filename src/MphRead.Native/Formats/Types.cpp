@@ -294,6 +294,9 @@ namespace OpenTK::Mathematics
 {
     constinit const Vector2 Vector2::Zero{};
     constinit const Vector3 Vector3::Zero{};
+    constinit const Vector3 Vector3::UnitX{1.0F, 0.0F, 0.0F};
+    constinit const Vector3 Vector3::UnitY{0.0F, 1.0F, 0.0F};
+    constinit const Vector3 Vector3::UnitZ{0.0F, 0.0F, 1.0F};
     constinit const Vector4 Vector4::Zero{};
     constinit const Matrix4x3 Matrix4x3::Zero{};
     constinit const Matrix4 Matrix4::Zero{};

@@ -14,9 +14,6 @@
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
 
-#include <OpenTK/Graphics/OpenGL/GL.hpp>
-#include <OpenTK/Windowing/Common/ContextFlags.hpp>
-#include <OpenTK/Windowing/Common/ContextProfile.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -36,14 +33,9 @@
 
 namespace MphRead::Mods::Network
 {
+    using Entities::LoadFlags;
     using OpenTK::Mathematics::Vector2i;
     using OpenTK::Mathematics::Vector3;
-    using OpenTK::Windowing::Common::ContextFlags;
-    using OpenTK::Windowing::Common::ContextProfile;
-    using OpenTK::Windowing::Common::FrameEventArgs;
-    using OpenTK::Windowing::Desktop::GameWindow;
-    using OpenTK::Windowing::Desktop::GameWindowSettings;
-    using OpenTK::Windowing::Desktop::NativeWindowSettings;
 
     namespace
     {
@@ -233,16 +225,16 @@ namespace MphRead::Mods::Network
         {Hunter::Kanden, "disrupt"}
     }};
 
-    GameWindowSettings MapAudit::GameSettings()
+    RendererPlatform::WindowSettings MapAudit::GameSettings()
     {
-        GameWindowSettings settings{};
+        RendererPlatform::WindowSettings settings{};
         settings.UpdateFrequency = 60;
         return settings;
     }
 
-    NativeWindowSettings MapAudit::WindowSettings()
+    RendererPlatform::WindowSettings MapAudit::WindowSettings()
     {
-        NativeWindowSettings settings{};
+        RendererPlatform::WindowSettings settings = GameSettings();
         if (_windowSize.has_value())
         {
             settings.ClientSize = *_windowSize;
@@ -252,9 +244,10 @@ namespace MphRead::Mods::Network
             settings.ClientSize = _showWindow ? Vector2i(1024, 576) : Vector2i(320, 180);
         }
         settings.Title = "MphRead map audit";
-        settings.Profile = ContextProfile::Compatability;
-        settings.Flags = ContextFlags::Default;
-        settings.APIVersion = {3, 2};
+        settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
+        settings.Flags = RendererPlatform::WindowSettings::ContextFlags::Default;
+        settings.ApiMajor = 3;
+        settings.ApiMinor = 2;
         settings.StartVisible = _showWindow;
         return settings;
     }
@@ -329,6 +322,31 @@ namespace MphRead::Mods::Network
         _mainHunter = value;
     }
 
+    void MapAudit::Run()
+    {
+        _window->Run(*this);
+    }
+
+    void MapAudit::Dispose()
+    {
+        _window.reset();
+    }
+
+    OpenTK::Mathematics::Vector2i MapAudit::ClientSize() const
+    {
+        return _window->Size();
+    }
+
+    void MapAudit::Close()
+    {
+        _window->Close();
+    }
+
+    void MapAudit::SwapBuffers()
+    {
+        _window->SwapBuffers();
+    }
+
     MapAudit::MapAudit(
         std::string room,
         std::int32_t players,
@@ -337,7 +355,7 @@ namespace MphRead::Mods::Network
         bool bots,
         bool renderProbe,
         bool itemProbe)
-        : GameWindow(GameSettings(), WindowSettings()),
+        : _window(RendererPlatform::CreateWindow(WindowSettings())),
           _room(std::move(room)),
           _players(players),
           _seconds(seconds),
@@ -346,17 +364,16 @@ namespace MphRead::Mods::Network
           _scene(nullptr),
           _bots(bots)
     {
-        NetTestScript::PhaseSeconds = std::max(1.5, seconds / NetTestScript::PhaseCount);
-        Entities::PlayerEntity::MaxPlayers
-            = std::max(Entities::PlayerEntity::MaxPlayers, players);
+        NetTestScript::SetPhaseSeconds(std::max(1.5, seconds / NetTestScript::PhaseCount()));
+        Entities::PlayerEntity::SetMaxPlayers(std::max(Entities::PlayerEntity::MaxPlayers(), players));
         _forceEveryone = true;
-        Mods::WorldEvents::Watching = true;
+        Mods::WorldEvents::Watching(true);
         Mods::WorldEvents::Reset();
 
         _scene = std::make_unique<MphRead::Scene>(
-            Size,
-            KeyboardState,
-            MouseState,
+            _window->Size(),
+            _window->Keyboard(),
+            _window->Mouse(),
             [](auto&&) { },
             [this]() { Close(); });
 
@@ -369,21 +386,21 @@ namespace MphRead::Mods::Network
         }
 
         for (std::int32_t i = 0;
-            i < static_cast<std::int32_t>(Entities::PlayerEntity::Players.size());
+            i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
             ++i)
         {
             std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players[static_cast<std::size_t>(i)];
-            player->IsBot = bots && i > 0;
-            player->BotLevel = bots ? 1 : 0;
+                = Entities::PlayerEntity::Players()[static_cast<std::size_t>(i)];
+            player->SetIsBot(bots && i > 0);
+            player->SetBotLevel(bots ? 1 : 0);
             if (i >= players)
             {
-                player->LoadFlags = RemoveFlag(player->LoadFlags, LoadFlags::Active);
+                player->SetLoadFlags(RemoveFlag(player->LoadFlags(), LoadFlags::Active));
             }
         }
 
-        Entities::PlayerEntity::PlayerCount = players;
-        Entities::PlayerEntity::MainPlayerIndex = 0;
+        Entities::PlayerEntity::SetPlayerCount(players);
+        Entities::PlayerEntity::SetMainPlayerIndex(0);
         _scene->AddRoom(_room, mode, NetLaunch::RoomPlayerCount);
     }
 
@@ -391,18 +408,18 @@ namespace MphRead::Mods::Network
 
     void MapAudit::OnLoad()
     {
-        _scene->Size = ClientSize;
+        _scene->Size(ClientSize());
         _scene->OnLoad();
-        GameWindow::OnLoad();
-        OpenTK::Graphics::OpenGL::GL::Viewport(0, 0, ClientSize.X, ClientSize.Y);
+        _window->BaseOnLoad();
+        OpenTK::Graphics::OpenGL::GL::Viewport(0, 0, ClientSize().X, ClientSize().Y);
         _scene->OnResize();
     }
 
-    void MapAudit::OnRenderFrame(FrameEventArgs args)
+    void MapAudit::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
         GameState::ApplyPause();
         _scene->OnSimulationFrame();
-        const std::uint64_t frameCountBefore = _scene->FrameCount;
+        const std::uint64_t frameCountBefore = _scene->FrameCount();
         const std::int32_t draws = std::max<std::int32_t>(1, _drawRate);
 
         for (std::int32_t i = 0; i < draws; ++i)
@@ -419,7 +436,7 @@ namespace MphRead::Mods::Network
             }
         }
 
-        if (_scene->FrameCount != frameCountBefore)
+        if (_scene->FrameCount() != frameCountBefore)
         {
             ++_drawAdvancedTheGame;
         }
@@ -432,13 +449,13 @@ namespace MphRead::Mods::Network
             {
                 SwapBuffers();
                 _scene->AfterRenderFrame();
-                GameWindow::OnRenderFrame(args);
+                _window->BaseOnRenderFrame(args);
                 Close();
                 return;
             }
             SwapBuffers();
             _scene->AfterRenderFrame();
-            GameWindow::OnRenderFrame(args);
+            _window->BaseOnRenderFrame(args);
             return;
         }
 
@@ -448,13 +465,13 @@ namespace MphRead::Mods::Network
             {
                 SwapBuffers();
                 _scene->AfterRenderFrame();
-                GameWindow::OnRenderFrame(args);
+                _window->BaseOnRenderFrame(args);
                 Close();
                 return;
             }
             SwapBuffers();
             _scene->AfterRenderFrame();
-            GameWindow::OnRenderFrame(args);
+            _window->BaseOnRenderFrame(args);
             return;
         }
 
@@ -464,7 +481,7 @@ namespace MphRead::Mods::Network
         SampleRender();
         SwapBuffers();
         _scene->AfterRenderFrame();
-        GameWindow::OnRenderFrame(args);
+        _window->BaseOnRenderFrame(args);
 
         if (_frame >= _seconds * 60.0
             && (_bots || (!StepProbe() && !StepAfflictionProbe())))
@@ -477,16 +494,16 @@ namespace MphRead::Mods::Network
     {
         for (std::int32_t slot = 0;
             slot < _players
-                && slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players.size());
+                && slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
             ++slot)
         {
             std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players[static_cast<std::size_t>(slot)];
-            if (!TestFlag(player->LoadFlags, LoadFlags::Active))
+                = Entities::PlayerEntity::Players()[static_cast<std::size_t>(slot)];
+            if (!TestFlag(player->LoadFlags(), LoadFlags::Active))
             {
                 continue;
             }
-            if (!TestFlag(player->LoadFlags, LoadFlags::Spawned) || player->Health == 0)
+            if (!TestFlag(player->LoadFlags(), LoadFlags::Spawned) || player->Health() == 0)
             {
                 continue;
             }
@@ -495,7 +512,7 @@ namespace MphRead::Mods::Network
             {
                 if (slot != _afflictShooter && slot != _afflictVictim)
                 {
-                    NetTestScript::Rest(*player, false);
+                    NetTestScript::Rest(player, false);
                 }
                 continue;
             }
@@ -507,12 +524,12 @@ namespace MphRead::Mods::Network
 
             if (_probeIndex >= 0 && slot == _probeSlot)
             {
-                NetTestScript::Rest(*player, true);
+                NetTestScript::Rest(player, true);
                 continue;
             }
 
-            NetTestScript::ApplyOffline(*player, slot, _frame);
-            player->ModApplyScriptAim(NetTestScript::AimDeltaX, NetTestScript::AimDeltaY);
+            NetTestScript::ApplyOffline(player, slot, _frame);
+            player->ModApplyScriptAim(NetTestScript::AimDeltaX(), NetTestScript::AimDeltaY());
         }
     }
 
@@ -525,23 +542,23 @@ namespace MphRead::Mods::Network
         }
 
         if (_probeIndex >= static_cast<std::int32_t>(_probeTargets.size())
-            || _probeSlot >= static_cast<std::int32_t>(Entities::PlayerEntity::Players.size()))
+            || _probeSlot >= static_cast<std::int32_t>(Entities::PlayerEntity::Players().size()))
         {
             return false;
         }
 
         std::shared_ptr<Entities::PlayerEntity> player
-            = Entities::PlayerEntity::Players[static_cast<std::size_t>(_probeSlot)];
+            = Entities::PlayerEntity::Players()[static_cast<std::size_t>(_probeSlot)];
         std::shared_ptr<Entities::EntityBase> target
             = _probeTargets[static_cast<std::size_t>(_probeIndex)];
 
         if (!_probePlaced)
         {
-            if (!TestFlag(player->LoadFlags, LoadFlags::Active)
-                || !TestFlag(player->LoadFlags, LoadFlags::Spawned)
-                || player->Health == 0)
+            if (!TestFlag(player->LoadFlags(), LoadFlags::Active)
+                || !TestFlag(player->LoadFlags(), LoadFlags::Spawned)
+                || player->Health() == 0)
             {
-                NetTestScript::Rest(*player, true);
+                NetTestScript::Rest(player, true);
                 if (++_probeWait > 240)
                 {
                     _probeIndex = static_cast<std::int32_t>(_probeTargets.size());
@@ -639,19 +656,19 @@ namespace MphRead::Mods::Network
             _afflictTried[static_cast<std::size_t>(_afflictIndex)] = true;
             _afflictFrames = 0;
             _afflictVictimHealth
-                = Entities::PlayerEntity::Players[static_cast<std::size_t>(_afflictVictim)]->Health;
+                = Entities::PlayerEntity::Players()[static_cast<std::size_t>(_afflictVictim)]->Health();
             return true;
         }
 
         std::shared_ptr<Entities::PlayerEntity> shooter
-            = Entities::PlayerEntity::Players[static_cast<std::size_t>(_afflictShooter)];
+            = Entities::PlayerEntity::Players()[static_cast<std::size_t>(_afflictShooter)];
         std::shared_ptr<Entities::PlayerEntity> victim
-            = Entities::PlayerEntity::Players[static_cast<std::size_t>(_afflictVictim)];
+            = Entities::PlayerEntity::Players()[static_cast<std::size_t>(_afflictVictim)];
 
         if (!Alive(*shooter) || !Alive(*victim))
         {
-            NetTestScript::Rest(*shooter, true);
-            NetTestScript::Rest(*victim, true);
+            NetTestScript::Rest(shooter, true);
+            NetTestScript::Rest(victim, true);
             if (++_afflictWait > 240)
             {
                 _afflictLanded[static_cast<std::size_t>(_afflictIndex)] = false;
@@ -665,10 +682,10 @@ namespace MphRead::Mods::Network
 
         _afflictWait = 0;
 
-        if (shooter->IsAltForm || shooter->IsMorphing || shooter->IsUnmorphing)
+        if (shooter->IsAltForm() || shooter->IsMorphing() || shooter->IsUnmorphing())
         {
-            NetTestScript::Rest(*shooter, true);
-            NetTestScript::Rest(*victim, true);
+            NetTestScript::Rest(shooter, true);
+            NetTestScript::Rest(victim, true);
             return true;
         }
 
@@ -684,8 +701,8 @@ namespace MphRead::Mods::Network
             shooter->ModSetAim(toVictim.Normalized());
         }
 
-        NetTestScript::HoldFire(*shooter, !shooter->ModChargeReady);
-        NetTestScript::Rest(*victim, true);
+        NetTestScript::HoldFire(shooter, !shooter->ModChargeReady());
+        NetTestScript::Rest(victim, true);
 
         {
             auto enumerator = _scene->Entities().GetEnumerator();
@@ -709,24 +726,24 @@ namespace MphRead::Mods::Network
             }
         }
 
-        if (victim->Health < _afflictVictimHealth)
+        if (victim->Health() < _afflictVictimHealth)
         {
             _afflictHit[static_cast<std::size_t>(_afflictIndex)] = true;
         }
-        _afflictVictimHealth = std::min(_afflictVictimHealth, victim->Health);
-        _afflictMaxCharge = std::max(_afflictMaxCharge, shooter->ModChargeLevel);
+        _afflictVictimHealth = std::min(_afflictVictimHealth, victim->Health());
+        _afflictMaxCharge = std::max(_afflictMaxCharge, shooter->ModChargeLevel());
 
         bool landed;
         switch (_afflictIndex)
         {
             case 0:
-                landed = victim->ModFrozen;
+                landed = victim->ModFrozen();
                 break;
             case 1:
-                landed = victim->ModBurning;
+                landed = victim->ModBurning();
                 break;
             default:
-                landed = victim->ModDisrupted;
+                landed = victim->ModDisrupted();
                 break;
         }
 
@@ -738,8 +755,8 @@ namespace MphRead::Mods::Network
                     << "PROBE "
                     << _afflictions[static_cast<std::size_t>(_afflictIndex)].second
                     << ": shooter slot " << _afflictShooter << ' '
-                    << HunterName(shooter->Hunter) << ' '
-                    << shooter->ModWeaponState
+                    << HunterName(shooter->Hunter()) << ' '
+                    << shooter->ModWeaponState()
                     << ", maxcharge=" << _afflictMaxCharge
                     << ", shots carried " << AfflictionName(_afflictShotAfflictions)
                     << ", landed=" << (landed ? "True" : "False")
@@ -759,9 +776,9 @@ namespace MphRead::Mods::Network
 
     bool MapAudit::Alive(Entities::PlayerEntity& player)
     {
-        return TestFlag(player.LoadFlags, LoadFlags::Active)
-            && TestFlag(player.LoadFlags, LoadFlags::Spawned)
-            && player.Health > 0;
+        return TestFlag(player.LoadFlags(), LoadFlags::Active)
+            && TestFlag(player.LoadFlags(), LoadFlags::Spawned)
+            && player.Health() > 0;
     }
 
     bool MapAudit::SetUpAffliction(Hunter hunter)
@@ -771,16 +788,16 @@ namespace MphRead::Mods::Network
 
         for (std::int32_t slot = 0;
             slot < _players
-                && slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players.size());
+                && slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
             ++slot)
         {
             std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players[static_cast<std::size_t>(slot)];
+                = Entities::PlayerEntity::Players()[static_cast<std::size_t>(slot)];
             if (!Alive(*player))
             {
                 continue;
             }
-            if (shooter < 0 && player->Hunter == hunter)
+            if (shooter < 0 && player->Hunter() == hunter)
             {
                 shooter = slot;
             }
@@ -796,9 +813,9 @@ namespace MphRead::Mods::Network
         }
 
         std::shared_ptr<Entities::PlayerEntity> shooterPlayer
-            = Entities::PlayerEntity::Players[static_cast<std::size_t>(shooter)];
+            = Entities::PlayerEntity::Players()[static_cast<std::size_t>(shooter)];
         std::shared_ptr<Entities::PlayerEntity> victimPlayer
-            = Entities::PlayerEntity::Players[static_cast<std::size_t>(victim)];
+            = Entities::PlayerEntity::Players()[static_cast<std::size_t>(victim)];
 
         Vector3 facing = victimPlayer->FacingVector();
         facing = Vector3(facing.X, 0.0F, facing.Z);
@@ -878,7 +895,7 @@ namespace MphRead::Mods::Network
         const bool show
             = (_frame > total / 6 && _frame < total / 6 + 90)
             || (_frame > total * 2 / 3 && _frame < total * 2 / 3 + 90);
-        Entities::PlayerEntity::ModForceScoreboard = show;
+        Entities::PlayerEntity::SetModForceScoreboard(show);
         if (show)
         {
             ++_scoreboardFrames;
@@ -891,13 +908,13 @@ namespace MphRead::Mods::Network
 
         for (std::int32_t slot = 0;
             slot < _players
-                && slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players.size());
+                && slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
             ++slot)
         {
             std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players[static_cast<std::size_t>(slot)];
-            if (!TestFlag(player->LoadFlags, LoadFlags::Active)
-                || !TestFlag(player->LoadFlags, LoadFlags::Spawned))
+                = Entities::PlayerEntity::Players()[static_cast<std::size_t>(slot)];
+            if (!TestFlag(player->LoadFlags(), LoadFlags::Active)
+                || !TestFlag(player->LoadFlags(), LoadFlags::Spawned))
             {
                 continue;
             }
@@ -907,28 +924,28 @@ namespace MphRead::Mods::Network
             SampleNodeLookup(*player);
             SamplePuppetNode(*player);
 
-            if (player->IsAltForm)
+            if (player->IsAltForm())
             {
                 _everAltForm[static_cast<std::size_t>(slot)] = true;
             }
-            if (player->ModFrozen)
+            if (player->ModFrozen())
             {
                 _everFrozen[static_cast<std::size_t>(slot)] = true;
             }
-            if (player->ModBurning)
+            if (player->ModBurning())
             {
                 _everBurned[static_cast<std::size_t>(slot)] = true;
             }
-            if (player->ModDisrupted)
+            if (player->ModDisrupted())
             {
                 _everDisrupted[static_cast<std::size_t>(slot)] = true;
             }
 
-            if (_lastHealth[static_cast<std::size_t>(slot)] > 0 && player->Health == 0)
+            if (_lastHealth[static_cast<std::size_t>(slot)] > 0 && player->Health() == 0)
             {
                 ++_deaths[static_cast<std::size_t>(slot)];
             }
-            _lastHealth[static_cast<std::size_t>(slot)] = player->Health;
+            _lastHealth[static_cast<std::size_t>(slot)] = player->Health();
 
             const Vector3 position = player->Position;
             _lowestY = std::min(_lowestY, static_cast<double>(position.Y));
@@ -963,10 +980,10 @@ namespace MphRead::Mods::Network
             }
 
             auto owner = std::dynamic_pointer_cast<Entities::PlayerEntity>(shot->Owner());
-            if (owner && owner->SlotIndex >= 0
-                && owner->SlotIndex < static_cast<std::int32_t>(_everFired.size()))
+            if (owner && owner->SlotIndex() >= 0
+                && owner->SlotIndex() < static_cast<std::int32_t>(_everFired.size()))
             {
-                _everFired[static_cast<std::size_t>(owner->SlotIndex)] = true;
+                _everFired[static_cast<std::size_t>(owner->SlotIndex())] = true;
             }
         }
     }
@@ -1014,7 +1031,7 @@ namespace MphRead::Mods::Network
 
     void MapAudit::SamplePuppetNode(Entities::PlayerEntity& player)
     {
-        const std::int32_t slot = player.SlotIndex;
+        const std::int32_t slot = player.SlotIndex();
         if (slot < 0 || slot >= static_cast<std::int32_t>(_puppetNode.size()))
         {
             return;
@@ -1082,13 +1099,13 @@ namespace MphRead::Mods::Network
             return false;
         }
 
-        std::shared_ptr<Entities::PlayerEntity> player = Entities::PlayerEntity::Main;
+        std::shared_ptr<Entities::PlayerEntity> player = Entities::PlayerEntity::Main();
 
         if (_spawnFrames < 0)
         {
-            if (!TestFlag(player->LoadFlags, LoadFlags::Spawned) || player->Health == 0)
+            if (!TestFlag(player->LoadFlags(), LoadFlags::Spawned) || player->Health() == 0)
             {
-                NetTestScript::Rest(*player, true);
+                NetTestScript::Rest(player, true);
                 return true;
             }
 
@@ -1098,7 +1115,7 @@ namespace MphRead::Mods::Network
             player->Teleport(spot, _spawnFacings[index], _spawnNodeRefs[index]);
             _spawnFrames = 0;
             _spawnLitWorst = std::numeric_limits<double>::max();
-            NetTestScript::Rest(*player, true);
+            NetTestScript::Rest(player, true);
             return true;
         }
 
@@ -1106,22 +1123,22 @@ namespace MphRead::Mods::Network
 
         if (_spawnFrames < _spawnSettleFrames)
         {
-            NetTestScript::Rest(*player, true);
+            NetTestScript::Rest(player, true);
             return true;
         }
 
         if (_spawnFrames == _spawnSettleFrames)
         {
-            _spawnLitAtSpawn = Mods::ScreenCapture::NonBlackFraction(*_scene);
+            _spawnLitAtSpawn = Mods::ScreenCapture::NonBlackFraction(_scene.get());
             _spawnLitWorst = _spawnLitAtSpawn;
             SaveSpawnShot("spawn");
         }
 
-        NetTestScript::WalkForward(*player);
+        NetTestScript::WalkForward(player);
 
         if (_spawnFrames % 30 == 0)
         {
-            const double lit = Mods::ScreenCapture::NonBlackFraction(*_scene);
+            const double lit = Mods::ScreenCapture::NonBlackFraction(_scene.get());
             if (lit < _spawnLitWorst)
             {
                 _spawnLitWorst = lit;
@@ -1142,7 +1159,7 @@ namespace MphRead::Mods::Network
             ++_spawnFailures;
         }
 
-        std::shared_ptr<Entities::PlayerEntity> main = Entities::PlayerEntity::Main;
+        std::shared_ptr<Entities::PlayerEntity> main = Entities::PlayerEntity::Main();
         std::cout
             << "RENDERSPAWN " << _room
             << " | spawn " << _spawnIndex
@@ -1172,13 +1189,13 @@ namespace MphRead::Mods::Network
             return false;
         }
 
-        std::shared_ptr<Entities::PlayerEntity> player = Entities::PlayerEntity::Main;
+        std::shared_ptr<Entities::PlayerEntity> player = Entities::PlayerEntity::Main();
 
         if (_itemFrames < 0)
         {
-            if (!TestFlag(player->LoadFlags, LoadFlags::Spawned) || player->Health == 0)
+            if (!TestFlag(player->LoadFlags(), LoadFlags::Spawned) || player->Health() == 0)
             {
-                NetTestScript::Rest(*player, true);
+                NetTestScript::Rest(player, true);
                 return true;
             }
 
@@ -1187,12 +1204,12 @@ namespace MphRead::Mods::Network
             player->ModForceForm(false);
             player->Teleport(stand, Negate(Vector3(0.0F, 0.0F, 1.0F)), _scene->GetNodeRefByPosition(stand));
             _itemFrames = 0;
-            NetTestScript::Rest(*player, true);
+            NetTestScript::Rest(player, true);
             return true;
         }
 
         ++_itemFrames;
-        NetTestScript::Rest(*player, true);
+        NetTestScript::Rest(player, true);
 
         if (_itemFrames < _itemSettleFrames)
         {
@@ -1202,8 +1219,7 @@ namespace MphRead::Mods::Network
         if (_shotDirectory.has_value())
         {
             const std::string name = ReplaceRoomCharacters(_room);
-            Mods::ScreenCapture::Save(
-                *_scene,
+            Mods::ScreenCapture::Save(_scene.get(),
                 PathCombine(
                     *_shotDirectory,
                     name + "-item" + TwoDigits(_itemIndex) + "-"
@@ -1262,8 +1278,7 @@ namespace MphRead::Mods::Network
         }
 
         const std::string name = ReplaceRoomCharacters(_room);
-        Mods::ScreenCapture::Save(
-            *_scene,
+        Mods::ScreenCapture::Save(_scene.get(),
             PathCombine(
                 *_shotDirectory,
                 name + "-spawn" + TwoDigits(_spawnIndex) + "-" + std::string(what) + ".png"));
@@ -1295,7 +1310,7 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        const double lit = Mods::ScreenCapture::NonBlackFraction(*_scene);
+        const double lit = Mods::ScreenCapture::NonBlackFraction(_scene.get());
         ++_litSamples;
         _litTotal += lit;
 
@@ -1319,8 +1334,8 @@ namespace MphRead::Mods::Network
                 *_shotDirectory,
                 name + "-" + TwoDigits(_shotsSaved) + ".png");
             const bool saved = _showWindow
-                ? Mods::ScreenCapture::SaveWindow(*_scene, path)
-                : Mods::ScreenCapture::Save(*_scene, path);
+                ? Mods::ScreenCapture::SaveWindow(_scene.get(), path)
+                : Mods::ScreenCapture::Save(_scene.get(), path);
             if (saved)
             {
                 ++_shotsSaved;
@@ -1328,10 +1343,10 @@ namespace MphRead::Mods::Network
         }
     }
 
-    void MapAudit::OnClosing(System::ComponentModel::CancelEventArgs& e)
+    void MapAudit::OnClosing()
     {
         _scene->DoCleanup();
-        GameWindow::OnClosing(e);
+        _window->BaseOnClosing();
     }
 
     std::int32_t MapAudit::Report()
@@ -1529,7 +1544,7 @@ namespace MphRead::Mods::Network
                  << _puppetHidden << " would hide the player)";
         }
 
-        line << " | effect particles " << _scene->ModEffectParticles;
+        line << " | effect particles " << _scene->ModEffectParticles();
 
         if (_litSamples > 0)
         {
@@ -1547,7 +1562,7 @@ namespace MphRead::Mods::Network
             std::cout
                 << "FRAMETIMING " << _room
                 << " | " << _drawRate << " draws per step"
-                << " | " << _frame << " steps, " << _scene->FrameCount << " counted"
+                << " | " << _frame << " steps, " << _scene->FrameCount() << " counted"
                 << " | draws advancing the game: " << _drawAdvancedTheGame
                 << '\n';
         }
@@ -1609,11 +1624,11 @@ namespace MphRead::Mods::Network
                         missing << ", ";
                     }
                     const std::shared_ptr<Entities::PlayerEntity> player
-                        = Entities::PlayerEntity::Players[index];
+                        = Entities::PlayerEntity::Players()[index];
                     missing
-                        << "slot " << i << " (" << HunterName(player->Hunter)
-                        << ", hp " << player->Health
-                        << ", respawn " << player->RespawnTimer << ')';
+                        << "slot " << i << " (" << HunterName(player->Hunter())
+                        << ", hp " << player->Health()
+                        << ", respawn " << player->RespawnTimer() << ')';
                 }
             }
             problems.push_back(
@@ -1646,16 +1661,16 @@ namespace MphRead::Mods::Network
         {
             const std::size_t index = static_cast<std::size_t>(i);
             std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players[index];
+                = Entities::PlayerEntity::Players()[index];
             if (_everSpawned[index] && !player->ModCanBeHurt())
             {
                 problems.push_back(
-                    "slot " + std::to_string(i) + " (" + HunterName(player->Hunter)
+                    "slot " + std::to_string(i) + " (" + HunterName(player->Hunter())
                     + ") cannot be hurt by any beam");
             }
         }
 
-        if (_scene->ModEffectParticles == 0)
+        if (_scene->ModEffectParticles() == 0)
         {
             problems.emplace_back(
                 "no effect particle was spawned all run: "
@@ -1709,7 +1724,7 @@ namespace MphRead::Mods::Network
                 renderProbe,
                 itemProbe));
 
-            window->_scene->ShowAllNodes = allNodes;
+            window->_scene->ShowAllNodes(allNodes);
 
             if (shotDirectory.has_value())
             {
@@ -1717,7 +1732,7 @@ namespace MphRead::Mods::Network
                 window->_shotDirectory = *shotDirectory;
             }
 
-            window->GameWindow::Run();
+            window->Run();
             result = window->Report();
         }
         catch (const std::exception& ex)

@@ -21,22 +21,60 @@ namespace
         return self;
     }
 
-    template <typename TResult>
-    std::shared_ptr<std::string> BindManagedEditorString(TResult&& value)
+    void AppendUtf8(std::string& result, char32_t codePoint)
     {
-        if constexpr (std::is_convertible_v<TResult, std::shared_ptr<std::string>>)
+        if (codePoint < 0x80U)
         {
-            return std::forward<TResult>(value);
+            result.push_back(static_cast<char>(codePoint));
+        }
+        else if (codePoint < 0x800U)
+        {
+            result.push_back(static_cast<char>(0xC0U | (codePoint >> 6)));
+            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+        }
+        else if (codePoint < 0x10000U)
+        {
+            result.push_back(static_cast<char>(0xE0U | (codePoint >> 12)));
+            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
+            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
         }
         else
         {
-            using MissingManagedStringOwner = std::remove_cvref_t<TResult>;
-            static_assert(!std::is_same_v<MissingManagedStringOwner, MissingManagedStringOwner>,
-                "EntityEnemy requires the missing shared managed-string owner to bind "
-                "MarshalExtensions' UTF-16 result to EntityClass editor string references. "
-                "Do not narrow or allocate a pair-local string here.");
-            return {};
+            result.push_back(static_cast<char>(0xF0U | (codePoint >> 18)));
+            result.push_back(static_cast<char>(0x80U | ((codePoint >> 12) & 0x3FU)));
+            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
+            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
         }
+    }
+
+    // Editor string references hold the managed string as UTF-8; unpaired
+    // surrogates become U+FFFD, as .NET's UTF-8 encoding does.
+    std::shared_ptr<std::string> BindManagedEditorString(const std::u16string& value)
+    {
+        std::string result;
+        result.reserve(value.size());
+        for (std::size_t i = 0; i < value.size(); ++i)
+        {
+            const char16_t unit = value[i];
+            if (unit >= 0xD800U && unit <= 0xDBFFU && i + 1 < value.size()
+                && value[i + 1] >= 0xDC00U && value[i + 1] <= 0xDFFFU)
+            {
+                const char32_t codePoint = 0x10000U
+                    + ((static_cast<char32_t>(unit) - 0xD800U) << 10)
+                    + (static_cast<char32_t>(value[i + 1]) - 0xDC00U);
+                AppendUtf8(result, codePoint);
+                ++i;
+            }
+            else if (unit >= 0xD800U && unit <= 0xDFFFU)
+            {
+                AppendUtf8(result, 0xFFFDU);
+            }
+            else
+            {
+                AppendUtf8(result, unit);
+            }
+        }
+        return std::make_shared<std::string>(std::move(result));
     }
 
     void RequireReference(bool present)

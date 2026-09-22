@@ -231,7 +231,7 @@ namespace
     };
 
     [[nodiscard]] const FileEntry* FindFile(
-        const std::vector<FileEntry>& files, std::string_view name) noexcept
+        const std::vector<FileEntry>& files, const std::string& name) noexcept
     {
         for (const FileEntry& file : files)
         {

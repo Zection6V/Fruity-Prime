@@ -6,6 +6,11 @@
 #include <string>
 #include <vector>
 
+namespace MphRead
+{
+    enum class GameMode : std::uint8_t;
+}
+
 namespace MphRead::Mods::Network
 {
     class ServerSimCheck final

@@ -198,18 +198,6 @@ namespace
     }
 
     template <typename T>
-    [[nodiscard]] const T& ManagedAt(
-        const std::shared_ptr<MphRead::ManagedArray<T>>& values, std::int32_t index)
-    {
-        const auto& array = RequireShared(values);
-        if (index < 0 || static_cast<std::size_t>(index) >= array->Length())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return (*array)[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
     void CopyManagedArray(const std::shared_ptr<MphRead::ManagedArray<T>>& source,
         const std::shared_ptr<MphRead::ManagedArray<T>>& destination,
         std::size_t length, const char* destinationParam)
@@ -598,7 +586,7 @@ namespace MphRead
             static_cast<std::uint16_t>(WeaponUnlockBits::PowerBeam)
             | static_cast<std::uint16_t>(WeaponUnlockBits::Missile));
 
-        if (Cheats::StartWithAllUpgrades)
+        if (Cheats::StartWithAllUpgrades())
         {
             Health = HealthMax = 799;
             ManagedAt(Ammo, 0) = ManagedAt(AmmoMax, 0) = 4000;
@@ -621,7 +609,7 @@ namespace MphRead
         UpdateLogbook(26);
         UpdateLogbook(28);
 
-        if (Cheats::StartWithAllOctoliths)
+        if (Cheats::StartWithAllOctoliths())
         {
             FoundOctoliths = CurrentOctoliths = 0xFF;
         }
@@ -1283,7 +1271,7 @@ namespace MphRead
                 }
             }
 
-            if (Multiplayer() && !Features::AllowInvalidTeams)
+            if (Multiplayer() && !Features::AllowInvalidTeams())
             {
                 bool invalid = Entities::PlayerEntity::MaxPlayers() < 2;
                 if (!invalid && _teams)
@@ -1359,7 +1347,7 @@ namespace MphRead
                         float comparison = 1.0F;
                         if (time.Seconds <= 5)
                         {
-                            if (Features::HalfSecondAlarm)
+                            if (Features::HalfSecondAlarm())
                             {
                                 comparison = 0.5F;
                             }
@@ -1780,7 +1768,7 @@ namespace MphRead
                     }
 
                     if (movieId != GameStateDetail::MovieNone()
-                        && !Cheats::SkipPlanetIntros)
+                        && !Cheats::SkipPlanetIntros())
                     {
                         GameStateDetail::SceneStartMovie(
                             scene, movieId,
@@ -1806,7 +1794,7 @@ namespace MphRead
                     StorySaveValue* save = Require(StorySave.get());
                     assert(GameStateDetail::SceneHasRoom(scene));
 
-                    if (Cheats::ContinueFromCurrentRoom)
+                    if (Cheats::ContinueFromCurrentRoom())
                     {
                         if (save->CheckpointRoomId != GameStateDetail::SceneRoomId(scene))
                         {

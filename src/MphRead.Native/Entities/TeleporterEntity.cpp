@@ -266,7 +266,7 @@ namespace MphRead::Entities
         }
         else
         {
-            SetRecolor(multiplayer ? 0 : RequireReference(scene).AreaId);
+            SetRecolor(multiplayer ? 0 : RequireReference(scene).AreaId());
             std::string modelName;
             if (data.ArtifactId >= 8)
             {
@@ -308,10 +308,10 @@ namespace MphRead::Entities
             }
         }
 
-        if (GameState::Mode == GameMode::SinglePlayer)
+        if (GameState::Mode() == GameMode::SinglePlayer)
         {
             const std::int32_t state = RequireStorySave().InitRoomState(
-                RequireReference(_scene).RoomId,
+                RequireReference(_scene).RoomId(),
                 Id,
                 data.Active != 0);
             Active = state != 0;
@@ -359,22 +359,22 @@ namespace MphRead::Entities
         {
             if (_big)
             {
-                assert(GameState::Mode == GameMode::SinglePlayer);
+                assert(GameState::Mode() == GameMode::SinglePlayer);
                 const bool active
                     = RequireStorySave().CountFoundArtifacts(data.ArtifactId) > 2;
                 if (active
-                    && (GameState::EscapeTimer == -1
-                        || GameState::EscapeState != EscapeState::Escape))
+                    && (GameState::EscapeTimer() == -1
+                        || GameState::EscapeState() != EscapeState::Escape))
                 {
                     Active = true;
                     RequireStorySave().SetRoomState(
-                        RequireReference(scene).RoomId, Id, 3);
+                        RequireReference(scene).RoomId(), Id, 3);
                 }
                 else
                 {
                     Active = false;
                     RequireStorySave().SetRoomState(
-                        RequireReference(scene).RoomId, Id, 1);
+                        RequireReference(scene).RoomId(), Id, 1);
                 }
             }
 
@@ -433,8 +433,8 @@ namespace MphRead::Entities
                     = RequireStorySave().CountFoundArtifacts(_data.ArtifactId) > 2;
                 if (active
                     && RequireReference(PlayerEntity::Main()).Health() > 0
-                    && (GameState::EscapeTimer == -1
-                        || GameState::EscapeState != EscapeState::Escape))
+                    && (GameState::EscapeTimer() == -1
+                        || GameState::EscapeState() != EscapeState::Escape))
                 {
                     Activate();
                 }
@@ -513,7 +513,7 @@ namespace MphRead::Entities
                                 player.Teleport(
                                     targetPosition, facing, targetNodeRef);
                             }
-                            else if (GameState::TransitionRoomId == -1)
+                            else if (GameState::TransitionRoomId() == -1)
                             {
                                 Scene& currentScene = RequireReference(_scene);
                                 assert(currentScene.Room != nullptr);
@@ -524,12 +524,11 @@ namespace MphRead::Entities
                                         SfxId::TELEPORT_OUT);
                                 }
 
-                                GameState::TransitionAltForm
-                                    = RequireReference(PlayerEntity::Main()).IsAltForm();
-                                GameState::TransitionRoomId = _targetRoomId;
-                                RequireReference(currentScene.Room).LoadEntityId
+                                GameState::TransitionAltForm(RequireReference(PlayerEntity::Main()).IsAltForm());
+                                GameState::TransitionRoomId(_targetRoomId);
+                                RequireReference(currentScene.Room()).LoadEntityId
                                     = _data.TargetIndex;
-                                GameState::PausePrevented = true;
+                                GameState::PausePrevented(true);
                                 currentScene.SetFade(
                                     FadeType::FadeOutBlack,
                                     10.0F / 30.0F,
@@ -541,7 +540,7 @@ namespace MphRead::Entities
                             player.SetSpeed(Vector3(0.0F, speed.Y, 0.0F));
                             if (player.IsBot())
                             {
-                                player.AiData().Field118 = 148 * 2;
+                                RequireReference(player.AiData).Field118 = 148 * 2;
                             }
                             _triggeredSlots[CheckedSlotIndex(
                                 player.SlotIndex(), _triggeredSlots.size())] = true;
@@ -601,10 +600,10 @@ namespace MphRead::Entities
                 Active = false;
                 _scanId = 25;
                 _bool4 = true;
-                if (GameState::Mode == GameMode::SinglePlayer)
+                if (GameState::Mode() == GameMode::SinglePlayer)
                 {
                     RequireStorySave().SetRoomState(
-                        RequireReference(_scene).RoomId, Id, 1);
+                        RequireReference(_scene).RoomId(), Id, 1);
                 }
             }
         }
@@ -632,12 +631,12 @@ namespace MphRead::Entities
             if (ManagedArrayAt(animInfo.Index, 0) == 2)
             {
                 Scene& scene = RequireReference(_scene);
-                if (scene.FrameCount > 1
+                if (scene.FrameCount() > 1
                     && TestFlag(
                         ManagedArrayAt(animInfo.Flags, 0), AnimFlags::Reverse)
                     && ManagedArrayAt(animInfo.Frame, 0)
                         < ManagedArrayAt(animInfo.FrameCount, 0) / 2
-                    && scene.FrameCount % 2 == 0)
+                    && scene.FrameCount() % 2 == 0)
                 {
                     _soundSource.PlaySfx(SfxId::TELEPORT_ACTIVATE);
                 }
@@ -746,7 +745,7 @@ namespace MphRead::Entities
 
     void TeleporterEntity::GetDisplayVolumes()
     {
-        if (RequireReference(_scene).ShowVolumes == VolumeDisplay::Teleporter)
+        if (RequireReference(_scene).ShowVolumes() == VolumeDisplay::Teleporter)
         {
             CollisionVolume volume;
             if (_data.Invisible != 0 || _data.ArtifactId < 8)

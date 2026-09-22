@@ -123,12 +123,12 @@ namespace MphRead::Entities
         const IconBounds bounds = ManagedAt(_weaponListIconBounds, index);
         const float scale = side / static_cast<float>(std::max(bounds.Width(), bounds.Height()));
         const auto& weaponColor = ManagedAt(_weaponListColors, index);
-        Mods::Render::SmoothHudIcon::Tint(icon, _weaponListSheetData, index,
+        Mods::Render::SmoothHudIcon::Tint(iconValue, _weaponListSheetData, index,
             weaponColor, RequireReference(_scene));
-        icon.Alpha = Features::HudOpacity;
+        icon.Alpha = Features::HudOpacity();
         icon.PositionX = (x + side * aspect / 2.0F - bounds.CentreX() * scale * aspect) / 256.0F;
         icon.PositionY = (y + side / 2.0F - bounds.CentreY() * scale) / 192.0F;
-        RequireReference(_scene).DrawHudObject(icon, 1, scale);
+        RequireReference(_scene).DrawHudObject(iconValue, 1, scale);
     }
 
     float PlayerEntity::ProHealthFraction()
@@ -140,7 +140,7 @@ namespace MphRead::Entities
     {
         if (GameState::Multiplayer())
         {
-            return std::max(Values::EnergyTank - 1, 1);
+            return std::max(static_cast<std::int32_t>(Values().EnergyTank) - 1, 1);
         }
         return std::max(_healthMax, 1);
     }

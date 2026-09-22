@@ -696,21 +696,7 @@ namespace
 
     [[nodiscard]] std::string ProgramVersionToString()
     {
-        static_assert(std::is_trivially_copyable_v<System::Version>);
-        static_assert(sizeof(System::Version) == sizeof(std::int32_t) * 4);
-        std::array<std::int32_t, 4> values{};
-        std::memcpy(values.data(), std::addressof(Program::Version), sizeof(Program::Version));
-
-        std::string result = std::to_string(values[0]) + "." + std::to_string(values[1]);
-        if (values[2] >= 0)
-        {
-            result += "." + std::to_string(values[2]);
-            if (values[3] >= 0)
-            {
-                result += "." + std::to_string(values[3]);
-            }
-        }
-        return result;
+        return Program::Version.ToString();
     }
 
     [[nodiscard]] const char* EnvironmentNewLine() noexcept

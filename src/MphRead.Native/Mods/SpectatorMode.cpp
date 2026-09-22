@@ -1,6 +1,7 @@
 #include "SpectatorMode.hpp"
 
 #include "../Entities/Players/PlayerEntity.hpp"
+#include "../GameState.hpp"
 #include "../Scene.hpp"
 #include "Network/NetHooks.hpp"
 
@@ -12,20 +13,6 @@
 #include <span>
 #include <type_traits>
 #include <utility>
-
-namespace MphRead
-{
-    class GameState final
-    {
-    public:
-        GameState() = delete;
-
-        [[nodiscard]] static bool Multiplayer();
-        [[nodiscard]] static std::span<std::int32_t> Points();
-        [[nodiscard]] static std::span<std::int32_t> Kills();
-        [[nodiscard]] static std::span<std::int32_t> Deaths();
-    };
-}
 
 namespace MphRead::Mods::SpectatorModeInterop
 {

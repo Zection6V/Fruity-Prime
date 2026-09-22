@@ -3,7 +3,10 @@
 #include "Entities/EntityBase.hpp"
 #include "Formats/Enums.hpp"
 #include "Formats/Types.hpp"
+#include "Formats/Movie.hpp"
 #include "Messaging.hpp"
+#include "Mods/Render/PreviewCamera.hpp"
+#include "Mods/Render/PreviewPass.hpp"
 #include "Renderer.hpp"
 
 #include <array>
@@ -906,11 +909,13 @@ namespace MphRead
 
         MPHREAD_SCENE_RENDERER_MEMBERS
 
-        public:
-        [[nodiscard]] bool MoviePlaying() const noexcept;
-        void SkipMovie();
+        MPHREAD_SCENE_MOVIE_MEMBERS
 
         MPHREAD_SCENE_MESSAGING_MEMBERS
+
+        MPHREAD_SCENE_PREVIEW_CAMERA_MEMBERS
+
+        MPHREAD_SCENE_PREVIEW_PASS_MEMBERS
 
     private:
         using EntityNode = LinkedListNode<Entities::EntityBase>;

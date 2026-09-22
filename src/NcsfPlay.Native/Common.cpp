@@ -618,7 +618,7 @@ namespace
 		return seed;
 	}
 
-	[[nodiscard]] constexpr std::uint32_t RotateLeft32(
+	[[nodiscard]] constexpr std::uint32_t MarvinRotateLeft32(
 		std::uint32_t value, unsigned shift) noexcept
 	{
 		return (value << shift) | (value >> (32U - shift));
@@ -627,13 +627,13 @@ namespace
 	void MarvinBlock(std::uint32_t& p0, std::uint32_t& p1) noexcept
 	{
 		p1 ^= p0;
-		p0 = RotateLeft32(p0, 20U);
+		p0 = MarvinRotateLeft32(p0, 20U);
 		p0 += p1;
-		p1 = RotateLeft32(p1, 9U);
+		p1 = MarvinRotateLeft32(p1, 9U);
 		p1 ^= p0;
-		p0 = RotateLeft32(p0, 27U);
+		p0 = MarvinRotateLeft32(p0, 27U);
 		p0 += p1;
-		p1 = RotateLeft32(p1, 19U);
+		p1 = MarvinRotateLeft32(p1, 19U);
 	}
 
 	[[nodiscard]] std::uint8_t Utf16ByteAt(std::u16string_view value, std::size_t index) noexcept

@@ -1,24 +1,50 @@
 #include "PlayerEntityAmmoClear.hpp"
 
 #include "../../HUD/HudInfo.hpp"
+#include "../../Strings.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <stdexcept>
+
+namespace
+{
+    template <typename T>
+    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
+    {
+        if (!value)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    template <typename TContainer>
+    [[nodiscard]] decltype(auto) ManagedAt(const TContainer& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
+        {
+            throw std::out_of_range("Index was outside the bounds of the array.");
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+}
 
 namespace MphRead::Entities
 {
     float PlayerEntity::ModAmmoTextX(float x, float y, MphRead::Hud::Align align, std::u16string_view text)
     {
-        MphRead::Hud::HudObjectInstance& weaponIconInst = WeaponIconInst();
+        MphRead::Hud::HudObjectInstance& weaponIconInst = RequireReference(_weaponIconInst);
         if (!weaponIconInst.Enabled || text.empty())
         {
             return x;
         }
 
-        MphRead::Hud::HudObjects& hudObjects = HudObjectsState();
-        const float iconLeft = static_cast<float>(hudObjects.WeaponIconPosX) + ObjShiftX();
-        const float iconTop = static_cast<float>(hudObjects.WeaponIconPosY) + ObjShiftY();
+        const MphRead::Hud::HudObjects& hudObjects = RequireReference(_hudObjects);
+        const float iconLeft = static_cast<float>(hudObjects.WeaponIconPosX) + _objShiftX;
+        const float iconTop = static_cast<float>(hudObjects.WeaponIconPosY) + _objShiftY;
         const float iconRight = iconLeft + static_cast<float>(weaponIconInst.Width);
         const float iconBottom = iconTop
             + static_cast<float>(weaponIconInst.Height) / std::max(HudAspectFix(), 0.0001F);
@@ -67,7 +93,7 @@ namespace MphRead::Entities
             return 0.0F;
         }
 
-        MphRead::Text::Font& font = SetUpFont(text[0], false);
+        const MphRead::Text::Font& font = SetUpFont(text[0], false);
         const float aspectFix = HudAspectFix();
         float width = 0.0F;
         for (std::size_t i = 0; i < text.size(); i++)
@@ -78,7 +104,7 @@ namespace MphRead::Entities
                 break;
             }
             const std::int32_t index = GlyphIndex(font, static_cast<std::int32_t>(ch));
-            width += static_cast<float>(FontWidthAt(font, index)) * aspectFix;
+            width += static_cast<float>(ManagedAt(RequireReference(font.Widths()), index)) * aspectFix;
         }
         return width;
     }

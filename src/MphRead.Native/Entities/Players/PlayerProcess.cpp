@@ -5,11 +5,13 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../DoorEntity.hpp"
 #include "../EnemyInstanceEntity.hpp"
+#include "../EnemySpawnEntity.hpp"
 #include "../Enemies/02_Temroid.hpp"
 #include "../Enemies/37_Quadtroid.hpp"
 #include "../ItemInstanceEntity.hpp"
 #include "../JumpPadEntity.hpp"
 #include "../PlayerSpawnEntity.hpp"
+#include "../RoomEntity.hpp"
 #include "../TeleporterEntity.hpp"
 #include "../CamSeq/CameraSequence.hpp"
 #include "../../Features.hpp"
@@ -88,6 +90,26 @@ namespace
     {
         using U = std::underlying_type_t<TEnum>;
         return (static_cast<U>(value) & static_cast<U>(flags)) != 0;
+    }
+
+    template <typename T>
+    [[nodiscard]] T& ManagedAt(MphRead::ManagedArray<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
+        {
+            throw MphRead::SceneDetail::IndexOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& ManagedAt(const MphRead::ManagedArray<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
+        {
+            throw MphRead::SceneDetail::IndexOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
     }
 
     template <typename TContainer>
@@ -225,7 +247,7 @@ namespace
         return Vector3(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
     }
 
-    [[nodiscard]] Vector3 Scale(Vector3 value, float amount) noexcept
+    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float amount) noexcept
     {
         return Vector3(value.X * amount, value.Y * amount, value.Z * amount);
     }
@@ -515,7 +537,7 @@ namespace MphRead::Entities
     bool PlayerEntity::ProcessPlayer()
     {
         const auto scene = [&]() -> Scene& { return RequireReference(_scene); };
-        if (GameState::Multiplayer && !TestFlag(_loadFlags, LoadFlags::Connected)
+        if (GameState::Multiplayer() && !TestFlag(_loadFlags, LoadFlags::Connected)
             && TestFlag(_loadFlags, LoadFlags::WasConnected))
         {
             _loadFlags |= LoadFlags::Disconnected;
@@ -523,7 +545,7 @@ namespace MphRead::Entities
         }
         if (!TestFlag(_loadFlags, LoadFlags::Active))
         {
-            if (GameState::Multiplayer)
+            if (GameState::Multiplayer())
             {
                 return Mods::Network::NetHooks::KeepSlotAlive(*this);
             }
@@ -567,7 +589,7 @@ namespace MphRead::Entities
             if (TestFlag(aiData.Flags3, AiFlags3::Bit1))
             {
                 const std::int32_t effectId
-                    = GameState::Multiplayer && PlayerCount() > 2 && !Features::MaxPlayerDetail
+                    = GameState::Multiplayer() && PlayerCount() > 2 && !Features::MaxPlayerDetail()
                         ? 33 : 31;
                 scene().SpawnEffect(effectId, UnitX, UnitY, Position);
                 PlayHunterSfx(HunterSfx::Spawn);
@@ -602,7 +624,7 @@ namespace MphRead::Entities
 
         if (IsMainPlayer())
         {
-            CameraSequence* currentSequence = CameraSequence::Current();
+            Formats::CameraSequence* currentSequence = Formats::CameraSequence::Current();
             if (currentSequence != nullptr && currentSequence->BlockInput())
             {
                 _controls.ClearAll();
@@ -623,8 +645,8 @@ namespace MphRead::Entities
         if (_respawnTimer > 0)
         {
             --_respawnTimer;
-            if ((GameState::Mode == GameMode::Survival || GameState::Mode == GameMode::SurvivalTeams)
-                && ManagedAt(GameState::TeamDeaths, _slotIndex) > GameState::PointGoal)
+            if ((GameState::Mode() == GameMode::Survival || GameState::Mode() == GameMode::SurvivalTeams)
+                && ManagedAt(GameState::TeamDeaths(), _slotIndex) > GameState::PointGoal())
             {
                 if (IsMainPlayer())
                 {
@@ -638,14 +660,14 @@ namespace MphRead::Entities
         }
         if (_health == 0 && _respawnTimer == 0 && !_enemySpawner)
         {
-            if (scene().Room != nullptr && scene().Room->LoadEntityId >= 0)
+            if (scene().Room() != nullptr && scene().Room()->LoadEntityId >= 0)
             {
                 std::shared_ptr<TeleporterEntity> targetTeleporter{};
                 auto teleporterEnumerator = scene().GetTeleporterEntities().GetEnumerator();
                 while (teleporterEnumerator.MoveNext())
                 {
                     std::shared_ptr<TeleporterEntity> teleporter = teleporterEnumerator.Current();
-                    if (RequireReference(teleporter).Data().LoadIndex == scene().Room->LoadEntityId)
+                    if (RequireReference(teleporter).Data().LoadIndex == scene().Room()->LoadEntityId)
                     {
                         targetTeleporter = std::move(teleporter);
                         break;
@@ -657,7 +679,7 @@ namespace MphRead::Entities
                     teleporter.SetTriggered();
                     Spawn(teleporter.Position, teleporter.FacingVector(), teleporter.UpVector(),
                         teleporter.NodeRef, true);
-                    if (GameState::TransitionAltForm)
+                    if (GameState::TransitionAltForm())
                     {
                         static_cast<void>(TrySwitchForms(true));
                         UpdateForm(true);
@@ -677,7 +699,7 @@ namespace MphRead::Entities
                     while (doorEnumerator.MoveNext())
                     {
                         std::shared_ptr<DoorEntity> door = doorEnumerator.Current();
-                        if (RequireReference(door).Data().OutConnectorId == scene().Room->LoadEntityId)
+                        if (RequireReference(door).Data().OutConnectorId == scene().Room()->LoadEntityId)
                         {
                             targetDoor = std::move(door);
                             break;
@@ -687,24 +709,24 @@ namespace MphRead::Entities
                     {
                         DoorEntity& door = *targetDoor;
                         const Vector3 facing = door.FacingVector();
-                        const Vector3 position = Add(door.Position, Scale(facing, 2.0F));
+                        const Vector3 position = Add(door.Position, ScaleVector(facing, 2.0F));
                         Spawn(position, facing, door.UpVector(), door.NodeRef, true);
                     }
                 }
-                scene().Room->LoadEntityId = -1;
-                GameState::TransitionAltForm = false;
+                scene().Room()->LoadEntityId = -1;
+                GameState::TransitionAltForm(false);
             }
             else
             {
                 const std::int32_t time = GetTimeUntilRespawn();
-                if (IsMainPlayer() && GameState::Multiplayer)
+                if (IsMainPlayer() && GameState::Multiplayer())
                 {
-                    const CameraSequence* sequence = CameraSequence::Current();
+                    const Formats::CameraSequence* sequence = Formats::CameraSequence::Current();
                     const std::int32_t messageId
                         = sequence != nullptr && sequence->IsIntro() ? 245 : 244;
-                    if (!Bugfixes::NoStrayRespawnText || time > 0
-                        || (GameState::Mode != GameMode::Survival
-                            && GameState::Mode != GameMode::SurvivalTeams))
+                    if (!Bugfixes::NoStrayRespawnText() || time > 0
+                        || (GameState::Mode() != GameMode::Survival
+                            && GameState::Mode() != GameMode::SurvivalTeams))
                     {
                         QueueHudMessage(128.0F, 162.0F, 1.0F / 1000.0F, 0, messageId);
                         if (time < 150 * 2)
@@ -723,7 +745,7 @@ namespace MphRead::Entities
                         }
                     }
                 }
-                if (GameState::SinglePlayer || _controls.Shoot().IsDown() || time <= 0 || _isBot
+                if (GameState::SinglePlayer() || _controls.Shoot().IsDown() || time <= 0 || _isBot
                     || Mods::Network::NetHooks::ForceSpawn(*this))
                 {
                     std::shared_ptr<PlayerSpawnEntity> respawn = GetRespawnPoint();
@@ -745,7 +767,7 @@ namespace MphRead::Entities
         else
         {
             std::int32_t rangeIndex = 1;
-            if (GameState::SinglePlayer && _hunter == Hunter::Guardian)
+            if (GameState::SinglePlayer() && _hunter == Hunter::Guardian)
             {
                 rangeIndex = 21;
             }
@@ -772,7 +794,7 @@ namespace MphRead::Entities
             --_disruptedTimer;
         }
 
-        if (GameState::Mode == GameMode::Survival || GameState::Mode == GameMode::SurvivalTeams)
+        if (GameState::Mode() == GameMode::Survival || GameState::Mode() == GameMode::SurvivalTeams)
         {
             if (TestFlag(_flags2, PlayerFlags2::RadarReveal))
             {
@@ -783,7 +805,7 @@ namespace MphRead::Entities
             {
                 _hidingTimer = 0;
             }
-            else if (GameState::RadarPlayers)
+            else if (GameState::RadarPlayers())
             {
                 if (IsMainPlayer())
                 {
@@ -811,7 +833,7 @@ namespace MphRead::Entities
                 if (_hidingTimer >= revealTime)
                 {
                     _flags2 |= PlayerFlags2::RadarReveal;
-                    if (IsMainPlayer() && (scene().FrameCount & static_cast<std::uint64_t>(8 * 2)) == 0)
+                    if (IsMainPlayer() && (scene().FrameCount() & static_cast<std::uint64_t>(8 * 2)) == 0)
                     {
                         QueueHudMessage(128.0F, 150.0F, 1.0F / 1000.0F, 0, 248);
                         QueueHudMessage(128.0F, 160.0F, 1.0F / 1000.0F, 0, 249);
@@ -1023,8 +1045,8 @@ namespace MphRead::Entities
             }
         }
 
-        const std::int32_t ammo = RequireReference(_equipInfo).Ammo;
-        if (ammo >= 0 && ammo < RequireReference(_equipInfo).Weapon.AmmoCost)
+        const std::int32_t ammo = RequireReference(_equipInfo).Ammo();
+        if (ammo >= 0 && ammo < RequireReference(RequireReference(_equipInfo).Weapon).AmmoCost)
         {
             std::int32_t slot = 0;
             std::int32_t priority = 0;
@@ -1033,7 +1055,8 @@ namespace MphRead::Entities
                 const BeamType slotWeap = ManagedAt(_weaponSlots, i);
                 if (slotWeap != BeamType::None)
                 {
-                    const WeaponInfo slotInfo = ManagedAt(Weapons::Current, static_cast<std::int32_t>(slotWeap));
+                    const WeaponInfo& slotInfo = RequireReference(ManagedAt(
+                    RequireReference(Weapons::Current), static_cast<std::int32_t>(slotWeap)));
                     if (slotInfo.Priority > priority
                         && ManagedAt(_ammo, slotInfo.AmmoType) >= slotInfo.AmmoCost)
                     {
@@ -1183,14 +1206,14 @@ namespace MphRead::Entities
             }
         }
         UpdateGunAnimation();
-        if ((scene().FrameCount != 0 && scene().FrameCount % 2 == 0)
+        if ((scene().FrameCount() != 0 && scene().FrameCount() % 2 == 0)
             || (_currentWeapon == BeamType::ShockCoil && _gunAnimation == GunAnimation::Shot))
         {
             RequireReference(_gunModel).UpdateAnimFrames();
         }
         if (IsMainPlayer()
             && ManagedAt(RequireReference(RequireReference(_gunModel).AnimInfo->Frame), 0) == 15
-            && scene().FrameCount % 2 == 0
+            && scene().FrameCount() % 2 == 0
             && (_gunAnimation == GunAnimation::Unknown9 || _gunAnimation == GunAnimation::MissileShot))
         {
             _soundSource.StopSfxByHandle(_missileSfxHandle);
@@ -1207,7 +1230,7 @@ namespace MphRead::Entities
             const std::int32_t id = ManagedAt(Metadata::MuzzleEffectIds,
                 static_cast<std::int32_t>(BeamType::ShockCoil));
             if (_muzzleEffect->IsFinished()
-                || (_muzzleEffect->EffectId() == id && !TestFlag(_flags1, PlayerFlags1::ShotUncharged)))
+                || (_muzzleEffect->EffectId == id && !TestFlag(_flags1, PlayerFlags1::ShotUncharged)))
             {
                 scene().UnlinkEffectEntry(_muzzleEffect);
                 _muzzleEffect.reset();
@@ -1218,8 +1241,8 @@ namespace MphRead::Entities
             }
         }
 
-        EquipInfo& equipInfo = RequireReference(_equipInfo);
-        if (equipInfo.ChargeLevel < equipInfo.Weapon.MinCharge * 2)
+        MphRead::EquipInfo& equipInfo = RequireReference(_equipInfo);
+        if (equipInfo.ChargeLevel < RequireReference(equipInfo.Weapon).MinCharge * 2)
         {
             if (_chargeEffect)
             {
@@ -1229,7 +1252,7 @@ namespace MphRead::Entities
         }
         else
         {
-            if (equipInfo.ChargeLevel == equipInfo.Weapon.MinCharge * 2)
+            if (equipInfo.ChargeLevel == RequireReference(equipInfo.Weapon).MinCharge * 2)
             {
                 if (_chargeEffect)
                 {
@@ -1245,7 +1268,7 @@ namespace MphRead::Entities
                 }
                 _flags2 &= ~PlayerFlags2::ChargeEffect;
             }
-            else if (equipInfo.ChargeLevel == equipInfo.Weapon.FullCharge * 2)
+            else if (equipInfo.ChargeLevel == RequireReference(equipInfo.Weapon).FullCharge * 2)
             {
                 if (!TestFlag(_flags2, PlayerFlags2::ChargeEffect))
                 {
@@ -1350,10 +1373,10 @@ namespace MphRead::Entities
         }
 
         if (_aimY < 60.0F && _aimY > -60.0F && !equipInfo.Zoomed && _health > 0
-            && !Features::NoIdleSway)
+            && !Features::NoIdleSway())
         {
             std::int32_t swayStart = ManagedMultiply(_values.SwayStartTime, 2);
-            if (Features::DelayedIdleSway)
+            if (Features::DelayedIdleSway())
             {
                 swayStart = ManagedMultiply(swayStart, 4);
             }
@@ -1369,7 +1392,7 @@ namespace MphRead::Entities
                 _field410 = _facingVector;
                 _field41C = _field410;
                 _field428 = _field410;
-                _field41C = Add(_field41C, Add(Scale(_gunVec2, factor1), Scale(_upVector, factor2)));
+                _field41C = Add(_field41C, Add(ScaleVector(_gunVec2, factor1), ScaleVector(_upVector, factor2)));
             }
             else if (_timeSinceInput > swayStart)
             {
@@ -1385,11 +1408,11 @@ namespace MphRead::Entities
                         - static_cast<std::int64_t>(_values.SwayLimit / 2)) / 4096.0F;
                     _field410 = _field41C;
                     _field41C = _field428;
-                    _field41C = Add(_field41C, Add(Scale(_gunVec2, factor1), Scale(_upVector, factor2)));
+                    _field41C = Add(_field41C, Add(ScaleVector(_gunVec2, factor1), ScaleVector(_upVector, factor2)));
                 }
                 const float angle = 180.0F * _field40C + 180.0F;
                 const float factor = (std::cos(DegreesToRadians(angle)) + 1.0F) / 2.0F;
-                _facingVector = Add(_field410, Scale(Subtract(_field41C, _field410), factor));
+                _facingVector = Add(_field410, ScaleVector(Subtract(_field41C, _field410), factor));
                 _facingVector = Normalize(_facingVector);
             }
         }
@@ -1418,9 +1441,9 @@ namespace MphRead::Entities
             }
         }
 
-        if (equipInfo.SmokeLevel < equipInfo.Weapon.SmokeStart * 2)
+        if (equipInfo.SmokeLevel < RequireReference(equipInfo.Weapon).SmokeStart * 2)
         {
-            if (equipInfo.SmokeLevel > equipInfo.Weapon.SmokeMinimum * 2)
+            if (equipInfo.SmokeLevel > RequireReference(equipInfo.Weapon).SmokeMinimum * 2)
             {
                 if (TestFlag(_flags1, PlayerFlags1::DrawGunSmoke) && _smokeAlpha < 1.0F)
                 {
@@ -1460,9 +1483,9 @@ namespace MphRead::Entities
             {
                 ++_timeSinceDead;
             }
-            if (GameState::SinglePlayer && IsMainPlayer() && _deathCountdown > 0.0F)
+            if (GameState::SinglePlayer() && IsMainPlayer() && _deathCountdown > 0.0F)
             {
-                _deathCountdown -= scene().FrameTime;
+                _deathCountdown -= scene().FrameTime();
                 const float pct = (150.0F / 30.0F - _deathCountdown) / (150.0F / 30.0F);
                 RequireReference(_cameraInfo).SetShake(0.15F * pct);
                 if (_lostOctolithEnemyIndex != -1 && _deathCountdown <= 119.0F / 30.0F)
@@ -1542,8 +1565,8 @@ namespace MphRead::Entities
                                         clearMask | hunterBits);
                                     storySave.LostOctoliths = storySave.LostOctoliths
                                         & std::bit_cast<std::uint32_t>(packed);
-                                    const std::int32_t areaIndex = scene().AreaId / 2;
-                                    std::uint8_t& areaHunters = ManagedAt(storySave.AreaHunters, areaIndex);
+                                    const std::int32_t areaIndex = scene().AreaId() / 2;
+                                    std::uint8_t& areaHunters = ManagedAt(RequireReference(storySave.AreaHunters), areaIndex);
                                     areaHunters = static_cast<std::uint8_t>(areaHunters
                                         & static_cast<std::uint8_t>(~(1 << hunter)));
                                     break;
@@ -1560,7 +1583,7 @@ namespace MphRead::Entities
             }
         }
 
-        if (!equipInfo.Zoomed && CameraSequence::Current() == nullptr)
+        if (!equipInfo.Zoomed && Formats::CameraSequence::Current() == nullptr)
         {
             float currentFov = RequireReference(_cameraInfo).Fov;
             const float normalFov = Fixed::ToFloat(_values.NormalFov) * 2.0F;
@@ -1585,9 +1608,9 @@ namespace MphRead::Entities
             }
             else if (IsUnmorphing())
             {
-                if (IsMainPlayer() && CameraSequence::Current() != nullptr)
+                if (IsMainPlayer() && Formats::CameraSequence::Current() != nullptr)
                 {
-                    CameraSequence::Current()->InitialCamInfo().NodeRef = NodeRef;
+                    Formats::CameraSequence::Current()->InitialCamInfo().NodeRef = NodeRef;
                 }
                 else
                 {
@@ -1611,9 +1634,9 @@ namespace MphRead::Entities
             const Vector3 curPos = Add(static_cast<Vector3>(Position),
                 ManagedAt(ManagedAt(PlayerVolumes, static_cast<std::int32_t>(_hunter)), index).SpherePosition);
             NodeRef = scene().UpdateNodeRef(NodeRef, prevPos, curPos);
-            if (CameraSequence::Current() == nullptr || !IsMainPlayer())
+            if (Formats::CameraSequence::Current() == nullptr || !IsMainPlayer())
             {
-                CameraInfo& cameraInfo = RequireReference(_cameraInfo);
+                MphRead::Entities::CameraInfo& cameraInfo = RequireReference(_cameraInfo);
                 if (_cameraType == CameraType::Free)
                 {
                     cameraInfo.NodeRef = scene().UpdateNodeRef(
@@ -1627,7 +1650,7 @@ namespace MphRead::Entities
         }
 
         if (TestFlag(_flags1, PlayerFlags1::Standing)
-            && (_timeStanding == 0 || scene().FrameCount % (4 * 2) == 0)
+            && (_timeStanding == 0 || scene().FrameCount() % (4 * 2) == 0)
             && (TestFlag(_flags1, PlayerFlags1::OnAcid)
                 || (TestFlag(_flags1, PlayerFlags1::OnLava) && _hunter != Hunter::Spire)))
         {
@@ -1639,9 +1662,9 @@ namespace MphRead::Entities
             TakeDamage(1, flags, std::nullopt, nullptr);
         }
 
-        assert(scene().Room != nullptr);
-        RoomEntity& room = RequireReference(scene().Room);
-        if (GameState::Multiplayer && room.Meta.HasLimits)
+        assert(scene().Room() != nullptr);
+        RoomEntity& room = RequireReference(scene().Room());
+        if (GameState::Multiplayer() && room.Meta.HasLimits)
         {
             if (Position.Y < room.Meta.PlayerMin.Y)
             {
@@ -1717,7 +1740,7 @@ namespace MphRead::Entities
             }
             if (_burnEffect)
             {
-                CameraSequence* sequence = CameraSequence::Current();
+                Formats::CameraSequence* sequence = Formats::CameraSequence::Current();
                 if (sequence != nullptr && sequence->BlockInput())
                 {
                     scene().UnlinkEffectEntry(_burnEffect);
@@ -1785,13 +1808,13 @@ namespace MphRead::Entities
     void PlayerEntity::PickUpItems()
     {
         const auto scene = [&]() -> Scene& { return RequireReference(_scene); };
-        if (_health == 0 || (_isBot && GameState::SinglePlayer) || _ignoreItemPickups)
+        if (_health == 0 || (_isBot && GameState::SinglePlayer()) || _ignoreItemPickups)
         {
             return;
         }
         if (IsMainPlayer())
         {
-            CameraSequence* sequence = CameraSequence::Current();
+            Formats::CameraSequence* sequence = Formats::CameraSequence::Current();
             if (sequence != nullptr && sequence->BlockInput())
             {
                 return;
@@ -1868,12 +1891,12 @@ namespace MphRead::Entities
                 std::int32_t amount;
                 if (itemType == ItemType::UABig || itemType == ItemType::MissileBig)
                 {
-                    amount = GameState::Multiplayer ? 100 : 250;
+                    amount = GameState::Multiplayer() ? 100 : 250;
                     playSfx(SfxId::AMMO_POWER_UP2);
                 }
                 else
                 {
-                    amount = GameState::Multiplayer ? 50 : 100;
+                    amount = GameState::Multiplayer() ? 50 : 100;
                     playSfx(SfxId::AMMO_POWER_UP1);
                 }
                 std::int32_t& currentAmmo = ManagedAt(_ammo, slot);
@@ -1953,7 +1976,7 @@ namespace MphRead::Entities
                     ManagedAt(_ammoMax, 1) = ManagedAdd(ManagedAt(_ammoMax, 1), 100);
                     ManagedAt(_ammoRecovery, 1)
                         = ManagedSubtract(ManagedAt(_ammoMax, 1), ManagedAt(_ammo, 1));
-                    ManagedAt(RequireReference(GameState::StorySave).AmmoMax, 1)
+                    ManagedAt(RequireReference(RequireReference(GameState::StorySave).AmmoMax), 1)
                         = ManagedAt(_ammoMax, 1);
                     if (IsMainPlayer())
                     {
@@ -1970,7 +1993,7 @@ namespace MphRead::Entities
                     ManagedAt(_ammoMax, 0) = ManagedAdd(ManagedAt(_ammoMax, 0), 300);
                     ManagedAt(_ammoRecovery, 0)
                         = ManagedSubtract(ManagedAt(_ammoMax, 0), ManagedAt(_ammo, 0));
-                    ManagedAt(RequireReference(GameState::StorySave).AmmoMax, 0)
+                    ManagedAt(RequireReference(RequireReference(GameState::StorySave).AmmoMax), 0)
                         = ManagedAt(_ammoMax, 0);
                     if (IsMainPlayer())
                     {
@@ -2033,9 +2056,9 @@ namespace MphRead::Entities
             return;
         }
 
-        StorySave* storySave = GameState::StorySave;
+        std::shared_ptr<MphRead::StorySave> storySave = GameState::StorySave;
         const std::int32_t weaponId = static_cast<std::int32_t>(weapon);
-        if (GameState::SinglePlayer
+        if (GameState::SinglePlayer()
             && (RequireReference(storySave).Weapons & (1 << weaponId)) == 0)
         {
             storySave->Weapons = static_cast<std::uint16_t>(storySave->Weapons | (1 << weaponId));
@@ -2049,7 +2072,7 @@ namespace MphRead::Entities
             ShowDialog(DialogType::Event, 5, weaponId, 0, value1, value2);
         }
 
-        const WeaponInfo info = ManagedAt(Weapons::Current, weaponId);
+        const WeaponInfo& info = RequireReference(ManagedAt(RequireReference(Weapons::Current), weaponId));
         std::int32_t& ammo = ManagedAt(_ammo, info.AmmoType);
         if (ammo < 60)
         {
@@ -2063,12 +2086,12 @@ namespace MphRead::Entities
             const std::int32_t slot2Index = static_cast<std::int32_t>(slot2Weapon);
             const BeamType affinityWeapon = Weapons::GetAffinityBeam(_hunter);
             if (slot2Weapon == BeamType::None || weapon == BeamType::OmegaCannon
-                || ((info.Priority > ManagedAt(Weapons::Current, slot2Index).Priority
+                || ((info.Priority > RequireReference(ManagedAt(RequireReference(Weapons::Current), slot2Index)).Priority
                         || weapon == affinityWeapon)
                     && (!TestFlag(_flags2, PlayerFlags2::Shooting)
                         || _currentWeapon != slot2Weapon)))
             {
-                if ((info.Priority > RequireReference(_equipInfo).Weapon.Priority
+                if ((info.Priority > RequireReference(RequireReference(_equipInfo).Weapon).Priority
                         || weapon == BeamType::OmegaCannon || weapon == affinityWeapon)
                     && !TestFlag(_flags2, PlayerFlags2::Shooting))
                 {
@@ -2143,7 +2166,7 @@ namespace MphRead::Entities
         {
             if (IsMainPlayer())
             {
-                CameraSequence* sequence = CameraSequence::Current();
+                Formats::CameraSequence* sequence = Formats::CameraSequence::Current();
                 if (sequence == nullptr || !sequence->BlockInput())
                 {
                     _soundSource.PlayFreeSfx(SfxId::BEAM_SWITCH_FAIL);
@@ -2192,9 +2215,9 @@ namespace MphRead::Entities
         const Vector3 up = _upVector;
         _gunDrawPos = Add(
             Add(
-                Add(Scale(facing, Fixed::ToFloat(_values.FieldB8)), RequireReference(_cameraInfo).Position),
-                Scale(_gunVec2, Fixed::ToFloat(_values.FieldB0))),
-            Scale(up, Fixed::ToFloat(_values.FieldB4)));
+                Add(ScaleVector(facing, Fixed::ToFloat(_values.FieldB8)), RequireReference(_cameraInfo).Position),
+                ScaleVector(_gunVec2, Fixed::ToFloat(_values.FieldB0))),
+            ScaleVector(up, Fixed::ToFloat(_values.FieldB4)));
         const float cosValue = std::cos(DegreesToRadians(_gunViewBob));
         _gunDrawPos.Y += Fixed::ToFloat(20) * cosValue;
         if (Features::FixedWeapon())
@@ -2205,10 +2228,10 @@ namespace MphRead::Entities
         {
             _aimVec = Subtract(_aimPosition, _gunDrawPos);
             const float dot = Vector3::Dot(_aimVec, facing);
-            const Vector3 vec = Scale(facing, dot);
+            const Vector3 vec = ScaleVector(facing, dot);
             _aimVec = Normalize(Add(_aimVec, Divide(Subtract(vec, _aimVec), 2.0F)));
         }
-        _muzzlePos = Add(_gunDrawPos, Scale(_aimVec, Fixed::ToFloat(_values.MuzzleOffset)));
+        _muzzlePos = Add(_gunDrawPos, ScaleVector(_aimVec, Fixed::ToFloat(_values.MuzzleOffset)));
     }
 
     void PlayerEntity::InitAltTransform()
@@ -2341,7 +2364,7 @@ namespace MphRead::Entities
     {
         const auto scene = [&]() -> Scene& { return RequireReference(_scene); };
         constexpr std::int32_t cycle = 13 * 2;
-        float angle = 359.0F * static_cast<float>(scene().FrameCount % cycle)
+        float angle = 359.0F * static_cast<float>(scene().FrameCount() % cycle)
             / static_cast<float>(cycle - 1);
         float factor = 0.3F * std::sin(DegreesToRadians(angle)) * _hSpeedMag;
         ManagedAt(_kandenSegPos, 0)
@@ -2361,7 +2384,7 @@ namespace MphRead::Entities
             dir.X += Fixed::ToFloat(5);
         }
         dir = Add(Row2(ManagedAt(_kandenSegMtx, 0)),
-            Scale(Subtract(dir, Row2(ManagedAt(_kandenSegMtx, 0))), 0.3F));
+            ScaleVector(Subtract(dir, Row2(ManagedAt(_kandenSegMtx, 0))), 0.3F));
         dir = Normalize(dir);
         if (dir.X != 0.0F || dir.Z != 0.0F)
         {
@@ -2402,7 +2425,7 @@ namespace MphRead::Entities
             ManagedAt(_kandenSegMtx, i)
                 = GetTransformMatrix(dir, Row1(ManagedAt(_kandenSegMtx, 0)));
             const float dist = ManagedAt(KandenAltNodeDistances, i - 1);
-            dir = Scale(dir, dist);
+            dir = ScaleVector(dir, dist);
             ManagedAt(_kandenSegPos, i) = Subtract(ManagedAt(_kandenSegPos, i - 1), dir);
             SetRow3(ManagedAt(_kandenSegMtx, i), ManagedAt(_kandenSegPos, i));
         }
@@ -2464,7 +2487,7 @@ namespace MphRead::Entities
         {
             RequireReference(_altModel).SetAnimation(static_cast<std::int32_t>(SyluxAltAnim::Idle));
         }
-        EquipInfo& equipInfo = RequireReference(_equipInfo);
+        MphRead::EquipInfo& equipInfo = RequireReference(_equipInfo);
         if (equipInfo.ChargeLevel > 0)
         {
             StopBeamChargeSfx(_currentWeapon);
@@ -2537,7 +2560,7 @@ namespace MphRead::Entities
                 {
                     const float dist = -ManagedAt(KandenAltNodeDistances, i - 1);
                     ManagedAt(_kandenSegPos, i)
-                        = Add(ManagedAt(_kandenSegPos, i - 1), Scale(facing, dist));
+                        = Add(ManagedAt(_kandenSegPos, i - 1), ScaleVector(facing, dist));
                     Matrix4 matrix = ManagedAt(_kandenSegMtx, 0);
                     SetRow3(matrix, ManagedAt(_kandenSegPos, i));
                     ManagedAt(_kandenSegMtx, i) = matrix;
@@ -2633,24 +2656,25 @@ namespace MphRead::Entities
         const Vector3 position = Add(RequireReference(_cameraInfo).Position, Divide(up, 2.0F));
         Vector3 spawnPos = position;
         scene().SpawnEffect(effectId, facing, up, spawnPos);
-        spawnPos = Add(position, Scale(_gunVec2, 0.4F));
+        spawnPos = Add(position, ScaleVector(_gunVec2, 0.4F));
         scene().SpawnEffect(effectId, facing, up, spawnPos);
-        spawnPos = Subtract(position, Scale(_gunVec2, 0.4F));
+        spawnPos = Subtract(position, ScaleVector(_gunVec2, 0.4F));
         scene().SpawnEffect(effectId, facing, up, spawnPos);
-        spawnPos = Add(position, Scale(playerUp, 0.4F));
+        spawnPos = Add(position, ScaleVector(playerUp, 0.4F));
         scene().SpawnEffect(effectId, facing, up, spawnPos);
-        spawnPos = Subtract(position, Scale(playerUp, 0.4F));
+        spawnPos = Subtract(position, ScaleVector(playerUp, 0.4F));
         scene().SpawnEffect(effectId, facing, up, spawnPos);
     }
 
     void PlayerEntity::CreateIceBreakEffectBiped(Model& model)
     {
         const auto scene = [&]() -> Scene& { return RequireReference(_scene); };
-        assert(model.Nodes.Count() > 1);
+        const auto& nodes = RequireReference(model.Nodes);
+        assert(nodes.size() > 1);
         constexpr std::int32_t effectId = 231;
-        for (std::int32_t i = 1; i < model.Nodes.Count(); ++i)
+        for (std::int32_t i = 1; i < static_cast<std::int32_t>(nodes.size()); ++i)
         {
-            Node& node = RequireReference(model.Nodes[i]);
+            Node& node = RequireReference(ManagedAt(nodes, i));
             const Vector3 pos = Row3(ManagedAt(_bipedIceTransforms, i));
             Vector3 up;
             if (node.ChildIndex <= 0)
@@ -2689,7 +2713,7 @@ namespace MphRead::Entities
     std::shared_ptr<PlayerSpawnEntity> PlayerEntity::GetRespawnPoint()
     {
         const auto scene = [&]() -> Scene& { return RequireReference(_scene); };
-        assert(scene().Room != nullptr);
+        assert(scene().Room() != nullptr);
         std::shared_ptr<PlayerSpawnEntity> chosenSpawn{};
         std::int32_t limit = 0;
         std::vector<std::shared_ptr<PlayerSpawnEntity>> valid{};
@@ -2705,13 +2729,13 @@ namespace MphRead::Entities
             }
             PlayerSpawnEntity& candidateRef = RequireReference(candidate);
             if (!candidateRef.IsActive() || candidateRef.Cooldown() != 0
-                || (scene().FrameCount == 0 && candidateRef.Availability()))
+                || (scene().FrameCount() == 0 && candidateRef.Availability()))
             {
                 limit = ManagedAdd(limit, 1);
                 continue;
             }
             const auto data = candidateRef.Data();
-            if (GameState::Mode == GameMode::Capture && data.TeamIndex != -1
+            if (GameState::Mode() == GameMode::Capture && data.TeamIndex != -1
                 && data.TeamIndex != _teamIndex)
             {
                 limit = ManagedAdd(limit, 1);
@@ -2747,7 +2771,7 @@ namespace MphRead::Entities
         if (!valid.empty())
         {
             const std::int32_t index = static_cast<std::int32_t>(
-                scene().FrameCount % static_cast<std::uint64_t>(valid.size()));
+                scene().FrameCount() % static_cast<std::uint64_t>(valid.size()));
             chosenSpawn = valid[static_cast<std::size_t>(index)];
         }
         else
@@ -2777,7 +2801,7 @@ namespace MphRead::Entities
     std::int32_t PlayerEntity::GetTimeUntilRespawn()
     {
         std::int32_t count = 0;
-        if (GameState::Mode != GameMode::Survival && GameState::Mode != GameMode::SurvivalTeams)
+        if (GameState::Mode() != GameMode::Survival && GameState::Mode() != GameMode::SurvivalTeams)
         {
             if (PlayerCount() > 3)
             {

@@ -364,8 +364,10 @@ namespace MphRead::Mods::Network::Detail
             return;
         }
 #if defined(_WIN32)
+        (void)shutdown(state->Native, SD_BOTH);
         (void)closesocket(state->Native);
 #else
+        (void)shutdown(state->Native, SHUT_RDWR);
         (void)::close(state->Native);
 #endif
         state->Native = NetStatusInvalidSocket;

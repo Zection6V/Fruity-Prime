@@ -5,7 +5,7 @@
 
 namespace MphRead
 {
-    enum class GameMode : std::int32_t;
+    enum class GameMode : std::uint8_t;
 }
 
 namespace MphRead::Mods::Network

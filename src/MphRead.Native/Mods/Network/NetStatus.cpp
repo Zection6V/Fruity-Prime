@@ -1,19 +1,42 @@
 #include "NetStatus.hpp"
 
 #include "NetProtocol.hpp"
+#include "../../Formats/Formats.hpp"
 #include "../../Metadata/Metadata.hpp"
 
+#include <array>
 #include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <cerrno>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+#endif
 
 namespace MphRead::Mods::Network::Detail
 {
@@ -25,53 +48,346 @@ namespace MphRead::Mods::Network::Detail
 
     struct NetStatusAddress
     {
-        NetStatusAddressFamily Family;
-        std::string Text;
+        NetStatusAddressFamily Family = NetStatusAddressFamily::Other;
+        std::array<std::uint8_t, 4> Bytes{};
     };
 
     struct NetStatusEndPoint
     {
-        NetStatusAddress Address;
-        std::int32_t Port;
+        NetStatusAddress Address{};
+        std::int32_t Port = 0;
     };
 
-    class NetStatusSocketException final : public std::runtime_error
+#if defined(_WIN32)
+    using NetStatusNativeSocket = SOCKET;
+    constexpr NetStatusNativeSocket NetStatusInvalidSocket = INVALID_SOCKET;
+#else
+    using NetStatusNativeSocket = int;
+    constexpr NetStatusNativeSocket NetStatusInvalidSocket = -1;
+#endif
+
+    class NetStatusSocketException final : public std::system_error
     {
     public:
-        explicit NetStatusSocketException(std::string message)
-            : std::runtime_error(std::move(message))
+        NetStatusSocketException(int error, std::string operation)
+#if defined(_WIN32)
+            : std::system_error(error, std::system_category(), std::move(operation))
+#else
+            : std::system_error(error, std::generic_category(), std::move(operation))
+#endif
         {
         }
     };
 
-    // Narrow integration boundary for the managed platform APIs and owners
-    // outside this isolated slice. These declarations carry no fallback
-    // policy: providers must preserve the corresponding C# DNS, endpoint,
-    // UdpClient, DateTime, NetConfig and GameMode semantics.
-    std::vector<NetStatusAddress> NetStatusDnsGetHostAddresses(
-        const std::string& address);
-    NetStatusEndPoint NetStatusCreateIPEndPoint(
-        const NetStatusAddress& address, std::int32_t port);
-    NetStatusEndPoint NetStatusCreateIPv4AnyEndPoint();
+    [[nodiscard]] int NetStatusLastSocketError() noexcept
+    {
+#if defined(_WIN32)
+        return WSAGetLastError();
+#else
+        return errno;
+#endif
+    }
 
-    NetStatusSocketHandle NetStatusUdpClientCreateInterNetwork();
+#if defined(_WIN32)
+    class NetStatusWinsockRuntime final
+    {
+    public:
+        NetStatusWinsockRuntime()
+        {
+            WSADATA data{};
+            const int result = WSAStartup(MAKEWORD(2, 2), &data);
+            if (result != 0)
+            {
+                throw NetStatusSocketException(result, "WSAStartup");
+            }
+        }
+
+        ~NetStatusWinsockRuntime()
+        {
+            WSACleanup();
+        }
+
+        NetStatusWinsockRuntime(const NetStatusWinsockRuntime&) = delete;
+        NetStatusWinsockRuntime& operator=(const NetStatusWinsockRuntime&) = delete;
+    };
+
+    void NetStatusEnsureWinsock()
+    {
+        static NetStatusWinsockRuntime runtime;
+        (void)runtime;
+    }
+#else
+    void NetStatusEnsureWinsock()
+    {
+    }
+#endif
+
+    [[nodiscard]] NetStatusSocketHandle NetStatusToHandle(
+        NetStatusNativeSocket socket) noexcept
+    {
+#if defined(_WIN32)
+        return static_cast<NetStatusSocketHandle>(socket);
+#else
+        return static_cast<NetStatusSocketHandle>(static_cast<std::intptr_t>(socket));
+#endif
+    }
+
+    [[nodiscard]] NetStatusNativeSocket NetStatusFromHandle(
+        NetStatusSocketHandle handle) noexcept
+    {
+#if defined(_WIN32)
+        return static_cast<NetStatusNativeSocket>(handle);
+#else
+        return static_cast<NetStatusNativeSocket>(static_cast<std::intptr_t>(handle));
+#endif
+    }
+
+    [[nodiscard]] sockaddr_in NetStatusToSockAddr(
+        const NetStatusEndPoint& endPoint) noexcept
+    {
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        std::memcpy(&address.sin_addr.s_addr,
+            endPoint.Address.Bytes.data(), endPoint.Address.Bytes.size());
+        address.sin_port = htons(static_cast<std::uint16_t>(endPoint.Port));
+        return address;
+    }
+
+    std::vector<NetStatusAddress> NetStatusDnsGetHostAddresses(
+        const std::string& address)
+    {
+        NetStatusEnsureWinsock();
+
+        addrinfo hints{};
+        hints.ai_family = AF_UNSPEC;
+        addrinfo* raw = nullptr;
+        const int result = getaddrinfo(address.c_str(), nullptr, &hints, &raw);
+        if (result != 0)
+        {
+#if defined(_WIN32)
+            const char* message = gai_strerrorA(result);
+#else
+            const char* message = gai_strerror(result);
+#endif
+            throw std::runtime_error(message != nullptr ? message : "getaddrinfo failed");
+        }
+
+        std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> owner(raw, &freeaddrinfo);
+        std::vector<NetStatusAddress> resolved;
+        for (addrinfo* current = raw; current != nullptr; current = current->ai_next)
+        {
+            if (current->ai_family != AF_INET || current->ai_addr == nullptr
+                || current->ai_addrlen
+                    < static_cast<decltype(current->ai_addrlen)>(sizeof(sockaddr_in)))
+            {
+                continue;
+            }
+
+            const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
+            NetStatusAddress item;
+            item.Family = NetStatusAddressFamily::InterNetwork;
+            std::memcpy(item.Bytes.data(), &ipv4->sin_addr.s_addr, item.Bytes.size());
+            resolved.push_back(item);
+        }
+        return resolved;
+    }
+
+    NetStatusEndPoint NetStatusCreateIPEndPoint(
+        const NetStatusAddress& address, std::int32_t port)
+    {
+        if (port < 0 || port > 65535)
+        {
+            throw std::out_of_range("port");
+        }
+        return NetStatusEndPoint{address, port};
+    }
+
+    NetStatusEndPoint NetStatusCreateIPv4AnyEndPoint()
+    {
+        NetStatusAddress address;
+        address.Family = NetStatusAddressFamily::InterNetwork;
+        address.Bytes = {0, 0, 0, 0};
+        return NetStatusEndPoint{address, 0};
+    }
+
+    NetStatusSocketHandle NetStatusUdpClientCreateInterNetwork()
+    {
+        NetStatusEnsureWinsock();
+        const NetStatusNativeSocket socket
+            = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (socket == NetStatusInvalidSocket)
+        {
+            throw NetStatusSocketException(
+                NetStatusLastSocketError(), "socket");
+        }
+        return NetStatusToHandle(socket);
+    }
+
     void NetStatusUdpClientSetReceiveTimeout(
-        NetStatusSocketHandle socket, std::int32_t timeoutMs);
+        NetStatusSocketHandle socket, std::int32_t timeoutMs)
+    {
+        if (timeoutMs < -1)
+        {
+            throw std::out_of_range("timeoutMs");
+        }
+        const std::int32_t value = timeoutMs == -1 ? 0 : timeoutMs;
+        const NetStatusNativeSocket native = NetStatusFromHandle(socket);
+#if defined(_WIN32)
+        const DWORD timeout = static_cast<DWORD>(value);
+        if (setsockopt(native, SOL_SOCKET, SO_RCVTIMEO,
+                reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == SOCKET_ERROR)
+        {
+            throw NetStatusSocketException(
+                NetStatusLastSocketError(), "setsockopt(SO_RCVTIMEO)");
+        }
+#else
+        timeval timeout{};
+        timeout.tv_sec = value / 1000;
+        timeout.tv_usec = (value % 1000) * 1000;
+        if (setsockopt(native, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0)
+        {
+            throw NetStatusSocketException(
+                NetStatusLastSocketError(), "setsockopt(SO_RCVTIMEO)");
+        }
+#endif
+    }
+
     void NetStatusUdpClientSend(NetStatusSocketHandle socket,
         const std::uint8_t* data, std::int32_t length,
-        const NetStatusEndPoint& endPoint);
+        const NetStatusEndPoint& endPoint)
+    {
+        const NetStatusNativeSocket native = NetStatusFromHandle(socket);
+        const sockaddr_in target = NetStatusToSockAddr(endPoint);
+#if defined(_WIN32)
+        const int sent = sendto(native,
+            reinterpret_cast<const char*>(data), length, 0,
+            reinterpret_cast<const sockaddr*>(&target), sizeof(target));
+        if (sent == SOCKET_ERROR)
+#else
+        const ssize_t sent = sendto(native,
+            data, static_cast<std::size_t>(length), 0,
+            reinterpret_cast<const sockaddr*>(&target), sizeof(target));
+        if (sent < 0)
+#endif
+        {
+            throw NetStatusSocketException(
+                NetStatusLastSocketError(), "sendto");
+        }
+    }
+
     std::vector<std::uint8_t> NetStatusUdpClientReceive(
-        NetStatusSocketHandle socket, NetStatusEndPoint& from);
-    void NetStatusUdpClientDispose(NetStatusSocketHandle socket);
+        NetStatusSocketHandle socket, NetStatusEndPoint& from)
+    {
+        const NetStatusNativeSocket native = NetStatusFromHandle(socket);
+        std::vector<std::uint8_t> data(65535);
+        sockaddr_in sender{};
+#if defined(_WIN32)
+        int senderLength = sizeof(sender);
+        const int received = recvfrom(native,
+            reinterpret_cast<char*>(data.data()), static_cast<int>(data.size()), 0,
+            reinterpret_cast<sockaddr*>(&sender), &senderLength);
+        if (received == SOCKET_ERROR)
+#else
+        socklen_t senderLength = sizeof(sender);
+        const ssize_t received = recvfrom(native,
+            data.data(), data.size(), 0,
+            reinterpret_cast<sockaddr*>(&sender), &senderLength);
+        if (received < 0)
+#endif
+        {
+            throw NetStatusSocketException(
+                NetStatusLastSocketError(), "recvfrom");
+        }
 
-    std::int64_t NetStatusDateTimeUtcNowTicks();
-    std::int32_t NetStatusProtocolVersion();
+        data.resize(static_cast<std::size_t>(received));
+        from.Address.Family = NetStatusAddressFamily::InterNetwork;
+        std::memcpy(from.Address.Bytes.data(),
+            &sender.sin_addr.s_addr, from.Address.Bytes.size());
+        from.Port = static_cast<std::int32_t>(ntohs(sender.sin_port));
+        return data;
+    }
 
-    bool NetStatusIsDefinedGameMode(std::int32_t value);
-    GameMode NetStatusBattleGameMode();
-    std::string NetStatusGameModeToString(GameMode mode);
+    void NetStatusUdpClientDispose(NetStatusSocketHandle socket)
+    {
+        const NetStatusNativeSocket native = NetStatusFromHandle(socket);
+        if (native == NetStatusInvalidSocket)
+        {
+            return;
+        }
+#if defined(_WIN32)
+        (void)closesocket(native);
+#else
+        (void)::close(native);
+#endif
+    }
+
+    std::int64_t NetStatusDateTimeUtcNowTicks()
+    {
+        constexpr std::int64_t unixEpochTicks = 621355968000000000LL;
+        const auto sinceUnixEpoch = std::chrono::system_clock::now().time_since_epoch();
+        const std::int64_t ticks = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            sinceUnixEpoch).count() / 100;
+        return unixEpochTicks + ticks;
+    }
+
+    std::int32_t NetStatusProtocolVersion()
+    {
+        return NetConfig::ProtocolVersion;
+    }
+
+    bool NetStatusIsDefinedGameMode(std::int32_t value)
+    {
+        switch (value)
+        {
+            case static_cast<std::int32_t>(GameMode::None):
+            case static_cast<std::int32_t>(GameMode::SinglePlayer):
+            case static_cast<std::int32_t>(GameMode::Battle):
+            case static_cast<std::int32_t>(GameMode::BattleTeams):
+            case static_cast<std::int32_t>(GameMode::Survival):
+            case static_cast<std::int32_t>(GameMode::SurvivalTeams):
+            case static_cast<std::int32_t>(GameMode::Capture):
+            case static_cast<std::int32_t>(GameMode::Bounty):
+            case static_cast<std::int32_t>(GameMode::BountyTeams):
+            case static_cast<std::int32_t>(GameMode::Nodes):
+            case static_cast<std::int32_t>(GameMode::NodesTeams):
+            case static_cast<std::int32_t>(GameMode::Defender):
+            case static_cast<std::int32_t>(GameMode::DefenderTeams):
+            case static_cast<std::int32_t>(GameMode::PrimeHunter):
+            case static_cast<std::int32_t>(GameMode::Unknown15):
+                return true;
+        }
+        return false;
+    }
+
+    GameMode NetStatusBattleGameMode()
+    {
+        return GameMode::Battle;
+    }
+
+    std::string NetStatusGameModeToString(GameMode mode)
+    {
+        switch (mode)
+        {
+            case GameMode::None: return "None";
+            case GameMode::SinglePlayer: return "SinglePlayer";
+            case GameMode::Battle: return "Battle";
+            case GameMode::BattleTeams: return "BattleTeams";
+            case GameMode::Survival: return "Survival";
+            case GameMode::SurvivalTeams: return "SurvivalTeams";
+            case GameMode::Capture: return "Capture";
+            case GameMode::Bounty: return "Bounty";
+            case GameMode::BountyTeams: return "BountyTeams";
+            case GameMode::Nodes: return "Nodes";
+            case GameMode::NodesTeams: return "NodesTeams";
+            case GameMode::Defender: return "Defender";
+            case GameMode::DefenderTeams: return "DefenderTeams";
+            case GameMode::PrimeHunter: return "PrimeHunter";
+            case GameMode::Unknown15: return "Unknown15";
+        }
+        return std::to_string(
+            static_cast<unsigned int>(static_cast<std::uint8_t>(mode)));
+    }
 }
-
 namespace
 {
     using MphRead::Mods::Network::ServerStatus;

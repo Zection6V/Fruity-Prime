@@ -742,7 +742,11 @@ public: \
         MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, \
         MphRead::AfterMovie afterMovieAction); \
     void StartMovie(MphRead::Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
-        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength); \
+        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, \
+        std::optional<OpenTK::Mathematics::Vector3> afterPosition = std::nullopt, \
+        std::optional<OpenTK::Mathematics::Vector3> afterFacing = std::nullopt, \
+        std::optional<MphRead::Movie> afterMovieId = std::nullopt, \
+        MphRead::AfterMovie afterMovieAction = MphRead::AfterMovie::LoadRoom); \
     void StartMovie(MphRead::Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
         MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, MphRead::AfterMovie afterMovieAction); \
     void DoCleanup(); \

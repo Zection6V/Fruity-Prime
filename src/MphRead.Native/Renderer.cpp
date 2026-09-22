@@ -5029,21 +5029,16 @@ namespace MphRead
     }
 
     void Scene::StartMovie(Movie movieId, FadeType fadeToMovieType, float fadeToMovieLength,
-        FadeType fadeFromMovieType, float fadeFromMovieLength)
-    {
-        StartMovie(movieId, fadeToMovieType, fadeToMovieLength,
-            fadeFromMovieType, fadeFromMovieLength, AfterMovie::LoadRoom);
-    }
-
-    void Scene::StartMovie(Movie movieId, FadeType fadeToMovieType, float fadeToMovieLength,
-        FadeType fadeFromMovieType, float fadeFromMovieLength, AfterMovie afterMovieAction)
+        FadeType fadeFromMovieType, float fadeFromMovieLength,
+        std::optional<Vector3> afterPosition, std::optional<Vector3> afterFacing,
+        std::optional<Movie> afterMovieId, AfterMovie afterMovieAction)
     {
         _movieSettings.MovieId = movieId;
-        _movieSettings.AfterMovieId.reset();
+        _movieSettings.AfterMovieId = afterMovieId;
         _movieSettings.AfterFadeType = fadeFromMovieType;
         _movieSettings.AfterFadeLength = fadeFromMovieLength;
-        _movieSettings.AfterPosition.reset();
-        _movieSettings.AfterFacing.reset();
+        _movieSettings.AfterPosition = afterPosition;
+        _movieSettings.AfterFacing = afterFacing;
         _movieSettings.AfterMovieAction = afterMovieAction;
         if (GameState::MatchState() == MatchState::InProgress)
         {
@@ -5058,6 +5053,14 @@ namespace MphRead
             }
         }
         SetFade(fadeToMovieType, fadeToMovieLength, true, AfterFade::PlayMovie);
+    }
+
+    void Scene::StartMovie(Movie movieId, FadeType fadeToMovieType, float fadeToMovieLength,
+        FadeType fadeFromMovieType, float fadeFromMovieLength, AfterMovie afterMovieAction)
+    {
+        StartMovie(movieId, fadeToMovieType, fadeToMovieLength,
+            fadeFromMovieType, fadeFromMovieLength, std::nullopt, std::nullopt,
+            std::nullopt, afterMovieAction);
     }
 
     void Scene::SetFade(MphRead::FadeType type, float length, bool overwrite, AfterFade afterFade, float delay)

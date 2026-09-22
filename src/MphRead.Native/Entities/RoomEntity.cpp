@@ -3,10 +3,12 @@
 #include "../Formats/Collision.hpp"
 #include "../Formats/CollisionDetection.hpp"
 #include "../Formats/Entity.hpp"
+#include "../Formats/AiPersonality.hpp"
 #include "../Formats/NodeData.hpp"
 #include "../GameState.hpp"
 #include "../Metadata/Metadata.hpp"
 #include "../Metadata/Rooms.hpp"
+#include "../Mods/Network/NetRoomChange.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
 #include "../Renderer.hpp"
@@ -202,6 +204,18 @@ namespace
         return x > y ? x : y;
     }
 
+    [[nodiscard]] std::vector<float> CopyManagedArray(
+        const MphRead::ManagedArray<float>& values)
+    {
+        std::vector<float> result;
+        result.reserve(values.Length());
+        for (std::size_t i = 0; i < values.Length(); ++i)
+        {
+            result.push_back(values[i]);
+        }
+        return result;
+    }
+
     [[nodiscard]] constexpr Matrix4 IdentityMatrix() noexcept
     {
         return Matrix4(
@@ -230,7 +244,7 @@ namespace
         return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
     }
 
-    [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scale) noexcept
+    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
     }
@@ -320,7 +334,7 @@ namespace
     [[nodiscard]] std::shared_ptr<MphRead::Entities::RoomEntity> FindRoomShared(
         MphRead::Scene& scene, MphRead::Entities::RoomEntity* target)
     {
-        auto enumerator = scene.Entities();
+        auto enumerator = scene.Entities().GetEnumerator();
         while (enumerator.MoveNext())
         {
             std::shared_ptr<MphRead::Entities::EntityBase> entity = enumerator.Current();
@@ -380,7 +394,7 @@ namespace MphRead::Entities
     std::array<Vector3, 14> RoomEntity::_destPointList{};
 
     RoomEntity::PortalNodeRef::PortalNodeRef(
-        std::shared_ptr<Portal> portal, std::int32_t nodeIndex) noexcept
+        std::shared_ptr<MphRead::Formats::Collision::Portal> portal, std::int32_t nodeIndex) noexcept
         : Portal(std::move(portal)), NodeIndex(nodeIndex)
     {
     }
@@ -552,14 +566,14 @@ namespace MphRead::Entities
                     {
                         assert(node.RoomPartId >= 0);
                         assert(node.ChildIndex != -1);
-                        portal.NodeRef1 = NodeRef(meta.Name, node.RoomPartId, node.ChildIndex, 0);
+                        portal.NodeRef1 = Formats::Culling::NodeRef(meta.Name, node.RoomPartId, node.ChildIndex, 0);
                         ListAt(_portalSides, node.RoomPartId).emplace_back(portalValue, false);
                     }
                     if (node.Name == portal.NodeName2)
                     {
                         assert(node.RoomPartId >= 0);
                         assert(node.ChildIndex != -1);
-                        portal.NodeRef2 = NodeRef(meta.Name, node.RoomPartId, node.ChildIndex, 0);
+                        portal.NodeRef2 = Formats::Culling::NodeRef(meta.Name, node.RoomPartId, node.ChildIndex, 0);
                         ListAt(_portalSides, node.RoomPartId).emplace_back(portalValue, true);
                     }
                 }
@@ -661,7 +675,7 @@ namespace MphRead::Entities
             _roomCollision[0] = std::move(collisionValue);
         }
         _roomId = roomId;
-        RequireReference(_scene).RoomId = roomId;
+        RequireReference(_scene).RoomId(roomId);
     }
 
     void RoomEntity::SetNodeData(std::shared_ptr<Formats::NodeData> nodeData)
@@ -686,11 +700,11 @@ namespace MphRead::Entities
         return nullptr;
     }
 
-    NodeRef RoomEntity::AddDoorPortal(DoorEntity* doorValue)
+    Formats::Culling::NodeRef RoomEntity::AddDoorPortal(DoorEntity* doorValue)
     {
         if (!GameState::SinglePlayer())
         {
-            return NodeRef::None;
+            return Formats::Culling::NodeRef::None;
         }
         DoorEntity& door = RequireReference(doorValue);
         _doorPortalCount = UncheckedIncrement(_doorPortalCount);
@@ -730,8 +744,8 @@ namespace MphRead::Entities
                 std::vector<std::pair<std::shared_ptr<Portal>, bool>> sides;
                 std::shared_ptr<Portal> portalValue = door.SetUpPort(roomNodeName, node.Name);
                 Portal& portal = RequireReference(portalValue);
-                portal.NodeRef1 = NodeRef(Meta().Name, roomPartId, roomNodeIndex, 0);
-                portal.NodeRef2 = NodeRef(connectorName, node.RoomPartId, node.ChildIndex, _doorPortalCount);
+                portal.NodeRef1 = Formats::Culling::NodeRef(Meta().Name, roomPartId, roomNodeIndex, 0);
+                portal.NodeRef2 = Formats::Culling::NodeRef(connectorName, node.RoomPartId, node.ChildIndex, _doorPortalCount);
                 if (_portalSides.empty())
                 {
                     assert(roomPartId == 0);
@@ -744,7 +758,7 @@ namespace MphRead::Entities
                 return portal.NodeRef2;
             }
         }
-        return NodeRef::None;
+        return Formats::Culling::NodeRef::None;
     }
 
     void RoomEntity::AddConnector(DoorEntity* doorValue)
@@ -808,7 +822,7 @@ namespace MphRead::Entities
         newDoor->SetConnectorDoor(FindDoorShared(scene, doorValue));
         if (!GameState::InRoomTransition())
         {
-            newDoor->NodeRef = AddDoorPortal(doorValue);
+            newDoor->Formats::Culling::NodeRef = AddDoorPortal(doorValue);
         }
     }
 
@@ -842,15 +856,15 @@ namespace MphRead::Entities
 
     void RoomEntity::UpdateTransition()
     {
-        if (GameState::TransitionState == TransitionState::Start)
+        if (GameState::TransitionState() == TransitionState::Start)
         {
             StartTransition(true);
         }
-        else if (GameState::TransitionState == TransitionState::Process)
+        else if (GameState::TransitionState() == TransitionState::Process)
         {
             RequireReference(_scene).InitLoadedEntity(1);
         }
-        else if (GameState::TransitionState == TransitionState::End)
+        else if (GameState::TransitionState() == TransitionState::End)
         {
             EndTransition();
         }
@@ -858,15 +872,15 @@ namespace MphRead::Entities
 
     void RoomEntity::LoadRoom(bool resume)
     {
-        PlayerEntity* player = PlayerEntity::Main();
+        std::shared_ptr<PlayerEntity> player = PlayerEntity::Main();
         PlayerEntity& main = RequireReference(player);
         main.StopAllSfx();
         const Hunter hunter = main.Hunter();
         const std::int32_t recolor = main.Recolor();
         Scene& scene = RequireReference(_scene);
-        if (GameState::TransitionRoomId == -1)
+        if (GameState::TransitionRoomId() == -1)
         {
-            GameState::TransitionRoomId = scene.RoomId;
+            GameState::TransitionRoomId(scene.RoomId());
         }
         scene.ResetFrameCount();
         Rng::SetRng2(0);
@@ -876,9 +890,9 @@ namespace MphRead::Entities
         {
             PlayerEntity::Reset();
             PlayerEntity::Construct(_scene);
-            if (Mods::Network::NetRoomChange::Rebuilding)
+            if (Mods::Network::NetRoomChange::Rebuilding())
             {
-                player = Mods::Network::NetRoomChange::RebuildPlayers(_scene, hunter, recolor);
+                player = Mods::Network::NetRoomChange::RebuildPlayers(scene, hunter, recolor);
             }
             else
             {
@@ -888,42 +902,42 @@ namespace MphRead::Entities
                 created.SetLoadFlags(OrFlag(created.LoadFlags(), LoadFlags::SlotActive));
                 created.SetLoadFlags(OrFlag(created.LoadFlags(), LoadFlags::Active));
                 created.SetLoadFlags(OrFlag(created.LoadFlags(), LoadFlags::Initial));
-                PlayerEntity::PlayerCount = UncheckedIncrement(PlayerEntity::PlayerCount);
+                PlayerEntity::SetPlayerCount(UncheckedIncrement(PlayerEntity::PlayerCount()));
             }
         }
         const std::shared_ptr<RoomEntity> self = FindRoomShared(scene, this);
         assert(self != nullptr);
         ProcessTransition(std::shared_ptr<const std::atomic_bool>{}, self);
         EndTransition();
-        GameState::PausePrevented = false;
-        Sound::Music::TryPlayRoomMusic(
-            scene.RoomId,
+        GameState::PausePrevented(false);
+        Music::TryPlayRoomMusic(
+            scene.RoomId(),
             GameState::SinglePlayer()
-                && ((static_cast<std::int32_t>(RequireStorySave().BossFlags) >> (2 * scene.AreaId)) & 3) != 0
+                && ((static_cast<std::int32_t>(RequireStorySave().BossFlags) >> (2 * scene.AreaId())) & 3) != 0
                 ? 1 : 0);
         if (!resume)
         {
             scene.InsertEntity(player);
         }
         PlayerEntity& loaded = RequireReference(player);
-        loaded.ReloadInit = resume;
+        loaded.SetReloadInit(resume);
         loaded.Initialize();
         if (!resume)
         {
             scene.InitEntity(player);
             scene.InitEntity(loaded.Halfturret());
-            if (Mods::Network::NetRoomChange::Rebuilding)
+            if (Mods::Network::NetRoomChange::Rebuilding())
             {
-                Mods::Network::NetRoomChange::AfterRebuild(_scene);
+                Mods::Network::NetRoomChange::AfterRebuild(scene);
             }
         }
     }
 
     void RoomEntity::StartTransition(bool fromDoor, bool resume)
     {
-        assert(GameState::TransitionRoomId != -1);
-        GameState::TransitionState = TransitionState::Process;
-        Sound::Music::UpdateEncounterMusic(-1);
+        assert(GameState::TransitionRoomId() != -1);
+        GameState::TransitionState(TransitionState::Process);
+        Music::UpdateEncounterMusic(-1);
         Scene& scene = RequireReference(_scene);
         auto enumerator = scene.Entities().GetEnumerator();
         while (enumerator.MoveNext())
@@ -956,9 +970,9 @@ namespace MphRead::Entities
             else if (LoaderDoor != nullptr
                 && ArrayAt(_keepEntities, static_cast<std::int32_t>(entity.Type)))
             {
-                if ((entity.Type == EntityType::Player && &entity != PlayerEntity::Main())
+                if ((entity.Type == EntityType::Player && &entity != PlayerEntity::Main().get())
                     || (entity.Type == EntityType::Halfturret
-                        && &entity != RequireReference(PlayerEntity::Main()).Halfturret()))
+                        && &entity != RequireReference(PlayerEntity::Main()).Halfturret().get()))
                 {
                     scene.RemoveEntity(entityValue);
                     entity.Destroy();
@@ -988,18 +1002,18 @@ namespace MphRead::Entities
         Sound::Sfx::ForceFieldSfxMute = 0;
         Sound::Sfx::TimedSfxMute = 0;
         Sound::Sfx::LongSfxMute = 0;
-        CamSeqEntity::Current = nullptr;
-        CameraSequence::Current = nullptr;
+        CamSeqEntity::Current(nullptr);
+        Formats::CameraSequence::Current(nullptr);
         scene.ClearMessageQueue();
-        if (GameState::EscapeTimer != -1 && GameState::EscapeState != EscapeState::Escape)
+        if (GameState::EscapeTimer() != -1 && GameState::EscapeState() != EscapeState::Escape)
         {
             GameState::ResetEscapeState(false);
         }
-        for (std::size_t i = 0; i < PlayerEntity::Players.size(); ++i)
+        for (std::size_t i = 0; i < PlayerEntity::Players().size(); ++i)
         {
-            RequireReference(PlayerEntity::Players[i]).ResetReferences();
+            RequireReference(PlayerEntity::Players()[i]).ResetReferences();
         }
-        scene.AreaId = Metadata::GetAreaInfo(GameState::TransitionRoomId);
+        scene.AreaId(Metadata::GetAreaInfo(GameState::TransitionRoomId()));
         if (fromDoor)
         {
             const std::shared_ptr<const std::atomic_bool> token = _cts;
@@ -1029,8 +1043,8 @@ namespace MphRead::Entities
     void RoomEntity::ProcessTransition(std::shared_ptr<const std::atomic_bool> token,
         std::shared_ptr<RoomEntity> self)
     {
-        assert(GameState::TransitionRoomId != -1);
-        const RoomMetadata* roomMeta = Metadata::GetRoomById(GameState::TransitionRoomId);
+        assert(GameState::TransitionRoomId() != -1);
+        const RoomMetadata* roomMeta = Metadata::GetRoomById(GameState::TransitionRoomId());
         assert(roomMeta != nullptr);
         std::int32_t entityLayer = -1;
         if (LoaderDoor != nullptr)
@@ -1042,7 +1056,7 @@ namespace MphRead::Entities
             Rng::SetRng2(Rng::Rng2StartValue);
         }
         auto setup = SceneSetup::SetUpRoom(
-            GameState::Mode, Mods::Network::NetRoomChange::RoomPlayerCount,
+            GameState::Mode(), Mods::Network::NetRoomChange::RoomPlayerCount(),
             BossFlags::Unspecified, 0, entityLayer, roomMeta, self, _scene, true);
         const auto& entities = std::get<1>(setup);
         if (token != nullptr && token->load())
@@ -1057,14 +1071,14 @@ namespace MphRead::Entities
         {
             return;
         }
-        AiPersonality::LoadAll(GameState::Mode);
+        Formats::AiPersonality::LoadAll(GameState::Mode());
         if (token != nullptr && token->load())
         {
             return;
         }
         SetNodeData(SceneSetup::LoadNodeData(
             RequireReference(roomMeta).NodePath, RequireReference(roomMeta).Id,
-            GameState::Mode, entities, RequireReference(roomMeta).FirstHunt));
+            GameState::Mode(), entities, RequireReference(roomMeta).FirstHunt));
         PlayerEntity::PlayerAiData::InitializeGlobals();
         if (token != nullptr && token->load())
         {
@@ -1076,7 +1090,7 @@ namespace MphRead::Entities
             entity.Initialized = false;
             Scene& scene = RequireReference(_scene);
             scene.InsertEntity(entityValue);
-            scene.LoadedEntities.Enqueue(entityValue);
+            scene.LoadedEntities().Enqueue(entityValue);
             if (token != nullptr && token->load())
             {
                 return;
@@ -1088,7 +1102,7 @@ namespace MphRead::Entities
         }
         else
         {
-            while (!RequireReference(_scene).LoadedEntities.IsEmpty())
+            while (!RequireReference(_scene).LoadedEntities().IsEmpty())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 if (token != nullptr && token->load())
@@ -1108,26 +1122,26 @@ namespace MphRead::Entities
             std::shared_ptr<DoorEntity> loader = door.LoaderDoor();
             assert(loader != nullptr);
             DoorEntity& loaderRef = RequireReference(loader);
-            const NodeRef portalRef = AddDoorPortal(&door);
+            const Formats::Culling::NodeRef portalRef = AddDoorPortal(&door);
             loaderRef.NodeRef = portalRef;
             if (token != nullptr && token->load())
             {
                 return;
             }
         }
-        GameState::TransitionState = TransitionState::End;
+        GameState::TransitionState(TransitionState::End);
     }
 
     void RoomEntity::EndTransition()
     {
-        const RoomMetadata* roomMeta = Metadata::GetRoomById(GameState::TransitionRoomId);
+        const RoomMetadata* roomMeta = Metadata::GetRoomById(GameState::TransitionRoomId());
         assert(roomMeta != nullptr);
         const std::shared_ptr<ModelInstance> instValue = ListAt(_models.Items(), 0);
         Scene& scene = RequireReference(_scene);
         ModelInstance& inst = RequireReference(instValue);
         scene.LoadModel(inst.Model(), true);
         inst.SetAnimation(0);
-        scene.SetRoomValues(roomMeta);
+        scene.SetRoomValues(RequireReference(roomMeta));
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(_connectorModels.size()); ++i)
         {
             const std::shared_ptr<ModelInstance> conInstValue = ListAt(_connectorModels, i);
@@ -1153,7 +1167,7 @@ namespace MphRead::Entities
         std::shared_ptr<DoorEntity> prevConnector{};
         std::shared_ptr<DoorEntity> newLoader{};
         std::shared_ptr<DoorEntity> loaderKeepAlive{};
-        NodeRef nodeRef = NodeRef::None;
+        Formats::Culling::NodeRef nodeRef = Formats::Culling::NodeRef::None;
         auto enumerator = scene.Entities().GetEnumerator();
         while (enumerator.MoveNext())
         {
@@ -1216,7 +1230,7 @@ namespace MphRead::Entities
         }
         if (LoaderDoor != nullptr)
         {
-            assert(nodeRef != NodeRef::None);
+            assert(nodeRef != Formats::Culling::NodeRef::None);
             auto reposition = scene.Entities().GetEnumerator();
             while (reposition.MoveNext())
             {
@@ -1242,12 +1256,12 @@ namespace MphRead::Entities
                 }
             }
         }
-        for (const std::shared_ptr<PlayerEntity>& playerValue : PlayerEntity::Players)
+        for (const std::shared_ptr<PlayerEntity>& playerValue : PlayerEntity::Players())
         {
             PlayerEntity& player = RequireReference(playerValue);
             if (player.IsBot())
             {
-                player.AiData().InitializeAtLoad();
+                RequireReference(player.AiData).InitializeAtLoad();
             }
         }
         if (newLoader != nullptr && newLoader->ConnectorDoor() != nullptr)
@@ -1257,17 +1271,17 @@ namespace MphRead::Entities
             while (spawners.MoveNext())
             {
                 EnemySpawnEntity& spawner = RequireReference(spawners.Current());
-                if (spawner.Data().EnemyType != EnemyType::Cretaphid
-                    && spawner.Data().EnemyType != EnemyType::Slench)
+                if (spawner.Data.EnemyType != EnemyType::Cretaphid
+                    && spawner.Data.EnemyType != EnemyType::Slench)
                 {
                     continue;
                 }
-                if (RequireStorySave().GetRoomState(scene.RoomId, spawner.Id) != 0)
+                if (RequireStorySave().GetRoomState(scene.RoomId(), spawner.Id) != 0)
                 {
                     Movie movieId;
-                    if (spawner.Data().EnemyType == EnemyType::Cretaphid)
+                    if (spawner.Data.EnemyType == EnemyType::Cretaphid)
                     {
-                        switch (spawner.Data().Fields.S05.EnemySubtype)
+                        switch (spawner.Data.Fields.S05().EnemySubtype)
                         {
                         case 3: movieId = Movie::CretaphidArcterra2Intro; break;
                         case 2: movieId = Movie::CretaphidAlinso2Intro; break;
@@ -1277,7 +1291,7 @@ namespace MphRead::Entities
                     }
                     else
                     {
-                        switch (scene.RoomId)
+                        switch (scene.RoomId())
                         {
                         case 76: movieId = Movie::SlenchVDO2Intro; break;
                         case 64: movieId = Movie::SlenchCA2Intro; break;
@@ -1287,9 +1301,9 @@ namespace MphRead::Entities
                     }
                     const float y = Fixed::ToFloat(-RequireReference(PlayerEntity::Main()).Values().MinPickupHeight);
                     const Vector3 newPosition = Add(
-                        Add(static_cast<Vector3>(targetDoor.Position), Scale(targetDoor.FacingVector(), 0.75F)),
+                        Add(static_cast<Vector3>(targetDoor.Position), ScaleVector(targetDoor.FacingVector(), 0.75F)),
                         Vector3(0.0F, y, 0.0F));
-                    GameState::PausePrevented = true;
+                    GameState::PausePrevented(true);
                     scene.StartMovie(movieId, FadeType::FadeOutInBlack, 0,
                         FadeType::FadeOutInBlack, 5.0F / 30.0F,
                         newPosition, targetDoor.FacingVector());
@@ -1297,7 +1311,7 @@ namespace MphRead::Entities
                 break;
             }
         }
-        if (GameState::GetAreaState(scene.AreaId) == AreaState::Clear && PlayerEntity::PlayerCount > 1)
+        if (GameState::GetAreaState(scene.AreaId()) == AreaState::Clear && PlayerEntity::PlayerCount() > 1)
         {
             auto doors = scene.GetDoorEntities().GetEnumerator();
             while (doors.MoveNext())
@@ -1329,8 +1343,8 @@ namespace MphRead::Entities
         }
         _unloadModel.reset();
         LoaderDoor = nullptr;
-        GameState::TransitionState = TransitionState::None;
-        GameState::TransitionRoomId = -1;
+        GameState::TransitionState(TransitionState::None);
+        GameState::TransitionRoomId(-1);
     }
 
     void RoomEntity::GetCollisionDrawInfo()
@@ -1343,7 +1357,7 @@ namespace MphRead::Entities
         }
     }
 
-    std::shared_ptr<RoomPartVisInfo> RoomEntity::GetPartVisInfo(NodeRef nodeRef)
+    std::shared_ptr<RoomPartVisInfo> RoomEntity::GetPartVisInfo(Formats::Culling::NodeRef nodeRef)
     {
         std::shared_ptr<RoomPartVisInfo>& value = ArrayAt(_partVisInfo, nodeRef.PartIndex);
         RoomPartVisInfo& visInfo = RequireReference(value);
@@ -1380,7 +1394,7 @@ namespace MphRead::Entities
         _partVisInfoHead.reset();
     }
 
-    bool RoomEntity::ModCanPlace(NodeRef nodeRef) const
+    bool RoomEntity::ModCanPlace(Formats::Culling::NodeRef nodeRef) const
     {
         if (nodeRef.PartIndex < 0 || nodeRef.PartIndex >= _roomPartMax
             || nodeRef.NodeIndex < 0 || nodeRef.ModelIndex < 0)
@@ -1430,7 +1444,7 @@ namespace MphRead::Entities
         return false;
     }
 
-    void RoomEntity::ModNoteStaleNodeRef(NodeRef nodeRef, const std::string& where)
+    void RoomEntity::ModNoteStaleNodeRef(Formats::Culling::NodeRef nodeRef, const std::string& where)
     {
         if (_modReportedStaleNodeRef) return;
         _modReportedStaleNodeRef = true;
@@ -1447,16 +1461,16 @@ namespace MphRead::Entities
 
     void RoomEntity::UpdateRoomParts()
     {
-        const NodeRef curNodeRef = RequireReference(PlayerEntity::Main()).CameraInfo().NodeRef;
+        const Formats::Culling::NodeRef curNodeRef = RequireReference(RequireReference(PlayerEntity::Main()).CameraInfo()).NodeRef;
         Scene& scene = RequireReference(_scene);
-        if (scene.CameraMode != CameraMode::Player || curNodeRef.PartIndex == -1) return;
+        if (scene.CameraMode() != CameraMode::Player || curNodeRef.PartIndex == -1) return;
         if (!ModCanPlace(curNodeRef))
         {
             ModNoteStaleNodeRef(curNodeRef, "camera");
             return;
         }
-        if (GameState::Multiplayer() && GameState::MatchState != MatchState::InProgress) return;
-        if (!PartCouldContain(curNodeRef.PartIndex, scene.CameraPosition, _partBoundsMargin)) return;
+        if (GameState::Multiplayer() && GameState::MatchState() != MatchState::InProgress) return;
+        if (!PartCouldContain(curNodeRef.PartIndex, scene.CameraPosition(), _partBoundsMargin)) return;
         assert(curNodeRef.NodeIndex != -1);
         RoomPartVisInfo& curVisInfo = RequireReference(GetPartVisInfo(curNodeRef));
         curVisInfo.ViewMinX = 0.0F;
@@ -1468,13 +1482,13 @@ namespace MphRead::Entities
         _roomFrustumIndex = UncheckedIncrement(_roomFrustumIndex);
         RoomFrustumItem& curRoomFrustum = RequireReference(curFrustumValue);
         FrustumInfo& destInfo = RequireReference(curRoomFrustum.Info);
-        destInfo.Count = scene.FrustumInfo.Count;
-        destInfo.Index = scene.FrustumInfo.Index;
+        destInfo.Count = scene.FrustumInfo().Count;
+        destInfo.Index = scene.FrustumInfo().Index;
         const auto& destPlanes = RequireReference(destInfo.Planes);
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(destPlanes.size()); ++i)
         {
             FrustumPlane& target = ArrayAt(RequireReference(destInfo.Planes), i);
-            const FrustumPlane value = ArrayAt(RequireReference(scene.FrustumInfo.Planes), i);
+            const FrustumPlane value = ArrayAt(RequireReference(scene.FrustumInfo().Planes), i);
             target = value;
         }
         curRoomFrustum.NodeRef = curNodeRef;
@@ -1485,7 +1499,7 @@ namespace MphRead::Entities
     }
 
     void RoomEntity::FindVisibleRoomParts(
-        const std::shared_ptr<RoomFrustumItem>& frustumValue, NodeRef mainNodeRef)
+        const std::shared_ptr<RoomFrustumItem>& frustumValue, Formats::Culling::NodeRef mainNodeRef)
     {
         bool otherSide = false;
         for (const std::shared_ptr<Portal>& portalValue : _portals)
@@ -1496,17 +1510,17 @@ namespace MphRead::Entities
             if (portal.NodeRef1 == frustumItem.NodeRef) otherSide = false;
             else if (portal.NodeRef2 == frustumItem.NodeRef) otherSide = true;
             else continue;
-            assert(portal.NodeRef1 != NodeRef::None);
-            assert(portal.NodeRef2 != NodeRef::None);
+            assert(portal.NodeRef1 != Formats::Culling::NodeRef::None);
+            assert(portal.NodeRef2 != Formats::Culling::NodeRef::None);
             assert(portal.NodeRef1 != portal.NodeRef2);
             Scene& scene = RequireReference(_scene);
             float minX = 1.0F;
             float maxX = 0.0F;
             float minY = 1.0F;
             float maxY = 0.0F;
-            const float dist = GetDistanceToPortal(scene.CameraPosition, portal.Plane, otherSide);
+            const float dist = GetDistanceToPortal(scene.CameraPosition(), portal.Plane, otherSide);
             if (dist < 0.0F) continue;
-            if (portal.IsForceField && GetPortalAlpha(portal.Position, scene.CameraPosition) == 1.0F) continue;
+            if (portal.IsForceField && GetPortalAlpha(portal.Position, scene.CameraPosition()) == 1.0F) continue;
             bool adjacent = false;
             if (dist < 0.5F)
             {
@@ -1514,7 +1528,7 @@ namespace MphRead::Entities
                 const auto& portalPlanes = RequireReference(portal.Planes);
                 for (const Vector4& plane : portalPlanes)
                 {
-                    if (Vector3::Dot(scene.CameraPosition, plane.Xyz()) - plane.W < Fixed::ToFloat(-4224))
+                    if (Vector3::Dot(scene.CameraPosition(), plane.Xyz()) - plane.W < Fixed::ToFloat(-4224))
                     {
                         adjacent = false;
                         break;
@@ -1576,12 +1590,12 @@ namespace MphRead::Entities
                             || std::fabs(point1.Z - point2.Z) >= 1.0F / 4096.0F)
                         {
                             Vector3 normal;
-                            const Vector3 vec1 = Subtract(point1, scene.CameraPosition);
-                            const Vector3 vec2 = Subtract(point2, scene.CameraPosition);
+                            const Vector3 vec1 = Subtract(point1, scene.CameraPosition());
+                            const Vector3 vec2 = Subtract(point2, scene.CameraPosition());
                             normal = otherSide
                                 ? Vector3::Cross(vec1, vec2).Normalized()
                                 : Vector3::Cross(vec2, vec1).Normalized();
-                            const Vector4 plane(normal, Vector3::Dot(normal, scene.CameraPosition));
+                            const Vector4 plane(normal, Vector3::Dot(normal, scene.CameraPosition()));
                             FrustumPlane& target
                                 = ArrayAt(RequireReference(nextInfo.Planes), index + j);
                             const FrustumPlane value = Scene::SetBoundsIndices(plane);
@@ -1608,7 +1622,7 @@ namespace MphRead::Entities
                 maxY = MathFMin(maxY, 1.0F);
                 if (minX < maxX - 1.0F / 800.0F && minY < maxY - 1.0F / 600.0F)
                 {
-                    const NodeRef nextNodeRef = otherSide ? portal.NodeRef1 : portal.NodeRef2;
+                    const Formats::Culling::NodeRef nextNodeRef = otherSide ? portal.NodeRef1 : portal.NodeRef2;
                     if (nextNodeRef.PartIndex == mainNodeRef.PartIndex || _visNodeRefRecursionDepth < 6)
                     {
                         _visNodeRefRecursionDepth = UncheckedIncrement(_visNodeRefRecursionDepth);
@@ -1634,7 +1648,7 @@ namespace MphRead::Entities
     float RoomEntity::Func2117F84(Vector3 point, Vector3& dest) const
     {
         Scene& scene = RequireReference(_scene);
-        const Matrix4 matrix = Matrix::Multiply44(scene.ViewMatrix, scene.PerspectiveMatrix);
+        const Matrix4 matrix = Matrix::Multiply44(scene.ViewMatrix(), scene.PerspectiveMatrix());
         const float v4 = point.X * matrix.M14 + point.Y * matrix.M24
             + point.Z * matrix.M34 + matrix.M44;
         if (v4 <= 0.0F) return v4;
@@ -1678,7 +1692,7 @@ namespace MphRead::Entities
                     const float div = -dist1 / (dist2 - dist1);
                     const std::int32_t target = newPointCount;
                     newPointCount = UncheckedIncrement(newPointCount);
-                    PointAt14(newList, target) = Add(point1, Scale(Subtract(point2, point1), div));
+                    PointAt14(newList, target) = Add(point1, ScaleVector(Subtract(point2, point1), div));
                 }
                 dist1 = dist2;
                 v5 = v6;
@@ -1697,7 +1711,7 @@ namespace MphRead::Entities
         return dist;
     }
 
-    void RoomEntity::FindAudibleRoomParts(NodeRef nodeRef, NodeRef mainNodeRef)
+    void RoomEntity::FindAudibleRoomParts(Formats::Culling::NodeRef nodeRef, Formats::Culling::NodeRef mainNodeRef)
     {
         ArrayAt(_audibleRoomParts, nodeRef.PartIndex) = true;
         bool otherSide = false;
@@ -1711,18 +1725,18 @@ namespace MphRead::Entities
             if (portal.IsForceField)
             {
                 Scene& scene = RequireReference(_scene);
-                if (GetPortalAlpha(portal.Position, scene.CameraPosition) == 1.0F)
+                if (GetPortalAlpha(portal.Position, scene.CameraPosition()) == 1.0F)
                 {
                     continue;
                 }
             }
-            assert(portal.NodeRef1 != NodeRef::None);
-            assert(portal.NodeRef2 != NodeRef::None);
+            assert(portal.NodeRef1 != Formats::Culling::NodeRef::None);
+            assert(portal.NodeRef2 != Formats::Culling::NodeRef::None);
             assert(portal.NodeRef1 != portal.NodeRef2);
             const float dist = GetDistanceToPortal(
-                RequireReference(_scene).CameraPosition, portal.Plane, otherSide);
+                RequireReference(_scene).CameraPosition(), portal.Plane, otherSide);
             if (dist > Fixed::ToFloat(100000) || dist < Fixed::ToFloat(-100000)) continue;
-            const NodeRef nextNodeRef = otherSide ? portal.NodeRef1 : portal.NodeRef2;
+            const Formats::Culling::NodeRef nextNodeRef = otherSide ? portal.NodeRef1 : portal.NodeRef2;
             if (nextNodeRef.PartIndex == mainNodeRef.PartIndex || _audNodeRefRecursionDepth < 2)
             {
                 _audNodeRefRecursionDepth = UncheckedIncrement(_audNodeRefRecursionDepth);
@@ -1732,7 +1746,7 @@ namespace MphRead::Entities
         }
     }
 
-    NodeRef RoomEntity::GetNodeRefByName(const std::string& nodeName) const
+    Formats::Culling::NodeRef RoomEntity::GetNodeRefByName(const std::string& nodeName) const
     {
         ModelInstance& inst = RequireReference(ListAt(_models.Items(), 0));
         std::shared_ptr<Model> modelValue = inst.Model();
@@ -1745,10 +1759,10 @@ namespace MphRead::Entities
             {
                 assert(node.RoomPartId >= 0);
                 assert(node.ChildIndex != -1);
-                return NodeRef(Meta().Name, node.RoomPartId, node.ChildIndex, 0);
+                return Formats::Culling::NodeRef(Meta().Name, node.RoomPartId, node.ChildIndex, 0);
             }
         }
-        return NodeRef::None;
+        return Formats::Culling::NodeRef::None;
     }
 
     void RoomEntity::EnsurePartBounds()
@@ -1823,13 +1837,13 @@ namespace MphRead::Entities
         return depth == std::numeric_limits<float>::max() || depth > -margin;
     }
 
-    NodeRef RoomEntity::GetNodeRefByPosition(Vector3 position)
+    Formats::Culling::NodeRef RoomEntity::GetNodeRefByPosition(Vector3 position)
     {
-        NodeRef best = NodeRef::None;
+        Formats::Culling::NodeRef best = Formats::Culling::NodeRef::None;
         float bestDepth = 0.0F;
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(_portalSides.size()); ++i)
         {
-            NodeRef result = NodeRef::None;
+            Formats::Culling::NodeRef result = Formats::Culling::NodeRef::None;
             bool allInside = true;
             const auto& partSides = ListAt(_portalSides, i);
             for (const auto& side : partSides)
@@ -1844,15 +1858,15 @@ namespace MphRead::Entities
                 }
                 result = side.second ? portal.NodeRef2 : portal.NodeRef1;
             }
-            if (!allInside || result == NodeRef::None) continue;
+            if (!allInside || result == Formats::Culling::NodeRef::None) continue;
             const float depth = PartBoundsDepth(result.PartIndex, position);
             if (depth == std::numeric_limits<float>::max())
             {
-                if (best == NodeRef::None) best = result;
+                if (best == Formats::Culling::NodeRef::None) best = result;
                 continue;
             }
             if (depth <= -_partBoundsMargin) continue;
-            if (best == NodeRef::None || depth > bestDepth)
+            if (best == Formats::Culling::NodeRef::None || depth > bestDepth)
             {
                 best = result;
                 bestDepth = depth;
@@ -1861,7 +1875,7 @@ namespace MphRead::Entities
         return best;
     }
 
-    NodeRef RoomEntity::UpdateNodeRef(NodeRef current, Vector3 prevPos, Vector3 curPos) const
+    Formats::Culling::NodeRef RoomEntity::UpdateNodeRef(Formats::Culling::NodeRef current, Vector3 prevPos, Vector3 curPos) const
     {
         assert(current.PartIndex != -1);
         for (const std::shared_ptr<Portal>& portalValue : _portals)
@@ -1882,16 +1896,16 @@ namespace MphRead::Entities
         return current;
     }
 
-    bool RoomEntity::IsNodeRefAudible(NodeRef nodeRef) const
+    bool RoomEntity::IsNodeRefAudible(Formats::Culling::NodeRef nodeRef) const
     {
         if (nodeRef.PartIndex == -1) return true;
         return ArrayAt(_audibleRoomParts, nodeRef.PartIndex);
     }
 
-    bool RoomEntity::IsNodeRefVisible(NodeRef nodeRef) const
+    bool RoomEntity::IsNodeRefVisible(Formats::Culling::NodeRef nodeRef) const
     {
         if (_partVisInfoHead == nullptr) return true;
-        if (RequireReference(_scene).ShowAllNodes) return true;
+        if (RequireReference(_scene).ShowAllNodes()) return true;
         if (nodeRef.PartIndex == -1) return false;
         return ArrayAt(_activeRoomParts, nodeRef.PartIndex);
     }
@@ -1906,7 +1920,7 @@ namespace MphRead::Entities
                 if (!conInst.Active) continue;
                 Scene& scene = RequireReference(_scene);
                 scene.UpdateMaterials(conInst.Model(), 0);
-                if (GameState::InRoomTransition() || _partVisInfoHead == nullptr || scene.ShowAllNodes)
+                if (GameState::InRoomTransition() || _partVisInfoHead == nullptr || scene.ShowAllNodes())
                 {
                     Model& conModel = RequireModel(conInst);
                     Matrix4 transform = CreateScale(conModel.Scale);
@@ -1928,33 +1942,33 @@ namespace MphRead::Entities
                 ModelInstance& inst = RequireReference(ListAt(_models.Items(), 0));
                 UpdateTransforms(inst, 0);
                 Scene& scene = RequireReference(_scene);
-                if (scene.ProcessFrame)
+                if (scene.ProcessFrame())
                 {
                     ClearRoomPartState();
                     UpdateRoomParts();
                 }
-                if (_partVisInfoHead == nullptr || scene.ShowAllNodes) DrawAllNodes(inst);
+                if (_partVisInfoHead == nullptr || scene.ShowAllNodes()) DrawAllNodes(inst);
                 else DrawRoomParts(inst);
             }
         }
-        else if (RequireReference(_scene).ProcessFrame)
+        else if (RequireReference(_scene).ProcessFrame())
         {
             ClearRoomPartState();
             UpdateRoomParts();
         }
 
         Scene& scene = RequireReference(_scene);
-        if (scene.ShowCollision && (scene.ColEntDisplay == EntityType::All || scene.ColEntDisplay == Type))
+        if (scene.ShowCollision() && (scene.ColEntDisplay() == EntityType::All || scene.ColEntDisplay() == Type))
         {
             GetCollisionDrawInfo();
         }
-        if (_nodeData != nullptr && (scene.ShowNodeData || scene.ShowVolumes == VolumeDisplay::NodeData))
+        if (_nodeData != nullptr && (scene.ShowNodeData() || scene.ShowVolumes() == VolumeDisplay::NodeData))
         {
             _drawnNodeData.clear();
             assert(_models.Size() == 2);
             const std::shared_ptr<ModelInstance> nodeInstValue = ListAt(_models.Items(), 1);
             const std::int32_t polygonId = scene.GetNextPolygonId();
-            for (const auto& str1Value : RequireReference(_nodeData).Data)
+            for (const auto& str1Value : RequireReference(RequireReference(_nodeData).Data))
             {
                 const auto& str1 = RequireReference(str1Value);
                 for (const auto& str2Value : str1)
@@ -1979,12 +1993,12 @@ namespace MphRead::Entities
                                         = RequireReference(ListAt(RequireReference(model.Materials), mesh.MaterialId));
                                     scene.AddRenderItem(material, polygonId, 1.0F, Vector3::Zero,
                                         GetLightInfo(), IdentityMatrix(), str3.Transform,
-                                        mesh.ListId, 0, _emptyMatrixStack, str3.Color, std::nullopt,
+                                        mesh.ListId, 0, CopyManagedArray(RequireReference(_emptyMatrixStack)), str3.Color, std::nullopt,
                                         SelectionType::None, node.BillboardMode);
                                 }
                             }
                             _drawnNodeData.insert(&str3);
-                            if (scene.ShowVolumes == VolumeDisplay::NodeData)
+                            if (scene.ShowVolumes() == VolumeDisplay::NodeData)
                             {
                                 const CollisionVolume sphere(str3.Position, str3.MaxDistance);
                                 AddVolumeItem(sphere, Vector3(1.0F, 0.0F, 0.0F));
@@ -2100,7 +2114,7 @@ namespace MphRead::Entities
             }
             roomPart = part.Next;
         }
-        if (RequireReference(_scene).ShowForceFields)
+        if (RequireReference(_scene).ShowForceFields())
         {
             for (const PortalNodeRef& forceField : _forceFields)
             {
@@ -2129,7 +2143,7 @@ namespace MphRead::Entities
         {
             Node& pnode = RequireReference(pnodeValue);
             if (!pnode.Enabled) continue;
-            if (RequireReference(_scene).ShowAllNodes || connector)
+            if (RequireReference(_scene).ShowAllNodes() || connector)
             {
                 GetItems(inst, pnode);
             }
@@ -2149,7 +2163,7 @@ namespace MphRead::Entities
                 }
             }
         }
-        if (RequireReference(_scene).ShowForceFields && !connector)
+        if (RequireReference(_scene).ShowForceFields() && !connector)
         {
             for (const PortalNodeRef& forceField : _forceFields)
             {
@@ -2188,7 +2202,7 @@ namespace MphRead::Entities
             {
                 Scene& scene = RequireReference(_scene);
                 polygonId = scene.GetNextPolygonId();
-                alpha = GetPortalAlpha(portal->Position, scene.CameraPosition);
+                alpha = GetPortalAlpha(portal->Position, scene.CameraPosition());
             }
             else if (material.RenderMode == RenderMode::Translucent)
             {
@@ -2199,7 +2213,8 @@ namespace MphRead::Entities
             RequireReference(_scene).AddRenderItem(material, polygonId, alpha, Vector3::Zero, GetLightInfo(),
                 texcoordMatrix, node.Animation, mesh.ListId,
                 static_cast<std::int32_t>(RequireReference(model.NodeMatrixIds).size()),
-                model.MatrixStackValues, std::nullopt, std::nullopt, selectionType, node.BillboardMode);
+                CopyManagedArray(RequireReference(model.MatrixStackValues)), std::nullopt, std::nullopt,
+                selectionType, node.BillboardMode);
         }
     }
 
@@ -2214,14 +2229,15 @@ namespace MphRead::Entities
     void RoomEntity::GetDisplayVolumes()
     {
         Scene& scene = RequireReference(_scene);
-        if (scene.ShowVolumes == VolumeDisplay::NodeBounds)
+        if (scene.ShowVolumes() == VolumeDisplay::NodeBounds)
         {
-            if (Selection::Node != nullptr)
+            const std::shared_ptr<Node> selectedNode = Selection::Node();
+            if (selectedNode != nullptr)
             {
                 bool contains = false;
                 for (const std::shared_ptr<Node>& nodeValue : Nodes())
                 {
-                    if (nodeValue.get() == Selection::Node)
+                    if (nodeValue == selectedNode)
                     {
                         contains = true;
                         break;
@@ -2229,7 +2245,7 @@ namespace MphRead::Entities
                 }
                 if (contains)
                 {
-                    Node& node = RequireReference(Selection::Node);
+                    Node& node = RequireReference(selectedNode);
                     const float width = node.MaxBounds.X - node.MinBounds.X;
                     const float height = node.MaxBounds.Y - node.MinBounds.Y;
                     const float depth = node.MaxBounds.Z - node.MinBounds.Z;
@@ -2240,53 +2256,57 @@ namespace MphRead::Entities
                 }
             }
         }
-        else if (scene.ShowVolumes == VolumeDisplay::Portal)
+        else if (scene.ShowVolumes() == VolumeDisplay::Portal)
         {
             for (const std::shared_ptr<Portal>& portalValue : _portals)
             {
                 Portal& portal = RequireReference(portalValue);
                 if (!portal.Active) continue;
                 const auto& points = RequireReference(portal.Points);
-                std::vector<Vector3> verts(points.begin(), points.end());
-                const float alpha = GetPortalAlpha(portal.Position, scene.CameraPosition);
+                auto verts = std::make_shared<ManagedArray<Vector3>>(points.size());
+                for (std::size_t i = 0; i < points.size(); ++i)
+                {
+                    (*verts)[i] = points[i];
+                }
+                const float alpha = GetPortalAlpha(portal.Position, scene.CameraPosition());
                 const Vector4 color = portal.IsForceField
                     ? Vector4(16.0F / 31.0F, 16.0F / 31.0F, 1.0F, alpha)
                     : Vector4(16.0F / 31.0F, 1.0F, 16.0F / 31.0F, alpha);
                 scene.AddRenderItem(CullingMode::Neither, scene.GetNextPolygonId(), color,
-                    RenderItemType::Ngon, verts, static_cast<std::int32_t>(verts.size()), true);
+                    RenderItemType::Ngon, verts, static_cast<std::int32_t>(verts->Length()), true);
             }
         }
-        else if (scene.ShowVolumes == VolumeDisplay::KillPlane && !Meta().FirstHunt)
+        else if (scene.ShowVolumes() == VolumeDisplay::KillPlane && !Meta().FirstHunt)
         {
-            std::vector<Vector3> verts(4);
-            verts[0] = Vector3(10000.0F, scene.KillHeight, 10000.0F);
-            verts[1] = Vector3(10000.0F, scene.KillHeight, -10000.0F);
-            verts[2] = Vector3(-10000.0F, scene.KillHeight, -10000.0F);
-            verts[3] = Vector3(-10000.0F, scene.KillHeight, 10000.0F);
+            auto verts = std::make_shared<ManagedArray<Vector3>>(4);
+            (*verts)[0] = Vector3(10000.0F, scene.KillHeight(), 10000.0F);
+            (*verts)[1] = Vector3(10000.0F, scene.KillHeight(), -10000.0F);
+            (*verts)[2] = Vector3(-10000.0F, scene.KillHeight(), -10000.0F);
+            (*verts)[3] = Vector3(-10000.0F, scene.KillHeight(), 10000.0F);
             scene.AddRenderItem(CullingMode::Neither, scene.GetNextPolygonId(),
-                Vector4(1.0F, 0.0F, 1.0F, 0.5F), RenderItemType::Quad, verts, true);
+                Vector4(1.0F, 0.0F, 1.0F, 0.5F), RenderItemType::Quad, verts, 0, true);
         }
-        else if ((scene.ShowVolumes == VolumeDisplay::CameraLimit
-                || scene.ShowVolumes == VolumeDisplay::PlayerLimit) && Meta().HasLimits)
+        else if ((scene.ShowVolumes() == VolumeDisplay::CameraLimit
+                || scene.ShowVolumes() == VolumeDisplay::PlayerLimit) && Meta().HasLimits)
         {
-            const Vector3 minLimit = scene.ShowVolumes == VolumeDisplay::CameraLimit
+            const Vector3 minLimit = scene.ShowVolumes() == VolumeDisplay::CameraLimit
                 ? Meta().CameraMin : Meta().PlayerMin;
-            const Vector3 maxLimit = scene.ShowVolumes == VolumeDisplay::CameraLimit
+            const Vector3 maxLimit = scene.ShowVolumes() == VolumeDisplay::CameraLimit
                 ? Meta().CameraMax : Meta().PlayerMax;
-            std::vector<Vector3> bverts(8);
+            auto bverts = std::make_shared<ManagedArray<Vector3>>(8);
             const Vector3 point0 = minLimit;
             const Vector3 sideX(maxLimit.X - minLimit.X, 0.0F, 0.0F);
             const Vector3 sideY(0.0F, maxLimit.Y - minLimit.Y, 0.0F);
             const Vector3 sideZ(0.0F, 0.0F, maxLimit.Z - minLimit.Z);
-            bverts[0] = point0;
-            bverts[1] = Add(point0, sideZ);
-            bverts[2] = Add(point0, sideX);
-            bverts[3] = Add(Add(point0, sideX), sideZ);
-            bverts[4] = Add(point0, sideY);
-            bverts[5] = Add(Add(point0, sideY), sideZ);
-            bverts[6] = Add(Add(point0, sideX), sideY);
-            bverts[7] = Add(Add(Add(point0, sideX), sideY), sideZ);
-            const Vector4 color = scene.ShowVolumes == VolumeDisplay::CameraLimit
+            b(*verts)[0] = point0;
+            b(*verts)[1] = Add(point0, sideZ);
+            b(*verts)[2] = Add(point0, sideX);
+            b(*verts)[3] = Add(Add(point0, sideX), sideZ);
+            (*bverts)[4] = Add(point0, sideY);
+            (*bverts)[5] = Add(Add(point0, sideY), sideZ);
+            (*bverts)[6] = Add(Add(point0, sideX), sideY);
+            (*bverts)[7] = Add(Add(Add(point0, sideX), sideY), sideZ);
+            const Vector4 color = scene.ShowVolumes() == VolumeDisplay::CameraLimit
                 ? Vector4(1.0F, 0.0F, 0.69F, 0.5F) : Vector4(1.0F, 0.0F, 0.0F, 0.5F);
             scene.AddRenderItem(CullingMode::Neither, scene.GetNextPolygonId(), color,
                 RenderItemType::Box, bverts, 8);

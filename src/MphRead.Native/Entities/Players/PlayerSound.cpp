@@ -44,6 +44,26 @@ namespace
         return *value;
     }
 
+    template <typename T>
+    [[nodiscard]] T& ManagedAt(MphRead::ManagedArray<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
+        {
+            throw MphRead::SceneDetail::IndexOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& ManagedAt(const MphRead::ManagedArray<T>& values, std::int32_t index)
+    {
+        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
+        {
+            throw MphRead::SceneDetail::IndexOutOfRangeException();
+        }
+        return values[static_cast<std::size_t>(index)];
+    }
+
     template <typename TContainer>
     [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
     {
@@ -155,7 +175,7 @@ namespace MphRead::Entities
         std::int32_t id = HunterSfxValue(_hunter, sfx);
         if (id == -1)
         {
-            if (!GameState::Multiplayer || _hunter != Hunter::Guardian || sfx != HunterSfx::Spawn)
+            if (!GameState::Multiplayer() || _hunter != Hunter::Guardian || sfx != HunterSfx::Spawn)
             {
                 return;
             }
@@ -319,7 +339,7 @@ namespace MphRead::Entities
         }
 
         auto& scene = RequireReference(_scene);
-        _walkSfxTimer += scene.FrameTime;
+        _walkSfxTimer += scene.FrameTime();
         std::int32_t sfxId = -1;
         if (_walkSfxTimer >= 15.0F / 30.0F)
         {
@@ -397,7 +417,7 @@ namespace MphRead::Entities
         {
             newAmount = ExponentialDecay(0.5F, prevAmount);
         }
-        else if (RequireReference(_scene).FrameCount % 2 == 0)
+        else if (RequireReference(_scene).FrameCount() % 2 == 0)
         {
             if (newAmount < prevAmount)
             {
@@ -738,7 +758,7 @@ namespace MphRead::Entities
         for (std::int32_t i = 0; i < scene().MessageQueue().Count(); ++i)
         {
             const MessageInfo message = scene().MessageQueue()[i];
-            if (message.ExecuteFrame != scene().FrameCount)
+            if (message.ExecuteFrame != scene().FrameCount())
             {
                 continue;
             }
@@ -764,7 +784,7 @@ namespace MphRead::Entities
 
         if (musicId != MusicId::Invalid
             && RequireReference(PlayerEntity::Main()).Health() > 0
-            && (GameState::EscapeTimer == -1 || GameState::EscapeState != EscapeState::Escape))
+            && (GameState::EscapeTimer() == -1 || GameState::EscapeState() != EscapeState::Escape))
         {
             if (Music::MusicEncounterSuspension() != 0)
             {
@@ -873,8 +893,8 @@ namespace MphRead::Entities
         }
         else if (((param2 & 0x100) >> 8) != 0)
         {
-            StorySave* storySave = GameState::StorySave;
-            const std::int32_t roomId = RequireReference(_scene).RoomId;
+            std::shared_ptr<MphRead::StorySave> storySave = GameState::StorySave;
+            const std::int32_t roomId = RequireReference(_scene).RoomId();
             const bool hasRoomState
                 = (RequireReference(storySave).GetRoomState(roomId, idValue) != 0) ^ negation;
             if (hasRoomState)
@@ -888,9 +908,10 @@ namespace MphRead::Entities
             const std::int32_t bitmask
                 = static_cast<std::uint8_t>(1 << (idValue & 7));
             StorySave& storySave = RequireReference(GameState::StorySave);
-            const std::int32_t areaId = RequireReference(_scene).AreaId;
+            const std::int32_t areaId = RequireReference(_scene).AreaId();
             const bool hasEncounterState
-                = ((ManagedAt(ManagedAt(storySave.EnemyEncounters, areaId), byteIndex)
+                = ((ManagedAt(RequireReference(ManagedAt(
+                    RequireReference(storySave.EnemyEncounters), areaId)), byteIndex)
                     & bitmask) == 0) ^ negation;
             if (hasEncounterState)
             {

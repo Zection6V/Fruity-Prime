@@ -1664,16 +1664,16 @@ namespace MphRead::Entities
 
         assert(scene().Room() != nullptr);
         RoomEntity& room = RequireReference(scene().Room());
-        if (GameState::Multiplayer() && room.Meta.HasLimits)
+        if (GameState::Multiplayer() && room.Meta().HasLimits)
         {
-            if (Position.Y < room.Meta.PlayerMin.Y)
+            if (Position.Y < room.Meta().PlayerMin.Y)
             {
                 TakeDamage(0, DamageFlags::Death, std::nullopt, nullptr);
             }
             Position = ClampVector3(Position,
-                WithY(room.Meta.PlayerMin, Position.Y), room.Meta.PlayerMax);
+                WithY(room.Meta().PlayerMin, Position.Y), room.Meta().PlayerMax);
         }
-        if (Position.Y < room.Meta.KillHeight)
+        if (Position.Y < room.Meta().KillHeight)
         {
             TakeDamage(0, DamageFlags::Death, std::nullopt, nullptr);
         }

@@ -2153,13 +2153,13 @@ namespace MphRead::Mods::Launcher::Gui
                 _adapter.NoteText(_matchNote,
                     "Starting a server on port "
                     + _adapter.FormatCurrentInt32(LauncherPrefs::HostPort()) + "...");
-                const bool listed = _adapter.ToggleOn(_matchListed);
                 worker = _adapter.RunBackground(
-                    [this, ok, roomKey, mode, name, hunter, listed]()
+                    [this, ok, roomKey, mode, name, hunter]()
                     {
+                        const std::int32_t port = LauncherPrefs::HostPort();
                         std::optional<std::tuple<std::string,
                             std::int32_t, std::string>> listing;
-                        if (listed)
+                        if (_adapter.ToggleOn(_matchListed))
                         {
                             listing = std::make_tuple(
                                 LauncherPrefs::MasterHost(),
@@ -2167,8 +2167,8 @@ namespace MphRead::Mods::Launcher::Gui
                                 name + "'s game");
                         }
                         *ok = _adapter.NetHostStartAndJoin(
-                            LauncherPrefs::HostPort(), name, hunter,
-                            roomKey, mode, 7 * 60, 7, std::move(listing));
+                            port, name, hunter, roomKey, mode,
+                            7 * 60, 7, std::move(listing));
                     });
             }
 

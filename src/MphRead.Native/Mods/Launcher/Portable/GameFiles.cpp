@@ -1004,6 +1004,21 @@ namespace
         return DecodeUtf8Text(bytes);
     }
 
+    void ReportAsyncLine(const Report& report, const std::string& line) noexcept
+    {
+        try
+        {
+            report(line);
+        }
+        catch (...)
+        {
+            // .NET 9 AsyncStreamReader rethrows user callback exceptions on
+            // a ThreadPool thread. Keep that exception unhandled instead of
+            // silently turning a failed callback into reader EOF.
+            std::terminate();
+        }
+    }
+
     void EmitManagedLines(std::string& pending, bool endOfStream, const Report& report)
     {
         std::size_t start = 0;
@@ -1031,13 +1046,15 @@ namespace
             {
                 ++index;
             }
-            report(DecodeUtf8Text(std::string_view(pending).substr(start, end - start)));
+            ReportAsyncLine(report,
+                DecodeUtf8Text(std::string_view(pending).substr(start, end - start)));
             start = index;
         }
 
         if (endOfStream && start < pending.size())
         {
-            report(DecodeUtf8Text(std::string_view(pending).substr(start)));
+            ReportAsyncLine(report,
+                DecodeUtf8Text(std::string_view(pending).substr(start)));
             start = pending.size();
         }
         if (start != 0)

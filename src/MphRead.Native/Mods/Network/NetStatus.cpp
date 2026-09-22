@@ -69,8 +69,14 @@ namespace MphRead::Mods::Network::Detail
 
     struct NetStatusSocketState
     {
+        NetStatusSocketState()
+            : ReceiveBuffer(0x10000U)
+        {
+        }
+
         NetStatusNativeSocket Native = NetStatusInvalidSocket;
         bool BroadcastEnabled = false;
+        std::vector<std::uint8_t> ReceiveBuffer;
     };
 
     class NetStatusSocketException final : public std::system_error
@@ -328,18 +334,18 @@ namespace MphRead::Mods::Network::Detail
         NetStatusSocketHandle socket, NetStatusEndPoint& from)
     {
         const NetStatusNativeSocket native = socket->Native;
-        std::vector<std::uint8_t> data(65535);
         sockaddr_in sender{};
 #if defined(_WIN32)
         int senderLength = sizeof(sender);
         const int received = recvfrom(native,
-            reinterpret_cast<char*>(data.data()), static_cast<int>(data.size()), 0,
+            reinterpret_cast<char*>(socket->ReceiveBuffer.data()),
+            static_cast<int>(socket->ReceiveBuffer.size()), 0,
             reinterpret_cast<sockaddr*>(&sender), &senderLength);
         if (received == SOCKET_ERROR)
 #else
         socklen_t senderLength = sizeof(sender);
         const ssize_t received = recvfrom(native,
-            data.data(), data.size(), 0,
+            socket->ReceiveBuffer.data(), socket->ReceiveBuffer.size(), 0,
             reinterpret_cast<sockaddr*>(&sender), &senderLength);
         if (received < 0)
 #endif
@@ -348,12 +354,13 @@ namespace MphRead::Mods::Network::Detail
                 NetStatusLastSocketError(), "recvfrom");
         }
 
-        data.resize(static_cast<std::size_t>(received));
         from.Address.Family = NetStatusAddressFamily::InterNetwork;
         std::memcpy(from.Address.Bytes.data(),
             &sender.sin_addr.s_addr, from.Address.Bytes.size());
         from.Port = static_cast<std::int32_t>(ntohs(sender.sin_port));
-        return data;
+        return std::vector<std::uint8_t>(
+            socket->ReceiveBuffer.begin(),
+            socket->ReceiveBuffer.begin() + static_cast<std::size_t>(received));
     }
 
     void NetStatusUdpClientDispose(NetStatusSocketHandle socket)

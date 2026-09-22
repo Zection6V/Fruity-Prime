@@ -280,6 +280,65 @@ namespace MphRead::Mods::Network::Detail
         return true;
     }
 
+    [[nodiscard]] std::size_t NetStatusManagedUtf16Length(
+        const std::string& value) noexcept
+    {
+        std::size_t length = 0;
+        for (std::size_t index = 0; index < value.size();)
+        {
+            const auto first = static_cast<unsigned char>(value[index]);
+            std::size_t consumed = 1;
+            std::uint32_t codePoint = first;
+
+            if (first >= 0xC2U && first <= 0xDFU
+                && index + 1 < value.size()
+                && (static_cast<unsigned char>(value[index + 1]) & 0xC0U) == 0x80U)
+            {
+                codePoint = (static_cast<std::uint32_t>(first & 0x1FU) << 6)
+                    | static_cast<std::uint32_t>(
+                        static_cast<unsigned char>(value[index + 1]) & 0x3FU);
+                consumed = 2;
+            }
+            else if (first >= 0xE0U && first <= 0xEFU
+                && index + 2 < value.size())
+            {
+                const auto b1 = static_cast<unsigned char>(value[index + 1]);
+                const auto b2 = static_cast<unsigned char>(value[index + 2]);
+                if ((b1 & 0xC0U) == 0x80U && (b2 & 0xC0U) == 0x80U
+                    && (first != 0xE0U || b1 >= 0xA0U)
+                    && (first != 0xEDU || b1 <= 0x9FU))
+                {
+                    codePoint = (static_cast<std::uint32_t>(first & 0x0FU) << 12)
+                        | (static_cast<std::uint32_t>(b1 & 0x3FU) << 6)
+                        | static_cast<std::uint32_t>(b2 & 0x3FU);
+                    consumed = 3;
+                }
+            }
+            else if (first >= 0xF0U && first <= 0xF4U
+                && index + 3 < value.size())
+            {
+                const auto b1 = static_cast<unsigned char>(value[index + 1]);
+                const auto b2 = static_cast<unsigned char>(value[index + 2]);
+                const auto b3 = static_cast<unsigned char>(value[index + 3]);
+                if ((b1 & 0xC0U) == 0x80U && (b2 & 0xC0U) == 0x80U
+                    && (b3 & 0xC0U) == 0x80U
+                    && (first != 0xF0U || b1 >= 0x90U)
+                    && (first != 0xF4U || b1 <= 0x8FU))
+                {
+                    codePoint = (static_cast<std::uint32_t>(first & 0x07U) << 18)
+                        | (static_cast<std::uint32_t>(b1 & 0x3FU) << 12)
+                        | (static_cast<std::uint32_t>(b2 & 0x3FU) << 6)
+                        | static_cast<std::uint32_t>(b3 & 0x3FU);
+                    consumed = 4;
+                }
+            }
+
+            length += codePoint > 0xFFFFU ? 2U : 1U;
+            index += consumed;
+        }
+        return length;
+    }
+
     std::vector<NetStatusAddress> NetStatusDnsGetHostAddresses(
         const std::string& address)
     {
@@ -296,6 +355,14 @@ namespace MphRead::Mods::Network::Detail
             return {
                 NetStatusAddress{NetStatusAddressFamily::InterNetwork, parsedIPv4}
             };
+        }
+
+        const std::size_t managedLength = NetStatusManagedUtf16Length(address);
+        if (managedLength > 255U
+            || (managedLength == 255U
+                && (address.empty() || address.back() != '.')))
+        {
+            throw std::out_of_range("hostName");
         }
 
         NetStatusEnsureWinsock();

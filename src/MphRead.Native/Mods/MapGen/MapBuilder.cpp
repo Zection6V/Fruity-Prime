@@ -19,6 +19,18 @@
 #include <utility>
 #include <vector>
 
+namespace System
+{
+    class IndexOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        IndexOutOfRangeException()
+            : std::out_of_range("Index was outside the bounds of the array.")
+        {
+        }
+    };
+}
+
 namespace
 {
     using MphRead::ItemType;
@@ -33,7 +45,7 @@ namespace
 
     [[noreturn]] void ArrayBounds()
     {
-        throw std::out_of_range("Index was outside the bounds of the array.");
+        throw System::IndexOutOfRangeException();
     }
 
     [[nodiscard]] float ArrayValue(const std::vector<float>* values, std::size_t index)

@@ -66,6 +66,75 @@
     { "Position": [ 62.5665, -4.58838, -18.7578 ], "yaw": 180 },
     { "Position": [ 43.2163, -4.58838, 37.4923 ], "yaw": 90 }
   ],
+  // Eight pads on the ring of ladders round the centre tower -- radius 14.6
+  // about the 4-fold centre (24.7714, -0.0978) -- and the Double Damage on
+  // top of it. They are there for the hunters who move badly: a ladder is
+  // the slowest way up in the room and the pads are a second one that costs
+  // nothing to learn. controlLockTime is 1 rather than the default 30, so
+  // the ride is a boost the player steers through rather than something that
+  // happens to them. Both times are frames.
+  //
+  // The Double Damage sits above the tower where the ground cannot reach it,
+  // so taking it costs the ride up and a moment at the top of the map with
+  // everybody's sight line on you.
+  "JumpPads": [
+    {
+      "position": [ 19.322, -4.68734, 13.4567 ],
+      "target": [ 19.322, -2.0, 13.4567 ],
+      "size": [ 2.0, 2.2, 2.0 ],
+      "cooldownTime": 20,
+      "controlLockTime": 1
+    },
+    {
+      "position": [ 11.0369, -4.68734, 4.91136 ],
+      "target": [ 11.0369, -2.0, 4.91136 ],
+      "size": [ 2.0, 2.2, 2.0 ],
+      "cooldownTime": 20,
+      "controlLockTime": 1
+    },
+    {
+      "position": [ 11.0247, -4.68734, -5.44685 ],
+      "target": [ 11.0247, -2.0, -5.44685 ],
+      "size": [ 2.0, 2.2, 2.0 ],
+      "cooldownTime": 20,
+      "controlLockTime": 1
+    },
+    {
+      "position": [ 19.3807, -4.68734, -14.0369 ],
+      "target": [ 19.3807, -2.0, -14.0369 ],
+      "size": [ 2.0, 2.2, 2.0 ],
+      "cooldownTime": 20,
+      "controlLockTime": 1
+    },
+    {
+      "position": [ 29.6205, -4.68734, -14.074 ],
+      "target": [ 29.6205, -2.0, -14.074 ],
+      "size": [ 2.0, 2.2, 2.0 ],
+      "cooldownTime": 20,
+      "controlLockTime": 1
+    },
+    {
+      "position": [ 38.4937, -4.68734, -5.5043 ],
+      "target": [ 38.4937, -2.0, -5.5043 ],
+      "size": [ 2.0, 2.2, 2.0 ],
+      "cooldownTime": 20,
+      "controlLockTime": 1
+    },
+    {
+      "position": [ 38.5061, -4.68734, 4.88622 ],
+      "target": [ 38.5061, -2.0, 4.88622 ],
+      "size": [ 2.0, 2.2, 2.0 ],
+      "cooldownTime": 20,
+      "controlLockTime": 1
+    },
+    {
+      "position": [ 29.9096, -4.68734, 13.4197 ],
+      "target": [ 29.9096, -2.0, 13.4197 ],
+      "size": [ 2.0, 2.2, 2.0 ],
+      "cooldownTime": 20,
+      "controlLockTime": 1
+    }
+  ],
   // The plinths are legibility, not decoration: a pickup the colour of the
   // area it stands in disappears into the floor without one. Green area,
   // Battlehammer (green); blue, Judicator (purple); red, Imperialist (red).
@@ -75,7 +144,7 @@
   // it has one in all four, because two opposite corners would be a half-turn
   // of symmetry inside a quarter-turn layout and read as a mistake.
   "Items": [
-    { "Position": [ 24.99, -0.89, 0 ], "Type": "DoubleDamage", "hasBase": false },
+    { "Position": [ 24.7702, 0.8, -0.306382 ], "Type": "DoubleDamage", "hasBase": false, "spawnInterval": 5400 },
 
     { "Position": [ -2.58491, -0.506107, 27.0647], "Type": "Imperialist", "hasBase": false },
     { "Position": [ -2.5836, -0.506107, -27.6329], "Type": "Imperialist", "hasBase": true },
@@ -114,7 +183,7 @@
 
     { "Position": [ 15.2247, -0.506107, 29.5839], "Type": "Battlehammer", "hasBase": true },
     { "Position": [ -4.9103, -0.506107, -9.6445], "Type": "Battlehammer", "hasBase": false },
-    { "Position": [ 34.3181, -0.506107, -29.7795], "Type": "Battlehammer", "hasBase": false },
+    { "Position": [ 34.3181, -0.506107, -29.7795], "Type": "Battlehammer", "hasBase": true },
     { "Position": [ 54.4531, -0.506107, 9.4489], "Type": "Battlehammer", "hasBase": false },
 
     { "Position": [ -4.9103, -0.506107, 9.4489], "Type": "Judicator", "hasBase": false },

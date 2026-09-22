@@ -1872,16 +1872,24 @@ namespace MphRead::Mods::Update
     void DesktopUpdate::WaitForExit(std::int32_t pid)
     {
 #if defined(_WIN32)
-        HANDLE process = ::OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(pid));
-        if (process == nullptr)
+        if (pid == 0)
+        {
+            throw std::system_error(
+                static_cast<int>(ERROR_ACCESS_DENIED), std::system_category());
+        }
+
+        HANDLE probe = ::OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+            FALSE, static_cast<DWORD>(pid));
+        if (probe == nullptr)
         {
             const DWORD error = ::GetLastError();
-            if (pid == 0)
+            if (error == ERROR_INVALID_PARAMETER)
             {
-                throw std::system_error(
-                    static_cast<int>(ERROR_ACCESS_DENIED), std::system_category());
+                Sleep(400ms);
+                return;
             }
-            if (error != ERROR_INVALID_PARAMETER)
+            if (error != ERROR_ACCESS_DENIED)
             {
                 throw std::system_error(
                     static_cast<int>(error), std::system_category());
@@ -1889,19 +1897,64 @@ namespace MphRead::Mods::Update
         }
         else
         {
-            const DWORD waited = ::WaitForSingleObject(process, 30000U);
-            const DWORD error = waited == WAIT_FAILED ? ::GetLastError() : ERROR_SUCCESS;
-            ::CloseHandle(process);
-            if (waited == WAIT_TIMEOUT)
+            DWORD exitCode = STILL_ACTIVE;
+            const BOOL gotExitCode = ::GetExitCodeProcess(probe, &exitCode);
+            if (gotExitCode && exitCode != STILL_ACTIVE)
             {
-                std::cout << "[update] process " << pid
-                    << " is still running; carrying on\n";
+                ::CloseHandle(probe);
+                Sleep(400ms);
+                return;
             }
-            else if (waited == WAIT_FAILED)
+
+            const DWORD signaled = ::WaitForSingleObject(probe, 0);
+            if (signaled == WAIT_FAILED)
             {
+                const DWORD error = ::GetLastError();
+                ::CloseHandle(probe);
                 throw std::system_error(
                     static_cast<int>(error), std::system_category());
             }
+            if (signaled == WAIT_OBJECT_0)
+            {
+                if (!::GetExitCodeProcess(probe, &exitCode))
+                {
+                    const DWORD error = ::GetLastError();
+                    ::CloseHandle(probe);
+                    throw std::system_error(
+                        static_cast<int>(error), std::system_category());
+                }
+                ::CloseHandle(probe);
+                Sleep(400ms);
+                return;
+            }
+            ::CloseHandle(probe);
+        }
+
+        HANDLE process = ::OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(pid));
+        if (process == nullptr)
+        {
+            const DWORD error = ::GetLastError();
+            if (error == ERROR_INVALID_PARAMETER)
+            {
+                Sleep(400ms);
+                return;
+            }
+            throw std::system_error(
+                static_cast<int>(error), std::system_category());
+        }
+
+        const DWORD waited = ::WaitForSingleObject(process, 30000U);
+        const DWORD error = waited == WAIT_FAILED ? ::GetLastError() : ERROR_SUCCESS;
+        ::CloseHandle(process);
+        if (waited == WAIT_TIMEOUT)
+        {
+            std::cout << "[update] process " << pid
+                << " is still running; carrying on\n";
+        }
+        else if (waited == WAIT_FAILED)
+        {
+            throw std::system_error(
+                static_cast<int>(error), std::system_category());
         }
 #else
         bool exists = false;

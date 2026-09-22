@@ -17,26 +17,6 @@
 #include <unordered_set>
 #include <utility>
 
-namespace System
-{
-    class IndexOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        IndexOutOfRangeException()
-            : std::out_of_range("Index was outside the bounds of the array.")
-        {
-        }
-    };
-
-    class InvalidOperationException final : public std::runtime_error
-    {
-    public:
-        InvalidOperationException()
-            : std::runtime_error("Sequence contains no elements")
-        {
-        }
-    };
-}
 
 namespace MphRead::Mods::MapGen
 {
@@ -387,7 +367,7 @@ namespace MphRead::Mods::MapGen
         {
             if (points->Length() == 0)
             {
-                throw System::InvalidOperationException();
+                throw System::InvalidOperationException("Sequence contains no elements");
             }
             float value = (*points)[0].*component;
             if (std::isnan(value))
@@ -415,7 +395,7 @@ namespace MphRead::Mods::MapGen
         {
             if (points->Length() == 0)
             {
-                throw System::InvalidOperationException();
+                throw System::InvalidOperationException("Sequence contains no elements");
             }
             std::size_t i = 0;
             float value = (*points)[i].*component;
@@ -1161,7 +1141,7 @@ namespace MphRead::Mods::MapGen
         {
             if (nodes.empty())
             {
-                throw System::InvalidOperationException();
+                throw System::InvalidOperationException("Sequence contains no elements");
             }
             std::int32_t result = static_cast<std::int32_t>(nodes.front().Neighbours.size());
             for (std::size_t i = 1; i < nodes.size(); i++)

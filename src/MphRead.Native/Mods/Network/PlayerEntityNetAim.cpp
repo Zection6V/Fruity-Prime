@@ -1,8 +1,18 @@
 #include "PlayerEntityNetAim.hpp"
 
 #include "../../Entities/EntityBase.hpp"
+#include "../../Entities/Players/PlayerCamera.hpp"
 #include "../../Entities/PlayerSpawnEntity.hpp"
 #include "../../Formats/Model.hpp"
+#include "../../GameState.hpp"
+#include "../../Metadata/Metadata.hpp"
+#include "../Input/GamepadInput.hpp"
+#include "../SpectatorMode.hpp"
+#include "NetHooks.hpp"
+#include "NetLog.hpp"
+#include "NetPlayerBridge.hpp"
+#include "NetSession.hpp"
+#include "NetTestScript.hpp"
 #include "../../Scene.hpp"
 
 #include <algorithm>
@@ -15,189 +25,6 @@
 #include <string>
 #include <type_traits>
 #include <utility>
-
-namespace MphRead::Entities::PlayerEntityNetAimDetail
-{
-    // Declaration-only seams into other PlayerEntity partial contributors and
-    // later-order owners. They expose existing state/calls only and carry no
-    // independent gameplay policy.
-
-    [[nodiscard]] OpenTK::Mathematics::Vector3 Position(const PlayerEntity& player);
-    void SetPosition(PlayerEntity& player, OpenTK::Mathematics::Vector3 value);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 PrevPosition(const PlayerEntity& player);
-    void SetPrevPosition(PlayerEntity& player, OpenTK::Mathematics::Vector3 value);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 Speed(const PlayerEntity& player);
-    void SetSpeed(PlayerEntity& player, OpenTK::Mathematics::Vector3 value);
-
-    [[nodiscard]] std::int32_t SlotIndex(const PlayerEntity& player);
-    [[nodiscard]] std::int32_t MainPlayerIndex();
-    [[nodiscard]] bool IsBot(const PlayerEntity& player);
-    [[nodiscard]] std::int32_t Health(const PlayerEntity& player);
-    [[nodiscard]] std::uint8_t LoadFlagsBits(const PlayerEntity& player);
-    [[nodiscard]] std::uint32_t Flags1Bits(const PlayerEntity& player);
-    void SetFlags1Bits(PlayerEntity& player, std::uint32_t value);
-    [[nodiscard]] std::uint32_t Flags2Bits(const PlayerEntity& player);
-    void SetFlags2Bits(PlayerEntity& player, std::uint32_t value);
-
-    [[nodiscard]] OpenTK::Mathematics::Vector3 GunVector(const PlayerEntity& player);
-    void SetGunVector(PlayerEntity& player, OpenTK::Mathematics::Vector3 value);
-    void SetAimY(PlayerEntity& player, float value);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 AimPosition(const PlayerEntity& player);
-    void SetAimPosition(PlayerEntity& player, OpenTK::Mathematics::Vector3 value);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 MuzzlePosition(const PlayerEntity& player);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 FacingVector(const PlayerEntity& player);
-    void SetFacingVector(PlayerEntity& player, OpenTK::Mathematics::Vector3 value);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 UpVector(const PlayerEntity& player);
-    void UpdateAimFacing(PlayerEntity& player);
-    void SetTransform(
-        PlayerEntity& player,
-        OpenTK::Mathematics::Vector3 facing,
-        OpenTK::Mathematics::Vector3 up,
-        OpenTK::Mathematics::Vector3 position);
-    void UpdateAimX(PlayerEntity& player, float value);
-    void UpdateAimY(PlayerEntity& player, float value);
-    void UpdateHudShiftX(PlayerEntity& player, float value);
-    void UpdateHudShiftY(PlayerEntity& player, float value);
-
-    [[nodiscard]] OpenTK::Mathematics::Vector3 CameraPosition(const PlayerEntity& player);
-    void SetCameraPosition(PlayerEntity& player, OpenTK::Mathematics::Vector3 value);
-    [[nodiscard]] bool Field6D0(const PlayerEntity& player);
-    [[nodiscard]] std::int32_t AimYOffset(const PlayerEntity& player);
-    [[nodiscard]] std::int32_t AimDistance(const PlayerEntity& player);
-    [[nodiscard]] std::uint8_t AltFormStrafe(const PlayerEntity& player);
-    [[nodiscard]] float Field70(const PlayerEntity& player);
-    [[nodiscard]] float Field74(const PlayerEntity& player);
-
-    [[nodiscard]] MphRead::Scene& SceneFor(PlayerEntity& player);
-    [[nodiscard]] const MphRead::Scene& SceneFor(const PlayerEntity& player);
-    [[nodiscard]] Formats::Culling::NodeRef NodeRef(const PlayerEntity& player);
-    void SetNodeRef(PlayerEntity& player, Formats::Culling::NodeRef value);
-    [[nodiscard]] Formats::Culling::NodeRef SceneUpdateNodeRef(
-        MphRead::Scene& scene,
-        Formats::Culling::NodeRef current,
-        OpenTK::Mathematics::Vector3 previous,
-        OpenTK::Mathematics::Vector3 position);
-    [[nodiscard]] bool ScenePartCouldContain(
-        MphRead::Scene& scene,
-        std::int32_t partIndex,
-        OpenTK::Mathematics::Vector3 position);
-    [[nodiscard]] Formats::Culling::NodeRef SceneGetNodeRefByPosition(
-        MphRead::Scene& scene,
-        OpenTK::Mathematics::Vector3 position);
-    void RefreshCollisionVolume(PlayerEntity& player);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 CollisionSpherePosition(
-        const PlayerEntity& player);
-
-    void Spawn(
-        PlayerEntity& player,
-        OpenTK::Mathematics::Vector3 position,
-        OpenTK::Mathematics::Vector3 facing,
-        OpenTK::Mathematics::Vector3 up,
-        Formats::Culling::NodeRef nodeRef,
-        bool respawn);
-
-    [[nodiscard]] bool IsAltForm(const PlayerEntity& player);
-    [[nodiscard]] bool IsMorphing(const PlayerEntity& player);
-    [[nodiscard]] bool IsUnmorphing(const PlayerEntity& player);
-    [[nodiscard]] bool TrySwitchForms(PlayerEntity& player, bool force);
-    void UpdateForm(PlayerEntity& player, bool altForm);
-    void SwitchCamera(
-        PlayerEntity& player,
-        std::int32_t cameraType,
-        OpenTK::Mathematics::Vector3 facing);
-
-    [[nodiscard]] MphRead::Hunter Hunter(const PlayerEntity& player);
-    void SetHunter(PlayerEntity& player, MphRead::Hunter hunter);
-    void ClearSyluxBomb(PlayerEntity& player, std::int32_t index);
-    void SetSyluxBombCount(PlayerEntity& player, std::uint8_t value);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 AimTargetOffset(const PlayerEntity& player);
-
-    [[nodiscard]] std::int32_t DamageIndicatorTimerCount(const PlayerEntity& player);
-    [[nodiscard]] std::uint16_t DamageIndicatorTimer(
-        const PlayerEntity& player, std::int32_t index);
-
-    [[nodiscard]] MphRead::BeamType CurrentWeapon(const PlayerEntity& player);
-    void SetAvailableWeapon(PlayerEntity& player, MphRead::BeamType weapon, bool value);
-    void SetAvailableCharge(PlayerEntity& player, MphRead::BeamType weapon, bool value);
-    [[nodiscard]] bool AvailableCharge(const PlayerEntity& player, MphRead::BeamType weapon);
-    [[nodiscard]] bool TryEquipWeapon(
-        PlayerEntity& player, MphRead::BeamType weapon, bool silent);
-    [[nodiscard]] std::int32_t Ammo(const PlayerEntity& player, std::int32_t type);
-    void SetAmmo(PlayerEntity& player, std::int32_t type, std::int32_t value);
-    [[nodiscard]] std::int32_t AmmoMax(const PlayerEntity& player, std::int32_t type);
-
-    [[nodiscard]] bool EquipWeaponPresent(const PlayerEntity& player);
-    [[nodiscard]] bool EquipZoomed(const PlayerEntity& player);
-    void SetEquipZoomed(PlayerEntity& player, bool value);
-    [[nodiscard]] std::uint32_t EquipWeaponFlags(const PlayerEntity& player);
-    [[nodiscard]] MphRead::BeamType EquipWeaponBeam(const PlayerEntity& player);
-    [[nodiscard]] std::uint16_t EquipChargeLevel(const PlayerEntity& player);
-    [[nodiscard]] std::uint16_t EquipWeaponMinCharge(const PlayerEntity& player);
-    [[nodiscard]] std::uint16_t EquipWeaponFullCharge(const PlayerEntity& player);
-    [[nodiscard]] MphRead::Affliction EquipWeaponAffliction(
-        const PlayerEntity& player, std::int32_t index);
-    void UpdateZoom(PlayerEntity& player, bool value);
-
-    [[nodiscard]] MphRead::BeamType AffinityBeam(MphRead::Hunter hunter);
-    [[nodiscard]] std::uint32_t WeaponFlags(MphRead::BeamType weapon);
-    [[nodiscard]] std::uint8_t WeaponAmmoType(MphRead::BeamType weapon);
-
-    [[nodiscard]] bool IsMainPlayer(const PlayerEntity& player);
-    void ResetCombatVisor(PlayerEntity& player);
-    void SetDrawIceLayer(PlayerEntity& player, bool value);
-    void PlayFreezeSfx(PlayerEntity& player);
-    void PlayDisruptSfx(PlayerEntity& player);
-    void EndAltAttack(PlayerEntity& player);
-    void HudOnDisrupted(PlayerEntity& player);
-    void CreateBurnEffect(PlayerEntity& player);
-
-    [[nodiscard]] std::uint16_t FrozenTimer(const PlayerEntity& player);
-    void SetFrozenTimer(PlayerEntity& player, std::uint16_t value);
-    void SetFrozenGfxTimer(PlayerEntity& player, std::uint16_t value);
-    [[nodiscard]] std::uint16_t TimeSinceFrozen(const PlayerEntity& player);
-    [[nodiscard]] std::uint16_t DisruptedTimer(const PlayerEntity& player);
-    void SetDisruptedTimer(PlayerEntity& player, std::uint16_t value);
-    [[nodiscard]] std::uint16_t BurnTimer(const PlayerEntity& player);
-    void SetBurnTimer(PlayerEntity& player, std::uint16_t value);
-
-    [[nodiscard]] std::int32_t Biped2AnimValue(const PlayerEntity& player);
-    [[nodiscard]] std::uint16_t Biped2FlagsBits(const PlayerEntity& player);
-
-    void TakeDamage(
-        PlayerEntity& player,
-        std::int32_t damage,
-        std::int32_t flags,
-        EntityBase* source,
-        PlayerEntity* attacker);
-    [[nodiscard]] std::int32_t ActivePlayers();
-    [[nodiscard]] float ScoreboardHeight(const PlayerEntity& player);
-    [[nodiscard]] std::int32_t BeamEffectivenessCount(const PlayerEntity& player);
-    [[nodiscard]] std::int32_t BeamEffectivenessValue(
-        const PlayerEntity& player, std::int32_t index);
-
-    [[nodiscard]] bool NetSessionActive();
-    [[nodiscard]] std::int32_t NetHooksLocalSlot();
-    [[nodiscard]] bool RemoteIntentValid(std::int32_t slot);
-    [[nodiscard]] OpenTK::Mathematics::Vector3 RemoteIntentAim(std::int32_t slot);
-    [[nodiscard]] bool NetLogEnabled();
-    void NetLogCollisionRange(
-        std::int32_t slot,
-        const std::string& label,
-        OpenTK::Mathematics::Vector3 previous,
-        OpenTK::Mathematics::Vector3 position);
-    void NetLogEvent(const std::string& message);
-    void IncrementNodeLookupsUnresolved();
-
-    [[nodiscard]] bool NetTestScriptEnabled();
-    [[nodiscard]] float NetTestScriptAimDeltaX();
-    [[nodiscard]] float NetTestScriptAimDeltaY();
-    [[nodiscard]] bool SpectatorModeIsSpectating();
-    [[nodiscard]] float GamepadAimDeltaX();
-    [[nodiscard]] float GamepadAimDeltaY();
-    void SetInputHasInput(PlayerEntity& player, bool value);
-
-    [[nodiscard]] std::string ManagedVector3Text(OpenTK::Mathematics::Vector3 value);
-}
 
 namespace
 {
@@ -368,7 +195,7 @@ namespace MphRead::Entities
             _networkPositionFrames[static_cast<std::size_t>(i)]
                 = _networkPositionFrames[static_cast<std::size_t>(i - 1)];
         }
-        _networkPositionHistory[0] = Detail::Position(*this);
+        _networkPositionHistory[0] = static_cast<Vector3>((*this).Position);
         _networkPositionFrames[0] = frame;
         _networkPositionHistoryCount = std::min(count + 1, NetworkHistoryLength);
     }
@@ -391,28 +218,28 @@ namespace MphRead::Entities
 
     OpenTK::Mathematics::Vector3 PlayerEntity::ModGunVector() const
     {
-        return Detail::GunVector(*this);
+        return (*this)._gunVec1;
     }
 
     void PlayerEntity::ModRefreshNetworkAim()
     {
-        if (!Detail::NetSessionActive())
+        if (!Mods::Network::NetSession::Active())
         {
             return;
         }
-        const std::int32_t slotForLocal = Detail::SlotIndex(*this);
-        const std::int32_t localSlot = Detail::NetHooksLocalSlot();
+        const std::int32_t slotForLocal = (*this).SlotIndex();
+        const std::int32_t localSlot = Mods::Network::NetHooks::LocalSlot();
         if (slotForLocal == localSlot)
         {
             return;
         }
-        const std::int32_t slotForValid = Detail::SlotIndex(*this);
-        if (!Detail::RemoteIntentValid(slotForValid))
+        const std::int32_t slotForValid = (*this).SlotIndex();
+        if (!Mods::Network::NetSession::RemoteIntentValid[slotForValid])
         {
             return;
         }
-        const std::int32_t slotForAim = Detail::SlotIndex(*this);
-        ModSetAim(Detail::RemoteIntentAim(slotForAim));
+        const std::int32_t slotForAim = (*this).SlotIndex();
+        ModSetAim(Mods::Network::NetSession::RemoteIntents[slotForAim].Aim);
     }
 
     void PlayerEntity::ModSetAim(OpenTK::Mathematics::Vector3 aim)
@@ -422,42 +249,40 @@ namespace MphRead::Entities
             return;
         }
 
-        if (Detail::NetSessionActive())
+        if (Mods::Network::NetSession::Active())
         {
-            const std::int32_t slot = Detail::SlotIndex(*this);
-            const std::int32_t localSlot = Detail::NetHooksLocalSlot();
+            const std::int32_t slot = (*this).SlotIndex();
+            const std::int32_t localSlot = Mods::Network::NetHooks::LocalSlot();
             if (slot != localSlot)
             {
                 Vector3 cameraPosition{};
-                const bool field6D0 = Detail::Field6D0(*this);
+                const bool field6D0 = (*this)._field6D0;
                 if (field6D0)
                 {
-                    cameraPosition = Detail::Position(*this);
+                    cameraPosition = static_cast<Vector3>((*this).Position);
                 }
                 else
                 {
-                    const Vector3 position = Detail::Position(*this);
-                    const std::int32_t aimYOffset = Detail::AimYOffset(*this);
+                    const Vector3 position = static_cast<Vector3>((*this).Position);
+                    const std::int32_t aimYOffset = (*this).Values().AimYOffset;
                     cameraPosition = AddY(
                         position, MphRead::Fixed::ToFloat(aimYOffset));
                 }
-                Detail::SetCameraPosition(*this, cameraPosition);
+                ((*this).CameraInfo()->Position = cameraPosition);
             }
         }
 
         const Vector3 gun = aim.Normalized();
-        Detail::SetGunVector(*this, gun);
+        ((*this)._gunVec1 = gun);
         const float flat = std::sqrt(gun.X * gun.X + gun.Z * gun.Z);
         constexpr float RadiansToDegrees = 57.2957795130823208768F;
         const float aimY = std::clamp(
             std::atan2(gun.Y, flat) * RadiansToDegrees, -85.0F, 85.0F);
-        Detail::SetAimY(*this, aimY);
-        const Vector3 cameraPosition = Detail::CameraPosition(*this);
-        const std::int32_t aimDistance = Detail::AimDistance(*this);
-        Detail::SetAimPosition(
-            *this,
-            cameraPosition + Multiply(gun, MphRead::Fixed::ToFloat(aimDistance)));
-        Detail::UpdateAimFacing(*this);
+        ((*this)._aimY = aimY);
+        const Vector3 cameraPosition = (*this).CameraInfo()->Position;
+        const std::int32_t aimDistance = (*this).Values().AimDistance;
+        ((*this)._aimPosition = cameraPosition + Multiply(gun, MphRead::Fixed::ToFloat(aimDistance)));
+        (*this).UpdateAimFacing();
     }
 
     Formats::Culling::NodeRef PlayerEntity::ModWalkNodeRef(
@@ -473,9 +298,9 @@ namespace MphRead::Entities
         }
 
         Formats::Culling::NodeRef walked
-            = Detail::SceneUpdateNodeRef(scene, current, previous, position);
+            = scene.UpdateNodeRef(current, previous, position);
         if (walked.PartIndex == -1
-            || !Detail::ScenePartCouldContain(scene, walked.PartIndex, position))
+            || !scene.PartCouldContain(walked.PartIndex, position))
         {
             return Formats::Culling::NodeRef::None;
         }
@@ -484,9 +309,9 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModPlaceAt(OpenTK::Mathematics::Vector3 position)
     {
-        const Vector3 previous = Detail::Position(*this);
-        Detail::SetPosition(*this, position);
-        Detail::SetPrevPosition(*this, position);
+        const Vector3 previous = static_cast<Vector3>((*this).Position);
+        ((*this).Position = position);
+        (*this).SetPrevPosition(position);
         ModRefreshNodeRef(previous);
     }
 
@@ -494,7 +319,7 @@ namespace MphRead::Entities
     {
         constexpr float reach = 12.0F;
         bool any = false;
-        auto enumerator = Detail::SceneFor(*this).GetPlayerSpawnEntities().GetEnumerator();
+        auto enumerator = (*(*this)._scene).GetPlayerSpawnEntities().GetEnumerator();
         while (enumerator.MoveNext())
         {
             const std::shared_ptr<PlayerSpawnEntity> spawn = enumerator.Current();
@@ -511,56 +336,52 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModRefreshNodeRef(OpenTK::Mathematics::Vector3 previousPosition)
     {
-        Detail::RefreshCollisionVolume(*this);
-        MphRead::Scene& scene = Detail::SceneFor(*this);
-        const Formats::Culling::NodeRef currentForWalk = Detail::NodeRef(*this);
-        const Vector3 positionForWalk = Detail::Position(*this);
+        (*this)._volume = CollisionVolume::Move((*this)._volumeUnxf, (*this).Position);
+        MphRead::Scene& scene = (*(*this)._scene);
+        const Formats::Culling::NodeRef currentForWalk = (*this).NodeRef;
+        const Vector3 positionForWalk = static_cast<Vector3>((*this).Position);
         Formats::Culling::NodeRef walked = ModWalkNodeRef(
             scene, currentForWalk, previousPosition, positionForWalk);
         if (walked != Formats::Culling::NodeRef::None)
         {
-            Detail::SetNodeRef(*this, walked);
+            ((*this).NodeRef = walked);
             _modNodeUnresolved = false;
             return;
         }
 
-        const Vector3 directPosition = Detail::Position(*this);
+        const Vector3 directPosition = static_cast<Vector3>((*this).Position);
         Formats::Culling::NodeRef found
-            = Detail::SceneGetNodeRefByPosition(scene, directPosition);
+            = scene.GetNodeRefByPosition(directPosition);
         if (found.PartIndex == -1)
         {
-            found = Detail::SceneGetNodeRefByPosition(
-                scene, Detail::CollisionSpherePosition(*this));
+            found = scene.GetNodeRefByPosition((*this)._volume.SpherePosition);
         }
         if (found.PartIndex == -1)
         {
-            const Vector3 upperPosition = Detail::Position(*this);
-            found = Detail::SceneGetNodeRefByPosition(
-                scene, upperPosition + Multiply(UnitY(), 0.5F));
+            const Vector3 upperPosition = static_cast<Vector3>((*this).Position);
+            found = scene.GetNodeRefByPosition(upperPosition + Multiply(UnitY(), 0.5F));
         }
         if (found.PartIndex == -1)
         {
-            const Vector3 lowerPosition = Detail::Position(*this);
-            found = Detail::SceneGetNodeRefByPosition(
-                scene, lowerPosition - Multiply(UnitY(), 0.5F));
+            const Vector3 lowerPosition = static_cast<Vector3>((*this).Position);
+            found = scene.GetNodeRefByPosition(lowerPosition - Multiply(UnitY(), 0.5F));
         }
         if (found.PartIndex != -1)
         {
-            Detail::SetNodeRef(*this, found);
+            ((*this).NodeRef = found);
             _modNodeUnresolved = false;
             return;
         }
 
         _modNodeUnresolved = true;
-        Detail::IncrementNodeLookupsUnresolved();
-        const Formats::Culling::NodeRef currentForCheck = Detail::NodeRef(*this);
+        Mods::Network::NetPlayerBridge::NodeLookupsUnresolved++;
+        const Formats::Culling::NodeRef currentForCheck = (*this).NodeRef;
         if (currentForCheck != Formats::Culling::NodeRef::None)
         {
-            const Formats::Culling::NodeRef currentForUpdate = Detail::NodeRef(*this);
-            const Vector3 updatePosition = Detail::Position(*this);
-            const Formats::Culling::NodeRef updated = Detail::SceneUpdateNodeRef(
-                scene, currentForUpdate, previousPosition, updatePosition);
-            Detail::SetNodeRef(*this, updated);
+            const Formats::Culling::NodeRef currentForUpdate = (*this).NodeRef;
+            const Vector3 updatePosition = static_cast<Vector3>((*this).Position);
+            const Formats::Culling::NodeRef updated = scene.UpdateNodeRef(currentForUpdate, previousPosition, updatePosition);
+            ((*this).NodeRef = updated);
         }
     }
 
@@ -571,14 +392,14 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModLogCollisionRange()
     {
-        if (!Detail::NetLogEnabled() || !Detail::NetSessionActive())
+        if (!Mods::Network::NetLog::Enabled() || !Mods::Network::NetSession::Active())
         {
             return;
         }
-        const std::int32_t slot = Detail::SlotIndex(*this);
-        const Vector3 previous = Detail::PrevPosition(*this);
-        const Vector3 position = Detail::Position(*this);
-        Detail::NetLogCollisionRange(slot, "pre-check", previous, position);
+        const std::int32_t slot = (*this).SlotIndex();
+        const Vector3 previous = (*this).PrevPosition();
+        const Vector3 position = static_cast<Vector3>((*this).Position);
+        Mods::Network::NetLog::CollisionRange(slot, "pre-check", previous, position);
     }
 
     void PlayerEntity::ModSetFacing(OpenTK::Mathematics::Vector3 facing)
@@ -588,15 +409,15 @@ namespace MphRead::Entities
             return;
         }
         const Vector3 normalized = facing.Normalized();
-        Detail::SetFacingVector(*this, normalized);
-        const Vector3 up = Detail::UpVector(*this);
-        const Vector3 position = Detail::Position(*this);
-        Detail::SetTransform(*this, normalized, up, position);
+        (*this)._facingVector = normalized;
+        const Vector3 up = (*this)._upVector;
+        const Vector3 position = static_cast<Vector3>((*this).Position);
+        (*this).SetTransform(normalized, up, position);
     }
 
     void PlayerEntity::ModSetSpectating(bool value)
     {
-        std::uint32_t flags = Detail::Flags2Bits(*this);
+        std::uint32_t flags = static_cast<std::uint32_t>((*this).Flags2());
         if (value)
         {
             flags |= PlayerFlagSpectating;
@@ -605,19 +426,19 @@ namespace MphRead::Entities
         {
             flags &= ~PlayerFlagSpectating;
         }
-        Detail::SetFlags2Bits(*this, flags);
+        (*this).SetFlags2(static_cast<PlayerFlags2>(flags));
     }
 
     bool PlayerEntity::ModInPlay() const
     {
-        return Detail::Health(*this) > 0
-            && !HasFlag(Detail::Flags2Bits(*this), PlayerFlagSpectating);
+        return (*this).Health() > 0
+            && !HasFlag(static_cast<std::uint32_t>((*this).Flags2()), PlayerFlagSpectating);
     }
 
     bool PlayerEntity::ModIsInPlay() const
     {
-        return (Detail::LoadFlagsBits(*this) & LoadFlagSpawned) == LoadFlagSpawned
-            && Detail::Health(*this) > 0;
+        return (static_cast<std::uint8_t>((*this).LoadFlags()) & LoadFlagSpawned) == LoadFlagSpawned
+            && (*this).Health() > 0;
     }
 
     void PlayerEntity::ModNetSpawn(
@@ -628,9 +449,9 @@ namespace MphRead::Entities
             ? facing.Normalized()
             : NegativeUnitZ();
         const Vector3 up = UnitY();
-        MphRead::Scene& scene = Detail::SceneFor(*this);
+        MphRead::Scene& scene = (*(*this)._scene);
         const Formats::Culling::NodeRef nodeRef = ModSpawnNodeRef(scene, position);
-        Detail::Spawn(*this, position, forward, up, nodeRef, true);
+        (*this).Spawn(position, forward, up, nodeRef, true);
     }
 
     Formats::Culling::NodeRef PlayerEntity::ModSpawnNodeRef(
@@ -659,14 +480,14 @@ namespace MphRead::Entities
         {
             return closest->NodeRef;
         }
-        return Detail::SceneGetNodeRefByPosition(scene, position);
+        return scene.GetNodeRefByPosition(position);
     }
 
     std::pair<float, float> PlayerEntity::ModAimDeltaTowards(
         OpenTK::Mathematics::Vector3 target)
     {
         const Vector3 desired = ModAimVectorTowards(target);
-        const Vector3 gun = Detail::GunVector(*this);
+        const Vector3 gun = (*this)._gunVec1;
         const float flatLength
             = std::sqrt(desired.X * desired.X + desired.Z * desired.Z);
         const float aimFlat
@@ -693,9 +514,9 @@ namespace MphRead::Entities
     OpenTK::Mathematics::Vector3 PlayerEntity::ModAimVectorTowards(
         OpenTK::Mathematics::Vector3 target) const
     {
-        const Vector3 eye = Detail::CameraPosition(*this);
-        const float aimDistance = MphRead::Fixed::ToFloat(Detail::AimDistance(*this));
-        const Vector3 muzzleForFrom = Detail::MuzzlePosition(*this);
+        const Vector3 eye = (*this).CameraInfo()->Position;
+        const float aimDistance = MphRead::Fixed::ToFloat((*this).Values().AimDistance);
+        const Vector3 muzzleForFrom = (*this)._muzzlePos;
         const Vector3 fromMuzzle = target - muzzleForFrom;
         if (LengthSquared(fromMuzzle) < 0.0001F || aimDistance <= 0.0F)
         {
@@ -703,7 +524,7 @@ namespace MphRead::Entities
         }
 
         const Vector3 direction = fromMuzzle.Normalized();
-        const Vector3 muzzleForOffset = Detail::MuzzlePosition(*this);
+        const Vector3 muzzleForOffset = (*this)._muzzlePos;
         const Vector3 offset = muzzleForOffset - eye;
         const float b = Vector3::Dot(offset, direction);
         const float c = Vector3::Dot(offset, offset) - aimDistance * aimDistance;
@@ -713,35 +534,35 @@ namespace MphRead::Entities
             return target - eye;
         }
         const float t = -b + std::sqrt(discriminant);
-        const Vector3 muzzleForReturn = Detail::MuzzlePosition(*this);
+        const Vector3 muzzleForReturn = (*this)._muzzlePos;
         return muzzleForReturn + Multiply(direction, t) - eye;
     }
 
     OpenTK::Mathematics::Vector3 PlayerEntity::ModAimTarget() const
     {
-        const Vector3 position = Detail::Position(*this);
-        const Vector3 offset = Detail::AimTargetOffset(*this);
+        const Vector3 position = static_cast<Vector3>((*this).Position);
+        const Vector3 offset = PlayerVolumes[static_cast<std::int32_t>((*this).Hunter())][0].SpherePosition;
         return position + offset;
     }
 
     void PlayerEntity::ModSetHunter(MphRead::Hunter hunter)
     {
-        if (hunter != Detail::Hunter(*this))
+        if (hunter != (*this).Hunter())
         {
-            Detail::ClearSyluxBomb(*this, 0);
-            Detail::ClearSyluxBomb(*this, 1);
-            Detail::ClearSyluxBomb(*this, 2);
-            Detail::SetSyluxBombCount(*this, 0);
+            ((*this)._syluxBombs[0] = nullptr);
+            ((*this)._syluxBombs[1] = nullptr);
+            ((*this)._syluxBombs[2] = nullptr);
+            (*this).SetSyluxBombCount(0);
         }
-        Detail::SetHunter(*this, hunter);
+        (*this)._hunter = hunter;
     }
 
     bool PlayerEntity::ModDamageIndicatorActive() const
     {
         for (std::int32_t i = 0;
-            i < Detail::DamageIndicatorTimerCount(*this); ++i)
+            i < static_cast<std::int32_t>((*this)._damageIndicatorTimers.size()); ++i)
         {
-            if (Detail::DamageIndicatorTimer(*this, i) > 0)
+            if ((*this)._damageIndicatorTimers[i] > 0)
             {
                 return true;
             }
@@ -751,55 +572,55 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModStartFormSwitch()
     {
-        const bool switched = Detail::TrySwitchForms(*this, true);
-        const std::int32_t slot = Detail::SlotIndex(*this);
+        const bool switched = (*this).TrySwitchForms(true);
+        const std::int32_t slot = (*this).SlotIndex();
         const std::string formState = ModFormState();
-        Detail::NetLogEvent(
-            "slot " + std::to_string(slot)
+        Mods::Network::NetLog::Event(("slot " + std::to_string(slot)
             + " form switch requested -> " + BoolText(switched)
-            + ", now " + formState);
+            + ", now " + formState));
     }
 
     void PlayerEntity::ModForceForm(bool altForm)
     {
-        if (altForm == Detail::IsAltForm(*this))
+        if (altForm == (*this).IsAltForm())
         {
             return;
         }
-        const std::int32_t slot = Detail::SlotIndex(*this);
+        const std::int32_t slot = (*this).SlotIndex();
         const std::string formState = ModFormState();
-        Detail::NetLogEvent(
-            "slot " + std::to_string(slot)
+        Mods::Network::NetLog::Event(("slot " + std::to_string(slot)
             + " form forced to " + (altForm ? std::string("alt") : std::string("biped"))
-            + " from " + formState);
+            + " from " + formState));
 
-        std::uint32_t flags = Detail::Flags1Bits(*this);
+        std::uint32_t flags = static_cast<std::uint32_t>((*this).Flags1());
         flags &= ~PlayerFlagMorphing;
-        Detail::SetFlags1Bits(*this, flags);
-        flags = Detail::Flags1Bits(*this);
+        (*this).SetFlags1(static_cast<PlayerFlags1>(flags));
+        flags = static_cast<std::uint32_t>((*this).Flags1());
         flags &= ~PlayerFlagUnmorphing;
-        Detail::SetFlags1Bits(*this, flags);
+        (*this).SetFlags1(static_cast<PlayerFlags1>(flags));
 
-        Detail::UpdateForm(*this, altForm);
+        (*this).UpdateForm(altForm);
         if (altForm)
         {
-            const std::uint8_t altFormStrafe = Detail::AltFormStrafe(*this);
-            const std::int32_t cameraType = altFormStrafe != 0 ? 2 : 1;
-            const float field70 = Detail::Field70(*this);
-            const float field74 = Detail::Field74(*this);
+            const std::uint8_t altFormStrafe = (*this).Values().AltFormStrafe;
+            const ::MphRead::Entities::CameraType cameraType = altFormStrafe != 0
+                ? ::MphRead::Entities::CameraType::Third2
+                : ::MphRead::Entities::CameraType::Third1;
+            const float field70 = (*this)._field70;
+            const float field74 = (*this)._field74;
             const Vector3 cameraFacing(field70, 0.0F, field74);
-            Detail::SwitchCamera(*this, cameraType, cameraFacing);
+            (*this).SwitchCamera(cameraType, cameraFacing);
         }
         else
         {
-            const Vector3 facing = Detail::FacingVector(*this);
-            Detail::SwitchCamera(*this, 0, facing);
+            const Vector3 facing = (*this)._facingVector;
+            (*this).SwitchCamera(::MphRead::Entities::CameraType::First, facing);
         }
     }
 
     void PlayerEntity::ModSetWeapon(MphRead::BeamType weapon)
     {
-        if (weapon == Detail::CurrentWeapon(*this)
+        if (weapon == (*this).CurrentWeapon()
             || static_cast<std::int32_t>(weapon)
                 < static_cast<std::int32_t>(MphRead::BeamType::PowerBeam)
             || static_cast<std::int32_t>(weapon)
@@ -807,41 +628,41 @@ namespace MphRead::Entities
         {
             return;
         }
-        Detail::SetAvailableWeapon(*this, weapon, true);
-        Detail::SetAvailableCharge(*this, weapon, true);
-        static_cast<void>(Detail::TryEquipWeapon(*this, weapon, true));
+        ((*this)._availableWeapons[weapon] = true);
+        ((*this)._availableCharges[weapon] = true);
+        static_cast<void>((*this).TryEquipWeapon(weapon, true));
     }
 
     std::pair<std::int32_t, std::int32_t> PlayerEntity::ModAmmo() const
     {
-        const std::int32_t ua = Detail::Ammo(*this, 0);
-        const std::int32_t missiles = Detail::Ammo(*this, 1);
+        const std::int32_t ua = (*this)._ammo[0];
+        const std::int32_t missiles = (*this)._ammo[1];
         return {ua, missiles};
     }
 
     void PlayerEntity::ModSetAmmo(std::int32_t ua, std::int32_t missiles)
     {
-        const std::int32_t uaMax = Detail::AmmoMax(*this, 0);
-        Detail::SetAmmo(*this, 0, ManagedClamp(ua, 0, uaMax));
-        const std::int32_t missileMax = Detail::AmmoMax(*this, 1);
-        Detail::SetAmmo(*this, 1, ManagedClamp(missiles, 0, missileMax));
+        const std::int32_t uaMax = (*this)._ammoMax[0];
+        ((*this)._ammo[0] = ManagedClamp(ua, 0, uaMax));
+        const std::int32_t missileMax = (*this)._ammoMax[1];
+        ((*this)._ammo[1] = ManagedClamp(missiles, 0, missileMax));
     }
 
     void PlayerEntity::ModSetZoom(bool zoomed)
     {
-        const bool canZoom = Detail::EquipWeaponPresent(*this)
-            && (Detail::EquipWeaponFlags(*this) & WeaponFlagCanZoom) != 0;
+        const bool canZoom = ((*this).EquipInfo()->Weapon != nullptr)
+            && (static_cast<std::uint32_t>((*this).EquipInfo()->Weapon->Flags) & WeaponFlagCanZoom) != 0;
         const bool wanted = zoomed && canZoom;
-        if (Detail::EquipZoomed(*this) != wanted)
+        if ((*this).EquipInfo()->Zoomed != wanted)
         {
-            Detail::UpdateZoom(*this, wanted);
+            (*this).UpdateZoom(wanted);
         }
     }
 
     void PlayerEntity::ModArmAffinityWeapon()
     {
-        const MphRead::Hunter hunter = Detail::Hunter(*this);
-        const MphRead::BeamType beam = Detail::AffinityBeam(hunter);
+        const MphRead::Hunter hunter = (*this).Hunter();
+        const MphRead::BeamType beam = Weapons::GetAffinityBeam(hunter);
         ModArmWeapon(beam);
     }
 
@@ -854,22 +675,22 @@ namespace MphRead::Entities
         {
             return;
         }
-        Detail::SetAvailableWeapon(*this, beam, true);
-        Detail::SetAvailableCharge(*this, beam, true);
+        ((*this)._availableWeapons[beam] = true);
+        ((*this)._availableCharges[beam] = true);
         const std::int32_t ammoType
-            = static_cast<std::int32_t>(Detail::WeaponAmmoType(beam));
-        const std::int32_t ammoMax = Detail::AmmoMax(*this, ammoType);
-        Detail::SetAmmo(*this, ammoType, ammoMax);
-        if (Detail::CurrentWeapon(*this) != beam)
+            = static_cast<std::int32_t>((*Weapons::Current)[static_cast<std::int32_t>(beam)]->AmmoType);
+        const std::int32_t ammoMax = (*this)._ammoMax[ammoType];
+        ((*this)._ammo[ammoType] = ammoMax);
+        if ((*this).CurrentWeapon() != beam)
         {
-            static_cast<void>(Detail::TryEquipWeapon(*this, beam, true));
+            static_cast<void>((*this).TryEquipWeapon(beam, true));
         }
     }
 
     void PlayerEntity::ModArmZoomWeapon()
     {
         MphRead::BeamType beam = MphRead::BeamType::Imperialist;
-        if ((Detail::WeaponFlags(beam) & WeaponFlagCanZoom) == 0)
+        if ((static_cast<std::uint32_t>((*Weapons::Current)[static_cast<std::int32_t>(beam)]->Flags) & WeaponFlagCanZoom) == 0)
         {
             beam = MphRead::BeamType::Judicator;
         }
@@ -878,21 +699,21 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModApplyScriptAim(float deltaX, float deltaY)
     {
-        Detail::UpdateAimY(*this, deltaY);
-        Detail::UpdateAimX(*this, deltaX);
+        (*this).UpdateAimY(deltaY);
+        (*this).UpdateAimX(deltaX);
     }
 
     std::string PlayerEntity::ModWeaponState() const
     {
-        const MphRead::BeamType currentForText = Detail::CurrentWeapon(*this);
-        const MphRead::BeamType equipBeam = Detail::EquipWeaponBeam(*this);
-        const std::uint16_t chargeLevel = Detail::EquipChargeLevel(*this);
-        const std::uint16_t minCharge = Detail::EquipWeaponMinCharge(*this);
-        const MphRead::BeamType currentForCharge = Detail::CurrentWeapon(*this);
-        const bool chargeable = Detail::AvailableCharge(*this, currentForCharge);
-        const MphRead::Affliction affliction = Detail::EquipWeaponAffliction(*this, 1);
+        const MphRead::BeamType currentForText = (*this).CurrentWeapon();
+        const MphRead::BeamType equipBeam = (*this).EquipInfo()->Weapon->Beam;
+        const std::uint16_t chargeLevel = (*this).EquipInfo()->ChargeLevel;
+        const std::uint16_t minCharge = (*this).EquipInfo()->Weapon->MinCharge;
+        const MphRead::BeamType currentForCharge = (*this).CurrentWeapon();
+        const bool chargeable = (*this)._availableCharges[currentForCharge];
+        const MphRead::Affliction affliction = (*(*this).EquipInfo()->Weapon->Afflictions)[1];
         const bool shooting = HasFlag(
-            Detail::Flags2Bits(*this), PlayerFlagShooting);
+            static_cast<std::uint32_t>((*this).Flags2()), PlayerFlagShooting);
 
         return BeamTypeText(currentForText)
             + " equip=" + BeamTypeText(equipBeam)
@@ -905,167 +726,166 @@ namespace MphRead::Entities
 
     std::int32_t PlayerEntity::ModChargeLevel() const
     {
-        return static_cast<std::int32_t>(Detail::EquipChargeLevel(*this));
+        return static_cast<std::int32_t>((*this).EquipInfo()->ChargeLevel);
     }
 
     bool PlayerEntity::ModChargeReady() const
     {
-        const std::uint32_t flags = Detail::EquipWeaponFlags(*this);
+        const std::uint32_t flags = static_cast<std::uint32_t>((*this).EquipInfo()->Weapon->Flags);
         if ((flags & WeaponFlagCanCharge) == 0)
         {
             return false;
         }
         const std::int32_t needed
             = (flags & WeaponFlagPartialCharge) != 0
-                ? static_cast<std::int32_t>(Detail::EquipWeaponMinCharge(*this)) * 2
-                : static_cast<std::int32_t>(Detail::EquipWeaponFullCharge(*this)) * 2;
-        return static_cast<std::int32_t>(Detail::EquipChargeLevel(*this)) >= needed;
+                ? static_cast<std::int32_t>((*this).EquipInfo()->Weapon->MinCharge) * 2
+                : static_cast<std::int32_t>((*this).EquipInfo()->Weapon->FullCharge) * 2;
+        return static_cast<std::int32_t>((*this).EquipInfo()->ChargeLevel) >= needed;
     }
 
     bool PlayerEntity::ModFrozen() const
     {
-        return Detail::FrozenTimer(*this) > 0;
+        return (*this)._frozenTimer > 0;
     }
 
     void PlayerEntity::ModSetFrozen(bool frozen)
     {
-        if (Detail::Health(*this) <= 0)
+        if ((*this).Health() <= 0)
         {
             return;
         }
 
-        const std::uint16_t timer = Detail::FrozenTimer(*this);
+        const std::uint16_t timer = (*this)._frozenTimer;
         if (frozen)
         {
             if (timer == 0)
             {
-                Detail::PlayFreezeSfx(*this);
-                if (Detail::IsMainPlayer(*this))
+                (*this)._soundSource.PlaySfx(SfxId::SHOTGUN_FREEZE);
+                if ((*this).IsMainPlayer())
                 {
-                    Detail::ResetCombatVisor(*this);
-                    Detail::SetDrawIceLayer(*this, true);
+                    (*this).ResetCombatVisor();
+                    ((*this)._drawIceLayer = true);
                 }
                 const std::uint16_t next
-                    = Detail::TimeSinceFrozen(*this) > 60 * 2
+                    = (*this)._timeSinceFrozen > 60 * 2
                         ? static_cast<std::uint16_t>(75 * 2)
                         : static_cast<std::uint16_t>(15 * 2);
-                Detail::SetFrozenTimer(*this, next);
-                Detail::SetFrozenGfxTimer(
-                    *this, static_cast<std::uint16_t>(next + 5 * 2));
-                Detail::EndAltAttack(*this);
+                ((*this)._frozenTimer = next);
+                ((*this)._frozenGfxTimer = static_cast<std::uint16_t>(next + 5 * 2));
+                (*this).EndAltAttack();
             }
             else if (timer < 2)
             {
-                Detail::SetFrozenTimer(*this, 2);
+                ((*this)._frozenTimer = 2);
             }
         }
         else if (timer > 1)
         {
-            Detail::SetFrozenTimer(*this, 1);
+            ((*this)._frozenTimer = 1);
         }
     }
 
     void PlayerEntity::ModRefreshVolume()
     {
-        Detail::RefreshCollisionVolume(*this);
+        (*this)._volume = CollisionVolume::Move((*this)._volumeUnxf, (*this).Position);
     }
 
     bool PlayerEntity::ModBurning() const
     {
-        return Detail::BurnTimer(*this) > 0;
+        return (*this)._burnTimer > 0;
     }
 
     bool PlayerEntity::ModDisrupted() const
     {
-        return Detail::DisruptedTimer(*this) > 0;
+        return (*this)._disruptedTimer > 0;
     }
 
     void PlayerEntity::ModSetDisrupted(bool disrupted)
     {
-        if (Detail::Health(*this) <= 0)
+        if ((*this).Health() <= 0)
         {
             return;
         }
 
-        const std::uint16_t timer = Detail::DisruptedTimer(*this);
+        const std::uint16_t timer = (*this)._disruptedTimer;
         if (disrupted)
         {
             if (timer == 0)
             {
-                Detail::SetDisruptedTimer(*this, 60 * 2);
-                if (Detail::IsMainPlayer(*this))
+                ((*this)._disruptedTimer = 60 * 2);
+                if ((*this).IsMainPlayer())
                 {
-                    Detail::HudOnDisrupted(*this);
-                    Detail::PlayDisruptSfx(*this);
+                    (*this).HudOnDisrupted();
+                    (*this)._soundSource.PlaySfx(SfxId::LOB_DISRUPT);
                 }
             }
             else if (timer < 2)
             {
-                Detail::SetDisruptedTimer(*this, 2);
+                ((*this)._disruptedTimer = 2);
             }
         }
         else if (timer > 1)
         {
-            Detail::SetDisruptedTimer(*this, 1);
+            ((*this)._disruptedTimer = 1);
         }
     }
 
     void PlayerEntity::ModSetBurning(bool burning)
     {
-        if (Detail::Health(*this) <= 0)
+        if ((*this).Health() <= 0)
         {
             return;
         }
 
-        const std::uint16_t timer = Detail::BurnTimer(*this);
+        const std::uint16_t timer = (*this)._burnTimer;
         if (burning)
         {
             if (timer == 0)
             {
-                Detail::SetBurnTimer(*this, 150 * 2);
-                Detail::CreateBurnEffect(*this);
+                ((*this)._burnTimer = 150 * 2);
+                (*this).CreateBurnEffect();
             }
             else if (timer < 2)
             {
-                Detail::SetBurnTimer(*this, 2);
+                ((*this)._burnTimer = 2);
             }
         }
         else if (timer > 1)
         {
-            Detail::SetBurnTimer(*this, 1);
+            ((*this)._burnTimer = 1);
         }
     }
 
     bool PlayerEntity::ModCanZoom() const
     {
-        return Detail::EquipWeaponPresent(*this)
-            && (Detail::EquipWeaponFlags(*this) & WeaponFlagCanZoom) != 0;
+        return ((*this).EquipInfo()->Weapon != nullptr)
+            && (static_cast<std::uint32_t>((*this).EquipInfo()->Weapon->Flags) & WeaponFlagCanZoom) != 0;
     }
 
     std::string PlayerEntity::ModFormState() const
     {
-        std::string form = Detail::IsAltForm(*this) ? "alt" : "biped";
-        if (Detail::IsMorphing(*this))
+        std::string form = (*this).IsAltForm() ? "alt" : "biped";
+        if ((*this).IsMorphing())
         {
             form += "+morphing";
         }
-        if (Detail::IsUnmorphing(*this))
+        if ((*this).IsUnmorphing())
         {
             form += "+unmorphing";
         }
 
         std::string result
-            = form + "/" + PlayerAnimationText(Detail::Biped2AnimValue(*this));
-        if ((Detail::Biped2FlagsBits(*this) & AnimFlagEnded) != 0)
+            = form + "/" + PlayerAnimationText(static_cast<std::int32_t>((*this).Biped2Anim()));
+        if ((static_cast<std::uint32_t>((*this).Biped2Flags()) & AnimFlagEnded) != 0)
         {
             result += "/ended";
         }
-        const std::uint16_t frozenTimer = Detail::FrozenTimer(*this);
+        const std::uint16_t frozenTimer = (*this)._frozenTimer;
         if (frozenTimer > 0)
         {
             result += "/frozen:" + std::to_string(frozenTimer);
         }
-        if (Detail::Health(*this) == 0)
+        if ((*this).Health() == 0)
         {
             result += "/dead";
         }
@@ -1074,58 +894,55 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModRepairVectors()
     {
-        const Vector3 facing = Detail::FacingVector(*this);
+        const Vector3 facing = (*this)._facingVector;
         if (Finite(facing))
         {
             _modLastGoodFacing = facing;
         }
         else
         {
-            Detail::SetFacingVector(*this, _modLastGoodFacing);
-            const std::int32_t slot = Detail::SlotIndex(*this);
+            (*this)._facingVector = _modLastGoodFacing;
+            const std::int32_t slot = (*this).SlotIndex();
             const std::string formState = ModFormState();
-            const Vector3 gunForText = Detail::GunVector(*this);
-            const std::string gunText = Detail::ManagedVector3Text(gunForText);
-            Detail::NetLogEvent(
-                "slot " + std::to_string(slot)
-                + " facing repaired, " + formState + ", gun=" + gunText);
+            const Vector3 gunForText = (*this)._gunVec1;
+            const std::string gunText = gunForText.ToString();
+            Mods::Network::NetLog::Event(("slot " + std::to_string(slot)
+                + " facing repaired, " + formState + ", gun=" + gunText));
         }
 
-        const Vector3 gun = Detail::GunVector(*this);
+        const Vector3 gun = (*this)._gunVec1;
         if (Finite(gun))
         {
             _modLastGoodGunVec = gun;
         }
         else
         {
-            Detail::SetGunVector(*this, _modLastGoodGunVec);
-            const std::int32_t slot = Detail::SlotIndex(*this);
-            Detail::NetLogEvent(
-                "slot " + std::to_string(slot) + " aim repaired");
+            ((*this)._gunVec1 = _modLastGoodGunVec);
+            const std::int32_t slot = (*this).SlotIndex();
+            Mods::Network::NetLog::Event(("slot " + std::to_string(slot) + " aim repaired"));
         }
 
-        const Vector3 positionForFinite = Detail::Position(*this);
+        const Vector3 positionForFinite = static_cast<Vector3>((*this).Position);
         if (Finite(positionForFinite))
         {
-            _modLastGoodPosition = Detail::Position(*this);
+            _modLastGoodPosition = static_cast<Vector3>((*this).Position);
         }
         else
         {
-            Detail::SetPosition(*this, _modLastGoodPosition);
-            const std::int32_t slot = Detail::SlotIndex(*this);
-            Detail::NetLogEvent(
-                "slot " + std::to_string(slot) + " position repaired");
+            ((*this).Position = _modLastGoodPosition);
+            const std::int32_t slot = (*this).SlotIndex();
+            Mods::Network::NetLog::Event(("slot " + std::to_string(slot) + " position repaired"));
         }
 
-        if (!Finite(Detail::Speed(*this)))
+        if (!Finite((*this).Speed()))
         {
-            Detail::SetSpeed(*this, OpenTK::Mathematics::Vector3::Zero);
+            (*this).SetSpeed(OpenTK::Mathematics::Vector3::Zero);
         }
-        if (!Finite(Detail::AimPosition(*this)))
+        if (!Finite((*this)._aimPosition))
         {
-            const Vector3 positionForAim = Detail::Position(*this);
-            const Vector3 gunForAim = Detail::GunVector(*this);
-            Detail::SetAimPosition(*this, positionForAim + gunForAim);
+            const Vector3 positionForAim = static_cast<Vector3>((*this).Position);
+            const Vector3 gunForAim = (*this)._gunVec1;
+            ((*this)._aimPosition = positionForAim + gunForAim);
         }
     }
 
@@ -1140,22 +957,22 @@ namespace MphRead::Entities
     {
         constexpr std::int32_t NoDmgInvuln = 1;
         constexpr std::int32_t Death = 4;
-        Detail::TakeDamage(*this, 1, Death | NoDmgInvuln, nullptr, nullptr);
+        (*this).TakeDamage(1, static_cast<DamageFlags>(Death | NoDmgInvuln), std::nullopt, nullptr);
     }
 
     std::pair<std::int32_t, float> PlayerEntity::ModScoreboardSize() const
     {
-        const std::int32_t rows = Detail::ActivePlayers();
-        const float height = Detail::ScoreboardHeight(*this);
+        const std::int32_t rows = GameState::ActivePlayers();
+        const float height = (*this).GetScoreboardHeight();
         return {rows, height};
     }
 
     bool PlayerEntity::ModCanBeHurt() const
     {
         for (std::int32_t i = 0;
-            i < Detail::BeamEffectivenessCount(*this); ++i)
+            i < static_cast<std::int32_t>((*this).BeamEffectiveness.size()); ++i)
         {
-            if (Detail::BeamEffectivenessValue(*this, i) != 0)
+            if (static_cast<std::int32_t>((*this).BeamEffectiveness[i]) != 0)
             {
                 return true;
             }
@@ -1166,72 +983,72 @@ namespace MphRead::Entities
     void PlayerEntity::ApplyModAim()
     {
         ApplyGamepadAim();
-        if (!Detail::NetSessionActive())
+        if (!Mods::Network::NetSession::Active())
         {
             return;
         }
 
-        const std::int32_t slotForLocal = Detail::SlotIndex(*this);
-        const std::int32_t localSlot = Detail::NetHooksLocalSlot();
+        const std::int32_t slotForLocal = (*this).SlotIndex();
+        const std::int32_t localSlot = Mods::Network::NetHooks::LocalSlot();
         if (slotForLocal == localSlot)
         {
-            if (Detail::NetTestScriptEnabled())
+            if (Mods::Network::NetTestScript::Enabled())
             {
-                const float deltaY = Detail::NetTestScriptAimDeltaY();
-                Detail::UpdateAimY(*this, deltaY);
-                const float deltaX = Detail::NetTestScriptAimDeltaX();
-                Detail::UpdateAimX(*this, deltaX);
+                const float deltaY = Mods::Network::NetTestScript::AimDeltaY();
+                (*this).UpdateAimY(deltaY);
+                const float deltaX = Mods::Network::NetTestScript::AimDeltaX();
+                (*this).UpdateAimX(deltaX);
             }
             return;
         }
-        const std::int32_t slotForValid = Detail::SlotIndex(*this);
-        if (!Detail::RemoteIntentValid(slotForValid))
+        const std::int32_t slotForValid = (*this).SlotIndex();
+        if (!Mods::Network::NetSession::RemoteIntentValid[slotForValid])
         {
             return;
         }
-        const std::int32_t slotForAim = Detail::SlotIndex(*this);
-        ModSetAim(Detail::RemoteIntentAim(slotForAim));
+        const std::int32_t slotForAim = (*this).SlotIndex();
+        ModSetAim(Mods::Network::NetSession::RemoteIntents[slotForAim].Aim);
     }
 
     void PlayerEntity::ApplyGamepadAim()
     {
-        if (Detail::IsBot(*this))
+        if ((*this).IsBot())
         {
             return;
         }
-        const std::int32_t slot = Detail::SlotIndex(*this);
-        const std::int32_t mainPlayerIndex = Detail::MainPlayerIndex();
+        const std::int32_t slot = (*this).SlotIndex();
+        const std::int32_t mainPlayerIndex = PlayerEntity::MainPlayerIndex();
         if (slot != mainPlayerIndex)
         {
             return;
         }
-        if (Detail::SpectatorModeIsSpectating())
+        if (Mods::SpectatorMode::IsSpectating())
         {
             return;
         }
-        const std::uint32_t flags1 = Detail::Flags1Bits(*this);
+        const std::uint32_t flags1 = static_cast<std::uint32_t>((*this).Flags1());
         if (HasFlag(flags1, PlayerFlagNoAimInput))
         {
             return;
         }
 
-        const float x = Detail::GamepadAimDeltaX();
-        const float y = Detail::GamepadAimDeltaY();
+        const float x = Mods::Input::GamepadInput::AimDeltaX();
+        const float y = Mods::Input::GamepadInput::AimDeltaY();
         if (x == 0.0F && y == 0.0F)
         {
             return;
         }
 
         ModNoteInput();
-        Detail::UpdateHudShiftY(*this, y);
-        Detail::UpdateHudShiftX(*this, x);
-        Detail::UpdateAimY(*this, y);
-        Detail::UpdateAimX(*this, x);
+        (*this).UpdateHudShiftY(y);
+        (*this).UpdateHudShiftX(x);
+        (*this).UpdateAimY(y);
+        (*this).UpdateAimX(x);
     }
 
     void PlayerEntity::ModNoteInput()
     {
-        Detail::SetInputHasInput(*this, true);
+        ((*this)._input.HasInput = true);
     }
 }
 
@@ -1239,7 +1056,7 @@ namespace MphRead::Mods::Network::Detail
 {
     [[nodiscard]] bool NetPlayerBridgeZoomed(Entities::PlayerEntity& player)
     {
-        return Entities::PlayerEntityNetAimDetail::EquipZoomed(player);
+        return player.EquipInfo()->Zoomed;
     }
 
     [[nodiscard]] OpenTK::Mathematics::Vector3 NetPlayerBridgeGunVector(
@@ -1322,7 +1139,7 @@ namespace MphRead::Mods::Network::Detail
 
     void NetPlayerBridgeSetEquipZoomed(Entities::PlayerEntity& player, bool zoomed)
     {
-        Entities::PlayerEntityNetAimDetail::SetEquipZoomed(player, zoomed);
+        player.EquipInfo()->Zoomed = zoomed;
     }
 
     void NetPlayerBridgeSetDisrupted(Entities::PlayerEntity& player, bool disrupted)

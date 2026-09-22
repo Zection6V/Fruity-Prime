@@ -42,26 +42,6 @@
 #include <dlfcn.h>
 #endif
 
-namespace System
-{
-    class IndexOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        IndexOutOfRangeException()
-            : std::out_of_range("Index was outside the bounds of the array.")
-        {
-        }
-    };
-
-    class InvalidOperationException final : public std::runtime_error
-    {
-    public:
-        InvalidOperationException()
-            : std::runtime_error("Sequence contains no elements")
-        {
-        }
-    };
-}
 
 namespace
 {
@@ -1248,7 +1228,7 @@ namespace
     {
         if (values.empty())
         {
-            throw System::InvalidOperationException();
+            throw System::InvalidOperationException("Sequence contains no elements");
         }
 
         double sum = static_cast<double>(

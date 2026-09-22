@@ -1,5 +1,7 @@
 #include "Types.hpp"
 
+#include "../NativeRuntime/System/Globalization.hpp"
+
 #include <bit>
 #include <charconv>
 #include <cmath>
@@ -185,7 +187,7 @@ namespace
         }
         if (overflow)
         {
-            throw System::OverflowException();
+            throw System::OverflowException("Value was either too large or too small for an Int32.");
         }
 
         return std::bit_cast<std::int32_t>(parsed);
@@ -305,6 +307,18 @@ namespace OpenTK::Mathematics
     {
         const float inverse = 1.0F / std::sqrt((X * X) + (Y * Y) + (Z * Z));
         return Vector3(X * inverse, Y * inverse, Z * inverse);
+    }
+
+    std::string Vector3::ToString() const
+    {
+        // MathHelper.GetListSeparator: a comma, unless the culture already
+        // spells a decimal point that way.
+        const std::string decimalSeparator = MphRead::NativeRuntime::CurrentDecimalSeparator();
+        const char listSeparator
+            = (!decimalSeparator.empty() && decimalSeparator.front() == ',') ? ';' : ',';
+        return "(" + MphRead::NativeRuntime::SingleToString(X) + listSeparator + " "
+            + MphRead::NativeRuntime::SingleToString(Y) + listSeparator + " "
+            + MphRead::NativeRuntime::SingleToString(Z) + ")";
     }
 
     Vector3 Vector3::Cross(Vector3 left, Vector3 right) noexcept

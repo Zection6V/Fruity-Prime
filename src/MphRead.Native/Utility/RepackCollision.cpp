@@ -34,17 +34,6 @@
 #define REPACK_COLLISION_DEBUG_ASSERT(condition) do { } while (false)
 #endif
 
-namespace System
-{
-    class InvalidOperationException final : public std::logic_error
-    {
-    public:
-        explicit InvalidOperationException(const std::string& message)
-            : std::logic_error(message)
-        {
-        }
-    };
-}
 
 namespace
 {

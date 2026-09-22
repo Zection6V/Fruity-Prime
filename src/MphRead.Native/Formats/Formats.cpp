@@ -1,5 +1,7 @@
 #include "Formats.hpp"
 
+#include "../NativeRuntime/System/Enum.hpp"
+
 #include "../Metadata/Metadata.hpp"
 #include "../Program.hpp"
 #include "../Strings.hpp"
@@ -2144,5 +2146,36 @@ namespace MphRead
     {
         throw std::out_of_range(
             "Index was outside the bounds of the span.");
+    }
+}
+
+namespace MphRead
+{
+    namespace
+    {
+        // Formats.cs GameMode : byte
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry GameModeNames[] = {
+            {0x0ULL, "None"},
+            {0x2ULL, "SinglePlayer"},
+            {0x3ULL, "Battle"},
+            {0x4ULL, "BattleTeams"},
+            {0x5ULL, "Survival"},
+            {0x6ULL, "SurvivalTeams"},
+            {0x7ULL, "Capture"},
+            {0x8ULL, "Bounty"},
+            {0x9ULL, "BountyTeams"},
+            {0xAULL, "Nodes"},
+            {0xBULL, "NodesTeams"},
+            {0xCULL, "Defender"},
+            {0xDULL, "DefenderTeams"},
+            {0xEULL, "PrimeHunter"},
+            {0xFULL, "Unknown15"},
+        };
+    }
+
+    std::string ToString(GameMode value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, GameModeNames, std::size(GameModeNames), false);
     }
 }

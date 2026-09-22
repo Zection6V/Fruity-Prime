@@ -200,7 +200,7 @@ namespace MphRead::Mods::Network
             _frame += delta;
             return DemoRecord(_frame, std::move(data));
         }
-        catch (const InvalidDataException&)
+        catch (const System::IO::InvalidDataException&)
         {
             return std::nullopt;
         }

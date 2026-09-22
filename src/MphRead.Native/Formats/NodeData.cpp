@@ -1,5 +1,9 @@
 #include "NodeData.hpp"
 
+#include "../NativeRuntime/System/Globalization.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
+
 #include "Formats.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
@@ -11,18 +15,6 @@
 #include <unordered_set>
 #include <utility>
 
-namespace MphRead::NativeRuntime
-{
-    [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path);
-    void DirectoryEnumerateFiles(
-        const std::string& path,
-        const std::function<void(const std::string&)>& visitor);
-    [[nodiscard]] std::string PathGetFileName(const std::string& path);
-    [[nodiscard]] bool StringEndsWithCurrentCulture(
-        const std::string& value, const std::string& suffix);
-    [[noreturn]] void ThrowListIndexOutOfRange();
-    void DebugAssert(bool condition);
-}
 
 namespace
 {

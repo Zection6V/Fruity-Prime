@@ -7,25 +7,11 @@
 #include <memory>
 #include <new>
 #include <span>
+#include "../NativeRuntime/System/Array.hpp"
+
 #include <string>
 #include <type_traits>
 #include <vector>
-
-namespace MphRead::NativeRuntime
-{
-    class ManagedBoolArray;
-
-    [[nodiscard]] std::shared_ptr<ManagedBoolArray> CreateManagedBoolArray(
-        std::int32_t length);
-    [[nodiscard]] std::int32_t ManagedBoolArrayLength(
-        const std::shared_ptr<const ManagedBoolArray>& array);
-    [[nodiscard]] bool ManagedBoolArrayGet(
-        const std::shared_ptr<const ManagedBoolArray>& array, std::int32_t index);
-    void ManagedBoolArraySet(
-        const std::shared_ptr<ManagedBoolArray>& array,
-        std::int32_t index,
-        bool value);
-}
 
 namespace MphRead::Formats
 {

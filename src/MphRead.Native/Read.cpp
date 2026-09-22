@@ -1,5 +1,7 @@
 #include "Read.hpp"
 
+#include "NativeRuntime/System/IO.hpp"
+
 #include "Export/Collada.hpp"
 #include "Formats/EntityEnemy.hpp"
 #include "Metadata/Rooms.hpp"
@@ -238,31 +240,6 @@ namespace
         return empty;
     }
 
-    [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(path, std::ios::binary | std::ios::ate);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file: " + path);
-        }
-        const std::streampos end = stream.tellg();
-        if (end < 0)
-        {
-            throw std::ios_base::failure("Could not determine file length: " + path);
-        }
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-        stream.seekg(0, std::ios::beg);
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not read file: " + path);
-            }
-        }
-        return bytes;
-    }
-
     [[nodiscard]] std::string MetaDirString(MetaDir dir)
     {
         static constexpr std::array<std::string_view, 24> names = {
@@ -392,7 +369,7 @@ namespace
     {
         if (index < 0 || static_cast<std::uint64_t>(index) >= bytes.size())
         {
-            throw IndexOutOfRangeException();
+            throw System::IndexOutOfRangeException();
         }
         return bytes[static_cast<std::size_t>(index)];
     }
@@ -620,7 +597,7 @@ namespace MphRead
         const std::int32_t outputCount = UncheckedMultiply(count, 128) / 4;
         if (outputCount < 0)
         {
-            throw OverflowException();
+            throw System::OverflowException();
         }
         std::vector<std::uint32_t> output(static_cast<std::size_t>(outputCount));
         static constexpr std::array<std::int32_t, 8> table = {128, 64, 32, 16, 8, 4, 2, 1};
@@ -652,7 +629,7 @@ namespace MphRead
             static_cast<std::int32_t>(output.size()), 4);
         if (resultLength < 0)
         {
-            throw OverflowException();
+            throw System::OverflowException();
         }
         std::vector<std::uint8_t> result(static_cast<std::size_t>(resultLength));
         for (std::int32_t i = 0; i < resultLength; i = UncheckedAdd(i, 4))
@@ -991,7 +968,7 @@ namespace MphRead
         }
         const std::string path = Paths::Combine(
             firstHunt ? Paths::FhFileSystem() : Paths::FileSystem(), *inputPath);
-        const std::vector<std::uint8_t> storage = FileReadAllBytes(path);
+        const std::vector<std::uint8_t> storage = MphRead::NativeRuntime::FileReadAllBytes(path);
         const std::span<const std::uint8_t> bytes(storage);
         const AnimationHeader header = ReadStruct<AnimationHeader>(bytes);
         const auto nodeOffsets = DoOffsets<std::uint32_t>(bytes, header.NodeGroupOffset, header.Count);
@@ -1217,7 +1194,7 @@ namespace MphRead
 
     std::vector<std::uint8_t> Read::ReadBytes(const std::string& path, bool firstHunt)
     {
-        return FileReadAllBytes(Paths::Combine(
+        return MphRead::NativeRuntime::FileReadAllBytes(Paths::Combine(
             firstHunt ? Paths::FhFileSystem() : Paths::FileSystem(), path));
     }
 
@@ -1514,7 +1491,7 @@ namespace MphRead
                 return iterator->second;
             }
         }
-        const std::vector<std::uint8_t> storage = FileReadAllBytes(
+        const std::vector<std::uint8_t> storage = MphRead::NativeRuntime::FileReadAllBytes(
             Paths::Combine(Paths::FileSystem(), path));
         const std::span<const std::uint8_t> bytes(storage);
         const RawEffect rawEffect = ReadStruct<RawEffect>(bytes);
@@ -1939,7 +1916,7 @@ namespace MphRead
             std::int32_t filesWritten = 0;
             std::filesystem::create_directories(outputPath);
             std::cout << "Reading " << name << "...";
-            const std::vector<std::uint8_t> bytes = FileReadAllBytes(path);
+            const std::vector<std::uint8_t> bytes = MphRead::NativeRuntime::FileReadAllBytes(path);
             const std::string magic = AsciiDecode(ReadDetail::Slice(bytes, 0, 8));
             if (magic == Archive::Archiver::MagicString())
             {

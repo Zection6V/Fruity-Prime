@@ -1079,6 +1079,9 @@ namespace MphRead
         Unknown15 = 15
     };
 
+    // GameMode.ToString().
+    [[nodiscard]] std::string ToString(GameMode value);
+
     enum class MatAnimFlags : std::uint8_t
     {
         None = 0x0,

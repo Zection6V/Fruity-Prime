@@ -1,4 +1,6 @@
 #include "AiPersonality.hpp"
+
+#include "../NativeRuntime/System/IO.hpp"
 #include "Formats.hpp"
 
 #include "../Entities/Players/PlayerAi.hpp"
@@ -31,31 +33,6 @@ namespace
     using Data1List = std::vector<std::shared_ptr<AiPersonalityData1>>;
     using Data2List = std::vector<std::shared_ptr<AiPersonalityData2>>;
     using Data4List = std::vector<std::shared_ptr<AiPersonalityData4>>;
-
-    [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(path, std::ios::binary | std::ios::ate);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file: " + path);
-        }
-        const std::streampos end = stream.tellg();
-        if (end < 0)
-        {
-            throw std::ios_base::failure("Could not determine file length: " + path);
-        }
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-        stream.seekg(0, std::ios::beg);
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not read file: " + path);
-            }
-        }
-        return bytes;
-    }
 
     void DictionaryAdd(std::unordered_map<std::int32_t, Data1List>& values,
         std::int32_t key, Data1List value)
@@ -245,7 +222,7 @@ namespace MphRead::Formats
         }
         if (!_aiPersonalityData.has_value())
         {
-            _aiPersonalityData = FileReadAllBytes(Paths::Combine(
+            _aiPersonalityData = MphRead::NativeRuntime::FileReadAllBytes(Paths::Combine(
                 Paths::FileSystem(), "aiPersonalityData\\aiPersonalityData.bin"));
         }
 
@@ -432,7 +409,7 @@ namespace MphRead::Formats
 
     void AiPersonality::TestRead()
     {
-        const std::vector<std::uint8_t> storage = FileReadAllBytes(Paths::Combine(
+        const std::vector<std::uint8_t> storage = MphRead::NativeRuntime::FileReadAllBytes(Paths::Combine(
             Paths::FileSystem(), "aiPersonalityData\\aiPersonalityData.bin"));
         const std::span<const std::uint8_t> bytes(storage);
         (void)bytes;

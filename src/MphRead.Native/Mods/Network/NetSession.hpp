@@ -24,6 +24,9 @@ namespace MphRead::Mods::Network
         Server = 3
     };
 
+    // NetRole.ToString().
+    [[nodiscard]] std::string ToString(NetRole value);
+
     using SnapshotSink = std::function<void(std::span<const std::uint8_t>)>;
 
     class RemotePeer final

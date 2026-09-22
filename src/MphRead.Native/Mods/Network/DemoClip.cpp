@@ -1,6 +1,12 @@
 #include "DemoClip.hpp"
 
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/DateTime.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 #include "../../Read.hpp"
+#include "DemoPlayback.hpp"
+#include "NetSession.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -31,8 +37,8 @@ namespace MphRead::Mods::Network
     bool DemoClip::Active()
     {
         return _seconds > 0
-            && Detail::DemoClipNetSessionActive()
-            && !Detail::DemoClipPlaybackIsActive();
+            && NetSession::Active()
+            && !DemoPlayback::IsActive();
     }
 
     double DemoClip::Held()
@@ -49,7 +55,7 @@ namespace MphRead::Mods::Network
             break;
         }
 
-        const std::uint32_t age = Detail::DemoClipNetSessionNetFrame() - first;
+        const std::uint32_t age = NetSession::NetFrame() - first;
         return std::max(0.0, static_cast<double>(age) / 60.0);
     }
 
@@ -64,7 +70,7 @@ namespace MphRead::Mods::Network
 
         // C# evaluates constructor arguments from left to right: capture the
         // frame before materializing data.ToArray().
-        const std::uint32_t frame = Detail::DemoClipNetSessionNetFrame();
+        const std::uint32_t frame = NetSession::NetFrame();
         auto copy = std::make_shared<std::vector<std::uint8_t>>(data.begin(), data.end());
         _records.emplace_back(frame, std::move(copy));
         _bytes += static_cast<std::int64_t>(data.size());
@@ -79,7 +85,7 @@ namespace MphRead::Mods::Network
         // result without invoking signed-overflow UB in C++.
         const std::uint32_t window
             = static_cast<std::uint32_t>(_seconds) * std::uint32_t{60} + Slack;
-        const std::uint32_t now = Detail::DemoClipNetSessionNetFrame();
+        const std::uint32_t now = NetSession::NetFrame();
 
         while (!_records.empty())
         {
@@ -108,17 +114,19 @@ namespace MphRead::Mods::Network
             return std::nullopt;
         }
 
-        const std::optional<std::string> roomKey = Detail::DemoClipServerMatchRoomKey();
+        const std::optional<std::string> roomKey = (NetSession::ServerMatch().has_value()
+            ? std::optional<std::string>(NetSession::ServerMatch()->RoomKey)
+            : std::nullopt);
         std::string room = roomKey.has_value() ? *roomKey : "match";
 
-        for (char bad : Detail::DemoClipGetInvalidFileNameChars())
+        for (char bad : NativeRuntime::PathGetInvalidFileNameChars())
         {
             std::replace(room.begin(), room.end(), bad, '_');
         }
         std::replace(room.begin(), room.end(), ' ', '_');
 
         const std::string stamp = room + "_clip_"
-            + Detail::DemoClipFormatCurrentLocalNow("yyyy-MM-dd_HH-mm-ss");
+            + NativeRuntime::DateTimeToString(NativeRuntime::DateTimeNow(), "yyyy-MM-dd_HH-mm-ss");
 
         // Keep C# argument evaluation order explicit: Paths.Export is read
         // before the third Paths.Combine argument is built.
@@ -126,11 +134,11 @@ namespace MphRead::Mods::Network
         const std::string fileName = stamp + std::string(DemoFile::Extension);
         std::string path = Paths::Combine(exportPath, "_demos", fileName);
 
-        for (std::int32_t i = 2; Detail::DemoClipFileExists(path) && i < 1000; ++i)
+        for (std::int32_t i = 2; NativeRuntime::FileExists(path) && i < 1000; ++i)
         {
             const std::string& nextExportPath = Paths::Export();
             const std::string nextFileName
-                = stamp + "_" + Detail::DemoClipFormatCurrentCultureInt32(i)
+                = stamp + "_" + NativeRuntime::Int32ToString(i)
                 + std::string(DemoFile::Extension);
             path = Paths::Combine(nextExportPath, "_demos", nextFileName);
         }
@@ -167,7 +175,7 @@ namespace MphRead::Mods::Network
         }
         catch (const std::ios_base::failure& ex)
         {
-            Detail::DemoClipConsoleWriteLine(
+            NativeRuntime::ConsoleWriteLine(
                 std::string("[demo] could not save the clip: ") + ex.what());
             return std::nullopt;
         }

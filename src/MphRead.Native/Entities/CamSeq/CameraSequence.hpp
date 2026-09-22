@@ -13,39 +13,6 @@
 #include <utility>
 #include <vector>
 
-namespace System
-{
-    class OperationCanceledException final : public std::runtime_error
-    {
-    public:
-        OperationCanceledException()
-            : std::runtime_error("The operation was canceled.")
-        {
-        }
-    };
-
-    class OutOfMemoryException final : public std::runtime_error
-    {
-    public:
-        OutOfMemoryException()
-            : std::runtime_error(
-                "Insufficient memory to continue the execution of the program.")
-        {
-        }
-    };
-
-    namespace IO
-    {
-        class EndOfStreamException final : public IOException
-        {
-        public:
-            EndOfStreamException()
-                : IOException("Unable to read beyond the end of the stream.")
-            {
-            }
-        };
-    }
-}
 
 namespace OpenTK::Mathematics
 {

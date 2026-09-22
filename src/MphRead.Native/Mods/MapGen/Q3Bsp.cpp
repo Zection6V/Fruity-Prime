@@ -31,27 +31,6 @@
 #include <dlfcn.h>
 #endif
 
-namespace System::IO
-{
-    class EndOfStreamException final : public std::runtime_error
-    {
-    public:
-        EndOfStreamException()
-            : std::runtime_error("Unable to read beyond the end of the stream.")
-        {
-        }
-    };
-
-    class InvalidDataException final : public std::runtime_error
-    {
-    public:
-        explicit InvalidDataException(const std::string& message)
-            : std::runtime_error(message)
-        {
-        }
-    };
-}
-
 namespace
 {
     using ByteVector = std::vector<std::uint8_t>;

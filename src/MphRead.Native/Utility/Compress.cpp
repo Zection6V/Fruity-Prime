@@ -19,9 +19,9 @@
 
 namespace
 {
-    using MphRead::EndOfStreamException;
-    using MphRead::IndexOutOfRangeException;
-    using MphRead::OverflowException;
+    using System::IO::EndOfStreamException;
+    using System::IndexOutOfRangeException;
+    using System::OverflowException;
 
     std::vector<std::uint8_t> NewByteArray(std::int64_t length)
     {
@@ -208,26 +208,6 @@ namespace
 
 namespace MphRead
 {
-    EndOfStreamException::EndOfStreamException()
-        : std::runtime_error("Unable to read beyond the end of the stream.")
-    {
-    }
-
-    InvalidDataException::InvalidDataException(const std::string& message)
-        : std::runtime_error(message)
-    {
-    }
-
-    IndexOutOfRangeException::IndexOutOfRangeException()
-        : std::out_of_range("Index was outside the bounds of the array.")
-    {
-    }
-
-    OverflowException::OverflowException()
-        : std::overflow_error("Arithmetic operation resulted in an overflow.")
-    {
-    }
-
     std::int32_t LZUtil::GetOccurrenceLength(std::uint8_t* newPtr, std::int32_t newLength,
         std::uint8_t* oldPtr, std::int32_t oldLength, std::int32_t& disp, std::int32_t minDisp)
     {
@@ -295,7 +275,7 @@ namespace MphRead
         const std::uint8_t type = static_cast<std::uint8_t>(ReadByte(instream));
         if (type != MagicByte())
         {
-            throw InvalidDataException(
+            throw System::IO::InvalidDataException(
                 "The provided stream is not a valid LZ-0x10 compressed stream (invalid type 0x"
                 + Hex(static_cast<std::int32_t>(type)) + ")");
         }
@@ -375,7 +355,7 @@ namespace MphRead
 
                 if (disp > currentOutSize)
                 {
-                    throw InvalidDataException(
+                    throw System::IO::InvalidDataException(
                         "Cannot go back more than already written. DISP = 0x"
                         + Hex(disp) + ", #written bytes = 0x" + Hex(currentOutSize)
                         + " at 0x" + Hex(Position(instream) - 2));
@@ -674,7 +654,7 @@ namespace MphRead
                 {
                     if (currentOutSize < 2)
                     {
-                        throw InvalidDataException(
+                        throw System::IO::InvalidDataException(
                             "Cannot go back more than already written; attempt to go back 0x"
                             + Hex(disp) + " when only 0x" + Hex(currentOutSize)
                             + " bytes have been written.");

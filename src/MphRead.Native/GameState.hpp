@@ -28,6 +28,9 @@ namespace MphRead
         Disconnected = 3
     };
 
+    // MatchState.ToString().
+    [[nodiscard]] std::string ToString(MatchState value);
+
     enum class TransitionState : std::int32_t
     {
         None = 0,

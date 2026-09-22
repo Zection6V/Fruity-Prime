@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Enums.hpp"
+#include "../NativeRuntime/System/Exceptions.hpp"
 
 #include <any>
 #include <cstddef>
@@ -14,134 +15,6 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-
-namespace System
-{
-    class ArgumentException final : public std::invalid_argument
-    {
-    public:
-        ArgumentException()
-            : std::invalid_argument("Value does not fall within the expected range.")
-        {
-        }
-
-        explicit ArgumentException(std::string_view message)
-            : std::invalid_argument(std::string(message))
-        {
-        }
-    };
-
-    class ArgumentOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        ArgumentOutOfRangeException()
-            : std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size "
-                "of the collection. (Parameter 'index')")
-        {
-        }
-
-        explicit ArgumentOutOfRangeException(std::string_view paramName)
-            : std::out_of_range("Specified argument was out of the range of valid values. (Parameter '"
-                + std::string(paramName) + "')")
-        {
-        }
-    };
-
-    class ArgumentNullException final : public std::invalid_argument
-    {
-    public:
-        explicit ArgumentNullException(std::string_view paramName)
-            : std::invalid_argument(
-                "Value cannot be null. (Parameter '" + std::string(paramName) + "')")
-        {
-        }
-    };
-
-    class FormatException final : public std::invalid_argument
-    {
-    public:
-        FormatException()
-            : std::invalid_argument("Input string was not in a correct format.")
-        {
-        }
-    };
-
-    class OverflowException final : public std::overflow_error
-    {
-    public:
-        OverflowException()
-            : std::overflow_error("Value was either too large or too small for an Int32.")
-        {
-        }
-    };
-
-    class UnauthorizedAccessException final : public std::runtime_error
-    {
-    public:
-        explicit UnauthorizedAccessException(std::string message)
-            : std::runtime_error(std::move(message))
-        {
-        }
-    };
-
-    namespace IO
-    {
-        class IOException : public std::runtime_error
-        {
-        public:
-            explicit IOException(std::string message)
-                : std::runtime_error(std::move(message))
-            {
-            }
-        };
-
-        class FileNotFoundException final : public IOException
-        {
-        public:
-            explicit FileNotFoundException(std::string message)
-                : IOException(std::move(message))
-            {
-            }
-        };
-
-        class DirectoryNotFoundException final : public IOException
-        {
-        public:
-            explicit DirectoryNotFoundException(std::string message)
-                : IOException(std::move(message))
-            {
-            }
-        };
-
-        class PathTooLongException final : public IOException
-        {
-        public:
-            explicit PathTooLongException(std::string message)
-                : IOException(std::move(message))
-            {
-            }
-        };
-    }
-
-    class NotImplementedException final : public std::logic_error
-    {
-    public:
-        NotImplementedException()
-            : std::logic_error("The method or operation is not implemented.")
-        {
-        }
-    };
-
-    class NullReferenceException final : public std::runtime_error
-    {
-    public:
-        NullReferenceException()
-            : std::runtime_error("Object reference not set to an instance of an object.")
-        {
-        }
-    };
-}
 
 namespace MphRead::NativeRuntime
 {
@@ -182,6 +55,7 @@ namespace OpenTK::Mathematics
         }
 
         [[nodiscard]] Vector3 Normalized() const;
+        [[nodiscard]] std::string ToString() const;
         [[nodiscard]] static Vector3 Cross(Vector3 left, Vector3 right) noexcept;
         [[nodiscard]] static float Dot(Vector3 left, Vector3 right) noexcept;
         [[nodiscard]] static float Distance(Vector3 left, Vector3 right);

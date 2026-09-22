@@ -45,17 +45,6 @@ namespace MphRead::Mods::MapGen::MapTextureBakeInterop
     [[nodiscard]] DecodedImage LoadRgb(std::span<const std::uint8_t> bytes);
 }
 
-namespace System
-{
-    class IndexOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        IndexOutOfRangeException()
-            : std::out_of_range("Index was outside the bounds of the array.")
-        {
-        }
-    };
-}
 
 namespace
 {

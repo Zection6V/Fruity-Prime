@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../NativeRuntime/System/Exceptions.hpp"
+
 #include <cstdint>
 #include <iosfwd>
 #include <stdexcept>
@@ -8,29 +10,6 @@
 
 namespace MphRead
 {
-    class EndOfStreamException final : public std::runtime_error
-    {
-    public:
-        EndOfStreamException();
-    };
-
-    class InvalidDataException final : public std::runtime_error
-    {
-    public:
-        explicit InvalidDataException(const std::string& message);
-    };
-
-    class IndexOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        IndexOutOfRangeException();
-    };
-
-    class OverflowException final : public std::overflow_error
-    {
-    public:
-        OverflowException();
-    };
 
     class LZUtil final
     {

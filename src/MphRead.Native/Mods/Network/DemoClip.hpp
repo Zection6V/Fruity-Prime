@@ -13,24 +13,6 @@
 
 namespace MphRead::Mods::Network
 {
-    namespace Detail
-    {
-        // Pair-local runtime closure for dependencies whose C# owners have not
-        // reached Native yet, plus the System.IO/System.DateTime/System.Console
-        // operations whose managed semantics are observable in DemoClip.cs.
-        // These are mechanical adapters only; they must not add policy.
-        [[nodiscard]] bool DemoClipNetSessionActive();
-        [[nodiscard]] std::uint32_t DemoClipNetSessionNetFrame();
-        [[nodiscard]] bool DemoClipPlaybackIsActive();
-        [[nodiscard]] std::optional<std::string> DemoClipServerMatchRoomKey();
-
-        [[nodiscard]] std::vector<char> DemoClipGetInvalidFileNameChars();
-        [[nodiscard]] std::string DemoClipFormatCurrentLocalNow(std::string_view format);
-        [[nodiscard]] bool DemoClipFileExists(const std::string& path);
-        [[nodiscard]] std::string DemoClipFormatCurrentCultureInt32(std::int32_t value);
-        void DemoClipConsoleWriteLine(const std::string& value);
-    }
-
     // C# internal static class DemoClip.
     class DemoClip final
     {

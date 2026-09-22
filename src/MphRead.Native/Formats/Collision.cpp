@@ -1,5 +1,7 @@
 #include "Collision.hpp"
 
+#include "../NativeRuntime/System/IO.hpp"
+
 #include "../Metadata/Metadata.hpp"
 
 #include "../Read.hpp"
@@ -37,30 +39,6 @@
 namespace
 {
     // File.ReadAllBytes: the whole file, or an exception when it cannot be read.
-    [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(path, std::ios::binary | std::ios::ate);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file: " + path);
-        }
-        const std::streampos end = stream.tellg();
-        if (end < 0)
-        {
-            throw std::ios_base::failure("Could not determine file length: " + path);
-        }
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-        stream.seekg(0, std::ios::beg);
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not read file: " + path);
-            }
-        }
-        return bytes;
-    }
 }
 
 namespace MphRead::Formats::Collision
@@ -1595,7 +1573,7 @@ namespace MphRead::Formats::Collision
                 *path);
 
         const std::vector<std::uint8_t> storage
-            = FileReadAllBytes(
+            = MphRead::NativeRuntime::FileReadAllBytes(
                 fullPath);
 
         const std::span<const std::uint8_t> bytes(

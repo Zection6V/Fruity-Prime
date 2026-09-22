@@ -1,5 +1,7 @@
 #include "GameState.hpp"
 
+#include "NativeRuntime/System/Enum.hpp"
+
 #include "Features.hpp"
 #include "Messaging.hpp"
 #include "Scene.hpp"
@@ -2901,5 +2903,25 @@ namespace MphRead::Mods::Network::Detail
     double DedicatedServerMatchEndingSeconds()
     {
         return static_cast<double>(GameState::MatchEndingSeconds);
+    }
+}
+
+namespace MphRead
+{
+    namespace
+    {
+        // GameState.cs MatchState : int
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry MatchStateNames[] = {
+            {0x0ULL, "InProgress"},
+            {0x1ULL, "GameOver"},
+            {0x2ULL, "Ending"},
+            {0x3ULL, "Disconnected"},
+        };
+    }
+
+    std::string ToString(MatchState value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, MatchStateNames, std::size(MatchStateNames), false);
     }
 }

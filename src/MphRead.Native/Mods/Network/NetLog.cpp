@@ -3,7 +3,9 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Culling.hpp"
 #include "../../Scene.hpp"
+#include "../../GameState.hpp"
 #include "NetProtocol.hpp"
+#include "NetSession.hpp"
 
 #include <array>
 #include <cerrno>
@@ -43,28 +45,6 @@
 #include <langinfo.h>
 #include <locale.h>
 #endif
-
-namespace MphRead::Mods::Network::Detail
-{
-    [[nodiscard]] std::string NetLogRoleText();
-    [[nodiscard]] std::int32_t NetLogLocalSlot();
-    [[nodiscard]] bool NetLogIsAuthority();
-    [[nodiscard]] std::string NetLogGameModeText();
-    [[nodiscard]] float NetLogGameMatchTime();
-    [[nodiscard]] std::string NetLogGameMatchStateText();
-    [[nodiscard]] std::int32_t NetLogGamePointGoal();
-    [[nodiscard]] std::optional<MatchStatePacket> NetLogServerMatch();
-    [[nodiscard]] std::int32_t NetLogSlotOccupiedLength();
-    [[nodiscard]] bool NetLogSlotOccupied(std::int32_t slot);
-    [[nodiscard]] std::optional<std::string> NetLogNickname(std::int32_t slot);
-    [[nodiscard]] std::int32_t NetLogPoints(std::int32_t slot);
-    [[nodiscard]] std::int32_t NetLogTeamPoints(std::int32_t slot);
-    [[nodiscard]] std::int32_t NetLogKills(std::int32_t slot);
-    [[nodiscard]] std::int32_t NetLogDeaths(std::int32_t slot);
-    [[nodiscard]] std::string NetLogModFormState(Entities::PlayerEntity& player);
-    [[nodiscard]] bool NetLogRemoteStateValid(std::int32_t slot);
-    [[nodiscard]] bool NetLogRemoteIntentValid(std::int32_t slot);
-}
 
 namespace
 {
@@ -664,24 +644,24 @@ namespace MphRead::Mods::Network
         state += "[";
         state += NowWithMilliseconds();
         state += "] STATE  role=";
-        state += Detail::NetLogRoleText();
+        state += ToString(NetSession::Role());
         state += " slot=";
-        state += Int32Text(Detail::NetLogLocalSlot());
+        state += Int32Text(NetSession::LocalSlot());
         state += " authority=";
-        state += Detail::NetLogIsAuthority() ? "True" : "False";
+        state += NetSession::IsAuthority() ? "True" : "False";
         state += " main=";
         state += Int32Text(Entities::PlayerEntity::MainPlayerIndex());
         state += " mode=";
-        state += Detail::NetLogGameModeText();
+        state += ::MphRead::ToString(GameState::Mode());
         state += " matchTime=";
-        state += FixedText(Detail::NetLogGameMatchTime(), 1);
+        state += FixedText(GameState::MatchTime(), 1);
         state += " matchState=";
-        state += Detail::NetLogGameMatchStateText();
+        state += ::MphRead::ToString(GameState::MatchState());
         state += " goal=";
-        state += Int32Text(Detail::NetLogGamePointGoal());
+        state += Int32Text(GameState::PointGoal());
         state += " ";
 
-        const std::optional<MatchStatePacket> match = Detail::NetLogServerMatch();
+        const std::optional<MatchStatePacket> match = NetSession::ServerMatch();
         if (match.has_value())
         {
             state += "serverTime=";
@@ -705,8 +685,8 @@ namespace MphRead::Mods::Network
             }
             const bool active = HasFlag(
                 player->LoadFlags(), Entities::LoadFlags::Active);
-            const bool occupied = slot < Detail::NetLogSlotOccupiedLength()
-                && Detail::NetLogSlotOccupied(slot);
+            const bool occupied = slot < static_cast<std::int32_t>(NetSession::SlotOccupied.size())
+                && NetSession::SlotOccupied[slot];
             if (!active && !occupied)
             {
                 continue;
@@ -716,7 +696,7 @@ namespace MphRead::Mods::Network
             line += "           slot ";
             line += Int32Text(slot);
             line += ": name=";
-            line += AlignLeft(NullableText(Detail::NetLogNickname(slot)), 10);
+            line += AlignLeft(GameState::Nicknames()[slot], 10);
             line += " occupied=";
             line += occupied ? "y" : "n";
             line += " active=";
@@ -728,13 +708,13 @@ namespace MphRead::Mods::Network
             line += " hp=";
             line += AlignLeft(Int32Text(player->Health()), 3);
             line += " score=";
-            line += Int32Text(Detail::NetLogPoints(slot));
+            line += Int32Text(GameState::Points()[slot]);
             line += "/";
-            line += Int32Text(Detail::NetLogTeamPoints(slot));
+            line += Int32Text(GameState::TeamPoints()[slot]);
             line += "p ";
-            line += Int32Text(Detail::NetLogKills(slot));
+            line += Int32Text(GameState::Kills()[slot]);
             line += "k";
-            line += Int32Text(Detail::NetLogDeaths(slot));
+            line += Int32Text(GameState::Deaths()[slot]);
             line += "d respawnTimer=";
             line += AlignLeft(UInt16Text(player->RespawnTimer()), 5);
             line += " pos=(";
@@ -744,15 +724,15 @@ namespace MphRead::Mods::Network
             line += ",";
             line += FixedText(player->Position.Z, 2);
             line += ") form=";
-            line += AlignLeft(Detail::NetLogModFormState(*player), 24);
+            line += AlignLeft(player->ModFormState(), 24);
             line += " nodeRef=";
             line += DescribeNodeRef(*player);
             line += " inScene=";
             line += InScene(scene, *player) ? "y" : "n";
             line += " stateValid=";
-            line += Detail::NetLogRemoteStateValid(slot) ? "y" : "n";
+            line += NetSession::RemoteStateValid[slot] ? "y" : "n";
             line += " intentValid=";
-            line += Detail::NetLogRemoteIntentValid(slot) ? "y" : "n";
+            line += NetSession::RemoteIntentValid[slot] ? "y" : "n";
             Line(line);
         }
     }

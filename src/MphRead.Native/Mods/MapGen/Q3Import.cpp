@@ -31,26 +31,6 @@
 #include <utility>
 #include <vector>
 
-namespace System
-{
-    class IndexOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        IndexOutOfRangeException()
-            : std::out_of_range("Index was outside the bounds of the array.")
-        {
-        }
-    };
-
-    class InvalidOperationException final : public std::runtime_error
-    {
-    public:
-        InvalidOperationException()
-            : std::runtime_error("Sequence contains no elements")
-        {
-        }
-    };
-}
 
 namespace
 {
@@ -1700,7 +1680,7 @@ namespace MphRead::Mods::MapGen
     {
         if (uvs.empty())
         {
-            throw System::InvalidOperationException();
+            throw System::InvalidOperationException("Sequence contains no elements");
         }
 
         float minU = uvs.front().X;

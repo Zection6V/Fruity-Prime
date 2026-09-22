@@ -31,41 +31,9 @@
 
 namespace System
 {
-    class IndexOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        IndexOutOfRangeException()
-            : std::out_of_range("Index was outside the bounds of the array.")
-        {
-        }
-    };
 
-    class EndOfStreamException final : public std::runtime_error
-    {
-    public:
-        EndOfStreamException()
-            : std::runtime_error("Unable to read beyond the end of the stream.")
-        {
-        }
-    };
 
-    class DivideByZeroException final : public std::runtime_error
-    {
-    public:
-        DivideByZeroException()
-            : std::runtime_error("Attempted to divide by zero.")
-        {
-        }
-    };
 
-    class ObjectDisposedException final : public std::runtime_error
-    {
-    public:
-        explicit ObjectDisposedException(std::string_view objectName)
-            : std::runtime_error("Cannot access a closed " + std::string(objectName) + ".")
-        {
-        }
-    };
 
     class Decimal;
 
@@ -173,8 +141,8 @@ private: \
     static constexpr std::int32_t _frameHeight = 192; \
     std::int32_t _topMovieBinding = -1; \
     std::int32_t _botMovieBinding = -1; \
-    std::int32_t _movieFrameCount = 0; \
-    std::int32_t _movieFrameIndex = -1; \
+    std::atomic<std::int32_t> _movieFrameCount{0}; \
+    std::atomic<std::int32_t> _movieFrameIndex{-1}; \
     std::int32_t _lastRenderedMovieFrameIndex = 0; \
     std::int32_t _movieFrameTotal = 0; \
 public: \
@@ -183,9 +151,11 @@ private: \
     bool _skipMovie = false; \
     bool _playingLandingMovie = false; \
     bool _dualScreenMovie = true; \
-    std::array<std::uint8_t, static_cast<std::size_t>(_frameWidth) * _frameHeight * 3> _topImageBuffer{}; \
-    std::array<std::uint8_t, static_cast<std::size_t>(_frameWidth) * _frameHeight * 3> _botImageBuffer{}; \
-    std::shared_ptr<std::stop_source> _decoderCts{}; \
+    const std::shared_ptr<::MphRead::Formats::ClrArray<std::uint8_t>> _topImageBuffer \
+        = std::make_shared<::MphRead::Formats::ClrArray<std::uint8_t>>(_frameWidth * _frameHeight * 3); \
+    const std::shared_ptr<::MphRead::Formats::ClrArray<std::uint8_t>> _botImageBuffer \
+        = std::make_shared<::MphRead::Formats::ClrArray<std::uint8_t>>(_frameWidth * _frameHeight * 3); \
+    std::atomic<std::shared_ptr<std::stop_source>> _decoderCts{}; \
 public: \
     void StartMovies(::MphRead::Movie movieId, ::MphRead::Movie afterMovieId, ::MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
         ::MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, ::MphRead::AfterMovie afterMovieAction = ::MphRead::AfterMovie::LoadRoom); \
@@ -193,6 +163,8 @@ public: \
         float fadeFromMovieLength, std::optional<::OpenTK::Mathematics::Vector3> afterPosition = std::nullopt, \
         std::optional<::OpenTK::Mathematics::Vector3> afterFacing = std::nullopt, \
         std::optional<::MphRead::Movie> afterMovieId = std::nullopt, ::MphRead::AfterMovie afterMovieAction = ::MphRead::AfterMovie::LoadRoom); \
+    void StartMovie(::MphRead::Movie movieId, ::MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
+        ::MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, ::MphRead::AfterMovie afterMovieAction); \
 private: \
     void PlayMovie(::MphRead::Movie movieId); \
     std::int32_t _audioHandle = -1; \

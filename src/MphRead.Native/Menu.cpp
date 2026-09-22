@@ -52,17 +52,6 @@
 #include <wctype.h>
 #endif
 
-namespace System
-{
-    class InvalidOperationException final : public std::logic_error
-    {
-    public:
-        InvalidOperationException()
-            : std::logic_error("Cannot read keys when either application does not have a console or when console input has been redirected. Try Console.Read.")
-        {
-        }
-    };
-}
 
 namespace MphRead
 {
@@ -618,7 +607,7 @@ namespace
             const std::string limit = _negative ? "2147483648" : "2147483647";
             if (integer.size() > limit.size() || (integer.size() == limit.size() && integer > limit))
             {
-                throw System::OverflowException();
+                throw System::OverflowException("Value was either too large or too small for an Int32.");
             }
             std::int64_t value = 0;
             for (char ch : integer) value = value * 10 + (ch - '0');
@@ -1029,7 +1018,7 @@ namespace
                     result._digits = SubtractDigits(b, a);
                 }
             }
-            if (!CoefficientInRange(result._digits)) throw System::OverflowException();
+            if (!CoefficientInRange(result._digits)) throw System::OverflowException("Value was either too large or too small for a Decimal.");
             result.NormalizeZero();
             return result;
         }
@@ -1618,7 +1607,7 @@ namespace
         DWORD mode = 0;
         if (input == INVALID_HANDLE_VALUE || input == nullptr || !GetConsoleMode(input, &mode))
         {
-            throw System::InvalidOperationException();
+            throw System::InvalidOperationException("Cannot read keys when either application does not have a console or when console input has been redirected. Try Console.Read.");
         }
         while (true)
         {
@@ -1681,7 +1670,7 @@ namespace
             return result;
         }
 #else
-        if (::isatty(STDIN_FILENO) == 0) throw System::InvalidOperationException();
+        if (::isatty(STDIN_FILENO) == 0) throw System::InvalidOperationException("Cannot read keys when either application does not have a console or when console input has been redirected. Try Console.Read.");
         termios original{};
         if (::tcgetattr(STDIN_FILENO, &original) != 0) throw std::runtime_error("Could not read console mode for Console.ReadKey.");
         termios current = original;

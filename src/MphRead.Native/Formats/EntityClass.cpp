@@ -1,4 +1,7 @@
 #include "EntityClass.hpp"
+
+#include "../NativeRuntime/System/Enum.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -25,11 +28,7 @@ namespace
         }
         return length == 0 ? ES() : std::make_shared<std::string>(value, length);
     }
-    struct EnumNameEntry
-    {
-        std::uint64_t Value;
-        const char* Name;
-    };
+    using MphRead::NativeRuntime::EnumNameEntry;
     template <typename T>
     struct ManagedEnumInfo;
     // Formats\Enums.cs Message : uint
@@ -324,71 +323,12 @@ namespace
         static constexpr std::size_t Count = std::size(TriggerTypeNames);
     };
 
-    // Enum.ToString(): a defined name when one matches exactly; for [Flags] enums,
-    // the names found walking from the largest value down, printed in ascending
-    // order and joined with ", " (zero only by its own name); otherwise the number.
     template <typename T>
     std::string ManagedEnumToString(T value)
     {
         using Info = ManagedEnumInfo<T>;
-        using U = std::make_unsigned_t<std::underlying_type_t<T>>;
-        const std::uint64_t raw = static_cast<std::uint64_t>(static_cast<U>(value));
-        for (std::size_t i = 0; i < Info::Count; ++i)
-        {
-            if (Info::Names[i].Value == raw)
-            {
-                return Info::Names[i].Name;
-            }
-        }
-        if constexpr (Info::IsFlags)
-        {
-            if (raw != 0)
-            {
-                std::vector<const EnumNameEntry*> sorted;
-                for (std::size_t i = 0; i < Info::Count; ++i)
-                {
-                    sorted.push_back(&Info::Names[i]);
-                }
-                std::stable_sort(sorted.begin(), sorted.end(),
-                    [](const EnumNameEntry* left, const EnumNameEntry* right) { return left->Value < right->Value; });
-                std::uint64_t remaining = raw;
-                std::vector<const EnumNameEntry*> found;
-                for (std::size_t index = sorted.size(); index-- > 0;)
-                {
-                    const std::uint64_t current = sorted[index]->Value;
-                    if (index == 0 && current == 0)
-                    {
-                        break;
-                    }
-                    if ((remaining & current) == current)
-                    {
-                        remaining -= current;
-                        found.push_back(sorted[index]);
-                    }
-                }
-                if (remaining == 0)
-                {
-                    std::string result;
-                    for (std::size_t i = found.size(); i-- > 0;)
-                    {
-                        result += found[i]->Name;
-                        if (i > 0)
-                        {
-                            result += ", ";
-                        }
-                    }
-                    return result;
-                }
-            }
-        }
-        if constexpr (Info::IsSigned)
-        {
-            return std::to_string(static_cast<std::int64_t>(static_cast<std::underlying_type_t<T>>(value)));
-        }
-        else
-        {
-            return std::to_string(raw);
-        }
+        return MphRead::NativeRuntime::ManagedEnumToString(
+            value, Info::Names, Info::Count, Info::IsFlags);
     }
     // ValueType.Equals for CollisionVolume: it holds float fields, so the runtime
     // compares every declared field (overlapping ones included) with its Equals.

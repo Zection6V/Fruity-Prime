@@ -1,5 +1,7 @@
 #include "ModEntry.hpp"
 
+#include "../NativeRuntime/System/Runtime.hpp"
+
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Features.hpp"
 #include "../Formats/Enums.hpp"
@@ -97,10 +99,6 @@
 // from main; this two-file port only assigns the state through that runtime
 // boundary. A focused probe provides the boundary while peer Native entry files
 // are still being ported.
-namespace MphRead::NativeRuntime
-{
-    void SetEnvironmentExitCode(std::int32_t value) noexcept;
-}
 
 namespace
 {

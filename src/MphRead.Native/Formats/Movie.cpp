@@ -1,5 +1,17 @@
 #include "Movie.hpp"
 
+#include "../GameState.hpp"
+#include "../Scene.hpp"
+#include "../Shaders.hpp"
+#include "../Entities/RoomEntity.hpp"
+#include "../Entities/Players/PlayerEntity.hpp"
+#include "../Metadata/FrontendMeta.hpp"
+#include "../NativeRuntime/OpenTK/AL.hpp"
+#include "../NativeRuntime/OpenTK/GL.hpp"
+#include "../NativeRuntime/System/Tasks.hpp"
+#include "../Sound/Music.hpp"
+#include "../Sound/Sfx.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -347,7 +359,7 @@ namespace System
                         static_cast<std::uint8_t>(resultScale));
                 }
             }
-            throw OverflowException();
+            throw OverflowException("Value was either too large or too small for a Decimal.");
         }
 
         [[nodiscard]] BigUInt ScaledCoefficient(
@@ -787,7 +799,7 @@ namespace System
                 lo, mid, hi, static_cast<std::uint8_t>(scale),
                 left._negative != right._negative);
         }
-        throw OverflowException();
+        throw OverflowException("Value was either too large or too small for a Decimal.");
     }
 
     Decimal operator%(const Decimal& left, const Decimal& right)
@@ -1212,7 +1224,7 @@ namespace MphRead::Formats::MovieNativeRuntime
                 std::span<std::uint8_t>(bytes + total, size - total));
             if (read == 0)
             {
-                throw System::EndOfStreamException();
+                throw System::IO::EndOfStreamException();
             }
             if (read > size - total)
             {
@@ -1278,7 +1290,7 @@ namespace MphRead::Formats::MovieNativeRuntime
             {
                 next = ReadByte();
             }
-            catch (const System::EndOfStreamException&)
+            catch (const System::IO::EndOfStreamException&)
             {
                 return static_cast<char16_t>(0xFFFDU);
             }
@@ -4625,5 +4637,456 @@ namespace MphRead::Formats
     const VLCData& VLC::Run7Vlc()
     {
         return GetState().Run7Vlc;
+    }
+}
+
+// Scene members declared by Formats/Movie.cs (public partial class Scene).
+namespace MphRead
+{
+    namespace
+    {
+        namespace GL = ::OpenTK::Graphics::OpenGL::GL;
+        namespace AL = ::OpenTK::Audio::OpenAL::AL;
+        using ::OpenTK::Audio::OpenAL::ALFormat;
+        using ::OpenTK::Audio::OpenAL::ALGetSourcei;
+        using ::OpenTK::Audio::OpenAL::ALSourcef;
+        using ::OpenTK::Audio::OpenAL::ALSourceState;
+        using ::MphRead::Formats::VxDecoder;
+        using ::MphRead::Formats::MovieNativeRuntime::MovieTask;
+
+        constexpr std::int32_t Int32MaxValue = std::numeric_limits<std::int32_t>::max();
+
+#if defined(DEBUG)
+#define MPH_MOVIE_DEBUG_ASSERT(condition) ::MphRead::NativeRuntime::DebugAssert(condition)
+#else
+#define MPH_MOVIE_DEBUG_ASSERT(condition) do { } while (false)
+#endif
+
+        [[nodiscard]] std::uint8_t* BufferData(
+            const std::shared_ptr<Formats::ClrArray<std::uint8_t>>& buffer)
+        {
+            if (!buffer)
+            {
+                throw System::NullReferenceException();
+            }
+            return buffer->Length() == 0 ? nullptr : &(*buffer)[0];
+        }
+    }
+
+    void Scene::StartMovies(Movie movieId, Movie afterMovieId, MphRead::FadeType fadeToMovieType,
+        float fadeToMovieLength, MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength,
+        AfterMovie afterMovieAction)
+    {
+        StartMovie(movieId, fadeToMovieType, fadeToMovieLength, fadeFromMovieType, fadeFromMovieLength,
+            std::nullopt, std::nullopt, afterMovieId, afterMovieAction);
+    }
+
+    void Scene::StartMovie(Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength,
+        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength,
+        std::optional<OpenTK::Mathematics::Vector3> afterPosition,
+        std::optional<OpenTK::Mathematics::Vector3> afterFacing, std::optional<Movie> afterMovieId,
+        AfterMovie afterMovieAction)
+    {
+        _movieSettings.MovieId = movieId;
+        _movieSettings.AfterMovieId = afterMovieId;
+        _movieSettings.AfterFadeType = fadeFromMovieType;
+        _movieSettings.AfterFadeLength = fadeFromMovieLength;
+        _movieSettings.AfterPosition = afterPosition;
+        _movieSettings.AfterFacing = afterFacing;
+        _movieSettings.AfterMovieAction = afterMovieAction;
+        if (GameState::MatchState() == MatchState::InProgress)
+        {
+            const std::shared_ptr<Entities::PlayerEntity> main = Entities::PlayerEntity::Main();
+            if (!main)
+            {
+                throw System::NullReferenceException();
+            }
+            if (main->Health() > 0)
+            {
+                GameState::PausePrevented(true);
+            }
+        }
+        SetFade(fadeToMovieType, fadeToMovieLength, true, AfterFade::PlayMovie);
+    }
+
+    // StartMovie(..., afterMovieAction: value) with the other optional arguments left out.
+    void Scene::StartMovie(Movie movieId, MphRead::FadeType fadeToMovieType, float fadeToMovieLength,
+        MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, AfterMovie afterMovieAction)
+    {
+        StartMovie(movieId, fadeToMovieType, fadeToMovieLength, fadeFromMovieType, fadeFromMovieLength,
+            std::nullopt, std::nullopt, std::nullopt, afterMovieAction);
+    }
+
+    bool Scene::MoviePlaying() const noexcept
+    {
+        return _movieFrameIndex != -1;
+    }
+
+    void Scene::PlayMovie(Movie movieId)
+    {
+        Music::Stop();
+        GameState::PauseDialog();
+        Sound::Sfx::SfxMute = true;
+        Sound::Sfx::LongSfxMute++;
+        Sound::Sfx::TimedSfxMute++;
+        Sound::Sfx::ForceFieldSfxMute++;
+        VxDecoder::Instance1().Reset();
+        VxDecoder::Instance2().Reset();
+        _decoderCts.store(std::make_shared<std::stop_source>());
+        if (_audioHandle != -1)
+        {
+            AL::SourceStop(_audioHandle);
+            AL::DeleteSource(_audioHandle);
+            AL::DeleteBuffers(_audioBufferIds);
+        }
+        _audioHandle = AL::GenSource();
+        AL::GenBuffers(_audioBufferIds);
+        AL::Source(_audioHandle, ALSourcef::Gain, Music::UserVolume() * 0.5F);
+        std::fill(_audioBuffersAvailable.begin(), _audioBuffersAvailable.end(), true);
+        _audioBufferIndex = 0;
+        const std::vector<std::shared_ptr<Metadata::MovieInfo>>& movieFiles = Metadata::MovieFiles;
+        const std::size_t movieIndex = static_cast<std::size_t>(static_cast<std::int32_t>(movieId));
+        if (movieIndex >= movieFiles.size())
+        {
+            throw SceneDetail::IndexOutOfRangeException();
+        }
+        const std::shared_ptr<Metadata::MovieInfo>& info = movieFiles[movieIndex];
+        if (!info)
+        {
+            throw System::NullReferenceException();
+        }
+        _dualScreenMovie = info->BottomScreenPath.has_value();
+        const std::string topPath = Paths::Combine(Paths::FileSystem(), info->TopScreenPath.value_or(std::string()));
+        {
+            const std::stop_token token = _decoderCts.load()->get_token();
+            NativeRuntime::TaskRun([topPath, token]()
+            {
+                (void)VxDecoder::Instance1().Decode(topPath, false, token);
+            }, token);
+        }
+        if (_dualScreenMovie)
+        {
+            const std::string botPath = Paths::Combine(Paths::FileSystem(), *info->BottomScreenPath);
+            const std::stop_token token = _decoderCts.load()->get_token();
+            NativeRuntime::TaskRun([botPath, token]()
+            {
+                (void)VxDecoder::Instance2().Decode(botPath, false, token);
+            }, token);
+        }
+        else
+        {
+            std::fill_n(BufferData(_botImageBuffer), _botImageBuffer->Length(), std::uint8_t{0});
+        }
+        while (VxDecoder::Instance1().FramesQueued() < 4)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        (void)VxDecoder::Instance1().GetImage(0, _topImageBuffer);
+        if (_dualScreenMovie)
+        {
+            while (VxDecoder::Instance2().FramesQueued() < 4)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            (void)VxDecoder::Instance2().GetImage(0, _botImageBuffer);
+        }
+        if (_topMovieBinding == -1)
+        {
+            _topMovieBinding = ++_textureCount;
+            _botMovieBinding = ++_textureCount;
+        }
+        GL::BindTexture(GL::TextureTarget::Texture2D, _topMovieBinding);
+        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb, _frameWidth, _frameHeight, 0,
+            GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, BufferData(_topImageBuffer));
+        GL::BindTexture(GL::TextureTarget::Texture2D, _botMovieBinding);
+        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb, _frameWidth, _frameHeight, 0,
+            GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, BufferData(_botImageBuffer));
+        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        MPH_MOVIE_DEBUG_ASSERT(!_dualScreenMovie
+            || VxDecoder::Instance1().FrameCount == VxDecoder::Instance2().FrameCount);
+        _movieFrameTotal = VxDecoder::Instance1().FrameCount;
+        _lastRenderedMovieFrameIndex = 0;
+        _movieFrameIndex = 0;
+        _movieFrameCount = 0;
+        _skipMovie = false;
+        {
+            const std::stop_token token = _decoderCts.load()->get_token();
+            NativeRuntime::TaskRun([this]()
+            {
+                // The lambda reads _decoderCts afresh on every pass, as the C# closure does.
+                [](Scene* scene) -> MovieTask
+                {
+                    while (!scene->_decoderCts.load()->get_token().stop_requested()
+                        && scene->_movieFrameCount != Int32MaxValue)
+                    {
+                        co_await scene->UpdateMovieAudio(scene->_decoderCts.load()->get_token());
+                    }
+                }(this);
+            }, token);
+        }
+        {
+            const std::stop_token token = _decoderCts.load()->get_token();
+            NativeRuntime::TaskRun([this]()
+            {
+                (void)UpdateMovieImage(_decoderCts.load()->get_token());
+            }, token);
+        }
+    }
+
+    std::int32_t Scene::MovieAudioHandle() const noexcept
+    {
+        return _audioHandle;
+    }
+
+    Formats::MovieNativeRuntime::MovieTask Scene::UpdateMovieAudio(std::stop_token token)
+    {
+        (void)token;
+        std::array<std::int16_t, 128 * 2> stereoBuffer{};
+        const std::int32_t framesAvailable = VxDecoder::Instance1().AudioFrameTotal() - _audioBufferIndex;
+        if (framesAvailable > 0)
+        {
+            std::int32_t buffersAvailable = 0;
+            if (_audioBufferIndex == 0)
+            {
+                buffersAvailable = _audioBufferCount;
+            }
+            else
+            {
+                const std::int32_t buffersProcessed = AL::GetSource(_audioHandle, ALGetSourcei::BuffersProcessed);
+                if (buffersProcessed > 0)
+                {
+                    std::vector<std::int32_t> processedIds(
+                        static_cast<std::size_t>(std::min(framesAvailable, buffersProcessed)));
+                    AL::SourceUnqueueBuffers(_audioHandle, processedIds);
+                    for (std::int32_t i = 0; i < _audioBufferCount; i++)
+                    {
+                        _audioBuffersAvailable[static_cast<std::size_t>(i)] = std::find(processedIds.begin(),
+                            processedIds.end(), _audioBufferIds[static_cast<std::size_t>(i)]) != processedIds.end();
+                    }
+                }
+                for (std::int32_t i = 0; i < _audioBufferCount; i++)
+                {
+                    if (_audioBuffersAvailable[static_cast<std::size_t>(i)])
+                    {
+                        buffersAvailable++;
+                    }
+                }
+            }
+            if (buffersAvailable > 0)
+            {
+                std::vector<std::int32_t> queueBuffers(
+                    static_cast<std::size_t>(std::min(framesAvailable, buffersAvailable)));
+                std::int32_t bufferIndex = 0;
+                for (std::size_t i = 0; i < queueBuffers.size(); i++)
+                {
+                    for (; bufferIndex < _audioBufferCount; bufferIndex++)
+                    {
+                        if (_audioBuffersAvailable[static_cast<std::size_t>(bufferIndex)])
+                        {
+                            queueBuffers[i] = _audioBufferIds[static_cast<std::size_t>(bufferIndex)];
+                            _audioBuffersAvailable[static_cast<std::size_t>(bufferIndex)] = false;
+                            break;
+                        }
+                    }
+                    MPH_MOVIE_DEBUG_ASSERT(bufferIndex < _audioBufferCount);
+                    if (_dualScreenMovie)
+                    {
+                        const std::span<const std::int16_t> buffer1
+                            = VxDecoder::Instance1().GetAudioBuffer(_audioBufferIndex);
+                        const std::span<const std::int16_t> buffer2
+                            = VxDecoder::Instance2().GetAudioBuffer(_audioBufferIndex++);
+                        for (std::size_t j = 0; j < 128; j++)
+                        {
+                            stereoBuffer[j * 2] = buffer1[j];
+                            stereoBuffer[j * 2 + 1] = buffer2[j];
+                        }
+                        AL::BufferData(queueBuffers[i], ALFormat::Stereo16, stereoBuffer,
+                            VxDecoder::Instance1().AudioSampleRate);
+                    }
+                    else
+                    {
+                        const std::span<const std::int16_t> buffer
+                            = VxDecoder::Instance1().GetAudioBuffer(_audioBufferIndex++);
+                        AL::BufferData(queueBuffers[i], ALFormat::Mono16, buffer,
+                            VxDecoder::Instance1().AudioSampleRate);
+                    }
+                }
+                AL::SourceQueueBuffers(_audioHandle, queueBuffers);
+                const auto state = static_cast<ALSourceState>(AL::GetSource(_audioHandle, ALGetSourcei::SourceState));
+                if (state != ALSourceState::Playing)
+                {
+                    AL::SourcePlay(_audioHandle);
+                }
+            }
+        }
+        co_await MovieTask::DelayOneMillisecond();
+    }
+
+    void Scene::StopMovie()
+    {
+        if (_audioHandle != -1)
+        {
+            AL::SourceStop(_audioHandle);
+            AL::DeleteSource(_audioHandle);
+            AL::DeleteBuffers(_audioBufferIds);
+            _audioHandle = -1;
+        }
+        if (_movieSettings.AfterMovieId.has_value())
+        {
+            Sound::Sfx::LongSfxMute--;
+            Sound::Sfx::TimedSfxMute--;
+            Sound::Sfx::ForceFieldSfxMute--;
+            if (const std::shared_ptr<std::stop_source> decoderCts = _decoderCts.load())
+            {
+                decoderCts->request_stop();
+            }
+            _movieSettings.MovieId = _movieSettings.AfterMovieId.value();
+            _movieSettings.AfterMovieId.reset();
+            PlayMovie(_movieSettings.MovieId);
+            _fadeType = MphRead::FadeType::None;
+        }
+        else if (_movieSettings.AfterMovieAction == AfterMovie::EndGame)
+        {
+            QuitGame(true);
+        }
+        else
+        {
+            if (_movieSettings.AfterMovieAction != AfterMovie::StartGame)
+            {
+                MPH_MOVIE_DEBUG_ASSERT(_room != nullptr);
+                if (!_room)
+                {
+                    throw System::NullReferenceException();
+                }
+                _room->LoadRoom(GameState::TransitionRoomId() == -1);
+            }
+            else
+            {
+                SetFade(MphRead::FadeType::FadeInWhite, 5.0F / 30.0F, true, AfterFade::None, 5.0F / 30.0F);
+                Music::PlayPausedMusic();
+                _playingLandingMovie = false;
+            }
+            Sound::Sfx::SfxMute = false;
+            Sound::Sfx::LongSfxMute--;
+            Sound::Sfx::TimedSfxMute--;
+            Sound::Sfx::ForceFieldSfxMute--;
+            GameState::UnpauseDialog();
+            if (const std::shared_ptr<std::stop_source> decoderCts = _decoderCts.load())
+            {
+                decoderCts->request_stop();
+            }
+            _movieFrameIndex = -1;
+        }
+    }
+
+    void Scene::SkipMovie()
+    {
+        if (_movieFrameIndex != -1 && _movieFrameCount != Int32MaxValue)
+        {
+            _skipMovie = true;
+        }
+    }
+
+    void Scene::UpdateMovie()
+    {
+        if (_skipMovie)
+        {
+            if (_movieFrameCount != Int32MaxValue)
+            {
+                _movieFrameCount = Int32MaxValue;
+                SetFade(_movieSettings.AfterFadeType, _movieSettings.AfterFadeLength, true, AfterFade::StopMovie);
+            }
+            return;
+        }
+    }
+
+    Formats::MovieNativeRuntime::MovieTask Scene::UpdateMovieImage(std::stop_token token)
+    {
+        using Duration = std::chrono::steady_clock::duration;
+        const Duration frameTime = std::chrono::duration_cast<Duration>(std::chrono::duration<double>(1.0 / 15.0));
+        Duration nextFrameElapsed = frameTime;
+        const Duration tolerance = std::chrono::milliseconds(15);
+        const auto start = std::chrono::steady_clock::now();
+        while (!token.stop_requested() && _movieFrameCount != Int32MaxValue)
+        {
+            const Duration elapsed = std::chrono::steady_clock::now() - start;
+            if (elapsed >= nextFrameElapsed && nextFrameElapsed - elapsed < tolerance)
+            {
+                _movieFrameCount = _movieFrameCount + 1;
+                nextFrameElapsed += frameTime;
+            }
+            const std::int32_t frameIndex = _movieFrameCount;
+            if (_movieFrameCount != _movieFrameIndex)
+            {
+                if (frameIndex == _movieFrameTotal)
+                {
+                    _movieFrameCount = Int32MaxValue;
+                    SetFade(_movieSettings.AfterFadeType, _movieSettings.AfterFadeLength, true, AfterFade::StopMovie);
+                    co_return;
+                }
+                if (frameIndex < _movieFrameTotal)
+                {
+                    // C# precedence: (a && !b) || c
+                    if ((VxDecoder::Instance1().GetImage(frameIndex, _topImageBuffer) && !_dualScreenMovie)
+                        || VxDecoder::Instance2().GetImage(frameIndex, _botImageBuffer))
+                    {
+                        _movieFrameIndex = frameIndex;
+                    }
+                }
+            }
+            co_await MovieTask::DelayOneMillisecond();
+        }
+    }
+
+    void Scene::DrawMovieFrame()
+    {
+        GL::Uniform1(_shaderLocations->LayerAlpha, 1);
+        bool newFrame = false;
+
+        const auto drawScreen = [this, &newFrame](std::int32_t movieBinding,
+            const std::shared_ptr<Formats::ClrArray<std::uint8_t>>& imageBuffer, float y)
+        {
+            GL::BindTexture(GL::TextureTarget::Texture2D, movieBinding);
+            const std::int32_t minParameter = static_cast<std::int32_t>(GL::TextureMinFilter::Nearest);
+            const std::int32_t magParameter = static_cast<std::int32_t>(GL::TextureMagFilter::Nearest);
+            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter, minParameter);
+            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter, magParameter);
+            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
+                static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
+                static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+            if (_movieFrameIndex != _lastRenderedMovieFrameIndex || (newFrame && _dualScreenMovie))
+            {
+                newFrame = true;
+                _lastRenderedMovieFrameIndex = _movieFrameIndex;
+                GL::TexSubImage2D(GL::TextureTarget::Texture2D, 0, 0, 0, _frameWidth, _frameHeight,
+                    GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, BufferData(imageBuffer));
+            }
+            GL::Begin(GL::PrimitiveType::TriangleStrip);
+            GL::TexCoord3(1.0F, 0.0F, 0.0F);
+            GL::Vertex3(0.5F, y, 0.0F);
+            GL::TexCoord3(0.0F, 0.0F, 0.0F);
+            GL::Vertex3(-0.5F, y, 0.0F);
+            GL::TexCoord3(1.0F, 1.0F, 0.0F);
+            GL::Vertex3(0.5F, y - 1, 0.0F);
+            GL::TexCoord3(0.0F, 1.0F, 0.0F);
+            GL::Vertex3(-0.5F, y - 1, 0.0F);
+            GL::End();
+            GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        };
+
+        GL::Uniform4(_shaderLocations->FadeColor, 0.0F, 0.0F, 0.0F, 1.0F);
+        GL::Begin(GL::PrimitiveType::TriangleStrip);
+        GL::TexCoord3(1.0F, 1.0F, 0.0F);
+        GL::Vertex3(1.0F, 1.0F, 0.0F);
+        GL::TexCoord3(0.0F, 1.0F, 0.0F);
+        GL::Vertex3(-1.0F, 1.0F, 0.0F);
+        GL::TexCoord3(1.0F, 0.0F, 0.0F);
+        GL::Vertex3(1.0F, -1.0F, 0.0F);
+        GL::TexCoord3(0.0F, 0.0F, 0.0F);
+        GL::Vertex3(-1.0F, -1.0F, 0.0F);
+        GL::End();
+        drawScreen(_topMovieBinding, _topImageBuffer, 1.0F);
+        drawScreen(_botMovieBinding, _botImageBuffer, 0.0F);
     }
 }

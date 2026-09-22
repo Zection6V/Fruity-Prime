@@ -1,5 +1,8 @@
 #include "Model.hpp"
 
+#include "../NativeRuntime/System/Globalization.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
+
 #include "../Program.hpp"
 #include "../Read.hpp"
 
@@ -16,16 +19,6 @@
 #include <utility>
 #include <vector>
 
-namespace MphRead::NativeRuntime
-{
-    [[nodiscard]] bool StringStartsWithCurrentCulture(
-        std::u32string_view value,
-        std::u32string_view prefix);
-    [[nodiscard]] bool Int32TryParseCurrentCulture(
-        std::u32string_view value,
-        std::int32_t& result);
-    [[noreturn]] void ThrowDivideByZeroException();
-}
 
 namespace
 {

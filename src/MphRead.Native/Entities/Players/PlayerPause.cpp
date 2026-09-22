@@ -39,6 +39,7 @@ namespace
     using MphRead::Model;
     using MphRead::ModelInstance;
     using MphRead::Node;
+    using OpenTK::Windowing::GraphicsLibraryFramework::MouseButton;
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
@@ -129,6 +130,17 @@ namespace
         const std::shared_ptr<const std::vector<T>>& values, std::int32_t index)
     {
         return ManagedAt(RequireReference(values), index);
+    }
+
+    [[nodiscard]] std::vector<float> CopyManagedArray(const MphRead::ManagedArray<float>& values)
+    {
+        std::vector<float> result;
+        result.reserve(values.Length());
+        for (std::size_t i = 0; i < values.Length(); ++i)
+        {
+            result.push_back(values[i]);
+        }
+        return result;
     }
 
     [[nodiscard]] constexpr std::int32_t UncheckedIncrement(std::int32_t value) noexcept
@@ -225,7 +237,7 @@ namespace
         return Vector3(matrix.M12, matrix.M22, matrix.M32);
     }
 
-    [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scale) noexcept
+    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
     }
@@ -447,14 +459,14 @@ namespace MphRead::Entities
             _navLoading = false;
         }
         Scene& scene = RequireReference(_scene);
-        _pausedPrevBindingId1 = scene.Layer1Info.BindingId;
-        _pausedPrevAlpha1 = scene.Layer1Info.Alpha;
-        _pausedPrevMaskId = scene.Layer1Info.MaskId;
-        _pausedPrevBindingId2 = scene.Layer2Info.BindingId;
-        _pausedPrevAlpha2 = scene.Layer2Info.Alpha;
-        _pausedPrevBindingId3 = scene.Layer3Info.BindingId;
-        _pausedPrevBindingId4 = scene.Layer4Info.BindingId;
-        _pausedPrevBindingId5 = scene.Layer5Info.BindingId;
+        _pausedPrevBindingId1 = RequireReference(scene.Layer1Info()).BindingId;
+        _pausedPrevAlpha1 = RequireReference(scene.Layer1Info()).Alpha;
+        _pausedPrevMaskId = RequireReference(scene.Layer1Info()).MaskId;
+        _pausedPrevBindingId2 = RequireReference(scene.Layer2Info()).BindingId;
+        _pausedPrevAlpha2 = RequireReference(scene.Layer2Info()).Alpha;
+        _pausedPrevBindingId3 = RequireReference(scene.Layer3Info()).BindingId;
+        _pausedPrevBindingId4 = RequireReference(scene.Layer4Info()).BindingId;
+        _pausedPrevBindingId5 = RequireReference(scene.Layer5Info()).BindingId;
         for (std::int32_t i = 0; i < 8; ++i)
         {
             const std::int32_t start = static_cast<std::int32_t>(Rng::GetRandomInt1(20));
@@ -482,7 +494,7 @@ namespace MphRead::Entities
         if (NodeRef.RoomName.HasValue())
         {
             const std::string& roomName = *NodeRef.RoomName;
-            std::int32_t area = RequireReference(_scene).AreaId & ~1;
+            std::int32_t area = RequireReference(_scene).AreaId() & ~1;
             for (std::int32_t i = 0; i < 2; ++i, ++area)
             {
                 if (area >= 0 && area < static_cast<std::int32_t>(_navMapModels.size()))
@@ -551,14 +563,14 @@ namespace MphRead::Entities
     {
         InitHudState();
         Scene& scene = RequireReference(_scene);
-        scene.Layer1Info.BindingId = _pausedPrevBindingId1;
-        scene.Layer1Info.Alpha = _pausedPrevAlpha1;
-        scene.Layer1Info.MaskId = _pausedPrevMaskId;
-        scene.Layer2Info.BindingId = _pausedPrevBindingId2;
-        scene.Layer2Info.Alpha = _pausedPrevAlpha2;
-        scene.Layer3Info.BindingId = _pausedPrevBindingId3;
-        scene.Layer4Info.BindingId = _pausedPrevBindingId4;
-        scene.Layer5Info.BindingId = _pausedPrevBindingId5;
+        RequireReference(scene.Layer1Info()).BindingId = _pausedPrevBindingId1;
+        RequireReference(scene.Layer1Info()).Alpha = _pausedPrevAlpha1;
+        RequireReference(scene.Layer1Info()).MaskId = _pausedPrevMaskId;
+        RequireReference(scene.Layer2Info()).BindingId = _pausedPrevBindingId2;
+        RequireReference(scene.Layer2Info()).Alpha = _pausedPrevAlpha2;
+        RequireReference(scene.Layer3Info()).BindingId = _pausedPrevBindingId3;
+        RequireReference(scene.Layer4Info()).BindingId = _pausedPrevBindingId4;
+        RequireReference(scene.Layer5Info()).BindingId = _pausedPrevBindingId5;
         if (GameState::DialogPause())
         {
             UpdateDialogs();
@@ -573,7 +585,7 @@ namespace MphRead::Entities
         {
             return;
         }
-        if (!RequireReference(_scene).NavMapRoomSymbols() || Controls().HudOverlay.IsDown)
+        if (!RequireReference(_scene).NavMapRoomSymbols() || Controls().HudOverlay().IsDown())
         {
             return;
         }
@@ -582,7 +594,7 @@ namespace MphRead::Entities
         const auto matrices = GetPauseMapMatrices();
         const Matrix4 viewMtx = matrices.first;
         const Matrix4 orthoMtx = matrices.second;
-        std::int32_t area = scene.AreaId & ~1;
+        std::int32_t area = scene.AreaId() & ~1;
         for (std::int32_t i = 0; i < 2; ++i, ++area)
         {
             if (area < 0 || area >= static_cast<std::int32_t>(_navMapModels.size()))
@@ -667,7 +679,7 @@ namespace MphRead::Entities
         else if (_drawPauseState == 1)
         {
             Scene& scene = RequireReference(_scene);
-            if (scene.ProcessFrame)
+            if (scene.ProcessFrame())
             {
                 for (std::int32_t i = 0; i < 8; ++i)
                 {
@@ -764,7 +776,7 @@ namespace MphRead::Entities
                 {
                     for (std::int32_t i = 1; i <= 35; ++i)
                     {
-                        const std::int32_t id = scene.AreaId / 2 * 100 + i;
+                        const std::int32_t id = scene.AreaId() / 2 * 100 + i;
                         const auto roomEntry = Text::Strings::GetEntry('R', id, Text::StringTables::LocationNames);
                         if (!roomEntry)
                         {
@@ -798,7 +810,7 @@ namespace MphRead::Entities
                     }
                     _textSpacingY = 0.0F;
                 }
-                if (Controls().HudOverlay.IsDown)
+                if (Controls().HudOverlay().IsDown())
                 {
                     ManagedAt(_mapLegendInfo, 0).Unlocked = _availableWeapons[BeamType::Battlehammer];
                     ManagedAt(_mapLegendInfo, 1).Unlocked = _availableWeapons[BeamType::VoltDriver];
@@ -869,7 +881,7 @@ namespace MphRead::Entities
         else if (_drawPauseState == 2)
         {
             Scene& scene = RequireReference(_scene);
-            if (scene.ProcessFrame)
+            if (scene.ProcessFrame())
             {
                 RequireReference(_dialogButtonInst).ProcessAnimation(scene);
             }
@@ -894,7 +906,7 @@ namespace MphRead::Entities
         {
             if (_navTextTimer < 60.0F / 30.0F)
             {
-                _navTextTimer += RequireReference(_scene).FrameTime;
+                _navTextTimer += RequireReference(_scene).FrameTime();
             }
             if (_navTextTimer >= 60.0F / 30.0F && !GameState::InRoomTransition())
             {
@@ -906,14 +918,14 @@ namespace MphRead::Entities
         }
         else if (_navTextTimer < 200.0F / 30.0F)
         {
-            _navTextTimer += RequireReference(_scene).FrameTime;
+            _navTextTimer += RequireReference(_scene).FrameTime();
         }
         if (_pauseFrameCount > 0 && _pauseFrameCount % 2 == 0)
         {
             RequireReference(_navPlayerPosModel).UpdateAnimFrames();
         }
         _pauseFrameCount = UncheckedIncrement(_pauseFrameCount);
-        if (RequireReference(_scene).CameraMode == CameraMode::Player)
+        if (RequireReference(_scene).CameraMode() == CameraMode::Player)
         {
             ProcessPauseMenuInput();
         }
@@ -974,18 +986,18 @@ namespace MphRead::Entities
             _navDrawZoom += 0.0625F;
         }
         _navDrawZoom = std::clamp(_navDrawZoom, 0.4375F, 3.0F);
-        if (Controls().AimLeft.IsDown)
+        if (Controls().AimLeft().IsDown())
         {
             _navDrawRotX += 2.8125F / 2.0F;
         }
-        else if (Controls().AimRight.IsDown)
+        else if (Controls().AimRight().IsDown())
         {
             _navDrawRotX -= 2.8125F / 2.0F;
         }
-        else if (Input().MouseState && Input().MouseState->IsButtonDown(MouseButton::Left)
-            && Input().MouseDeltaX != 0.0F)
+        else if (_input.MouseState && _input.MouseState->IsButtonDown(MouseButton::Left)
+            && _input.MouseDeltaX() != 0.0F)
         {
-            _navDrawRotX += -Input().MouseDeltaX / 8.0F * 2.8125F;
+            _navDrawRotX += -_input.MouseDeltaX() / 8.0F * 2.8125F;
         }
         if (_navDrawRotX >= 360.0F)
         {
@@ -995,48 +1007,48 @@ namespace MphRead::Entities
         {
             _navDrawRotX += 360.0F;
         }
-        if (Controls().AimUp.IsDown)
+        if (Controls().AimUp().IsDown())
         {
             _navDrawRotY -= 2.8125F / 2.0F;
         }
-        else if (Controls().AimDown.IsDown)
+        else if (Controls().AimDown().IsDown())
         {
             _navDrawRotY += 2.8125F / 2.0F;
         }
-        else if (Input().MouseState && Input().MouseState->IsButtonDown(MouseButton::Left)
-            && Input().MouseDeltaY != 0.0F)
+        else if (_input.MouseState && _input.MouseState->IsButtonDown(MouseButton::Left)
+            && _input.MouseDeltaY() != 0.0F)
         {
-            _navDrawRotY += Input().MouseDeltaY / 8.0F * 2.8125F;
+            _navDrawRotY += _input.MouseDeltaY() / 8.0F * 2.8125F;
         }
         _navDrawRotY = std::clamp(_navDrawRotY, -71.41113F, 71.41113F);
         const auto matrices = GetPauseMapMatrices();
         const Matrix4 viewMtx = matrices.first;
         const Matrix4 orthoMtx = matrices.second;
         float panDirX = 0.0F;
-        if (Controls().MoveLeft.IsDown)
+        if (Controls().MoveLeft().IsDown())
         {
             panDirX = -1.0F;
         }
-        else if (Controls().MoveRight.IsDown)
+        else if (Controls().MoveRight().IsDown())
         {
             panDirX = 1.0F;
         }
         if (panDirX != 0.0F)
         {
-            _navPanOffset = _navPanOffset + Scale(Column0(viewMtx), 4.6F / 2.0F * panDirX);
+            _navPanOffset = _navPanOffset + ScaleVector(Column0(viewMtx), 4.6F / 2.0F * panDirX);
         }
         float panDirY = 0.0F;
-        if (Controls().MoveUp.IsDown)
+        if (Controls().MoveUp().IsDown())
         {
             panDirY = 1.0F;
         }
-        else if (Controls().MoveDown.IsDown)
+        else if (Controls().MoveDown().IsDown())
         {
             panDirY = -1.0F;
         }
         if (panDirY != 0.0F)
         {
-            _navPanOffset = _navPanOffset + Scale(Column1(viewMtx), 4.6F / 2.0F * panDirY);
+            _navPanOffset = _navPanOffset + ScaleVector(Column1(viewMtx), 4.6F / 2.0F * panDirY);
         }
         if (panDirX != 0.0F || panDirY != 0.0F)
         {
@@ -1044,7 +1056,7 @@ namespace MphRead::Entities
             float minDist = 512.0F * 512.0F;
             std::shared_ptr<Node> newRoomNode{};
             std::shared_ptr<Node> newCenterNode{};
-            std::int32_t area = RequireReference(_scene).AreaId & ~1;
+            std::int32_t area = RequireReference(_scene).AreaId() & ~1;
             for (std::int32_t i = 0; i < 2; ++i, ++area)
             {
                 if (area >= 0 && area < static_cast<std::int32_t>(_navMapModels.size()))
@@ -1100,11 +1112,11 @@ namespace MphRead::Entities
                 _prevScrollingChars = 0;
             }
         }
-        else if (!IsZero(_navPanOffset) && !Features::NoMapCentering)
+        else if (!IsZero(_navPanOffset) && !Features::NoMapCentering())
         {
             if (_navPanTimer < 16.0F * 30.0F)
             {
-                _navPanTimer += RequireReference(_scene).FrameTime;
+                _navPanTimer += RequireReference(_scene).FrameTime();
                 if (_navPanTimer > 16.0F * 30.0F)
                 {
                     _navPanTimer = 16.0F * 30.0F;
@@ -1174,7 +1186,7 @@ namespace MphRead::Entities
             std::int32_t id = 0;
             if (TryParseConnectorId(std::string_view(node.Name).substr(3, 2), id) && id >= 1)
             {
-                return RequireStorySave().CheckVisitedConnector(id - 1, RequireReference(_scene).AreaId);
+                return RequireStorySave().CheckVisitedConnector(id - 1, RequireReference(_scene).AreaId());
             }
         }
         for (std::int32_t i = 27; i <= 92; ++i)
@@ -1190,12 +1202,12 @@ namespace MphRead::Entities
 
     void PlayerEntity::GetPauseMapRenderItems()
     {
-        if (!_navMapModelEnabled || _drawPauseState != 1 || Controls().HudOverlay.IsDown)
+        if (!_navMapModelEnabled || _drawPauseState != 1 || Controls().HudOverlay().IsDown())
         {
             return;
         }
         Scene& scene = RequireReference(_scene);
-        std::int32_t area = scene.AreaId & ~1;
+        std::int32_t area = scene.AreaId() & ~1;
         for (std::int32_t i = 0; i < 2; ++i, ++area)
         {
             if (area >= static_cast<std::int32_t>(_navMapModels.size()))
@@ -1213,8 +1225,8 @@ namespace MphRead::Entities
         }
         Matrix4 playerPosTransform = Multiply(CreateScale(2.0F), GetTransformMatrix(_facingVector, _upVector));
         Vector3 roomOffset = Vector3::Zero;
-        assert(scene.Room != nullptr);
-        RoomEntity& room = RequireReference(scene.Room);
+        assert(scene.Room() != nullptr);
+        RoomEntity& room = RequireReference(scene.Room());
         const auto& collisions = room.RoomCollision();
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(collisions.size()); ++i)
         {
@@ -1241,7 +1253,7 @@ namespace MphRead::Entities
         SetTranslation(playerPosTransform, Vector3(x, y, z));
         ModelInstance& playerPosModel = RequireReference(_navPlayerPosModel);
         UpdateTransforms(playerPosModel, playerPosTransform, 0);
-        GetDrawItems(playerPosModel, 0);
+        EntityBase::GetDrawItems(playerPosModel, 0);
         const auto navMapValue = scene.NavMapRoomSymbols();
         if (!_navMapDrawNode || StartsWith(_navMapDrawNode->Name, "Con") || !navMapValue)
         {
@@ -1286,7 +1298,7 @@ namespace MphRead::Entities
                     Model& model = RequireModel(doorModel);
                     Material& material = RequireReference(ManagedAt(RequireReference(model.Materials), 0));
                     material.CurrentDiffuse = ManagedAt(_navDoorColors, palette);
-                    GetDrawItems(doorModel, 0, lightInfo);
+                    EntityBase::GetDrawItems(doorModel, 0, lightInfo);
                 }
             }
         }
@@ -1340,15 +1352,17 @@ namespace MphRead::Entities
                         Vector3(0.0F, 0.0F, -0.0F), lightColor, Vector3::Zero, lightColor);
                     const std::int32_t matrixCount
                         = static_cast<std::int32_t>(RequireReference(model.NodeMatrixIds).size());
+                    const std::vector<float> matrixStack
+                        = CopyManagedArray(RequireReference(model.MatrixStackValues));
                     scene.AddRenderItem(material, polygonId, alpha, emission, lightInfo,
                         IdentityMatrix(), node.Animation, mesh.ListId, matrixCount,
-                        model.MatrixStackValues, std::nullopt, std::nullopt,
+                        matrixStack, std::nullopt, std::nullopt,
                         SelectionType::None, node.BillboardMode);
                     if (!isSelected)
                     {
                         scene.AddRenderItem(material, polygonId, alpha, emission, lightInfo,
                             IdentityMatrix(), node.Animation, mesh.ListId, matrixCount,
-                            model.MatrixStackValues, std::nullopt, std::nullopt,
+                            matrixStack, std::nullopt, std::nullopt,
                             SelectionType::None, node.BillboardMode);
                     }
                     else if (!material.Name.empty() && material.Name[0] != 'T')
@@ -1360,7 +1374,7 @@ namespace MphRead::Entities
                         material.CurrentDiffuse = emission;
                         scene.AddRenderItem(material, polygonId, 1.0F, emission, lightInfo,
                             IdentityMatrix(), node.Animation, mesh.ListId, matrixCount,
-                            model.MatrixStackValues, std::nullopt, std::nullopt,
+                            matrixStack, std::nullopt, std::nullopt,
                             SelectionType::None, node.BillboardMode);
                         material.CurrentDiffuse = prevDiffuse;
                     }

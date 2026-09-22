@@ -82,28 +82,6 @@ namespace MphRead::Entities::Enemies
     }
 }
 
-namespace MphRead::Metadata
-{
-    namespace
-    {
-        using Entities::EnemyBehavior;
-        using Entities::EnemySubroutine;
-        using Entities::Enemies::Enemy05Entity;
-
-        const std::vector<EnemyBehavior<Enemy05Entity>> Enemy05State0{
-            {1, static_cast<bool(*)(Enemy05Entity*)>(&Enemy05Entity::Behavior01)}
-        };
-        const std::vector<EnemyBehavior<Enemy05Entity>> Enemy05State1{
-            {1, static_cast<bool(*)(Enemy05Entity*)>(&Enemy05Entity::Behavior00)}
-        };
-    }
-
-    std::vector<EnemySubroutine<Enemy05Entity>> Enemy05Subroutines{
-        EnemySubroutine<Enemy05Entity>(Enemy05State0),
-        EnemySubroutine<Enemy05Entity>(Enemy05State1)
-    };
-}
-
 namespace MphRead::Entities::Enemies
 {
     Enemy05Entity::Enemy05Entity(EnemyInstanceEntityData data,

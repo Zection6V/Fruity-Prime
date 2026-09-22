@@ -64,57 +64,6 @@ namespace MphRead::Entities::Enemies
     }
 }
 
-namespace MphRead::Metadata
-{
-    namespace
-    {
-        using Entities::EnemyBehavior;
-        using Entities::EnemySubroutine;
-        using Entities::Enemies::Enemy00Entity;
-
-        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State0{
-            {0, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior02)},
-            {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior03)}
-        };
-        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State1{
-            {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior02)},
-            {2, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior06)},
-            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior07)},
-            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior08)}
-        };
-        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State2{
-            {3, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior09)},
-            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior07)},
-            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior10)},
-            {6, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior08)}
-        };
-        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State3{
-            {4, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior00)}
-        };
-        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State4{
-            {5, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior04)},
-            {5, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior05)}
-        };
-        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State5{
-            {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior01)}
-        };
-        const std::vector<EnemyBehavior<Enemy00Entity>> Enemy00State6{
-            {0, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior02)},
-            {1, static_cast<bool(*)(Enemy00Entity*)>(&Enemy00Entity::Behavior03)}
-        };
-    }
-
-    std::vector<EnemySubroutine<Enemy00Entity>> Enemy00Subroutines{
-        EnemySubroutine<Enemy00Entity>(Enemy00State0),
-        EnemySubroutine<Enemy00Entity>(Enemy00State1),
-        EnemySubroutine<Enemy00Entity>(Enemy00State2),
-        EnemySubroutine<Enemy00Entity>(Enemy00State3),
-        EnemySubroutine<Enemy00Entity>(Enemy00State4),
-        EnemySubroutine<Enemy00Entity>(Enemy00State5),
-        EnemySubroutine<Enemy00Entity>(Enemy00State6)
-    };
-}
-
 namespace MphRead::Entities::Enemies
 {
     Enemy00Entity::Enemy00Entity(EnemyInstanceEntityData data,

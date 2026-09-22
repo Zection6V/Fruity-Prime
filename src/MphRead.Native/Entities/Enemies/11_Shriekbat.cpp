@@ -98,40 +98,6 @@ namespace MphRead::Entities::Enemies
     }
 }
 
-namespace MphRead::Metadata
-{
-    namespace
-    {
-        using Entities::EnemyBehavior;
-        using Entities::EnemySubroutine;
-        using Entities::Enemies::Enemy11Entity;
-
-        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State0{
-            {1, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior04)}
-        };
-        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State1{
-            {2, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior03)}
-        };
-        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State2{
-            {3, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior02)}
-        };
-        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State3{
-            {4, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior01)}
-        };
-        const std::vector<EnemyBehavior<Enemy11Entity>> Enemy11State4{
-            {0, static_cast<bool(*)(Enemy11Entity*)>(&Enemy11Entity::Behavior00)}
-        };
-    }
-
-    std::vector<EnemySubroutine<Enemy11Entity>> Enemy11Subroutines{
-        EnemySubroutine<Enemy11Entity>(Enemy11State0),
-        EnemySubroutine<Enemy11Entity>(Enemy11State1),
-        EnemySubroutine<Enemy11Entity>(Enemy11State2),
-        EnemySubroutine<Enemy11Entity>(Enemy11State3),
-        EnemySubroutine<Enemy11Entity>(Enemy11State4)
-    };
-}
-
 namespace MphRead::Entities::Enemies
 {
     Enemy11Entity::Enemy11Entity(EnemyInstanceEntityData data,

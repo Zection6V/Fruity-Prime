@@ -687,13 +687,23 @@ namespace MphRead::Mods::Update
                 return _response.Read(destination, length);
             }
 
+            void Dispose() noexcept
+            {
+                if (!_disposed)
+                {
+                    _response.DisposeContent();
+                    _disposed = true;
+                }
+            }
+
             ~CurlContentStream()
             {
-                _response.DisposeContent();
+                Dispose();
             }
 
         private:
             CurlResponseMessage& _response;
+            bool _disposed = false;
         };
 
         class CurlAwaiter final : public HttpResponseAwaiter
@@ -1067,35 +1077,68 @@ namespace MphRead::Mods::Update
                 // the response content stream, before destination replacement.
                 CurlContentStream source(*concrete);
                 OutputFile target(partial);
-                std::vector<char> buffer(64U * 1024U);
+                std::vector<char> buffer;
                 std::int64_t done = 0;
-                for (;;)
+                bool endedEarly = false;
+                std::exception_ptr failure;
+                try
                 {
-                    const std::size_t read = source.Read(
-                        buffer.data(), buffer.size());
-                    if (read == 0)
+                    buffer.resize(64U * 1024U);
+                    for (;;)
                     {
-                        break;
+                        const std::size_t read = source.Read(
+                            buffer.data(), buffer.size());
+                        if (read == 0)
+                        {
+                            break;
+                        }
+                        // SyncHttp's canonical CancellationToken is intentionally
+                        // opaque. The value is forwarded to SendAsync above, but this
+                        // pair has no query operation corresponding to
+                        // CancellationToken.ThrowIfCancellationRequested().
+                        (void)cancel;
+                        target.Write(buffer.data(), read);
+                        done = AddUnchecked(done, read);
+                        if (progress)
+                        {
+                            progress(ProgressValue(done, total));
+                        }
                     }
-                    // SyncHttp's canonical CancellationToken is intentionally
-                    // opaque. The value is forwarded to SendAsync above, but this
-                    // pair has no query operation corresponding to
-                    // CancellationToken.ThrowIfCancellationRequested().
-                    (void)cancel;
-                    target.Write(buffer.data(), read);
-                    done = AddUnchecked(done, read);
-                    if (progress)
+                    if (total > 0 && done != total)
                     {
-                        progress(ProgressValue(done, total));
+                        // In C#, this assignment occurs before leaving the using
+                        // scope. A FileStream.Dispose failure then replaces this
+                        // message in the outer catch.
+                        AssignLastError("the download ended early");
+                        endedEarly = true;
                     }
                 }
-                if (total > 0 && done != total)
+                catch (...)
+                {
+                    failure = std::current_exception();
+                }
+
+                // Nested C# using statements dispose target first and source
+                // second, including while another exception is already active.
+                // A target-dispose failure replaces the body failure.
+                try
                 {
                     target.Close();
-                    AssignLastError("the download ended early");
+                }
+                catch (...)
+                {
+                    failure = std::current_exception();
+                }
+                source.Dispose();
+
+                if (failure)
+                {
+                    std::rethrow_exception(failure);
+                }
+                if (endedEarly)
+                {
                     return false;
                 }
-                target.Close();
             }
 
             if (path != nullptr && FileExists(*path))

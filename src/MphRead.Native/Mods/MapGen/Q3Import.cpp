@@ -31,6 +31,27 @@
 #include <utility>
 #include <vector>
 
+namespace System
+{
+    class IndexOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        IndexOutOfRangeException()
+            : std::out_of_range("Index was outside the bounds of the array.")
+        {
+        }
+    };
+
+    class InvalidOperationException final : public std::runtime_error
+    {
+    public:
+        InvalidOperationException()
+            : std::runtime_error("Sequence contains no elements")
+        {
+        }
+    };
+}
+
 namespace
 {
     using MphRead::ItemType;
@@ -49,7 +70,7 @@ namespace
 
     [[noreturn]] void ArrayBounds()
     {
-        throw std::out_of_range("Index was outside the bounds of the array.");
+        throw System::IndexOutOfRangeException();
     }
 
     template <typename T>
@@ -77,8 +98,7 @@ namespace
     {
         if (index < 0 || static_cast<std::size_t>(index) >= values.size())
         {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
+            throw System::ArgumentOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -88,8 +108,7 @@ namespace
     {
         if (index < 0 || static_cast<std::size_t>(index) >= values.size())
         {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
+            throw System::ArgumentOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -904,8 +923,7 @@ namespace MphRead::Mods::MapGen
             if (material < 0
                 || static_cast<std::size_t>(material) >= textureSizes.size())
             {
-                throw std::out_of_range(
-                    "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
+                throw System::ArgumentOutOfRangeException();
             }
             const auto [width, height]
                 = textureSizes[static_cast<std::size_t>(material)];
@@ -1033,7 +1051,7 @@ namespace MphRead::Mods::MapGen
             ++solidBrushes;
             if (brush->SideCount() < 0)
             {
-                throw std::overflow_error("Array dimensions exceeded supported range.");
+                throw System::OverflowException();
             }
             std::vector<Vector4> planes(
                 static_cast<std::size_t>(brush->SideCount()));
@@ -1682,7 +1700,7 @@ namespace MphRead::Mods::MapGen
     {
         if (uvs.empty())
         {
-            throw std::invalid_argument("Sequence contains no elements");
+            throw System::InvalidOperationException();
         }
 
         float minU = uvs.front().X;
@@ -1740,7 +1758,7 @@ namespace MphRead::Mods::MapGen
             NullReference();
         }
         Recolor* recolor
-            = Require(requiredSource->Recolors->at(0));
+            = Require(ListAt(*requiredSource->Recolors, 0));
 
         if (!requiredSource->Materials)
         {

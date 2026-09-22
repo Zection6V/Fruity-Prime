@@ -149,12 +149,12 @@ namespace
         }
     }
 
-    [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scalar) noexcept
+    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scalar) noexcept
     {
         return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
     }
 
-    [[nodiscard]] constexpr Vector4 Scale(Vector4 value, float scalar) noexcept
+    [[nodiscard]] constexpr Vector4 ScaleVector(Vector4 value, float scalar) noexcept
     {
         return Vector4(value.X * scalar, value.Y * scalar, value.Z * scalar, value.W * scalar);
     }
@@ -339,27 +339,28 @@ namespace MphRead::Entities
 
         std::int32_t lod = 0;
         SetFlags2(RemoveFlag(Flags2(), PlayerFlags2::Lod1));
-        PlayerEntity& main = RequireReference(Main());
-        CameraInfo& mainCamera = RequireReference(main.CameraInfo());
-        if (!IsMainPlayer() && !Features::MaxPlayerDetail
-            && LengthSquared(static_cast<Vector3>(Position) - mainCamera.Position) >= 9.0F)
+        if (!IsMainPlayer() && !Features::MaxPlayerDetail())
         {
-            lod = 1;
-            SetFlags2(AddFlag(Flags2(), PlayerFlags2::Lod1));
+            PlayerEntity& main = RequireReference(Main());
+            ::MphRead::Entities::CameraInfo& mainCamera = RequireReference(main.CameraInfo());
+            if (LengthSquared(static_cast<Vector3>(Position) - mainCamera.Position) >= 9.0F)
+            {
+                lod = 1;
+                SetFlags2(AddFlag(Flags2(), PlayerFlags2::Lod1));
+            }
         }
 
-        ModelInstance& biped1 = RequireReference(_bipedModel1);
-        ModelInstance& biped2 = RequireReference(_bipedModel2);
-        ModelInstance& lodModel = RequireReference(ManagedAt(_bipedModelLods, lod));
-        biped1.SetModel(lodModel.Model());
-        biped2.SetModel(lodModel.Model());
+        ModelInstance& biped1 = RequireReference(_bipedModel1.get());
+        biped1.SetModel(RequireReference(ManagedAt(_bipedModelLods, lod).get()).Model());
+        ModelInstance& biped2 = RequireReference(_bipedModel2.get());
+        biped2.SetModel(RequireReference(ManagedAt(_bipedModelLods, lod).get()).Model());
         SetFlags2(RemoveFlag(Flags2(), PlayerFlags2::DrawnThirdPerson));
 
         bool drawBiped = false;
-        if (IsMainPlayer() || IsVisible(NodeRef) || ModNodeUnresolved)
+        if (IsMainPlayer() || IsVisible(NodeRef) || ModNodeUnresolved())
         {
             drawBiped = !IsMainPlayer() || CameraType() != Entities::CameraType::First
-                || CameraSequence::Current != nullptr || _camSwitchTimer < Values().CamSwitchTime * 2;
+                || CameraSequence::Current() != nullptr || _camSwitchTimer < Values().CamSwitchTime * 2;
             if (IsAltForm())
             {
                 SetRow3(_modelTransform, Position);
@@ -378,7 +379,7 @@ namespace MphRead::Entities
                 }
                 else
                 {
-                    ModelInstance& alt = RequireReference(_altModel);
+                    ModelInstance& alt = RequireReference(_altModel.get());
                     UpdateTransforms(alt, _modelTransform, Recolor());
                     Model& altModel = RequireReference(alt.Model());
                     GetDrawItems(alt, RequireReference(ManagedAt(altModel.Nodes, 0)), _curAlpha);
@@ -389,7 +390,7 @@ namespace MphRead::Entities
                     const float radius = _volume.SphereRadius + 0.2F;
                     Matrix4 transform = Multiply(CreateScale(radius), _modelTransform);
                     transform.M42 += Fixed::ToFloat(Values().AltColYPos);
-                    ModelInstance& altIce = RequireReference(_altIceModel);
+                    ModelInstance& altIce = RequireReference(_altIceModel.get());
                     UpdateTransforms(altIce, transform, 0);
                     Model& altIceModel = RequireReference(altIce.Model());
                     GetDrawItems(altIce, RequireReference(ManagedAt(altIceModel.Nodes, 0)), 1.0F, -1, 0);
@@ -404,7 +405,7 @@ namespace MphRead::Entities
             }
             else if (drawBiped)
             {
-                Node& spineNode = RequireReference(ManagedAt(_spineNodes, lod));
+                Node& spineNode = RequireReference(ManagedAt(_spineNodes, lod).get());
                 spineNode.AnimIgnoreChild = true;
                 const Vector3 facing = _facingVector;
                 const float limit = Fixed::ToFloat(2896);
@@ -438,9 +439,9 @@ namespace MphRead::Entities
                 SetRow2(transform, Negate(lateral));
                 SetRow3(transform, Position);
                 transform.M42 += bottom + bottom * (1.0F - scale);
-                SetRow0(transform, Scale(GetRow0(transform), scale));
-                SetRow1(transform, Scale(GetRow1(transform), scale));
-                SetRow2(transform, Scale(GetRow2(transform), scale));
+                SetRow0(transform, ScaleVector(GetRow0(transform), scale));
+                SetRow1(transform, ScaleVector(GetRow1(transform), scale));
+                SetRow2(transform, ScaleVector(GetRow2(transform), scale));
                 for (std::int32_t i = 0; i < ManagedLength(model.Nodes); ++i)
                 {
                     Node& node = RequireReference(ManagedAt(model.Nodes, i));
@@ -455,7 +456,7 @@ namespace MphRead::Entities
                         SetPaletteOverride(Metadata::RedPalette);
                     }
                     float alpha = _curAlpha;
-                    if (IsMainPlayer() && CameraSequence::Current == nullptr
+                    if (IsMainPlayer() && CameraSequence::Current() == nullptr
                         && ManagedAt(biped1.AnimInfo->Index, 0) == static_cast<std::int32_t>(PlayerAnimation::Unmorph))
                     {
                         alpha -= alpha * static_cast<float>(ManagedAt(biped1.AnimInfo->Frame, 0))
@@ -470,7 +471,7 @@ namespace MphRead::Entities
                         Vector3 muzzlePos = ManagedAt(Metadata::MuzzleOffests,
                             static_cast<std::int32_t>(Hunter()));
                         muzzlePos = Matrix::Vec3MultMtx4(
-                            muzzlePos, RequireReference(ManagedAt(_shootNodes, lod)).Animation);
+                            muzzlePos, RequireReference(ManagedAt(_shootNodes, lod).get()).Animation);
                         if (_chargeEffect != nullptr)
                         {
                             _chargeEffect->SetDrawEnabled(true);
@@ -484,7 +485,7 @@ namespace MphRead::Entities
                     }
                     if (_frozenGfxTimer > 0)
                     {
-                        ModelInstance& bipedIce = RequireReference(_bipedIceModel);
+                        ModelInstance& bipedIce = RequireReference(_bipedIceModel.get());
                         Model& iceModel = RequireReference(bipedIce.Model());
                         for (std::int32_t i = 0; i < ManagedLength(iceModel.Nodes); ++i)
                         {
@@ -507,7 +508,7 @@ namespace MphRead::Entities
             else if (AttachedEnemy() == nullptr && !_field6D0 && Hunter() != MphRead::Hunter::Guardian)
             {
                 Matrix4 transform = GetTransformMatrix(_aimVec, _upVector, _gunDrawPos);
-                ModelInstance& gun = RequireReference(_gunModel);
+                ModelInstance& gun = RequireReference(_gunModel.get());
                 UpdateTransforms(gun, transform, Recolor());
                 Model& gunModel = RequireReference(gun.Model());
                 GetDrawItems(gun, RequireReference(ManagedAt(gunModel.Nodes, 0)), _curAlpha);
@@ -516,7 +517,7 @@ namespace MphRead::Entities
                     Vector3 drawPos(0.0F, 0.0F, Fixed::ToFloat(Values().MuzzleOffset));
                     drawPos = Matrix::Vec3MultMtx4(drawPos, transform);
                     SetRow3(transform, drawPos);
-                    ModelInstance& smoke = RequireReference(_gunSmokeModel);
+                    ModelInstance& smoke = RequireReference(_gunSmokeModel.get());
                     UpdateTransforms(smoke, transform, 0);
                     Model& smokeModel = RequireReference(smoke.Model());
                     GetDrawItems(smoke, RequireReference(ManagedAt(smokeModel.Nodes, 0)), _smokeAlpha, -1, 0);
@@ -535,7 +536,7 @@ namespace MphRead::Entities
                 _muzzleEffect->SetDrawEnabled(false);
             }
         }
-        if (GameState::SinglePlayer && IsMainPlayer() && _deathCountdown > 0.0F
+        if (GameState::SinglePlayer() && IsMainPlayer() && _deathCountdown > 0.0F
             && _deathCountdown <= 119.0F / 30.0F)
         {
             if (GameState::StorySave == nullptr)
@@ -546,7 +547,7 @@ namespace MphRead::Entities
             {
                 Matrix4 transform = IdentityMatrix();
                 SetRow3(transform, _lostOctolithDrawPos);
-                ModelInstance& octolith = RequireReference(_octolithSimpleModel);
+                ModelInstance& octolith = RequireReference(_octolithSimpleModel.get());
                 UpdateTransforms(octolith, transform, 0);
                 Model& octolithModel = RequireReference(octolith.Model());
                 GetDrawItems(octolith, RequireReference(ManagedAt(octolithModel.Nodes, 0)), 1.0F, -1, 0);
@@ -557,7 +558,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::DrawKandenAlt()
     {
-        ModelInstance& alt = RequireReference(_altModel);
+        ModelInstance& alt = RequireReference(_altModel.get());
         Model& model = RequireReference(alt.Model());
         for (std::int32_t i = 0; i < ManagedLength(_kandenSegMtx); ++i)
         {
@@ -571,18 +572,18 @@ namespace MphRead::Entities
     void PlayerEntity::UpdateSpireAltAttack()
     {
         const Matrix4 transform = GetTransformMatrix(_spireAltFacing, _spireAltUp);
-        ModelInstance& alt = RequireReference(_altModel);
+        ModelInstance& alt = RequireReference(_altModel.get());
         Model& model = RequireReference(alt.Model());
         model.AnimateNodes(0, false, transform, Vector3(1.0F, 1.0F, 1.0F), alt.AnimInfo);
-        _spireRockPosL = MatrixRow3(RequireReference(ManagedAt(_spireAltNodes, 0)).Animation)
+        _spireRockPosL = MatrixRow3(RequireReference(ManagedAt(_spireAltNodes, 0).get()).Animation)
             + static_cast<Vector3>(Position);
-        _spireRockPosR = MatrixRow3(RequireReference(ManagedAt(_spireAltNodes, 1)).Animation)
+        _spireRockPosR = MatrixRow3(RequireReference(ManagedAt(_spireAltNodes, 1).get()).Animation)
             + static_cast<Vector3>(Position);
     }
 
     void PlayerEntity::DrawSpireAltAttack()
     {
-        ModelInstance& alt = RequireReference(_altModel);
+        ModelInstance& alt = RequireReference(_altModel.get());
         Model& model = RequireReference(alt.Model());
         RequireReference(ManagedAt(model.Nodes, 0)).Animation = _modelTransform;
         for (std::int32_t i = 1; i < ManagedLength(model.Nodes); ++i)
@@ -626,9 +627,17 @@ namespace MphRead::Entities
                 const SelectionType selectionType = SelectionType::None;
                 const std::optional<std::int32_t> bindingOverride
                     = GetBindingOverride(inst, material, mesh.MaterialId);
-                RequireReference(_scene).AddRenderItem(material, polygonId, alpha, emission,
+                Scene& renderScene = RequireReference(_scene);
+                const auto& matrixStackValues = RequireReference(model.MatrixStackValues);
+                std::vector<float> matrixStack;
+                matrixStack.reserve(matrixStackValues.Length());
+                for (std::size_t matrixIndex = 0; matrixIndex < matrixStackValues.Length(); ++matrixIndex)
+                {
+                    matrixStack.push_back(matrixStackValues[matrixIndex]);
+                }
+                renderScene.AddRenderItem(material, polygonId, alpha, emission,
                     GetLightInfo(), texcoordMatrix, node.Animation, mesh.ListId,
-                    ManagedLength(model.NodeMatrixIds), model.MatrixStackValues, color,
+                    ManagedLength(model.NodeMatrixIds), matrixStack, color,
                     PaletteOverride(), selectionType, node.BillboardMode, _drawScale, bindingOverride);
             }
             if (node.ChildIndex != -1)
@@ -649,7 +658,7 @@ namespace MphRead::Entities
     {
         if (_doubleDmgTimer > 0
             && (Hunter() != MphRead::Hunter::Spire
-                || !(&inst == ObjectPointer(_gunModel) && index == 0))
+                || !(&inst == _gunModel.get() && index == 0))
             && material.Lighting > 0)
         {
             return _doubleDmgBindingId;
@@ -661,7 +670,7 @@ namespace MphRead::Entities
     {
         if (_doubleDmgTimer > 0
             && (Hunter() != MphRead::Hunter::Spire
-                || !(&inst == ObjectPointer(_gunModel) && index == 0))
+                || !(&inst == _gunModel.get() && index == 0))
             && material.Lighting > 0)
         {
             return Metadata::EmissionGray;
@@ -683,12 +692,12 @@ namespace MphRead::Entities
     {
         if (_doubleDmgTimer > 0
             && (Hunter() != MphRead::Hunter::Spire
-                || !(&inst == ObjectPointer(_gunModel) && materialId == 0))
+                || !(&inst == _gunModel.get() && materialId == 0))
             && material.Lighting > 0 && node.BillboardMode == BillboardMode::None)
         {
-            ModelInstance& doubleDamage = RequireReference(_doubleDmgModel);
+            ModelInstance& doubleDamage = RequireReference(_doubleDmgModel.get());
             Model& doubleDamageModel = RequireReference(doubleDamage.Model());
-            Recolor& doubleRecolor = RequireReference(ManagedAt(doubleDamageModel.Recolors, 0));
+            ::MphRead::Recolor& doubleRecolor = RequireReference(ManagedAt(doubleDamageModel.Recolors, 0));
             const Texture& texture = ManagedAt(doubleRecolor.Textures, 0);
 
             Matrix4 texgenMatrix = IdentityMatrix();
@@ -727,9 +736,9 @@ namespace MphRead::Entities
             product.M41 *= textureScale; product.M42 *= textureScale;
             product.M43 *= textureScale; product.M44 *= textureScale;
             return Matrix4(
-                Scale(product.Row0(), 16.0F),
-                Scale(product.Row1(), 16.0F),
-                Scale(product.Row2(), 16.0F),
+                ScaleVector(product.Row0(), 16.0F),
+                ScaleVector(product.Row1(), 16.0F),
+                ScaleVector(product.Row2(), 16.0F),
                 product.Row3());
         }
         return EntityBase::GetTexcoordMatrix(inst, material, materialId, node, recolor);
@@ -741,14 +750,14 @@ namespace MphRead::Entities
         {
             return;
         }
-        ModelInstance& trail = RequireReference(_trailModel);
+        ModelInstance& trail = RequireReference(_trailModel.get());
         Model& trailModel = RequireReference(trail.Model());
         Material& material = RequireReference(ManagedAt(trailModel.Materials, 1));
         const Vector3 point1 = _volume.SpherePosition;
         const Vector3 point2(point1.X, point1.Y - 10.0F, point1.Z);
         CollisionResult colRes{};
         if (CollisionDetection::CheckBetweenPoints(
-                point1, point2, TestFlags::None, RequireReference(_scene), colRes)
+                point1, point2, TestFlags::None, _scene, colRes)
             && colRes.Plane.Y >= Fixed::ToFloat(4))
         {
             const float height = point1.Y - colRes.Position.Y;
@@ -769,9 +778,9 @@ namespace MphRead::Entities
                     Vector3 row1 = Vector3::Cross(colRes.Plane.Xyz(), Vector3(0.0F, 0.0F, 1.0F)).Normalized();
                     Vector3 row2 = colRes.Plane.Xyz();
                     Vector3 row3 = Vector3::Cross(row1, colRes.Plane.Xyz());
-                    row1 = Scale(row1, pct);
-                    row2 = Scale(row2, pct);
-                    row3 = Scale(row3, pct);
+                    row1 = ScaleVector(row1, pct);
+                    row2 = ScaleVector(row2, pct);
+                    row3 = ScaleVector(row3, pct);
                     const float factor = Fixed::ToFloat(100);
                     const Vector3 row4(
                         colRes.Position.X + colRes.Plane.X * factor,
@@ -780,15 +789,15 @@ namespace MphRead::Entities
                     const Matrix4 transform(
                         Vector4(row1, 0.0F), Vector4(row2, 0.0F),
                         Vector4(row3, 0.0F), Vector4(row4, 1.0F));
-                    std::vector<Vector3> uvsAndVerts(8);
-                    uvsAndVerts[0] = Vector3(0.0F, 0.0F, 0.0F);
-                    uvsAndVerts[1] = Vector3(-0.75F, 0.03125F, -0.75F);
-                    uvsAndVerts[2] = Vector3(0.0F, 1.0F, 0.0F);
-                    uvsAndVerts[3] = Vector3(-0.75F, 0.03125F, 0.75F);
-                    uvsAndVerts[4] = Vector3(1.0F, 1.0F, 0.0F);
-                    uvsAndVerts[5] = Vector3(0.75F, 0.03125F, 0.75F);
-                    uvsAndVerts[6] = Vector3(1.0F, 0.0F, 0.0F);
-                    uvsAndVerts[7] = Vector3(0.75F, 0.03125F, -0.75F);
+                    auto uvsAndVerts = std::make_shared<::MphRead::ManagedArray<Vector3>>(8);
+                    (*uvsAndVerts)[0] = Vector3(0.0F, 0.0F, 0.0F);
+                    (*uvsAndVerts)[1] = Vector3(-0.75F, 0.03125F, -0.75F);
+                    (*uvsAndVerts)[2] = Vector3(0.0F, 1.0F, 0.0F);
+                    (*uvsAndVerts)[3] = Vector3(-0.75F, 0.03125F, 0.75F);
+                    (*uvsAndVerts)[4] = Vector3(1.0F, 1.0F, 0.0F);
+                    (*uvsAndVerts)[5] = Vector3(0.75F, 0.03125F, 0.75F);
+                    (*uvsAndVerts)[6] = Vector3(1.0F, 0.0F, 0.0F);
+                    (*uvsAndVerts)[7] = Vector3(0.75F, 0.03125F, -0.75F);
                     const std::int32_t polygonId = RequireReference(_scene).GetNextPolygonId();
                     const Vector3 color(0.0F, 0.0F, 0.0F);
                     RequireReference(_scene).AddRenderItem(RenderItemType::Particle, alpha,
@@ -802,10 +811,10 @@ namespace MphRead::Entities
     void PlayerEntity::DrawMorphBallTrail()
     {
         assert(_trailModel != nullptr);
-        ModelInstance& trail = RequireReference(_trailModel);
+        ModelInstance& trail = RequireReference(_trailModel.get());
         Model& model = RequireReference(trail.Model());
         Material& material = RequireReference(ManagedAt(model.Materials, 0));
-        Recolor& recolor = RequireReference(ManagedAt(model.Recolors, 0));
+        ::MphRead::Recolor& recolor = RequireReference(ManagedAt(model.Recolors, 0));
         assert(ManagedAt(recolor.Textures, material.TextureId).Width == 32);
 
         std::vector<float> matrixStack(static_cast<std::size_t>(16 * _mbTrailSegments));
@@ -825,7 +834,8 @@ namespace MphRead::Entities
 
         std::int32_t count = 0;
         const std::int32_t index = ManagedAt(_mbTrailIndices, SlotIndex());
-        std::vector<Vector3> uvsAndVerts(static_cast<std::size_t>(8 * _mbTrailSegments));
+        auto uvsAndVerts = std::make_shared<::MphRead::ManagedArray<Vector3>>(
+            static_cast<std::size_t>(8 * _mbTrailSegments));
         for (std::int32_t i = 0; i < _mbTrailSegments; ++i)
         {
             const std::int32_t base = index - 1 - i;
@@ -839,14 +849,14 @@ namespace MphRead::Entities
                 const float uvS1 = static_cast<float>(31 - ManagedFloatToInt32(alpha1 * 31.0F)) / 32.0F;
                 const float uvS2 = static_cast<float>(31 - ManagedFloatToInt32(alpha2 * 31.0F)) / 32.0F;
                 const std::size_t offset = static_cast<std::size_t>(i) * 8U;
-                uvsAndVerts[offset] = Vector3(uvS1, 0.0F, static_cast<float>(mtxId1));
-                uvsAndVerts[offset + 1U] = Vector3(0.0F, 0.375F, 0.0F);
-                uvsAndVerts[offset + 2U] = Vector3(uvS1, 1.0F, static_cast<float>(mtxId1));
-                uvsAndVerts[offset + 3U] = Vector3(0.0F, -0.375F, 0.0F);
-                uvsAndVerts[offset + 4U] = Vector3(uvS2, 1.0F, static_cast<float>(mtxId2));
-                uvsAndVerts[offset + 5U] = Vector3(0.0F, -0.375F, 0.0F);
-                uvsAndVerts[offset + 6U] = Vector3(uvS2, 0.0F, static_cast<float>(mtxId2));
-                uvsAndVerts[offset + 7U] = Vector3(0.0F, 0.375F, 0.0F);
+                (*uvsAndVerts)[offset] = Vector3(uvS1, 0.0F, static_cast<float>(mtxId1));
+                (*uvsAndVerts)[offset + 1U] = Vector3(0.0F, 0.375F, 0.0F);
+                (*uvsAndVerts)[offset + 2U] = Vector3(uvS1, 1.0F, static_cast<float>(mtxId1));
+                (*uvsAndVerts)[offset + 3U] = Vector3(0.0F, -0.375F, 0.0F);
+                (*uvsAndVerts)[offset + 4U] = Vector3(uvS2, 1.0F, static_cast<float>(mtxId2));
+                (*uvsAndVerts)[offset + 5U] = Vector3(0.0F, -0.375F, 0.0F);
+                (*uvsAndVerts)[offset + 6U] = Vector3(uvS2, 0.0F, static_cast<float>(mtxId2));
+                (*uvsAndVerts)[offset + 7U] = Vector3(0.0F, 0.375F, 0.0F);
                 ++count;
             }
         }
@@ -874,7 +884,7 @@ namespace MphRead::Entities
         const float sin270 = std::sin(DegreesToRadians(270.0F));
         const float sin180 = std::sin(DegreesToRadians(180.0F));
         const float offset = (angle - sin270) / (sin180 - sin270);
-        ModelInstance& biped = RequireReference(_bipedModel1);
+        ModelInstance& biped = RequireReference(_bipedModel1.get());
         Model& model = RequireReference(biped.Model());
         for (std::int32_t i = 1; i < ManagedLength(model.Nodes); ++i)
         {
@@ -892,7 +902,7 @@ namespace MphRead::Entities
                         nodePos.X + static_cast<float>(j) * (childPos.X - nodePos.X) / 5.0F,
                         nodePos.Y + static_cast<float>(j) * (childPos.Y - nodePos.Y) / 5.0F,
                         nodePos.Z + static_cast<float>(j) * (childPos.Z - nodePos.Z) / 5.0F);
-                    segPos = segPos + Scale((segPos - static_cast<Vector3>(Position)).Normalized(), offset);
+                    segPos = segPos + ScaleVector((segPos - static_cast<Vector3>(Position)).Normalized(), offset);
                     RequireReference(_scene).AddSingleParticle(
                         SingleType::Death, segPos, Vector3(1.0F, 1.0F, 1.0F), 1.0F - timePct, scale);
                 }
@@ -908,12 +918,12 @@ namespace MphRead::Entities
                         nodePos.X + static_cast<float>(j) * (nextPos.X - nodePos.X) / 5.0F,
                         nodePos.Y + static_cast<float>(j) * (nextPos.Y - nodePos.Y) / 5.0F,
                         nodePos.Z + static_cast<float>(j) * (nextPos.Z - nodePos.Z) / 5.0F);
-                    segPos = segPos + Scale((segPos - static_cast<Vector3>(Position)).Normalized(), offset);
+                    segPos = segPos + ScaleVector((segPos - static_cast<Vector3>(Position)).Normalized(), offset);
                     RequireReference(_scene).AddSingleParticle(
                         SingleType::Death, segPos, Vector3(1.0F, 1.0F, 1.0F), 1.0F - timePct, scale);
                 }
             }
-            nodePos = nodePos + Scale((nodePos - static_cast<Vector3>(Position)).Normalized(), offset);
+            nodePos = nodePos + ScaleVector((nodePos - static_cast<Vector3>(Position)).Normalized(), offset);
             RequireReference(_scene).AddSingleParticle(
                 SingleType::Death, nodePos, Vector3(1.0F, 1.0F, 1.0F), 1.0F - timePct, scale);
         }
@@ -925,12 +935,12 @@ namespace MphRead::Entities
         {
             if (!IsAltForm() && !IsMorphing() && !IsUnmorphing())
             {
-                AddVectorItem(_gunDrawPos, Scale(_aimVec, 3.0F), Vector3(0.0F, 0.0F, 1.0F));
+                AddVectorItem(_gunDrawPos, ScaleVector(_aimVec, 3.0F), Vector3(0.0F, 0.0F, 1.0F));
                 AddDotItem(_muzzlePos, Vector3(1.0F, 0.0F, 0.0F));
-                AddDotItem(_muzzlePos + Scale((_aimPosition - _muzzlePos).Normalized(), 3.0F),
+                AddDotItem(_muzzlePos + ScaleVector((_aimPosition - _muzzlePos).Normalized(), 3.0F),
                     Vector3(1.0F, 0.0F, 0.0F));
             }
-            AddVectorItem(_position, Scale(_facingVector, 3.0F), Vector3(0.0F, 1.0F, 0.0F));
+            AddVectorItem(_position, ScaleVector(_facingVector, 3.0F), Vector3(0.0F, 1.0F, 0.0F));
         }
     }
 

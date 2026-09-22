@@ -27,6 +27,17 @@
 #include <utility>
 #include <vector>
 
+namespace System::Text::Json
+{
+    class JsonException final : public std::runtime_error
+    {
+    public:
+        explicit JsonException(const std::string& message)
+            : std::runtime_error(message)
+        {
+        }
+    };
+}
 
 namespace
 {
@@ -467,7 +478,7 @@ namespace
     private:
         [[noreturn]] void Fail(const char* message) const
         {
-            throw std::runtime_error(message);
+            throw System::Text::Json::JsonException(message);
         }
 
         void SkipTrivia()
@@ -594,7 +605,7 @@ namespace
             {
                 return static_cast<std::uint32_t>(ch - 'A' + 10);
             }
-            throw std::runtime_error("Invalid Unicode escape in JSON string.");
+            throw System::Text::Json::JsonException("Invalid Unicode escape in JSON string.");
         }
 
         [[nodiscard]] std::uint16_t ParseHex4()
@@ -856,7 +867,8 @@ namespace
 
     [[noreturn]] void ConversionError()
     {
-        throw std::runtime_error("The JSON value could not be converted to the target type.");
+        throw System::Text::Json::JsonException(
+            "The JSON value could not be converted to the target type.");
     }
 
     [[nodiscard]] const std::string& JsonString(const JsonValue& value)
@@ -1233,7 +1245,7 @@ namespace
     {
         if (!std::isfinite(value))
         {
-            throw std::runtime_error("JSON does not support non-finite floating point values.");
+            throw System::ArgumentException();
         }
         const float magnitude = std::fabs(value);
         const std::chars_format format = magnitude != 0.0F

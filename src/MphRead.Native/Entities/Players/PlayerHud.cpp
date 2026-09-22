@@ -12,6 +12,7 @@
 #include "../../Mods/RenderOptions.hpp"
 #include "../../Mods/SpectatorMode.hpp"
 #include "../../Mods/ThumbnailMode.hpp"
+#include "../CamSeq/CameraSequence.hpp"
 #include "../FlagBaseEntity.hpp"
 #include "HalfturretEntity.hpp"
 #include "../NodeDefenseEntity.hpp"
@@ -291,9 +292,9 @@ namespace MphRead::Entities
         _pauseBindingId = pauseBinding;
 
         _filterModel = Read::GetModelInstance("filter");
-        RequireReference(_scene).LoadModel(RequireReference(_filterModel).Model);
+        RequireReference(_scene).LoadModel(RequireReference(_filterModel).Model());
         _damageIndicator = Read::GetModelInstance("damage", false, MetaDir::Hud);
-        RequireReference(_scene).LoadModel(RequireReference(_damageIndicator).Model);
+        RequireReference(_scene).LoadModel(RequireReference(_damageIndicator).Model());
         RequireReference(_damageIndicator).Active = false;
         _damageIndicatorTimers.fill(0);
         static constexpr std::array<std::string_view, 8> damageNodes{
@@ -301,18 +302,18 @@ namespace MphRead::Entities
         for (std::int32_t i = 0; i < 8; ++i)
         {
             _damageIndicatorNodes[static_cast<std::size_t>(i)]
-                = RequireReference(_damageIndicator).Model->GetNodeByName(std::string(damageNodes[static_cast<std::size_t>(i)]));
+                = RequireReference(RequireReference(_damageIndicator).Model()).GetNodeByName(std::string(damageNodes[static_cast<std::size_t>(i)]));
             RequireReference(_damageIndicatorNodes[static_cast<std::size_t>(i)]);
         }
 
         _playerLocator = Read::GetModelInstance("hud_icon_player", false, MetaDir::Hud);
-        RequireReference(_scene).LoadModel(RequireReference(_playerLocator).Model);
+        RequireReference(_scene).LoadModel(RequireReference(_playerLocator).Model());
         _arrowLocator = Read::GetModelInstance("hud_icon_arrow", false, MetaDir::Hud);
-        RequireReference(_scene).LoadModel(RequireReference(_arrowLocator).Model);
+        RequireReference(_scene).LoadModel(RequireReference(_arrowLocator).Model());
         _nodeLocator = Read::GetModelInstance("hud_icon_nodes", false, MetaDir::Hud);
-        RequireReference(_scene).LoadModel(RequireReference(_nodeLocator).Model);
+        RequireReference(_scene).LoadModel(RequireReference(_nodeLocator).Model());
         _octolithLocator = Read::GetModelInstance("hud_icon_octolith", false, MetaDir::Hud);
-        RequireReference(_scene).LoadModel(RequireReference(_octolithLocator).Model);
+        RequireReference(_scene).LoadModel(RequireReference(_octolithLocator).Model());
 
         _targetCircleObj = Hud::HudInfo::GetHudObject(RequireReference(_hudObjects).Reticle);
         _sniperCircleObj = Hud::HudInfo::GetHudObject(RequireReference(_hudObjects).SniperReticle);
@@ -474,14 +475,14 @@ namespace MphRead::Entities
             _mapQuitInst->SetPaletteData(quit->PaletteData, RequireReference(_scene));
             _mapQuitInst->Enabled = true;
             _navPlayerPosModel = Read::GetModelInstance("PlayerPos_NAV", false, MetaDir::Hud);
-            RequireReference(_scene).LoadModel(_navPlayerPosModel->Model);
+            RequireReference(_scene).LoadModel(_navPlayerPosModel->Model());
             _navPlayerPosModel->SetAnimation(0, AnimFlags::None);
             _navDoorModel = Read::GetModelInstance("Door_NAV", false, MetaDir::Hud);
-            RequireReference(_scene).LoadModel(_navDoorModel->Model);
+            RequireReference(_scene).LoadModel(_navDoorModel->Model());
             for (std::int32_t i = 0; i < 7; ++i)
             {
                 auto mapModel = Read::GetModelInstance(ManagedAt(Metadata::NavMapModelNames, i), false, MetaDir::Hud, true);
-                for (const auto& material : mapModel->Model->Materials)
+                for (const auto& material : RequireReference(RequireReference(mapModel->Model()).Materials))
                 {
                     if (material->Culling == CullingMode::Front)
                     {
@@ -495,21 +496,21 @@ namespace MphRead::Entities
                     material->Lighting = 1;
                     material->Ambient = ColorRgb(8, 8, 8);
                 }
-                for (const auto& node : mapModel->Model->Nodes)
+                for (const auto& node : RequireReference(RequireReference(mapModel->Model()).Nodes))
                 {
                     if (node->Name.starts_with("cent"))
                     {
                         node->Enabled = false;
                     }
                 }
-                RequireReference(_scene).LoadModel(mapModel->Model);
+                RequireReference(_scene).LoadModel(mapModel->Model());
                 _navMapModels[static_cast<std::size_t>(i)] = mapModel;
             }
         }
 
-        if (GameState::SinglePlayer() && !RequireReference(_hudObjects).EnergyTanks.empty())
+        if (GameState::SinglePlayer() && RequireReference(_hudObjects).EnergyTanks.has_value())
         {
-            auto tank = Hud::HudInfo::GetHudObject(RequireReference(_hudObjects).EnergyTanks);
+            auto tank = Hud::HudInfo::GetHudObject(*RequireReference(_hudObjects).EnergyTanks);
             _healthbarMainMeter->TankInst = std::make_shared<Hud::HudObjectInstance>(tank->Width, tank->Height);
             _healthbarMainMeter->TankInst->SetCharacterData(tank->CharacterData, RequireReference(_scene));
             if (_hunter == Hunter::Samus || _hunter == Hunter::Guardian)
@@ -543,9 +544,9 @@ namespace MphRead::Entities
             auto listIcon = _weaponListIcons[static_cast<std::size_t>(i)];
             if (!listIcon || listIcon->Width != listSheet->Width || listIcon->Height != listSheet->Height)
             {
-                listIcon = Mods::Render::SmoothHudIcon::Create(*listSheet);
+                listIcon = Mods::Render::SmoothHudIcon::Create(listSheet);
             }
-            Mods::Render::SmoothHudIcon::Tint(*listIcon, listSheet->CharacterData, i,
+            Mods::Render::SmoothHudIcon::Tint(listIcon, listSheet->CharacterData, i,
                 _weaponListColors[static_cast<std::size_t>(i)], RequireReference(_scene));
             _weaponListIcons[static_cast<std::size_t>(i)] = listIcon;
             _weaponListIconBounds[static_cast<std::size_t>(i)] = ModIconBounds(
@@ -780,11 +781,11 @@ namespace MphRead::Entities
         RequireReference(RequireReference(_ammoBarMeter).BarInst).Enabled = false;
         RequireReference(_weaponIconInst).Enabled = false;
         RequireReference(_damageIndicator).Active = false;
-        RequireReference(_scene).Layer1Info.BindingId = -1;
-        RequireReference(_scene).Layer2Info.BindingId = -1;
-        RequireReference(_scene).Layer3Info.BindingId = -1;
-        RequireReference(_scene).Layer4Info.BindingId = -1;
-        RequireReference(_scene).Layer5Info.BindingId = -1;
+        RequireReference(RequireReference(_scene).Layer1Info()).BindingId = -1;
+        RequireReference(RequireReference(_scene).Layer2Info()).BindingId = -1;
+        RequireReference(RequireReference(_scene).Layer3Info()).BindingId = -1;
+        RequireReference(RequireReference(_scene).Layer4Info()).BindingId = -1;
+        RequireReference(RequireReference(_scene).Layer5Info()).BindingId = -1;
     }
 
     void PlayerEntity::UpdateHud()
@@ -793,15 +794,15 @@ namespace MphRead::Entities
         {
             InitHudState();
             auto& scene = RequireReference(_scene);
-            scene.Layer1Info.BindingId = _pauseBindingId;
-            scene.Layer1Info.Alpha = 0.75F;
-            scene.Layer1Info.ShiftX = 0.0F;
-            scene.Layer1Info.ShiftY = -1.0F / 3.0F;
-            scene.Layer1Info.MaskId = -1;
-            scene.Layer2Info.BindingId = _pausedPrevBindingId2;
-            scene.Layer2Info.Alpha = 1.0F;
-            scene.Layer2Info.ShiftX = 0.0F;
-            scene.Layer2Info.ShiftY = 0.0F;
+            RequireReference(scene.Layer1Info()).BindingId = _pauseBindingId;
+            RequireReference(scene.Layer1Info()).Alpha = 0.75F;
+            RequireReference(scene.Layer1Info()).ShiftX = 0.0F;
+            RequireReference(scene.Layer1Info()).ShiftY = -1.0F / 3.0F;
+            RequireReference(scene.Layer1Info()).MaskId = -1;
+            RequireReference(scene.Layer2Info()).BindingId = _pausedPrevBindingId2;
+            RequireReference(scene.Layer2Info()).Alpha = 1.0F;
+            RequireReference(scene.Layer2Info()).ShiftX = 0.0F;
+            RequireReference(scene.Layer2Info()).ShiftY = 0.0F;
             return;
         }
         if (GameState::DialogPause()) return;
@@ -824,7 +825,7 @@ namespace MphRead::Entities
             if (!_hudWeaponMenuOpen)
             {
                 if (_scanVisor) SwitchVisors(false);
-                RequireReference(_soundSource).PlayFreeSfx(SfxId::HUD_WEAPON_SWITCH1);
+                _soundSource.PlayFreeSfx(SfxId::HUD_WEAPON_SWITCH1);
             }
             _hudWeaponMenuOpen = true;
             UpdateWeaponSelect();
@@ -836,12 +837,21 @@ namespace MphRead::Entities
         if (_scanVisor) UpdateScanHud();
         InitHudState();
         auto& scene = RequireReference(_scene);
-        scene.Layer1Info.ShiftX = scene.Layer1Info.ShiftY = 0.0F;
-        scene.Layer2Info.ShiftX = scene.Layer2Info.ShiftY = 0.0F;
-        scene.Layer3Info.ShiftX = scene.Layer3Info.ShiftY = 0.0F;
-        scene.Layer4Info.ShiftX = scene.Layer4Info.ShiftY = 0.0F;
-        scene.Layer5Info.ShiftX = scene.Layer5Info.ShiftY = 0.0F;
-        if (CameraSequence::Current() && TestFlag(CameraSequence::Current()->Flags, CamSeqFlags::BlockInput)) return;
+        RequireReference(scene.Layer1Info()).ShiftX = 0.0F;
+        RequireReference(scene.Layer1Info()).ShiftY = 0.0F;
+        RequireReference(scene.Layer2Info()).ShiftX = 0.0F;
+        RequireReference(scene.Layer2Info()).ShiftY = 0.0F;
+        RequireReference(scene.Layer3Info()).ShiftX = 0.0F;
+        RequireReference(scene.Layer3Info()).ShiftY = 0.0F;
+        RequireReference(scene.Layer4Info()).ShiftX = 0.0F;
+        RequireReference(scene.Layer4Info()).ShiftY = 0.0F;
+        RequireReference(scene.Layer5Info()).ShiftX = 0.0F;
+        RequireReference(scene.Layer5Info()).ShiftY = 0.0F;
+        if (auto* current = Formats::CameraSequence::Current();
+            current && TestFlag(current->Flags(), Formats::CamSeqFlags::BlockInput))
+        {
+            return;
+        }
         if (_health > 0 || _deathCountdown > 0)
         {
             if (!IsAltForm() && !IsMorphing() && !IsUnmorphing())
@@ -851,40 +861,40 @@ namespace MphRead::Entities
                 {
                     if (_drawIceLayer)
                     {
-                        scene.Layer4Info.BindingId = _iceLayerBindingId;
-                        scene.Layer4Info.Alpha = 9.0F / 16.0F;
-                        scene.Layer4Info.ScaleX = -1.0F;
-                        scene.Layer4Info.ScaleY = -1.0F;
+                        RequireReference(scene.Layer4Info()).BindingId = _iceLayerBindingId;
+                        RequireReference(scene.Layer4Info()).Alpha = 9.0F / 16.0F;
+                        RequireReference(scene.Layer4Info()).ScaleX = -1.0F;
+                        RequireReference(scene.Layer4Info()).ScaleY = -1.0F;
                     }
-                    scene.Layer3Info.BindingId = _helmetDropBindingId;
-                    scene.Layer3Info.Alpha = Features::HelmetOpacity();
-                    scene.Layer3Info.ScaleX = 2.0F;
-                    scene.Layer3Info.ScaleY = 256.0F / 192.0F;
+                    RequireReference(scene.Layer3Info()).BindingId = _helmetDropBindingId;
+                    RequireReference(scene.Layer3Info()).Alpha = Features::HelmetOpacity();
+                    RequireReference(scene.Layer3Info()).ScaleX = 2.0F;
+                    RequireReference(scene.Layer3Info()).ScaleY = 256.0F / 192.0F;
                     if (_scanVisor)
                     {
-                        scene.Layer1Info.BindingId = _scanBindingId;
-                        scene.Layer1Info.MaskId = _scanBindingId;
+                        RequireReference(scene.Layer1Info()).BindingId = _scanBindingId;
+                        RequireReference(scene.Layer1Info()).MaskId = _scanBindingId;
                     }
                     else
                     {
-                        scene.Layer1Info.BindingId = _visorBindingId;
-                        scene.Layer1Info.MaskId = -1;
+                        RequireReference(scene.Layer1Info()).BindingId = _visorBindingId;
+                        RequireReference(scene.Layer1Info()).MaskId = -1;
                     }
-                    scene.Layer1Info.Alpha = Features::VisorOpacity();
-                    scene.Layer1Info.ScaleX = 1.0F;
-                    scene.Layer1Info.ScaleY = 256.0F / 192.0F;
-                    scene.Layer2Info.BindingId = _helmetBindingId;
-                    scene.Layer2Info.Alpha = Features::HelmetOpacity();
-                    scene.Layer2Info.ScaleX = 2.0F;
-                    scene.Layer2Info.ScaleY = 256.0F / 192.0F;
-                    scene.Layer1Info.ShiftX = _hudShiftX / 256.0F;
-                    scene.Layer1Info.ShiftY = _hudShiftY / 192.0F;
-                    scene.Layer2Info.ShiftX = _hudShiftX / 256.0F;
-                    scene.Layer2Info.ShiftY = _hudShiftY / 192.0F;
-                    scene.Layer3Info.ShiftX = -_hudShiftX / 4.0F / 256.0F;
-                    scene.Layer3Info.ShiftY = -_hudShiftY / 4.0F / 192.0F;
+                    RequireReference(scene.Layer1Info()).Alpha = Features::VisorOpacity();
+                    RequireReference(scene.Layer1Info()).ScaleX = 1.0F;
+                    RequireReference(scene.Layer1Info()).ScaleY = 256.0F / 192.0F;
+                    RequireReference(scene.Layer2Info()).BindingId = _helmetBindingId;
+                    RequireReference(scene.Layer2Info()).Alpha = Features::HelmetOpacity();
+                    RequireReference(scene.Layer2Info()).ScaleX = 2.0F;
+                    RequireReference(scene.Layer2Info()).ScaleY = 256.0F / 192.0F;
+                    RequireReference(scene.Layer1Info()).ShiftX = _hudShiftX / 256.0F;
+                    RequireReference(scene.Layer1Info()).ShiftY = _hudShiftY / 192.0F;
+                    RequireReference(scene.Layer2Info()).ShiftX = _hudShiftX / 256.0F;
+                    RequireReference(scene.Layer2Info()).ShiftY = _hudShiftY / 192.0F;
+                    RequireReference(scene.Layer3Info()).ShiftX = -_hudShiftX / 4.0F / 256.0F;
+                    RequireReference(scene.Layer3Info()).ShiftY = -_hudShiftY / 4.0F / 192.0F;
                 }
-                if (Features::NoIdleSway() || _timeSinceInput < static_cast<std::uint64_t>(Values::GunIdleTime) * 2ULL)
+                if (Features::NoIdleSway() || _timeSinceInput < static_cast<std::uint64_t>(Values().GunIdleTime) * 2ULL)
                 {
                     UpdateReticle();
                 }
@@ -945,10 +955,10 @@ namespace MphRead::Entities
         const BeamType previousWeapon = _weaponSelection;
         static_cast<void>(previousWeapon);
         std::int32_t selection = -1;
-        const float x = Input::MouseState() ? Input::MouseState()->X : 0.0F;
-        const float y = Input::MouseState() ? Input::MouseState()->Y : 0.0F;
-        const float ratioX = RequireReference(_scene).Size.X / 256.0F;
-        const float ratioY = RequireReference(_scene).Size.Y / 192.0F;
+        const float x = _input.MouseState.has_value() ? _input.MouseState->X : 0.0F;
+        const float y = _input.MouseState.has_value() ? _input.MouseState->Y : 0.0F;
+        const float ratioX = RequireReference(_scene).Size().X / 256.0F;
+        const float ratioY = RequireReference(_scene).Size().Y / 192.0F;
         const float distX = 224.0F * ratioX - x;
         const float distY = y - 38.0F * ratioY;
         if (distX > 0 && distY > 0 && distX * distX + distY * distY > 20.0F * ratioY * 20.0F * ratioY)
@@ -986,7 +996,7 @@ namespace MphRead::Entities
         }
         if (selection != _hudPreviousWeaponSelection)
         {
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::HUD_WEAPON_SWITCH2);
+            _soundSource.PlayFreeSfx(SfxId::HUD_WEAPON_SWITCH2);
             _hudPreviousWeaponSelection = selection;
         }
     }
@@ -1039,8 +1049,8 @@ namespace MphRead::Entities
         else
         {
             OpenTK::Mathematics::Vector2 pos{};
-            Matrix::ProjectPosition(_aimPosition, RequireReference(_scene).ViewMatrix,
-                RequireReference(_scene).PerspectiveMatrix, pos);
+            Matrix::ProjectPosition(_aimPosition, RequireReference(_scene).ViewMatrix(),
+                RequireReference(_scene).PerspectiveMatrix(), pos);
             RequireReference(_targetCircleInst).PositionX = std::round(pos.X * 100000.0F) / 100000.0F;
             RequireReference(_targetCircleInst).PositionY = std::round(pos.Y * 100000.0F) / 100000.0F;
         }
@@ -1093,7 +1103,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::HudOnDisrupted()
     {
-        if (!CameraSequence::Current())
+        if (!Formats::CameraSequence::Current())
         {
             _hudDisruptedState = 1;
             _hudDisruptedTimer = _disruptedTimer;
@@ -1141,7 +1151,7 @@ namespace MphRead::Entities
     {
         _hudWhiteoutState = 0;
         _hudWhiteoutFactor = 0.0F;
-        _whiteoutTime = RequireReference(_scene).GlobalElapsedTime;
+        _whiteoutTime = RequireReference(_scene).GlobalElapsedTime();
         UpdateWhiteoutTable(0.0F);
     }
 
@@ -1155,7 +1165,7 @@ namespace MphRead::Entities
     {
         const auto getPosition = [this]()
         {
-            const float time = (RequireReference(_scene).GlobalElapsedTime - _whiteoutTime) * 60.0F;
+            const float time = (RequireReference(_scene).GlobalElapsedTime() - _whiteoutTime) * 60.0F;
             const float timeSquared = time * time;
             const float timeCubed = timeSquared * time;
             constexpr float jerk = 0.004F;
@@ -1169,7 +1179,7 @@ namespace MphRead::Entities
         };
         if (_hudWhiteoutState == 0)
         {
-            _hudWhiteoutFactor += 2.8125F * RequireReference(_scene).FrameTime;
+            _hudWhiteoutFactor += 2.8125F * RequireReference(_scene).FrameTime();
             if (_hudWhiteoutFactor >= 1.0F) { _hudWhiteoutFactor = 1.0F; _hudWhiteoutState = 1; }
             _whiteoutAmount = getPosition();
             assert(_whiteoutAmount < 96.0F);
@@ -1181,14 +1191,14 @@ namespace MphRead::Entities
             {
                 _whiteoutAmount = 96.0F;
                 _hudWhiteoutState = 2;
-                _whiteoutTime = RequireReference(_scene).GlobalElapsedTime;
+                _whiteoutTime = RequireReference(_scene).GlobalElapsedTime();
             }
             UpdateWhiteoutTable(_whiteoutAmount);
         }
         else if (_hudWhiteoutState == 2)
         {
             _hudWhiteoutFactor = -1.0F;
-            const float time = RequireReference(_scene).GlobalElapsedTime - _whiteoutTime;
+            const float time = RequireReference(_scene).GlobalElapsedTime() - _whiteoutTime;
             const float value = 1.0F - std::min(time / (16.0F / 30.0F), 1.0F);
             HudWhiteoutTable.fill(value);
         }
@@ -1245,12 +1255,14 @@ namespace MphRead::Entities
         {
             DrawScoreboard();
         }
-        else if (CameraSequence::Current() && TestFlag(CameraSequence::Current()->Flags, CamSeqFlags::BlockInput))
+        else if (auto* current = Formats::CameraSequence::Current();
+            current && TestFlag(current->Flags(), Formats::CamSeqFlags::BlockInput))
         {
             DrawDialogs();
             return;
         }
-        else if (CameraSequence::Current() && CameraSequence::Current()->IsIntro)
+        else if (auto* current = Formats::CameraSequence::Current();
+            current && current->IsIntro())
         {
             DrawModeRules();
             DrawQueuedHudMessages();
@@ -1260,8 +1272,8 @@ namespace MphRead::Entities
         {
             for (std::int32_t i = 0; i < 6; ++i)
             {
-                RequireReference(_scene).DrawHudObject(RequireReference(_selectBoxInsts[static_cast<std::size_t>(i)]), 1);
-                RequireReference(_scene).DrawHudObject(RequireReference(_weaponSelectInsts[static_cast<std::size_t>(i)]), 1);
+                RequireReference(_scene).DrawHudObject(_selectBoxInsts[static_cast<std::size_t>(i)], 1);
+                RequireReference(_scene).DrawHudObject(_weaponSelectInsts[static_cast<std::size_t>(i)], 1);
             }
         }
         else if (ShowScoreboard())
@@ -1288,7 +1300,7 @@ namespace MphRead::Entities
                             _weaponIconInst->PositionX = (RequireReference(_hudObjects).WeaponIconPosX + _objShiftX) / 256.0F;
                             _weaponIconInst->PositionY = (RequireReference(_hudObjects).WeaponIconPosY + _objShiftY) / 192.0F;
                             _weaponIconInst->Alpha = Features::HudOpacity();
-                            RequireReference(_scene).DrawHudObject(*_weaponIconInst);
+                            RequireReference(_scene).DrawHudObject(_weaponIconInst);
                         }
                         const float reticleX = _targetCircleInst->PositionX;
                         const float reticleY = _targetCircleInst->PositionY;
@@ -1299,7 +1311,7 @@ namespace MphRead::Entities
                         else
                         {
                             _targetCircleInst->Alpha = Features::ReticleOpacity();
-                            RequireReference(_scene).DrawHudObject(*_targetCircleInst);
+                            RequireReference(_scene).DrawHudObject(_targetCircleInst);
                         }
                         const float hitMarker = Mods::Network::NetHitPrediction::MarkerAlpha();
                         if (hitMarker > 0.0F)
@@ -1334,26 +1346,27 @@ namespace MphRead::Entities
         if (Mods::ThumbnailMode::Active()) return;
         if (Mods::SpectatorMode::FreeCamera())
         {
-            if (ShowScoreboard()) RequireReference(_scene).DrawHudFilterModel(RequireReference(_filterModel));
+            if (ShowScoreboard()) RequireReference(_scene).DrawHudFilterModel(_filterModel);
             return;
         }
-        if (CameraSequence::Current() && CameraSequence::Current()->IsIntro)
+        if (auto* current = Formats::CameraSequence::Current();
+            current && current->IsIntro())
         {
-            RequireReference(_scene).DrawHudFilterModel(RequireReference(_filterModel), 15.0F / 31.0F);
+            RequireReference(_scene).DrawHudFilterModel(_filterModel, 15.0F / 31.0F);
         }
         else if (GameState::MatchState() == MatchState::GameOver)
         {
-            RequireReference(_scene).DrawHudFilterModel(RequireReference(_filterModel), 12.0F / 31.0F);
+            RequireReference(_scene).DrawHudFilterModel(_filterModel, 12.0F / 31.0F);
         }
         else if (TestFlag(_flags1, PlayerFlags1::WeaponMenuOpen) || ShowScoreboard()
             || GameState::MatchState() == MatchState::Ending)
         {
-            RequireReference(_scene).DrawHudFilterModel(RequireReference(_filterModel));
+            RequireReference(_scene).DrawHudFilterModel(_filterModel);
         }
         else
         {
             if (_health > 0) DrawLocatorIcons();
-            if (_damageIndicator->Active) RequireReference(_scene).DrawHudDamageModel(RequireReference(_damageIndicator));
+            if (_damageIndicator->Active) RequireReference(_scene).DrawHudDamageModel(_damageIndicator);
         }
     }
 
@@ -1374,19 +1387,19 @@ namespace MphRead::Entities
     void PlayerEntity::DrawLocatorIcon(OpenTK::Mathematics::Vector3 position,
         std::shared_ptr<ModelInstance> inst, ColorRgb color, float alpha)
     {
-        const auto w = [this](float value) { return value / 256.0F * RequireReference(_scene).Size.X; };
-        const auto h = [this](float value) { return value / 192.0F * RequireReference(_scene).Size.Y; };
+        const auto w = [this](float value) { return value / 256.0F * RequireReference(_scene).Size().X; };
+        const auto h = [this](float value) { return value / 192.0F * RequireReference(_scene).Size().Y; };
         float x;
         float y;
         bool behind = false;
         OpenTK::Mathematics::Vector2 proj{};
-        const auto mult = Matrix::Vec3MultMtx4(position, RequireReference(_scene).ViewMatrix);
+        const auto mult = Matrix::Vec3MultMtx4(position, RequireReference(_scene).ViewMatrix());
         if (mult.Z < -1.0F)
         {
-            Matrix::ProjectPosition(position, RequireReference(_scene).ViewMatrix,
-                RequireReference(_scene).PerspectiveMatrix, proj);
-            x = proj.X * RequireReference(_scene).Size.X - w(128.0F);
-            y = proj.Y * RequireReference(_scene).Size.Y - h(106.0F);
+            Matrix::ProjectPosition(position, RequireReference(_scene).ViewMatrix(),
+                RequireReference(_scene).PerspectiveMatrix(), proj);
+            x = proj.X * RequireReference(_scene).Size().X - w(128.0F);
+            y = proj.Y * RequireReference(_scene).Size().Y - h(106.0F);
         }
         else
         {
@@ -1417,15 +1430,15 @@ namespace MphRead::Entities
             {
                 proj.X = x <= 0.0F ? w(28.0F) : w(228.0F);
             }
-            proj.X /= RequireReference(_scene).Size.X;
-            proj.Y /= RequireReference(_scene).Size.Y;
+            proj.X /= RequireReference(_scene).Size().X;
+            proj.Y /= RequireReference(_scene).Size().Y;
             constexpr float degrees = 180.0F / 3.14159265358979323846F;
             const float angle = std::atan2(-y, x) * degrees;
-            RequireReference(_scene).DrawIconModel(proj, angle, RequireReference(_arrowLocator), color, alpha);
+            RequireReference(_scene).DrawIconModel(proj, angle, _arrowLocator, color, alpha);
         }
         else
         {
-            RequireReference(_scene).DrawIconModel(proj, 0.0F, RequireReference(inst), color, alpha);
+            RequireReference(_scene).DrawIconModel(proj, 0.0F, inst, color, alpha);
         }
     }
 
@@ -1513,8 +1526,8 @@ namespace MphRead::Entities
         if (mode == GameMode::Battle || mode == GameMode::BattleTeams || mode == GameMode::Survival || mode == GameMode::SurvivalTeams)
             header2 = Text::Strings::GetHudMessage(223);
         else header2 = Text::Strings::GetHudMessage(220);
-        DrawText2D(ModScoreColumn1, posY, Hud::Align::Center, 0, header1, ColorRgba(0x3FEF), 1.0F, 8.0F);
-        DrawText2D(ModScoreColumn2, posY, Hud::Align::Center, 0, header2, ColorRgba(0x3FEF), 1.0F, 8.0F);
+        DrawText2D(ModScoreColumn1(), posY, Hud::Align::Center, 0, header1, ColorRgba(0x3FEF), 1.0F, 8.0F);
+        DrawText2D(ModScoreColumn2(), posY, Hud::Align::Center, 0, header2, ColorRgba(0x3FEF), 1.0F, 8.0F);
         ModDrawPingHeader(posY);
         posY += _scoreStartSpace;
         const std::string maxText = Text::Strings::GetHudMessage(256);
@@ -1549,8 +1562,8 @@ namespace MphRead::Entities
                 const ColorRgba teamColor(player.Team() == Team::Orange ? 0x23FU : 0x2BEAU);
                 const std::string teamName = teamText + " " + std::to_string(player.TeamIndex() + 1);
                 DrawText2D(42, posY, Hud::Align::Center, 0, teamName, teamColor, 1.0F, 8.0F);
-                DrawText2D(ModScoreColumn1, posY, Hud::Align::Center, 0, teamValue1, teamColor, 1.0F, 8.0F);
-                DrawText2D(ModScoreColumn2, posY, Hud::Align::Center, 0, teamValue2, teamColor, 1.0F, 8.0F);
+                DrawText2D(ModScoreColumn1(), posY, Hud::Align::Center, 0, teamValue1, teamColor, 1.0F, 8.0F);
+                DrawText2D(ModScoreColumn2(), posY, Hud::Align::Center, 0, teamValue2, teamColor, 1.0F, 8.0F);
                 posY += _scoreTeamLineSpace;
             }
             const std::string value1 = chooseValue1(ManagedAt(GameState::Time(), slot), ManagedAt(GameState::Points(), slot));
@@ -1559,15 +1572,15 @@ namespace MphRead::Entities
             if (player.IsMainPlayer())
             {
                 float rg;
-                const float pct = std::fmod(RequireReference(_scene).ElapsedTime / (32.0F / 30.0F), 1.0F);
+                const float pct = std::fmod(RequireReference(_scene).ElapsedTime() / (32.0F / 30.0F), 1.0F);
                 if (pct <= 0.5F) rg = Lerp(0.0F, 1.0F, pct * 2.0F);
                 else rg = Lerp(1.0F, 0.0F, (pct - 0.5F) * 2.0F);
                 const auto component = static_cast<std::uint8_t>(rg * 255.0F);
                 color = ColorRgba(component, component, 255, 255);
             }
             DrawScoreboardPlayer(60, posY, color, _hunterInsts[static_cast<std::size_t>(player.Hunter())], slot);
-            DrawText2D(ModScoreColumn1, posY, Hud::Align::Center, 0, value1, color, 1.0F, 8.0F);
-            DrawText2D(ModScoreColumn2, posY, Hud::Align::Center, 0, value2, color, 1.0F, 8.0F);
+            DrawText2D(ModScoreColumn1(), posY, Hud::Align::Center, 0, value1, color, 1.0F, 8.0F);
+            DrawText2D(ModScoreColumn2(), posY, Hud::Align::Center, 0, value2, color, 1.0F, 8.0F);
             ModDrawPingRow(posY, color, slot);
             posY += rowSpace;
         }
@@ -1578,35 +1591,35 @@ namespace MphRead::Entities
     {
         RequireReference(hunter).PositionX = (posX - 40.0F) / 256.0F;
         RequireReference(hunter).PositionY = (posY - 13.0F) / 192.0F;
-        RequireReference(_scene).DrawHudObject(RequireReference(hunter), 2);
+        RequireReference(_scene).DrawHudObject(hunter, 2);
         const std::int32_t stars = ManagedAt(GameState::Stars(), slot);
         _starsInst->PositionX = posX / 256.0F;
         _starsInst->PositionY = posY / 192.0F;
         _starsInst->SetIndex(stars * 2, RequireReference(_scene));
-        RequireReference(_scene).DrawHudObject(*_starsInst, 2);
+        RequireReference(_scene).DrawHudObject(_starsInst, 2);
         _starsInst->PositionX = (posX + 32.0F) / 256.0F;
         _starsInst->SetIndex(stars * 2 + 1, RequireReference(_scene));
-        RequireReference(_scene).DrawHudObject(*_starsInst, 2);
+        RequireReference(_scene).DrawHudObject(_starsInst, 2);
         DrawText2D(posX + 32.0F, posY - 9.0F, Hud::Align::Center, 0,
             ManagedAt(GameState::Nicknames(), slot), color, 1.0F, 8.0F);
     }
 
     void PlayerEntity::DrawHealthbars()
     {
-        _healthbarMainMeter->TankAmount = Values::EnergyTank;
-        _healthbarMainMeter->TankCount = _healthMax / Values::EnergyTank;
+        _healthbarMainMeter->TankAmount = Values().EnergyTank;
+        _healthbarMainMeter->TankCount = _healthMax / Values().EnergyTank;
         DrawMeter(_hudObjects->HealthMainPosX + _objShiftX,
             _hudObjects->HealthMainPosY + _healthbarYOffset + _objShiftY,
-            Values::EnergyTank - 1, _health, _healthbarPalette, _healthbarMainMeter,
+            Values().EnergyTank - 1, _health, _healthbarPalette, _healthbarMainMeter,
             true, GameState::SinglePlayer(), Features::HudOpacity());
         if (GameState::Multiplayer())
         {
-            std::int32_t amount = _health >= Values::EnergyTank ? _health - Values::EnergyTank : 0;
-            _healthbarSubMeter->TankAmount = Values::EnergyTank;
-            _healthbarSubMeter->TankCount = _healthMax / Values::EnergyTank;
+            std::int32_t amount = _health >= Values().EnergyTank ? _health - Values().EnergyTank : 0;
+            _healthbarSubMeter->TankAmount = Values().EnergyTank;
+            _healthbarSubMeter->TankCount = _healthMax / Values().EnergyTank;
             DrawMeter(_hudObjects->HealthSubPosX + _objShiftX,
                 _hudObjects->HealthSubPosY + _healthbarYOffset + _objShiftY,
-                Values::EnergyTank - 1, amount, _healthbarPalette, _healthbarSubMeter,
+                Values().EnergyTank - 1, amount, _healthbarPalette, _healthbarSubMeter,
                 false, false, Features::HudOpacity());
         }
     }
@@ -1625,15 +1638,17 @@ namespace MphRead::Entities
         const std::string ammoText = FormatTwo(amount);
         float ammoTextX = _hudObjects->AmmoBarPosX + _ammoBarMeter->BarOffsetX + _objShiftX;
         const float ammoTextY = _hudObjects->AmmoBarPosY + _ammoBarMeter->BarOffsetY + _objShiftY;
-        ammoTextX = ModAmmoTextX(ammoTextX, ammoTextY, _ammoBarMeter->Align, ammoText);
+        const std::u16string managedAmmoText = ToManagedChars(ammoText);
+        ammoTextX = ModAmmoTextX(ammoTextX, ammoTextY, _ammoBarMeter->Align,
+            std::u16string_view(managedAmmoText.data(), managedAmmoText.size()));
         DrawText2D(ammoTextX, ammoTextY, _ammoBarMeter->Align, _ammoBarPalette, ammoText,
             std::nullopt, Features::HudOpacity());
     }
 
     float PlayerEntity::HudAspectFix() const
     {
-        if (RequireReference(_scene).Size.X <= 0 || RequireReference(_scene).Size.Y <= 0) return 1.0F;
-        return RequireReference(_scene).Size.Y / 192.0F * (256.0F / RequireReference(_scene).Size.X);
+        if (RequireReference(_scene).Size().X <= 0 || RequireReference(_scene).Size().Y <= 0) return 1.0F;
+        return RequireReference(_scene).Size().Y / 192.0F * (256.0F / RequireReference(_scene).Size().X);
     }
 
     void PlayerEntity::DrawWeaponList()
@@ -1652,21 +1667,21 @@ namespace MphRead::Entities
             const BeamType beam = static_cast<BeamType>(i);
             if (!_availableWeapons[beam]) continue;
             const bool equipped = beam == _currentWeapon;
-            const auto& info = ManagedAt(Weapons::Current(), i);
+            const auto& info = RequireReference(ManagedAt(RequireReference(Weapons::Current), i));
             const ColorRgba tint = _weaponListColors[static_cast<std::size_t>(i)];
             const float rowBottom = y + rowHeight - 1.0F * scale;
             RequireReference(_scene).DrawHudFlatBox(panelX, y, panelX + panelWidth, rowBottom,
                 equipped
                     ? OpenTK::Mathematics::Vector4(0.45F, 0.4F, 0.2F, 0.72F * Features::HudOpacity())
                     : OpenTK::Mathematics::Vector4(0, 0, 0, 0.42F * Features::HudOpacity()));
-            auto icon = RequireReference(_weaponListIcons[static_cast<std::size_t>(i)]);
+            const auto& icon = _weaponListIcons[static_cast<std::size_t>(i)];
             Mods::Render::SmoothHudIcon::Tint(icon, _weaponListSheetData, i, tint, RequireReference(_scene));
             const IconBounds bounds = _weaponListIconBounds[static_cast<std::size_t>(i)];
             const float iconFit = iconBox - 1.0F * scale;
-            const float iconScale = iconFit / std::max(bounds.Width, bounds.Height);
-            icon.PositionX = (panelX + iconBoxX / 2.0F - bounds.CentreX * iconScale * aspectFix) / 256.0F;
-            icon.PositionY = (y + iconBox / 2.0F - bounds.CentreY * iconScale) / 192.0F;
-            icon.Alpha = Features::HudOpacity();
+            const float iconScale = iconFit / std::max(bounds.Width(), bounds.Height());
+            RequireReference(icon).PositionX = (panelX + iconBoxX / 2.0F - bounds.CentreX() * iconScale * aspectFix) / 256.0F;
+            RequireReference(icon).PositionY = (y + iconBox / 2.0F - bounds.CentreY() * iconScale) / 192.0F;
+            RequireReference(icon).Alpha = Features::HudOpacity();
             RequireReference(_scene).DrawHudObject(icon, 1, iconScale);
             const std::int32_t ammoAmount = ManagedAt(_ammo, static_cast<std::int32_t>(info.AmmoType));
             const std::string ammo = info.AmmoCost > 0 && ammoAmount >= 0
@@ -1688,7 +1703,7 @@ namespace MphRead::Entities
                 _bombInst->SetIndex(_bombAmmo < i ? 1 : 0, RequireReference(_scene));
                 _bombInst->PositionX = (posX - _bombInst->Width / 2.0F) / 256.0F;
                 _bombInst->PositionY = posY / 192.0F;
-                RequireReference(_scene).DrawHudObject(*_bombInst, 2);
+                RequireReference(_scene).DrawHudObject(_bombInst, 2);
                 posX -= 14.0F;
             }
             DrawText2D(230, posY + 18, Hud::Align::Center, 0, Text::Strings::GetHudMessage(1));
@@ -1699,7 +1714,7 @@ namespace MphRead::Entities
             else if (_boostInst->Timer <= 1.0F / 30.0F) _boostInst->SetIndex(1, RequireReference(_scene));
             _boostInst->PositionX = (29.0F - _boostInst->Width / 2.0F) / 256.0F;
             _boostInst->PositionY = (posY - 16.0F) / 192.0F;
-            RequireReference(_scene).DrawHudObject(*_boostInst, 2);
+            RequireReference(_scene).DrawHudObject(_boostInst, 2);
             DrawText2D(29, posY + 18, Hud::Align::Center, 0, Text::Strings::GetHudMessage(2));
         }
     }
@@ -1746,19 +1761,19 @@ namespace MphRead::Entities
                     m.TankInst->PositionY = tankY / 192.0F;
                     m.TankInst->SetData(i < filledTanks ? 0 : 1, palette, RequireReference(_scene));
                     m.TankInst->Alpha = alpha;
-                    RequireReference(_scene).DrawHudObject(*m.TankInst);
+                    RequireReference(_scene).DrawHudObject(m.TankInst);
                     if (m.Horizontal) tankX += m.TankSpacing;
                     else tankY -= m.TankSpacing;
                 }
             }
         }
-        const auto drawTile = [&](std::int32_t charFrame) mutable
+        const auto drawTile = [&](std::int32_t charFrame)
         {
             m.BarInst->PositionX = x / 256.0F;
             m.BarInst->PositionY = y / 192.0F;
             m.BarInst->SetData(charFrame, palette, RequireReference(_scene));
             m.BarInst->Alpha = alpha;
-            RequireReference(_scene).DrawHudObject(*m.BarInst, 2);
+            RequireReference(_scene).DrawHudObject(m.BarInst, 2);
             if (m.Horizontal) x += 8.0F; else y -= 8.0F;
         };
         for (std::int32_t i = 0; i < filledTiles / 8; ++i) { drawTile(0); --tiles; }
@@ -1793,7 +1808,7 @@ namespace MphRead::Entities
             float alpha = 1.0F;
             if (GameState::RadarPlayers())
             {
-                const float past = std::fmod(RequireReference(_scene).ElapsedTime, 120.0F / 30.0F);
+                const float past = std::fmod(RequireReference(_scene).ElapsedTime(), 120.0F / 30.0F);
                 if (past > 32.0F / 30.0F) alpha = 0.0F;
                 else
                 {
@@ -1807,13 +1822,13 @@ namespace MphRead::Entities
                 if (TestFlag(player->Flags2(), PlayerFlags2::RadarRevealPrevious)) reveal = 2;
                 else if (reveal == 0) reveal = 1;
             }
-            auto pos = player->Position();
+            OpenTK::Mathematics::Vector3 pos = player->Position;
             if (!player->IsAltForm()) pos.Y += 0.75F;
             AddLocatorInfo(pos, _playerLocator, ColorRgb(31, 31, 31), alpha);
         }
         if (reveal == 1)
         {
-            RequireReference(_soundSource).QueueStream(VoiceId::VOICE_CAMPING, 1.0F);
+            _soundSource.QueueStream(VoiceId::VOICE_CAMPING, 1.0F);
             QueueHudMessage(128, 150, 60.0F / 30.0F, 0, 234);
         }
     }
@@ -1826,7 +1841,7 @@ namespace MphRead::Entities
             for (auto it = RequireReference(_scene).GetFlagBaseEntities().GetEnumerator(); it.MoveNext(); )
             {
                 auto flagBase = it.Current();
-                AddLocatorInfo(flagBase->Position(), _nodeLocator, goodColor);
+                AddLocatorInfo(flagBase->Position, _nodeLocator, goodColor);
             }
         }
         else
@@ -1835,9 +1850,9 @@ namespace MphRead::Entities
             {
                 auto flag = it.Current();
                 ColorRgb color(31, 31, 31);
-                if (flag->Carrier() && (RequireReference(_scene).FrameCount & 8) != 0)
+                if (flag->Carrier() && (RequireReference(_scene).FrameCount() & 8) != 0)
                     color = flag->Carrier()->TeamIndex() == TeamIndex() ? goodColor : ColorRgb(31, 0, 0);
-                AddLocatorInfo(flag->Position(), _octolithLocator, color);
+                AddLocatorInfo(flag->Position, _octolithLocator, color);
             }
         }
     }
@@ -1851,9 +1866,9 @@ namespace MphRead::Entities
             if (flag->Carrier().get() != this)
             {
                 ColorRgb color = ManagedAt(Metadata::TeamColors, flag->Data().TeamId);
-                if (flag->Carrier() && (RequireReference(_scene).FrameCount & 8) != 0)
+                if (flag->Carrier() && (RequireReference(_scene).FrameCount() & 8) != 0)
                     color = flag->Carrier()->TeamIndex() == TeamIndex() ? goodColor : ColorRgb(31, 0, 0);
-                AddLocatorInfo(flag->Position(), _octolithLocator, color);
+                AddLocatorInfo(flag->Position, _octolithLocator, color);
                 if (_octolithFlag && flag->Data().TeamId == TeamIndex()) AddLocatorInfo(flag->BasePosition(), _nodeLocator, goodColor);
             }
         }
@@ -1873,7 +1888,7 @@ namespace MphRead::Entities
             }
             else if (defense->CurrentTeam() == TeamIndex()) color = ColorRgb(15, 15, 31);
             else color = ColorRgb(31, 0, 0);
-            AddLocatorInfo(defense->Position(), _nodeLocator, color);
+            AddLocatorInfo(defense->Position, _nodeLocator, color);
         }
     }
 
@@ -1907,7 +1922,7 @@ namespace MphRead::Entities
                 color = !defense->Blinking() || defense->OccupyingTeam() == TeamIndex() ? ColorRgb(15, 15, 31) : ColorRgb(31, 0, 0);
             else if (defense->Blinking() && defense->OccupyingTeam() == TeamIndex()) color = ColorRgb(15, 15, 31);
             else color = ColorRgb(31, 0, 0);
-            AddLocatorInfo(defense->Position(), _nodeLocator, color);
+            AddLocatorInfo(defense->Position, _nodeLocator, color);
             if (defense->CurrentTeam() != 4 && defense->OccupyingTeam() == 4)
             {
                 const std::int32_t team = defense->CurrentTeam();
@@ -1949,7 +1964,7 @@ namespace MphRead::Entities
                 _primeHunterTextTimer = 90.0F / 30.0F;
                 _hudIsPrimeHunter = true;
             }
-            if (_primeHunterTextTimer > 0) _primeHunterTextTimer -= RequireReference(_scene).FrameTime;
+            if (_primeHunterTextTimer > 0) _primeHunterTextTimer -= RequireReference(_scene).FrameTime();
         }
         else
         {
@@ -1957,7 +1972,7 @@ namespace MphRead::Entities
             if (GameState::PrimeHunter() != -1)
             {
                 auto prime = ManagedAt(Players(), GameState::PrimeHunter());
-                auto pos = RequireReference(prime).Position();
+                OpenTK::Mathematics::Vector3 pos = RequireReference(prime).Position;
                 if (!RequireReference(prime).IsAltForm()) pos.Y += 0.75F;
                 AddLocatorInfo(pos, _playerLocator, ColorRgb(31, 0, 0));
             }
@@ -1991,7 +2006,7 @@ namespace MphRead::Entities
             if (!GameState::DialogPause()) DrawVisorMessage();
             return;
         }
-        if (RequireReference(_scene).RoomId == 92)
+        if (RequireReference(_scene).RoomId() == 92)
         {
             for (auto it = RequireReference(_scene).GetEnemyInstanceEntities().GetEnumerator(); it.MoveNext(); )
             {
@@ -2057,7 +2072,7 @@ namespace MphRead::Entities
         bool drawIcon = false;
         if (_octolithFlag)
         {
-            drawIcon = (RequireReference(_scene).FrameCount & 32) != 0;
+            drawIcon = (RequireReference(_scene).FrameCount() & 32) != 0;
             _octolithInst->Alpha = 1.0F;
         }
         else if (GameState::Teams())
@@ -2078,7 +2093,7 @@ namespace MphRead::Entities
             _octolithInst->PositionX = (_hudObjects->OctolithPosX + _objShiftX) / 256.0F;
             _octolithInst->PositionY = (_hudObjects->OctolithPosY + _objShiftY) / 192.0F;
             _octolithInst->SetIndex(frame, RequireReference(_scene));
-            RequireReference(_scene).DrawHudObject(*_octolithInst);
+            RequireReference(_scene).DrawHudObject(_octolithInst);
         }
     }
 
@@ -2108,19 +2123,19 @@ namespace MphRead::Entities
             _nodesInst->PositionX = (_hudObjects->NodeBonusPosX + _objShiftX) / 256.0F;
             _nodesInst->PositionY = (_hudObjects->NodeBonusPosY + _objShiftY) / 192.0F;
             _nodesInst->SetIndex(GameState::Teams() && TeamIndex() == 0 ? 2 : 4, RequireReference(_scene));
-            RequireReference(_scene).DrawHudObject(*_nodesInst);
+            RequireReference(_scene).DrawHudObject(_nodesInst);
             DrawText2D(_hudObjects->NodeBonusPosX + 12 + _objShiftX, _hudObjects->NodeBonusPosY + 2 + _objShiftY,
                 Hud::Align::Left, 0, "x " + std::to_string(_teamNodeCounts[static_cast<std::size_t>(TeamIndex())]));
             DrawText2D(_hudObjects->NodeBonusPosX + _objShiftX, _hudObjects->NodeBonusPosY + 10 + _objShiftY,
                 Hud::Align::Left, 0, message);
         }
-        const float past = std::fmod(RequireReference(_scene).ElapsedTime, 16.0F / 30.0F);
+        const float past = std::fmod(RequireReference(_scene).ElapsedTime(), 16.0F / 30.0F);
         if (_nodeBonusOpponent != -1 && past < 12.0F / 30.0F)
         {
             _nodesInst->PositionX = (_hudObjects->EnemyBonusPosX + _objShiftX) / 256.0F;
             _nodesInst->PositionY = (_hudObjects->EnemyBonusPosY + _objShiftY) / 192.0F;
             _nodesInst->SetIndex(GameState::Teams() && _nodeBonusOpponent == 1 ? 4 : 2, RequireReference(_scene));
-            RequireReference(_scene).DrawHudObject(*_nodesInst);
+            RequireReference(_scene).DrawHudObject(_nodesInst);
             DrawText2D(_hudObjects->EnemyBonusPosX + 12 + _objShiftX, _hudObjects->EnemyBonusPosY + 2 + _objShiftY,
                 Hud::Align::Left, 2, "x " + std::to_string(_teamNodeCounts[static_cast<std::size_t>(_nodeBonusOpponent)]));
             DrawText2D(_hudObjects->EnemyBonusPosX + _objShiftX, _hudObjects->EnemyBonusPosY + 10 + _objShiftY,
@@ -2157,7 +2172,7 @@ namespace MphRead::Entities
             _nodesInst->PositionX = (_hudObjects->NodeIconPosX + startX - posX + _objShiftX) / 256.0F;
             _nodesInst->PositionY = (_hudObjects->NodeIconPosY - 8 + _objShiftY) / 192.0F;
             _nodesInst->SetIndex(frame, RequireReference(_scene));
-            RequireReference(_scene).DrawHudObject(*_nodesInst);
+            RequireReference(_scene).DrawHudObject(_nodesInst);
             posX += 16.0F;
         }
         DrawText2D(_hudObjects->NodeTextPosX + _objShiftX, _hudObjects->NodeTextPosY + _objShiftY,
@@ -2172,7 +2187,7 @@ namespace MphRead::Entities
             const float posY = _hudObjects->PrimePosY + _objShiftY;
             _primeHunterInst->PositionX = (posX - 16) / 256.0F;
             _primeHunterInst->PositionY = (posY - 16) / 192.0F;
-            RequireReference(_scene).DrawHudObject(*_primeHunterInst);
+            RequireReference(_scene).DrawHudObject(_primeHunterInst);
             if (_primeHunterTextTimer > 0)
             {
                 const float elapsed = 90.0F / 30.0F - _primeHunterTextTimer;
@@ -2197,8 +2212,8 @@ namespace MphRead::Entities
     {
         if (_doubleDmgTimer > 0)
         {
-            if (_doubleDamageTextTimer > 0) _doubleDamageTextTimer -= RequireReference(_scene).FrameTime;
-            _doubleDamageIconTimer += RequireReference(_scene).FrameTime;
+            if (_doubleDamageTextTimer > 0) _doubleDamageTextTimer -= RequireReference(_scene).FrameTime();
+            _doubleDamageIconTimer += RequireReference(_scene).FrameTime();
         }
     }
 
@@ -2215,7 +2230,7 @@ namespace MphRead::Entities
         else if (_doubleDamageSpeed == 3 && std::fmod(_doubleDamageIconTimer, 10.0F / 30.0F) >= 5.0F / 30.0F) frame = 1;
         _doubleDamageInst->SetIndex(frame, RequireReference(_scene));
         _doubleDamageInst->Alpha = 0.5F;
-        RequireReference(_scene).DrawHudObject(*_doubleDamageInst);
+        RequireReference(_scene).DrawHudObject(_doubleDamageInst);
         if (_doubleDamageTextTimer > 0)
         {
             const float elapsed = 60.0F / 30.0F - _doubleDamageTextTimer;
@@ -2232,7 +2247,7 @@ namespace MphRead::Entities
         if (_cloakTimer > 0 && TestFlag(_flags2, PlayerFlags2::Cloaking))
         {
             if (!_hudCloaking) { _hudCloaking = true; _cloakTextTimer = 45.0F / 30.0F; }
-            if (_cloakTextTimer > 0) _cloakTextTimer -= RequireReference(_scene).FrameTime;
+            if (_cloakTextTimer > 0) _cloakTextTimer -= RequireReference(_scene).FrameTime();
         }
         else _hudCloaking = false;
     }
@@ -2245,7 +2260,7 @@ namespace MphRead::Entities
         _cloakInst->PositionX = (posX - 16) / 256.0F;
         _cloakInst->PositionY = (posY - 16) / 192.0F;
         _cloakInst->Alpha = 0.5F;
-        RequireReference(_scene).DrawHudObject(*_cloakInst);
+        RequireReference(_scene).DrawHudObject(_cloakInst);
         if (_cloakTextTimer > 0)
         {
             const float elapsed = 45.0F / 30.0F - _cloakTextTimer;
@@ -2327,7 +2342,7 @@ namespace MphRead::Entities
             max, current, palette, _enemyHealthMeter, false, false);
         const std::int32_t scanId = targetRef.GetScanId();
         if (scanId != 0 && GameState::SinglePlayer()
-            && !RequireReference(GameState::StorySave()).CheckLogbook(scanId))
+            && !RequireReference(GameState::StorySave).CheckLogbook(scanId))
         {
             text = Text::Strings::GetMessage('E', 6, Text::StringTables::HudMessagesSP);
         }
@@ -2353,7 +2368,7 @@ namespace MphRead::Entities
     {
         if (_opponentIndex != -1 && _opponentHealthbarTimer > 0)
         {
-            _opponentHealthbarTimer -= RequireReference(_scene).FrameTime;
+            _opponentHealthbarTimer -= RequireReference(_scene).FrameTime();
             if (_opponentHealthbarTimer <= 0)
             {
                 _opponentHealthbarTimer = 0;
@@ -2379,21 +2394,21 @@ namespace MphRead::Entities
         }
         DrawText2D(posX, posY, Hud::Align::Center, 0,
             ManagedAt(GameState::Nicknames(), _opponentIndex));
-        auto& portrait = RequireReference(ManagedAt(_hunterInsts,
-            static_cast<std::int32_t>(opponent.Hunter())));
-        portrait.PositionX = (posX - 16 * HudAspectFix()) / 256.0F;
-        portrait.PositionY = (posY - 33) / 192.0F;
+        const auto& portrait = ManagedAt(_hunterInsts,
+            static_cast<std::int32_t>(opponent.Hunter()));
+        RequireReference(portrait).PositionX = (posX - 16 * HudAspectFix()) / 256.0F;
+        RequireReference(portrait).PositionY = (posY - 33) / 192.0F;
         RequireReference(_scene).DrawHudObject(portrait, 1);
         posX += 18;
         posY -= 26;
-        const std::int32_t remainingAmount = opponent.Health() >= Values::EnergyTank
-            ? opponent.Health() - Values::EnergyTank : 0;
-        RequireReference(_enemyHealthMeter).TankAmount = Values::EnergyTank;
-        RequireReference(_enemyHealthMeter).TankCount = opponent.HealthMax() / Values::EnergyTank;
+        const std::int32_t remainingAmount = opponent.Health() >= Values().EnergyTank
+            ? opponent.Health() - Values().EnergyTank : 0;
+        RequireReference(_enemyHealthMeter).TankAmount = Values().EnergyTank;
+        RequireReference(_enemyHealthMeter).TankCount = opponent.HealthMax() / Values().EnergyTank;
         RequireReference(_enemyHealthMeter).Length = 72;
-        DrawMeter(posX, posY, Values::EnergyTank - 1, opponent.Health(), 0,
+        DrawMeter(posX, posY, Values().EnergyTank - 1, opponent.Health(), 0,
             _enemyHealthMeter, false, false);
-        DrawMeter(posX, posY + 5, Values::EnergyTank - 1, remainingAmount, 0,
+        DrawMeter(posX, posY + 5, Values().EnergyTank - 1, remainingAmount, 0,
             _enemyHealthMeter, false, false);
         DrawText2D(posX + 5, posY + 14, Hud::Align::Left, 0,
             FormatModeScore(opponent.SlotIndex()));
@@ -2406,7 +2421,7 @@ namespace MphRead::Entities
             ? std::nullopt : std::optional<ColorRgba>(ColorRgba(0x7FDE));
         DrawText2D(128, 10, Hud::Align::Center, 0, *_rulesLines[0], color);
         const std::int32_t totalCharacters = static_cast<std::int32_t>(
-            RequireReference(_scene).ElapsedTime / (1.0F / 30.0F));
+            RequireReference(_scene).ElapsedTime() / (1.0F / 30.0F));
         float posY = 28;
         _textSpacingY = 8;
         for (std::int32_t i = 1; i < RequireReference(_rulesInfo).Count(); ++i)
@@ -2432,8 +2447,8 @@ namespace MphRead::Entities
             && totalCharacters <= ManagedAt(_rulesLengths,
                 RequireReference(_rulesInfo).Count() - 1).first)
         {
-            RequireReference(_soundSource).StopFreeSfx(SfxId::LETTER_BLIP);
-            RequireReference(_soundSource).PlayFreeSfx(SfxId::LETTER_BLIP);
+            _soundSource.StopFreeSfx(SfxId::LETTER_BLIP);
+            _soundSource.PlayFreeSfx(SfxId::LETTER_BLIP);
             _prevScrollingChars = totalCharacters;
         }
         _textSpacingY = 0;
@@ -2484,7 +2499,7 @@ namespace MphRead::Entities
     {
         char buffer[12]{};
         const std::int32_t written = std::snprintf(buffer, sizeof(buffer), "%.0f",
-            static_cast<double>(RequireReference(_scene).FramesPerSecond));
+            static_cast<double>(RequireReference(_scene).FramesPerSecond()));
         if (written < 0 || written >= static_cast<std::int32_t>(sizeof(buffer)))
         {
             return;
@@ -2547,10 +2562,10 @@ namespace MphRead::Entities
         const Text::Font& font = SetUpFont(text[0], true);
         RequireReference(_textInst).Alpha = alpha;
         float aspectFix = 1;
-        if (RequireReference(_scene).Size.X > 0 && RequireReference(_scene).Size.Y > 0)
+        if (RequireReference(_scene).Size().X > 0 && RequireReference(_scene).Size().Y > 0)
         {
-            aspectFix = RequireReference(_scene).Size.Y / 192.0F
-                * (256.0F / RequireReference(_scene).Size.X);
+            aspectFix = RequireReference(_scene).Size().Y / 192.0F
+                * (256.0F / RequireReference(_scene).Size().X);
         }
         float spacingY = _textSpacingY == 0
             ? (fontSpacing == -1 ? 12 : fontSpacing) : _textSpacingY;
@@ -2572,7 +2587,7 @@ namespace MphRead::Entities
             {
                 RequireReference(_textInst).SetData(index, palette, RequireReference(_scene));
             }
-            RequireReference(_scene).DrawHudObject(RequireReference(_textInst), 1, scale);
+            RequireReference(_scene).DrawHudObject(_textInst, 1, scale);
         };
 
         if (type == Hud::Align::Left)
@@ -2917,7 +2932,7 @@ namespace MphRead::Entities
             HudMessage& message = RequireReference(item);
             if (message.Lifetime > 0)
             {
-                message.Lifetime -= RequireReference(_scene).FrameTime;
+                message.Lifetime -= RequireReference(_scene).FrameTime();
                 if (message.Lifetime < 0)
                 {
                     message.Lifetime = 0;
@@ -2935,7 +2950,7 @@ namespace MphRead::Entities
                 const HudMessage& message = RequireReference(item);
                 if (message.Lifetime > 0
                     && ((message.Category & 1) == 0
-                        || (RequireReference(_scene).FrameCount & (7 * 2)) <= 3 * 2)
+                        || (RequireReference(_scene).FrameCount() & (7 * 2)) <= 3 * 2)
                     && (!GameState::DialogPause() || !message.DialogHide))
                 {
                     DrawText2D(message.Position.X, message.Position.Y, message.Align, 0,

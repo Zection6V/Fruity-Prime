@@ -14,7 +14,7 @@
 #include "../../Metadata/Player.hpp"
 #include "../../Metadata/SoundMeta.hpp"
 #include "../../Metadata/Weapons.hpp"
-#include "../../Mods/Input/InputSettings.hpp"
+#include "../../Mods/InputSettings.hpp"
 #include "../../Mods/Input/PointerInput.hpp"
 #include "../../Mods/Input/StylusZone.hpp"
 #include "../../Mods/Network/NetDamage.hpp"

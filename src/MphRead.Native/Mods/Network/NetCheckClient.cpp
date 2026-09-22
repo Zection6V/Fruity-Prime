@@ -13,7 +13,7 @@
 #include "NetTestScript.hpp"
 #include "NetTransport.hpp"
 #include "NetUnlagged.hpp"
-#include "SpectatorMode.hpp"
+#include "../SpectatorMode.hpp"
 #include "../ScreenCapture.hpp"
 #include "../Chat/ChatBox.hpp"
 #include "../../GameState.hpp"

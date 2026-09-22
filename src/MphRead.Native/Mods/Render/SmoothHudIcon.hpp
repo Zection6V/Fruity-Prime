@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../Hud/HudInfo.hpp"
+#include "../../HUD/HudInfo.hpp"
 
 #include <cstdint>
 #include <memory>

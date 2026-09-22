@@ -1,7 +1,7 @@
 #include "ChatBox.hpp"
 
 #include "../../GameState.hpp"
-#include "../Input/InputSettings.hpp"
+#include "../InputSettings.hpp"
 #include "../Network/NetProtocol.hpp"
 #include "../Network/NetSession.hpp"
 

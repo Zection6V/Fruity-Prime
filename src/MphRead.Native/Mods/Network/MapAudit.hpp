@@ -5,7 +5,7 @@
 #include "../../Formats/Types.hpp"
 #include "../../Scene.hpp"
 #include "../../Entities/EntityBase.hpp"
-#include "../../Entities/PlayerEntity.hpp"
+#include "../../Entities/Players/PlayerEntity.hpp"
 
 #include <OpenTK/Mathematics/Vector2i.hpp>
 #include <OpenTK/Windowing/Common/FrameEventArgs.hpp>

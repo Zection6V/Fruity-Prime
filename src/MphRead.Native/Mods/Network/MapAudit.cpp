@@ -8,7 +8,7 @@
 #include "../../Entities/ItemInstanceEntity.hpp"
 #include "../../Entities/ItemSpawnEntity.hpp"
 #include "../../Entities/JumpPadEntity.hpp"
-#include "../../Entities/PlayerEntity.hpp"
+#include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Collision.hpp"
 #include "../../Formats/Entity.hpp"
 #include "../../GameState.hpp"

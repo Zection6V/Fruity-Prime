@@ -1,13 +1,13 @@
 #include "InputSettings.hpp"
 
-#include "PadBindings.hpp"
-#include "PointerInput.hpp"
-#include "StylusZone.hpp"
-#include "TouchSettings.hpp"
-#include "../Network/DemoClip.hpp"
-#include "../Branding.hpp"
-#include "../../Entities/Players/PlayerEntity.hpp"
-#include "../Launcher/Portable/LauncherPrefs.hpp"
+#include "Input/PadBindings.hpp"
+#include "Input/PointerInput.hpp"
+#include "Input/StylusZone.hpp"
+#include "Input/TouchSettings.hpp"
+#include "Network/DemoClip.hpp"
+#include "Branding.hpp"
+#include "../Entities/Players/PlayerEntity.hpp"
+#include "Launcher/Portable/LauncherPrefs.hpp"
 
 #include <algorithm>
 #include <array>

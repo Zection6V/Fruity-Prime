@@ -3,7 +3,7 @@
 #include "../../Features.hpp"
 #include "../../GameState.hpp"
 #include "../../Read.hpp"
-#include "../../Paths.hpp"
+#include "../../Formats/Formats.hpp"
 #include "../../Scene.hpp"
 #include "../../Strings.hpp"
 #include "../../Metadata/Metadata.hpp"

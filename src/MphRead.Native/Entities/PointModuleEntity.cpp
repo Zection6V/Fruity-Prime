@@ -1,4 +1,5 @@
 #include "PointModuleEntity.hpp"
+#include "../Scene.hpp"
 
 namespace MphRead::Entities
 {
@@ -33,7 +34,7 @@ namespace MphRead::Entities
     void PointModuleEntity::Initialize()
     {
         EntityBase::Initialize();
-        EntityBase* entity = nullptr;
+        std::shared_ptr<EntityBase> entity{};
         if (_data.NextId != 0 && _scene->TryGetEntity(_data.NextId, entity))
         {
             _next = &dynamic_cast<PointModuleEntity&>(*entity);

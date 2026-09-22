@@ -722,7 +722,7 @@ namespace MphRead::Entities
 
         if (_sfxStopTimer > 0.0F)
         {
-            _sfxStopTimer -= scene().FrameTime;
+            _sfxStopTimer -= scene().FrameTime();
             if (_sfxStopTimer <= 0.0F)
             {
                 _sfxStopTimer = 0.0F;
@@ -731,7 +731,7 @@ namespace MphRead::Entities
         }
         if (_damageSfxTimer > 0.0F)
         {
-            _damageSfxTimer -= scene().FrameTime;
+            _damageSfxTimer -= scene().FrameTime();
             if (_damageSfxTimer < 0.0F)
             {
                 _damageSfxTimer = 0.0F;
@@ -814,7 +814,7 @@ namespace MphRead::Entities
 
         if (Sound::Sfx::LongSfxMute == 0 && DoorUnlockSfxTimer > 0.0F)
         {
-            DoorUnlockSfxTimer -= scene().FrameTime;
+            DoorUnlockSfxTimer -= scene().FrameTime();
             if (DoorUnlockSfxTimer <= 1.0F / 30.0F)
             {
                 DoorUnlockSfxTimer = 0.0F;
@@ -827,7 +827,7 @@ namespace MphRead::Entities
 
         if (DoorChimeSfxTimer > 0.0F)
         {
-            DoorChimeSfxTimer -= scene().FrameTime;
+            DoorChimeSfxTimer -= scene().FrameTime();
             if (DoorChimeSfxTimer <= 1.0F / 30.0F)
             {
                 DoorChimeSfxTimer = 0.0F;
@@ -843,7 +843,7 @@ namespace MphRead::Entities
 
         if (ForceFieldSfxTimer > 0.0F)
         {
-            ForceFieldSfxTimer -= scene().FrameTime;
+            ForceFieldSfxTimer -= scene().FrameTime();
             if (ForceFieldSfxTimer <= 0.0F)
             {
                 ForceFieldSfxTimer = 0.0F;
@@ -865,7 +865,7 @@ namespace MphRead::Entities
             {
                 _soundSource.PlayFreeSfx(SfxId::FAST_SCROLL_UP_LOOP);
             }
-            _scrollSfxTimer -= scene().FrameTime;
+            _scrollSfxTimer -= scene().FrameTime();
         }
     }
 

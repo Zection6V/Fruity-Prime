@@ -2298,10 +2298,10 @@ namespace MphRead::Entities
             const Vector3 sideX(maxLimit.X - minLimit.X, 0.0F, 0.0F);
             const Vector3 sideY(0.0F, maxLimit.Y - minLimit.Y, 0.0F);
             const Vector3 sideZ(0.0F, 0.0F, maxLimit.Z - minLimit.Z);
-            b(*verts)[0] = point0;
-            b(*verts)[1] = Add(point0, sideZ);
-            b(*verts)[2] = Add(point0, sideX);
-            b(*verts)[3] = Add(Add(point0, sideX), sideZ);
+            (*bverts)[0] = point0;
+            (*bverts)[1] = Add(point0, sideZ);
+            (*bverts)[2] = Add(point0, sideX);
+            (*bverts)[3] = Add(Add(point0, sideX), sideZ);
             (*bverts)[4] = Add(point0, sideY);
             (*bverts)[5] = Add(Add(point0, sideY), sideZ);
             (*bverts)[6] = Add(Add(point0, sideX), sideY);

@@ -1876,6 +1876,11 @@ namespace MphRead::Mods::Update
         if (process == nullptr)
         {
             const DWORD error = ::GetLastError();
+            if (pid == 0)
+            {
+                throw std::system_error(
+                    static_cast<int>(ERROR_ACCESS_DENIED), std::system_category());
+            }
             if (error != ERROR_INVALID_PARAMETER)
             {
                 throw std::system_error(

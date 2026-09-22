@@ -9,6 +9,8 @@
 #include "../ItemSpawnEntity.hpp"
 #include "../JumpPadEntity.hpp"
 #include "../MorphCameraEntity.hpp"
+#include "../RoomEntity.hpp"
+#include "../CamSeq/CameraSequence.hpp"
 #include "../OctolithFlagEntity.hpp"
 #include "../../Features.hpp"
 #include "../../GameState.hpp"
@@ -16,14 +18,17 @@
 #include "../../Scene.hpp"
 #include "../../SceneSetup.hpp"
 #include "../../Strings.hpp"
+#include "../../Metadata/Enemies.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Player.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../Mods/Network/NetDamage.hpp"
 #include "../../Mods/Network/NetHitPrediction.hpp"
 #include "../../Mods/RespawnChoice.hpp"
+#include "../../Sound/Music.hpp"
 
 #include <algorithm>
+#include <any>
 #include <cassert>
 #include <bit>
 #include <cmath>
@@ -46,6 +51,10 @@ namespace
     using MphRead::Node;
     using MphRead::Scene;
     using MphRead::Entities::PlayerEntity;
+    using MphRead::Hud::Align;
+    using MphRead::Hud::HudElements;
+    using MphRead::Text::Strings;
+    using MphRead::Text::StringTables;
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
@@ -68,6 +77,40 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
+    }
+
+    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
+    {
+        return std::make_shared<const std::any>(value);
+    }
+
+    [[nodiscard]] MphRead::MessageObject BoxEntity(MphRead::Entities::EntityBase* value)
+    {
+        return std::make_shared<const std::any>(value);
+    }
+
+    template <typename T>
+    [[nodiscard]] std::shared_ptr<T> ResolveSceneEntity(Scene& scene, T* value)
+    {
+        if (value == nullptr)
+        {
+            return nullptr;
+        }
+        auto enumerator = scene.Entities().GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            std::shared_ptr<MphRead::Entities::EntityBase> entity = enumerator.Current();
+            if (entity.get() == value)
+            {
+                std::shared_ptr<T> typed = std::dynamic_pointer_cast<T>(entity);
+                if (!typed)
+                {
+                    throw MphRead::SceneDetail::InvalidCastException();
+                }
+                return typed;
+            }
+        }
+        throw System::NullReferenceException();
     }
 
     template <typename TEnum>
@@ -445,54 +488,54 @@ namespace MphRead::Entities
 
     PlayerAnimation PlayerEntity::Biped1Anim() const
     {
-        return static_cast<PlayerAnimation>(ManagedAt(*RequireReference(_bipedModel1).AnimInfo->Index, 0));
+        return static_cast<PlayerAnimation>(ManagedAt(RequireReference(_bipedModel1).AnimInfo->Index, 0));
     }
 
     PlayerAnimation PlayerEntity::Biped2Anim() const
     {
-        return static_cast<PlayerAnimation>(ManagedAt(*RequireReference(_bipedModel2).AnimInfo->Index, 0));
+        return static_cast<PlayerAnimation>(ManagedAt(RequireReference(_bipedModel2).AnimInfo->Index, 0));
     }
 
     std::int32_t PlayerEntity::Biped1Frame() const
     {
-        return ManagedAt(*RequireReference(_bipedModel1).AnimInfo->Frame, 0);
+        return ManagedAt(RequireReference(_bipedModel1).AnimInfo->Frame, 0);
     }
 
     std::int32_t PlayerEntity::Biped2Frame() const
     {
-        return ManagedAt(*RequireReference(_bipedModel2).AnimInfo->Frame, 0);
+        return ManagedAt(RequireReference(_bipedModel2).AnimInfo->Frame, 0);
     }
 
     std::int32_t PlayerEntity::Biped1FrameCount() const
     {
         // PlayerEntity.cs intentionally reads Frame[0], not FrameCount[0].
-        return ManagedAt(*RequireReference(_bipedModel1).AnimInfo->Frame, 0);
+        return ManagedAt(RequireReference(_bipedModel1).AnimInfo->Frame, 0);
     }
 
     std::int32_t PlayerEntity::Biped2FrameCount() const
     {
         // PlayerEntity.cs intentionally reads Frame[0], not FrameCount[0].
-        return ManagedAt(*RequireReference(_bipedModel2).AnimInfo->Frame, 0);
+        return ManagedAt(RequireReference(_bipedModel2).AnimInfo->Frame, 0);
     }
 
     MphRead::AnimFlags PlayerEntity::Biped1Flags() const
     {
-        return ManagedAt(*RequireReference(_bipedModel1).AnimInfo->Flags, 0);
+        return ManagedAt(RequireReference(_bipedModel1).AnimInfo->Flags, 0);
     }
 
     void PlayerEntity::SetBiped1Flags(MphRead::AnimFlags value)
     {
-        ManagedAt(*RequireReference(_bipedModel1).AnimInfo->Flags, 0) = value;
+        ManagedAt(RequireReference(_bipedModel1).AnimInfo->Flags, 0) = value;
     }
 
     MphRead::AnimFlags PlayerEntity::Biped2Flags() const
     {
-        return ManagedAt(*RequireReference(_bipedModel2).AnimInfo->Flags, 0);
+        return ManagedAt(RequireReference(_bipedModel2).AnimInfo->Flags, 0);
     }
 
     void PlayerEntity::SetBiped2Flags(MphRead::AnimFlags value)
     {
-        ManagedAt(*RequireReference(_bipedModel2).AnimInfo->Flags, 0) = value;
+        ManagedAt(RequireReference(_bipedModel2).AnimInfo->Flags, 0) = value;
     }
 
     void PlayerEntity::Construct(Scene* scene)
@@ -556,7 +599,7 @@ namespace MphRead::Entities
         MphRead::Formats::Culling::NodeRef prevNodeRef = NodeRef;
         std::int32_t prevHealth = _health;
 
-        _models.Clear();
+        _models = EntityBase::ModelList{};
         const auto hunterModelsIt = Metadata::HunterModels.find(_hunter);
         if (hunterModelsIt == Metadata::HunterModels.end())
         {
@@ -627,15 +670,17 @@ namespace MphRead::Entities
         InitializeWeapon();
         _availableWeapons[MphRead::BeamType::PowerBeam] = true;
         TryEquipWeapon(MphRead::BeamType::PowerBeam, true);
-        _facingVector = Negate(Vector3::UnitZ);
-        _upVector = Vector3::UnitY;
+        _facingVector = Negate(Vector3(0.0F, 0.0F, 1.0F));
+        _upVector = Vector3(0.0F, 1.0F, 0.0F);
         SetTransform(_facingVector, _upVector, Vector3::Zero);
         _speed = Vector3::Zero;
-        _gunVec1 = Negate(Vector3::UnitZ);
-        _gunVec2 = Negate(Vector3::UnitX);
+        _gunVec1 = Negate(Vector3(0.0F, 0.0F, 1.0F));
+        _gunVec2 = Negate(Vector3(1.0F, 0.0F, 0.0F));
         _volumeUnxf = PlayerVolumes[CheckedArrayIndex(static_cast<std::int32_t>(_hunter), PlayerVolumes.size())][0];
         _volume = CollisionVolume::Move(_volumeUnxf, static_cast<Vector3>(Position));
-        _aimPosition = AddY(static_cast<Vector3>(Position) + _gunVec1 * Fixed::ToFloat(_values.AimDistance),
+        const float aimDistance = Fixed::ToFloat(_values.AimDistance);
+        _aimPosition = AddY(static_cast<Vector3>(Position)
+                + Vector3(_gunVec1.X * aimDistance, _gunVec1.Y * aimDistance, _gunVec1.Z * aimDistance),
             Fixed::ToFloat(_values.AimYOffset));
         _aimY = 0.0F;
         _gunViewBob = 0.0F;
@@ -674,7 +719,7 @@ namespace MphRead::Entities
         _camSwitchTimer = static_cast<std::uint16_t>(_values.CamSwitchTime * 2);
         RequireReference(_cameraInfo).Reset();
         RequireReference(_cameraInfo).Position = Position;
-        RequireReference(_cameraInfo).UpVector = Vector3::UnitY;
+        RequireReference(_cameraInfo).UpVector = Vector3(0.0F, 1.0F, 0.0F);
         RequireReference(_cameraInfo).Target = static_cast<Vector3>(Position) + _facingVector;
         RequireReference(_cameraInfo).NodeRef = MphRead::Formats::Culling::NodeRef::None;
         NodeRef = MphRead::Formats::Culling::NodeRef::None;
@@ -744,7 +789,7 @@ namespace MphRead::Entities
     {
         if (respawn)
         {
-            Mods::RespawnChoice::ApplyOnSpawn(this);
+            Mods::RespawnChoice::ApplyOnSpawn(shared_from_this());
         }
         _loadFlags |= LoadFlags::Spawned;
         if (IsMainPlayer())
@@ -788,8 +833,8 @@ namespace MphRead::Entities
             _abilities |= AbilityFlags::SpireAltAttack;
             _spireRockPosL = pos;
             _spireRockPosR = pos;
-            _spireAltFacing = Vector3::UnitY;
-            _spireAltUp = Vector3::UnitX;
+            _spireAltFacing = Vector3(0.0F, 1.0F, 0.0F);
+            _spireAltUp = Vector3(1.0F, 0.0F, 0.0F);
             for (Vector3& value : _spireAltVecs)
             {
                 value = Vector3::Zero;
@@ -856,7 +901,9 @@ namespace MphRead::Entities
         _field7C = -_field70;
         _field80 = _field70;
         _field84 = _field74;
-        _aimPosition = AddY(static_cast<Vector3>(Position) + _gunVec1 * Fixed::ToFloat(_values.AimDistance),
+        const float aimDistance = Fixed::ToFloat(_values.AimDistance);
+        _aimPosition = AddY(static_cast<Vector3>(Position)
+                + Vector3(_gunVec1.X * aimDistance, _gunVec1.Y * aimDistance, _gunVec1.Z * aimDistance),
             Fixed::ToFloat(_values.AimYOffset));
         _acceleration = Vector3::Zero;
         _accelerationTimer = 0;
@@ -867,7 +914,7 @@ namespace MphRead::Entities
         _gunViewBob = 0.0F;
         _walkViewBob = 0.0F;
 
-        if (GameState::SinglePlayer() && Formats::CameraSequence::Current != nullptr)
+        if (GameState::SinglePlayer() && MphRead::CameraSequence::Current() != nullptr)
         {
             _camSwitchTimer = static_cast<std::uint16_t>(_values.CamSwitchTime * 2);
             _viewTiltAngleH = 0.0F;
@@ -875,15 +922,16 @@ namespace MphRead::Entities
         }
         else
         {
+            MphRead::CameraSequence* currentSequence = nullptr;
             if (IsMainPlayer() && GameState::Multiplayer()
-                && Formats::CameraSequence::Current != nullptr
-                && Formats::CameraSequence::Current->IsIntro)
+                && (currentSequence = MphRead::CameraSequence::Current()) != nullptr
+                && currentSequence->IsIntro())
             {
-                Formats::CameraSequence::Current->End();
+                currentSequence->End();
             }
             RequireReference(_cameraInfo).Reset();
             RequireReference(_cameraInfo).Position = Position;
-            RequireReference(_cameraInfo).UpVector = Vector3::UnitY;
+            RequireReference(_cameraInfo).UpVector = Vector3(0.0F, 1.0F, 0.0F);
             RequireReference(_cameraInfo).Target = static_cast<Vector3>(Position) + facing;
             RequireReference(_cameraInfo).Fov = Fixed::ToFloat(_values.NormalFov) * 2.0F;
             RequireReference(_cameraInfo).NodeRef = NodeRef;
@@ -895,10 +943,16 @@ namespace MphRead::Entities
             RequireReference(_cameraInfo).Update();
         }
 
-        _gunDrawPos = Fixed::ToFloat(_values.FieldB8) * facing
-            + RequireReference(_cameraInfo).Position
-            + Fixed::ToFloat(_values.FieldB0) * _gunVec2
-            + Fixed::ToFloat(_values.FieldB4) * up;
+        const float gunDrawFacingScale = Fixed::ToFloat(_values.FieldB8);
+        const Vector3 gunDrawFacing(
+            facing.X * gunDrawFacingScale, facing.Y * gunDrawFacingScale, facing.Z * gunDrawFacingScale);
+        const Vector3 cameraPosition = RequireReference(_cameraInfo).Position;
+        const float gunDrawLeftScale = Fixed::ToFloat(_values.FieldB0);
+        const Vector3 gunDrawLeft(
+            _gunVec2.X * gunDrawLeftScale, _gunVec2.Y * gunDrawLeftScale, _gunVec2.Z * gunDrawLeftScale);
+        const float gunDrawUpScale = Fixed::ToFloat(_values.FieldB4);
+        const Vector3 gunDrawUp(up.X * gunDrawUpScale, up.Y * gunDrawUpScale, up.Z * gunDrawUpScale);
+        _gunDrawPos = gunDrawFacing + cameraPosition + gunDrawLeft + gunDrawUp;
         _aimVec = _aimPosition - _gunDrawPos;
         _timeSinceInput = 0;
         _flags1 = PlayerFlags1::Standing | PlayerFlags1::StandingPrevious | PlayerFlags1::CanTouchBoost;
@@ -972,7 +1026,7 @@ namespace MphRead::Entities
         if (IsMainPlayer())
         {
             ResetReticle();
-            _weaponIconInst.SetIndex(0, _scene);
+            RequireReference(_weaponIconInst).SetIndex(0, RequireReference(_scene));
         }
         _cloakTextTimer = 30.0F / 30.0F;
         _doubleDamageTextTimer = 60.0F / 30.0F;
@@ -981,7 +1035,7 @@ namespace MphRead::Entities
         _hudShiftY = 0;
         _objShiftX = 0;
         _objShiftY = 0;
-        ScanVisor = false;
+        _scanVisor = false;
         SwitchVisors(true);
         CloseDialogs();
         _altRollFbX = RequireReference(_cameraInfo).Field48;
@@ -992,7 +1046,7 @@ namespace MphRead::Entities
         _light1Color = RequireReference(_scene).Light1Color();
         _light2Vector = RequireReference(_scene).Light2Vector();
         _light2Color = RequireReference(_scene).Light2Color();
-        Controls.ClearPressed();
+        Controls().ClearPressed();
         if (_isBot)
         {
             RequireReference(AiData).InitializeAtSpawn();
@@ -1003,7 +1057,7 @@ namespace MphRead::Entities
         {
             const std::int32_t effectId
                 = GameState::Multiplayer() && _playerCount > 2 && !Features::MaxPlayerDetail() ? 33 : 31;
-            RequireReference(_scene).SpawnEffect(effectId, Vector3::UnitX, Vector3::UnitY, Position);
+            RequireReference(_scene).SpawnEffect(effectId, Vector3(1.0F, 0.0F, 0.0F), Vector3(0.0F, 1.0F, 0.0F), Position);
         }
         if (IsMainPlayer())
         {
@@ -1025,7 +1079,7 @@ namespace MphRead::Entities
     {
         assert(_enemySpawner != nullptr);
         assert(GameState::Mode() == GameMode::SinglePlayer);
-        EnemySpawnFields09 data = RequireReference(_enemySpawner).Data().Fields.S09;
+        EnemySpawnFields09 data = RequireReference(_enemySpawner).Data.Fields.S09;
         _healthMax = data.HunterHealthMax;
         _health = data.HunterHealth;
         RequireReference(AiData).HealthThreshold = data.HunterHealthThreshold;
@@ -1197,15 +1251,15 @@ namespace MphRead::Entities
     void PlayerEntity::Reposition(Vector3 offset, MphRead::Formats::Culling::NodeRef nodeRef)
     {
         Position = static_cast<Vector3>(Position) + offset;
-        _prevPosition += offset;
-        _aimPosition += offset;
-        _gunDrawPos += offset;
-        _muzzlePos += offset;
-        _field544 += offset;
-        CameraInfo& camInfo = RequireReference(_cameraInfo);
-        camInfo.Position += offset;
-        camInfo.PrevPosition += offset;
-        camInfo.Target += offset;
+        _prevPosition = _prevPosition + offset;
+        _aimPosition = _aimPosition + offset;
+        _gunDrawPos = _gunDrawPos + offset;
+        _muzzlePos = _muzzlePos + offset;
+        _field544 = _field544 + offset;
+        MphRead::Entities::CameraInfo& camInfo = RequireReference(_cameraInfo);
+        camInfo.Position = camInfo.Position + offset;
+        camInfo.PrevPosition = camInfo.PrevPosition + offset;
+        camInfo.Target = camInfo.Target + offset;
         _volume = CollisionVolume::Move(_volumeUnxf, static_cast<Vector3>(Position));
         for (std::int32_t i = 0; i < _beams->Length(); ++i)
         {
@@ -1279,7 +1333,7 @@ namespace MphRead::Entities
             }
             TakeDamage(value.Damage(), flags, std::nullopt, &value);
             RequireReference(_scene).SendMessage(
-                MphRead::Message::Impact, &value, value.Owner(), this, 0);
+                MphRead::Message::Impact, &value, value.Owner(), BoxEntity(this), BoxInt32(0));
         }
         if (hit)
         {
@@ -1318,9 +1372,9 @@ namespace MphRead::Entities
         if (IsAltForm())
         {
             const Vector3 row0(_modelTransform.M11, _modelTransform.M12, _modelTransform.M13);
-            if (Vector3::Dot(Vector3::UnitY, row0) < 0.5F && _hSpeedMag >= Fixed::ToFloat(1269))
+            if (Vector3::Dot(Vector3(0.0F, 1.0F, 0.0F), row0) < 0.5F && _hSpeedMag >= Fixed::ToFloat(1269))
             {
-                const Vector3 cross = Vector3::Cross(row0, Vector3::UnitY).Normalized();
+                const Vector3 cross = Vector3::Cross(row0, Vector3(0.0F, 1.0F, 0.0F)).Normalized();
                 const Vector3 cross2 = Vector3::Cross(cross, row0);
                 const std::int32_t index = _mbTrailIndices[slot];
                 _mbTrailAlphas[slot][static_cast<std::size_t>(index)] = 25.0F / 31.0F;
@@ -1551,7 +1605,7 @@ namespace MphRead::Entities
         }
     }
 
-    void PlayerEntity::SetGunAnimation(GunAnimation anim, MphRead::AnimFlags animFlags)
+    void PlayerEntity::SetGunAnimation(MphRead::Entities::GunAnimation anim, MphRead::AnimFlags animFlags)
     {
         _gunAnimation = anim;
         const auto& hunterAnimations = ManagedAt(
@@ -1609,10 +1663,10 @@ namespace MphRead::Entities
         if (_timeSinceInput == 0)
         {
             if (_gunAnimation == GunAnimation::UpDown
-                && TestFlag(ManagedAt(*animInfo.Flags, 0), AnimFlags::Reverse))
+                && TestFlag(ManagedAt(animInfo.Flags, 0), AnimFlags::Reverse))
             {
-                ManagedAt(*animInfo.Flags, 0) &= ~AnimFlags::Reverse;
-                ManagedAt(*animInfo.Flags, 0) &= ~AnimFlags::Ended;
+                ManagedAt(animInfo.Flags, 0) &= ~AnimFlags::Reverse;
+                ManagedAt(animInfo.Flags, 0) &= ~AnimFlags::Ended;
             }
         }
         else if (!Features::NoIdleSway()
@@ -1633,7 +1687,7 @@ namespace MphRead::Entities
         }
         if (_gunAnimation == GunAnimation::UpDown)
         {
-            if (!TestFlag(ManagedAt(*animInfo.Flags, 0), AnimFlags::Ended))
+            if (!TestFlag(ManagedAt(animInfo.Flags, 0), AnimFlags::Ended))
             {
                 return;
             }
@@ -1675,10 +1729,10 @@ namespace MphRead::Entities
             if ((_gunAnimation == GunAnimation::Charging || _gunAnimation == GunAnimation::ChargingMissile)
                 && RequireReference(_scene).FrameCount() != 0 && RequireReference(_scene).FrameCount() % 2 == 0)
             {
-                const std::int32_t frame = (ManagedAt(*animInfo.FrameCount, 0) - 1)
+                const std::int32_t frame = (ManagedAt(animInfo.FrameCount, 0) - 1)
                     * (equipInfo.ChargeLevel / 2 - equipWeapon.MinCharge)
                     / (equipWeapon.FullCharge - equipWeapon.MinCharge);
-                ManagedAt(*animInfo.Frame, 0) = frame;
+                ManagedAt(animInfo.Frame, 0) = frame;
             }
             if (_currentWeapon == MphRead::BeamType::Missile)
             {
@@ -1687,7 +1741,7 @@ namespace MphRead::Entities
                     SetGunAnimation(GunAnimation::ChargingMissile, AnimFlags::NoLoop);
                 }
                 else if (_gunAnimation != GunAnimation::FullChargeMissile
-                    && TestFlag(ManagedAt(*animInfo.Flags, 0), AnimFlags::Ended))
+                    && TestFlag(ManagedAt(animInfo.Flags, 0), AnimFlags::Ended))
                 {
                     SetGunAnimation(GunAnimation::FullChargeMissile);
                 }
@@ -1697,16 +1751,16 @@ namespace MphRead::Entities
                 SetGunAnimation(GunAnimation::Charging, AnimFlags::NoLoop);
             }
             else if (_gunAnimation != GunAnimation::FullCharge
-                && TestFlag(ManagedAt(*animInfo.Flags, 0), AnimFlags::Ended))
+                && TestFlag(ManagedAt(animInfo.Flags, 0), AnimFlags::Ended))
             {
                 SetGunAnimation(GunAnimation::FullCharge);
             }
             return;
         }
         if ((_gunAnimation == GunAnimation::Charging || _gunAnimation == GunAnimation::ChargingMissile)
-            && !TestFlag(ManagedAt(*animInfo.Flags, 0), AnimFlags::Reverse))
+            && !TestFlag(ManagedAt(animInfo.Flags, 0), AnimFlags::Reverse))
         {
-            ManagedAt(*animInfo.Flags, 0) |= AnimFlags::Reverse;
+            ManagedAt(animInfo.Flags, 0) |= AnimFlags::Reverse;
             return;
         }
         if (_gunAnimation == GunAnimation::FullCharge)
@@ -1717,10 +1771,10 @@ namespace MphRead::Entities
         if (_gunAnimation == GunAnimation::FullChargeMissile)
         {
             SetGunAnimation(GunAnimation::MissileOpen, AnimFlags::NoLoop);
-            ManagedAt(*animInfo.Frame, 0) = ManagedAt(*animInfo.FrameCount, 0) - 1;
+            ManagedAt(animInfo.Frame, 0) = ManagedAt(animInfo.FrameCount, 0) - 1;
             return;
         }
-        if (TestFlag(ManagedAt(*animInfo.Flags, 0), AnimFlags::Ended))
+        if (TestFlag(ManagedAt(animInfo.Flags, 0), AnimFlags::Ended))
         {
             if (!TestFlag(_flags1, PlayerFlags1::GunOpenAnimation) || _gunAnimation == GunAnimation::MissileClose)
             {
@@ -1743,7 +1797,7 @@ namespace MphRead::Entities
     void PlayerEntity::TakeDamage(std::uint32_t damage, DamageFlags flags,
         std::optional<Vector3> direction, EntityBase* source)
     {
-        if (Mods::Network::NetDamage::Suppress(this, source, flags))
+        if (Mods::Network::NetDamage::Suppress(*this, source, flags))
         {
             return;
         }
@@ -1751,8 +1805,10 @@ namespace MphRead::Entities
         {
             return;
         }
-        if (IsMainPlayer() && Formats::CameraSequence::Current != nullptr
-            && Formats::CameraSequence::Current->BlockInput)
+        MphRead::CameraSequence* currentSequence = nullptr;
+        if (IsMainPlayer()
+            && (currentSequence = MphRead::CameraSequence::Current()) != nullptr
+            && currentSequence->BlockInput())
         {
             if (!TestFlag(flags, DamageFlags::Death))
             {
@@ -1913,14 +1969,19 @@ namespace MphRead::Entities
         }
         if (_isBot && source != nullptr)
         {
-            RequireReference(AiData).OnTakeDamage(
-                std::bit_cast<std::int32_t>(damage), source, attacker);
+            PlayerAiData& aiData = RequireReference(AiData);
+            const std::shared_ptr<EntityBase> damageSource
+                = ResolveSceneEntity(RequireReference(_scene), source);
+            const std::shared_ptr<PlayerEntity> damageAttacker
+                = ResolveSceneEntity(RequireReference(_scene), attacker);
+            aiData.OnTakeDamage(
+                std::bit_cast<std::int32_t>(damage), damageSource, damageAttacker);
         }
 
-        Mods::Network::NetDamage::Note(this, attacker,
+        Mods::Network::NetDamage::Note(*this, attacker,
             beam != nullptr ? beam->Beam() : MphRead::BeamType::None,
             flags, direction, damage, bomb != nullptr);
-        Mods::Network::NetHitPrediction::NoteHit(this, attacker, flags, damage);
+        Mods::Network::NetHitPrediction::NoteHit(*this, attacker, flags, damage);
 
         bool dead = false;
         if (_isBot && GameState::SinglePlayer() && RequireReference(AiData).Flags1
@@ -1955,22 +2016,23 @@ namespace MphRead::Entities
             {
                 beamType = beam->Beam();
             }
-            else if (Mods::Network::NetDamage::ReplayBeam != MphRead::BeamType::None)
+            else if (Mods::Network::NetDamage::ReplayBeam() != MphRead::BeamType::None)
             {
-                beamType = Mods::Network::NetDamage::ReplayBeam;
+                beamType = Mods::Network::NetDamage::ReplayBeam();
             }
             if (source == attacker || fromHalfturret || bomb != nullptr)
             {
                 flags |= DamageFlags::FromAlt;
             }
-            RequireReference(_scene).SendMessage(MphRead::Message::Destroyed, this, nullptr, 0, 0, 1);
+            RequireReference(_scene).SendMessage(
+                MphRead::Message::Destroyed, this, nullptr, BoxInt32(0), BoxInt32(0), 1);
             if (_enemySpawner != nullptr)
             {
                 RequireReference(_scene).SendMessage(
-                    MphRead::Message::Destroyed, this, _enemySpawner.get(), 0, 0);
+                    MphRead::Message::Destroyed, this, _enemySpawner.get(), BoxInt32(0), BoxInt32(0));
                 assert(_enemySpawner->Type == MphRead::EntityType::EnemySpawn);
-                ItemSpawnEntity::SpawnItemDrop(_enemySpawner->Data().ItemType,
-                    Position, NodeRef, _enemySpawner->Data().ItemChance, _scene);
+                ItemSpawnEntity::SpawnItemDrop(_enemySpawner->Data.ItemType,
+                    Position, NodeRef, _enemySpawner->Data.ItemChance, _scene);
             }
             ResetCombatVisor();
             if (TestFlag(_flags2, PlayerFlags2::Halfturret))
@@ -2091,7 +2153,7 @@ namespace MphRead::Entities
                 if (IsAltForm())
                 {
                     const std::int32_t effectId = IsMainPlayer() ? 10 : 216;
-                    RequireReference(_scene).SpawnEffect(effectId, Vector3::UnitX, Vector3::UnitY, Position);
+                    RequireReference(_scene).SpawnEffect(effectId, Vector3(1.0F, 0.0F, 0.0F), Vector3(0.0F, 1.0F, 0.0F), Position);
                 }
                 if (_isBot && GameState::GetAreaState(RequireReference(_scene).AreaId()) == AreaState::Clear)
                 {
@@ -2101,13 +2163,13 @@ namespace MphRead::Entities
                     {
                         std::shared_ptr<EnemySpawnEntity> spawner = spawnerEnumerator.Current();
                         EnemySpawnEntity& value = RequireReference(spawner);
-                        if (value.Data().EnemyType != MphRead::EnemyType::Hunter)
+                        if (value.Data.EnemyType != MphRead::EnemyType::Hunter)
                         {
                             continue;
                         }
-                        if (TestFlag(value.Flags(), SpawnerFlags::Active)
-                            && (value.Data().SpawnTotal == 0 || value.SpawnedCount() < value.Data().SpawnTotal
-                                || value.ActiveCount() != 0))
+                        if (TestFlag(value.Flags, SpawnerFlags::Active)
+                            && (value.Data.SpawnTotal == 0 || value.SpawnedCount < value.Data.SpawnTotal
+                                || value.ActiveCount != 0))
                         {
                             for (std::int32_t i = 1; i < _maxPlayers; ++i)
                             {
@@ -2267,7 +2329,7 @@ namespace MphRead::Entities
                         CloseDialogs();
                         if (attacker == this)
                         {
-                            QueueHudMessage(128, 70, 140, 90.0F / 30.0F, 2, 235);
+                            QueueHudMessage(128, 70, 140, 90.0F / 30.0F, 2, 235, false);
                         }
                         else
                         {
@@ -2463,7 +2525,7 @@ namespace MphRead::Entities
                 }
                 if (IsAltForm() || IsMorphing())
                 {
-                    RequireReference(_scene).SpawnEffect(216, Vector3::UnitX, Vector3::UnitY, Position);
+                    RequireReference(_scene).SpawnEffect(216, Vector3(1.0F, 0.0F, 0.0F), Vector3(0.0F, 1.0F, 0.0F), Position);
                 }
                 if (attacker == nullptr || attacker == this)
                 {
@@ -2478,7 +2540,7 @@ namespace MphRead::Entities
                 if (IsPrimeHunter())
                 {
                     GameState::PrimeHunter(-1);
-                    QueueHudMessage(128, 70, 140, 90.0F / 30.0F, 2, 242);
+                    QueueHudMessage(128, 70, 140, 90.0F / 30.0F, 2, 242, false);
                 }
             }
             if (GameState::Multiplayer() && attacker != nullptr && attacker != this)
@@ -2613,7 +2675,8 @@ namespace MphRead::Entities
                 }
                 else if (!TestFlag(flags, DamageFlags::Halfturret))
                 {
-                    _speed += WithY(*direction * 0.4F, 0.0F);
+                    _speed = _speed + WithY(
+                        Vector3(direction->X * 0.4F, direction->Y * 0.4F, direction->Z * 0.4F), 0.0F);
                 }
             }
             else if (attacker != nullptr)

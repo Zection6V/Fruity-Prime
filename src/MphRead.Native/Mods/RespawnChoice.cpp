@@ -1,5 +1,10 @@
 #include "RespawnChoice.hpp"
 
+#include "../GameState.hpp"
+#include "EndScreen.hpp"
+#include "Launcher/Portable/LaunchPlan.hpp"
+#include "Launcher/Portable/LauncherPrefs.hpp"
+
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Formats/Types.hpp"
 #include "Network/DemoClip.hpp"
@@ -10,18 +15,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-
-namespace MphRead::Mods::Detail
-{
-    // Narrow later-owner boundaries. These declarations carry no behavior;
-    // their C# owners have not reached Native yet.
-    [[nodiscard]] bool RespawnChoiceGameStateMultiplayer();
-    [[nodiscard]] MphRead::Hunter RespawnChoiceLauncherResolveHunter(MphRead::Hunter hunter);
-    [[nodiscard]] std::int32_t RespawnChoiceLauncherLastColor();
-    void RespawnChoiceEndScreenClearReady();
-    void RespawnChoicePlayerModSetHunter(
-        Entities::PlayerEntity& player, MphRead::Hunter hunter);
-}
 
 namespace
 {
@@ -73,20 +66,20 @@ namespace MphRead::Mods
                 return Network::PlayerColors::Choice.at(static_cast<std::size_t>(slot));
             }
         }
-        return Detail::RespawnChoiceLauncherLastColor();
+        return Launcher::LauncherPrefs::LastColor();
     }
 
     void RespawnChoice::Reset()
     {
         _hunter.reset();
         _color.reset();
-        Detail::RespawnChoiceEndScreenClearReady();
+        EndScreen::ClearReady();
         Network::DemoClip::Purge();
     }
 
     void RespawnChoice::Request(MphRead::Hunter hunter, std::int32_t color)
     {
-        _hunter = Detail::RespawnChoiceLauncherResolveHunter(hunter);
+        _hunter = Launcher::Hunters::Resolve(hunter);
         _color = Network::PlayerColors::Clamp(color);
     }
 
@@ -96,7 +89,7 @@ namespace MphRead::Mods
         {
             return;
         }
-        if (!Detail::RespawnChoiceGameStateMultiplayer())
+        if (!GameState::Multiplayer())
         {
             return;
         }
@@ -130,7 +123,7 @@ namespace MphRead::Mods
 
         if (hunter != RequirePlayer(player).Hunter())
         {
-            Detail::RespawnChoicePlayerModSetHunter(RequirePlayer(player), hunter);
+            RequirePlayer(player).ModSetHunter(hunter);
             RequirePlayer(player).Initialize();
         }
         if (RequirePlayer(player).SlotIndex() >= 0

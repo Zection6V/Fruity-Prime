@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-namespace MphRead
+namespace MphRead::Formats
 {
     class NodeData3;
 }
@@ -25,8 +25,8 @@ namespace MphRead::Entities
         JumpPadEntity(JumpPadEntity&&) = delete;
         JumpPadEntity& operator=(JumpPadEntity&&) = delete;
 
-        [[nodiscard]] std::shared_ptr<NodeData3> ClosestNode() const noexcept;
-        void ClosestNode(std::shared_ptr<NodeData3> value) noexcept;
+        [[nodiscard]] std::shared_ptr<Formats::NodeData3> ClosestNode() const noexcept;
+        void ClosestNode(std::shared_ptr<Formats::NodeData3> value) noexcept;
 
         [[nodiscard]] CollisionVolume ModVolume() const noexcept;
 
@@ -54,7 +54,7 @@ namespace MphRead::Entities
         ::OpenTK::Mathematics::Vector3 _invPos{};
 
         std::uint16_t _cooldownTimer = 0;
-        std::shared_ptr<NodeData3> _closestNode{};
+        std::shared_ptr<Formats::NodeData3> _closestNode{};
     };
 
     class FhJumpPadEntity : public EntityBase

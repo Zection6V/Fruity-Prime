@@ -1,5 +1,20 @@
 #include "SceneSetup.hpp"
 
+#include "Entities/CamSeq/CamSeqEntity.hpp"
+#include "Features.hpp"
+#include "Metadata/Enemies.hpp"
+#include "Strings.hpp"
+#include "Entities/CamSeq/CameraSequence.hpp"
+#include "Formats/AiPersonality.hpp"
+#include "GameState.hpp"
+#include "Menu.hpp"
+#include "Mods/ThumbnailMode.hpp"
+#include "NativeRuntime/System/Runtime.hpp"
+#include "Sound/Music.hpp"
+#include "Sound/Sfx.hpp"
+#include "Utility/Extract.hpp"
+#include "Utility/Rng.hpp"
+
 #include "Scene.hpp"
 #include "MemoryArrays.hpp"
 #include "Read.hpp"
@@ -48,179 +63,18 @@
 #include <utility>
 #include <vector>
 
+namespace
+{
+    // `((AreaVolumeEntity)GetEntity(...)).Active = value;`
+    void SetAreaVolumeActiveFlag(MphRead::Entities::AreaVolumeEntity& entity, bool value)
+    {
+        entity.Active = value;
+    }
+}
+
 namespace MphRead
 {
     enum class AreaState : std::int32_t;
-}
-
-namespace MphRead::SceneSetupInterop
-{
-    // Later-owner seams. These declarations deliberately carry no behavior;
-    // SceneSetup keeps the ordering and branching owned by SceneSetup.cs.
-
-    [[nodiscard]] GameMode GameModeNone();
-    [[nodiscard]] GameMode GameModeSinglePlayer();
-    [[nodiscard]] GameMode GameModeBattle();
-    [[nodiscard]] GameMode GameModeBounty();
-    [[nodiscard]] GameMode GameModeCapture();
-    [[nodiscard]] GameMode GameModeNodes();
-    [[nodiscard]] GameMode GameModeNodesTeams();
-    [[nodiscard]] GameMode GameModeDefender();
-    [[nodiscard]] GameMode GameModeDefenderTeams();
-    [[nodiscard]] AreaState AreaStateClear();
-    [[nodiscard]] std::int32_t NodeLayerMultiplayerU();
-    [[nodiscard]] std::int32_t NodeLayerMultiplayerLod0();
-    [[nodiscard]] std::int32_t NodeLayerMultiplayerLod1();
-    [[nodiscard]] std::int32_t NodeLayerCaptureTheFlag();
-
-    [[nodiscard]] GameMode GetGameMode();
-    void SetGameMode(GameMode mode);
-    [[nodiscard]] bool Multiplayer();
-    [[nodiscard]] bool SinglePlayer();
-    [[nodiscard]] StorySave* CurrentStorySave();
-    [[nodiscard]] AreaState GetAreaState(std::int32_t areaId, StorySave* save = nullptr);
-    [[nodiscard]] std::span<std::int32_t> EncounterState();
-    [[nodiscard]] std::span<bool> CompletedRandomEncounterRooms();
-
-    [[nodiscard]] std::uint32_t BossFlagsValue(const StorySave& save);
-    [[nodiscard]] std::uint32_t LostOctoliths(const StorySave& save);
-    [[nodiscard]] std::span<std::uint8_t> AreaHunters(StorySave& save);
-    [[nodiscard]] std::uint8_t DefeatedHunters(const StorySave& save);
-    [[nodiscard]] std::int32_t GetEnemyOctolithDrop(const StorySave& save, std::int32_t hunter);
-    void SetCheckpointRoomId(StorySave& save, std::int32_t roomId);
-
-    void SetSceneAreaId(Scene* scene, std::int32_t areaId);
-    [[nodiscard]] std::int32_t SceneAreaId(const Scene* scene);
-    [[nodiscard]] std::int32_t SceneRoomId(const Scene* scene);
-    void SceneLoadModel(Scene* scene, const std::string& name);
-    void SceneLoadEffect(Scene* scene, std::int32_t effectId, bool persistent);
-
-    void ApplyAdventureSettings();
-    [[nodiscard]] std::int32_t SaveSlot();
-    [[nodiscard]] std::int32_t PreviousSaveSlot();
-    void SetPreviousSaveSlot(std::int32_t value);
-    void LoadRuntimeData();
-
-    void SetWeaponsForRoom(bool multiplayerMetadata);
-    void SetWeaponsForGameStateMultiplayer(bool multiplayer);
-
-    [[nodiscard]] std::uint32_t Rng1StartValue();
-    [[nodiscard]] std::uint32_t Rng2StartValue();
-    void SetRng1(std::uint32_t value);
-    void SetRng2(std::uint32_t value);
-    [[nodiscard]] std::uint32_t GetRandomInt2(std::uint32_t max);
-
-    void ClearCamSeqData();
-    void SetCamSeqCurrentNull();
-    void SetCameraSequenceCurrentNull();
-    void SetCameraSequenceIntroNull();
-    void LoadCameraSequenceIntro(std::int32_t sequenceId, Scene* scene);
-    void LoadSfx(Scene* scene);
-    void TryPlayRoomMusic(std::int32_t roomId, std::int32_t variant);
-    void PlayEncounterMusic(Hunter hunter);
-    void LoadAiPersonality(GameMode mode);
-
-    [[nodiscard]] std::int32_t PlayerCount();
-    [[nodiscard]] std::int32_t PlayersCount();
-    void SetPlayerCount(std::int32_t count);
-    void SetPlayersCreated(std::int32_t count);
-    [[nodiscard]] std::int32_t MaxPlayers();
-    [[nodiscard]] std::shared_ptr<Entities::PlayerEntity> PlayerAt(std::int32_t index);
-    [[nodiscard]] std::shared_ptr<Entities::PlayerEntity> MainPlayer();
-    [[nodiscard]] bool PlayerIsBot(const Entities::PlayerEntity& player);
-    void SetPlayerIsBot(Entities::PlayerEntity& player, bool value);
-    void ClearPlayerActiveFlags(Entities::PlayerEntity& player);
-    void ClearPlayerSlotActive(Entities::PlayerEntity& player);
-    void SetPlayerSlotActive(Entities::PlayerEntity& player);
-    void SetPlayerBotLevel(Entities::PlayerEntity& player, std::int32_t level);
-    void ResetAdventureModeBotWeapon(Entities::PlayerEntity& player);
-    void SetEnemySpawner(Entities::PlayerEntity& player,
-        const std::shared_ptr<Entities::EnemySpawnEntity>& spawner);
-    [[nodiscard]] Hunter PlayerHunter(const Entities::PlayerEntity& player);
-    [[nodiscard]] std::int32_t PlayerRecolor(const Entities::PlayerEntity& player);
-    [[nodiscard]] bool PlayerHasWeapon(const Entities::PlayerEntity& player, BeamType weapon);
-    void CreatePlayer(Hunter hunter, std::int32_t recolor);
-    void SetPlayerInitialized(Entities::PlayerEntity& player, bool initialized);
-
-    [[nodiscard]] bool NoRandomEncounters();
-    [[nodiscard]] bool NoRepeatEncounters();
-    [[nodiscard]] bool AlternateHunters1P();
-    [[nodiscard]] bool MaxRoomDetail();
-    [[nodiscard]] bool ThumbnailModeActive();
-
-    [[nodiscard]] std::shared_ptr<Formats::Collision::CollisionInstance>
-        GetCollision(const RoomMetadata* metadata, std::int32_t layerMask);
-    void SetCollisionActive(Formats::Collision::CollisionInstance& collision, bool active);
-
-    [[nodiscard]] std::string CombinePath(const std::string& root, const std::string& path);
-    [[nodiscard]] const std::string& FileSystem();
-    [[nodiscard]] const std::string& FhFileSystem();
-    [[nodiscard]] bool IsMphJapan();
-    [[nodiscard]] bool IsMphKorea();
-
-    [[nodiscard]] std::shared_ptr<Formats::NodeData> ReadNodeData(
-        const std::string& path, bool firstHunt);
-    [[nodiscard]] bool NodeDataSimple(const Formats::NodeData& nodeData);
-    [[nodiscard]] std::int32_t FindClosestNode(
-        const Formats::NodeData& nodeData, OpenTK::Mathematics::Vector3 position, bool useMaxDist);
-    void SetJumpPadClosestNode(Entities::JumpPadEntity& entity, std::int32_t node);
-    void SetOctolithClosestNode(Entities::OctolithFlagEntity& entity, std::int32_t node);
-    void SetOctolithBaseClosestNode(Entities::OctolithFlagEntity& entity, std::int32_t node);
-    void SetFlagBaseClosestNode(Entities::FlagBaseEntity& entity, std::int32_t node);
-    void SetNodeDefenseClosestNode(Entities::NodeDefenseEntity& entity, std::int32_t node);
-
-    [[nodiscard]] std::pair<std::int32_t, std::vector<std::uint8_t>>
-        ReadKanjiFont(bool singlePlayer);
-    void SetKanjiFontData(std::vector<std::uint8_t> widths,
-        std::vector<std::uint8_t> offsets, std::vector<std::uint8_t> charData,
-        std::int32_t minChar);
-
-    [[nodiscard]] std::int32_t MuzzleEffectId(std::int32_t index);
-    [[nodiscard]] std::int32_t ChargeEffectId(std::int32_t index);
-    [[nodiscard]] std::int32_t ChargeLoopEffectId(std::int32_t index);
-    void LoadWeaponNames();
-    void GeneratePlayerVolumes();
-    void ReadStringTableCommon();
-    void ReadStringTableSp();
-    void ReadStringTableMp();
-    void ReadStringTableScanLog();
-    [[nodiscard]] std::span<const std::string> HunterModels(Hunter hunter);
-    void GenerateKandenAltNodeDistances();
-    [[nodiscard]] std::string SingleParticleModel(SingleType type);
-    [[nodiscard]] std::string HudIconsModel();
-    [[nodiscard]] std::optional<std::string> EnemyModelName(EnemyType type);
-    [[nodiscard]] std::int32_t EnemyDeathEffect(EnemyType type);
-    [[nodiscard]] std::string ObjectModelName(std::int32_t id);
-    [[nodiscard]] std::size_t ItemModelCount();
-    [[nodiscard]] const std::string& ItemModelName(std::size_t index);
-
-    [[nodiscard]] bool EnemySpawnIsHunter(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] EnemyType EnemySpawnType(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] std::int32_t EnemySpawnerHealth(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] ItemType EnemySpawnerItemType(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] std::int32_t EnemySpawnerItemChance(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] std::int32_t EnemyHunterId(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] std::int32_t EnemyHunterChance(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] std::int32_t EnemyHunterColor(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] std::int32_t EnemyEncounterType(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] std::int32_t EnemySubtypeS06(const Entities::EnemySpawnEntity& spawner);
-    [[nodiscard]] std::int32_t EnemySubtypeS07(const Entities::EnemySpawnEntity& spawner);
-
-    [[nodiscard]] std::int32_t ObjectEffectId(const Entities::ObjectEntity& obj);
-    [[nodiscard]] std::int32_t PlatformResistEffectId(const Entities::PlatformEntity& platform);
-    [[nodiscard]] std::int32_t PlatformDamageEffectId(const Entities::PlatformEntity& platform);
-    [[nodiscard]] std::int32_t PlatformDeadEffectId(const Entities::PlatformEntity& platform);
-    [[nodiscard]] bool PlatformSamusShip(const Entities::PlatformEntity& platform);
-    [[nodiscard]] bool PlatformBeamSpawner(const Entities::PlatformEntity& platform);
-    [[nodiscard]] std::int32_t PlatformBeamId(const Entities::PlatformEntity& platform);
-    [[nodiscard]] std::int32_t PlatformItemChance(const Entities::PlatformEntity& platform);
-    [[nodiscard]] ItemType PlatformItemType(const Entities::PlatformEntity& platform);
-    [[nodiscard]] ItemType ItemSpawnerType(const Entities::ItemSpawnEntity& itemSpawner);
-    [[nodiscard]] std::int32_t ItemSpawnerHasBase(const Entities::ItemSpawnEntity& itemSpawner);
-
-    void DebugAssert(bool condition);
-    void SetAreaVolumeActive(Entities::AreaVolumeEntity& entity, bool active);
-    [[noreturn]] void ThrowProgramException(const std::string& message);
 }
 
 namespace MphRead
@@ -336,81 +190,82 @@ namespace MphRead
             BossFlags bossFlags, std::int32_t nodeLayerMask, std::int32_t entityLayerId)
     {
         auto [metadata, roomId] = Metadata::GetRoomByName(name);
-        SceneSetupInterop::SetSceneAreaId(scene, Metadata::GetAreaInfo(roomId));
+        scene->AreaId(Metadata::GetAreaInfo(roomId));
         if (metadata == nullptr)
         {
-            SceneSetupInterop::ThrowProgramException("No room with this name is known.");
+            throw ProgramException("No room with this name is known.");
         }
 
-        GameMode mode = SceneSetupInterop::GetGameMode();
-        if (IsMode(mode, SceneSetupInterop::GameModeNone()))
+        GameMode mode = GameState::Mode();
+        if (IsMode(mode, GameMode::None))
         {
             mode = metadata->Multiplayer
-                ? SceneSetupInterop::GameModeBattle()
-                : SceneSetupInterop::GameModeSinglePlayer();
-            if (IsMode(mode, SceneSetupInterop::GameModeBattle())
+                ? GameMode::Battle
+                : GameMode::SinglePlayer;
+            if (IsMode(mode, GameMode::Battle)
                 && metadata->Name == "AD1 TRANSFER LOCK BT")
             {
-                mode = SceneSetupInterop::GameModeBounty();
+                mode = GameMode::Bounty;
             }
-            SceneSetupInterop::SetWeaponsForRoom(metadata->Multiplayer);
+            Weapons::Current = metadata->Multiplayer ? Weapons::WeaponsMP : Weapons::Weapons1P;
         }
         else
         {
-            SceneSetupInterop::SetWeaponsForGameStateMultiplayer(SceneSetupInterop::Multiplayer());
+            Weapons::Current = GameState::Multiplayer() ? Weapons::WeaponsMP : Weapons::Weapons1P;
         }
 
-        SceneSetupInterop::SetGameMode(mode);
-        if (IsMode(mode, SceneSetupInterop::GameModeSinglePlayer()))
+        GameState::Mode(mode);
+        if (IsMode(mode, GameMode::SinglePlayer))
         {
-            SceneSetupInterop::ApplyAdventureSettings();
+            Menu::ApplyAdventureSettings();
         }
 
-        SceneSetupInterop::LoadRuntimeData();
+        Extract::LoadRuntimeData();
         LoadResources(scene);
 
-        if (SceneSetupInterop::SaveSlot() != SceneSetupInterop::PreviousSaveSlot())
+        if (Menu::SaveSlot != Menu::PreviousSaveSlot)
         {
-            SceneSetupInterop::SetRng1(SceneSetupInterop::Rng1StartValue());
-            SceneSetupInterop::SetRng2(SceneSetupInterop::Rng2StartValue());
-            SceneSetupInterop::SetPreviousSaveSlot(SceneSetupInterop::SaveSlot());
+            Rng::SetRng1(Rng::Rng1StartValue);
+            Rng::SetRng2(Rng::Rng2StartValue);
+            Menu::PreviousSaveSlot = Menu::SaveSlot;
         }
 
-        SceneSetupInterop::ClearCamSeqData();
-        SceneSetupInterop::SetCamSeqCurrentNull();
-        SceneSetupInterop::SetCameraSequenceCurrentNull();
-        SceneSetupInterop::SetCameraSequenceIntroNull();
-        if (SceneSetupInterop::Multiplayer() && SceneSetupInterop::PlayerCount() > 0)
+        Entities::CamSeqEntity::ClearData();
+        Entities::CamSeqEntity::Current(nullptr);
+        Formats::CameraSequence::Current(nullptr);
+        Formats::CameraSequence::Intro(nullptr);
+        if (GameState::Multiplayer() && Entities::PlayerEntity::PlayerCount() > 0)
         {
             const std::int32_t seqId = roomId - 93 + 172;
             if (seqId >= 172 && seqId < 199)
             {
-                SceneSetupInterop::LoadCameraSequenceIntro(seqId, scene);
+                Formats::CameraSequence::Intro(
+                    Formats::CameraSequence::Load(seqId, scene).get());
             }
         }
 
-        SceneSetupInterop::LoadSfx(scene);
+        Sound::Sfx::Load(*scene);
         auto room = std::make_shared<Entities::RoomEntity>(scene);
         auto [collision, entities] = SetUpRoom(mode, playerCount, bossFlags,
             nodeLayerMask, entityLayerId, metadata, room, scene, false);
 
-        StorySave* save = SceneSetupInterop::CurrentStorySave();
-        const bool bossDone = SceneSetupInterop::SinglePlayer()
-            && ((SceneSetupInterop::BossFlagsValue(*save)
-                >> (2 * SceneSetupInterop::SceneAreaId(scene))) & 3U) != 0;
-        SceneSetupInterop::TryPlayRoomMusic(room->RoomId(), bossDone ? 1 : 0);
+        StorySave* save = GameState::StorySave.get();
+        const bool bossDone = GameState::SinglePlayer()
+            && ((static_cast<std::uint32_t>((*save).BossFlags)
+                >> (2 * scene->AreaId())) & 3U) != 0;
+        Music::TryPlayRoomMusic(room->RoomId(), bossDone ? 1 : 0);
 
-        if (SceneSetupInterop::SinglePlayer())
+        if (GameState::SinglePlayer())
         {
             UpdateAreaHunters();
             InitHunterSpawns(scene, entities, false);
-            scene->LoadMapSymbolEntities(SceneSetupInterop::SceneAreaId(scene));
+            scene->LoadMapSymbolEntities(scene->AreaId());
         }
 
-        SceneSetupInterop::LoadAiPersonality(mode);
+        Formats::AiPersonality::LoadAll(mode);
         room->SetNodeData(LoadNodeData(metadata->NodePath, room->RoomId(), mode,
             entities, metadata->FirstHunt));
-        SceneSetupInterop::SetCheckpointRoomId(*save, room->RoomId());
+        (*save).CheckpointRoomId = room->RoomId();
         return {room, metadata, collision, entities};
     }
 
@@ -419,15 +274,15 @@ namespace MphRead
         GameMode mode, const EntityList& entities, bool firstHunt)
     {
         std::optional<std::string> nodePath = requestedNodePath;
-        if (IsMode(mode, SceneSetupInterop::GameModeSinglePlayer()))
+        if (IsMode(mode, GameMode::SinglePlayer))
         {
-            const std::int32_t count = SceneSetupInterop::PlayersCount();
-            auto encounterState = SceneSetupInterop::EncounterState();
+            const std::int32_t count = static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
+            auto encounterState = GameState::EncounterState();
             for (std::int32_t i = 0; i < count; ++i)
             {
-                const auto player = SceneSetupInterop::PlayerAt(i);
+                const auto player = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i));
                 const std::int32_t state = encounterState[static_cast<std::size_t>(i)];
-                if (SceneSetupInterop::PlayerIsBot(*player) && state >= 1 && state <= 4)
+                if ((*player).IsBot() && state >= 1 && state <= 4)
                 {
                     auto overridePath = Metadata::EncounterNodeDataOverrides.find(roomId);
                     if (overridePath != Metadata::EncounterNodeDataOverrides.end())
@@ -438,7 +293,7 @@ namespace MphRead
                 }
             }
         }
-        else if (IsMode(mode, SceneSetupInterop::GameModeCapture()))
+        else if (IsMode(mode, GameMode::Capture))
         {
             auto overridePath = Metadata::CtfNodeDataOverrides.find(roomId);
             if (overridePath != Metadata::CtfNodeDataOverrides.end())
@@ -446,10 +301,10 @@ namespace MphRead
                 nodePath = overridePath->second;
             }
         }
-        else if ((IsMode(mode, SceneSetupInterop::GameModeNodes())
-            || IsMode(mode, SceneSetupInterop::GameModeNodesTeams())
-            || IsMode(mode, SceneSetupInterop::GameModeDefender())
-            || IsMode(mode, SceneSetupInterop::GameModeDefenderTeams())) && roomId == 107)
+        else if ((IsMode(mode, GameMode::Nodes)
+            || IsMode(mode, GameMode::NodesTeams)
+            || IsMode(mode, GameMode::Defender)
+            || IsMode(mode, GameMode::DefenderTeams)) && roomId == 107)
         {
             nodePath = R"(levels\nodeData\mp14_KOTH_node.bin)";
         }
@@ -457,11 +312,11 @@ namespace MphRead
         if (nodePath.has_value())
         {
             const std::string root = firstHunt
-                ? SceneSetupInterop::FhFileSystem()
-                : SceneSetupInterop::FileSystem();
+                ? Paths::FhFileSystem()
+                : Paths::FileSystem();
             std::error_code statusError;
             if (!std::filesystem::is_regular_file(
-                SceneSetupInterop::CombinePath(root, *nodePath), statusError))
+                Paths::Combine(root, *nodePath), statusError))
             {
                 std::cout << "[nodes] " << *nodePath
                     << " is missing; bots in this room will not navigate." << std::endl;
@@ -472,37 +327,32 @@ namespace MphRead
         std::shared_ptr<Formats::NodeData> nodeData;
         if (nodePath.has_value())
         {
-            nodeData = SceneSetupInterop::ReadNodeData(
-                SceneSetupInterop::CombinePath("", *nodePath), firstHunt);
-            if (SceneSetupInterop::NodeDataSimple(*nodeData))
+            nodeData = Formats::ReadNodeData::ReadData(
+                Paths::Combine("", *nodePath), firstHunt);
+            if ((*nodeData).Simple())
             {
                 for (const auto& entity : *entities)
                 {
                     if (entity->Type == EntityType::JumpPad)
                     {
                         auto jumpPad = std::static_pointer_cast<Entities::JumpPadEntity>(entity);
-                        SceneSetupInterop::SetJumpPadClosestNode(*jumpPad,
-                            SceneSetupInterop::FindClosestNode(*nodeData, jumpPad->Position, true));
+                        jumpPad->ClosestNode(Formats::ReadNodeData::FindClosestNode(nodeData, jumpPad->Position, true));
                     }
                     else if (entity->Type == EntityType::OctolithFlag)
                     {
                         auto flag = std::static_pointer_cast<Entities::OctolithFlagEntity>(entity);
-                        SceneSetupInterop::SetOctolithClosestNode(*flag,
-                            SceneSetupInterop::FindClosestNode(*nodeData, flag->Position, false));
-                        SceneSetupInterop::SetOctolithBaseClosestNode(*flag,
-                            SceneSetupInterop::FindClosestNode(*nodeData, flag->BasePosition(), false));
+                        flag->SetClosestNode(Formats::ReadNodeData::FindClosestNode(nodeData, flag->Position, false));
+                        flag->SetBaseClosestNode(Formats::ReadNodeData::FindClosestNode(nodeData, flag->BasePosition(), false));
                     }
                     else if (entity->Type == EntityType::FlagBase)
                     {
                         auto flagBase = std::static_pointer_cast<Entities::FlagBaseEntity>(entity);
-                        SceneSetupInterop::SetFlagBaseClosestNode(*flagBase,
-                            SceneSetupInterop::FindClosestNode(*nodeData, flagBase->Position, false));
+                        flagBase->SetClosestNode(Formats::ReadNodeData::FindClosestNode(nodeData, flagBase->Position, false));
                     }
                     else if (entity->Type == EntityType::NodeDefense)
                     {
                         auto defense = std::static_pointer_cast<Entities::NodeDefenseEntity>(entity);
-                        SceneSetupInterop::SetNodeDefenseClosestNode(*defense,
-                            SceneSetupInterop::FindClosestNode(*nodeData, defense->Position, false));
+                        defense->SetClosestNode(Formats::ReadNodeData::FindClosestNode(nodeData, defense->Position, false));
                     }
                 }
             }
@@ -514,13 +364,16 @@ namespace MphRead
     {
         if (save == nullptr)
         {
-            save = SceneSetupInterop::CurrentStorySave();
-            auto completed = SceneSetupInterop::CompletedRandomEncounterRooms();
+            save = GameState::StorySave.get();
+            auto completed = GameState::CompletedRandomEncounterRooms();
             std::fill(completed.begin(), completed.end(), false);
         }
 
-        auto areaHunters = SceneSetupInterop::AreaHunters(*save);
-        std::fill(areaHunters.begin(), areaHunters.end(), std::uint8_t{0});
+        auto areaHunters = (*save).AreaHunters;
+        for (std::size_t i = 0; i < areaHunters->Length(); ++i)
+        {
+            (*areaHunters)[i] = 0;
+        }
         std::uint8_t chance = 0;
         std::array<std::uint8_t, 4> chances{};
         std::array<std::uint8_t, 4> counts{};
@@ -528,9 +381,9 @@ namespace MphRead
         for (std::int32_t i = 0; i < 4; ++i)
         {
             const std::int32_t area1 = i * 2;
-            if (SceneSetupInterop::GetAreaState(area1, save) == SceneSetupInterop::AreaStateClear())
+            if (GameState::GetAreaState(area1, save) == AreaState::Clear)
             {
-                const std::uint32_t lostOctoliths = SceneSetupInterop::LostOctoliths(*save);
+                const std::uint32_t lostOctoliths = (*save).LostOctoliths;
                 if (((lostOctoliths >> (8 * i)) & 15U) == 15U
                     || ((lostOctoliths >> (4 * (2 * i + 1))) & 15U) == 15U)
                 {
@@ -546,16 +399,16 @@ namespace MphRead
 
         for (std::int32_t i = 0; i < 8; ++i)
         {
-            if ((SceneSetupInterop::DefeatedHunters(*save) & (1 << i)) == 0)
+            if (((*save).DefeatedHunters & (1 << i)) == 0)
             {
                 continue;
             }
-            const std::uint32_t rand = SceneSetupInterop::GetRandomInt2(chance);
+            const std::uint32_t rand = Rng::GetRandomInt2(chance);
             for (std::int32_t j = 0; j < 4; ++j)
             {
                 if (rand < chances[static_cast<std::size_t>(j)])
                 {
-                    areaHunters[static_cast<std::size_t>(j)]
+                    (*areaHunters)[static_cast<std::size_t>(j)]
                         |= static_cast<std::uint8_t>(1 << i);
                     counts[static_cast<std::size_t>(j)]
                         = static_cast<std::uint8_t>(counts[static_cast<std::size_t>(j)] + 1);
@@ -577,43 +430,43 @@ namespace MphRead
 
     void SceneSetup::InitHunterSpawns(Scene* scene, const EntityList& entities, bool initialize)
     {
-        for (std::int32_t i = 1; i < SceneSetupInterop::MaxPlayers(); ++i)
+        for (std::int32_t i = 1; i < Entities::PlayerEntity::MaxPlayers(); ++i)
         {
-            auto player = SceneSetupInterop::PlayerAt(i);
-            SceneSetupInterop::ClearPlayerActiveFlags(*player);
-            SceneSetupInterop::ClearPlayerSlotActive(*player);
-            SceneSetupInterop::SetPlayerIsBot(*player, false);
-            SceneSetupInterop::SetPlayerBotLevel(*player, 0);
-            SceneSetupInterop::ResetAdventureModeBotWeapon(*player);
+            auto player = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i));
+            (*player).SetLoadFlags((*player).LoadFlags() & ~Entities::LoadFlags::Active);
+            (*player).SetLoadFlags((*player).LoadFlags() & ~Entities::LoadFlags::SlotActive);
+            (*player).SetIsBot(false);
+            (*player).SetBotLevel(0);
+            (*player).ResetAdventureModeBotWeapon();
         }
 
-        SceneSetupInterop::SetPlayerCount(1);
-        SceneSetupInterop::SetPlayersCreated(1);
-        auto encounterState = SceneSetupInterop::EncounterState();
+        Entities::PlayerEntity::SetPlayerCount(1);
+        Entities::PlayerEntity::SetPlayersCreated(1);
+        auto encounterState = GameState::EncounterState();
         std::fill(encounterState.begin(), encounterState.end(), 0);
 
-        const std::int32_t areaId = SceneSetupInterop::SceneAreaId(scene);
+        const std::int32_t areaId = scene->AreaId();
         if (areaId >= 8)
         {
             return;
         }
 
-        const auto mainPlayer = SceneSetupInterop::MainPlayer();
-        if (SceneSetupInterop::GetAreaState(areaId) != SceneSetupInterop::AreaStateClear()
-            || SceneSetupInterop::SceneRoomId(scene) != 50
-            || SceneSetupInterop::PlayerHasWeapon(*mainPlayer, BeamType::Battlehammer))
+        const auto mainPlayer = Entities::PlayerEntity::Main();
+        if (GameState::GetAreaState(areaId) != AreaState::Clear
+            || scene->RoomId() != 50
+            || (*mainPlayer).AvailableWeapons()[BeamType::Battlehammer])
         {
-            StorySave* save = SceneSetupInterop::CurrentStorySave();
-            auto areaHunters = SceneSetupInterop::AreaHunters(*save);
+            StorySave* save = GameState::StorySave.get();
+            auto areaHunters = (*save).AreaHunters;
             std::int32_t randomHunters
-                = areaHunters[static_cast<std::size_t>(areaId / 2)] & 0x7E;
+                = (*areaHunters)[static_cast<std::size_t>(areaId / 2)] & 0x7E;
             std::int32_t randomHunterCount
                 = std::popcount(static_cast<std::uint32_t>(randomHunters));
             std::int32_t extraCount = 0;
 
             for (const auto& entity : *entities)
             {
-                if (SceneSetupInterop::PlayerCount() >= SceneSetupInterop::MaxPlayers())
+                if (Entities::PlayerEntity::PlayerCount() >= Entities::PlayerEntity::MaxPlayers())
                 {
                     break;
                 }
@@ -622,36 +475,36 @@ namespace MphRead
                     continue;
                 }
                 auto spawner = std::static_pointer_cast<Entities::EnemySpawnEntity>(entity);
-                if (!SceneSetupInterop::EnemySpawnIsHunter(*spawner))
+                if ((*spawner).Data.EnemyType != EnemyType::Hunter)
                 {
                     continue;
                 }
 
-                const std::int32_t hunterId = SceneSetupInterop::EnemyHunterId(*spawner);
-                const std::int32_t roomId = SceneSetupInterop::SceneRoomId(scene);
-                auto completed = SceneSetupInterop::CompletedRandomEncounterRooms();
+                const std::int32_t hunterId = (*spawner).Data.Fields.S09().HunterId;
+                const std::int32_t roomId = scene->RoomId();
+                auto completed = GameState::CompletedRandomEncounterRooms();
                 if (hunterId == 8
-                    && (SceneSetupInterop::NoRandomEncounters()
-                        || (SceneSetupInterop::NoRepeatEncounters()
+                    && (Cheats::NoRandomEncounters()
+                        || (Features::NoRepeatEncounters()
                             && roomId >= 27 && roomId <= 92
                             && completed[static_cast<std::size_t>(roomId - 27)])))
                 {
                     return;
                 }
-                if (SceneSetupInterop::GetRandomInt2(100)
-                    >= static_cast<std::uint32_t>(SceneSetupInterop::EnemyHunterChance(*spawner)))
+                if (Rng::GetRandomInt2(100)
+                    >= static_cast<std::uint32_t>((*spawner).Data.Fields.S09().HunterChance))
                 {
                     continue;
                 }
 
-                auto player = SceneSetupInterop::PlayerAt(SceneSetupInterop::PlayerCount());
-                SceneSetupInterop::SetPlayerIsBot(*player, true);
-                SceneSetupInterop::SetEnemySpawner(*player, spawner);
+                auto player = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(Entities::PlayerEntity::PlayerCount()));
+                (*player).SetIsBot(true);
+                (*player).SetEnemySpawner(spawner);
 
                 Hunter hunter{};
                 if (hunterId == 8)
                 {
-                    const std::uint32_t rand = SceneSetupInterop::GetRandomInt2(
+                    const std::uint32_t rand = Rng::GetRandomInt2(
                         static_cast<std::uint32_t>(randomHunterCount + extraCount));
                     if (rand < static_cast<std::uint32_t>(randomHunterCount))
                     {
@@ -670,7 +523,7 @@ namespace MphRead
                         hunter = static_cast<Hunter>(j);
                         if (hunter != Hunter::Samus && hunter != Hunter::Guardian)
                         {
-                            SceneSetupInterop::PlayEncounterMusic(hunter);
+                            Music::PlayEncounterMusic(hunter);
                         }
                     }
                     else
@@ -693,37 +546,36 @@ namespace MphRead
                     --randomHunterCount;
                 }
 
-                std::int32_t suitColor = SceneSetupInterop::EnemyHunterColor(*spawner);
-                if (hunter == SceneSetupInterop::PlayerHunter(*mainPlayer)
-                    && suitColor == SceneSetupInterop::PlayerRecolor(*mainPlayer)
-                    && SceneSetupInterop::AlternateHunters1P())
+                std::int32_t suitColor = (*spawner).Data.Fields.S09().HunterColor;
+                if (hunter == (*mainPlayer).Hunter()
+                    && suitColor == (*mainPlayer).Recolor()
+                    && Features::AlternateHunters1P())
                 {
-                    suitColor = SceneSetupInterop::PlayerRecolor(*mainPlayer) == 0 ? 1 : 0;
+                    suitColor = (*mainPlayer).Recolor() == 0 ? 1 : 0;
                 }
 
-                SceneSetupInterop::CreatePlayer(hunter, suitColor);
+                Entities::PlayerEntity::Create(hunter, suitColor);
                 if (initialize)
                 {
-                    SceneSetupInterop::SetPlayerSlotActive(*player);
-                    SceneSetupInterop::SetPlayerInitialized(*player, false);
+                    (*player).SetLoadFlags((*player).LoadFlags() | Entities::LoadFlags::SlotActive);
+                    (*player).Initialized = (false);
                     scene->AddEntity(player);
                 }
-                SceneSetupInterop::EncounterState()[
-                    static_cast<std::size_t>(SceneSetupInterop::PlayerCount())]
-                    = SceneSetupInterop::EnemyEncounterType(*spawner);
-                SceneSetupInterop::SetPlayerBotLevel(*player, 1);
-                SceneSetupInterop::SetPlayerCount(SceneSetupInterop::PlayerCount() + 1);
+                GameState::EncounterState()[
+                    static_cast<std::size_t>(Entities::PlayerEntity::PlayerCount())]
+                    = (*spawner).Data.Fields.S09().EncounterType;
+                (*player).SetBotLevel(1);
+                Entities::PlayerEntity::SetPlayerCount(Entities::PlayerEntity::PlayerCount() + 1);
             }
         }
 
-        StorySave* save = SceneSetupInterop::CurrentStorySave();
-        for (std::int32_t i = 1; i < SceneSetupInterop::MaxPlayers(); ++i)
+        StorySave* save = GameState::StorySave.get();
+        for (std::int32_t i = 1; i < Entities::PlayerEntity::MaxPlayers(); ++i)
         {
-            auto player = SceneSetupInterop::PlayerAt(i);
-            if (SceneSetupInterop::PlayerIsBot(*player))
+            auto player = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i));
+            if ((*player).IsBot())
             {
-                const std::int32_t dropId = SceneSetupInterop::GetEnemyOctolithDrop(
-                    *save, static_cast<std::int32_t>(SceneSetupInterop::PlayerHunter(*player)));
+                const std::int32_t dropId = (*save).GetEnemyOctolithDrop(static_cast<std::int32_t>((*player).Hunter()));
                 if (dropId < 8)
                 {
                     const EntityDataHeader header(
@@ -747,20 +599,20 @@ namespace MphRead
     {
         if (playerCount == 0)
         {
-            playerCount = SceneSetupInterop::PlayerCount();
+            playerCount = Entities::PlayerEntity::PlayerCount();
         }
         if (entityLayerId < 0 || entityLayerId > 15)
         {
-            if (IsMode(mode, SceneSetupInterop::GameModeSinglePlayer()))
+            if (IsMode(mode, GameMode::SinglePlayer))
             {
                 if (static_cast<std::uint32_t>(bossFlags) == 0xFFFFFFFFU)
                 {
                     bossFlags = static_cast<BossFlags>(
-                        SceneSetupInterop::BossFlagsValue(*SceneSetupInterop::CurrentStorySave()));
+                        static_cast<std::uint32_t>((*GameState::StorySave.get()).BossFlags));
                 }
                 entityLayerId = (static_cast<std::int32_t>(
                     static_cast<std::uint32_t>(bossFlags))
-                    >> (2 * SceneSetupInterop::SceneAreaId(scene))) & 3;
+                    >> (2 * scene->AreaId())) & 3;
             }
             else
             {
@@ -770,14 +622,14 @@ namespace MphRead
         if (nodeLayerMask == 0)
         {
             const std::int32_t nodePlayerCount
-                = SceneSetupInterop::MaxRoomDetail() ? 2 : playerCount;
+                = Features::MaxRoomDetail() ? 2 : playerCount;
             nodeLayerMask = GetNodeLayer(mode, metadata->NodeLayer, nodePlayerCount);
         }
 
-        auto collision = SceneSetupInterop::GetCollision(metadata, nodeLayerMask);
+        auto collision = Formats::Collision::Collision::GetCollision(metadata, nodeLayerMask);
         if (isRoomTransition)
         {
-            SceneSetupInterop::SetCollisionActive(*collision, false);
+            (*collision).Active = false;
         }
         room->Setup(metadata->Name, metadata, collision, nodeLayerMask, metadata->Id);
         EntityList entities = LoadEntities(metadata, entityLayerId, scene);
@@ -789,7 +641,7 @@ namespace MphRead
         GameMode mode, std::int32_t roomLayer, std::int32_t playerCount)
     {
         std::int32_t nodeLayerMask = 0;
-        if (IsMode(mode, SceneSetupInterop::GameModeSinglePlayer()))
+        if (IsMode(mode, GameMode::SinglePlayer))
         {
             if (roomLayer > 0)
             {
@@ -801,18 +653,18 @@ namespace MphRead
         }
         else
         {
-            nodeLayerMask |= SceneSetupInterop::NodeLayerMultiplayerU();
+            nodeLayerMask |= static_cast<std::int32_t>(NodeLayer::MultiplayerU);
             if (playerCount <= 2)
             {
-                nodeLayerMask |= SceneSetupInterop::NodeLayerMultiplayerLod0();
+                nodeLayerMask |= static_cast<std::int32_t>(NodeLayer::MultiplayerLod0);
             }
             else
             {
-                nodeLayerMask |= SceneSetupInterop::NodeLayerMultiplayerLod1();
+                nodeLayerMask |= static_cast<std::int32_t>(NodeLayer::MultiplayerLod1);
             }
-            if (IsMode(mode, SceneSetupInterop::GameModeCapture()))
+            if (IsMode(mode, GameMode::Capture))
             {
-                nodeLayerMask |= SceneSetupInterop::NodeLayerCaptureTheFlag();
+                nodeLayerMask |= static_cast<std::int32_t>(NodeLayer::CaptureTheFlag);
             }
         }
         return nodeLayerMask;
@@ -969,7 +821,7 @@ namespace MphRead
             }
             else
             {
-                SceneSetupInterop::ThrowProgramException(
+                throw ProgramException(
                     "Invalid entity type " + EntityTypeToString(entity->Type));
             }
         }
@@ -980,12 +832,12 @@ namespace MphRead
     {
         if (scene != nullptr)
         {
-            if (SceneSetupInterop::IsMphJapan() || SceneSetupInterop::IsMphKorea())
+            if (Paths::IsMphJapan() || Paths::IsMphKorea())
             {
-                auto [count, charData] = SceneSetupInterop::ReadKanjiFont(
-                    SceneSetupInterop::SinglePlayer());
+                auto [count, charData] = Read::ReadKanjiFont(
+                    GameState::SinglePlayer());
                 std::vector<std::uint8_t> widths(static_cast<std::size_t>(count));
-                if (SceneSetupInterop::IsMphJapan())
+                if (Paths::IsMphJapan())
                 {
                     std::fill(widths.begin(), widths.end(), std::uint8_t{10});
                 }
@@ -996,8 +848,10 @@ namespace MphRead
                     widths[32] = 6;
                 }
                 std::vector<std::uint8_t> offsets(static_cast<std::size_t>(count));
-                SceneSetupInterop::SetKanjiFontData(
-                    std::move(widths), std::move(offsets), std::move(charData), 0);
+                Text::Font::Kanji()->SetData(
+                    std::make_shared<std::vector<std::uint8_t>>(std::move(widths)),
+                    std::make_shared<std::vector<std::uint8_t>>(std::move(offsets)),
+                    std::make_shared<std::vector<std::uint8_t>>(std::move(charData)), 0);
             }
 
             LoadBombResources(scene);
@@ -1005,7 +859,7 @@ namespace MphRead
             LoadBeamProjectileResources(scene);
             LoadRoomResources(scene);
             LoadHunterResources(Hunter::Samus, scene);
-            if (!SceneSetupInterop::ThumbnailModeActive())
+            if (!Mods::ThumbnailMode::Active())
             {
                 LoadHunterResources(Hunter::Kanden, scene);
                 LoadHunterResources(Hunter::Trace, scene);
@@ -1024,53 +878,52 @@ namespace MphRead
         for (const char* name : {"doubleDamage_img", "alt_ice", "gunSmoke",
             "trail", "octolith_simple", "Octolith"})
         {
-            SceneSetupInterop::SceneLoadModel(scene, name);
+            scene->LoadModel(name);
         }
         for (std::int32_t id : {10, 216, 187, 188, 189})
         {
-            SceneSetupInterop::SceneLoadEffect(scene, id, true);
+            scene->LoadEffect(id, true);
         }
         for (std::int32_t i = 0; i < 9; ++i)
         {
-            SceneSetupInterop::SceneLoadEffect(scene, SceneSetupInterop::MuzzleEffectId(i), true);
-            SceneSetupInterop::SceneLoadEffect(scene, SceneSetupInterop::ChargeEffectId(i), true);
-            SceneSetupInterop::SceneLoadEffect(scene, SceneSetupInterop::ChargeLoopEffectId(i), true);
+            scene->LoadEffect(Metadata::MuzzleEffectIds[i], true);
+            scene->LoadEffect(Metadata::ChargeEffectIds[i], true);
+            scene->LoadEffect(Metadata::ChargeLoopEffectIds[i], true);
         }
-        SceneSetupInterop::LoadWeaponNames();
-        SceneSetupInterop::GeneratePlayerVolumes();
-        SceneSetupInterop::ReadStringTableCommon();
-        SceneSetupInterop::ReadStringTableSp();
-        SceneSetupInterop::ReadStringTableMp();
-        if (SceneSetupInterop::SinglePlayer())
+        Entities::PlayerEntity::LoadWeaponNames();
+        Entities::PlayerEntity::GeneratePlayerVolumes();
+        Text::Strings::ReadStringTable(Text::StringTables::HudMsgsCommon);
+        Text::Strings::ReadStringTable(Text::StringTables::HudMessagesSP);
+        Text::Strings::ReadStringTable(Text::StringTables::HudMessagesMP);
+        if (GameState::SinglePlayer())
         {
-            SceneSetupInterop::ReadStringTableScanLog();
+            Text::Strings::ReadStringTable(Text::StringTables::ScanLog);
         }
     }
 
     void SceneSetup::LoadHunterResources(Hunter hunter, Scene* scene)
     {
-        SceneSetupInterop::SceneLoadModel(scene,
-            hunter == Hunter::Noxus || hunter == Hunter::Trace ? "nox_ice" : "samus_ice");
-        for (const std::string& modelName : SceneSetupInterop::HunterModels(hunter))
+        scene->LoadModel(hunter == Hunter::Noxus || hunter == Hunter::Trace ? "nox_ice" : "samus_ice");
+        for (const std::string& modelName : Metadata::HunterModels.at(hunter))
         {
-            SceneSetupInterop::SceneLoadModel(scene, modelName);
+            scene->LoadModel(modelName);
         }
         if (hunter == Hunter::Samus)
         {
-            SceneSetupInterop::SceneLoadEffect(scene, 30, true);
-            SceneSetupInterop::SceneLoadEffect(scene, 136, true);
+            scene->LoadEffect(30, true);
+            scene->LoadEffect(136, true);
         }
         else if (hunter == Hunter::Kanden)
         {
-            SceneSetupInterop::GenerateKandenAltNodeDistances();
+            Entities::PlayerEntity::GenerateKandenAltNodeDistances();
         }
         else if (hunter == Hunter::Spire)
         {
-            SceneSetupInterop::SceneLoadEffect(scene, 37, true);
+            scene->LoadEffect(37, true);
         }
         else if (hunter == Hunter::Noxus)
         {
-            SceneSetupInterop::SceneLoadEffect(scene, 235, true);
+            scene->LoadEffect(235, true);
         }
     }
 
@@ -1078,33 +931,33 @@ namespace MphRead
     {
         for (const char* name : {"KandenAlt_TailBomb", "arcWelder", "arcWelder1"})
         {
-            SceneSetupInterop::SceneLoadModel(scene, name);
+            scene->LoadModel(name);
         }
         for (std::int32_t id : {9, 113, 119, 128, 129, 145, 146,
             149, 150, 151, 152, 153})
         {
-            SceneSetupInterop::SceneLoadEffect(scene, id, true);
+            scene->LoadEffect(id, true);
         }
     }
 
     void SceneSetup::LoadBeamEffectResources(Scene* scene)
     {
-        SceneSetupInterop::SceneLoadModel(scene, "iceWave");
-        SceneSetupInterop::SceneLoadModel(scene, "sniperBeam");
-        SceneSetupInterop::SceneLoadModel(scene, "cylBossLaserBurn");
+        scene->LoadModel("iceWave");
+        scene->LoadModel("sniperBeam");
+        scene->LoadModel("cylBossLaserBurn");
     }
 
     void SceneSetup::LoadBeamProjectileResources(Scene* scene)
     {
         for (const char* name : {"iceShard", "energyBeam", "trail", "electroTrail", "arcWelder"})
         {
-            SceneSetupInterop::SceneLoadModel(scene, name);
+            scene->LoadModel(name);
         }
         for (std::int32_t id : {57, 58, 59, 60, 61, 62, 63, 78, 85, 86,
             92, 98, 99, 100, 121, 122, 123, 124, 125, 126, 130, 134, 137,
             140, 141, 142, 171, 211, 237, 238, 246})
         {
-            SceneSetupInterop::SceneLoadEffect(scene, id, true);
+            scene->LoadEffect(id, true);
         }
     }
 
@@ -1115,18 +968,17 @@ namespace MphRead
             115, 154, 155, 156, 157, 158, 159, 160, 161, 173, 190, 191,
             192, 231, 239})
         {
-            SceneSetupInterop::SceneLoadEffect(scene, id, true);
+            scene->LoadEffect(id, true);
         }
-        SceneSetupInterop::SceneLoadModel(
-            scene, SceneSetupInterop::SingleParticleModel(SingleType::Death));
-        SceneSetupInterop::SceneLoadModel(
-            scene, SceneSetupInterop::SingleParticleModel(SingleType::Fuzzball));
-        if (SceneSetupInterop::SinglePlayer())
+        scene->LoadModel(Read::GetSingleParticle(SingleType::Death)->Model);
+        scene->LoadModel(Read::GetSingleParticle(SingleType::Fuzzball)->Model);
+        if (GameState::SinglePlayer())
         {
-            SceneSetupInterop::SceneLoadModel(scene, SceneSetupInterop::HudIconsModel());
+            scene->LoadModel(
+                Read::GetModelInstance("icons", false, MetaDir::Hud)->Model());
         }
-        SceneSetupInterop::SceneLoadEffect(scene, 209, true);
-        SceneSetupInterop::SceneLoadEffect(scene, 245, true);
+        scene->LoadEffect(209, true);
+        scene->LoadEffect(245, true);
     }
 
     void SceneSetup::LoadEntityResources(
@@ -1163,10 +1015,10 @@ namespace MphRead
     void SceneSetup::LoadObjectResources(
         const std::shared_ptr<Entities::ObjectEntity>& obj, Scene* scene)
     {
-        const std::int32_t effectId = SceneSetupInterop::ObjectEffectId(*obj);
+        const std::int32_t effectId = (*obj).Data().EffectId;
         if (effectId != 0)
         {
-            SceneSetupInterop::SceneLoadEffect(scene, effectId, false);
+            scene->LoadEffect(effectId, false);
         }
     }
 
@@ -1184,31 +1036,31 @@ namespace MphRead
         const std::shared_ptr<Entities::PlatformEntity>& platform, Scene* scene)
     {
         const std::array<std::int32_t, 3> effects{
-            SceneSetupInterop::PlatformResistEffectId(*platform),
-            SceneSetupInterop::PlatformDamageEffectId(*platform),
-            SceneSetupInterop::PlatformDeadEffectId(*platform)
+            (*platform).Data().ResistEffectId,
+            (*platform).Data().DamageEffectId,
+            (*platform).Data().DeadEffectId
         };
         for (std::int32_t effectId : effects)
         {
             if (effectId != 0)
             {
-                SceneSetupInterop::SceneLoadEffect(scene, effectId, false);
+                scene->LoadEffect(effectId, false);
             }
         }
-        if (SceneSetupInterop::PlatformSamusShip(*platform))
+        if (TypeExtensions::TestFlag((*platform).Data().Flags, Entities::PlatformFlags::SamusShip))
         {
-            SceneSetupInterop::SceneLoadEffect(scene, 182, false);
+            scene->LoadEffect(182, false);
         }
-        if (SceneSetupInterop::PlatformBeamSpawner(*platform)
-            && SceneSetupInterop::PlatformBeamId(*platform) == 0)
+        if (TypeExtensions::TestFlag((*platform).Data().Flags, Entities::PlatformFlags::BeamSpawner)
+            && (*platform).Data().BeamId == 0)
         {
-            SceneSetupInterop::SceneLoadEffect(scene, 183, false);
-            SceneSetupInterop::SceneLoadEffect(scene, 184, false);
-            SceneSetupInterop::SceneLoadEffect(scene, 185, false);
+            scene->LoadEffect(183, false);
+            scene->LoadEffect(184, false);
+            scene->LoadEffect(185, false);
         }
-        if (SceneSetupInterop::PlatformItemChance(*platform) > 0)
+        if ((*platform).Data().ItemChance > 0)
         {
-            LoadItem(SceneSetupInterop::PlatformItemType(*platform), scene);
+            LoadItem((*platform).Data().ItemType, scene);
         }
     }
 
@@ -1225,17 +1077,16 @@ namespace MphRead
     void SceneSetup::LoadEnemyResources(
         const std::shared_ptr<Entities::EnemySpawnEntity>& spawner, Scene* scene)
     {
-        const EnemyType type = SceneSetupInterop::EnemySpawnType(*spawner);
+        const EnemyType type = (*spawner).Data.EnemyType;
         LoadEnemy(type, scene);
-        if (SceneSetupInterop::EnemySpawnerHealth(*spawner) > 0)
+        if ((*spawner).Data.SpawnerHealth > 0)
         {
-            SceneSetupInterop::SceneLoadModel(scene,
-                type == EnemyType::WarWasp || type == EnemyType::BarbedWarWasp
+            scene->LoadModel(type == EnemyType::WarWasp || type == EnemyType::BarbedWarWasp
                     ? "PlantCarnivarous_Pod" : "EnemySpawner");
         }
-        if (SceneSetupInterop::EnemySpawnerItemChance(*spawner) > 0)
+        if ((*spawner).Data.ItemChance > 0)
         {
-            LoadItem(SceneSetupInterop::EnemySpawnerItemType(*spawner), scene);
+            LoadItem((*spawner).Data.ItemType, scene);
         }
 
         switch (type)
@@ -1243,7 +1094,7 @@ namespace MphRead
         case EnemyType::Cretaphid:
             LoadEnemy(EnemyType::CretaphidEye, scene);
             for (std::int32_t id : {65, 66, 67, 73, 74, 116, 117, 138, 139})
-                SceneSetupInterop::SceneLoadEffect(scene, id, false);
+                scene->LoadEffect(id, false);
             LoadItem(ItemType::HealthMedium, scene);
             LoadItem(ItemType::UASmall, scene);
             LoadItem(ItemType::MissileSmall, scene);
@@ -1252,14 +1103,14 @@ namespace MphRead
             LoadEnemy(EnemyType::Gorea1B, scene);
             for (std::int32_t id : {48, 46, 49, 47, 50, 41, 42, 43, 44, 45,
                 54, 51, 55, 53, 56, 52, 71, 72, 104, 148, 175, 179, 180})
-                SceneSetupInterop::SceneLoadEffect(scene, id, false);
+                scene->LoadEffect(id, false);
             LoadItem(ItemType::HealthBig, scene);
             LoadItem(ItemType::UABig, scene);
             LoadItem(ItemType::MissileBig, scene);
             break;
         case EnemyType::Trocra:
-            SceneSetupInterop::SceneLoadEffect(scene, 164, false);
-            SceneSetupInterop::SceneLoadEffect(scene, 75, false);
+            scene->LoadEffect(164, false);
+            scene->LoadEffect(75, false);
             LoadItem(ItemType::HealthSmall, scene);
             LoadItem(ItemType::UASmall, scene);
             LoadItem(ItemType::MissileSmall, scene);
@@ -1267,7 +1118,7 @@ namespace MphRead
         case EnemyType::Gorea2:
             LoadEnemy(EnemyType::GoreaMeteor, scene);
             for (std::int32_t id : {104, 224, 79, 176, 177, 178, 80, 225, 44, 72, 174, 210})
-                SceneSetupInterop::SceneLoadEffect(scene, id, false);
+                scene->LoadEffect(id, false);
             LoadItem(ItemType::HealthSmall, scene);
             LoadItem(ItemType::UASmall, scene);
             LoadItem(ItemType::MissileSmall, scene);
@@ -1277,46 +1128,48 @@ namespace MphRead
             LoadEnemy(EnemyType::SlenchSynapse, scene);
             for (std::int32_t id : {64, 81, 68, 82, 70, 69, 83, 109, 135,
                 201, 202, 203, 204, 205, 206})
-                SceneSetupInterop::SceneLoadEffect(scene, id, false);
+                scene->LoadEffect(id, false);
             LoadItem(ItemType::HealthMedium, scene);
             LoadItem(ItemType::UASmall, scene);
             LoadItem(ItemType::MissileSmall, scene);
             break;
         case EnemyType::Blastcap:
-            SceneSetupInterop::SceneLoadEffect(scene, 3, false);
-            SceneSetupInterop::SceneLoadEffect(scene, 4, false);
+            scene->LoadEffect(3, false);
+            scene->LoadEffect(4, false);
             break;
         case EnemyType::PsychoBit1:
-            SceneSetupInterop::SceneLoadEffect(scene, 240, false);
+            scene->LoadEffect(240, false);
             break;
         case EnemyType::AlimbicTurret:
-            SceneSetupInterop::SceneLoadEffect(scene, 207, false);
-            SceneSetupInterop::SceneLoadEffect(scene, 208, false);
+            scene->LoadEffect(207, false);
+            scene->LoadEffect(208, false);
             break;
         case EnemyType::FireSpawn:
-            if (SceneSetupInterop::EnemySubtypeS06(*spawner) == 1)
+            if ((*spawner).Data.Fields.S06().EnemySubtype == 1)
             {
                 for (std::int32_t id : {96, 132, 133, 131, 217})
-                    SceneSetupInterop::SceneLoadEffect(scene, id, false);
+                    scene->LoadEffect(id, false);
             }
             else
             {
                 for (std::int32_t id : {94, 95, 93, 110, 218})
-                    SceneSetupInterop::SceneLoadEffect(scene, id, false);
+                    scene->LoadEffect(id, false);
             }
             break;
         case EnemyType::GreaterIthrak:
             for (std::int32_t id : {102, 101, 103})
-                SceneSetupInterop::SceneLoadEffect(scene, id, false);
+                scene->LoadEffect(id, false);
             break;
         case EnemyType::Shriekbat:
-            SceneSetupInterop::SceneLoadEffect(scene, 29, false);
-            SceneSetupInterop::SceneLoadEffect(scene, 108, false);
+            scene->LoadEffect(29, false);
+            scene->LoadEffect(108, false);
             break;
         case EnemyType::CarnivorousPlant:
-            SceneSetupInterop::SceneLoadModel(
-                scene, SceneSetupInterop::ObjectModelName(
-                    SceneSetupInterop::EnemySubtypeS07(*spawner)));
+            {
+                const ObjectMetadata& meta = Metadata::GetObjectById(
+                    (*spawner).Data.Fields.S07().EnemySubtype);
+                scene->LoadModel(meta.Name);
+            }
             break;
         default:
             break;
@@ -1327,47 +1180,47 @@ namespace MphRead
     {
         if (enemy == EnemyType::SlenchSynapse)
         {
-            const std::int32_t roomId = SceneSetupInterop::SceneRoomId(scene);
+            const std::int32_t roomId = scene->RoomId();
             if (roomId == 76)
-                SceneSetupInterop::SceneLoadModel(scene, "BigEyeSynapse_04");
+                scene->LoadModel("BigEyeSynapse_04");
             else if (roomId == 64)
-                SceneSetupInterop::SceneLoadModel(scene, "BigEyeSynapse_03");
+                scene->LoadModel("BigEyeSynapse_03");
             else if (roomId == 82)
-                SceneSetupInterop::SceneLoadModel(scene, "BigEyeSynapse_02");
+                scene->LoadModel("BigEyeSynapse_02");
             else
-                SceneSetupInterop::SceneLoadModel(scene, "BigEyeSynapse_01");
+                scene->LoadModel("BigEyeSynapse_01");
         }
         else
         {
-            if (auto model = SceneSetupInterop::EnemyModelName(enemy); model.has_value())
+            if (auto model = Metadata::GetEnemyModelName(enemy); model.has_value())
             {
-                SceneSetupInterop::SceneLoadModel(scene, *model);
+                scene->LoadModel(*model);
             }
             if (enemy == EnemyType::Gorea1A)
             {
-                SceneSetupInterop::SceneLoadModel(scene, "Gorea1B_lod0");
-                SceneSetupInterop::SceneLoadModel(scene, "goreaArmRegen");
-                SceneSetupInterop::SceneLoadModel(scene, "goreaMindTrick");
-                SceneSetupInterop::SceneLoadModel(scene, "goreaMindTrick");
+                scene->LoadModel("Gorea1B_lod0");
+                scene->LoadModel("goreaArmRegen");
+                scene->LoadModel("goreaMindTrick");
+                scene->LoadModel("goreaMindTrick");
             }
             else if (enemy == EnemyType::Gorea2)
             {
-                SceneSetupInterop::SceneLoadModel(scene, "goreaMeteor");
-                SceneSetupInterop::SceneLoadModel(scene, "goreaLaser");
-                SceneSetupInterop::SceneLoadModel(scene, "goreaLaserColl");
+                scene->LoadModel("goreaMeteor");
+                scene->LoadModel("goreaLaser");
+                scene->LoadModel("goreaLaserColl");
             }
         }
 
-        const std::int32_t effectId = SceneSetupInterop::EnemyDeathEffect(enemy);
+        const std::int32_t effectId = Metadata::GetEnemyDeathEffect(enemy);
         if (effectId > 0)
         {
-            SceneSetupInterop::SceneLoadEffect(scene, effectId, false);
+            scene->LoadEffect(effectId, false);
         }
     }
 
     void SceneSetup::LoadItemResources(Scene* scene)
     {
-        if (SceneSetupInterop::Multiplayer())
+        if (GameState::Multiplayer())
         {
             LoadItem(ItemType::UASmall, scene);
             LoadItem(ItemType::UABig, scene);
@@ -1385,10 +1238,10 @@ namespace MphRead
     void SceneSetup::LoadItemResources(
         const std::shared_ptr<Entities::ItemSpawnEntity>& itemSpawner, Scene* scene)
     {
-        LoadItem(SceneSetupInterop::ItemSpawnerType(*itemSpawner), scene);
-        if (SceneSetupInterop::ItemSpawnerHasBase(*itemSpawner) != 0)
+        LoadItem((*itemSpawner).Data().ItemType, scene);
+        if ((*itemSpawner).Data().HasBase != 0)
         {
-            SceneSetupInterop::SceneLoadModel(scene, "items_base");
+            scene->LoadModel("items_base");
         }
     }
 
@@ -1399,20 +1252,19 @@ namespace MphRead
             return;
         }
         const std::int32_t index = static_cast<std::int32_t>(item);
-        assert(index < static_cast<std::int32_t>(SceneSetupInterop::ItemModelCount()));
-        SceneSetupInterop::SceneLoadModel(
-            scene, SceneSetupInterop::ItemModelName(static_cast<std::size_t>(index)));
+        assert(index < static_cast<std::int32_t>(Metadata::Items.size()));
+        scene->LoadModel(Metadata::Items[static_cast<std::size_t>(index)]);
         if (item == ItemType::ArtifactKey)
-            SceneSetupInterop::SceneLoadEffect(scene, 144, false);
+            scene->LoadEffect(144, false);
         else if (item == ItemType::Deathalt)
-            SceneSetupInterop::SceneLoadEffect(scene, 181, true);
+            scene->LoadEffect(181, true);
         else if (item == ItemType::OmegaCannon)
         {
-            SceneSetupInterop::SceneLoadEffect(scene, 209, true);
-            SceneSetupInterop::SceneLoadEffect(scene, 245, true);
+            scene->LoadEffect(209, true);
+            scene->LoadEffect(245, true);
         }
         else if (item == ItemType::DoubleDamage)
-            SceneSetupInterop::SceneLoadEffect(scene, 244, true);
+            scene->LoadEffect(244, true);
     }
 
     BeamProjectileArray::BeamProjectileArray(std::int32_t length)
@@ -1447,7 +1299,7 @@ namespace MphRead
     std::shared_ptr<BeamProjectileArray>
         SceneSetup::CreateBeamList(std::int32_t size, Scene* scene)
     {
-        SceneSetupInterop::DebugAssert(size > 0);
+        NativeRuntime::DebugAssert(size > 0);
         if (size < 0)
         {
             throw Memory::Detail::OverflowException();
@@ -1463,10 +1315,10 @@ namespace MphRead
     EntityList SceneSetup::GetExtraEntities(
         std::int32_t roomId, const EntityList& entities, Scene* scene)
     {
-        const auto mainPlayer = SceneSetupInterop::MainPlayer();
-        const Hunter hunter = SceneSetupInterop::PlayerHunter(*mainPlayer);
-        if (!SceneSetupInterop::SinglePlayer() || hunter == Hunter::Samus
-            || !SceneSetupInterop::AlternateHunters1P())
+        const auto mainPlayer = Entities::PlayerEntity::Main();
+        const Hunter hunter = (*mainPlayer).Hunter();
+        if (!GameState::SinglePlayer() || hunter == Hunter::Samus
+            || !Features::AlternateHunters1P())
         {
             return entities;
         }
@@ -1481,7 +1333,7 @@ namespace MphRead
                     return entity;
                 }
             }
-            SceneSetupInterop::ThrowProgramException("Could not find entity to update.");
+            throw ProgramException("Could not find entity to update.");
         };
 
         std::int16_t nextId = 30000;
@@ -1603,8 +1455,7 @@ namespace MphRead
                 }
                 else
                 {
-                    SceneSetupInterop::SetAreaVolumeActive(
-                        *std::static_pointer_cast<Entities::AreaVolumeEntity>(
+                    SetAreaVolumeActiveFlag(*std::static_pointer_cast<Entities::AreaVolumeEntity>(
                             getEntity(EntityType::AreaVolume, 4)), false);
                 }
             }
@@ -1622,8 +1473,7 @@ namespace MphRead
         {
             for (std::int32_t id : {3, 11, 12, 13, 16})
             {
-                SceneSetupInterop::SetAreaVolumeActive(
-                    *std::static_pointer_cast<Entities::AreaVolumeEntity>(
+                SetAreaVolumeActiveFlag(*std::static_pointer_cast<Entities::AreaVolumeEntity>(
                         getEntity(EntityType::AreaVolume, id)), false);
             }
         }

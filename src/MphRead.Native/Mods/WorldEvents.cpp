@@ -1,11 +1,8 @@
 #include "WorldEvents.hpp"
 
-#include <bit>
+#include "../Entities/Players/PlayerEntity.hpp"
 
-namespace MphRead::Mods::Detail
-{
-    std::int32_t WorldEventsPlayerSlotIndex(const Entities::PlayerEntity& player) noexcept;
-}
+#include <bit>
 
 namespace
 {
@@ -69,25 +66,25 @@ namespace MphRead::Mods
 
     void WorldEvents::NoteJumpPad(const Entities::PlayerEntity& player, std::int32_t entityId) noexcept
     {
-        if (!Watching() || !Valid(Detail::WorldEventsPlayerSlotIndex(player)))
+        if (!Watching() || !Valid((player).SlotIndex()))
         {
             return;
         }
-        const std::size_t countIndex = static_cast<std::size_t>(Detail::WorldEventsPlayerSlotIndex(player));
+        const std::size_t countIndex = static_cast<std::size_t>((player).SlotIndex());
         IncrementInt32(_jumpPads[countIndex]);
-        const std::size_t idIndex = static_cast<std::size_t>(Detail::WorldEventsPlayerSlotIndex(player));
+        const std::size_t idIndex = static_cast<std::size_t>((player).SlotIndex());
         _lastJumpPadId[idIndex] = entityId;
     }
 
     void WorldEvents::NoteTeleport(const Entities::PlayerEntity& player, std::int32_t entityId) noexcept
     {
-        if (!Watching() || !Valid(Detail::WorldEventsPlayerSlotIndex(player)))
+        if (!Watching() || !Valid((player).SlotIndex()))
         {
             return;
         }
-        const std::size_t countIndex = static_cast<std::size_t>(Detail::WorldEventsPlayerSlotIndex(player));
+        const std::size_t countIndex = static_cast<std::size_t>((player).SlotIndex());
         IncrementInt32(_teleports[countIndex]);
-        const std::size_t idIndex = static_cast<std::size_t>(Detail::WorldEventsPlayerSlotIndex(player));
+        const std::size_t idIndex = static_cast<std::size_t>((player).SlotIndex());
         _lastTeleporterId[idIndex] = entityId;
     }
 

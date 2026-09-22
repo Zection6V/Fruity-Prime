@@ -1,5 +1,8 @@
 #include "Extract.hpp"
 
+#include "../Strings.hpp"
+#include "Compress.hpp"
+
 #include "../Metadata/SoundMeta.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
@@ -1064,7 +1067,7 @@ namespace
                 if (filename == "arm9.bin" || StartsWith(filename, "overlay9_"))
                 {
                     std::cout << "Decompressing " << filename << "..." << '\n';
-                    ExtractDependency::LzBackwardDecompress(
+                    LZBackward::Decompress(
                         path, Paths::Combine(ftcDest, filename));
                 }
             }
@@ -1130,7 +1133,7 @@ namespace MphRead
             return;
         }
 
-        ExtractDependency::PathsUpdatePaths();
+        Paths::UpdatePaths();
         if (FileExists("paths.txt"))
         {
             if ((!isFh && !IsNullOrWhiteSpace(Paths::FileSystem()))
@@ -1160,7 +1163,7 @@ namespace MphRead
         const std::string newPath = isFh
             ? GetFullPath(Paths::Combine("files", rootName, "data"))
             : GetFullPath(Paths::Combine("files", rootName));
-        ExtractDependency::PathsSetPath(rootName, newPath);
+        Paths::SetPath(rootName, newPath);
 
         static constexpr std::array<std::string_view, 10> versionKeys = {
             "AMFE0",
@@ -1181,9 +1184,9 @@ namespace MphRead
         {
             const std::string keyString(key);
             lines.push_back(
-                keyString + "=" + ExtractDependency::PathsValue(keyString));
+                keyString + "=" + Paths::AllPaths().at(keyString));
         }
-        lines.push_back("Export=" + ExtractDependency::PathsValue("Export"));
+        lines.push_back("Export=" + Paths::AllPaths().at("Export"));
 
         std::string contents;
         for (std::size_t i = 0; i < lines.size(); ++i)
@@ -1200,7 +1203,7 @@ namespace MphRead
 
     void Extract::LoadRuntimeData()
     {
-        const RomData* data = FindRomData(ExtractDependency::PathsMphKey());
+        const RomData* data = FindRomData(Paths::MphKey);
         if (data == nullptr)
         {
             return;
@@ -1221,7 +1224,10 @@ namespace MphRead
         const std::vector<std::uint8_t> enemyDeathSfx
             = RuntimeSlice(bytes, data->EnemyDeathSfx);
 
-        ExtractDependency::SetNormalFontData(widths, offsets, characters, 32);
+        Text::Font::Normal()->SetData(
+            std::make_shared<std::vector<std::uint8_t>>(widths),
+            std::make_shared<std::vector<std::uint8_t>>(offsets),
+            std::make_shared<std::vector<std::uint8_t>>(characters), 32);
 
         const RomDataValues& beamSfxValue = Require(data->BeamSfx);
         bytes = FileReadAllBytes(

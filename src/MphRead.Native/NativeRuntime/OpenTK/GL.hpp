@@ -65,6 +65,7 @@ namespace OpenTK::Graphics::OpenGL
             DepthTest = 0x0B71,
             StencilTest = 0x0B90,
             AlphaTest = 0x0BC0,
+            ScissorTest = 0x0C11,
             Blend = 0x0BE2,
             Texture2D = 0x0DE1,
             PolygonOffsetFill = 0x8037
@@ -138,6 +139,7 @@ namespace OpenTK::Graphics::OpenGL
         [[nodiscard]] FramebufferErrorCode CheckFramebufferStatus(FramebufferTarget target);
         void Clear(ClearBufferMask mask);
         void ClearColor(::OpenTK::Mathematics::Vector4 color);
+        void ClearColor(float red, float green, float blue, float alpha);
         void ClearStencil(std::int32_t s);
         void Color3(float red, float green, float blue);
         void Color3(::OpenTK::Mathematics::Vector3 color);
@@ -210,6 +212,7 @@ namespace OpenTK::Graphics::OpenGL
         void UseProgram(std::int32_t program);
         void Vertex3(float x, float y, float z);
         void Vertex3(::OpenTK::Mathematics::Vector3 vector);
+        void Scissor(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
         void Viewport(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
     }
 }

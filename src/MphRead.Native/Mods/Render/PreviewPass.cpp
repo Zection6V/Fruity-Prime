@@ -7,29 +7,35 @@
 #include "HunterPreview.hpp"
 
 #include <cmath>
+#include "../../NativeRuntime/OpenTK/GL.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+
 #include <cstdint>
 #include <exception>
 #include <limits>
 #include <string>
 #include <memory>
 
-namespace MphRead::Mods::Render::PreviewPassInterop
+namespace
 {
-    void Enable(std::int32_t capability);
-    void Disable(std::int32_t capability);
-    void Scissor(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
-    void ClearColor(float red, float green, float blue, float alpha);
-    void Clear(std::uint32_t mask);
-    void Viewport(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
-    void UniformMatrix4(std::int32_t location, bool transpose,
-        const ::OpenTK::Mathematics::Matrix4& value);
-    void Uniform1(std::int32_t location, std::int32_t value);
-    void DepthFunc(std::int32_t function);
-    void DepthMask(bool enabled);
-    void BlendFunc(std::int32_t source, std::int32_t destination);
-    void PolygonMode(std::int32_t face, std::int32_t mode);
-    [[nodiscard]] std::string ExceptionMessage(std::exception_ptr exception);
-    void ConsoleWriteLine(const std::string& value);
+    namespace GL = ::OpenTK::Graphics::OpenGL::GL;
+
+    // `catch (Exception ex) { ... ex.Message ... }`
+    [[nodiscard]] std::string ExceptionMessage(std::exception_ptr exception)
+    {
+        try
+        {
+            std::rethrow_exception(exception);
+        }
+        catch (const std::exception& ex)
+        {
+            return ex.what();
+        }
+        catch (...)
+        {
+            return std::string();
+        }
+    }
 }
 
 namespace
@@ -257,9 +263,9 @@ namespace MphRead
         catch (...)
         {
             const std::exception_ptr exception = std::current_exception();
-            Mods::Render::PreviewPassInterop::ConsoleWriteLine(
+            NativeRuntime::ConsoleWriteLine(
                 "[endscreen] preview draw failed: "
-                + Mods::Render::PreviewPassInterop::ExceptionMessage(exception));
+                + ExceptionMessage(exception));
             _previewItems.clear();
         }
     }
@@ -289,13 +295,12 @@ namespace MphRead
             return;
         }
 
-        using namespace Mods::Render::PreviewPassInterop;
-        Enable(ScissorTest);
-        Scissor(x, y, width, height);
-        ClearColor(_previewBack.X, _previewBack.Y, _previewBack.Z, _previewBack.W);
-        Clear(ColorBufferBit | DepthBufferBit);
-        ClearColor(0.0F, 0.0F, 0.0F, 0.0F);
-        Viewport(x, y, width, height);
+        GL::Enable(GL::EnableCap::ScissorTest);
+        GL::Scissor(x, y, width, height);
+        GL::ClearColor(_previewBack.X, _previewBack.Y, _previewBack.Z, _previewBack.W);
+        GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit);
+        GL::ClearColor(0.0F, 0.0F, 0.0F, 0.0F);
+        GL::Viewport(x, y, width, height);
         Matrix4 projection = CreatePerspectiveFieldOfView(
             DegreesToRadians(PreviewFov), width / static_cast<float>(height), 0.1F, 100.0F);
         Matrix4 view = ::LookAt(_previewEye, _previewTarget, Vector3(0.0F, 1.0F, 0.0F));
@@ -303,25 +308,25 @@ namespace MphRead
         {
             throw System::NullReferenceException();
         }
-        UniformMatrix4(_shaderLocations->ProjectionMatrix, false, projection);
-        UniformMatrix4(_shaderLocations->ViewMatrix, false, view);
-        Uniform1(_shaderLocations->UseFog, 0);
-        Enable(DepthTest);
-        DepthFunc(Less);
-        DepthMask(true);
-        Disable(StencilTest);
-        Enable(Blend);
-        BlendFunc(SrcAlpha, OneMinusSrcAlpha);
-        Disable(AlphaTest);
+        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, projection);
+        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, view);
+        GL::Uniform1(_shaderLocations->UseFog, 0);
+        GL::Enable(GL::EnableCap::DepthTest);
+        GL::DepthFunc(GL::DepthFunction::Less);
+        GL::DepthMask(true);
+        GL::Disable(GL::EnableCap::StencilTest);
+        GL::Enable(GL::EnableCap::Blend);
+        GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);
+        GL::Disable(GL::EnableCap::AlphaTest);
         for (std::size_t i = 0; i < _previewItems.size(); ++i)
         {
             RenderItem(_previewItems[i]);
         }
-        Disable(ScissorTest);
-        Viewport(0, 0, target.X, target.Y);
-        UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
-        UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
-        Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
-        Mods::Render::PreviewPassInterop::PolygonMode(FrontAndBack, Fill);
+        GL::Disable(GL::EnableCap::ScissorTest);
+        GL::Viewport(0, 0, target.X, target.Y);
+        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
+        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
+        GL::Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
+        GL::PolygonMode(GL::TriangleFace::FrontAndBack, GL::PolygonMode::Fill);
     }
 }

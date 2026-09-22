@@ -276,12 +276,12 @@ namespace MphRead::Entities
         beamInst.Active = Active;
     }
 
-    std::shared_ptr<NodeData3> JumpPadEntity::ClosestNode() const noexcept
+    std::shared_ptr<Formats::NodeData3> JumpPadEntity::ClosestNode() const noexcept
     {
         return _closestNode;
     }
 
-    void JumpPadEntity::ClosestNode(std::shared_ptr<NodeData3> value) noexcept
+    void JumpPadEntity::ClosestNode(std::shared_ptr<Formats::NodeData3> value) noexcept
     {
         _closestNode = std::move(value);
     }

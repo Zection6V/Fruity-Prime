@@ -113,18 +113,18 @@ namespace
     constexpr std::int32_t PlayerSlotCapacity
         = MphRead::Entities::PlayerEntity::SlotCapacity;
 
-    [[nodiscard]] GameMode Battle() { return MphRead::GameStateDetail::GameModeBattle(); }
-    [[nodiscard]] GameMode BattleTeams() { return MphRead::GameStateDetail::GameModeBattleTeams(); }
-    [[nodiscard]] GameMode Survival() { return MphRead::GameStateDetail::GameModeSurvival(); }
-    [[nodiscard]] GameMode SurvivalTeams() { return MphRead::GameStateDetail::GameModeSurvivalTeams(); }
-    [[nodiscard]] GameMode Capture() { return MphRead::GameStateDetail::GameModeCapture(); }
-    [[nodiscard]] GameMode Bounty() { return MphRead::GameStateDetail::GameModeBounty(); }
-    [[nodiscard]] GameMode BountyTeams() { return MphRead::GameStateDetail::GameModeBountyTeams(); }
-    [[nodiscard]] GameMode Nodes() { return MphRead::GameStateDetail::GameModeNodes(); }
-    [[nodiscard]] GameMode NodesTeams() { return MphRead::GameStateDetail::GameModeNodesTeams(); }
-    [[nodiscard]] GameMode Defender() { return MphRead::GameStateDetail::GameModeDefender(); }
-    [[nodiscard]] GameMode DefenderTeams() { return MphRead::GameStateDetail::GameModeDefenderTeams(); }
-    [[nodiscard]] GameMode PrimeHunter() { return MphRead::GameStateDetail::GameModePrimeHunter(); }
+    [[nodiscard]] GameMode Battle() { return GameMode::Battle; }
+    [[nodiscard]] GameMode BattleTeams() { return GameMode::BattleTeams; }
+    [[nodiscard]] GameMode Survival() { return GameMode::Survival; }
+    [[nodiscard]] GameMode SurvivalTeams() { return GameMode::SurvivalTeams; }
+    [[nodiscard]] GameMode Capture() { return GameMode::Capture; }
+    [[nodiscard]] GameMode Bounty() { return GameMode::Bounty; }
+    [[nodiscard]] GameMode BountyTeams() { return GameMode::BountyTeams; }
+    [[nodiscard]] GameMode Nodes() { return GameMode::Nodes; }
+    [[nodiscard]] GameMode NodesTeams() { return GameMode::NodesTeams; }
+    [[nodiscard]] GameMode Defender() { return GameMode::Defender; }
+    [[nodiscard]] GameMode DefenderTeams() { return GameMode::DefenderTeams; }
+    [[nodiscard]] GameMode PrimeHunter() { return GameMode::PrimeHunter; }
 
     struct Utf8Unit final
     {

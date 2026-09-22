@@ -1,5 +1,13 @@
 #include "Menu.hpp"
 
+#include "Metadata/FrontendMeta.hpp"
+#include "Renderer.hpp"
+#include "Scene.hpp"
+#include "Metadata/Metadata.hpp"
+#include "Metadata/Rooms.hpp"
+#include "NativeRuntime/System/Random.hpp"
+#include "Sound/Sfx.hpp"
+
 #include "Features.hpp"
 #include "Formats/Formats.hpp"
 #include "Formats/Sound.hpp"
@@ -53,6 +61,21 @@
 #endif
 
 
+namespace
+{
+    // `Metadata.ModelMetadata.Keys`, in the dictionary's own order.
+    [[nodiscard]] std::vector<std::string> ModelMetadataKeys()
+    {
+        std::vector<std::string> keys;
+        keys.reserve(MphRead::Metadata::ModelMetadata.size());
+        for (const auto& entry : MphRead::Metadata::ModelMetadata)
+        {
+            keys.push_back(entry.first);
+        }
+        return keys;
+    }
+}
+
 namespace MphRead
 {
     class RenderWindow;
@@ -91,50 +114,6 @@ namespace MphRead::GameStateDetail
     [[nodiscard]] BossFlags BossFlagsUnit4B1Done();
     [[nodiscard]] BossFlags BossFlagsUnit4B2Kill();
     [[nodiscard]] BossFlags BossFlagsUnit4B2Done();
-}
-
-namespace MphRead::MenuDependency
-{
-    // These declarations are the exact dependency closure for members used by Menu.cs
-    // whose owning Native slices do not exist yet. They add no fallback behavior.
-    [[nodiscard]] const std::string& PathsMphKey();
-    [[nodiscard]] const std::string& PathsFhKey();
-    void PathsSetMphKey(const std::string& value);
-    void PathsSetFhKey(const std::string& value);
-    [[nodiscard]] const std::string& PathsValue(const std::string& key);
-    [[nodiscard]] bool PathsIsMphJapan();
-    [[nodiscard]] bool PathsIsMphKorea();
-    void PathsChooseMphPath();
-    void PathsChooseFhPath();
-
-    [[nodiscard]] std::shared_ptr<RoomMetadata> GetRoomById(std::int32_t id, bool noThrow = false);
-    [[nodiscard]] std::pair<std::shared_ptr<RoomMetadata>, std::int32_t> GetRoomByName(const std::string& name);
-    [[nodiscard]] const std::vector<std::shared_ptr<RoomMetadata>>& RoomList();
-    [[nodiscard]] std::int32_t RoomId(const RoomMetadata& room);
-    [[nodiscard]] const std::string& RoomName(const RoomMetadata& room);
-    [[nodiscard]] const std::optional<std::string>& RoomInGameName(const RoomMetadata& room);
-    [[nodiscard]] bool RoomMultiplayer(const RoomMetadata& room);
-    [[nodiscard]] bool RoomFirstHunt(const RoomMetadata& room);
-
-    [[nodiscard]] std::shared_ptr<ModelMetadata> GetFirstHuntModelByName(const std::string& name);
-    [[nodiscard]] std::shared_ptr<ModelMetadata> GetModelByName(const std::string& name, MetaDir dir);
-    [[nodiscard]] const std::string& ModelName(const ModelMetadata& model);
-    [[nodiscard]] std::size_t ModelRecolorCount(const ModelMetadata& model);
-    [[nodiscard]] std::vector<std::string> ModelMetadataKeys();
-    [[nodiscard]] std::shared_ptr<ModelMetadata> GetModelMetadataByKey(const std::string& key);
-    [[nodiscard]] std::string MovieDisplayInfo(std::int32_t movieId);
-
-    void LoadSfxForSoundTest();
-    void SetSceneLanguage(Language value);
-    [[nodiscard]] std::int32_t RandomSharedNext(std::int32_t maxValue);
-
-    [[nodiscard]] RenderWindow* CreateRenderWindow();
-    void DestroyRenderWindow(RenderWindow* renderer) noexcept;
-    void RenderWindowQueueMovie(RenderWindow* renderer, std::int32_t movieId);
-    void RenderWindowAddPlayer(RenderWindow* renderer, Hunter hunter, std::int32_t recolor, std::int32_t team);
-    void RenderWindowAddRoom(RenderWindow* renderer, const std::string& room, GameMode mode);
-    void RenderWindowAddModel(RenderWindow* renderer, const std::string& model, std::int32_t recolor, bool firstHunt, MetaDir dir);
-    void RenderWindowRun(RenderWindow* renderer);
 }
 
 namespace
@@ -1831,7 +1810,7 @@ namespace
 
     void SetDefaultLanguage()
     {
-        _language = MenuDependency::PathsIsMphJapan() || MenuDependency::PathsIsMphKorea()
+        _language = Paths::IsMphJapan() || Paths::IsMphKorea()
             ? Language::Japanese : Language::English;
     }
 
@@ -1933,29 +1912,29 @@ namespace
 
     [[nodiscard]] GameMode ParseGameMode(std::string_view mode)
     {
-        if (mode == "Battle") return GameStateDetail::GameModeBattle();
-        if (mode == "BattleTeams") return GameStateDetail::GameModeBattleTeams();
-        if (mode == "Survival") return GameStateDetail::GameModeSurvival();
-        if (mode == "SurvivalTeams") return GameStateDetail::GameModeSurvivalTeams();
-        if (mode == "Capture") return GameStateDetail::GameModeCapture();
-        if (mode == "Bounty") return GameStateDetail::GameModeBounty();
-        if (mode == "BountyTeams") return GameStateDetail::GameModeBountyTeams();
-        if (mode == "Nodes") return GameStateDetail::GameModeNodes();
-        if (mode == "NodesTeams") return GameStateDetail::GameModeNodesTeams();
-        if (mode == "Defender") return GameStateDetail::GameModeDefender();
-        if (mode == "DefenderTeams") return GameStateDetail::GameModeDefenderTeams();
-        if (mode == "PrimeHunter") return GameStateDetail::GameModePrimeHunter();
+        if (mode == "Battle") return GameMode::Battle;
+        if (mode == "BattleTeams") return GameMode::BattleTeams;
+        if (mode == "Survival") return GameMode::Survival;
+        if (mode == "SurvivalTeams") return GameMode::SurvivalTeams;
+        if (mode == "Capture") return GameMode::Capture;
+        if (mode == "Bounty") return GameMode::Bounty;
+        if (mode == "BountyTeams") return GameMode::BountyTeams;
+        if (mode == "Nodes") return GameMode::Nodes;
+        if (mode == "NodesTeams") return GameMode::NodesTeams;
+        if (mode == "Defender") return GameMode::Defender;
+        if (mode == "DefenderTeams") return GameMode::DefenderTeams;
+        if (mode == "PrimeHunter") return GameMode::PrimeHunter;
         throw std::invalid_argument("Requested value was not found.");
     }
 
     class RendererOwner final
     {
     public:
-        RendererOwner() : _renderer(MenuDependency::CreateRenderWindow())
+        RendererOwner() : _renderer(new RenderWindow())
         {
             if (_renderer == nullptr) throw System::NullReferenceException();
         }
-        ~RendererOwner() { MenuDependency::DestroyRenderWindow(_renderer); }
+        ~RendererOwner() { delete _renderer; }
         RendererOwner(const RendererOwner&) = delete;
         RendererOwner& operator=(const RendererOwner&) = delete;
         [[nodiscard]] RenderWindow* Get() const noexcept { return _renderer; }
@@ -2000,17 +1979,17 @@ namespace MphRead
         std::string roomKey = "MP3 PROVING GROUND";
         if (roomId >= 0)
         {
-            const auto init = MenuDependency::GetRoomById(roomId);
+            const auto init = Metadata::GetRoomById(roomId);
             assert(init != nullptr);
-            room = MenuDependency::RoomInGameName(*init).value_or(MenuDependency::RoomName(*init));
-            roomKey = MenuDependency::RoomName(*init);
+            room = (*init).InGameName.value_or((*init).Name);
+            roomKey = (*init).Name;
         }
         else if (!roomKey.empty())
         {
-            const auto [init, id] = MenuDependency::GetRoomByName(roomKey);
+            const auto [init, id] = Metadata::GetRoomByName(roomKey);
             assert(init != nullptr);
             roomId = id;
-            room = MenuDependency::RoomInGameName(*init).value_or(MenuDependency::RoomName(*init));
+            room = (*init).InGameName.value_or((*init).Name);
         }
         bool fhRoom = false;
 
@@ -2072,25 +2051,25 @@ namespace MphRead
             if (IsNullOrWhiteSpace(input)) return;
             const std::string value = ToLower(Trim(*input));
             std::int32_t id = 0;
-            std::shared_ptr<RoomMetadata> meta;
+            const RoomMetadata* meta = nullptr;
             if (TryParseInt32(value, id))
             {
-                meta = MenuDependency::GetRoomById(id, true);
+                meta = Metadata::GetRoomById(id, true);
                 if (meta)
                 {
                     roomId = id;
-                    room = MenuDependency::RoomInGameName(*meta).value_or(MenuDependency::RoomName(*meta));
-                    roomKey = MenuDependency::RoomName(*meta);
-                    fhRoom = MenuDependency::RoomFirstHunt(*meta);
+                    room = (*meta).InGameName.value_or((*meta).Name);
+                    roomKey = (*meta).Name;
+                    fhRoom = (*meta).FirstHunt;
                 }
                 return;
             }
-            const auto& rooms = MenuDependency::RoomList();
+            const auto& rooms = Metadata::RoomList;
             for (const auto& candidate : rooms)
             {
-                if (candidate && ToLower(MenuDependency::RoomName(*candidate)) == value)
+                if (candidate && ToLower((*candidate).Name) == value)
                 {
-                    meta = candidate;
+                    meta = candidate.get();
                     break;
                 }
             }
@@ -2100,10 +2079,10 @@ namespace MphRead
                 for (const auto& candidate : rooms)
                 {
                     if (!candidate) continue;
-                    const auto& inGame = MenuDependency::RoomInGameName(*candidate);
-                    if (inGame && ToLower(*inGame) == value && MenuDependency::RoomMultiplayer(*candidate) == multi)
+                    const auto& inGame = (*candidate).InGameName;
+                    if (inGame && ToLower(*inGame) == value && (*candidate).Multiplayer == multi)
                     {
-                        meta = candidate;
+                        meta = candidate.get();
                         break;
                     }
                 }
@@ -2112,10 +2091,10 @@ namespace MphRead
                     for (const auto& candidate : rooms)
                     {
                         if (!candidate) continue;
-                        const auto& inGame = MenuDependency::RoomInGameName(*candidate);
+                        const auto& inGame = (*candidate).InGameName;
                         if (inGame && ToLower(*inGame) == value)
                         {
-                            meta = candidate;
+                            meta = candidate.get();
                             break;
                         }
                     }
@@ -2123,10 +2102,10 @@ namespace MphRead
             }
             if (meta)
             {
-                roomId = MenuDependency::RoomId(*meta);
-                room = MenuDependency::RoomInGameName(*meta).value_or(MenuDependency::RoomName(*meta));
-                roomKey = MenuDependency::RoomName(*meta);
-                fhRoom = MenuDependency::RoomFirstHunt(*meta);
+                roomId = (*meta).Id;
+                room = (*meta).InGameName.value_or((*meta).Name);
+                roomKey = (*meta).Name;
+                fhRoom = (*meta).FirstHunt;
             }
         };
 
@@ -2227,12 +2206,12 @@ namespace MphRead
                 }
                 const std::string& modelName = parts.at(0);
                 const auto meta = firstHunt
-                    ? MenuDependency::GetFirstHuntModelByName(modelName)
-                    : MenuDependency::GetModelByName(modelName, dir);
+                    ? Metadata::GetFirstHuntModelByName(modelName)
+                    : Metadata::GetModelByName(modelName, dir);
                 if (meta)
                 {
-                    recolor = std::clamp(recolor, 0, static_cast<std::int32_t>(MenuDependency::ModelRecolorCount(*meta)) - 1);
-                    models.push_back(ModelSetting{MenuDependency::ModelName(*meta), recolor, firstHunt, dir});
+                    recolor = std::clamp(recolor, 0, static_cast<std::int32_t>((*meta).Recolors.size()) - 1);
+                    models.push_back(ModelSetting{(*meta).Name, recolor, firstHunt, dir});
                 }
             }
         };
@@ -2242,9 +2221,9 @@ namespace MphRead
             if (IsNullOrWhiteSpace(input)) return;
             const std::string value = ToUpper(Trim(*input));
             if (std::find(mphVersions.begin(), mphVersions.end(), value) != mphVersions.end()
-                && !MenuDependency::PathsValue(value).empty())
+                && !Paths::AllPaths().at(value).empty())
             {
-                MenuDependency::PathsSetMphKey(value);
+                Paths::MphKey = value;
                 SetDefaultLanguage();
             }
         };
@@ -2253,9 +2232,9 @@ namespace MphRead
             if (IsNullOrWhiteSpace(input)) return;
             const std::string value = ToUpper(Trim(*input));
             if (std::find(fhVersions.begin(), fhVersions.end(), value) != fhVersions.end()
-                && !MenuDependency::PathsValue(value).empty())
+                && !Paths::AllPaths().at(value).empty())
             {
-                MenuDependency::PathsSetFhKey(value);
+                Paths::FhKey = value;
                 SetDefaultLanguage();
             }
         };
@@ -2374,7 +2353,7 @@ namespace MphRead
             settings->Player1 = FormatHunter(0); settings->Player2 = FormatHunter(1);
             settings->Player3 = FormatHunter(2); settings->Player4 = FormatHunter(3);
             settings->Models = JoinNonEmpty(modelValues, ", ");
-            settings->MphVersion = MenuDependency::PathsMphKey(); settings->FhVersion = MenuDependency::PathsFhKey();
+            settings->MphVersion = Paths::MphKey; settings->FhVersion = Paths::FhKey;
             settings->Language = LanguageString(_language); settings->SfxVolume = _sfxVolume.ToString(); settings->MusicVolume = _musicVolume.ToString();
             settings->PointGoal = _pointGoal.ToString(); settings->TimeLimit = ::FormatTime(_timeLimit); settings->TimeGoal = ::FormatTime(_timeGoal);
             settings->AutoReset = _octolithReset ? "on" : "off"; settings->TeamPlay = _teams ? "on" : "off";
@@ -2443,13 +2422,13 @@ namespace MphRead
                 else if (prompt == -4) { if (!ShowSoundTest(soundCapability)) return; prompt = 0; }
 
                 const std::string lastMode = _mode;
-                const std::string mphKey = MenuDependency::PathsMphKey();
-                const std::string fhKey = MenuDependency::PathsFhKey();
+                const std::string mphKey = Paths::MphKey;
+                const std::string fhKey = Paths::FhKey;
                 std::string roomString = roomKey == "AD1 TRANSFER LOCK BT" ? "Transfer Lock (Expanded)" : room;
                 roomString += " [" + roomKey + "] - " + std::to_string(roomId);
                 const std::string modeString = _mode == "auto-select" ? "auto-select (Adventure or Battle)" : _mode;
                 const std::string languageString = mphKey == AMHK0 ? "Korean" : LanguageString(_language);
-                const std::string movieString = _movieId == -1 ? "none" : MenuDependency::MovieDisplayInfo(_movieId);
+                const std::string movieString = _movieId == -1 ? "none" : Metadata::MovieDisplayInfo[static_cast<std::size_t>(_movieId)];
                 ClearConsole(); WriteLine(ProgramVersionBanner()); WriteLine();
                 WriteLine("Choose an option using up/down or with the key indicated.");
                 WriteLine("Press Space to specify, Backspace to clear, or left/right to advance the option.");
@@ -2535,8 +2514,8 @@ namespace MphRead
                             players.at(static_cast<std::size_t>(index)) = PlayerSetting{"none", team, "0"};
                         }
                         else if (selection == 6) models.clear();
-                        else if (selection == 7) MenuDependency::PathsChooseMphPath();
-                        else if (selection == 8) MenuDependency::PathsChooseFhPath();
+                        else if (selection == 7) Paths::ChooseMphPath();
+                        else if (selection == 8) Paths::ChooseFhPath();
                         else if (selection == 9) SetDefaultLanguage();
                         else if (selection == 10) { _sfxVolume = Decimal::Literal("0.35"); Sound::Sfx::Volume = _sfxVolume.ToFloat(); }
                         else if (selection == 11) { _musicVolume = Decimal::Literal("0.50"); Music::UserVolume(_musicVolume.ToFloat()); }
@@ -2550,11 +2529,11 @@ namespace MphRead
                             if (roomId > 137) { roomId = -1; room = "none"; roomKey = "none"; }
                             else
                             {
-                                const auto meta = MenuDependency::GetRoomById(roomId);
+                                const auto meta = Metadata::GetRoomById(roomId);
                                 if (meta)
                                 {
-                                    room = MenuDependency::RoomInGameName(*meta).value_or(MenuDependency::RoomName(*meta));
-                                    roomKey = MenuDependency::RoomName(*meta); fhRoom = MenuDependency::RoomFirstHunt(*meta);
+                                    room = (*meta).InGameName.value_or((*meta).Name);
+                                    roomKey = (*meta).Name; fhRoom = (*meta).FirstHunt;
                                 }
                                 else { roomId = -1; room = "none"; roomKey = "none"; }
                             }
@@ -2578,42 +2557,42 @@ namespace MphRead
                             if (models.empty()) models.push_back(ModelSetting{"Crate01", 0, false, static_cast<MetaDir>(0)});
                             else
                             {
-                                auto keys = MenuDependency::ModelMetadataKeys();
+                                auto keys = ModelMetadataKeys();
                                 const std::string model = models[0].Name;
                                 auto it = std::find(keys.begin(), keys.end(), model);
                                 std::int32_t index = static_cast<std::int32_t>(std::distance(keys.begin(), it));
                                 ++index; if (index >= static_cast<std::int32_t>(keys.size())) index = 0;
-                                const auto meta = MenuDependency::GetModelMetadataByKey(keys.at(static_cast<std::size_t>(index)));
-                                models[0] = ModelSetting{MenuDependency::ModelName(*meta), models[0].Recolor, false, static_cast<MetaDir>(0)};
+                                const auto meta = &Metadata::ModelMetadata.at(keys.at(static_cast<std::size_t>(index)));
+                                models[0] = ModelSetting{(*meta).Name, models[0].Recolor, false, static_cast<MetaDir>(0)};
                             }
                         }
                         else if (selection == 7)
                         {
-                            std::string current = MenuDependency::PathsMphKey();
-                            std::string next = MenuDependency::PathsMphKey();
+                            std::string current = Paths::MphKey;
+                            std::string next = Paths::MphKey;
                             do
                             {
                                 auto it = std::find(mphVersions.begin(), mphVersions.end(), next);
                                 std::int32_t index = static_cast<std::int32_t>(std::distance(mphVersions.begin(), it)) + 1;
                                 if (index >= static_cast<std::int32_t>(mphVersions.size())) index = 0;
                                 next = mphVersions.at(static_cast<std::size_t>(index));
-                                if (!MenuDependency::PathsValue(next).empty()) current = next;
+                                if (!Paths::AllPaths().at(next).empty()) current = next;
                             } while (current != next);
-                            MenuDependency::PathsSetMphKey(current); SetDefaultLanguage();
+                            Paths::MphKey = current; SetDefaultLanguage();
                         }
                         else if (selection == 8)
                         {
-                            std::string current = MenuDependency::PathsFhKey();
-                            std::string next = MenuDependency::PathsFhKey();
+                            std::string current = Paths::FhKey;
+                            std::string next = Paths::FhKey;
                             do
                             {
                                 auto it = std::find(fhVersions.begin(), fhVersions.end(), next);
                                 std::int32_t index = static_cast<std::int32_t>(std::distance(fhVersions.begin(), it)) + 1;
                                 if (index >= static_cast<std::int32_t>(fhVersions.size())) index = 0;
                                 next = fhVersions.at(static_cast<std::size_t>(index));
-                                if (!MenuDependency::PathsValue(next).empty()) current = next;
+                                if (!Paths::AllPaths().at(next).empty()) current = next;
                             } while (current != next);
-                            MenuDependency::PathsSetFhKey(current); SetDefaultLanguage();
+                            Paths::FhKey = current; SetDefaultLanguage();
                         }
                         else if (selection == 9)
                         {
@@ -2643,11 +2622,11 @@ namespace MphRead
                             if (roomId == -1) { room = "none"; roomKey = "none"; }
                             else
                             {
-                                const auto meta = MenuDependency::GetRoomById(roomId);
+                                const auto meta = Metadata::GetRoomById(roomId);
                                 if (meta)
                                 {
-                                    room = MenuDependency::RoomInGameName(*meta).value_or(MenuDependency::RoomName(*meta));
-                                    roomKey = MenuDependency::RoomName(*meta); fhRoom = MenuDependency::RoomFirstHunt(*meta);
+                                    room = (*meta).InGameName.value_or((*meta).Name);
+                                    roomKey = (*meta).Name; fhRoom = (*meta).FirstHunt;
                                 }
                                 else { roomId = -1; room = "none"; roomKey = "none"; }
                             }
@@ -2671,42 +2650,42 @@ namespace MphRead
                             if (models.empty()) models.push_back(ModelSetting{"Crate01", 0, false, static_cast<MetaDir>(0)});
                             else
                             {
-                                auto keys = MenuDependency::ModelMetadataKeys();
+                                auto keys = ModelMetadataKeys();
                                 const std::string model = models[0].Name;
                                 auto it = std::find(keys.begin(), keys.end(), model);
                                 std::int32_t index = static_cast<std::int32_t>(std::distance(keys.begin(), it)) - 1;
                                 if (index < 0) index = static_cast<std::int32_t>(keys.size()) - 1;
-                                const auto meta = MenuDependency::GetModelMetadataByKey(keys.at(static_cast<std::size_t>(index)));
-                                models[0] = ModelSetting{MenuDependency::ModelName(*meta), models[0].Recolor, false, static_cast<MetaDir>(0)};
+                                const auto meta = &Metadata::ModelMetadata.at(keys.at(static_cast<std::size_t>(index)));
+                                models[0] = ModelSetting{(*meta).Name, models[0].Recolor, false, static_cast<MetaDir>(0)};
                             }
                         }
                         else if (selection == 7)
                         {
-                            std::string current = MenuDependency::PathsMphKey();
-                            std::string next = MenuDependency::PathsMphKey();
+                            std::string current = Paths::MphKey;
+                            std::string next = Paths::MphKey;
                             do
                             {
                                 auto it = std::find(mphVersions.begin(), mphVersions.end(), next);
                                 std::int32_t index = static_cast<std::int32_t>(std::distance(mphVersions.begin(), it)) - 1;
                                 if (index < 0) index = static_cast<std::int32_t>(mphVersions.size()) - 1;
                                 next = mphVersions.at(static_cast<std::size_t>(index));
-                                if (!MenuDependency::PathsValue(next).empty()) current = next;
+                                if (!Paths::AllPaths().at(next).empty()) current = next;
                             } while (current != next);
-                            MenuDependency::PathsSetMphKey(current); SetDefaultLanguage();
+                            Paths::MphKey = current; SetDefaultLanguage();
                         }
                         else if (selection == 8)
                         {
-                            std::string current = MenuDependency::PathsFhKey();
-                            std::string next = MenuDependency::PathsFhKey();
+                            std::string current = Paths::FhKey;
+                            std::string next = Paths::FhKey;
                             do
                             {
                                 auto it = std::find(fhVersions.begin(), fhVersions.end(), next);
                                 std::int32_t index = static_cast<std::int32_t>(std::distance(fhVersions.begin(), it)) - 1;
                                 if (index < 0) index = static_cast<std::int32_t>(fhVersions.size()) - 1;
                                 next = fhVersions.at(static_cast<std::size_t>(index));
-                                if (!MenuDependency::PathsValue(next).empty()) current = next;
+                                if (!Paths::AllPaths().at(next).empty()) current = next;
                             } while (current != next);
-                            MenuDependency::PathsSetFhKey(current); SetDefaultLanguage();
+                            Paths::FhKey = current; SetDefaultLanguage();
                         }
                         else if (selection == 9)
                         {
@@ -2750,7 +2729,7 @@ namespace MphRead
 
             _applySettings = true;
             RendererOwner renderer;
-            if (_movieId != -1) MenuDependency::RenderWindowQueueMovie(renderer.Get(), _movieId);
+            if (_movieId != -1) renderer.Get()->QueueMovie(_movieId);
             else if (room != "none")
             {
                 if (!fhRoom)
@@ -2762,24 +2741,24 @@ namespace MphRead
                         if (_teams) teamId = player.Team == "orange" ? 0 : 1;
                         Hunter hunter{};
                         if (!TryParseHunter(player.HunterName, hunter)) throw std::invalid_argument("Requested value was not found.");
-                        MenuDependency::RenderWindowAddPlayer(renderer.Get(), hunter, std::stoi(player.Recolor), teamId);
+                        renderer.Get()->AddPlayer(hunter, std::stoi(player.Recolor), teamId);
                     }
                 }
-                MenuDependency::SetSceneLanguage(MenuDependency::PathsMphKey() == "AMHK0" ? Language::Japanese : _language);
-                GameMode gameMode = GameStateDetail::GameModeNone();
-                if (_mode == "Adventure") gameMode = GameStateDetail::GameModeSinglePlayer();
+                Scene::Language(Paths::MphKey == "AMHK0" ? Language::Japanese : _language);
+                GameMode gameMode = GameMode::None;
+                if (_mode == "Adventure") gameMode = GameMode::SinglePlayer;
                 else if (_mode != "auto-select")
                 {
                     std::string modeName = _mode; ReplaceAll(modeName, " ", "");
                     gameMode = ParseGameMode(modeName);
                 }
-                MenuDependency::RenderWindowAddRoom(renderer.Get(), roomKey, gameMode);
+                renderer.Get()->AddRoom(roomKey, gameMode);
             }
             for (const auto& model : models)
             {
-                MenuDependency::RenderWindowAddModel(renderer.Get(), model.Name, model.Recolor, model.FirstHunt, model.Dir);
+                renderer.Get()->AddModel(model.Name, model.Recolor, model.FirstHunt, model.Dir);
             }
-            MenuDependency::RenderWindowRun(renderer.Get());
+            renderer.Get()->Run();
         }
     }
 
@@ -2810,14 +2789,14 @@ namespace MphRead
                 | (_planets[4] == 0 ? 0 : 0x100);
             GameState::StorySave->Areas = static_cast<std::uint16_t>(areas);
             BossFlags bossFlags = static_cast<BossFlags>(0);
-            const std::array<BossFlags, 3> ca1{static_cast<BossFlags>(0), GameStateDetail::BossFlagsUnit2B1Kill(), GameStateDetail::BossFlagsUnit2B1Done()};
-            const std::array<BossFlags, 3> ca2{static_cast<BossFlags>(0), GameStateDetail::BossFlagsUnit2B2Kill(), GameStateDetail::BossFlagsUnit2B2Done()};
-            const std::array<BossFlags, 3> alinos1{static_cast<BossFlags>(0), GameStateDetail::BossFlagsUnit1B1Kill(), GameStateDetail::BossFlagsUnit1B1Done()};
-            const std::array<BossFlags, 3> alinos2{static_cast<BossFlags>(0), GameStateDetail::BossFlagsUnit1B2Kill(), GameStateDetail::BossFlagsUnit1B2Done()};
-            const std::array<BossFlags, 3> vdo1{static_cast<BossFlags>(0), GameStateDetail::BossFlagsUnit3B1Kill(), GameStateDetail::BossFlagsUnit3B1Done()};
-            const std::array<BossFlags, 3> vdo2{static_cast<BossFlags>(0), GameStateDetail::BossFlagsUnit3B2Kill(), GameStateDetail::BossFlagsUnit3B2Done()};
-            const std::array<BossFlags, 3> arcterra1{static_cast<BossFlags>(0), GameStateDetail::BossFlagsUnit4B1Kill(), GameStateDetail::BossFlagsUnit4B1Done()};
-            const std::array<BossFlags, 3> arcterra2{static_cast<BossFlags>(0), GameStateDetail::BossFlagsUnit4B2Kill(), GameStateDetail::BossFlagsUnit4B2Done()};
+            const std::array<BossFlags, 3> ca1{static_cast<BossFlags>(0), BossFlags::Unit2B1Kill, BossFlags::Unit2B1Done};
+            const std::array<BossFlags, 3> ca2{static_cast<BossFlags>(0), BossFlags::Unit2B2Kill, BossFlags::Unit2B2Done};
+            const std::array<BossFlags, 3> alinos1{static_cast<BossFlags>(0), BossFlags::Unit1B1Kill, BossFlags::Unit1B1Done};
+            const std::array<BossFlags, 3> alinos2{static_cast<BossFlags>(0), BossFlags::Unit1B2Kill, BossFlags::Unit1B2Done};
+            const std::array<BossFlags, 3> vdo1{static_cast<BossFlags>(0), BossFlags::Unit3B1Kill, BossFlags::Unit3B1Done};
+            const std::array<BossFlags, 3> vdo2{static_cast<BossFlags>(0), BossFlags::Unit3B2Kill, BossFlags::Unit3B2Done};
+            const std::array<BossFlags, 3> arcterra1{static_cast<BossFlags>(0), BossFlags::Unit4B1Kill, BossFlags::Unit4B1Done};
+            const std::array<BossFlags, 3> arcterra2{static_cast<BossFlags>(0), BossFlags::Unit4B2Kill, BossFlags::Unit4B2Done};
             bossFlags = bossFlags | ca1.at(static_cast<std::size_t>(_ca1State));
             bossFlags = bossFlags | ca2.at(static_cast<std::size_t>(_ca2State));
             bossFlags = bossFlags | alinos1.at(static_cast<std::size_t>(_alinos1State));
@@ -3367,7 +3346,7 @@ namespace MphRead
 
         std::int32_t selection = 0;
         auto info = Formats::Sound::SoundRead::ReadInterMusicInfo();
-        if (soundCapability != SoundCapability::None) MenuDependency::LoadSfxForSoundTest();
+        if (soundCapability != SoundCapability::None) Sound::Sfx::Load(*static_cast<Scene*>(nullptr));
         std::int32_t playlist = 0;
         MusicId music = MusicId::SEQ_YELLOW_M1;
         auto track = info->at(static_cast<std::size_t>(static_cast<std::int32_t>(music)));
@@ -3491,8 +3470,8 @@ namespace MphRead
             if ((id & 0x4000) != 0) return;
             if ((id & 0x8000) != 0)
             {
-                const std::int32_t amountA = MenuDependency::RandomSharedNext(0xFFFF);
-                const std::int32_t amountB = MenuDependency::RandomSharedNext(0xFFFF);
+                const std::int32_t amountA = NativeRuntime::RandomSharedNext(0xFFFF);
+                const std::int32_t amountB = NativeRuntime::RandomSharedNext(0xFFFF);
                 if (auto instance = Sound::Sfx::Instance())
                 {
                     instance->PlayDgn(id, nullptr, false, false, -1.0F, false,
@@ -3715,7 +3694,7 @@ namespace MphRead
         std::int32_t viewId = -1;
         std::int32_t selection = 0;
         std::int32_t listPos = -1;
-        MenuDependency::SetSceneLanguage(MenuDependency::PathsMphKey() == "AMHK0" ? Language::Japanese : _language);
+        Scene::Language(Paths::MphKey == "AMHK0" ? Language::Japanese : _language);
         auto entries = Text::Strings::ReadStringTable(Text::StringTables::ScanLog);
         auto Category = [](char value)
         {

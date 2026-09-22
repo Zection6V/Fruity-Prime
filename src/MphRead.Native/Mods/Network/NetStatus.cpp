@@ -146,9 +146,158 @@ namespace MphRead::Mods::Network::Detail
         return address;
     }
 
+    [[nodiscard]] bool NetStatusTryParseManagedIPv4(
+        const std::string& text, std::array<std::uint8_t, 4>& bytes) noexcept
+    {
+        if (text.empty() || text.find(':') != std::string::npos)
+        {
+            return false;
+        }
+
+        std::array<std::uint64_t, 4> parts{};
+        std::size_t part = 0;
+        std::size_t index = 0;
+        while (true)
+        {
+            if (part >= parts.size() || index >= text.size())
+            {
+                return false;
+            }
+
+            std::uint32_t base = 10;
+            bool haveDigit = false;
+            std::uint64_t value = 0;
+            if (text[index] == '0')
+            {
+                base = 8;
+                ++index;
+                haveDigit = true;
+                if (index < text.size()
+                    && (text[index] == 'x' || text[index] == 'X'))
+                {
+                    base = 16;
+                    ++index;
+                    haveDigit = false;
+                }
+            }
+
+            while (index < text.size())
+            {
+                const unsigned char ch = static_cast<unsigned char>(text[index]);
+                std::uint32_t digit = 0;
+                bool isDigit = false;
+                if ((base == 10 || base == 16) && ch >= '0' && ch <= '9')
+                {
+                    digit = ch - '0';
+                    isDigit = true;
+                }
+                else if (base == 8 && ch >= '0' && ch <= '7')
+                {
+                    digit = ch - '0';
+                    isDigit = true;
+                }
+                else if (base == 16 && ch >= 'a' && ch <= 'f')
+                {
+                    digit = ch + 10U - 'a';
+                    isDigit = true;
+                }
+                else if (base == 16 && ch >= 'A' && ch <= 'F')
+                {
+                    digit = ch + 10U - 'A';
+                    isDigit = true;
+                }
+
+                if (!isDigit)
+                {
+                    break;
+                }
+
+                value = value * base + digit;
+                if (value > 0xFFFFFFFFULL)
+                {
+                    return false;
+                }
+                haveDigit = true;
+                ++index;
+            }
+
+            if (!haveDigit)
+            {
+                return false;
+            }
+
+            parts[part] = value;
+            if (index == text.size())
+            {
+                break;
+            }
+            if (text[index] != '.' || part >= 3 || value > 0xFFU)
+            {
+                return false;
+            }
+            ++part;
+            ++index;
+        }
+
+        std::uint64_t value = 0;
+        switch (part)
+        {
+            case 0:
+                value = parts[0];
+                break;
+            case 1:
+                if (parts[1] > 0xFFFFFFU)
+                {
+                    return false;
+                }
+                value = (parts[0] << 24) | parts[1];
+                break;
+            case 2:
+                if (parts[2] > 0xFFFFU)
+                {
+                    return false;
+                }
+                value = (parts[0] << 24) | (parts[1] << 16) | parts[2];
+                break;
+            case 3:
+                if (parts[3] > 0xFFU)
+                {
+                    return false;
+                }
+                value = (parts[0] << 24) | (parts[1] << 16)
+                    | (parts[2] << 8) | parts[3];
+                break;
+            default:
+                return false;
+        }
+
+        bytes = {
+            static_cast<std::uint8_t>((value >> 24) & 0xFFU),
+            static_cast<std::uint8_t>((value >> 16) & 0xFFU),
+            static_cast<std::uint8_t>((value >> 8) & 0xFFU),
+            static_cast<std::uint8_t>(value & 0xFFU)
+        };
+        return true;
+    }
+
     std::vector<NetStatusAddress> NetStatusDnsGetHostAddresses(
         const std::string& address)
     {
+        // Dns.GetHostAddresses first runs IPAddress.TryParse. For IPv4 this
+        // accepts .NET's legacy decimal/octal/hex forms and bypasses DNS.
+        std::array<std::uint8_t, 4> parsedIPv4{};
+        if (NetStatusTryParseManagedIPv4(address, parsedIPv4))
+        {
+            if (parsedIPv4 == std::array<std::uint8_t, 4>{0, 0, 0, 0})
+            {
+                // Dns.GetHostAddresses rejects IPAddress.Any before resolution.
+                throw std::invalid_argument("hostNameOrAddress");
+            }
+            return {
+                NetStatusAddress{NetStatusAddressFamily::InterNetwork, parsedIPv4}
+            };
+        }
+
         NetStatusEnsureWinsock();
         std::vector<NetStatusAddress> resolved;
 
@@ -182,7 +331,7 @@ namespace MphRead::Mods::Network::Detail
         for (ADDRINFOW* current = raw; current != nullptr; current = current->ai_next)
         {
             if (current->ai_family != AF_INET || current->ai_addr == nullptr
-                || current->ai_addrlen < sizeof(sockaddr_in))
+                || current->ai_addrlen != sizeof(sockaddr_in))
             {
                 continue;
             }
@@ -208,7 +357,7 @@ namespace MphRead::Mods::Network::Detail
         {
             if (current->ai_family != AF_INET || current->ai_addr == nullptr
                 || current->ai_addrlen
-                    < static_cast<decltype(current->ai_addrlen)>(sizeof(sockaddr_in)))
+                    != static_cast<decltype(current->ai_addrlen)>(sizeof(sockaddr_in)))
             {
                 continue;
             }

@@ -9,6 +9,7 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Metadata/Rooms.hpp"
 #include "../Mods/Network/NetRoomChange.hpp"
+#include "../Mods/Network/NetLog.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
 #include "../Renderer.hpp"
@@ -822,7 +823,7 @@ namespace MphRead::Entities
         newDoor->SetConnectorDoor(FindDoorShared(scene, doorValue));
         if (!GameState::InRoomTransition())
         {
-            newDoor->Formats::Culling::NodeRef = AddDoorPortal(doorValue);
+            newDoor->NodeRef = AddDoorPortal(doorValue);
         }
     }
 
@@ -1084,7 +1085,7 @@ namespace MphRead::Entities
         {
             return;
         }
-        for (const std::shared_ptr<EntityBase>& entityValue : entities)
+        for (const std::shared_ptr<EntityBase>& entityValue : RequireReference(entities))
         {
             EntityBase& entity = RequireReference(entityValue);
             entity.Initialized = false;
@@ -1102,7 +1103,7 @@ namespace MphRead::Entities
         }
         else
         {
-            while (!RequireReference(_scene).LoadedEntities().IsEmpty())
+            while (RequireReference(_scene).LoadedEntities().Count() != 0)
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 if (token != nullptr && token->load())
@@ -1773,8 +1774,10 @@ namespace MphRead::Entities
         _partBoundsMax.clear();
         for (std::int32_t i = 0; i < _nextRoomPartId; ++i)
         {
-            _partBoundsMin.emplace_back(std::numeric_limits<float>::max());
-            _partBoundsMax.emplace_back(std::numeric_limits<float>::lowest());
+            _partBoundsMin.emplace_back(std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+            _partBoundsMax.emplace_back(std::numeric_limits<float>::lowest(),
+                std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest());
         }
         if (_models.Size() > 0)
         {

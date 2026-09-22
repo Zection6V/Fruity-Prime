@@ -166,7 +166,7 @@ namespace MphRead::Entities
                 portrait->PositionX = (centre - EndPortrait() / 2.0F * aspect) / 256.0F;
                 portrait->PositionY
                     = (previewTop + (EndPreview() - EndPortrait()) / 2.0F) / 192.0F;
-                scene.DrawHudObject(*portrait, 1, EndPortrait() / 32.0F);
+                scene.DrawHudObject(portrait, 1, EndPortrait() / 32.0F);
             }
         }
 

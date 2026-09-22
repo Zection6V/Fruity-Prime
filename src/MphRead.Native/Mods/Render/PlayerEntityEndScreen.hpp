@@ -52,7 +52,7 @@ private:                                                                        
     static const ::OpenTK::Mathematics::Vector4 _endArrowWell;                                 \
     static const ::OpenTK::Mathematics::Vector4 _endArrowHover;                                \
     [[nodiscard]] static std::size_t EndSuitHitCount() noexcept;                                \
-    std::shared_ptr<std::vector<::MphRead::Mods::EndScreen::Hit>> _endSuitHits                 \
+    const std::shared_ptr<std::vector<::MphRead::Mods::EndScreen::Hit>> _endSuitHits           \
         = std::make_shared<std::vector<::MphRead::Mods::EndScreen::Hit>>(EndSuitHitCount());    \
     void DrawEndSuits(::MphRead::Hunter hunter, std::int32_t chosen,                            \
         float left, float top, float aspect);

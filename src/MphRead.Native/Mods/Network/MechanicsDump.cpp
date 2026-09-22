@@ -26,7 +26,11 @@ namespace MphRead::Mods::Network
         void AppendLine(std::string& text, std::string_view value = {})
         {
             text.append(value);
+            #ifdef _WIN32
+            text.append("\r\n");
+            #else
             text.push_back('\n');
+            #endif
         }
 
         template <typename T>
@@ -249,10 +253,10 @@ namespace MphRead::Mods::Network
         AppendLine(text, "|---|---|---|---|---|---|---|---|---|---|---|---|");
 
         for (std::int32_t i = 0;
-            i < 18 && static_cast<std::size_t>(i) < MphRead::Weapons::WeaponsMP.size();
+            i < 18 && static_cast<std::size_t>(i) < MphRead::Weapons::WeaponsMP->size();
             ++i)
         {
-            const WeaponInfo& weapon = MphRead::Weapons::WeaponsMP[static_cast<std::size_t>(i)];
+            const WeaponInfo& weapon = *(*MphRead::Weapons::WeaponsMP)[static_cast<std::size_t>(i)];
             if (weapon.Beam < BeamType::PowerBeam || weapon.Beam > BeamType::OmegaCannon)
             {
                 continue;
@@ -287,9 +291,9 @@ namespace MphRead::Mods::Network
                 || HasFlag(weapon.Flags, WeaponFlags::SelfDamageCharged)) note("can hurt the shooter");
 
             std::string afflictions;
-            for (std::size_t j = 0; j < weapon.Afflictions.size(); ++j)
+            for (std::size_t j = 0; j < weapon.Afflictions->size(); ++j)
             {
-                if (weapon.Afflictions[j] != Affliction::None)
+                if ((*weapon.Afflictions)[j] != Affliction::None)
                 {
                     if (!afflictions.empty())
                     {
@@ -299,7 +303,7 @@ namespace MphRead::Mods::Network
                     {
                         afflictions += "charged: ";
                     }
-                    afflictions += AfflictionString(weapon.Afflictions[j]);
+                    afflictions += AfflictionString((*weapon.Afflictions)[j]);
                 }
             }
 

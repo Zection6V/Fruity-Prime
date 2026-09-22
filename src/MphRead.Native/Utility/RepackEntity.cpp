@@ -751,15 +751,18 @@ namespace MphRead::Utility
                     || Has(mphFlags, Entities::TriggerFlags::ShockCoil)
                     || Has(mphFlags, Entities::TriggerFlags::ShockCoil))
                 {
-                    flags |= Entities::FhTriggerFlags::Beam;
+                    flags = static_cast<Entities::FhTriggerFlags>(
+                        U(flags) | U(Entities::FhTriggerFlags::Beam));
                 }
                 if (Has(mphFlags, Entities::TriggerFlags::PlayerBiped))
                 {
-                    flags |= Entities::FhTriggerFlags::PlayerBiped;
+                    flags = static_cast<Entities::FhTriggerFlags>(
+                        U(flags) | U(Entities::FhTriggerFlags::PlayerBiped));
                 }
                 if (Has(mphFlags, Entities::TriggerFlags::PlayerAlt))
                 {
-                    flags |= Entities::FhTriggerFlags::PlayerAlt;
+                    flags = static_cast<Entities::FhTriggerFlags>(
+                        U(flags) | U(Entities::FhTriggerFlags::PlayerAlt));
                 }
             }
             return flags;

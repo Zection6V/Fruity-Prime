@@ -17,6 +17,27 @@
 #include <unordered_set>
 #include <utility>
 
+namespace System
+{
+    class IndexOutOfRangeException final : public std::out_of_range
+    {
+    public:
+        IndexOutOfRangeException()
+            : std::out_of_range("Index was outside the bounds of the array.")
+        {
+        }
+    };
+
+    class InvalidOperationException final : public std::runtime_error
+    {
+    public:
+        InvalidOperationException()
+            : std::runtime_error("Sequence contains no elements")
+        {
+        }
+    };
+}
+
 namespace MphRead::Mods::MapGen
 {
     namespace
@@ -366,7 +387,7 @@ namespace MphRead::Mods::MapGen
         {
             if (points->Length() == 0)
             {
-                throw std::runtime_error("Sequence contains no elements");
+                throw System::InvalidOperationException();
             }
             float value = (*points)[0].*component;
             if (std::isnan(value))
@@ -394,7 +415,7 @@ namespace MphRead::Mods::MapGen
         {
             if (points->Length() == 0)
             {
-                throw std::runtime_error("Sequence contains no elements");
+                throw System::InvalidOperationException();
             }
             std::size_t i = 0;
             float value = (*points)[i].*component;
@@ -425,7 +446,7 @@ namespace MphRead::Mods::MapGen
         {
             if (index < 0 || static_cast<std::size_t>(index) >= grid.Buckets.size())
             {
-                throw std::out_of_range("Index was outside the bounds of the array.");
+                throw System::IndexOutOfRangeException();
             }
             return grid.Buckets[static_cast<std::size_t>(index)];
         }
@@ -435,7 +456,7 @@ namespace MphRead::Mods::MapGen
         {
             if (index < 0 || static_cast<std::size_t>(index) >= grid.Buckets.size())
             {
-                throw std::out_of_range("Index was outside the bounds of the array.");
+                throw System::IndexOutOfRangeException();
             }
             return grid.Buckets[static_cast<std::size_t>(index)];
         }
@@ -553,7 +574,7 @@ namespace MphRead::Mods::MapGen
             const std::int32_t bucketCount = UncheckedMultiply(columns, rows);
             if (bucketCount < 0)
             {
-                throw std::overflow_error("Arithmetic operation resulted in an overflow.");
+                throw System::OverflowException();
             }
             result.Buckets.resize(static_cast<std::size_t>(bucketCount));
 
@@ -1129,7 +1150,7 @@ namespace MphRead::Mods::MapGen
                 const std::int32_t value = static_cast<std::int32_t>(node.Neighbours.size());
                 if (value > 0 && total > std::numeric_limits<std::int32_t>::max() - value)
                 {
-                    throw std::overflow_error("Arithmetic operation resulted in an overflow.");
+                    throw System::OverflowException();
                 }
                 total += value;
             }
@@ -1140,7 +1161,7 @@ namespace MphRead::Mods::MapGen
         {
             if (nodes.empty())
             {
-                throw std::runtime_error("Sequence contains no elements");
+                throw System::InvalidOperationException();
             }
             std::int32_t result = static_cast<std::int32_t>(nodes.front().Neighbours.size());
             for (std::size_t i = 1; i < nodes.size(); i++)

@@ -6,7 +6,7 @@
 #include "../../Program.hpp"
 #include "../../Scene.hpp"
 #include "../../Sound/Music.hpp"
-#include "../../Text/Strings.hpp"
+#include "../../Strings.hpp"
 #include "PlayerEntity.hpp"
 
 #include <algorithm>

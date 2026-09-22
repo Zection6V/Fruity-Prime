@@ -2,7 +2,7 @@
 
 #include "../../GameState.hpp"
 #include "../../Metadata/SoundMeta.hpp"
-#include "../../Paths.hpp"
+#include "../../Formats/Formats.hpp"
 #include "../../Program.hpp"
 #include "../../Scene.hpp"
 #include "../../Sound/Music.hpp"

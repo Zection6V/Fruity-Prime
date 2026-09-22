@@ -1185,6 +1185,111 @@ namespace MphRead::Mods::Update
             result.push_back(L'\"');
             return result;
         }
+#else
+        [[nodiscard]] bool IsDotNetNullOrWhiteSpaceUtf8(
+            std::string_view value) noexcept
+        {
+            std::size_t i = 0;
+            while (i < value.size())
+            {
+                const unsigned char ch = static_cast<unsigned char>(value[i]);
+                if ((ch >= 0x09U && ch <= 0x0DU) || ch == 0x20U)
+                {
+                    ++i;
+                    continue;
+                }
+                if (i + 1U < value.size() && ch == 0xC2U)
+                {
+                    const unsigned char next = static_cast<unsigned char>(value[i + 1U]);
+                    if (next == 0x85U || next == 0xA0U)
+                    {
+                        i += 2U;
+                        continue;
+                    }
+                }
+                if (i + 2U < value.size())
+                {
+                    const unsigned char second = static_cast<unsigned char>(value[i + 1U]);
+                    const unsigned char third = static_cast<unsigned char>(value[i + 2U]);
+                    if ((ch == 0xE1U && second == 0x9AU && third == 0x80U)
+                        || (ch == 0xE2U && second == 0x80U
+                            && ((third >= 0x80U && third <= 0x8AU)
+                                || third == 0xA8U || third == 0xA9U
+                                || third == 0xAFU))
+                        || (ch == 0xE2U && second == 0x81U && third == 0x9FU)
+                        || (ch == 0xE3U && second == 0x80U && third == 0x80U))
+                    {
+                        i += 3U;
+                        continue;
+                    }
+                }
+                return false;
+            }
+            return true;
+        }
+
+        [[nodiscard]] bool IsUnixExecutable(const std::string& path)
+        {
+            struct stat info{};
+            const fs::path native = NativePath(path);
+            if (::stat(native.c_str(), &info) != 0 || S_ISDIR(info.st_mode))
+            {
+                return false;
+            }
+            return ::access(native.c_str(), X_OK) == 0;
+        }
+
+        [[nodiscard]] std::optional<std::string> ResolveUnixProcessPath(
+            const std::string& executable)
+        {
+            if (!executable.empty() && executable.front() == '/')
+            {
+                return executable;
+            }
+
+            const fs::path executableDirectory
+                = NativePath(CurrentExecutablePath()).parent_path();
+            std::string candidate = PathText(
+                executableDirectory / NativePath(executable));
+            if (FileExists(candidate))
+            {
+                return candidate;
+            }
+
+            candidate = PathText(fs::current_path() / NativePath(executable));
+            if (FileExists(candidate))
+            {
+                return candidate;
+            }
+
+            const char* pathValue = std::getenv("PATH");
+            if (pathValue != nullptr)
+            {
+                const std::string_view paths(pathValue);
+                std::size_t start = 0;
+                while (start <= paths.size())
+                {
+                    const std::size_t end = paths.find(':', start);
+                    const std::string_view directory = paths.substr(start,
+                        end == std::string_view::npos
+                            ? paths.size() - start : end - start);
+                    if (!directory.empty())
+                    {
+                        candidate = Combine(std::string(directory), executable);
+                        if (IsUnixExecutable(candidate))
+                        {
+                            return candidate;
+                        }
+                    }
+                    if (end == std::string_view::npos)
+                    {
+                        break;
+                    }
+                    start = end + 1U;
+                }
+            }
+            return std::nullopt;
+        }
 #endif
 
         void StartProcess(const std::string& executable,
@@ -1221,7 +1326,8 @@ namespace MphRead::Mods::Update
             static std::mutex processStartMutex;
             std::lock_guard lock(processStartMutex);
             if (!::CreateProcessW(nullptr, mutableCommand.data(), nullptr, nullptr,
-                TRUE, 0, nullptr, cwd.c_str(), &startup, &process))
+                TRUE, 0, nullptr, cwd.empty() ? nullptr : cwd.c_str(),
+                &startup, &process))
             {
                 throw std::system_error(
                     static_cast<int>(::GetLastError()), std::system_category());
@@ -1229,6 +1335,37 @@ namespace MphRead::Mods::Update
             ::CloseHandle(process.hThread);
             ::CloseHandle(process.hProcess);
 #else
+            const bool hasWorkingDirectory
+                = !IsDotNetNullOrWhiteSpaceUtf8(workingDirectory);
+            const std::optional<std::string> resolvedExecutable
+                = ResolveUnixProcessPath(executable);
+
+            std::vector<std::string> owned;
+            owned.reserve(arguments.size() + 1U);
+            owned.push_back(executable);
+            for (const std::string& argument : arguments)
+            {
+                owned.push_back(argument);
+            }
+            std::vector<char*> argv;
+            argv.reserve(owned.size() + 1U);
+            for (std::string& value : owned)
+            {
+                argv.push_back(value.data());
+            }
+            argv.push_back(nullptr);
+
+            if (!resolvedExecutable.has_value())
+            {
+                throw std::system_error(ENOENT, std::generic_category());
+            }
+            const fs::path nativeExecutable = NativePath(*resolvedExecutable);
+            std::optional<fs::path> nativeWorkingDirectory;
+            if (hasWorkingDirectory)
+            {
+                nativeWorkingDirectory = NativePath(workingDirectory);
+            }
+
             int errorPipe[2] = {-1, -1};
 #if defined(O_CLOEXEC) && defined(__linux__)
             if (::pipe2(errorPipe, O_CLOEXEC) != 0)
@@ -1252,23 +1389,6 @@ namespace MphRead::Mods::Update
                 }
             }
 #endif
-
-            std::vector<std::string> owned;
-            owned.reserve(arguments.size() + 1U);
-            owned.push_back(executable);
-            for (const std::string& argument : arguments)
-            {
-                owned.push_back(argument);
-            }
-            std::vector<char*> argv;
-            argv.reserve(owned.size() + 1U);
-            for (std::string& value : owned)
-            {
-                argv.push_back(value.data());
-            }
-            argv.push_back(nullptr);
-            const fs::path nativeWorkingDirectory = NativePath(workingDirectory);
-            const fs::path nativeExecutable = NativePath(executable);
 
             const pid_t child = ::fork();
             if (child < 0)
@@ -1305,7 +1425,8 @@ namespace MphRead::Mods::Update
                     ::_exit(127);
                 };
 
-                if (::chdir(nativeWorkingDirectory.c_str()) != 0)
+                if (nativeWorkingDirectory.has_value()
+                    && ::chdir(nativeWorkingDirectory->c_str()) != 0)
                 {
                     fail(errno);
                 }

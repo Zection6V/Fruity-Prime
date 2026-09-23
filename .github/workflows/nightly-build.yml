@@ -205,7 +205,6 @@ jobs:
             echo "### Nightly Build published"
             echo
             echo "- Source branch: \`${GITHUB_REF_NAME}\`"
-            echo "- Source branch: \`${GITHUB_REF_NAME}\`"
             echo "- Tag: \`${NIGHTLY_TAG}\` -> \`${GITHUB_SHA}\`"
             echo "- Assets:"
             (cd dist && ls -1 | sed 's/^/  - /')

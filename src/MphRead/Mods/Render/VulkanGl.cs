@@ -487,6 +487,8 @@ namespace MphRead.Mods.Render
             }
         }
 
+        public static void Vertex2(float x, float y) => Vertex3(x, y, 0f);
+
         public static void Vertex3(float x, float y, float z)
         {
             List<float> v = _batch.Vertices;
@@ -813,7 +815,7 @@ namespace MphRead.Mods.Render
             if (p.Values.TryGetValue("mtx_stack", out object? stackObj) && stackObj is float[] stack)
             {
                 int bytes = Math.Min(stack.Length * sizeof(float), 32 * 64);
-                Buffer.BlockCopy(stack, 0, data, StackOffset, bytes);
+                System.Buffer.BlockCopy(stack, 0, data, StackOffset, bytes);
                 for (int m = stack.Length / 16; m < 32; m++) WriteIdentity(data, StackOffset + m * 64);
             }
             else
@@ -874,12 +876,12 @@ namespace MphRead.Mods.Render
         };
 
         private static float[] IdentityFloats() => (float[])_identity.Clone();
-        private static void WriteIdentity(byte[] data, int offset) => Buffer.BlockCopy(_identity, 0, data, offset, 64);
-        private static void WriteMatrix(byte[] data, int offset, float[] matrix) => Buffer.BlockCopy(matrix, 0, data, offset, 64);
+        private static void WriteIdentity(byte[] data, int offset) => System.Buffer.BlockCopy(_identity, 0, data, offset, 64);
+        private static void WriteMatrix(byte[] data, int offset, float[] matrix) => System.Buffer.BlockCopy(matrix, 0, data, offset, 64);
         private static void WriteVector4(byte[] data, int offset, Vector4 value)
         {
             float[] f = { value.X, value.Y, value.Z, value.W };
-            Buffer.BlockCopy(f, 0, data, offset, 16);
+            System.Buffer.BlockCopy(f, 0, data, offset, 16);
         }
 
         public static int GenTexture()
@@ -968,6 +970,21 @@ namespace MphRead.Mods.Render
             TextureInfo info = GetTexture(name);
             if (info.Texture == null) return;
             byte[] data = ConvertPixels(BytesOf(pixels), width, height, format);
+            _gd!.UpdateTexture(info.Texture, data, (uint)xoffset, (uint)yoffset, 0,
+                (uint)width, (uint)height, 1, 0, 0);
+        }
+
+        public static void TexSubImage2D(GLTexture target, int level, int xoffset, int yoffset,
+            int width, int height, GLPixelFormat format, PixelType type, IntPtr pixels)
+        {
+            int name = _boundTextures[_activeTextureUnit];
+            if (name == 0 || pixels == IntPtr.Zero) return;
+            TextureInfo info = GetTexture(name);
+            if (info.Texture == null) return;
+            int bytesPerPixel = format == GLPixelFormat.Rgb ? 3 : 4;
+            byte[] source = new byte[Math.Max(width, 0) * Math.Max(height, 0) * bytesPerPixel];
+            Marshal.Copy(pixels, source, 0, source.Length);
+            byte[] data = ConvertPixels(source, width, height, format);
             _gd!.UpdateTexture(info.Texture, data, (uint)xoffset, (uint)yoffset, 0,
                 (uint)width, (uint)height, 1, 0, 0);
         }
@@ -1289,6 +1306,7 @@ namespace MphRead.Mods.Render
         }
 
         public static void PixelStore(PixelStoreParameter pname, int param) { }
+        public static void DrawBuffer(DrawBufferMode mode) { }
         public static void ReadBuffer(ReadBufferMode mode) { }
         public static GLErrorCode GetError() => GLErrorCode.NoError;
         public static string GetString(StringName name)

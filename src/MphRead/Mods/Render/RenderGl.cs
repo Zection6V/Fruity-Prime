@@ -36,6 +36,7 @@ namespace MphRead.Mods.Render
 
         public static void Begin(PrimitiveType mode) { if (Vk) VulkanGl.Begin(mode); else OpenTK.Graphics.OpenGL.GL.Begin(mode); }
         public static void End() { if (Vk) VulkanGl.End(); else OpenTK.Graphics.OpenGL.GL.End(); }
+        public static void Vertex2(float x,float y) { if (Vk) VulkanGl.Vertex2(x,y); else OpenTK.Graphics.OpenGL.GL.Vertex2(x,y); }
         public static void Vertex3(float x,float y,float z) { if (Vk) VulkanGl.Vertex3(x,y,z); else OpenTK.Graphics.OpenGL.GL.Vertex3(x,y,z); }
         public static void Vertex3(Vector3 v) { if (Vk) VulkanGl.Vertex3(v); else OpenTK.Graphics.OpenGL.GL.Vertex3(v); }
         public static void Color3(float r,float g,float b) { if (Vk) VulkanGl.Color3(r,g,b); else OpenTK.Graphics.OpenGL.GL.Color3(r,g,b); }
@@ -63,6 +64,8 @@ namespace MphRead.Mods.Render
         public static void TexImage2D<T>(TextureTarget target,int level,PixelInternalFormat internalFormat,int width,int height,int border,PixelFormat format,PixelType type,T[] pixels) where T:struct
         { if (Vk) VulkanGl.TexImage2D(target,level,internalFormat,width,height,border,format,type,pixels); else OpenTK.Graphics.OpenGL.GL.TexImage2D(target,level,internalFormat,width,height,border,format,type,pixels); }
         public static void TexSubImage2D<T>(TextureTarget target,int level,int xoffset,int yoffset,int width,int height,PixelFormat format,PixelType type,T[] pixels) where T:struct
+        { if (Vk) VulkanGl.TexSubImage2D(target,level,xoffset,yoffset,width,height,format,type,pixels); else OpenTK.Graphics.OpenGL.GL.TexSubImage2D(target,level,xoffset,yoffset,width,height,format,type,pixels); }
+        public static void TexSubImage2D(TextureTarget target,int level,int xoffset,int yoffset,int width,int height,PixelFormat format,PixelType type,IntPtr pixels)
         { if (Vk) VulkanGl.TexSubImage2D(target,level,xoffset,yoffset,width,height,format,type,pixels); else OpenTK.Graphics.OpenGL.GL.TexSubImage2D(target,level,xoffset,yoffset,width,height,format,type,pixels); }
         public static void CopyTexSubImage2D(TextureTarget target,int level,int xoffset,int yoffset,int x,int y,int width,int height)
         { if (Vk) VulkanGl.CopyTexSubImage2D(target,level,xoffset,yoffset,x,y,width,height); else OpenTK.Graphics.OpenGL.GL.CopyTexSubImage2D(target,level,xoffset,yoffset,x,y,width,height); }
@@ -120,6 +123,7 @@ namespace MphRead.Mods.Render
         public static void Viewport(int x,int y,int width,int height) { if (Vk) VulkanGl.Viewport(x,y,width,height); else OpenTK.Graphics.OpenGL.GL.Viewport(x,y,width,height); }
         public static void Scissor(int x,int y,int width,int height) { if (Vk) VulkanGl.Scissor(x,y,width,height); else OpenTK.Graphics.OpenGL.GL.Scissor(x,y,width,height); }
         public static void PixelStore(PixelStoreParameter pname,int param) { if (Vk) VulkanGl.PixelStore(pname,param); else OpenTK.Graphics.OpenGL.GL.PixelStore(pname,param); }
+        public static void DrawBuffer(DrawBufferMode mode) { if (Vk) VulkanGl.DrawBuffer(mode); else OpenTK.Graphics.OpenGL.GL.DrawBuffer(mode); }
         public static void ReadBuffer(ReadBufferMode mode) { if (Vk) VulkanGl.ReadBuffer(mode); else OpenTK.Graphics.OpenGL.GL.ReadBuffer(mode); }
         public static ErrorCode GetError() => Vk ? VulkanGl.GetError() : OpenTK.Graphics.OpenGL.GL.GetError();
         public static string GetString(StringName name) => Vk ? VulkanGl.GetString(name) : OpenTK.Graphics.OpenGL.GL.GetString(name);

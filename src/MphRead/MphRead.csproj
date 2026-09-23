@@ -192,7 +192,10 @@
 
   <ItemGroup>
     <PackageReference Include="OpenTK" Version="4.9.4" />
-    <PackageReference Include="ReFuel.StbImage" Version="2.1.1" />\n    <PackageReference Include="Veldrid" Version="4.9.0" />\n    <PackageReference Include="Veldrid.SPIRV" Version="1.0.14" />\n    <Using Include="MphRead.Mods.Render.RenderGl" Alias="GL" />
+    <PackageReference Include="ReFuel.StbImage" Version="2.1.1" />
+    <PackageReference Include="Veldrid" Version="4.9.0" />
+    <PackageReference Include="Veldrid.SPIRV" Version="1.0.14" />
+    <Using Include="MphRead.Mods.Render.RenderGl" Alias="GL" />
   </ItemGroup>
 
   <!-- OpenAL Soft, for the sound effects.
@@ -227,19 +230,22 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('win'))">
-    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)\native\soft_oal.dll"
+    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)
+ative\soft_oal.dll"
           Link="openal32.dll" CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('linux'))">
-    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)\native\libopenal.so"
+    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)
+ative\libopenal.so"
           Link="libopenal.so.1" CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('osx'))">
-    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)\native\libopenal.dylib"
+    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)
+ative\libopenal.dylib"
           Link="libopenal.1.dylib" CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>

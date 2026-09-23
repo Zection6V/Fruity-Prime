@@ -57,7 +57,8 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public event EventHandler? GameFilesRequested;
 
-        private ChoiceRow? _windowRow;\n        private ChoiceRow? _rendererRow;
+        private ChoiceRow? _windowRow;
+        private ChoiceRow? _rendererRow;
         private ChoiceRow? _clipSecondsRow;
         private SliderRow _resolutionScale = null!;
         private ToggleRow _lightingRow = null!;
@@ -402,7 +403,10 @@ namespace MphRead.Mods.Launcher.Gui
                 Heading(page, "Window");
                 _windowRow = Add(page, new ChoiceRow("Mode",
                     new[] { "Windowed", "Fullscreen (borderless)" },
-                    LauncherPrefs.WindowMode == WindowStartMode.BorderlessFullscreen ? 1 : 0));\n                _rendererRow = Add(page, new ChoiceRow("Renderer",\n                    RendererBackend.Names, RendererBackend.RequestedIndex));\n                Explain(page, "Changing renderer takes effect the next time Fruity Prime starts.");
+                    LauncherPrefs.WindowMode == WindowStartMode.BorderlessFullscreen ? 1 : 0));
+                _rendererRow = Add(page, new ChoiceRow("Renderer",
+                    RendererBackend.Names, RendererBackend.RequestedIndex));
+                Explain(page, "Changing renderer takes effect the next time Fruity Prime starts.");
             }
 
             // Its own heading, above the performance rows, because it is not
@@ -1100,7 +1104,13 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     PauseMenu.RequestFullscreenToggle();
                 }
-            }\n            if (_rendererRow != null)\n            {\n                _settings.Renderer = RendererBackend.Names[\n                    Math.Clamp(_rendererRow.Index, 0, RendererBackend.Names.Length - 1)];\n                RendererBackend.Configure(_settings.Renderer);\n            }
+            }
+            if (_rendererRow != null)
+            {
+                _settings.Renderer = RendererBackend.Names[
+                    Math.Clamp(_rendererRow.Index, 0, RendererBackend.Names.Length - 1)];
+                RendererBackend.Configure(_settings.Renderer);
+            }
             if (_clipSecondsRow != null)
             {
                 Mods.Network.DemoClip.Seconds = Mods.Network.DemoClip.Lengths[

@@ -7243,7 +7243,10 @@ namespace MphRead
             Scene.StartMovie((Movie)movieId, FadeType.FadeOutInBlack, 0, FadeType.FadeOutBlack, 0, afterMovieAction: AfterMovie.EndGame);
         }
 
-        protected override void OnLoad()\n        {\n            Mods.Render.RenderGl.Initialize(this);\n            Mods.Input.WindowsPenInput.Attach(this);
+        protected override void OnLoad()
+        {
+            Mods.Render.RenderGl.Initialize(this);
+            Mods.Input.WindowsPenInput.Attach(this);
             // Not in the shell, which opens with no match in it: the scene is
             // loaded by LoadScene when one is started. The guard also covers
             // the ordinary path twice over, since a caller that has already
@@ -7254,7 +7257,27 @@ namespace MphRead
                 _sceneLoaded = true;
             }
             base.OnLoad();
-        }\n\n        protected override void OnUnload()\n        {\n            Mods.Render.RenderGl.Shutdown();\n            base.OnUnload();\n        }\n\n        public override void SwapBuffers()\n        {\n            if (Mods.Render.RendererBackend.UseVulkan)\n            {\n                Mods.Render.RenderGl.Present();\n            }\n            else\n            {\n                base.SwapBuffers();\n            }\n        }\n\n        private int _appliedFrameRateCap = -1;
+        }
+
+        protected override void OnUnload()
+        {
+            Mods.Render.RenderGl.Shutdown();
+            base.OnUnload();
+        }
+
+        public override void SwapBuffers()
+        {
+            if (Mods.Render.RendererBackend.UseVulkan)
+            {
+                Mods.Render.RenderGl.Present();
+            }
+            else
+            {
+                base.SwapBuffers();
+            }
+        }
+
+        private int _appliedFrameRateCap = -1;
 
         /// <summary>
         /// Put the player's frame rate choice on the window, and only when it

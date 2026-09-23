@@ -1037,7 +1037,88 @@ namespace MphRead.Mods.Render
         public static void ReadPixels<T>(int x, int y, int width, int height,
             GLPixelFormat format, PixelType type, T[] pixels) where T : struct
         {
-            Array.Clear(pixels, 0, pixels.Length);
+            if (_gd == null || _factory == null || _commands == null
+                || width <= 0 || height <= 0 || pixels.Length == 0)
+            {
+                Array.Clear(pixels, 0, pixels.Length);
+                return;
+            }
+            if (type != PixelType.UnsignedByte
+                || (format != GLPixelFormat.Rgb && format != GLPixelFormat.Rgba))
+            {
+                throw new ProgramException($"Vulkan readback does not support {format}/{type}.");
+            }
+
+            Veldrid.Texture source = CurrentFramebuffer(_readFramebuffer).ColorTargets[0].Target;
+            int copyX = Math.Clamp(x, 0, Math.Max((int)source.Width - width, 0));
+            int copyY = Math.Clamp(y, 0, Math.Max((int)source.Height - height, 0));
+            if (_gd.IsUvOriginTopLeft)
+            {
+                copyY = Math.Max((int)source.Height - copyY - height, 0);
+            }
+
+            if (_commandsOpen)
+            {
+                _commands.End();
+                _gd.SubmitCommands(_commands);
+                _commandsOpen = false;
+            }
+            _gd.WaitForIdle();
+
+            using Veldrid.Texture staging = _factory.CreateTexture(TextureDescription.Texture2D(
+                (uint)width, (uint)height, 1, 1, source.Format, TextureUsage.Staging));
+            _commands.Begin();
+            _commands.CopyTexture(source, (uint)copyX, (uint)copyY, 0, 0, 0,
+                staging, 0, 0, 0, 0, 0, (uint)width, (uint)height, 1, 1);
+            _commands.End();
+            _gd.SubmitCommands(_commands);
+            _gd.WaitForIdle();
+
+            int outputBpp = format == GLPixelFormat.Rgb ? 3 : 4;
+            byte[] output = new byte[width * height * outputBpp];
+            MappedResource mapped = _gd.Map(staging, MapMode.Read);
+            try
+            {
+                byte[] row = new byte[width * 4];
+                bool bgra = source.Format.ToString().StartsWith("B8_G8_R8_A8",
+                    StringComparison.Ordinal);
+                for (int rowIndex = 0; rowIndex < height; rowIndex++)
+                {
+                    IntPtr rowPtr = IntPtr.Add(mapped.Data, checked((int)(rowIndex * mapped.RowPitch)));
+                    Marshal.Copy(rowPtr, row, 0, row.Length);
+                    int dest = rowIndex * width * outputBpp;
+                    for (int col = 0; col < width; col++)
+                    {
+                        int src = col * 4;
+                        byte r = bgra ? row[src + 2] : row[src];
+                        byte g = row[src + 1];
+                        byte b = bgra ? row[src] : row[src + 2];
+                        output[dest++] = r;
+                        output[dest++] = g;
+                        output[dest++] = b;
+                        if (outputBpp == 4)
+                        {
+                            output[dest++] = row[src + 3];
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _gd.Unmap(staging);
+            }
+
+            int targetBytes = Marshal.SizeOf<T>() * pixels.Length;
+            int copyBytes = Math.Min(targetBytes, output.Length);
+            GCHandle handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+            try
+            {
+                Marshal.Copy(output, 0, handle.AddrOfPinnedObject(), copyBytes);
+            }
+            finally
+            {
+                handle.Free();
+            }
         }
 
         public static int GenFramebuffer()

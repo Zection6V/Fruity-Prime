@@ -13,22 +13,10 @@
 #include <utility>
 #include <vector>
 
-namespace NCSF123
-{
-    enum class VolumeType : std::int32_t
-    {
-        ReplayGainAlbum = 0
-    };
-}
+#include "../../NcsfPlay.Native/Player/NCSFFile.hpp"
+#include "../../NcsfPlay.Native/Player/Player.hpp"
+#include "../../NcsfPlay.Native/Track.hpp"
 
-namespace NCSF123::NCSFCommon
-{
-    struct Track
-    {
-        std::uint8_t Volume = 127;
-        bool Mute = false;
-    };
-}
 
 namespace SoundFlow::Enums
 {
@@ -224,7 +212,7 @@ namespace MphRead
         static void Volume(float value) noexcept;
         [[nodiscard]] static std::uint16_t Tempo() noexcept;
         static void Tempo(std::uint16_t value) noexcept;
-        [[nodiscard]] static NCSF123::NCSFCommon::Track* GetTrack(std::int32_t index) noexcept;
+        [[nodiscard]] static NCSFCommon::Track* GetTrack(std::int32_t index) noexcept;
         static void Stop();
         static void Remove(bool shutdown = false);
     };

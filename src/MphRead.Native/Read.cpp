@@ -165,7 +165,7 @@ namespace MphRead
         class DebugLog final
         {
         public:
-            static void Line(const std::string& category, const std::string& value);
+            static void Line(std::string_view category, std::string_view value);
         };
     }
 

@@ -1,5 +1,7 @@
 #include "WindowMode.hpp"
 
+#include "../Renderer.hpp"
+
 #include "Chat/ChatBox.hpp"
 
 #include <bit>
@@ -11,36 +13,6 @@
 
 namespace MphRead::Mods::Detail
 {
-    // Renderer/RenderWindow own the native window. WindowMode owns only the
-    // C# policy and ordering around these exact NativeWindow observations.
-    struct WindowModeVector2i final
-    {
-        std::int32_t X = 0;
-        std::int32_t Y = 0;
-    };
-
-    struct WindowModeMonitorArea final
-    {
-        WindowModeVector2i Min{};
-        WindowModeVector2i Size{};
-    };
-
-    [[nodiscard]] std::int32_t WindowModeWindowBorder(MphRead::RenderWindow& window);
-    [[nodiscard]] WindowModeVector2i WindowModeLocation(MphRead::RenderWindow& window);
-    [[nodiscard]] WindowModeVector2i WindowModeClientSize(MphRead::RenderWindow& window);
-    [[nodiscard]] WindowModeMonitorArea WindowModeMonitorClientArea(
-        MphRead::RenderWindow& window);
-
-    void WindowModeSetWindowStateNormal(MphRead::RenderWindow& window);
-    void WindowModeSetWindowBorder(MphRead::RenderWindow& window, std::int32_t border);
-    void WindowModePollEvents();
-    void WindowModeSetLocation(
-        MphRead::RenderWindow& window, WindowModeVector2i location);
-    void WindowModeSetClientSize(
-        MphRead::RenderWindow& window, WindowModeVector2i size);
-    void WindowModeSetFloating(MphRead::RenderWindow& window, bool floating);
-    [[nodiscard]] bool WindowModeIsFocused(MphRead::RenderWindow& window);
-
     // PauseMenu owns its Open state and publishes only this narrow observation.
     [[nodiscard]] bool WindowModePauseMenuOpen();
 }
@@ -48,7 +20,7 @@ namespace MphRead::Mods::Detail
 namespace
 {
     using MphRead::Mods::WindowStartMode;
-    using MphRead::Mods::Detail::WindowModeVector2i;
+    using OpenTK::Mathematics::Vector2i;
 
     constexpr std::int32_t ResizableWindowBorder = 0;
     constexpr std::int32_t HiddenWindowBorder = 2;
@@ -58,8 +30,8 @@ namespace
     WindowStartMode startupState = WindowStartMode::Windowed;
     bool fullscreenState = false;
     std::int32_t savedBorderState = ResizableWindowBorder;
-    WindowModeVector2i savedLocationState{};
-    WindowModeVector2i savedSizeState{};
+    OpenTK::Mathematics::Vector2i savedLocationState{};
+    OpenTK::Mathematics::Vector2i savedSizeState{};
     bool savedState = false;
     bool topmostState = false;
 
@@ -313,22 +285,21 @@ namespace MphRead::Mods
         }
         if (!savedState)
         {
-            savedBorderState = Detail::WindowModeWindowBorder(window);
-            savedLocationState = Detail::WindowModeLocation(window);
-            savedSizeState = Detail::WindowModeClientSize(window);
+            savedBorderState = window.WindowBorder();
+            savedLocationState = window.Location();
+            savedSizeState = window.ClientSize();
             savedState = true;
         }
 
-        const Detail::WindowModeMonitorArea monitor
-            = Detail::WindowModeMonitorClientArea(window);
+        const RendererPlatform::MonitorArea monitor
+            = window.CurrentMonitorClientArea();
 
-        Detail::WindowModeSetWindowStateNormal(window);
-        Detail::WindowModeSetWindowBorder(window, HiddenWindowBorder);
-        Detail::WindowModePollEvents();
-        Detail::WindowModeSetLocation(window, monitor.Min);
-        Detail::WindowModeSetClientSize(
-            window,
-            Detail::WindowModeVector2i{
+        window.WindowStateNormal();
+        window.WindowBorder(HiddenWindowBorder);
+        RendererPlatform::ProcessEvents();
+        window.Location(monitor.Min);
+        
+            window.ClientSize(OpenTK::Mathematics::Vector2i{
                 monitor.Size.X,
                 SubtractOneUnchecked(monitor.Size.Y)});
 
@@ -343,16 +314,15 @@ namespace MphRead::Mods
             return;
         }
 
-        Detail::WindowModeSetWindowStateNormal(window);
-        Detail::WindowModeSetWindowBorder(
-            window,
-            savedState ? savedBorderState : ResizableWindowBorder);
-        Detail::WindowModePollEvents();
+        window.WindowStateNormal();
+        
+            window.WindowBorder(savedState ? savedBorderState : ResizableWindowBorder);
+        RendererPlatform::ProcessEvents();
 
         if (savedState)
         {
-            Detail::WindowModeSetClientSize(window, savedSizeState);
-            Detail::WindowModeSetLocation(window, savedLocationState);
+            window.ClientSize(savedSizeState);
+            window.Location(savedLocationState);
         }
 
         fullscreenState = false;
@@ -375,7 +345,7 @@ namespace MphRead::Mods
         topmostState = topmost;
         try
         {
-            Detail::WindowModeSetFloating(window, topmost);
+            window.Floating(topmost);
         }
         catch (...)
         {
@@ -388,7 +358,7 @@ namespace MphRead::Mods
             window,
             fullscreenState
                 && !Detail::WindowModePauseMenuOpen()
-                && Detail::WindowModeIsFocused(window));
+                && window.IsFocused());
     }
 
     WindowStartMode WindowMode::Parse(

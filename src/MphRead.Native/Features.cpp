@@ -1,5 +1,8 @@
 #include "Features.hpp"
 
+#include <iterator>
+#include <span>
+
 #include "Mods/Render/Crosshair.hpp"
 
 #include <bit>
@@ -1243,5 +1246,38 @@ namespace MphRead
             {"AlwaysFightGorea2", BoolLower(AlwaysFightGorea2())},
             {"QuadrupleDamage", BoolLower(QuadrupleDamage())}
         };
+    }
+}
+
+namespace MphRead
+{
+    std::span<const Cheats::BooleanProperty> Cheats::BooleanProperties() noexcept
+    {
+        // Declaration order, which is the order reflection reports.
+        static constexpr BooleanProperty properties[] = {
+            {"FreeWeaponSelect", &Cheats::FreeWeaponSelect,
+                [](bool value) noexcept { Cheats::FreeWeaponSelect(value); }},
+            {"UnlimitedJumps", &Cheats::UnlimitedJumps,
+                [](bool value) noexcept { Cheats::UnlimitedJumps(value); }},
+            {"NoRandomEncounters", &Cheats::NoRandomEncounters,
+                [](bool value) noexcept { Cheats::NoRandomEncounters(value); }},
+            {"UnlockAllDoors", &Cheats::UnlockAllDoors,
+                [](bool value) noexcept { Cheats::UnlockAllDoors(value); }},
+            {"ContinueFromCurrentRoom", &Cheats::ContinueFromCurrentRoom,
+                [](bool value) noexcept { Cheats::ContinueFromCurrentRoom(value); }},
+            {"SkipPlanetIntros", &Cheats::SkipPlanetIntros,
+                [](bool value) noexcept { Cheats::SkipPlanetIntros(value); }},
+            {"StartWithAllUpgrades", &Cheats::StartWithAllUpgrades,
+                [](bool value) noexcept { Cheats::StartWithAllUpgrades(value); }},
+            {"StartWithAllOctoliths", &Cheats::StartWithAllOctoliths,
+                [](bool value) noexcept { Cheats::StartWithAllOctoliths(value); }},
+            {"WalkThroughWalls", &Cheats::WalkThroughWalls,
+                [](bool value) noexcept { Cheats::WalkThroughWalls(value); }},
+            {"AlwaysFightGorea2", &Cheats::AlwaysFightGorea2,
+                [](bool value) noexcept { Cheats::AlwaysFightGorea2(value); }},
+            {"QuadrupleDamage", &Cheats::QuadrupleDamage,
+                [](bool value) noexcept { Cheats::QuadrupleDamage(value); }},
+        };
+        return std::span<const BooleanProperty>(properties, std::size(properties));
     }
 }

@@ -1,5 +1,21 @@
 #include "TextLauncher.hpp"
 
+#include "../../../NativeRuntime/System/Globalization.hpp"
+#include "../../../Renderer.hpp"
+#include "../../WindowMode.hpp"
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "AdventureSave.hpp"
 #include "GameFiles.hpp"
 #include "LaunchPlan.hpp"
@@ -64,21 +80,6 @@
 #include <unistd.h>
 #endif
 
-namespace MphRead::Mods::Launcher::Detail
-{
-    // These are direct owner seams, not TextLauncher policy. WindowMode already
-    // owns Startup; the remaining runtime/Console operations need their common
-    // Native owners rather than pair-local approximations.
-    void TextLauncherSetWindowStartup(MphRead::Mods::WindowStartMode value);
-    [[nodiscard]] std::string TextLauncherExceptionMessage(const std::exception& exception);
-    [[nodiscard]] std::optional<std::string> TextLauncherExceptionStackTrace(
-        const std::exception& exception);
-    [[nodiscard]] std::optional<std::string> TextLauncherConsoleReadLine();
-    [[nodiscard]] bool TextLauncherConsoleIsOutputRedirected() noexcept;
-    [[nodiscard]] bool TextLauncherTryParseInt32CurrentCulture(
-        std::string_view text, std::int32_t& value);
-}
-
 namespace MphRead::GameStateDetail
 {
     [[nodiscard]] GameMode GameModeBattle();
@@ -93,6 +94,29 @@ namespace MphRead::GameStateDetail
     [[nodiscard]] GameMode GameModeDefender();
     [[nodiscard]] GameMode GameModeDefenderTeams();
     [[nodiscard]] GameMode GameModePrimeHunter();
+}
+
+namespace
+{
+    // Exception.StackTrace, which a C++ exception does not carry.
+    [[nodiscard]] std::optional<std::string> ExceptionStackTrace(const std::exception& exception)
+    {
+        (void)exception;
+        return std::nullopt;
+    }
+
+    // Console.IsOutputRedirected.
+    [[nodiscard]] bool ConsoleIsOutputRedirected() noexcept
+    {
+#if defined(_WIN32)
+        const HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD mode = 0;
+        return handle == nullptr || handle == INVALID_HANDLE_VALUE
+            || GetConsoleMode(handle, &mode) == FALSE;
+#else
+        return ::isatty(STDOUT_FILENO) == 0;
+#endif
+    }
 }
 
 namespace
@@ -619,7 +643,7 @@ namespace
 
     [[nodiscard]] bool OutputRedirected() noexcept
     {
-        return MphRead::Mods::Launcher::Detail::TextLauncherConsoleIsOutputRedirected();
+        return ConsoleIsOutputRedirected();
     }
 
     [[nodiscard]] bool FileExists(const std::string& path) noexcept
@@ -664,7 +688,7 @@ namespace
     void WriteExceptionStackTrace(const std::exception& exception)
     {
         const std::optional<std::string> stack
-            = MphRead::Mods::Launcher::Detail::TextLauncherExceptionStackTrace(exception);
+            = ExceptionStackTrace(exception);
         std::cout << (stack.has_value() ? *stack : std::string()) << '\n';
     }
 
@@ -699,7 +723,7 @@ namespace
         }
         std::cout.flush();
         const std::optional<std::string> line
-            = MphRead::Mods::Launcher::Detail::TextLauncherConsoleReadLine();
+            = MphRead::RendererPlatform::ConsoleReadLine();
         if (!line.has_value())
         {
             std::cout << '\n';
@@ -1021,8 +1045,7 @@ namespace
                 return false;
             }
             std::int32_t index = 0;
-            if (!MphRead::Mods::Launcher::Detail::TextLauncherTryParseInt32CurrentCulture(
-                    choice, index)
+            if (!::MphRead::NativeRuntime::Int32TryParseCurrentCulture(choice, index)
                 || index < 1 || index > static_cast<std::int32_t>(slots.size()))
             {
                 continue;
@@ -1451,7 +1474,7 @@ namespace MphRead::Mods::Launcher
             std::shared_ptr<MenuSettings> settings = MphRead::GameState::LoadSettings();
             MphRead::Mods::GameSettings::Apply(settings);
             LauncherPrefs::Load();
-            Detail::TextLauncherSetWindowStartup(LauncherPrefs::WindowMode());
+            MphRead::Mods::WindowMode::Startup(LauncherPrefs::WindowMode());
             if (rooms.empty() && GameFiles::Ready())
             {
                 rooms = MphRead::Mods::ThumbnailGenerator::MultiplayerRooms();
@@ -1480,7 +1503,7 @@ namespace MphRead::Mods::Launcher
                 {
                     std::cout << '\n';
                     std::cout << "The game could not start: "
-                        << Detail::TextLauncherExceptionMessage(ex) << '\n';
+                        << std::string((ex).what()) << '\n';
                     WriteExceptionStackTrace(ex);
                     returnAfterFinally = true;
                 }

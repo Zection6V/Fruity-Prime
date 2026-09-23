@@ -1,5 +1,8 @@
 #include "Images.hpp"
 
+#include "../NativeRuntime/OpenTK/GL.hpp"
+#include "../NativeRuntime/Stb/Image.hpp"
+
 #include "../Formats/Model.hpp"
 #include "../HUD/HudInfo.hpp"
 #include "../Read.hpp"
@@ -28,26 +31,56 @@
 
 namespace MphRead::Export::ImagesInterop
 {
-    // Declaration-only bridges for the external APIs used by Images.cs. They carry
-    // no policy or fallback behavior; the eventual platform owner supplies the
-    // OpenGL and ReFuel.Stb implementations.
+    // GL.ReadPixels and ReFuel.Stb's PNG writer, as Images.cs calls them.
     void ReadPixelsRgbUnsignedByte(
         std::int32_t x,
         std::int32_t y,
         std::int32_t width,
         std::int32_t height,
-        std::span<std::uint8_t> buffer);
-    void SetFlipVerticallyOnSave(bool value);
+        std::span<std::uint8_t> buffer)
+    {
+        ::OpenTK::Graphics::OpenGL::GL::ReadPixels(
+            x, y, width, height,
+            ::OpenTK::Graphics::OpenGL::GL::PixelFormat::Rgb,
+            ::OpenTK::Graphics::OpenGL::GL::PixelType::UnsignedByte,
+            buffer.data());
+    }
+
+    void SetFlipVerticallyOnSave(bool value)
+    {
+        ::stbi_flip_vertically_on_write(value ? 1 : 0);
+    }
+
+    namespace
+    {
+        void WriteToStream(void* context, void* data, int size)
+        {
+            auto* const stream = static_cast<std::ostream*>(context);
+            stream->write(static_cast<const char*>(data), size);
+        }
+    }
+
     void WritePngRgb(
         std::span<const std::uint8_t> buffer,
         std::int32_t width,
         std::int32_t height,
-        std::ostream& stream);
+        std::ostream& stream)
+    {
+        (void)::stbi_write_png_to_func(
+            &WriteToStream, &stream, width, height, 3, buffer.data(), width * 3);
+    }
+
     void WritePngRgba(
         std::span<const ColorRgba> buffer,
         std::uint16_t width,
         std::uint16_t height,
-        std::ostream& stream);
+        std::ostream& stream)
+    {
+        // ColorRgba is four bytes in R, G, B, A order, which is the layout the
+        // writer takes.
+        (void)::stbi_write_png_to_func(
+            &WriteToStream, &stream, width, height, 4, buffer.data(), width * 4);
+    }
 }
 
 namespace

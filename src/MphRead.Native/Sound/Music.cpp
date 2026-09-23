@@ -1,5 +1,8 @@
 #include "Music.hpp"
 
+#include "../../NcsfPlay.Native/Player/NCSFPlayerStream.hpp"
+#include "../../NcsfPlay.Native/Player/Player.hpp"
+
 #include "../Formats/Sound.hpp"
 #include "../GameState.hpp"
 #include "../Formats/Formats.hpp"
@@ -14,33 +17,126 @@
 #include <string>
 #include <thread>
 
+namespace
+{
+    // The UTF-16 path NCSFPlayerStream takes, from the UTF-8 one held here.
+    [[nodiscard]] std::u16string Utf8ToUtf16(const std::string& value)
+    {
+        std::u16string result;
+        std::size_t index = 0;
+        while (index < value.size())
+        {
+            const unsigned char lead = static_cast<unsigned char>(value[index]);
+            char32_t code = lead;
+            std::size_t extra = 0;
+            if (lead >= 0xF0) { code = lead & 0x07U; extra = 3; }
+            else if (lead >= 0xE0) { code = lead & 0x0FU; extra = 2; }
+            else if (lead >= 0xC0) { code = lead & 0x1FU; extra = 1; }
+            ++index;
+            for (std::size_t i = 0; i < extra && index < value.size(); ++i, ++index)
+            {
+                code = (code << 6) | (static_cast<unsigned char>(value[index]) & 0x3FU);
+            }
+            if (code > 0xFFFFU)
+            {
+                code -= 0x10000U;
+                result.push_back(static_cast<char16_t>(0xD800U + (code >> 10)));
+                result.push_back(static_cast<char16_t>(0xDC00U + (code & 0x3FFU)));
+            }
+            else
+            {
+                result.push_back(static_cast<char16_t>(code));
+            }
+        }
+        return result;
+    }
+}
+
 namespace NCSFPlayer
 {
-    enum class Interpolation : std::int32_t { None = 0 };
-    enum class PeakType : std::int32_t { ReplayGainTrack = 0 };
-
+    // The player NCSF123::NCSFPlayerStream owns; Music.cs reaches it through
+    // the stream's Player property.
     class PlayerState final
     {
     public:
-        [[nodiscard]] std::uint16_t TempoRatio() const noexcept;
-        void TempoRatio(std::uint16_t value) noexcept;
-        [[nodiscard]] NCSF123::NCSFCommon::Track* GetTrack(std::int32_t index) noexcept;
+        explicit PlayerState(std::shared_ptr<NCSFPlayer::Player> player) noexcept
+            : _player(std::move(player))
+        {
+        }
+
+        [[nodiscard]] std::uint16_t TempoRatio() const noexcept
+        {
+            return _player ? _player->TempoRatio() : std::uint16_t{0};
+        }
+
+        void TempoRatio(std::uint16_t value) noexcept
+        {
+            if (_player)
+            {
+                _player->TempoRatio(value);
+            }
+        }
+
+        [[nodiscard]] NCSFCommon::Track* GetTrack(std::int32_t index) noexcept
+        {
+            if (!_player)
+            {
+                return nullptr;
+            }
+            const std::shared_ptr<NCSFCommon::Track> track = _player->GetTrack(index);
+            return track.get();
+        }
+
+    private:
+        std::shared_ptr<NCSFPlayer::Player> _player;
     };
 
+    // NCSFPlayerStream itself, whose path is UTF-16 there and UTF-8 here.
     class NCSFPlayerStream final
     {
     public:
         NCSFPlayerStream(const std::string& path, std::uint32_t sampleRate, Interpolation interpolation,
             std::int32_t skipSilenceOnStartSec, std::int32_t defaultLengthInMS, std::int32_t defaultFadeInMS,
-            NCSF123::VolumeType volumeType, PeakType peakType, bool playForever, float volume,
-            std::uint16_t channelMutes, std::uint16_t trackMutes, bool ignoreVolume);
-        ~NCSFPlayerStream();
+            NCSF123::VolumeType volumeType, NCSF123::PeakType peakType, bool playForever, float volume,
+            std::uint16_t channelMutes, std::uint16_t trackMutes, bool ignoreVolume)
+            : _stream(std::make_shared<NCSF123::NCSFPlayerStream>(
+                  Utf8ToUtf16(path), sampleRate, interpolation,
+                  static_cast<std::uint32_t>(skipSilenceOnStartSec),
+                  defaultLengthInMS, defaultFadeInMS, volumeType,
+                  peakType, playForever, volume,
+                  channelMutes, trackMutes, ignoreVolume)),
+              _player(_stream->Player())
+        {
+        }
 
-        std::int32_t Read(std::span<std::uint8_t> buffer, std::int32_t offset, std::int32_t count);
-        [[nodiscard]] float VolumeModification() const noexcept;
-        void VolumeModification(float value) noexcept;
-        [[nodiscard]] PlayerState& Player() noexcept;
-        void Dispose() noexcept;
+        ~NCSFPlayerStream() = default;
+
+        std::int32_t Read(std::span<std::uint8_t> buffer, std::int32_t offset, std::int32_t count)
+        {
+            return _stream ? _stream->Read(buffer, offset, count) : 0;
+        }
+
+        [[nodiscard]] float VolumeModification() const noexcept
+        {
+            return _stream ? _stream->VolumeModification() : 0.0F;
+        }
+
+        void VolumeModification(float value) noexcept
+        {
+            if (_stream)
+            {
+                _stream->VolumeModification(value);
+            }
+        }
+
+        [[nodiscard]] PlayerState& Player() noexcept { return _player; }
+
+        // Stream.Dispose: the object is released, and nothing reads it after.
+        void Dispose() noexcept { _stream.reset(); }
+
+    private:
+        std::shared_ptr<NCSF123::NCSFPlayerStream> _stream;
+        PlayerState _player;
     };
 }
 
@@ -715,7 +811,7 @@ namespace MphRead
             {
                 if ((tracks & (1U << i)) != 0)
                 {
-                    if (auto* track = MusicPlayer::GetTrack(i)) track->Volume = volume;
+                    if (auto* track = MusicPlayer::GetTrack(i)) track->Volume(volume);
                 }
             }
             if ((g_mutedTracks & tracks) != 0)
@@ -726,7 +822,7 @@ namespace MphRead
                     {
                         if ((tracks & (1U << i)) != 0)
                         {
-                            if (auto* track = MusicPlayer::GetTrack(i)) track->Mute = false;
+                            if (auto* track = MusicPlayer::GetTrack(i)) track->Mute(false);
                         }
                     }
                 }
@@ -741,7 +837,7 @@ namespace MphRead
                 {
                     if ((tracks & (1U << i)) != 0)
                     {
-                        if (auto* track = MusicPlayer::GetTrack(i)) track->Mute = true;
+                        if (auto* track = MusicPlayer::GetTrack(i)) track->Mute(true);
                     }
                 }
             }
@@ -758,7 +854,7 @@ namespace MphRead
             if ((tracks & (1U << i)) != 0)
             {
                 TrackFaderState& fader = g_trackFaders[static_cast<std::size_t>(i)];
-                if (auto* track = MusicPlayer::GetTrack(i)) fader.Start = track->Volume;
+                if (auto* track = MusicPlayer::GetTrack(i)) fader.Start = track->Volume();
                 fader.Target = target;
                 fader.TimeMs = time * 1000;
                 fader.Timer.Restart();
@@ -776,8 +872,8 @@ namespace MphRead
             TrackFaderState& fader = g_trackFaders[static_cast<std::size_t>(i)];
             if (fader.Timer.IsRunning())
             {
-                NCSF123::NCSFCommon::Track* track = MusicPlayer::GetTrack(i);
-                if (track != nullptr && track->Volume != fader.Target)
+                NCSFCommon::Track* track = MusicPlayer::GetTrack(i);
+                if (track != nullptr && track->Volume() != fader.Target)
                 {
                     const float pct = static_cast<float>(fader.Timer.ElapsedMilliseconds()) / fader.TimeMs;
                     if (pct >= 1)
@@ -791,7 +887,7 @@ namespace MphRead
                         UpdateTrackVolume(static_cast<std::uint16_t>(1U << i), static_cast<std::uint8_t>(
                             fader.Start + (fader.Target - fader.Start) * pct));
                     }
-                    track->Mute = track->Volume == 0;
+                    track->Mute(track->Volume() == 0);
                 }
             }
         }
@@ -859,7 +955,7 @@ namespace MphRead
                     Metadata::SequenceFiles.at(static_cast<std::size_t>(seqId)));
                 auto stream = std::make_shared<NCSFPlayerStream>(path, static_cast<std::uint32_t>(SampleRate),
                     NCSFPlayer::Interpolation::None, 5, 115000, 5000,
-                    NCSF123::VolumeType::ReplayGainAlbum, NCSFPlayer::PeakType::ReplayGainTrack,
+                    NCSF123::VolumeType::ReplayGainAlbum, NCSF123::PeakType::ReplayGainTrack,
                     true, volume, 0, 0, false);
                 {
                     std::lock_guard<std::recursive_mutex> guard(g_playerMutex);
@@ -871,8 +967,8 @@ namespace MphRead
                     {
                         if (auto* track = MusicPlayer::GetTrack(i))
                         {
-                            track->Volume = 0;
-                            track->Mute = true;
+                            track->Volume(0);
+                            track->Mute(true);
                         }
                     }
                 }
@@ -981,7 +1077,7 @@ namespace MphRead
         if (stream) stream->Player().TempoRatio(value);
     }
 
-    NCSF123::NCSFCommon::Track* MusicPlayer::GetTrack(std::int32_t index) noexcept
+    NCSFCommon::Track* MusicPlayer::GetTrack(std::int32_t index) noexcept
     {
         EnsureMusicPlayerInitialized();
         std::shared_ptr<NCSFPlayerStream> stream;

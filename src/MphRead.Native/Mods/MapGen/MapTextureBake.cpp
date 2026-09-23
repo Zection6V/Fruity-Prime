@@ -1,5 +1,8 @@
 #include "MapTextureBake.hpp"
 
+#include "../../NativeRuntime/Stb/Image.hpp"
+#include "../../NativeRuntime/System/ZipArchive.hpp"
+
 #include "Q3Bsp.hpp"
 #include "../../Formats/Types.hpp"
 
@@ -24,10 +27,9 @@
 
 namespace MphRead::Mods::MapGen::MapTextureBakeInterop
 {
-    // Declaration-only bridges for the external APIs used by MapTextureBake.cs.
-    // They add no fallback or Native-only policy: the platform owner must supply
-    // System.IO.Compression-equivalent ZIP reads and ReFuel.Stb RGB decoding.
-    class ZipArchive;
+    // ZipFile.OpenRead and ReFuel.Stb's RGB decode, as MapTextureBake.cs calls
+    // them.
+    using ZipArchive = ::MphRead::NativeRuntime::ZipArchive;
 
     struct DecodedImage final
     {
@@ -36,13 +38,38 @@ namespace MphRead::Mods::MapGen::MapTextureBakeInterop
         std::vector<std::uint8_t> Pixels;
     };
 
-    [[nodiscard]] std::shared_ptr<ZipArchive> OpenZipRead(const std::string& path);
-    [[nodiscard]] std::size_t ZipEntryCount(const ZipArchive& archive);
-    [[nodiscard]] std::string ZipEntryFullName(
-        const ZipArchive& archive, std::size_t index);
-    [[nodiscard]] std::vector<std::uint8_t> ReadZipEntry(
-        const ZipArchive& archive, std::size_t index);
-    [[nodiscard]] DecodedImage LoadRgb(std::span<const std::uint8_t> bytes);
+    [[nodiscard]] inline std::shared_ptr<ZipArchive> OpenZipRead(const std::string& path)
+    {
+        return ZipArchive::OpenRead(path);
+    }
+
+    [[nodiscard]] inline std::size_t ZipEntryCount(const ZipArchive& archive)
+    {
+        return archive.Count();
+    }
+
+    [[nodiscard]] inline std::string ZipEntryFullName(
+        const ZipArchive& archive, std::size_t index)
+    {
+        return archive.FullName(index);
+    }
+
+    [[nodiscard]] inline std::vector<std::uint8_t> ReadZipEntry(
+        const ZipArchive& archive, std::size_t index)
+    {
+        return archive.Read(index);
+    }
+
+    [[nodiscard]] inline DecodedImage LoadRgb(std::span<const std::uint8_t> bytes)
+    {
+        const ::MphRead::NativeRuntime::Image image = ::MphRead::NativeRuntime::LoadPng(
+            std::vector<std::uint8_t>(bytes.begin(), bytes.end()), 3);
+        DecodedImage result;
+        result.Width = image.Width;
+        result.Height = image.Height;
+        result.Pixels = image.Pixels;
+        return result;
+    }
 }
 
 

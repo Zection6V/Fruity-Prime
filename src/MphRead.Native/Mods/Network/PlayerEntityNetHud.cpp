@@ -1,54 +1,33 @@
 #include "PlayerEntityNetHud.hpp"
 
+#include "../../HUD/HudInfo.hpp"
+#include "NetSession.hpp"
+
 #include <cstdint>
 #include <string>
-
-namespace MphRead::Entities::PlayerEntityNetHudDetail
-{
-    // Declaration-only seams into current NetSession state and later-owned
-    // drawing contracts. They expose existing state/calls only.
-    enum class Align : std::int32_t;
-    extern const Align Center;
-
-    [[nodiscard]] bool NetSessionActive();
-    [[nodiscard]] std::int32_t NetSessionSlotPingLength();
-    [[nodiscard]] std::int32_t NetSessionSlotPing(std::int32_t slot);
-
-    void DrawText2D(
-        PlayerEntity& player,
-        float x,
-        float y,
-        Align align,
-        std::int32_t layer,
-        const std::string& text,
-        ColorRgba color,
-        std::int32_t fontSpacing);
-}
 
 namespace MphRead::Entities
 {
     float PlayerEntity::ModScoreColumn1() const
     {
-        return PlayerEntityNetHudDetail::NetSessionActive() ? 145.0F : 160.0F;
+        return Mods::Network::NetSession::Active() ? 145.0F : 160.0F;
     }
 
     float PlayerEntity::ModScoreColumn2() const
     {
-        return PlayerEntityNetHudDetail::NetSessionActive() ? 193.0F : 215.0F;
+        return Mods::Network::NetSession::Active() ? 193.0F : 215.0F;
     }
 
     void PlayerEntity::ModDrawPingHeader(float posY)
     {
-        if (!PlayerEntityNetHudDetail::NetSessionActive())
+        if (!Mods::Network::NetSession::Active())
         {
             return;
         }
 
-        PlayerEntityNetHudDetail::DrawText2D(
-            *this,
-            _pingColumnX,
+        (void)DrawText2D(_pingColumnX,
             posY,
-            PlayerEntityNetHudDetail::Center,
+            Hud::Align::Center,
             0,
             "ping",
             ColorRgba(0x3FEFU),
@@ -58,7 +37,7 @@ namespace MphRead::Entities
     void PlayerEntity::ModDrawPingRow(
         float posY, ColorRgba, std::int32_t slot)
     {
-        if (!PlayerEntityNetHudDetail::NetSessionActive())
+        if (!Mods::Network::NetSession::Active())
         {
             return;
         }
@@ -66,12 +45,12 @@ namespace MphRead::Entities
         {
             return;
         }
-        if (slot >= PlayerEntityNetHudDetail::NetSessionSlotPingLength())
+        if (slot >= static_cast<std::int32_t>(Mods::Network::NetSession::SlotPing.size()))
         {
             return;
         }
 
-        const std::int32_t ping = PlayerEntityNetHudDetail::NetSessionSlotPing(slot);
+        const std::int32_t ping = Mods::Network::NetSession::SlotPing[slot];
 
         std::string text;
         if (ping <= 0)
@@ -87,11 +66,9 @@ namespace MphRead::Entities
             text = std::to_string(ping);
         }
 
-        PlayerEntityNetHudDetail::DrawText2D(
-            *this,
-            _pingColumnX,
+        (void)DrawText2D(_pingColumnX,
             posY,
-            PlayerEntityNetHudDetail::Center,
+            Hud::Align::Center,
             0,
             text,
             PingColor(ping),

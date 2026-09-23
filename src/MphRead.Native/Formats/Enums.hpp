@@ -476,6 +476,10 @@ namespace MphRead
 
     // Hunter.ToString().
     [[nodiscard]] std::string ToString(Hunter value);
+    // EnemyType.ToString().
+    [[nodiscard]] std::string ToString(EnemyType value);
+    // FhEnemyType.ToString().
+    [[nodiscard]] std::string ToString(FhEnemyType value);
 
     enum class Language : std::int32_t
     {

@@ -88,3 +88,20 @@ namespace MphRead::Mods::Input
         }
     }
 }
+
+namespace MphRead::Mods::Input::Detail
+{
+    // Activator.CreateInstance(type, nonPublic: true): both state types are
+    // constructible here, so neither call can return null.
+    SyntheticInputFactoryObject SyntheticInputCreateKeyboardState()
+    {
+        return SyntheticInputFactoryObject(
+            std::make_shared<::OpenTK::Windowing::GraphicsLibraryFramework::KeyboardState>());
+    }
+
+    SyntheticInputFactoryObject SyntheticInputCreateMouseState()
+    {
+        return SyntheticInputFactoryObject(
+            std::make_shared<::OpenTK::Windowing::GraphicsLibraryFramework::MouseState>());
+    }
+}

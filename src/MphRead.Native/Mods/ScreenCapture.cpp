@@ -1,5 +1,11 @@
 #include "ScreenCapture.hpp"
 
+#include "../NativeRuntime/OpenTK/GL.hpp"
+#include "../NativeRuntime/System/Console.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
+
+#include <typeinfo>
+
 #include "ThumbnailLog.hpp"
 #include "../Formats/Types.hpp"
 #include "../Scene.hpp"
@@ -25,31 +31,6 @@ namespace MphRead::Export::ImagesInterop
         std::int32_t width,
         std::int32_t height,
         std::ostream& stream);
-}
-
-namespace MphRead::Mods::ScreenCaptureInterop
-{
-    using DebugCallback = void(*)(
-        std::int32_t source,
-        std::int32_t type,
-        std::int32_t id,
-        std::int32_t severity,
-        std::int32_t length,
-        const char* message,
-        const void* userParam);
-
-    void Enable(std::int32_t capability);
-    void DebugMessageCallback(DebugCallback callback, const void* userParam);
-    [[nodiscard]] std::optional<std::string> GetString(std::int32_t name);
-    [[nodiscard]] std::int32_t GetInteger(std::int32_t pname);
-    [[nodiscard]] std::string PtrToStringAnsi(const char* message, std::int32_t length);
-
-    // CLR/runtime-owned behavior. ScreenCapture must not synthesize these from
-    // C++ locales, RTTI, or ostream state.
-    [[nodiscard]] std::string FormatFixedTwoCurrentCulture(double value);
-    [[nodiscard]] std::string ExceptionTypeName(const std::exception& exception);
-    [[nodiscard]] std::string ExceptionMessage(const std::exception& exception);
-    void ConsoleWriteLine(const std::string& value);
 }
 
 namespace
@@ -166,6 +147,54 @@ namespace
     }
 }
 
+namespace
+{
+    // GL_KHR_debug and the two glGet forms this file reads, which the managed
+    // build reaches through OpenTK's own GL class.
+    using GlDebugProc = void (*)(
+        std::int32_t, std::int32_t, std::int32_t, std::int32_t, std::int32_t,
+        const char*, const void*);
+
+    void GlEnable(std::int32_t capability)
+    {
+        ::OpenTK::Graphics::OpenGL::GL::Enable(
+            static_cast<::OpenTK::Graphics::OpenGL::GL::EnableCap>(capability));
+    }
+
+    void GlDebugMessageCallback(GlDebugProc callback, const void* userParam)
+    {
+        ::OpenTK::Graphics::OpenGL::GL::DebugMessageCallback(
+            reinterpret_cast<void*>(callback), userParam);
+    }
+
+    [[nodiscard]] std::optional<std::string> GlGetString(std::int32_t name)
+    {
+        std::string value = ::OpenTK::Graphics::OpenGL::GL::GetString(
+            static_cast<::OpenTK::Graphics::OpenGL::GL::StringName>(name));
+        if (value.empty())
+        {
+            return std::nullopt;
+        }
+        return value;
+    }
+
+    [[nodiscard]] std::int32_t GlGetInteger(std::int32_t pname)
+    {
+        return ::OpenTK::Graphics::OpenGL::GL::GetInteger(pname);
+    }
+
+    // `catch (Exception ex)`: the two members this file prints.
+    [[nodiscard]] std::string ExceptionMessage(const std::exception& ex)
+    {
+        return ex.what();
+    }
+
+    [[nodiscard]] std::string ExceptionTypeName(const std::exception& ex)
+    {
+        return typeid(ex).name();
+    }
+}
+
 namespace MphRead::Mods
 {
     ScreenCapture::PngWriterAction ScreenCapture::_pngWriter{};
@@ -230,7 +259,7 @@ namespace MphRead::Mods
                 first += " came out black ";
 
                 std::string second = "(";
-                second += ScreenCaptureInterop::FormatFixedTwoCurrentCulture(
+                second += NativeRuntime::DoubleToStringFixed2(
                     LitFraction(*pixels) * 100.0);
                 second += "% lit, ";
                 second += std::to_string(width);
@@ -242,7 +271,7 @@ namespace MphRead::Mods
                 third += DescribeContext();
 
                 const std::string why = first + second + third;
-                ScreenCaptureInterop::ConsoleWriteLine("[capture] " + why);
+                NativeRuntime::ConsoleWriteLine("[capture] " + why);
                 ThumbnailLog::Write(why);
                 return false;
             }
@@ -288,9 +317,9 @@ namespace MphRead::Mods
         }
         catch (const std::exception& exception)
         {
-            ScreenCaptureInterop::ConsoleWriteLine(
+            NativeRuntime::ConsoleWriteLine(
                 "[capture] could not save " + path + ": "
-                    + ScreenCaptureInterop::ExceptionMessage(exception));
+                    + ExceptionMessage(exception));
             return false;
         }
     }
@@ -358,7 +387,7 @@ namespace MphRead::Mods
                 }
                 _messagesLogged = WrappedAdd(_messagesLogged, 1);
                 const std::string text
-                    = ScreenCaptureInterop::PtrToStringAnsi(message, length);
+                    = std::string(message, static_cast<std::size_t>(length));
                 const std::string severityText = DebugSeverityName(severity);
                 const std::string typeText = DebugTypeName(type);
                 const std::string sourceText = DebugSourceName(source);
@@ -367,16 +396,16 @@ namespace MphRead::Mods
                     "GL says: [" + severityText + "] " + typeText
                         + " from " + sourceText + ": " + text);
             };
-            ScreenCaptureInterop::Enable(GlDebugOutput);
-            ScreenCaptureInterop::Enable(GlDebugOutputSynchronous);
-            ScreenCaptureInterop::DebugMessageCallback(&ScreenCapture::DebugThunk, nullptr);
+            GlEnable(GlDebugOutput);
+            GlEnable(GlDebugOutputSynchronous);
+            GlDebugMessageCallback(&ScreenCapture::DebugThunk, nullptr);
         }
         catch (const std::exception& exception)
         {
             InvokeReport(
                 report,
                 "could not turn on GL debug output ("
-                    + ScreenCaptureInterop::ExceptionTypeName(exception)
+                    + ExceptionTypeName(exception)
                     + "); this driver may not have KHR_debug");
         }
     }
@@ -385,14 +414,14 @@ namespace MphRead::Mods
     {
         try
         {
-            const std::string vendor = ScreenCaptureInterop::GetString(GlVendor).value_or("?");
-            const std::string renderer = ScreenCaptureInterop::GetString(GlRenderer).value_or("?");
-            const std::string version = ScreenCaptureInterop::GetString(GlVersion).value_or("?");
-            const std::int32_t flags = ScreenCaptureInterop::GetInteger(GlContextFlags);
+            const std::string vendor = GlGetString(GlVendor).value_or("?");
+            const std::string renderer = GlGetString(GlRenderer).value_or("?");
+            const std::string version = GlGetString(GlVersion).value_or("?");
+            const std::int32_t flags = GlGetInteger(GlContextFlags);
             const std::string forward = (flags & GlContextFlagForwardCompatibleBit) != 0
                 ? ", FORWARD-COMPATIBLE (deprecated entry points removed, which is all of immediate mode)"
                 : "";
-            const std::int32_t mask = ScreenCaptureInterop::GetInteger(GlContextProfileMask);
+            const std::int32_t mask = GlGetInteger(GlContextProfileMask);
             const std::string profile = (mask & GlContextCoreProfileBit) != 0
                 ? "CORE (immediate mode is unavailable, which renders everything black)"
                 : (mask & GlContextCompatibilityProfileBit) != 0
@@ -404,7 +433,7 @@ namespace MphRead::Mods
         catch (const std::exception& exception)
         {
             return "could not query the GL context: "
-                + ScreenCaptureInterop::ExceptionMessage(exception);
+                + ExceptionMessage(exception);
         }
     }
 

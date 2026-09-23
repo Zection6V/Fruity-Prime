@@ -1,4 +1,7 @@
 #include "DemoLibrary.hpp"
+
+#include "../../NativeRuntime/System/Exceptions.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/DateTime.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 
@@ -155,12 +158,12 @@ namespace MphRead::Mods::Network
 
     std::string DemoRecording::FileName() const
     {
-        return Detail::DemoLibraryGetFileName(_path);
+        return NativeRuntime::PathGetFileName(_path);
     }
 
     std::string DemoLibrary::Directory()
     {
-        return Detail::DemoLibraryGetFullPath(Paths::Combine(Paths::Export(), "_demos"));
+        return NativeRuntime::PathGetFullPath(Paths::Combine(Paths::Export(), "_demos"));
     }
 
     std::shared_ptr<const std::vector<DemoRecording>> DemoLibrary::List()
@@ -174,37 +177,25 @@ namespace MphRead::Mods::Network
                 return found;
             }
 
-            const auto enumerator = Detail::DemoLibraryEnumerateFiles(
-                directory, "*" + std::string(DemoFile::Extension));
-            try
+            for (const std::string& path : NativeRuntime::DirectoryEnumerateFilesWithSuffix(
+                directory, std::string(DemoFile::Extension)))
             {
-                while (Detail::DemoLibraryFileEnumeratorMoveNext(enumerator))
-                {
-                    const std::string path = Detail::DemoLibraryFileEnumeratorCurrent(enumerator);
-                    const auto info = Detail::DemoLibraryCreateFileInfo(path);
-                    auto [room, stamp] = ReadName(Detail::DemoLibraryFileInfoName(info));
+                const NativeRuntime::FileInfo info = NativeRuntime::CreateFileInfo(path);
+                auto [room, stamp] = ReadName(info.Name);
 
-                    // Null-coalescing in C#: a parsed file-name timestamp avoids
-                    // evaluating FileInfo.LastWriteTime entirely.
-                    const ::MphRead::NativeRuntime::ManagedDateTime recorded = stamp.has_value()
-                        ? *stamp
-                        : Detail::DemoLibraryFileInfoLastWriteTime(info);
-                    const std::int64_t bytes = Detail::DemoLibraryFileInfoLength(info);
-                    found->emplace_back(path, std::move(room), recorded, bytes);
-                }
+                // Null-coalescing in C#: a parsed file-name timestamp avoids
+                // evaluating FileInfo.LastWriteTime entirely.
+                const ::MphRead::NativeRuntime::ManagedDateTime recorded = stamp.has_value()
+                    ? *stamp
+                    : ::MphRead::NativeRuntime::ManagedDateTime{info.LastWriteTimeTicks, 2};
+                found->emplace_back(path, std::move(room), recorded, info.Length);
             }
-            catch (...)
-            {
-                Detail::DemoLibraryFileEnumeratorDispose(enumerator);
-                throw;
-            }
-            Detail::DemoLibraryFileEnumeratorDispose(enumerator);
         }
-        catch (const Detail::DemoLibraryIOException& ex)
+        catch (const ::System::IO::IOException& ex)
         {
             WriteListFailure(ex);
         }
-        catch (const Detail::DemoLibraryUnauthorizedAccessException& ex)
+        catch (const ::System::UnauthorizedAccessException& ex)
         {
             WriteListFailure(ex);
         }
@@ -221,7 +212,7 @@ namespace MphRead::Mods::Network
     std::pair<std::string, std::optional<::MphRead::NativeRuntime::ManagedDateTime>>
         DemoLibrary::ReadName(const std::string& fileName)
     {
-        std::string name = Detail::DemoLibraryGetFileNameWithoutExtension(fileName);
+        std::string name = NativeRuntime::PathGetFileNameWithoutExtension(fileName);
         constexpr std::size_t stampLength = 19;
         if (name.size() < stampLength + 2
             || name[name.size() - (stampLength + 1)] != '_')
@@ -254,8 +245,8 @@ namespace MphRead::Mods::Network
         }
         if (bytes >= 1024)
         {
-            return Detail::DemoLibraryFormatCurrentCultureInt64(bytes / 1024) + " KB";
+            return NativeRuntime::Int64ToString(bytes / 1024) + " KB";
         }
-        return Detail::DemoLibraryFormatCurrentCultureInt64(bytes) + " bytes";
+        return NativeRuntime::Int64ToString(bytes) + " bytes";
     }
 }

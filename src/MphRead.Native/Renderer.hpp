@@ -409,6 +409,15 @@ namespace MphRead
             virtual void OnClosing() {}
         };
 
+        struct MonitorArea final
+        {
+            OpenTK::Mathematics::Vector2i Min{};
+            OpenTK::Mathematics::Vector2i Size{};
+        };
+
+        // OpenTK.Windowing.Common.WindowBorder.
+        enum class WindowBorderValue : std::int32_t { Resizable = 0, Fixed = 1, Hidden = 2 };
+
         class Window
         {
         public:
@@ -437,7 +446,27 @@ namespace MphRead
             virtual void BaseOnMouseWheel(const MouseWheelEventArgs& e) = 0;
             virtual void BaseOnTextInput(const TextInputEventArgs& e) = 0;
             virtual void BaseOnKeyDown(const KeyboardKeyEventArgs& e) = 0;
+
+            // NativeWindow's own properties, as WindowMode reads and sets them.
+            [[nodiscard]] virtual std::int32_t WindowBorder() const = 0;
+            virtual void WindowBorder(std::int32_t value) = 0;
+            [[nodiscard]] virtual OpenTK::Mathematics::Vector2i Location() const = 0;
+            virtual void Location(OpenTK::Mathematics::Vector2i value) = 0;
+            [[nodiscard]] virtual OpenTK::Mathematics::Vector2i ClientSize() const = 0;
+            virtual void ClientSize(OpenTK::Mathematics::Vector2i value) = 0;
+            // CurrentMonitor.ClientArea.
+            [[nodiscard]] virtual MonitorArea CurrentMonitorClientArea() const = 0;
+            virtual void WindowStateNormal() = 0;
+            virtual void Floating(bool value) = 0;
+            [[nodiscard]] virtual bool IsFocused() const = 0;
+            // NativeWindow.ClientLocation: the client area's screen origin.
+            [[nodiscard]] virtual OpenTK::Mathematics::Vector2i ClientLocation() const = 0;
+            virtual void Focus() = 0;
         };
+
+        // NativeWindow.ProcessEvents(0): the pending window messages, drained
+        // without waiting.
+        void ProcessEvents();
 
         [[nodiscard]] std::shared_ptr<Window> CreateWindow(const WindowSettings& settings);
         [[nodiscard]] bool IsLinux();
@@ -547,6 +576,22 @@ namespace MphRead
             std::optional<OpenTK::Mathematics::Vector3> position = std::nullopt);
         void QueueMovie(std::int32_t movieId);
         void Run();
+
+        // GameWindow's own window properties, which the C# RenderWindow has by
+        // inheriting it.
+        [[nodiscard]] std::int32_t WindowBorder() const;
+        void WindowBorder(std::int32_t value);
+        [[nodiscard]] OpenTK::Mathematics::Vector2i Location() const;
+        void Location(OpenTK::Mathematics::Vector2i value);
+        [[nodiscard]] OpenTK::Mathematics::Vector2i ClientSize() const;
+        void ClientSize(OpenTK::Mathematics::Vector2i value);
+        [[nodiscard]] RendererPlatform::MonitorArea CurrentMonitorClientArea() const;
+        void WindowStateNormal();
+        void Floating(bool value);
+        [[nodiscard]] bool IsFocused() const;
+        [[nodiscard]] OpenTK::Mathematics::Vector2i ClientLocation() const;
+        void Focus();
+        void Close();
 
         void OnClosing() override;
         void OnLoad() override;

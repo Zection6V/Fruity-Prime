@@ -1,4 +1,15 @@
 #include "NetLaunch.hpp"
+
+#include "../../Features.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../Scene.hpp"
+#include "../Launcher/Portable/LaunchPlan.hpp"
+#include "../Launcher/Portable/LauncherPrefs.hpp"
+#include "../RespawnChoice.hpp"
+#include "NetLog.hpp"
+#include "NetSession.hpp"
+#include "NetStatus.hpp"
+#include "PlayerColors.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Formats.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
@@ -13,89 +24,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-
-namespace MphRead::Mods::Network::Detail
-{
-    struct NetLaunchMatchState
-    {
-        std::optional<std::string> RoomKey;
-        std::int32_t Mode;
-        double TimeRemaining;
-    };
-
-    struct NetLaunchServerStatus
-    {
-        bool Online;
-        std::int32_t Players;
-        std::int32_t MaxPlayers;
-        std::int32_t Protocol;
-    };
-
-    using NetLaunchCheatProperty = std::uintptr_t;
-    using NetLaunchPlayer = std::uintptr_t;
-
-    Hunter NetLaunchResolveHunter(Hunter hunter);
-    std::int32_t NetLaunchLastColor();
-    std::int32_t NetLaunchClampPlayerColor(std::int32_t color);
-    std::int32_t NetLaunchPlayerSlotCapacity();
-    void NetLaunchSetPlayerMaxPlayers(std::int32_t value);
-
-    void NetLaunchSetSessionPlayerName(const std::string& value);
-    void NetLaunchSetSessionLocalHunter(Hunter value);
-    void NetLaunchSetSessionLocalColor(std::int32_t value);
-    void NetLaunchStartClient(const std::string& address, std::int32_t port);
-    bool NetLaunchSessionActive();
-    void NetLaunchSessionUpdate(double elapsedSeconds);
-    bool NetLaunchSessionRefused();
-    std::string NetLaunchDescribeRefusedReason(const std::string& where);
-    std::int32_t NetLaunchSessionLocalSlot();
-    std::optional<NetLaunchMatchState> NetLaunchSessionServerMatch();
-    void NetLaunchSessionSendIdentify();
-
-    NetLaunchServerStatus NetLaunchQueryStatus(const std::string& address,
-        std::int32_t port, bool allowJoinProbe, std::int32_t timeoutMs);
-    std::int32_t NetLaunchProtocolVersion();
-
-    std::string NetLaunchGameModeToString(std::int32_t mode);
-    std::string NetLaunchFormatZeroDecimals(double value);
-    bool NetLaunchIsDefinedGameMode(std::int32_t value);
-    GameMode NetLaunchBattleGameMode();
-
-    std::vector<NetLaunchCheatProperty> NetLaunchPublicStaticCheatProperties();
-    bool NetLaunchCheatPropertyTypeIsBoolean(NetLaunchCheatProperty property);
-    bool NetLaunchCheatPropertyCanRead(NetLaunchCheatProperty property);
-    bool NetLaunchCheatPropertyCanWrite(NetLaunchCheatProperty property);
-    std::optional<bool> NetLaunchGetCheatPropertyValue(NetLaunchCheatProperty property);
-    std::string NetLaunchCheatPropertyName(NetLaunchCheatProperty property);
-    void NetLaunchSetCheatPropertyValue(NetLaunchCheatProperty property, bool value);
-
-    void NetLaunchConsoleWriteLine(const std::string& value);
-    void NetLaunchNetLogEvent(const std::string& value);
-
-    std::int32_t NetLaunchPlayerMaxPlayers();
-    Hunter NetLaunchSlotHunter(std::int32_t slot);
-    std::int32_t NetLaunchPlayerColorChoiceLength();
-    void NetLaunchSetPlayerColorChoice(std::int32_t slot, std::int32_t color);
-    void NetLaunchSceneAddPlayer(Scene& scene, Hunter hunter,
-        std::int32_t recolor, std::int32_t teamIndex);
-    std::int32_t NetLaunchPlayersCount();
-    std::optional<NetLaunchPlayer> NetLaunchPlayerAt(std::int32_t slot);
-    void NetLaunchSetPlayerIsBot(NetLaunchPlayer player, bool value);
-    void NetLaunchSetPlayerBotLevel(NetLaunchPlayer player, std::int32_t value);
-    std::int32_t NetLaunchSlotOccupiedLength();
-    bool NetLaunchSlotOccupied(std::int32_t slot);
-    void NetLaunchClearPlayerActiveFlag(NetLaunchPlayer player);
-    void NetLaunchSetPlayerCount(std::int32_t value);
-    void NetLaunchSetMainPlayerIndex(std::int32_t value);
-    void NetLaunchResolvePlayerColors();
-    void NetLaunchResetRespawnChoice();
-
-    struct NetConnectCommandServerRoom
-    {
-        std::string RoomKey;
-        std::uint8_t Mode;
-    };
-}
 
 namespace
 {
@@ -140,13 +68,13 @@ namespace MphRead::Mods::Network
         const std::string& playerName, Hunter hunter,
         std::int32_t timeoutMs, std::int32_t color)
     {
-        Detail::NetLaunchSetSessionPlayerName(playerName);
-        Detail::NetLaunchSetSessionLocalHunter(Detail::NetLaunchResolveHunter(hunter));
-        Detail::NetLaunchSetSessionLocalColor(Detail::NetLaunchClampPlayerColor(
-            color < 0 ? Detail::NetLaunchLastColor() : color));
-        Detail::NetLaunchSetPlayerMaxPlayers(Entities::PlayerEntity::SlotCapacity);
-        Detail::NetLaunchStartClient(address, port);
-        if (!Detail::NetLaunchSessionActive())
+        NetSession::SetPlayerName(playerName);
+        NetSession::SetLocalHunter(Launcher::Hunters::Resolve(hunter));
+        NetSession::SetLocalColor(PlayerColors::Clamp(
+            color < 0 ? Launcher::LauncherPrefs::LastColor() : color));
+        Entities::PlayerEntity::SetMaxPlayers(Entities::PlayerEntity::SlotCapacity);
+        NetSession::StartClient(address, port);
+        if (!NetSession::Active())
         {
             _lastJoinError = "Could not open a socket for " + Endpoint(address, port) + ".";
             return false;
@@ -156,20 +84,20 @@ namespace MphRead::Mods::Network
         std::int32_t lastIdentify = 0;
         while (ElapsedMilliseconds(clock) < timeoutMs)
         {
-            Detail::NetLaunchSessionUpdate(ElapsedSeconds(clock));
-            if (Detail::NetLaunchSessionRefused())
+            NetSession::Update(ElapsedSeconds(clock));
+            if (NetSession::Refused())
             {
-                _lastJoinError = Detail::NetLaunchDescribeRefusedReason(Endpoint(address, port));
+                _lastJoinError = DescribeJoinFailure(address, port);
                 NativeRuntime::ConsoleWriteLine(("[net] " + _lastJoinError));
                 return false;
             }
 
-            const std::int32_t localSlot = Detail::NetLaunchSessionLocalSlot();
+            const std::int32_t localSlot = NetSession::LocalSlot();
             bool hasRoom = false;
             if (localSlot >= 0)
             {
-                std::optional<Detail::NetLaunchMatchState> match
-                    = Detail::NetLaunchSessionServerMatch();
+                std::optional<MatchStatePacket> match
+                    = NetSession::ServerMatch();
                 if (match.has_value())
                 {
                     hasRoom = match->RoomKey.value().length() > 0;
@@ -177,16 +105,16 @@ namespace MphRead::Mods::Network
             }
             if (localSlot >= 0 && hasRoom)
             {
-                Detail::NetLaunchMatchState state
-                    = Detail::NetLaunchSessionServerMatch().value();
+                MatchStatePacket state
+                    = NetSession::ServerMatch().value();
                 std::string message = "[net] joining ";
                 message += state.RoomKey.value_or(std::string{});
                 message += " (";
                 message += ::MphRead::ToString(static_cast<GameMode>(state.Mode));
                 message += "), ";
-                message += Detail::NetLaunchFormatZeroDecimals(state.TimeRemaining);
+                message += NativeRuntime::DoubleToStringNoDecimals(state.TimeRemaining);
                 message += " s remaining, slot ";
-                message += std::to_string(Detail::NetLaunchSessionLocalSlot());
+                message += std::to_string(NetSession::LocalSlot());
                 NativeRuntime::ConsoleWriteLine(message);
                 DisableCheatsForMatch();
                 return true;
@@ -195,7 +123,7 @@ namespace MphRead::Mods::Network
             if (ElapsedMilliseconds(clock) - lastIdentify > 500)
             {
                 lastIdentify = static_cast<std::int32_t>(ElapsedMilliseconds(clock));
-                Detail::NetLaunchSessionSendIdentify();
+                NetSession::SendIdentify();
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
@@ -213,8 +141,8 @@ namespace MphRead::Mods::Network
     std::string NetLaunch::DescribeJoinFailure(const std::string& address,
         std::int32_t port)
     {
-        Detail::NetLaunchServerStatus status
-            = Detail::NetLaunchQueryStatus(address, port, false, 1500);
+        ::MphRead::Mods::Network::ServerStatus status
+            = NetStatus::Query(address, port, false, 1500);
         const std::string endpoint = Endpoint(address, port);
         if (!status.Online)
         {
@@ -242,41 +170,40 @@ namespace MphRead::Mods::Network
     void NetLaunch::DisableCheatsForMatch()
     {
         std::vector<std::string> turnedOff;
-        for (Detail::NetLaunchCheatProperty property
-            : Detail::NetLaunchPublicStaticCheatProperties())
+        for (const Cheats::BooleanProperty& property : Cheats::BooleanProperties())
         {
-            if (!Detail::NetLaunchCheatPropertyTypeIsBoolean(property)
-                || !Detail::NetLaunchCheatPropertyCanRead(property)
-                || !Detail::NetLaunchCheatPropertyCanWrite(property))
+            if (!false
+                || !false
+                || !false)
             {
                 continue;
             }
-            if (Detail::NetLaunchGetCheatPropertyValue(property).value_or(false))
+            if (property.Get())
             {
-                turnedOff.push_back(Detail::NetLaunchCheatPropertyName(property));
-                Detail::NetLaunchSetCheatPropertyValue(property, false);
+                turnedOff.push_back(property.Name);
+                property.Set(false);
             }
         }
         if (!turnedOff.empty())
         {
             const std::string list = JoinNames(turnedOff);
             NativeRuntime::ConsoleWriteLine(("[net] cheats are off while connected (" + list + ")"));
-            Detail::NetLaunchNetLogEvent(
+            NetLog::Event(
                 "cheats disabled for this session: " + list);
         }
     }
 
     std::optional<NetLaunchServerRoom> NetLaunch::ServerRoom()
     {
-        std::optional<Detail::NetLaunchMatchState> state
-            = Detail::NetLaunchSessionServerMatch();
+        std::optional<MatchStatePacket> state
+            = NetSession::ServerMatch();
         if (!state.has_value() || state->RoomKey.value().length() == 0)
         {
             return std::nullopt;
         }
-        const GameMode mode = Detail::NetLaunchIsDefinedGameMode(state->Mode)
+        const GameMode mode = ::MphRead::IsDefinedGameMode(state->Mode)
             ? static_cast<GameMode>(state->Mode)
-            : Detail::NetLaunchBattleGameMode();
+            : GameMode::Battle;
         return NetLaunchServerRoom{state->RoomKey.value(), mode};
     }
 
@@ -291,88 +218,61 @@ namespace MphRead::Mods::Network
         }
         else
         {
-            resolvedSlot = std::max(Detail::NetLaunchSessionLocalSlot(), 0);
+            resolvedSlot = std::max(NetSession::LocalSlot(), 0);
         }
 
         for (std::int32_t slot = 0;
-            slot < Detail::NetLaunchPlayerMaxPlayers(); ++slot)
+            slot < Entities::PlayerEntity::MaxPlayers(); ++slot)
         {
             Hunter hunter = slot == resolvedSlot
                 ? localHunter
-                : Detail::NetLaunchSlotHunter(slot);
+                : NetSession::SlotHunter[slot];
             if (slot == resolvedSlot && slot >= 0
-                && slot < Detail::NetLaunchPlayerColorChoiceLength())
+                && slot < static_cast<std::int32_t>(PlayerColors::Choice.size()))
             {
-                Detail::NetLaunchSetPlayerColorChoice(
-                    slot, Detail::NetLaunchClampPlayerColor(localRecolor));
+                PlayerColors::Choice[slot] = PlayerColors::Clamp(localRecolor);
             }
             const std::int32_t recolor = slot == resolvedSlot ? localRecolor : 0;
             const std::int32_t teamIndex = teams ? slot % 2 : -1;
-            Detail::NetLaunchSceneAddPlayer(scene, hunter, recolor, teamIndex);
+            scene.AddPlayer(hunter, recolor, teamIndex);
         }
 
         for (std::int32_t slot = 0;
-            slot < Detail::NetLaunchPlayerMaxPlayers(); ++slot)
+            slot < Entities::PlayerEntity::MaxPlayers(); ++slot)
         {
-            std::optional<Detail::NetLaunchPlayer> player;
-            if (slot < Detail::NetLaunchPlayersCount())
+            std::optional<std::shared_ptr<Entities::PlayerEntity>> player;
+            if (slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size()))
             {
-                player = Detail::NetLaunchPlayerAt(slot);
+                player = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot));
             }
             if (!player.has_value())
             {
                 continue;
             }
-            Detail::NetLaunchSetPlayerIsBot(player.value(), false);
-            Detail::NetLaunchSetPlayerBotLevel(player.value(), 0);
+            (player.value())->SetIsBot(false);
+            (player.value())->SetBotLevel(0);
             if (slot == resolvedSlot)
             {
                 continue;
             }
             bool occupied = false;
-            if (slot < Detail::NetLaunchSlotOccupiedLength())
+            if (slot < static_cast<std::int32_t>(NetSession::SlotOccupied.size()))
             {
-                occupied = Detail::NetLaunchSlotOccupied(slot);
+                occupied = NetSession::SlotOccupied[slot];
             }
             if (!occupied)
             {
-                Detail::NetLaunchClearPlayerActiveFlag(player.value());
+                (player.value())->SetLoadFlags((player.value())->LoadFlags() & ~Entities::LoadFlags::Active);
             }
         }
 
-        Detail::NetLaunchSetPlayerCount(1);
+        Entities::PlayerEntity::SetPlayerCount(1);
         const std::int32_t mainIndex = resolvedSlot >= 0 ? resolvedSlot : 0;
-        Detail::NetLaunchSetMainPlayerIndex(mainIndex);
-        Detail::NetLaunchResolvePlayerColors();
-        Detail::NetLaunchResetRespawnChoice();
+        Entities::PlayerEntity::SetMainPlayerIndex(mainIndex);
+        PlayerColors::Resolve();
+        Mods::RespawnChoice::Reset();
         NativeRuntime::ConsoleWriteLine(("[net] player slots built, main player = slot " + std::to_string(mainIndex)));
-        Detail::NetLaunchNetLogEvent(
+        NetLog::Event(
             "player slots built, main = slot " + std::to_string(mainIndex));
-    }
-}
-
-namespace MphRead::Mods::Network::Detail
-{
-    bool NetConnectCommandNetLaunchJoin(const std::string& host, std::int32_t port,
-        const std::string& playerName, Hunter hunter, std::int32_t color)
-    {
-        return NetLaunch::Join(host, port, playerName, hunter, 8000, color);
-    }
-
-    std::optional<NetConnectCommandServerRoom> NetConnectCommandNetLaunchServerRoom()
-    {
-        std::optional<NetLaunchServerRoom> room = NetLaunch::ServerRoom();
-        if (!room.has_value())
-        {
-            return std::nullopt;
-        }
-        return NetConnectCommandServerRoom{room->RoomKey,
-            static_cast<std::uint8_t>(room->Mode)};
-    }
-
-    void NetConnectCommandNetLaunchBuildPlayers(Scene& scene, Hunter hunter,
-        std::int32_t recolor, bool teams)
-    {
-        NetLaunch::BuildPlayers(scene, hunter, recolor, teams);
     }
 }

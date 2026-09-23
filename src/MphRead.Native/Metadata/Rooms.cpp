@@ -1,4 +1,6 @@
 #include "Rooms.hpp"
+
+#include "Metadata.hpp"
 #include "../Mods/MapGen/CustomRooms.hpp"
 
 #include <stdexcept>
@@ -8,7 +10,6 @@ namespace MphRead
 {
     namespace Metadata
     {
-        std::uint32_t TimeLimit(std::int32_t minutes, std::int32_t seconds, std::int32_t frames);
     }
 
     namespace

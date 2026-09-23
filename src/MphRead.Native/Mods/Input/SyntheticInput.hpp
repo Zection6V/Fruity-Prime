@@ -1,22 +1,19 @@
 #pragma once
 
+#include "../../Entities/Players/PlayerInput.hpp"
+
 #include <memory>
 #include <string>
 #include <variant>
 
 namespace MphRead::Mods::Input
 {
-    namespace Detail
-    {
-        // Opaque bridge objects only. These intentionally contain no synthetic
-        // input state; the platform adapter that owns the real concrete object
-        // defines them and the shared_ptr preserves its identity and lifetime.
-        struct SyntheticInputKeyboardState;
-        struct SyntheticInputMouseState;
-    }
-
-    using KeyboardState = std::shared_ptr<Detail::SyntheticInputKeyboardState>;
-    using MouseState = std::shared_ptr<Detail::SyntheticInputMouseState>;
+    // Activator.CreateInstance hands back OpenTK's own state objects; the
+    // shared_ptr is the reference C# has.
+    using KeyboardState
+        = std::shared_ptr<::OpenTK::Windowing::GraphicsLibraryFramework::KeyboardState>;
+    using MouseState
+        = std::shared_ptr<::OpenTK::Windowing::GraphicsLibraryFramework::MouseState>;
 
     namespace Detail
     {

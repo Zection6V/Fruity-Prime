@@ -1,4 +1,5 @@
 #include "ThumbnailLog.hpp"
+#include "Launcher/Portable/GameFiles.hpp"
 #include "Branding.hpp"
 #include "Update/BuildVersion.hpp"
 
@@ -55,7 +56,6 @@ namespace MphRead::Mods::Launcher::Detail
     // Narrow link boundary for Launcher.GameFiles.Root. GameFiles has not been
     // ported to Native yet; its eventual native owner must return the current
     // Root value here rather than ThumbnailLog owning a second copy of it.
-    [[nodiscard]] std::string ThumbnailLogGameFilesRoot();
 }
 
 namespace
@@ -765,7 +765,7 @@ namespace MphRead::Mods
 
     std::string ThumbnailLog::Path()
     {
-        return CombinePath(Launcher::Detail::ThumbnailLogGameFilesRoot(), "thumbnails.log");
+        return CombinePath(Launcher::GameFiles::Root(), "thumbnails.log");
     }
 
     void ThumbnailLog::Begin(std::int32_t rooms) noexcept

@@ -545,5 +545,8 @@ namespace MphRead::Metadata
     [[nodiscard]] OpenTK::Mathematics::Vector3 GetEventColor(FhMessage eventId) noexcept;
     [[nodiscard]] std::pair<const ::MphRead::RoomMetadata*, int> GetRoomByName(std::string_view name);
     [[nodiscard]] const ::MphRead::RoomMetadata* GetRoomById(int id, bool noThrow = false);
+    // Metadata.cs: a time limit in the game's own thirtieths of a second.
+    [[nodiscard]] std::uint32_t TimeLimit(
+        std::uint32_t minutes, std::uint32_t seconds, std::uint32_t frames);
     [[nodiscard]] int GetAreaInfo(int roomId) noexcept;
 }

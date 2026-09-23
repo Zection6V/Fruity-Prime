@@ -690,4 +690,63 @@ namespace MphRead::NativeRuntime
         }
     }
 
+
+    FileInfo CreateFileInfo(const std::string& path)
+    {
+        FileInfo info;
+        info.Name = PathGetFileName(path);
+        const std::string fullPath = PathGetFullPath(path);
+#if defined(_WIN32)
+        WIN32_FILE_ATTRIBUTE_DATA data{};
+        if (GetFileAttributesExW(
+                Widen(fullPath).c_str(), GetFileExInfoStandard, &data) != FALSE)
+        {
+            info.Length = (static_cast<std::int64_t>(data.nFileSizeHigh) << 32)
+                | static_cast<std::int64_t>(data.nFileSizeLow);
+            // FILETIME counts the same 100-nanosecond tick from 1601-01-01.
+            const std::int64_t fileTime
+                = (static_cast<std::int64_t>(data.ftLastWriteTime.dwHighDateTime) << 32)
+                | static_cast<std::int64_t>(data.ftLastWriteTime.dwLowDateTime);
+            info.LastWriteTimeTicks = fileTime + 504911232000000000LL;
+        }
+#else
+        struct stat status{};
+        if (::stat(fullPath.c_str(), &status) == 0)
+        {
+            info.Length = static_cast<std::int64_t>(status.st_size);
+            info.LastWriteTimeTicks = 621355968000000000LL
+                + static_cast<std::int64_t>(status.st_mtime) * 10000000LL;
+        }
+#endif
+        return info;
+    }
+
+    std::vector<std::string> DirectoryEnumerateFilesWithSuffix(
+        const std::string& path, const std::string& suffix)
+    {
+        std::vector<std::string> result;
+        DirectoryEnumerateFiles(path, [&](const std::string& file)
+        {
+            const std::string name = PathGetFileName(file);
+            if (suffix.empty()
+                || (name.size() >= suffix.size()
+                    && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0))
+            {
+                result.push_back(file);
+            }
+        });
+        return result;
+    }
+
+    std::string PathGetFileNameWithoutExtension(const std::string& path)
+    {
+        std::string name = PathGetFileName(path);
+        const std::size_t dot = name.find_last_of('.');
+        if (dot != std::string::npos)
+        {
+            name.erase(dot);
+        }
+        return name;
+    }
+
 }

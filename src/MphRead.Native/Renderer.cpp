@@ -6026,4 +6026,70 @@ namespace MphRead
 
 
 #undef MPHREAD_DEBUG_ASSERT
+
+    std::int32_t RenderWindow::WindowBorder() const
+    {
+        return _window->WindowBorder();
+    }
+
+    void RenderWindow::WindowBorder(std::int32_t value)
+    {
+        _window->WindowBorder(value);
+    }
+
+    OpenTK::Mathematics::Vector2i RenderWindow::Location() const
+    {
+        return _window->Location();
+    }
+
+    void RenderWindow::Location(OpenTK::Mathematics::Vector2i value)
+    {
+        _window->Location(value);
+    }
+
+    OpenTK::Mathematics::Vector2i RenderWindow::ClientSize() const
+    {
+        return _window->ClientSize();
+    }
+
+    void RenderWindow::ClientSize(OpenTK::Mathematics::Vector2i value)
+    {
+        _window->ClientSize(value);
+    }
+
+    RendererPlatform::MonitorArea RenderWindow::CurrentMonitorClientArea() const
+    {
+        return _window->CurrentMonitorClientArea();
+    }
+
+    void RenderWindow::WindowStateNormal()
+    {
+        _window->WindowStateNormal();
+    }
+
+    void RenderWindow::Floating(bool value)
+    {
+        _window->Floating(value);
+    }
+
+    bool RenderWindow::IsFocused() const
+    {
+        return _window->IsFocused();
+    }
+
+    OpenTK::Mathematics::Vector2i RenderWindow::ClientLocation() const
+    {
+        return _window->ClientLocation();
+    }
+
+    void RenderWindow::Focus()
+    {
+        _window->Focus();
+    }
+
+    void RenderWindow::Close()
+    {
+        _window->Close();
+    }
+
 }

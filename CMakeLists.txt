@@ -55,12 +55,39 @@ add_library(FruityPrime::MphRead.Native ALIAS fruity_mphread_native)
 target_sources(fruity_mphread_native PRIVATE ${MPHREAD_NATIVE_SOURCES} ${MPHREAD_NATIVE_HEADERS})
 target_include_directories(fruity_mphread_native PUBLIC "${FRUITY_MPHREAD_ROOT}")
 target_compile_features(fruity_mphread_native PUBLIC cxx_std_20)
-target_link_libraries(fruity_mphread_native PUBLIC fruity_ncsfplay_native Threads::Threads)
+target_link_libraries(fruity_mphread_native PUBLIC fruity_ncsfplay_native Threads::Threads ZLIB::ZLIB)
 set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Native")
 
 if(WIN32)
     target_compile_definitions(fruity_mphread_native PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(fruity_mphread_native PUBLIC ws2_32 bcrypt)
+endif()
+
+# The renderer's GL entry points and the sound mixer's OpenAL ones, which the
+# C# build gets from OpenTK's own native dependencies.
+if(NOT ANDROID)
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(fruity_mphread_native PUBLIC OpenGL::GL)
+
+    find_package(glfw3 CONFIG REQUIRED)
+    target_link_libraries(fruity_mphread_native PUBLIC glfw)
+
+    find_library(FRUITY_OPENAL_LIBRARY NAMES openal OpenAL OpenAL32)
+    if(FRUITY_OPENAL_LIBRARY)
+        target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_OPENAL_LIBRARY}")
+    else()
+        message(FATAL_ERROR
+            "OpenAL was not found. The sound mixer calls it directly, as OpenTK does "
+            "in the C# build.")
+    endif()
+endif()
+
+# The game binary. Its only source is the entry-point shim; everything else is
+# the library above.
+if(NOT ANDROID)
+    add_executable(fruity_prime "${CMAKE_CURRENT_SOURCE_DIR}/src/FruityPrime/Main.cpp")
+    target_link_libraries(fruity_prime PRIVATE fruity_mphread_native)
+    set_target_properties(fruity_prime PROPERTIES OUTPUT_NAME "FruityPrime")
 endif()
 
 if(CMAKE_DL_LIBS)

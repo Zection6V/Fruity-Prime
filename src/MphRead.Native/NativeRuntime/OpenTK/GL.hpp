@@ -170,6 +170,10 @@ namespace OpenTK::Graphics::OpenGL
         [[nodiscard]] std::int32_t GenRenderbuffer();
         [[nodiscard]] std::int32_t GenTexture();
         [[nodiscard]] ErrorCode GetError();
+        // GL.GetInteger(GetPName) and GL.DebugMessageCallback, which the
+        // capture path uses for the debug-output extension.
+        [[nodiscard]] std::int32_t GetInteger(std::int32_t pname);
+        void DebugMessageCallback(void* callback, const void* userParam);
         void GetFramebufferAttachmentParameter(FramebufferTarget target, FramebufferAttachment attachment,
             FramebufferParameterName pname, std::int32_t& params);
         void GetShader(std::int32_t shader, ShaderParameter pname, std::int32_t& params);

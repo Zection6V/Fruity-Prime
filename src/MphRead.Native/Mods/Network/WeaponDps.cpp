@@ -1,4 +1,10 @@
 #include "WeaponDps.hpp"
+
+#include "../../GameState.hpp"
+#include "../../Scene.hpp"
+#include "MapAudit.hpp"
+
+#include <typeinfo>
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 
@@ -19,46 +25,6 @@
 #include <optional>
 #include <string>
 #include <utility>
-
-namespace MphRead::Mods::Network::Detail
-{
-    // Scene.cs/Renderer.cs and the PlayerEntity network partials are owned by
-    // later Native aggregate slices. Each declaration below represents exactly
-    // one consumed managed operation and carries no fallback behavior.
-    void WeaponDpsSetForceEveryone(bool value);
-    [[nodiscard]] std::unique_ptr<MphRead::Scene> WeaponDpsCreateScene(WeaponDps& owner);
-    void WeaponDpsSceneSetSize(
-        MphRead::Scene& scene, OpenTK::Mathematics::Vector2i value);
-    void WeaponDpsSceneOnLoad(MphRead::Scene& scene);
-    void WeaponDpsSceneOnResize(MphRead::Scene& scene);
-    void WeaponDpsSceneOnUpdateFrame(MphRead::Scene& scene);
-    [[nodiscard]] bool WeaponDpsSceneOnRenderFrame(MphRead::Scene& scene);
-    void WeaponDpsSceneAfterRenderFrame(MphRead::Scene& scene);
-    void WeaponDpsSceneAddPlayer(
-        MphRead::Scene& scene, Hunter hunter, std::int32_t recolor, std::int32_t team);
-    void WeaponDpsSceneAddBattleRoom(
-        MphRead::Scene& scene, const std::string& room, std::int32_t playerCount);
-    [[nodiscard]] MphRead::Formats::Culling::NodeRef WeaponDpsSceneGetNodeRefByPosition(
-        MphRead::Scene& scene, OpenTK::Mathematics::Vector3 position);
-
-    void WeaponDpsApplyPause();
-
-    void WeaponDpsPlayerModArmWeapon(Entities::PlayerEntity& player, BeamType beam);
-    void WeaponDpsPlayerModSetAim(
-        Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 aim);
-    [[nodiscard]] std::int32_t WeaponDpsPlayerModAmmoUa(Entities::PlayerEntity& player);
-
-    // .NET formatting and exception metadata are runtime contracts rather than
-    // C++ standard-library contracts, so these seams preserve those operations.
-    [[nodiscard]] std::string WeaponDpsFormatFixed(double value, std::int32_t digits);
-    [[nodiscard]] std::string WeaponDpsFormatInt32(std::int32_t value);
-    [[nodiscard]] std::string WeaponDpsExceptionTypeName(const std::exception& ex);
-    [[nodiscard]] std::string WeaponDpsExceptionMessage(const std::exception& ex);
-    [[nodiscard]] std::optional<std::string> WeaponDpsExceptionStackTrace(
-        const std::exception& ex);
-    void WeaponDpsConsoleWriteLine(std::optional<std::string> value);
-    void WeaponDpsDispose(WeaponDps& window);
-}
 
 namespace
 {
@@ -187,6 +153,27 @@ namespace
     }
 }
 
+namespace
+{
+    // `catch (Exception ex)`: the three members the report prints.
+    [[nodiscard]] std::string ExceptionTypeName(const std::exception& ex)
+    {
+        return typeid(ex).name();
+    }
+
+    [[nodiscard]] std::string ExceptionMessage(const std::exception& ex)
+    {
+        return ex.what();
+    }
+
+    // Exception.StackTrace, which C++ exceptions do not carry.
+    [[nodiscard]] std::optional<std::string> ExceptionStackTrace(const std::exception& ex)
+    {
+        (void)ex;
+        return std::nullopt;
+    }
+}
+
 namespace MphRead::Mods::Network
 {
     using OpenTK::Mathematics::Vector2i;
@@ -255,11 +242,12 @@ namespace MphRead::Mods::Network
     {
         Entities::PlayerEntity::SetMaxPlayers(
             std::max<std::int32_t>(Entities::PlayerEntity::MaxPlayers(), 2));
-        Detail::WeaponDpsSetForceEveryone(true);
-        _scene = Detail::WeaponDpsCreateScene(*this);
+        MapAudit::ForceEveryone(true);
+        _scene = std::make_unique<MphRead::Scene>(ClientSize(), _window->Keyboard(), _window->Mouse(),
+            [](std::string) {}, [this]() { Close(); });
 
-        Detail::WeaponDpsSceneAddPlayer(*_scene, Hunter::Samus, 0, -1);
-        Detail::WeaponDpsSceneAddPlayer(*_scene, hunter, 0, -1);
+        _scene->AddPlayer(Hunter::Samus, 0, -1);
+        _scene->AddPlayer(hunter, 0, -1);
 
         const auto& players = Entities::PlayerEntity::Players();
         for (std::int32_t i = 2;
@@ -279,7 +267,7 @@ namespace MphRead::Mods::Network
 
         Entities::PlayerEntity::SetPlayerCount(2);
         Entities::PlayerEntity::SetMainPlayerIndex(0);
-        Detail::WeaponDpsSceneAddBattleRoom(*_scene, _room, NetLaunch::RoomPlayerCount);
+        _scene->AddRoom(_room, GameMode::Battle, NetLaunch::RoomPlayerCount);
     }
 
     WeaponDps::~WeaponDps() = default;
@@ -291,19 +279,19 @@ namespace MphRead::Mods::Network
 
     void WeaponDps::OnLoad()
     {
-        Detail::WeaponDpsSceneSetSize(*_scene, ClientSize());
-        Detail::WeaponDpsSceneOnLoad(*_scene);
+        _scene->Size(ClientSize());
+        _scene->OnLoad();
         _window->BaseOnLoad();
         OpenTK::Graphics::OpenGL::GL::Viewport(
             0, 0, ClientSize().X, ClientSize().Y);
-        Detail::WeaponDpsSceneOnResize(*_scene);
+        _scene->OnResize();
     }
 
     void WeaponDps::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
-        Detail::WeaponDpsApplyPause();
-        Detail::WeaponDpsSceneOnUpdateFrame(*_scene);
-        if (!Detail::WeaponDpsSceneOnRenderFrame(*_scene))
+        GameState::ApplyPause();
+        _scene->OnUpdateFrame();
+        if (!_scene->OnRenderFrame())
         {
             return;
         }
@@ -311,7 +299,7 @@ namespace MphRead::Mods::Network
         IncrementInt32Unchecked(_frame);
         Step();
         SwapBuffers();
-        Detail::WeaponDpsSceneAfterRenderFrame(*_scene);
+        _scene->AfterRenderFrame();
         _window->BaseOnRenderFrame(args);
 
         if (_placed
@@ -403,7 +391,7 @@ namespace MphRead::Mods::Network
             shooter.Teleport(
                 spot,
                 Negate(facing),
-                Detail::WeaponDpsSceneGetNodeRefByPosition(*_scene, spot));
+                _scene->GetNodeRefByPosition(spot));
             _placed = true;
             _placedFrame = _frame;
             _lastHealth = victim.Health();
@@ -432,7 +420,7 @@ namespace MphRead::Mods::Network
                 shooter.Teleport(
                     ring,
                     Negate(Normalize(offset)),
-                    Detail::WeaponDpsSceneGetNodeRefByPosition(*_scene, ring));
+                    _scene->GetNodeRefByPosition(ring));
             }
 
             NetTestScript::LayBombs(shooterReference, _frame);
@@ -451,7 +439,7 @@ namespace MphRead::Mods::Network
                 }
             }
 
-            _lastAmmo = Detail::WeaponDpsPlayerModAmmoUa(shooter);
+            _lastAmmo = (shooter).ModAmmo().first;
             HoldShooter(shooter);
             IncrementInt32Unchecked(_firingFrames);
             return;
@@ -463,14 +451,14 @@ namespace MphRead::Mods::Network
                 = static_cast<std::int32_t>(shooter.ShockCoilTimer());
         }
 
-        Detail::WeaponDpsPlayerModArmWeapon(shooter, _beam);
+        (shooter).ModArmWeapon(_beam);
 
         const Vector3 toVictim = Subtract(
             AddY(static_cast<Vector3>(victim.Position), 0.5F),
             AddY(static_cast<Vector3>(shooter.Position), 0.5F));
         if (LengthSquared(toVictim) > 0.001F)
         {
-            Detail::WeaponDpsPlayerModSetAim(shooter, Normalize(toVictim));
+            (shooter).ModSetAim(Normalize(toVictim));
         }
 
         NetTestScript::HoldFire(shooterReference, true);
@@ -495,7 +483,7 @@ namespace MphRead::Mods::Network
             }
         }
 
-        _lastAmmo = Detail::WeaponDpsPlayerModAmmoUa(shooter);
+        _lastAmmo = (shooter).ModAmmo().first;
         HoldShooter(shooter);
         IncrementInt32Unchecked(_firingFrames);
     }
@@ -530,11 +518,11 @@ namespace MphRead::Mods::Network
             : seconds;
         const std::string kill = _killFrames > 0
             ? "killed " + NativeRuntime::Int32ToString(_startHealth) + " hp in "
-                + Detail::WeaponDpsFormatFixed(
+                + NativeRuntime::DoubleToStringFixed(
                     static_cast<double>(_killFrames) / 60.0, 2)
                 + " s"
             : "did not kill " + NativeRuntime::Int32ToString(_startHealth) + " hp in "
-                + Detail::WeaponDpsFormatFixed(seconds, 1)
+                + NativeRuntime::DoubleToStringFixed(seconds, 1)
                 + " s";
         const std::string action = _bombs
             ? std::string("laying bombs")
@@ -543,22 +531,22 @@ namespace MphRead::Mods::Network
         NativeRuntime::ConsoleWriteLine(("DPS " + _room
             + " | " + HunterName(_hunter) + " " + action
             + " at "
-            + Detail::WeaponDpsFormatFixed(
+            + NativeRuntime::DoubleToStringFixed(
                 static_cast<double>(_bombs ? 0.6F : _distance), 1)
             + " units | " + kill
             + " | damage " + NativeRuntime::Int32ToString(_damage)
             + " | hits " + NativeRuntime::Int32ToString(_hits)
             + " | "
-            + Detail::WeaponDpsFormatFixed(
+            + NativeRuntime::DoubleToStringFixed(
                 static_cast<double>(_damage) / window, 1)
             + " per second | "
-            + Detail::WeaponDpsFormatFixed(
+            + NativeRuntime::DoubleToStringFixed(
                 _hits > 0
                     ? static_cast<double>(_damage) / static_cast<double>(_hits)
                     : 0.0,
                 1)
             + " per hit | "
-            + Detail::WeaponDpsFormatFixed(
+            + NativeRuntime::DoubleToStringFixed(
                 static_cast<double>(_hits) / window, 1)
             + " hits per second | beam alive on "
             + NativeRuntime::Int32ToString(_beamFrames) + " of "
@@ -600,9 +588,9 @@ namespace MphRead::Mods::Network
             catch (const std::exception& ex)
             {
                 NativeRuntime::ConsoleWriteLine(("DPSCRASH " + room + " | "
-                    + Detail::WeaponDpsExceptionTypeName(ex) + ": "
-                    + Detail::WeaponDpsExceptionMessage(ex)));
-                NativeRuntime::ConsoleWriteLineNullable(Detail::WeaponDpsExceptionStackTrace(ex));
+                    + ExceptionTypeName(ex) + ": "
+                    + ExceptionMessage(ex)));
+                NativeRuntime::ConsoleWriteLineNullable(ExceptionStackTrace(ex));
                 result = 1;
             }
         }
@@ -610,14 +598,14 @@ namespace MphRead::Mods::Network
         {
             if (window)
             {
-                Detail::WeaponDpsDispose(*window);
+                window.reset();
             }
             throw;
         }
 
         if (window)
         {
-            Detail::WeaponDpsDispose(*window);
+            window.reset();
         }
         return result;
     }

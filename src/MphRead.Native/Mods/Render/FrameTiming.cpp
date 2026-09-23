@@ -13,7 +13,7 @@ namespace MphRead::Mods
     class DebugLog
     {
     public:
-        static void Line(const std::string& category, const std::string& message);
+        static void Line(std::string_view category, std::string_view message);
     };
 }
 

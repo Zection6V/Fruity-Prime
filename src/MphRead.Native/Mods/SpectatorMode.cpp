@@ -14,13 +14,6 @@
 #include <type_traits>
 #include <utility>
 
-namespace MphRead::Mods::SpectatorModeInterop
-{
-    [[nodiscard]] bool HudReady(Entities::PlayerEntity& player);
-    void SetUpHud(Entities::PlayerEntity& player);
-    void ModSetSpectating(Entities::PlayerEntity& player, bool value);
-}
-
 namespace
 {
     using MphRead::Entities::LoadFlags;
@@ -100,8 +93,8 @@ namespace MphRead::Mods
         if (localSlot >= 0
             && static_cast<std::size_t>(localSlot) < PlayerEntity::Players().size())
         {
-            SpectatorModeInterop::ModSetSpectating(
-                RequireReference(ManagedAt(PlayerEntity::Players(), localSlot)), true);
+            RequireReference(ManagedAt(PlayerEntity::Players(), localSlot))
+                .ModSetSpectating(true);
         }
         if (watchSomeone)
         {
@@ -170,9 +163,9 @@ namespace MphRead::Mods
         const std::shared_ptr<PlayerEntity> target
             = ManagedAt(PlayerEntity::Players(), slot);
         PlayerEntity& targetRef = RequireReference(target);
-        if (!SpectatorModeInterop::HudReady(targetRef))
+        if (!(targetRef).HudReady())
         {
-            SpectatorModeInterop::SetUpHud(targetRef);
+            (targetRef).SetUpHud();
         }
         PlayerEntity::SetMainPlayerIndex(slot);
         Entities::CameraInfo& cameraInfo = RequireReference(targetRef.CameraInfo());
@@ -195,8 +188,8 @@ namespace MphRead::Mods
         if (localSlot >= 0
             && static_cast<std::size_t>(localSlot) < GameState::Points().size())
         {
-            SpectatorModeInterop::ModSetSpectating(
-                RequireReference(ManagedAt(PlayerEntity::Players(), localSlot)), false);
+            RequireReference(ManagedAt(PlayerEntity::Players(), localSlot))
+                .ModSetSpectating(false);
             std::int32_t& pointTarget = ManagedAt(GameState::Points(), localSlot);
             const std::int32_t pointValue = ManagedAt(GameState::Points(), localSlot);
             pointTarget = std::min<std::int32_t>(0, pointValue);

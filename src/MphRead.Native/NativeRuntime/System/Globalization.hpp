@@ -31,6 +31,11 @@ namespace MphRead::NativeRuntime
     // double.TryParse(text, NumberStyles.Float | AllowThousands,
     // CultureInfo.InvariantCulture, out value).
     [[nodiscard]] bool DoubleTryParseInvariant(std::string text, double& value);
+    // double.ToString("0.0"), "0.00" and so on: exactly `decimals` places,
+    // rounded half away from zero, current culture.
+    [[nodiscard]] std::string DoubleToStringFixed(double value, std::int32_t decimals);
+    // double.ToString("F2"), current culture.
+    [[nodiscard]] std::string DoubleToStringFixed2(double value);
     // float.ToString("0.#"), current culture.
     [[nodiscard]] std::string SingleToStringZeroPointHash(float value);
     // int.ToString() / long.ToString(), current culture.

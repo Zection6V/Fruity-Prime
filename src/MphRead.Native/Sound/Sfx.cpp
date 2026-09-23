@@ -1,5 +1,8 @@
 #include "Sfx.hpp"
 
+#include "../Entities/Players/PlayerEntity.hpp"
+#include "../Scene.hpp"
+
 #include "../Features.hpp"
 #include "../Formats/Sound.hpp"
 #include "../Mods/Headless.hpp"
@@ -373,14 +376,6 @@ namespace MphRead::Sound
 
     // The current Native Scene surface does not yet expose the renderer-owned
     // camera/player listener data read by Sfx.cs. These three declarations are
-    // the deliberately isolated dependency closure for those reads. No fallback
-    // listener policy is invented here.
-    namespace ListenerClosure
-    {
-        Vector3 GetPosition(const MphRead::Scene& scene);
-        Vector3 GetUp(const MphRead::Scene& scene);
-        Vector3 GetFacing(const MphRead::Scene& scene);
-    }
 
     std::shared_ptr<SfxInstanceBase> Sfx::_instance{};
     float Sfx::Volume = 0.35F;
@@ -856,7 +851,7 @@ namespace MphRead::Sound
         {
             return SfxInstanceBase::GetListenerPosition();
         }
-        return ListenerClosure::GetPosition(*_scene);
+        return _scene->CameraPosition();
     }
 
     Vector3 SfxInstance::GetListenerUp() const
@@ -865,7 +860,11 @@ namespace MphRead::Sound
         {
             return SfxInstanceBase::GetListenerUp();
         }
-        return ListenerClosure::GetUp(*_scene);
+        if (_scene->CameraMode() == MphRead::CameraMode::Player)
+        {
+            return Entities::PlayerEntity::Main()->CameraInfo()->TrueUp;
+        }
+        return _scene->ViewMatrix().Row1().Xyz().Normalized();
     }
 
     Vector3 SfxInstance::GetListenerFacing() const
@@ -874,7 +873,11 @@ namespace MphRead::Sound
         {
             return SfxInstanceBase::GetListenerFacing();
         }
-        return ListenerClosure::GetFacing(*_scene);
+        if (_scene->CameraMode() == MphRead::CameraMode::Player)
+        {
+            return Entities::PlayerEntity::Main()->CameraInfo()->Facing;
+        }
+        return _scene->ViewMatrix().Row2().Xyz().Normalized();
     }
 
     std::int32_t SfxInstance::PlaySample(std::int32_t id, SoundSource* source,

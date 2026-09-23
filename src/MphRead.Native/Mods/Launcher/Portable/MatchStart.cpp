@@ -27,7 +27,6 @@ namespace MphRead::Mods::Launcher::Detail
     // Direct-owner seams required by the current native dependency surface.
     // They carry no MatchStart policy: each operation is the C# call at that
     // exact evaluation point, and its owner supplies the behavior.
-    void MatchStartRunWindow(MphRead::RenderWindow& renderer);
 }
 
 namespace MphRead::Mods::Launcher
@@ -148,7 +147,7 @@ namespace MphRead::Mods::Launcher
             MphRead::Mods::Network::NetSession::Active()
                 ? MphRead::Mods::Network::NetLaunch::RoomPlayerCount
                 : 0);
-        Detail::MatchStartRunWindow(renderer);
+        renderer.Run();
     }
 
     void MatchStart::LaunchAdventure(LaunchPlan plan)
@@ -167,7 +166,7 @@ namespace MphRead::Mods::Launcher
             MphRead::Entities::PlayerEntity::SetMaxPlayers(4);
             renderer.AddPlayer(plan.Hunter(), LauncherPrefs::LastColor(), -1);
             renderer.AddRoom(roomKey, MphRead::GameMode::SinglePlayer);
-            Detail::MatchStartRunWindow(renderer);
+            renderer.Run();
         }
         CommitAdventureSave();
     }
@@ -203,7 +202,7 @@ namespace MphRead::Mods::Launcher
             MphRead::GameState::IsTeamMode(room->Mode), -1);
         renderer.AddRoom(room->RoomKey, room->Mode,
             MphRead::Mods::Network::NetLaunch::RoomPlayerCount);
-        Detail::MatchStartRunWindow(renderer);
+        renderer.Run();
         MphRead::Mods::Network::DemoPlayback::Stop();
     }
 

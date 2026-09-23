@@ -1,27 +1,11 @@
 #include "PauseMenu.hpp"
 
+#include "../Renderer.hpp"
+
 #include "WindowMode.hpp"
 
 #include <atomic>
 #include <cstdint>
-
-namespace MphRead::Mods::Detail
-{
-    [[nodiscard]] std::int32_t PauseMenuClientLocationX(MphRead::RenderWindow& window);
-    [[nodiscard]] std::int32_t PauseMenuClientLocationY(MphRead::RenderWindow& window);
-    [[nodiscard]] std::int32_t PauseMenuClientSizeX(MphRead::RenderWindow& window);
-    [[nodiscard]] std::int32_t PauseMenuClientSizeY(MphRead::RenderWindow& window);
-    void PauseMenuFocus(MphRead::RenderWindow& window);
-    void PauseMenuCloseGameWindow(MphRead::RenderWindow& window);
-
-#if defined(MPHREAD_AVALONIA)
-    [[nodiscard]] bool PauseMenuGuiEnsureSetup();
-    void PauseMenuGuiFollowGameWindow();
-    void PauseMenuGuiPump();
-    [[nodiscard]] bool PauseMenuGuiOpenWindow();
-    void PauseMenuGuiCloseWindowIfOpen();
-#endif
-}
 
 namespace MphRead::Mods
 {
@@ -85,10 +69,10 @@ namespace MphRead::Mods
 
     void PauseMenu::TakeWindowRect(MphRead::RenderWindow& window)
     {
-        const std::int32_t x = Detail::PauseMenuClientLocationX(window);
-        const std::int32_t y = Detail::PauseMenuClientLocationY(window);
-        const std::int32_t width = Detail::PauseMenuClientSizeX(window);
-        const std::int32_t height = Detail::PauseMenuClientSizeY(window);
+        const std::int32_t x = window.ClientLocation().X;
+        const std::int32_t y = window.ClientLocation().Y;
+        const std::int32_t width = window.ClientSize().X;
+        const std::int32_t height = window.ClientSize().Y;
         if (x == _windowX && y == _windowY
             && width == _windowWidth && height == _windowHeight)
         {
@@ -140,7 +124,7 @@ namespace MphRead::Mods
             _refocus.store(false, std::memory_order_release);
             try
             {
-                Detail::PauseMenuFocus(window);
+                window.Focus();
             }
             catch (...)
             {
@@ -157,14 +141,14 @@ namespace MphRead::Mods
             _quit.store(false, std::memory_order_release);
             _quitProgram = true;
             Close();
-            Detail::PauseMenuCloseGameWindow(window);
+            window.Close();
         }
         else if (_leave.load(std::memory_order_acquire))
         {
             _leave.store(false, std::memory_order_release);
             _leftMatch = true;
             Close();
-            Detail::PauseMenuCloseGameWindow(window);
+            window.Close();
         }
     }
 

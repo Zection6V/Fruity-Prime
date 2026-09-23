@@ -38,6 +38,21 @@ namespace MphRead::NativeRuntime
     void FileWriteAllText(const std::string& path, std::string_view text);
     // Directory.CreateDirectory(path), parents included.
     void DirectoryCreateDirectory(const std::string& path);
+    // new FileInfo(path): the members the demo library reads.
+    struct FileInfo final
+    {
+        std::string Name;
+        std::int64_t Length = 0;
+        // LastWriteTime in DateTime ticks, local.
+        std::int64_t LastWriteTimeTicks = 0;
+    };
+
+    [[nodiscard]] FileInfo CreateFileInfo(const std::string& path);
+    // Directory.EnumerateFiles(path, searchPattern) with the "*suffix" form.
+    [[nodiscard]] std::vector<std::string> DirectoryEnumerateFilesWithSuffix(
+        const std::string& path, const std::string& suffix);
+    // Path.GetFileNameWithoutExtension(path).
+    [[nodiscard]] std::string PathGetFileNameWithoutExtension(const std::string& path);
     // Path.GetInvalidFileNameChars().
     [[nodiscard]] std::vector<char> PathGetInvalidFileNameChars();
 }

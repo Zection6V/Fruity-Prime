@@ -1,4 +1,7 @@
 #include "DemoFile.hpp"
+
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Streams.hpp"
 #include "NetProtocol.hpp"
 
 #include "../../Utility/Compress.hpp"
@@ -39,6 +42,17 @@ namespace
     }
 }
 
+namespace
+{
+    // `Path.GetDirectoryName(path)`, which is what Directory.CreateDirectory
+    // is given here.
+    [[nodiscard]] std::string DirectoryOf(const std::string& path)
+    {
+        const std::size_t slash = path.find_last_of("/\\");
+        return slash == std::string::npos ? std::string() : path.substr(0, slash);
+    }
+}
+
 namespace MphRead::Mods::Network
 {
     std::array<std::uint8_t, 4> DemoFile::Magic = {
@@ -50,14 +64,13 @@ namespace MphRead::Mods::Network
 
     DemoWriter::DemoWriter(const std::string& path)
     {
-        Detail::DemoFilePrepareDirectory(path);
-        _stream = Detail::DemoFileOpenCreateWriteShareRead(path);
-        Detail::DemoFileStreamWrite(_stream, DemoFile::Magic);
-        Detail::DemoFileStreamWriteByte(_stream, DemoFile::FormatVersion);
-        Detail::DemoFileStreamWriteByte(_stream,
-            static_cast<std::uint8_t>(NetConfig::ProtocolVersion));
-        Detail::DemoFileStreamFlush(_stream);
-        _deflate = Detail::DemoFileCreateDeflateFastest(_stream, true);
+        NativeRuntime::DirectoryCreateDirectory(DirectoryOf(path));
+        _stream = NativeRuntime::FileStreamOpenCreateWriteShareRead(path);
+        _stream->Write(DemoFile::Magic);
+        _stream->WriteByte(DemoFile::FormatVersion);
+        _stream->WriteByte(static_cast<std::uint8_t>(NetConfig::ProtocolVersion));
+        _stream->Flush();
+        _deflate = NativeRuntime::DeflateStreamCompress(_stream, true);
     }
 
     void DemoWriter::WriteRecord(std::uint32_t frame, std::span<const std::uint8_t> data)
@@ -84,21 +97,20 @@ namespace MphRead::Mods::Network
             static_cast<std::uint16_t>(data.size()));
         at += 2;
 
-        Detail::DemoDeflateStreamWrite(_deflate,
-            std::span<const std::uint8_t>(_header).first(at));
-        Detail::DemoDeflateStreamWrite(_deflate, data);
+        _deflate->Write(std::span<const std::uint8_t>(_header).first(at));
+        _deflate->Write(data);
         if (frame - _lastFlushFrame >= FlushIntervalFrames)
         {
             _lastFlushFrame = frame;
-            Detail::DemoDeflateStreamFlush(_deflate);
-            Detail::DemoFileStreamFlush(_stream);
+            _deflate->Flush();
+            _stream->Flush();
         }
     }
 
     void DemoWriter::Dispose()
     {
-        Detail::DemoDeflateStreamDispose(_deflate);
-        Detail::DemoFileStreamDispose(_stream);
+        _deflate->Dispose();
+        _stream->Dispose();
     }
 
     DemoRecord::DemoRecord()
@@ -134,20 +146,20 @@ namespace MphRead::Mods::Network
 
     std::unique_ptr<DemoReader> DemoReader::Open(const std::string& path)
     {
-        std::shared_ptr<Detail::DemoFileStreamHandle> stream;
+        std::shared_ptr<::MphRead::NativeRuntime::Stream> stream;
         try
         {
-            stream = Detail::DemoFileOpenReadShareRead(path);
+            stream = NativeRuntime::FileStreamOpenReadShareRead(path);
             std::array<std::uint8_t, static_cast<std::size_t>(DemoFile::HeaderSize)> header{};
-            if (Detail::DemoFileStreamReadAtLeast(stream, header, false) < header.size())
+            if (stream->ReadAtLeast(header) < header.size())
             {
-                Detail::DemoFileStreamDispose(stream);
+                stream->Dispose();
                 return nullptr;
             }
             if (!std::equal(DemoFile::Magic.begin(), DemoFile::Magic.end(), header.begin())
                 || header[4] != DemoFile::FormatVersion)
             {
-                Detail::DemoFileStreamDispose(stream);
+                stream->Dispose();
                 return nullptr;
             }
             return std::unique_ptr<DemoReader>(new DemoReader(stream, header[5]));
@@ -156,16 +168,16 @@ namespace MphRead::Mods::Network
         {
             if (stream != nullptr)
             {
-                Detail::DemoFileStreamDispose(stream);
+                stream->Dispose();
             }
             return nullptr;
         }
     }
 
-    DemoReader::DemoReader(std::shared_ptr<Detail::DemoFileStreamHandle> stream,
+    DemoReader::DemoReader(std::shared_ptr<::MphRead::NativeRuntime::Stream> stream,
         std::uint8_t protocolVersion)
         : _stream(std::move(stream)),
-          _deflate(Detail::DemoFileCreateDeflateDecompress(_stream, true)),
+          _deflate(NativeRuntime::DeflateStreamDecompress(_stream, true)),
           _protocolVersion(protocolVersion)
     {
     }
@@ -213,7 +225,7 @@ namespace MphRead::Mods::Network
 
     bool DemoReader::Fill(std::span<std::uint8_t> destination)
     {
-        return Detail::DemoDeflateStreamReadAtLeast(_deflate, destination, false)
+        return _deflate->ReadAtLeast(destination)
             == destination.size();
     }
 
@@ -224,7 +236,7 @@ namespace MphRead::Mods::Network
 
     void DemoReader::Dispose()
     {
-        Detail::DemoDeflateStreamDispose(_deflate);
-        Detail::DemoFileStreamDispose(_stream);
+        _deflate->Dispose();
+        _stream->Dispose();
     }
 }

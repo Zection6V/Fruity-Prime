@@ -1,5 +1,11 @@
 #include "ServerSim.hpp"
 
+#include "../../Formats/Formats.hpp"
+#include "../../GameState.hpp"
+#include "../../NativeRuntime/System/Runtime.hpp"
+#include "../../Read.hpp"
+#include "../../Scene.hpp"
+
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../Headless.hpp"
@@ -21,27 +27,6 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
-
-namespace MphRead::Mods::Network::Detail
-{
-    // Scene's constructor and these members occur in a later Native owner.
-    // These declarations carry exactly the referenced C# operations and add no fallback.
-    [[nodiscard]] std::shared_ptr<Scene> ServerSimCreateScene(
-        std::int32_t width, std::int32_t height,
-        Mods::Input::KeyboardState keyboard, Mods::Input::MouseState mouse);
-    [[nodiscard]] std::int32_t ServerSimSceneRoomId(const Scene& scene);
-    void ServerSimSceneAddRoom(
-        Scene& scene, const std::string& roomKey, GameMode mode, std::int32_t playerCount);
-    void ServerSimSceneOnLoad(Scene& scene);
-    void ServerSimSceneOnSimulationFrame(Scene& scene);
-
-    // These declarations bind later static owners without introducing fallback behavior.
-    [[nodiscard]] std::string ServerSimFileSystem();
-    [[nodiscard]] bool ServerSimIsTeamMode(GameMode mode);
-    [[nodiscard]] GameMode ServerSimGameStateMode();
-    void ServerSimReadClearCache();
-    void ServerSimCollectGeneration2ForcedBlockingCompacting();
-}
 
 namespace
 {
@@ -136,7 +121,7 @@ namespace MphRead::Mods::Network
             return "";
         }
 
-        const std::int32_t roomId = Detail::ServerSimSceneRoomId(*_scene);
+        const std::int32_t roomId = (*_scene).RoomId();
         const RoomMetadata* metadata = Metadata::GetRoomById(roomId, true);
         const std::string current = metadata != nullptr ? metadata->Name : "";
         return !current.empty() ? current : _room;
@@ -146,7 +131,7 @@ namespace MphRead::Mods::Network
     {
         try
         {
-            const std::string root = Detail::ServerSimFileSystem();
+            const std::string root = Paths::FileSystem();
             std::error_code error;
             const bool exists = !root.empty() && std::filesystem::is_directory(root, error);
             if (root.empty() || error || !exists)
@@ -192,14 +177,16 @@ namespace MphRead::Mods::Network
 
             auto keyboard = Mods::Input::SyntheticInput::CreateKeyboard();
             auto mouse = Mods::Input::SyntheticInput::CreateMouse();
-            std::shared_ptr<Scene> scene = Detail::ServerSimCreateScene(
-                256, 192, std::move(keyboard), std::move(mouse));
+            // The DS's own projection: nothing here builds one, so a stray
+            // aspect ratio is at least the right one.
+            std::shared_ptr<Scene> scene = std::make_shared<Scene>(
+                OpenTK::Mathematics::Vector2i(256, 192), *keyboard, *mouse,
+                [](std::string) {}, []() {});
 
             NetLaunch::BuildPlayers(*scene, Hunter::Samus, 0,
-                Detail::ServerSimIsTeamMode(mode), -1);
-            Detail::ServerSimSceneAddRoom(
-                *scene, roomKey, mode, NetLaunch::RoomPlayerCount);
-            Detail::ServerSimSceneOnLoad(*scene);
+                GameState::IsTeamMode(mode), -1);
+            scene->AddRoom(roomKey, mode, NetLaunch::RoomPlayerCount);
+            scene->OnLoad();
 
             _scene = std::move(scene);
             _frames = 0;
@@ -233,7 +220,7 @@ namespace MphRead::Mods::Network
         const auto start = std::chrono::steady_clock::now();
         try
         {
-            Detail::ServerSimSceneOnSimulationFrame(*_scene);
+            _scene->OnSimulationFrame();
         }
         catch (const std::exception& ex)
         {
@@ -273,8 +260,8 @@ namespace MphRead::Mods::Network
         _scene.reset();
         _room.clear();
         NetSession::Stop();
-        Detail::ServerSimReadClearCache();
-        Detail::ServerSimCollectGeneration2ForcedBlockingCompacting();
+        Read::ClearCache();
+        NativeRuntime::ForceFullGc();
     }
 
     std::string ServerSim::DescribeUnlagged() const
@@ -293,7 +280,7 @@ namespace MphRead::Mods::Network
             ? _stepSeconds / static_cast<double>(_frames) * 1000.0
             : 0.0;
 
-        std::string result = Room() + " (" + GameModeName(Detail::ServerSimGameStateMode())
+        std::string result = Room() + " (" + GameModeName(GameState::Mode())
             + "), " + std::to_string(_frames) + " step(s), "
             + FormatFixed(mean, 2) + " ms mean, "
             + FormatFixed(_worstStepSeconds * 1000.0, 1) + " ms worst, "

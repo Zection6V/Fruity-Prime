@@ -1,5 +1,8 @@
 #include "PointerInput.hpp"
 
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../DebugLog.hpp"
+
 #include <bit>
 #include <cmath>
 #include <cstdint>
@@ -11,12 +14,6 @@
 // before calling DebugLog.Line so C# interpolation semantics are preserved.
 namespace MphRead::Mods::Input::PointerInputAdapters
 {
-    void DebugLogLine(
-        std::string_view category,
-        std::string_view messagePrefix,
-        float value,
-        std::string_view valueFormat,
-        std::string_view messageSuffix);
 }
 
 namespace MphRead::Mods::Input
@@ -72,12 +69,12 @@ namespace MphRead::Mods::Input
         if (!JumpingPointerSeen())
         {
             _jumpingPointerSeen = true;
-            PointerInputAdapters::DebugLogLine(
+            ::MphRead::Mods::DebugLog::Line(
                 "input",
-                "pointer jumped ",
-                delta,
-                "0",
-                " px in a frame and was ignored -- a pen, a touchscreen, or a cursor warp");
+                "pointer jumped "
+                    + ::MphRead::NativeRuntime::DoubleToStringNoDecimals(delta)
+                    + " px in a frame and was "
+                    + "ignored -- a pen, a touchscreen, or a cursor warp");
         }
         return 0.0F;
     }

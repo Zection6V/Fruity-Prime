@@ -1,5 +1,6 @@
 #pragma once
 
+#include <span>
 #include <string>
 #include <unordered_map>
 
@@ -25,6 +26,7 @@ namespace MphRead
 
         static void Load(const std::unordered_map<std::string, std::string>& values);
         [[nodiscard]] static std::unordered_map<std::string, std::string> Commit();
+
 
     private:
         static bool _smoothCamSeqHandoff;
@@ -165,6 +167,19 @@ namespace MphRead
 
         static void Load(const std::unordered_map<std::string, std::string>& values);
         [[nodiscard]] static std::unordered_map<std::string, std::string> Commit();
+
+        // What `typeof(Cheats).GetProperties(BindingFlags.Public |
+        // BindingFlags.Static)` yields, for the callers that walk the list
+        // rather than naming each cheat. C++ has no reflection, so the list is
+        // written out beside the properties it names.
+        struct BooleanProperty final
+        {
+            const char* Name;
+            bool (*Get)() noexcept;
+            void (*Set)(bool) noexcept;
+        };
+
+        [[nodiscard]] static std::span<const BooleanProperty> BooleanProperties() noexcept;
 
     private:
         static bool _freeWeaponSelect;

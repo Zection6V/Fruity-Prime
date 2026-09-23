@@ -1641,6 +1641,56 @@ namespace MphRead::NativeRuntime
         return true;
     }
 
+    std::string DoubleToStringFixed(double value, std::int32_t decimals)
+    {
+        const ManagedNumberFormat format = CurrentManagedNumberFormat();
+        if (std::isnan(value))
+        {
+            return format.NaNSymbol;
+        }
+        if (std::isinf(value))
+        {
+            return std::signbit(value)
+                ? format.NegativeInfinitySymbol
+                : format.PositiveInfinitySymbol;
+        }
+        const bool negative = std::signbit(value);
+        char buffer[512]{};
+        const std::to_chars_result result = std::to_chars(
+            std::begin(buffer), std::end(buffer), std::fabs(value),
+            std::chars_format::fixed, decimals);
+        if (result.ec != std::errc{})
+        {
+            throw System::FormatException();
+        }
+        std::string text(buffer, result.ptr);
+        const std::size_t point = text.find('.');
+        if (point != std::string::npos)
+        {
+            text.replace(point, 1, format.DecimalSeparator);
+        }
+        // The custom format keeps a sign only when a digit survived.
+        bool anyDigit = false;
+        for (const char item : text)
+        {
+            if (item >= '1' && item <= '9')
+            {
+                anyDigit = true;
+                break;
+            }
+        }
+        if (negative && anyDigit)
+        {
+            return format.NegativeSign + text;
+        }
+        return text;
+    }
+
+    std::string DoubleToStringFixed2(double value)
+    {
+        return DoubleToStringFixed(value, 2);
+    }
+
     std::string SingleToStringZeroPointHash(float value)
     {
         const ManagedNumberFormat format = CurrentManagedNumberFormat();

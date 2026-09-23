@@ -403,6 +403,11 @@ namespace
         {
             return "MphRead.CollisionVolume";
         }
+        else if constexpr (requires { ::MphRead::ToString(value); })
+        {
+            // The enum's own ToString, declared beside its declaration.
+            return ::MphRead::ToString(value);
+        }
         else if constexpr (std::is_enum_v<T>)
         {
             static_assert(!std::is_same_v<T, T>, "Exact managed enum formatting requires a shared Enum.ToString owner.");
@@ -1196,4 +1201,44 @@ namespace MphRead::Editor
 #undef RO
 #undef P
 #undef L
+}
+
+namespace MphRead::Editor
+{
+    // The instantiations the editor's own comparisons need. C# reifies a
+    // generic on demand; C++ needs each one named.
+    template void EntityEditorBase::PrintValue<bool>(
+        const bool&, const bool&, const char*) const;
+    template void EntityEditorBase::PrintValue<float>(
+        const float&, const float&, const char*) const;
+    template void EntityEditorBase::PrintValue<std::int32_t>(
+        const std::int32_t&, const std::int32_t&, const char*) const;
+    template void EntityEditorBase::PrintValue<std::int16_t>(
+        const std::int16_t&, const std::int16_t&, const char*) const;
+    template void EntityEditorBase::PrintValue<std::uint8_t>(
+        const std::uint8_t&, const std::uint8_t&, const char*) const;
+    template void EntityEditorBase::PrintValue<std::uint32_t>(
+        const std::uint32_t&, const std::uint32_t&, const char*) const;
+    template void EntityEditorBase::PrintValue<std::uint16_t>(
+        const std::uint16_t&, const std::uint16_t&, const char*) const;
+    template void EntityEditorBase::PrintValue<::MphRead::CollisionVolume>(
+        const ::MphRead::CollisionVolume&, const ::MphRead::CollisionVolume&, const char*) const;
+    template void EntityEditorBase::PrintValue<::MphRead::EnemyType>(
+        const ::MphRead::EnemyType&, const ::MphRead::EnemyType&, const char*) const;
+    template void EntityEditorBase::PrintValue<::MphRead::FhEnemyType>(
+        const ::MphRead::FhEnemyType&, const ::MphRead::FhEnemyType&, const char*) const;
+    template void EntityEditorBase::PrintValue<::MphRead::FhMessage>(
+        const ::MphRead::FhMessage&, const ::MphRead::FhMessage&, const char*) const;
+    template void EntityEditorBase::PrintValue<::MphRead::Hunter>(
+        const ::MphRead::Hunter&, const ::MphRead::Hunter&, const char*) const;
+    template void EntityEditorBase::PrintValue<::MphRead::ItemType>(
+        const ::MphRead::ItemType&, const ::MphRead::ItemType&, const char*) const;
+    template void EntityEditorBase::PrintValue<::MphRead::Message>(
+        const ::MphRead::Message&, const ::MphRead::Message&, const char*) const;
+    template void EntityEditorBase::PrintValue<::OpenTK::Mathematics::Vector3>(
+        const ::OpenTK::Mathematics::Vector3&, const ::OpenTK::Mathematics::Vector3&, const char*) const;
+    template void EntityEditorBase::PrintValues<::OpenTK::Mathematics::Vector3>(
+        const std::shared_ptr<std::vector<::OpenTK::Mathematics::Vector3>>&,
+        const std::shared_ptr<std::vector<::OpenTK::Mathematics::Vector3>>&,
+        const char*) const;
 }

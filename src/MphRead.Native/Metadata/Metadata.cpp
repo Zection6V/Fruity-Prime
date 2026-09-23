@@ -1556,3 +1556,12 @@ int GetAreaInfo(int roomId) noexcept
     return areaId;
 }
 }
+
+namespace MphRead::Metadata
+{
+    std::uint32_t TimeLimit(
+        std::uint32_t minutes, std::uint32_t seconds, std::uint32_t frames)
+    {
+        return minutes * 1800 + seconds * 30 + frames;
+    }
+}

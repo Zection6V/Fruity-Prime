@@ -1,6 +1,7 @@
 #include "GameState.hpp"
 
 #include "Menu.hpp"
+#include "NativeRuntime/System/Json.hpp"
 #include "Mods/Headless.hpp"
 #include "Mods/Network/NetMatchEnd.hpp"
 #include "Mods/Network/NetSession.hpp"
@@ -40,12 +41,10 @@
 
 namespace MphRead::GameStateDetail
 {
-    // System.Text.Json, which has no reproduction in NativeRuntime yet. These
-    // are the only GameState.cs calls still behind a declaration.
-    [[nodiscard]] std::shared_ptr<StorySave> DeserializeStorySave(
-        const std::string& json);
-    [[nodiscard]] std::string SerializeStorySave(
-        const std::shared_ptr<StorySave>& save);
+    // Defined at the end of this file, beside the rest of GameState.cs's
+    // serialization.
+    [[nodiscard]] std::shared_ptr<StorySave> DeserializeStorySave(const std::string& json);
+    [[nodiscard]] std::string SerializeStorySave(const std::shared_ptr<StorySave>& save);
     void DeserializeSettings(const std::string& json,
         std::shared_ptr<const std::unordered_map<std::string, std::string>>& features,
         std::shared_ptr<MenuSettings>& menuSettings);
@@ -2833,5 +2832,418 @@ namespace MphRead
     {
         return ::MphRead::NativeRuntime::ManagedEnumToString(
             value, MatchStateNames, std::size(MatchStateNames), false);
+    }
+}
+
+namespace MphRead::GameStateDetail
+{
+    // System.Text.Json over the two documents GameState.cs writes: a save slot
+    // and the settings file. Each property is named here because C++ has no
+    // reflection to walk them with.
+    namespace
+    {
+        using Json = ::MphRead::NativeRuntime::JsonValue;
+        using JsonPtr = ::MphRead::NativeRuntime::JsonPtr;
+
+        void ReadString(const JsonPtr& object, const char* name, std::string& target)
+        {
+            const JsonPtr member = object->Get(name);
+            if (member != nullptr && member->Type() == Json::Kind::String)
+            {
+                target = member->Text();
+            }
+        }
+
+        void ReadInt(const JsonPtr& object, const char* name, std::int32_t& target)
+        {
+            const JsonPtr member = object->Get(name);
+            if (member != nullptr && member->Type() == Json::Kind::Number)
+            {
+                target = static_cast<std::int32_t>(member->AsInt64(target));
+            }
+        }
+
+        void ReadUInt16(const JsonPtr& object, const char* name, std::uint16_t& target)
+        {
+            const JsonPtr member = object->Get(name);
+            if (member != nullptr && member->Type() == Json::Kind::Number)
+            {
+                target = static_cast<std::uint16_t>(member->AsInt64(target));
+            }
+        }
+
+        void ReadUInt32(const JsonPtr& object, const char* name, std::uint32_t& target)
+        {
+            const JsonPtr member = object->Get(name);
+            if (member != nullptr && member->Type() == Json::Kind::Number)
+            {
+                target = static_cast<std::uint32_t>(member->AsInt64(target));
+            }
+        }
+
+        template <typename TArray>
+        void ReadNumberArray(const JsonPtr& object, const char* name, TArray& target)
+        {
+            const JsonPtr member = object->Get(name);
+            if (member == nullptr || member->Type() != Json::Kind::Array || !target)
+            {
+                return;
+            }
+            const std::size_t count = std::min(target->Length(), member->Items().size());
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                using Element = std::remove_reference_t<decltype((*target)[i])>;
+                (*target)[i] = static_cast<std::remove_cv_t<Element>>(
+                    member->Items()[i]->AsInt64(0));
+            }
+        }
+
+        void ReadByteArray(const JsonPtr& object, const char* name,
+            StorySave::ByteArray& target)
+        {
+            ReadNumberArray(object, name, target);
+        }
+
+        void ReadIntArray(const JsonPtr& object, const char* name,
+            StorySave::IntArray& target)
+        {
+            ReadNumberArray(object, name, target);
+        }
+
+        void ReadJagged(const JsonPtr& object, const char* name,
+            StorySave::ByteJaggedArray& target)
+        {
+            const JsonPtr member = object->Get(name);
+            if (member == nullptr || member->Type() != Json::Kind::Array || !target)
+            {
+                return;
+            }
+            const std::size_t rows = std::min(target->Length(), member->Items().size());
+            for (std::size_t row = 0; row < rows; ++row)
+            {
+                StorySave::ByteArray& inner = (*target)[row];
+                const JsonPtr source = member->Items()[row];
+                if (!inner || source == nullptr || source->Type() != Json::Kind::Array)
+                {
+                    continue;
+                }
+                const std::size_t count = std::min(inner->Length(), source->Items().size());
+                for (std::size_t i = 0; i < count; ++i)
+                {
+                    (*inner)[i] = static_cast<std::uint8_t>(source->Items()[i]->AsInt64(0));
+                }
+            }
+        }
+
+        [[nodiscard]] JsonPtr WriteByteArray(const StorySave::ByteArray& value)
+        {
+            JsonPtr array = Json::MakeArray();
+            if (value)
+            {
+                for (std::size_t i = 0; i < value->Length(); ++i)
+                {
+                    array->Items().push_back(Json::MakeNumber(
+                        std::to_string(static_cast<std::int32_t>((*value)[i]))));
+                }
+            }
+            return array;
+        }
+
+        [[nodiscard]] JsonPtr WriteIntArray(const StorySave::IntArray& value)
+        {
+            JsonPtr array = Json::MakeArray();
+            if (value)
+            {
+                for (std::size_t i = 0; i < value->Length(); ++i)
+                {
+                    array->Items().push_back(Json::MakeNumber(std::to_string((*value)[i])));
+                }
+            }
+            return array;
+        }
+
+        [[nodiscard]] JsonPtr WriteJagged(const StorySave::ByteJaggedArray& value)
+        {
+            JsonPtr array = Json::MakeArray();
+            if (value)
+            {
+                for (std::size_t row = 0; row < value->Length(); ++row)
+                {
+                    array->Items().push_back(WriteByteArray((*value)[row]));
+                }
+            }
+            return array;
+        }
+    }
+
+    std::shared_ptr<StorySave> DeserializeStorySave(const std::string& json)
+    {
+        const JsonPtr object = ::MphRead::NativeRuntime::JsonParse(json);
+        if (object == nullptr || object->Type() != Json::Kind::Object)
+        {
+            return nullptr;
+        }
+        auto save = std::make_shared<StorySave>();
+        ReadInt(object, "ScanCount", save->ScanCount);
+        ReadInt(object, "EquipmentCount", save->EquipmentCount);
+        ReadInt(object, "CheckpointEntityId", save->CheckpointEntityId);
+        ReadInt(object, "CheckpointRoomId", save->CheckpointRoomId);
+        ReadInt(object, "Health", save->Health);
+        ReadInt(object, "HealthMax", save->HealthMax);
+        ReadUInt16(object, "Weapons", save->Weapons);
+        ReadUInt16(object, "FoundOctoliths", save->FoundOctoliths);
+        ReadUInt16(object, "CurrentOctoliths", save->CurrentOctoliths);
+        ReadUInt16(object, "Areas", save->Areas);
+        ReadUInt32(object, "Artifacts", save->Artifacts);
+        ReadUInt32(object, "LostOctoliths", save->LostOctoliths);
+        ReadByteArray(object, "VisitedRooms", save->VisitedRooms);
+        ReadByteArray(object, "TriggerState", save->TriggerState);
+        ReadByteArray(object, "Logbook", save->Logbook);
+        ReadByteArray(object, "AreaHunters", save->AreaHunters);
+        ReadIntArray(object, "VisitedConnectors", save->VisitedConnectors);
+        ReadIntArray(object, "Ammo", save->Ammo);
+        ReadIntArray(object, "AmmoMax", save->AmmoMax);
+        ReadIntArray(object, "WeaponSlots", save->WeaponSlots);
+        ReadJagged(object, "RoomState", save->RoomState);
+        ReadJagged(object, "EnemyEncounters", save->EnemyEncounters);
+        const JsonPtr stats = object->Get("Stats");
+        if (stats != nullptr && stats->Type() == Json::Kind::Object && save->Stats)
+        {
+            const JsonPtr kills = stats->Get("HunterKills");
+            const JsonPtr deaths = stats->Get("Deaths");
+            const JsonPtr enemyDeaths = stats->Get("EnemyHunterDeaths");
+            const JsonPtr enemyKills = stats->Get("EnemyKills");
+            if (kills != nullptr)
+            {
+                save->Stats->HunterKills = static_cast<std::uint32_t>(kills->AsInt64(0));
+            }
+            if (deaths != nullptr)
+            {
+                save->Stats->Deaths = static_cast<std::uint32_t>(deaths->AsInt64(0));
+            }
+            if (enemyDeaths != nullptr)
+            {
+                save->Stats->EnemyHunterDeaths
+                    = static_cast<std::uint32_t>(enemyDeaths->AsInt64(0));
+            }
+            if (enemyKills != nullptr)
+            {
+                save->Stats->EnemyKills = static_cast<std::uint32_t>(enemyKills->AsInt64(0));
+            }
+        }
+        const JsonPtr bossFlags = object->Get("BossFlags");
+        if (bossFlags != nullptr)
+        {
+            save->BossFlags = static_cast<StorySave::BossFlagsValue>(bossFlags->AsInt64(0));
+        }
+        const JsonPtr defeated = object->Get("DefeatedHunters");
+        if (defeated != nullptr)
+        {
+            save->DefeatedHunters = static_cast<std::uint8_t>(defeated->AsInt64(0));
+        }
+        return save;
+    }
+
+    std::string SerializeStorySave(const std::shared_ptr<StorySave>& save)
+    {
+        if (!save)
+        {
+            return "null";
+        }
+        JsonPtr object = Json::MakeObject();
+        object->Set("ScanCount", Json::MakeNumber(std::to_string(save->ScanCount)));
+        object->Set("EquipmentCount", Json::MakeNumber(std::to_string(save->EquipmentCount)));
+        object->Set("CheckpointEntityId", Json::MakeNumber(std::to_string(save->CheckpointEntityId)));
+        object->Set("CheckpointRoomId", Json::MakeNumber(std::to_string(save->CheckpointRoomId)));
+        object->Set("Health", Json::MakeNumber(std::to_string(save->Health)));
+        object->Set("HealthMax", Json::MakeNumber(std::to_string(save->HealthMax)));
+        object->Set("Weapons", Json::MakeNumber(std::to_string(save->Weapons)));
+        object->Set("FoundOctoliths", Json::MakeNumber(std::to_string(save->FoundOctoliths)));
+        object->Set("CurrentOctoliths", Json::MakeNumber(std::to_string(save->CurrentOctoliths)));
+        object->Set("Areas", Json::MakeNumber(std::to_string(save->Areas)));
+        object->Set("Artifacts", Json::MakeNumber(std::to_string(save->Artifacts)));
+        object->Set("LostOctoliths", Json::MakeNumber(std::to_string(save->LostOctoliths)));
+        object->Set("VisitedRooms", WriteByteArray(save->VisitedRooms));
+        object->Set("TriggerState", WriteByteArray(save->TriggerState));
+        object->Set("Logbook", WriteByteArray(save->Logbook));
+        object->Set("AreaHunters", WriteByteArray(save->AreaHunters));
+        object->Set("VisitedConnectors", WriteIntArray(save->VisitedConnectors));
+        object->Set("Ammo", WriteIntArray(save->Ammo));
+        object->Set("AmmoMax", WriteIntArray(save->AmmoMax));
+        object->Set("WeaponSlots", WriteIntArray(save->WeaponSlots));
+        object->Set("RoomState", WriteJagged(save->RoomState));
+        object->Set("EnemyEncounters", WriteJagged(save->EnemyEncounters));
+        object->Set("BossFlags", Json::MakeNumber(
+            std::to_string(static_cast<std::int32_t>(save->BossFlags))));
+        object->Set("DefeatedHunters", Json::MakeNumber(
+            std::to_string(static_cast<std::int32_t>(save->DefeatedHunters))));
+        JsonPtr stats = Json::MakeObject();
+        if (save->Stats)
+        {
+            stats->Set("HunterKills", Json::MakeNumber(std::to_string(save->Stats->HunterKills)));
+            stats->Set("Deaths", Json::MakeNumber(std::to_string(save->Stats->Deaths)));
+            stats->Set("EnemyHunterDeaths",
+                Json::MakeNumber(std::to_string(save->Stats->EnemyHunterDeaths)));
+            stats->Set("EnemyKills", Json::MakeNumber(std::to_string(save->Stats->EnemyKills)));
+        }
+        object->Set("Stats", stats);
+        return ::MphRead::NativeRuntime::JsonWrite(object);
+    }
+
+    std::shared_ptr<MenuSettings> NewMenuSettings()
+    {
+        return std::make_shared<MenuSettings>();
+    }
+
+    void DeserializeSettings(const std::string& json,
+        std::shared_ptr<const std::unordered_map<std::string, std::string>>& features,
+        std::shared_ptr<MenuSettings>& menuSettings)
+    {
+        features = nullptr;
+        menuSettings = nullptr;
+        const JsonPtr object = ::MphRead::NativeRuntime::JsonParse(json);
+        if (object == nullptr || object->Type() != Json::Kind::Object)
+        {
+            return;
+        }
+        const JsonPtr featureObject = object->Get("Features");
+        if (featureObject != nullptr && featureObject->Type() == Json::Kind::Object)
+        {
+            auto map = std::make_shared<std::unordered_map<std::string, std::string>>();
+            for (const auto& member : featureObject->Members())
+            {
+                if (member.second != nullptr && member.second->Type() == Json::Kind::String)
+                {
+                    map->emplace(member.first, member.second->Text());
+                }
+            }
+            features = map;
+        }
+        const JsonPtr object2 = object->Get("MenuSettings");
+        if (object2 != nullptr && object2->Type() == Json::Kind::Object)
+        {
+            auto value = std::make_shared<MenuSettings>();
+            ReadString(object2, "RoomKey", value->RoomKey);
+            ReadString(object2, "Mode", value->Mode);
+            ReadString(object2, "Player1", value->Player1);
+            ReadString(object2, "Player2", value->Player2);
+            ReadString(object2, "Player3", value->Player3);
+            ReadString(object2, "Player4", value->Player4);
+            ReadString(object2, "Models", value->Models);
+            ReadString(object2, "MphVersion", value->MphVersion);
+            ReadString(object2, "FhVersion", value->FhVersion);
+            ReadString(object2, "Language", value->Language);
+            ReadString(object2, "SfxVolume", value->SfxVolume);
+            ReadString(object2, "MusicVolume", value->MusicVolume);
+            ReadString(object2, "ResolutionScale", value->ResolutionScale);
+            ReadString(object2, "Lighting", value->Lighting);
+            ReadString(object2, "Fog", value->Fog);
+            ReadString(object2, "TextureFiltering", value->TextureFiltering);
+            ReadString(object2, "ShowFps", value->ShowFps);
+            ReadString(object2, "FrameRateCap", value->FrameRateCap);
+            ReadString(object2, "CelShading", value->CelShading);
+            ReadString(object2, "CelBands", value->CelBands);
+            ReadString(object2, "CelEdge", value->CelEdge);
+            ReadString(object2, "PointGoal", value->PointGoal);
+            ReadString(object2, "TimeLimit", value->TimeLimit);
+            ReadString(object2, "TimeGoal", value->TimeGoal);
+            ReadString(object2, "AutoReset", value->AutoReset);
+            ReadString(object2, "TeamPlay", value->TeamPlay);
+            ReadString(object2, "HunterRadar", value->HunterRadar);
+            ReadString(object2, "DamageLevel", value->DamageLevel);
+            ReadString(object2, "FriendlyFire", value->FriendlyFire);
+            ReadString(object2, "AffinityWeapons", value->AffinityWeapons);
+            ReadString(object2, "ShadowFreeze", value->ShadowFreeze);
+            ReadString(object2, "SaveSlot", value->SaveSlot);
+            ReadString(object2, "SaveFromExit", value->SaveFromExit);
+            ReadString(object2, "SaveFromShip", value->SaveFromShip);
+            ReadString(object2, "Planets", value->Planets);
+            ReadString(object2, "Alinos1State", value->Alinos1State);
+            ReadString(object2, "Alinos2State", value->Alinos2State);
+            ReadString(object2, "Ca1State", value->Ca1State);
+            ReadString(object2, "Ca2State", value->Ca2State);
+            ReadString(object2, "Vdo1State", value->Vdo1State);
+            ReadString(object2, "Vdo2State", value->Vdo2State);
+            ReadString(object2, "Arcterra1State", value->Arcterra1State);
+            ReadString(object2, "Arcterra2State", value->Arcterra2State);
+            ReadString(object2, "CheckpointId", value->CheckpointId);
+            ReadString(object2, "HealthMax", value->HealthMax);
+            ReadString(object2, "MissileMax", value->MissileMax);
+            ReadString(object2, "UaMax", value->UaMax);
+            ReadString(object2, "Weapons", value->Weapons);
+            ReadString(object2, "Octoliths", value->Octoliths);
+            menuSettings = value;
+        }
+    }
+
+    std::string SerializeSettings(
+        const std::unordered_map<std::string, std::string>& features,
+        const std::shared_ptr<MenuSettings>& menuSettings)
+    {
+        JsonPtr root = Json::MakeObject();
+        JsonPtr featureObject = Json::MakeObject();
+        for (const auto& item : features)
+        {
+            featureObject->Set(item.first, Json::MakeString(item.second));
+        }
+        root->Set("Features", featureObject);
+        if (!menuSettings)
+        {
+            root->Set("MenuSettings", Json::MakeNull());
+            return ::MphRead::NativeRuntime::JsonWrite(root);
+        }
+        JsonPtr object = Json::MakeObject();
+        const std::shared_ptr<MenuSettings>& value = menuSettings;
+        object->Set("RoomKey", Json::MakeString(value->RoomKey));
+        object->Set("Mode", Json::MakeString(value->Mode));
+        object->Set("Player1", Json::MakeString(value->Player1));
+        object->Set("Player2", Json::MakeString(value->Player2));
+        object->Set("Player3", Json::MakeString(value->Player3));
+        object->Set("Player4", Json::MakeString(value->Player4));
+        object->Set("Models", Json::MakeString(value->Models));
+        object->Set("MphVersion", Json::MakeString(value->MphVersion));
+        object->Set("FhVersion", Json::MakeString(value->FhVersion));
+        object->Set("Language", Json::MakeString(value->Language));
+        object->Set("SfxVolume", Json::MakeString(value->SfxVolume));
+        object->Set("MusicVolume", Json::MakeString(value->MusicVolume));
+        object->Set("ResolutionScale", Json::MakeString(value->ResolutionScale));
+        object->Set("Lighting", Json::MakeString(value->Lighting));
+        object->Set("Fog", Json::MakeString(value->Fog));
+        object->Set("TextureFiltering", Json::MakeString(value->TextureFiltering));
+        object->Set("ShowFps", Json::MakeString(value->ShowFps));
+        object->Set("FrameRateCap", Json::MakeString(value->FrameRateCap));
+        object->Set("CelShading", Json::MakeString(value->CelShading));
+        object->Set("CelBands", Json::MakeString(value->CelBands));
+        object->Set("CelEdge", Json::MakeString(value->CelEdge));
+        object->Set("PointGoal", Json::MakeString(value->PointGoal));
+        object->Set("TimeLimit", Json::MakeString(value->TimeLimit));
+        object->Set("TimeGoal", Json::MakeString(value->TimeGoal));
+        object->Set("AutoReset", Json::MakeString(value->AutoReset));
+        object->Set("TeamPlay", Json::MakeString(value->TeamPlay));
+        object->Set("HunterRadar", Json::MakeString(value->HunterRadar));
+        object->Set("DamageLevel", Json::MakeString(value->DamageLevel));
+        object->Set("FriendlyFire", Json::MakeString(value->FriendlyFire));
+        object->Set("AffinityWeapons", Json::MakeString(value->AffinityWeapons));
+        object->Set("ShadowFreeze", Json::MakeString(value->ShadowFreeze));
+        object->Set("SaveSlot", Json::MakeString(value->SaveSlot));
+        object->Set("SaveFromExit", Json::MakeString(value->SaveFromExit));
+        object->Set("SaveFromShip", Json::MakeString(value->SaveFromShip));
+        object->Set("Planets", Json::MakeString(value->Planets));
+        object->Set("Alinos1State", Json::MakeString(value->Alinos1State));
+        object->Set("Alinos2State", Json::MakeString(value->Alinos2State));
+        object->Set("Ca1State", Json::MakeString(value->Ca1State));
+        object->Set("Ca2State", Json::MakeString(value->Ca2State));
+        object->Set("Vdo1State", Json::MakeString(value->Vdo1State));
+        object->Set("Vdo2State", Json::MakeString(value->Vdo2State));
+        object->Set("Arcterra1State", Json::MakeString(value->Arcterra1State));
+        object->Set("Arcterra2State", Json::MakeString(value->Arcterra2State));
+        object->Set("CheckpointId", Json::MakeString(value->CheckpointId));
+        object->Set("HealthMax", Json::MakeString(value->HealthMax));
+        object->Set("MissileMax", Json::MakeString(value->MissileMax));
+        object->Set("UaMax", Json::MakeString(value->UaMax));
+        object->Set("Weapons", Json::MakeString(value->Weapons));
+        object->Set("Octoliths", Json::MakeString(value->Octoliths));
+        root->Set("MenuSettings", object);
+        return ::MphRead::NativeRuntime::JsonWrite(root);
     }
 }

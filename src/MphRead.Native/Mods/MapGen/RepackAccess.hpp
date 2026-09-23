@@ -1,5 +1,8 @@
 #pragma once
 
+// RepackAccess.cs is a partial of Repack and of RepackCollision. These are the
+// members it contributes; the canonical headers expand them.
+
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -17,30 +20,24 @@ namespace MphRead::Formats::Collision
 namespace MphRead::Utility
 {
     class CollisionDataEditor;
-
-    class Repack final
-    {
-    public:
-        static std::vector<std::uint8_t> PackEntities(std::span<Editor::EntityEditorBase* const> entities);
-
-    private:
-        Repack() = delete;
-
-        static std::vector<std::uint8_t> RepackEntities(std::span<Editor::EntityEditorBase* const> entities);
-    };
-
-    class RepackCollision final
-    {
-    public:
-        static std::vector<std::uint8_t> PackMphCollision(
-            std::span<CollisionDataEditor* const> data,
-            std::span<Formats::Collision::Portal* const> portals);
-
-    private:
-        RepackCollision() = delete;
-
-        static std::vector<std::uint8_t> RepackMphCollision(
-            std::span<CollisionDataEditor* const> data,
-            std::span<Formats::Collision::Portal* const> portals);
-    };
 }
+
+#define MPHREAD_REPACK_ACCESS_MEMBERS                                       \
+public:                                                                     \
+    static std::vector<std::uint8_t> PackEntities(                          \
+        std::span<::MphRead::Editor::EntityEditorBase* const> entities);    \
+                                                                            \
+private:                                                                    \
+    static std::vector<std::uint8_t> RepackEntitiesFrom(                    \
+        std::span<::MphRead::Editor::EntityEditorBase* const> entities);
+
+#define MPHREAD_REPACK_COLLISION_ACCESS_MEMBERS                             \
+public:                                                                     \
+    static std::vector<std::uint8_t> PackMphCollision(                      \
+        std::span<::MphRead::Utility::CollisionDataEditor* const> data,     \
+        std::span<::MphRead::Formats::Collision::Portal* const> portals);   \
+                                                                            \
+private:                                                                    \
+    static std::vector<std::uint8_t> RepackMphCollisionFrom(                \
+        std::span<::MphRead::Utility::CollisionDataEditor* const> data,     \
+        std::span<::MphRead::Formats::Collision::Portal* const> portals);

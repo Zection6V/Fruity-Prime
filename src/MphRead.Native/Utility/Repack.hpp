@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Mods/MapGen/RepackAccess.hpp"
+
 #include "../Formats/Formats.hpp"
 
 #include <cstddef>
@@ -57,6 +59,8 @@ namespace MphRead::Utility
 
     class Repack final
     {
+        MPHREAD_REPACK_ACCESS_MEMBERS
+
     public:
         [[nodiscard]] static std::vector<std::uint8_t> RepackMphEntities(const std::string& room);
         [[nodiscard]] static std::vector<std::uint8_t> RepackFhEntities(

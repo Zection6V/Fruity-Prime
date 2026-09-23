@@ -176,7 +176,9 @@ namespace
         {
             throw std::runtime_error("C numeric locale is unavailable.");
         }
-        const float parsed = _strtof_l(input.c_str(), &end, cLocale);
+        // _strtof_l is not in the import library every Windows toolchain
+        // ships; the double form is, and narrowing it parses the same text.
+        const float parsed = static_cast<float>(_strtod_l(input.c_str(), &end, cLocale));
 #else
         static const locale_t cLocale = newlocale(
             LC_NUMERIC_MASK, "C", static_cast<locale_t>(0));

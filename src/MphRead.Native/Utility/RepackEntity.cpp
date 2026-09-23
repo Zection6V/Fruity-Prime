@@ -3466,3 +3466,19 @@ namespace MphRead::Utility
 }
 
 #undef REPACK_DEBUG_ASSERT
+
+namespace MphRead::Utility
+{
+    std::vector<std::uint8_t> Repack::RepackEntitiesFrom(
+        std::span<Editor::EntityEditorBase* const> entities)
+    {
+        // The caller owns the editors; these references do not.
+        EditorList list;
+        list.reserve(entities.size());
+        for (Editor::EntityEditorBase* const entity : entities)
+        {
+            list.push_back(EditorPtr(entity, [](Editor::EntityEditorBase*) {}));
+        }
+        return RepackEntities(list);
+    }
+}

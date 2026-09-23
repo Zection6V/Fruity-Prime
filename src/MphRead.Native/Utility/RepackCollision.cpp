@@ -1611,3 +1611,29 @@ namespace MphRead::Utility
         Nop();
     }
 }
+
+namespace MphRead::Utility
+{
+    std::vector<std::uint8_t> RepackCollision::RepackMphCollisionFrom(
+        std::span<CollisionDataEditor* const> data,
+        std::span<Formats::Collision::Portal* const> portals)
+    {
+        // The caller owns both lists; these references do not.
+        std::vector<std::shared_ptr<CollisionDataEditor>> editors;
+        editors.reserve(data.size());
+        for (CollisionDataEditor* const editor : data)
+        {
+            editors.push_back(
+                std::shared_ptr<CollisionDataEditor>(editor, [](CollisionDataEditor*) {}));
+        }
+        auto portalList
+            = std::make_shared<std::vector<std::shared_ptr<Formats::Collision::Portal>>>();
+        portalList->reserve(portals.size());
+        for (Formats::Collision::Portal* const portal : portals)
+        {
+            portalList->push_back(std::shared_ptr<Formats::Collision::Portal>(
+                portal, [](Formats::Collision::Portal*) {}));
+        }
+        return RepackMphCollision(editors, portalList);
+    }
+}

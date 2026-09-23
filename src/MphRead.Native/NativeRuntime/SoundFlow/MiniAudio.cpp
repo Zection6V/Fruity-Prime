@@ -157,19 +157,6 @@ namespace SoundFlow::Components
         }
     };
 
-    void Mixer::AddComponent(const std::shared_ptr<SoundPlayer>& player)
-    {
-        const std::lock_guard<std::mutex> guard(_mutex);
-        _components.push_back(player);
-    }
-
-    void Mixer::RemoveComponent(const std::shared_ptr<SoundPlayer>& player)
-    {
-        const std::lock_guard<std::mutex> guard(_mutex);
-        _components.erase(
-            std::remove(_components.begin(), _components.end(), player), _components.end());
-    }
-
     SoundPlayer::SoundPlayer(
         const std::shared_ptr<Backends::MiniAudio::MiniAudioEngine>& engine,
         const Structs::AudioFormat& format,

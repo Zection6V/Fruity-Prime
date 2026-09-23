@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Mods/MapGen/RepackAccess.hpp"
+
 #include "Repack.hpp"
 #include "../Formats/Collision.hpp"
 
@@ -52,6 +54,8 @@ namespace MphRead::Utility
 
     class RepackCollision final
     {
+        MPHREAD_REPACK_COLLISION_ACCESS_MEMBERS
+
     public:
         [[nodiscard]] static std::vector<std::uint8_t> RepackMphRoom(
             const std::string& room);

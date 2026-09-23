@@ -3,6 +3,12 @@
 #include "../Strings.hpp"
 #include "Compress.hpp"
 
+#include "../../NcsfPlay.Native/NC/SDAT.hpp"
+#include "../../NcsfPlay.Native/NC/SSEQ.hpp"
+#include "../../NcsfPlay.Native/NCSF.hpp"
+#include "../../NcsfPlay.Native/TagList.hpp"
+#include "../../NcsfPlay.Native/ReplayGain/AlbumGain.hpp"
+
 #include "../Metadata/SoundMeta.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
@@ -1258,5 +1264,230 @@ namespace MphRead
         const std::vector<std::uint8_t> platformSfx
             = RuntimeSlice(bytes, data->PlatformSfx);
         Metadata::SetPlatformSfxData(platformSfx);
+    }
+}
+
+namespace MphRead::ExtractDependency
+{
+    // The SDAT and NCSF the extractor works with, which are NcsfPlay's own.
+    // Strings are UTF-16 there and UTF-8 here, so each one crosses at the
+    // boundary rather than inside.
+    namespace
+    {
+        [[nodiscard]] std::u16string ToUtf16(const std::string& value)
+        {
+            std::u16string result;
+            std::size_t index = 0;
+            while (index < value.size())
+            {
+                const unsigned char lead = static_cast<unsigned char>(value[index]);
+                char32_t code = lead;
+                std::size_t extra = 0;
+                if (lead >= 0xF0) { code = lead & 0x07U; extra = 3; }
+                else if (lead >= 0xE0) { code = lead & 0x0FU; extra = 2; }
+                else if (lead >= 0xC0) { code = lead & 0x1FU; extra = 1; }
+                ++index;
+                for (std::size_t i = 0; i < extra && index < value.size(); ++i, ++index)
+                {
+                    code = (code << 6) | (static_cast<unsigned char>(value[index]) & 0x3FU);
+                }
+                if (code > 0xFFFFU)
+                {
+                    code -= 0x10000U;
+                    result.push_back(static_cast<char16_t>(0xD800U + (code >> 10)));
+                    result.push_back(static_cast<char16_t>(0xDC00U + (code & 0x3FFU)));
+                }
+                else
+                {
+                    result.push_back(static_cast<char16_t>(code));
+                }
+            }
+            return result;
+        }
+
+        [[nodiscard]] std::string ToUtf8(const std::u16string& value)
+        {
+            std::string result;
+            for (std::size_t i = 0; i < value.size(); ++i)
+            {
+                char32_t code = value[i];
+                if (code >= 0xD800U && code <= 0xDBFFU && i + 1 < value.size())
+                {
+                    const char32_t low = value[i + 1];
+                    if (low >= 0xDC00U && low <= 0xDFFFU)
+                    {
+                        code = 0x10000U + ((code - 0xD800U) << 10) + (low - 0xDC00U);
+                        ++i;
+                    }
+                }
+                if (code < 0x80U)
+                {
+                    result += static_cast<char>(code);
+                }
+                else if (code < 0x800U)
+                {
+                    result += static_cast<char>(0xC0U | (code >> 6));
+                    result += static_cast<char>(0x80U | (code & 0x3FU));
+                }
+                else if (code < 0x10000U)
+                {
+                    result += static_cast<char>(0xE0U | (code >> 12));
+                    result += static_cast<char>(0x80U | ((code >> 6) & 0x3FU));
+                    result += static_cast<char>(0x80U | (code & 0x3FU));
+                }
+                else
+                {
+                    result += static_cast<char>(0xF0U | (code >> 18));
+                    result += static_cast<char>(0x80U | ((code >> 12) & 0x3FU));
+                    result += static_cast<char>(0x80U | ((code >> 6) & 0x3FU));
+                    result += static_cast<char>(0x80U | (code & 0x3FU));
+                }
+            }
+            return result;
+        }
+
+        class SdatAdapter final : public NcsfSdat
+        {
+        public:
+            SdatAdapter()
+                : _sdat(std::make_shared<NCSFCommon::NC::SDAT>())
+            {
+            }
+
+            explicit SdatAdapter(std::shared_ptr<NCSFCommon::NC::SDAT> sdat)
+                : _sdat(std::move(sdat))
+            {
+            }
+
+            void Read(const std::string& filename, std::span<const std::uint8_t> bytes) override
+            {
+                _sdat->Read(ToUtf16(filename), bytes);
+            }
+
+            [[nodiscard]] std::unique_ptr<NcsfSdat> Add(const NcsfSdat& other) const override
+            {
+                const auto& value = static_cast<const SdatAdapter&>(other);
+                return std::make_unique<SdatAdapter>(*_sdat + *value._sdat);
+            }
+
+            void FixOffsetsAndSizes() override { _sdat->FixOffsetsAndSizes(); }
+
+            [[nodiscard]] std::uint32_t Size() const override { return _sdat->Size(); }
+
+            void Write(std::span<std::uint8_t> bytes) const override { _sdat->Write(bytes); }
+
+            [[nodiscard]] std::size_t SequenceCount() const override
+            {
+                return _sdat->INFOSection().SEQRecord().Entries().size();
+            }
+
+            [[nodiscard]] std::uint32_t SequenceOffset(std::size_t index) const override
+            {
+                return _sdat->INFOSection().SEQRecord().Entries()[index].Offset;
+            }
+
+            [[nodiscard]] bool SequencePresent(std::size_t index) const override
+            {
+                return _sdat->INFOSection().SEQRecord().Entries()[index].Entry != nullptr;
+            }
+
+            [[nodiscard]] std::string SequenceFilename(std::size_t index) const override
+            {
+                const auto sseq = Sequence(index);
+                if (sseq == nullptr || !sseq->Filename().has_value())
+                {
+                    return std::string();
+                }
+                return ToUtf8(*sseq->Filename());
+            }
+
+            void SetSequenceFilename(std::size_t index, const std::string& filename) override
+            {
+                const auto sseq = Sequence(index);
+                if (sseq != nullptr)
+                {
+                    sseq->Filename(ToUtf16(filename));
+                }
+            }
+
+            [[nodiscard]] std::string SequenceSseqOriginalFilename(
+                std::size_t index) const override
+            {
+                const auto sseq = Sequence(index);
+                if (sseq == nullptr || !sseq->OriginalFilename().has_value())
+                {
+                    return std::string();
+                }
+                return ToUtf8(*sseq->OriginalFilename());
+            }
+
+            [[nodiscard]] std::string SequenceSdatNumber(std::size_t index) const override
+            {
+                const auto& entry = _sdat->INFOSection().SEQRecord().Entries()[index].Entry;
+                if (entry == nullptr || !entry->SDATNumber().has_value())
+                {
+                    return std::string();
+                }
+                return ToUtf8(*entry->SDATNumber());
+            }
+
+            [[nodiscard]] std::string SequenceFullFilename(
+                std::size_t index, bool multipleSdats) const override
+            {
+                const auto& entry = _sdat->INFOSection().SEQRecord().Entries()[index].Entry;
+                if (entry == nullptr)
+                {
+                    return std::string();
+                }
+                return ToUtf8(entry->FullFilename(multipleSdats));
+            }
+
+        private:
+            [[nodiscard]] std::shared_ptr<NCSFCommon::NC::SSEQ> Sequence(std::size_t index) const
+            {
+                const auto& entry = _sdat->INFOSection().SEQRecord().Entries()[index].Entry;
+                return entry == nullptr ? nullptr : entry->SSEQ();
+            }
+
+            std::shared_ptr<NCSFCommon::NC::SDAT> _sdat;
+        };
+
+        class AlbumGainAdapter final : public AlbumGain
+        {
+        public:
+            NCSFCommon::ReplayGain::AlbumGain Value;
+        };
+    }
+
+    std::unique_ptr<NcsfSdat> CreateNcsfSdat()
+    {
+        return std::make_unique<SdatAdapter>();
+    }
+
+    std::unique_ptr<AlbumGain> CreateAlbumGain()
+    {
+        return std::make_unique<AlbumGainAdapter>();
+    }
+
+    void MakeNcsf(const std::string& filename,
+        std::span<const std::uint8_t> reservedSection,
+        std::span<const std::uint8_t> programSection)
+    {
+        NCSFCommon::NCSF::MakeNCSF(
+            ToUtf16(filename), reservedSection, programSection, nullptr);
+    }
+
+    void MakeNcsf(const std::string& filename,
+        std::span<const std::uint8_t> reservedSection,
+        std::span<const std::uint8_t> programSection,
+        const std::vector<NcsfTag>& tags)
+    {
+        NCSFCommon::TagList list;
+        for (const NcsfTag& tag : tags)
+        {
+            list.AddOrReplace(NCSFCommon::TagList::Item{ToUtf16(tag.Name), ToUtf16(tag.Value)});
+        }
+        NCSFCommon::NCSF::MakeNCSF(
+            ToUtf16(filename), reservedSection, programSection, &list);
     }
 }

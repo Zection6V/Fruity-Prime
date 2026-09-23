@@ -4013,11 +4013,6 @@ namespace MphRead::GameStateDetail
     {
         return Menu::SaveSlot;
     }
-
-    std::shared_ptr<MenuSettings> NewMenuSettings()
-    {
-        return std::make_shared<MenuSettings>();
-    }
 }
 
 namespace MphRead::SceneSetupInterop

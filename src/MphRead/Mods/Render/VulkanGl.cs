@@ -118,7 +118,9 @@ namespace MphRead.Mods.Render
         private static GraphicsDevice? _gd;
         private static ResourceFactory? _factory;
         private static CommandList? _commands;
+        private static Fence? _frameFence;
         private static bool _commandsOpen;
+        private static bool _frameInFlight;
         private static ResourceLayout? _layout;
         private static DeviceBuffer? _ubo;
         private static DeviceBuffer? _vertexBuffer;
@@ -243,6 +245,7 @@ namespace MphRead.Mods.Render
             _gd = GraphicsDevice.CreateVulkan(options, swapchain);
             _factory = _gd.ResourceFactory;
             _commands = _factory.CreateCommandList();
+            _frameFence = _factory.CreateFence(false);
             _ubo = _factory.CreateBuffer(new BufferDescription(UboSize,
                 BufferUsage.UniformBuffer | BufferUsage.Dynamic));
 
@@ -308,6 +311,7 @@ namespace MphRead.Mods.Render
             _ubo?.Dispose();
             _layout?.Dispose();
             _commands?.Dispose();
+            _frameFence?.Dispose();
             _gd.Dispose();
 
             _pipelines.Clear();
@@ -323,6 +327,8 @@ namespace MphRead.Mods.Render
             _gd = null;
             _factory = null;
             _commands = null;
+            _frameFence = null;
+            _frameInFlight = false;
             _layout = null;
             _ubo = null;
             _white = null;
@@ -337,11 +343,11 @@ namespace MphRead.Mods.Render
             if (_commandsOpen)
             {
                 _commands!.End();
-                _gd.SubmitCommands(_commands);
+                _gd.SubmitCommands(_commands, _frameFence!);
                 _commandsOpen = false;
+                _frameInFlight = true;
             }
             _gd.SwapBuffers();
-            _gd.WaitForIdle();
         }
 
         public static void SetVSync(bool enabled)
@@ -377,6 +383,12 @@ namespace MphRead.Mods.Render
             if (_commandsOpen)
             {
                 return;
+            }
+            if (_frameInFlight)
+            {
+                _gd!.WaitForFence(_frameFence!);
+                _frameFence!.Reset();
+                _frameInFlight = false;
             }
             _commands!.Begin();
             _commandsOpen = true;

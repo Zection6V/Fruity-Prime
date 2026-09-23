@@ -6874,7 +6874,7 @@ namespace MphRead
             // saved one unless the command line overrode it for this run --
             // this used to print the preference, and so said "Windowed" for a
             // session started with -fullscreen.
-            Mods.DebugLog.Line("render", "creating the game window and GL context "
+            Mods.DebugLog.Line("render", $"creating the game window ({Mods.Render.RendererBackend.Requested}) "
                 + $"({Mods.WindowMode.Startup}"
                 + (Mods.WindowMode.StartupForced ? ", from the command line" : "") + ")");
         }
@@ -7243,9 +7243,7 @@ namespace MphRead
             Scene.StartMovie((Movie)movieId, FadeType.FadeOutInBlack, 0, FadeType.FadeOutBlack, 0, afterMovieAction: AfterMovie.EndGame);
         }
 
-        protected override void OnLoad()
-        {
-            Mods.Input.WindowsPenInput.Attach(this);
+        protected override void OnLoad()\n        {\n            Mods.Render.RenderGl.Initialize(this);\n            Mods.Input.WindowsPenInput.Attach(this);
             // Not in the shell, which opens with no match in it: the scene is
             // loaded by LoadScene when one is started. The guard also covers
             // the ordinary path twice over, since a caller that has already
@@ -7256,9 +7254,7 @@ namespace MphRead
                 _sceneLoaded = true;
             }
             base.OnLoad();
-        }
-
-        private int _appliedFrameRateCap = -1;
+        }\n\n        protected override void OnUnload()\n        {\n            Mods.Render.RenderGl.Shutdown();\n            base.OnUnload();\n        }\n\n        public override void SwapBuffers()\n        {\n            if (Mods.Render.RendererBackend.UseVulkan)\n            {\n                Mods.Render.RenderGl.Present();\n            }\n            else\n            {\n                base.SwapBuffers();\n            }\n        }\n\n        private int _appliedFrameRateCap = -1;
 
         /// <summary>
         /// Put the player's frame rate choice on the window, and only when it
@@ -7281,12 +7277,18 @@ namespace MphRead
             _appliedFrameRateCap = cap;
             if (cap == Mods.Render.FrameTiming.DisplayRate)
             {
-                VSync = VSyncMode.On;
+                if (Mods.Render.RendererBackend.UseVulkan)
+                    Mods.Render.RenderGl.SetVSync(true);
+                else
+                    VSync = VSyncMode.On;
                 UpdateFrequency = 0;
             }
             else
             {
-                VSync = VSyncMode.Off;
+                if (Mods.Render.RendererBackend.UseVulkan)
+                    Mods.Render.RenderGl.SetVSync(false);
+                else
+                    VSync = VSyncMode.Off;
                 UpdateFrequency = cap;
             }
         }
@@ -7556,6 +7558,7 @@ namespace MphRead
             {
                 return;
             }
+            Mods.Render.RenderGl.Resize(size.X, size.Y);
             GL.Viewport(0, 0, size.X, size.Y);
             if (_scene != null && _scene.Size != size)
             {

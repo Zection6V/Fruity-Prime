@@ -29,7 +29,7 @@ namespace MphRead
         public string FhVersion { get; set; } = "AMFE0";
         public string Language { get; set; } = "English";
         public string SfxVolume { get; set; } = "0.35";
-        public string MusicVolume { get; set; } = "0.50";
+        public string MusicVolume { get; set; } = "0.50";\n        public string Renderer { get; set; } = "OpenGL";
         public string ResolutionScale { get; set; } = "100";
         public string FieldOfView { get; set; } = "78";
         public string Lighting { get; set; } = "on";

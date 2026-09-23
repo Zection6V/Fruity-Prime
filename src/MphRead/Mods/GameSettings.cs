@@ -44,7 +44,7 @@ namespace MphRead.Mods
         /// </summary>
         public static void Apply(MenuSettings settings)
         {
-            Current = settings;
+            Current = settings;\n            Render.RendererBackend.Configure(settings.Renderer);
             if (TryVolume(settings.SfxVolume, out float sfx))
             {
                 Sfx.Volume = sfx;

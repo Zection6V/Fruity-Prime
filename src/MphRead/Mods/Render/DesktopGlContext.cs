@@ -26,11 +26,10 @@ namespace MphRead.Mods.Render
                 Console.Error.WriteLine($"[window] GLFW {code}: {description}"));
             PreserveWorkingDirectory();
             if (background && OperatingSystem.IsMacOS())
-                GLFW.InitHint(InitHintBool.CocoaMenubar, false);
-            return new NativeWindowSettings
+                GLFW.InitHint(InitHintBool.CocoaMenubar, false);\n            bool vulkanAvailable = Veldrid.GraphicsDevice.IsBackendSupported(Veldrid.GraphicsBackend.Vulkan);\n            RendererBackendKind backend = RendererBackend.LockForWindow(vulkanAvailable);\n            return new NativeWindowSettings
             {
                 ClientSize = new Vector2i(1280, 768),
-                Title = Branding.Name,
+                Title = Branding.Name,\n                API = backend == RendererBackendKind.Vulkan ? ContextAPI.NoAPI : ContextAPI.OpenGL,\n                AutoLoadBindings = backend != RendererBackendKind.Vulkan,
                 // Legacy immediate mode/GLSL 1.20 need the 2.1 context on macOS;
                 // Apple's 3.2+ contexts are core-only.
                 Profile = OperatingSystem.IsMacOS() ? ContextProfile.Any : ContextProfile.Compatability,

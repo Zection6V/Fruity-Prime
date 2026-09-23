@@ -192,7 +192,7 @@
 
   <ItemGroup>
     <PackageReference Include="OpenTK" Version="4.9.4" />
-    <PackageReference Include="ReFuel.StbImage" Version="2.1.1" />
+    <PackageReference Include="ReFuel.StbImage" Version="2.1.1" />\n    <PackageReference Include="Veldrid" Version="4.9.0" />\n    <PackageReference Include="Veldrid.SPIRV" Version="1.0.14" />\n    <Using Include="MphRead.Mods.Render.RenderGl" Alias="GL" />
   </ItemGroup>
 
   <!-- OpenAL Soft, for the sound effects.

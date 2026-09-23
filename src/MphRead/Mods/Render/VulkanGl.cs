@@ -645,13 +645,13 @@ namespace MphRead.Mods.Render
             uint vertexBytes = (uint)(vertices.Length * sizeof(float));
             uint indexBytes = (uint)((triangles.Length + lines.Length) * sizeof(uint));
             EnsureBuffers(vertexBytes, indexBytes);
-            _gd.UpdateBuffer(_vertexBuffer!, 0, vertices);
             uint[] indices = new uint[triangles.Length + lines.Length];
             Array.Copy(triangles, indices, triangles.Length);
             Array.Copy(lines, 0, indices, triangles.Length, lines.Length);
-            _gd.UpdateBuffer(_indexBuffer!, 0, indices);
 
             BindCurrentFramebuffer();
+            _commands!.UpdateBuffer(_vertexBuffer!, 0, vertices);
+            _commands.UpdateBuffer(_indexBuffer!, 0, indices);
             Veldrid.Framebuffer fb = CurrentFramebuffer(_drawFramebuffer);
             _commands!.SetVertexBuffer(0, _vertexBuffer);
             _commands.SetIndexBuffer(_indexBuffer!, IndexFormat.UInt32);
@@ -664,7 +664,7 @@ namespace MphRead.Mods.Render
                 _viewW > 0 ? _viewW : fb.Width, _viewH > 0 ? _viewH : fb.Height, 0, 1));
 
             byte[] ubo = BuildUniforms();
-            _gd.UpdateBuffer(_ubo!, 0, ubo);
+            _commands.UpdateBuffer(_ubo!, 0, ubo);
             ResourceSet set = GetResourceSet();
             if (triangles.Length > 0)
             {

@@ -11,12 +11,14 @@ namespace MphRead.Mods.Diagnostics
     {
         private static bool _active;
         private static bool _passed;
+        private static bool _requireVulkan;
         private static int _frames;
 
-        public static int Run()
+        public static int Run(bool requireVulkan = false)
         {
             _active = true;
             _passed = false;
+            _requireVulkan = requireVulkan;
             _frames = 0;
             bool geometry = WindowGeometry.Enabled;
             WindowGeometry.Enabled = false;
@@ -29,6 +31,7 @@ namespace MphRead.Mods.Diagnostics
             finally
             {
                 _active = false;
+                _requireVulkan = false;
                 WindowGeometry.Enabled = geometry;
             }
         }
@@ -41,7 +44,10 @@ namespace MphRead.Mods.Diagnostics
             {
                 if (_frames == 20)
                 {
-                    Console.WriteLine($"[windowcheck] {GL.GetString(StringName.Renderer)}; GL {GL.GetString(StringName.Version)}");
+                    if (_requireVulkan && !Render.RendererBackend.UseVulkan)
+                        throw new InvalidOperationException("Vulkan was requested but the window did not use Vulkan.");
+                    string api = Render.RendererBackend.UseVulkan ? "Vulkan" : "GL";
+                    Console.WriteLine($"[windowcheck] {GL.GetString(StringName.Renderer)}; {api} {GL.GetString(StringName.Version)}");
                     Link(Shaders.VertexShader, Shaders.FragmentShader);
                     Link(Shaders.RttVertexShader, Shaders.RttFragmentShader);
                     Link(Shaders.RttVertexShader, Shaders.CelFragmentShader);

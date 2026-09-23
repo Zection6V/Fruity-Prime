@@ -15,11 +15,17 @@ namespace MphRead.Mods.Render
         public static RendererBackendKind Requested { get; private set; } = RendererBackendKind.OpenGL;
         public static RendererBackendKind Active { get; private set; } = RendererBackendKind.OpenGL;
         public static bool WindowCreated { get; private set; }
+        private static RendererBackendKind? _forced;
 
         public static bool UseVulkan => WindowCreated && Active == RendererBackendKind.Vulkan;
 
         public static void Configure(string? name)
         {
+            if (_forced.HasValue)
+            {
+                Requested = _forced.Value;
+                return;
+            }
             if (OperatingSystem.IsAndroid())
             {
                 Requested = RendererBackendKind.OpenGL;
@@ -28,6 +34,16 @@ namespace MphRead.Mods.Render
             Requested = String.Equals(name, "Vulkan", StringComparison.OrdinalIgnoreCase)
                 ? RendererBackendKind.Vulkan
                 : RendererBackendKind.OpenGL;
+        }
+
+        internal static void ForceForProcess(RendererBackendKind backend)
+        {
+            if (WindowCreated && Active != backend)
+            {
+                throw new InvalidOperationException("The renderer is already locked for this process.");
+            }
+            _forced = backend;
+            Requested = backend;
         }
 
         public static RendererBackendKind LockForWindow(bool vulkanAvailable)

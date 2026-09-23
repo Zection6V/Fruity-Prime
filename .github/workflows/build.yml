@@ -121,6 +121,14 @@ jobs:
             MESA_GL_VERSION_OVERRIDE=2.1 MESA_EXTENSION_OVERRIDE=-GL_KHR_debug \
             publish/linux-x64/FruityPrime -thumbnailwindowcheck -legacyglcheck
 
+      - name: Vulkan launcher smoke with lavapipe
+        if: matrix.id == 'linux-x64'
+        run: |
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+          xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+            publish/linux-x64/FruityPrime -vulkanwindowcheck
+
       - name: nothing from the game is in the output
         run: tools/check-no-game-assets.sh publish/${{ matrix.id }}
 

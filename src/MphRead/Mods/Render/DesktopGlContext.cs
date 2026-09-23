@@ -34,7 +34,11 @@ namespace MphRead.Mods.Render
 #if ANDROID
             RendererBackendKind backend = RendererBackendKind.OpenGL;
 #else
-            bool vulkanAvailable = Veldrid.GraphicsDevice.IsBackendSupported(Veldrid.GraphicsBackend.Vulkan);
+            bool shaderCompilerSupported = !(OperatingSystem.IsMacOS()
+                && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+                    == System.Runtime.InteropServices.Architecture.Arm64);
+            bool vulkanAvailable = shaderCompilerSupported
+                && Veldrid.GraphicsDevice.IsBackendSupported(Veldrid.GraphicsBackend.Vulkan);
             RendererBackendKind backend = RendererBackend.LockForWindow(vulkanAvailable);
 #endif
             return new NativeWindowSettings

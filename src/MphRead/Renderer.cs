@@ -7245,7 +7245,9 @@ namespace MphRead
 
         protected override void OnLoad()
         {
+#if !ANDROID
             Mods.Render.RenderGl.Initialize(this);
+#endif
             Mods.Input.WindowsPenInput.Attach(this);
             // Not in the shell, which opens with no match in it: the scene is
             // loaded by LoadScene when one is started. The guard also covers
@@ -7261,20 +7263,22 @@ namespace MphRead
 
         protected override void OnUnload()
         {
+#if !ANDROID
             Mods.Render.RenderGl.Shutdown();
+#endif
             base.OnUnload();
         }
 
         public override void SwapBuffers()
         {
+#if !ANDROID
             if (Mods.Render.RendererBackend.UseVulkan)
             {
                 Mods.Render.RenderGl.Present();
+                return;
             }
-            else
-            {
-                base.SwapBuffers();
-            }
+#endif
+            base.SwapBuffers();
         }
 
         private int _appliedFrameRateCap = -1;
@@ -7300,17 +7304,21 @@ namespace MphRead
             _appliedFrameRateCap = cap;
             if (cap == Mods.Render.FrameTiming.DisplayRate)
             {
+#if !ANDROID
                 if (Mods.Render.RendererBackend.UseVulkan)
                     Mods.Render.RenderGl.SetVSync(true);
                 else
+#endif
                     VSync = VSyncMode.On;
                 UpdateFrequency = 0;
             }
             else
             {
+#if !ANDROID
                 if (Mods.Render.RendererBackend.UseVulkan)
                     Mods.Render.RenderGl.SetVSync(false);
                 else
+#endif
                     VSync = VSyncMode.Off;
                 UpdateFrequency = cap;
             }
@@ -7581,7 +7589,9 @@ namespace MphRead
             {
                 return;
             }
+#if !ANDROID
             Mods.Render.RenderGl.Resize(size.X, size.Y);
+#endif
             GL.Viewport(0, 0, size.X, size.Y);
             if (_scene != null && _scene.Size != size)
             {

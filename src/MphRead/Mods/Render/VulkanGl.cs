@@ -11,6 +11,8 @@ using Veldrid.SPIRV;
 using VPixelFormat = Veldrid.PixelFormat;
 using GLPixelFormat = OpenTK.Graphics.OpenGL.PixelFormat;
 using GLTexture = OpenTK.Graphics.OpenGL.TextureTarget;
+using GLFramebufferAttachment = OpenTK.Graphics.OpenGL.FramebufferAttachment;
+using GLErrorCode = OpenTK.Graphics.OpenGL.ErrorCode;
 
 namespace MphRead.Mods.Render
 {
@@ -1035,15 +1037,15 @@ namespace MphRead.Mods.Render
             else { _drawFramebuffer = framebuffer; _readFramebuffer = framebuffer; }
         }
 
-        public static void FramebufferTexture2D(FramebufferTarget target, FramebufferAttachment attachment,
+        public static void FramebufferTexture2D(FramebufferTarget target, GLFramebufferAttachment attachment,
             GLTexture textarget, int texture, int level)
         {
             int id = target == FramebufferTarget.ReadFramebuffer ? _readFramebuffer : _drawFramebuffer;
             if (id == 0 || !_framebuffers.TryGetValue(id, out FramebufferInfo? fb)) return;
             fb.Dispose();
-            if (attachment == FramebufferAttachment.ColorAttachment0) fb.ColorTexture = texture;
-            else if (attachment == FramebufferAttachment.DepthStencilAttachment
-                || attachment == FramebufferAttachment.DepthAttachment) fb.DepthTexture = texture;
+            if (attachment == GLFramebufferAttachment.ColorAttachment0) fb.ColorTexture = texture;
+            else if (attachment == GLFramebufferAttachment.DepthStencilAttachment
+                || attachment == GLFramebufferAttachment.DepthAttachment) fb.DepthTexture = texture;
             ClearPipelineCache();
         }
 
@@ -1069,7 +1071,7 @@ namespace MphRead.Mods.Render
             InvalidateFramebuffers();
         }
 
-        public static void FramebufferRenderbuffer(FramebufferTarget target, FramebufferAttachment attachment,
+        public static void FramebufferRenderbuffer(FramebufferTarget target, GLFramebufferAttachment attachment,
             RenderbufferTarget renderbufferTarget, int renderbuffer)
         {
             int id = target == FramebufferTarget.ReadFramebuffer ? _readFramebuffer : _drawFramebuffer;
@@ -1104,7 +1106,7 @@ namespace MphRead.Mods.Render
         }
 
         public static void GetFramebufferAttachmentParameter(FramebufferTarget target,
-            FramebufferAttachment attachment, FramebufferParameterName pname, out int result)
+            GLFramebufferAttachment attachment, FramebufferParameterName pname, out int result)
         {
             result = 24;
         }
@@ -1288,7 +1290,7 @@ namespace MphRead.Mods.Render
 
         public static void PixelStore(PixelStoreParameter pname, int param) { }
         public static void ReadBuffer(ReadBufferMode mode) { }
-        public static ErrorCode GetError() => ErrorCode.NoError;
+        public static GLErrorCode GetError() => GLErrorCode.NoError;
         public static string GetString(StringName name)
         {
             if (_gd == null) return "Vulkan";

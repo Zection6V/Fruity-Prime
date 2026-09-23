@@ -21,7 +21,7 @@ namespace MphRead.Mods.Render
     {
         private const int FloatsPerVertex = 16;
         private const uint VertexStride = FloatsPerVertex * sizeof(float);
-        private const uint UboSize = 2384;
+        private const uint UboSize = 2400;
         private const int ProjectionOffset = 0;
         private const int ViewOffset = 64;
         private const int ViewInvOffset = 128;
@@ -32,6 +32,7 @@ namespace MphRead.Mods.Render
         private const int FadeOffset = 2336;
         private const int Params0Offset = 2352;
         private const int Params1Offset = 2368;
+        private const int Params2Offset = 2384;
 
         private enum ProgramKind { Screen, Scene }
 
@@ -174,6 +175,9 @@ namespace MphRead.Mods.Render
         private static bool _scissor;
         private static bool _alphaTest;
         private static AlphaFunction _alphaFunction = AlphaFunction.Always;
+        private static bool _polygonOffsetFill;
+        private static float _polygonOffsetFactor;
+        private static float _polygonOffsetUnits;
         private static bool _stencilTest;
         private static StencilFunction _stencilFunction = StencilFunction.Always;
         private static int _stencilReference;
@@ -896,6 +900,8 @@ namespace MphRead.Mods.Render
                 : _alphaFunction == AlphaFunction.Equal ? 1
                 : _alphaFunction == AlphaFunction.Less ? 2 : 0;
             WriteVector4(data, Params1Offset, new Vector4(alphaMode, 0, 0, 0));
+            WriteVector4(data, Params2Offset, new Vector4(
+                _polygonOffsetFactor, _polygonOffsetUnits, _polygonOffsetFill ? 1f : 0f, 0f));
             return data;
         }
 
@@ -1377,6 +1383,7 @@ namespace MphRead.Mods.Render
                 case EnableCap.ScissorTest: _scissor = true; break;
                 case EnableCap.AlphaTest: _alphaTest = true; break;
                 case EnableCap.StencilTest: _stencilTest = true; break;
+                case EnableCap.PolygonOffsetFill: _polygonOffsetFill = true; break;
             }
         }
 
@@ -1390,6 +1397,7 @@ namespace MphRead.Mods.Render
                 case EnableCap.ScissorTest: _scissor = false; break;
                 case EnableCap.AlphaTest: _alphaTest = false; break;
                 case EnableCap.StencilTest: _stencilTest = false; break;
+                case EnableCap.PolygonOffsetFill: _polygonOffsetFill = false; break;
             }
         }
 
@@ -1443,7 +1451,11 @@ namespace MphRead.Mods.Render
             _stencilPass = zpass;
         }
         public static void StencilMask(int mask) { _stencilWriteMask = mask; }
-        public static void PolygonOffset(float factor, float units) { }
+        public static void PolygonOffset(float factor, float units)
+        {
+            _polygonOffsetFactor = factor;
+            _polygonOffsetUnits = units;
+        }
 
         public static void Viewport(int x, int y, int width, int height)
         {

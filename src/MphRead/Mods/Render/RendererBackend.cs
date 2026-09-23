@@ -32,6 +32,10 @@ namespace MphRead.Mods.Render
 
         public static RendererBackendKind LockForWindow(bool vulkanAvailable)
         {
+            if (WindowCreated)
+            {
+                return Active;
+            }
             Active = Requested == RendererBackendKind.Vulkan && vulkanAvailable
                 ? RendererBackendKind.Vulkan
                 : RendererBackendKind.OpenGL;

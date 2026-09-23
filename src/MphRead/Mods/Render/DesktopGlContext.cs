@@ -27,6 +27,10 @@ namespace MphRead.Mods.Render
             PreserveWorkingDirectory();
             if (background && OperatingSystem.IsMacOS())
                 GLFW.InitHint(InitHintBool.CocoaMenubar, false);
+            if (!RendererBackend.WindowCreated)
+            {
+                RendererBackend.Configure(GameState.LoadSettings().Renderer);
+            }
 #if ANDROID
             RendererBackendKind backend = RendererBackendKind.OpenGL;
 #else

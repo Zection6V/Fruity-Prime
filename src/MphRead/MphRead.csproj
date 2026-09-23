@@ -230,22 +230,19 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('win'))">
-    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)
-ative\soft_oal.dll"
+    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)\native\soft_oal.dll"
           Link="openal32.dll" CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('linux'))">
-    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)
-ative\libopenal.so"
+    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)\native\libopenal.so"
           Link="libopenal.so.1" CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('osx'))">
-    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)
-ative\libopenal.dylib"
+    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\$(MphReadAudioRid)\native\libopenal.dylib"
           Link="libopenal.1.dylib" CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>

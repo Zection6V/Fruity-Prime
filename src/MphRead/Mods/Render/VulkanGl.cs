@@ -13,6 +13,7 @@ using GLPixelFormat = OpenTK.Graphics.OpenGL.PixelFormat;
 using GLTexture = OpenTK.Graphics.OpenGL.TextureTarget;
 using GLFramebufferAttachment = OpenTK.Graphics.OpenGL.FramebufferAttachment;
 using GLErrorCode = OpenTK.Graphics.OpenGL.ErrorCode;
+using GLStencilOp = OpenTK.Graphics.OpenGL.StencilOp;
 
 namespace MphRead.Mods.Render
 {
@@ -173,6 +174,14 @@ namespace MphRead.Mods.Render
         private static bool _scissor;
         private static bool _alphaTest;
         private static AlphaFunction _alphaFunction = AlphaFunction.Always;
+        private static bool _stencilTest;
+        private static StencilFunction _stencilFunction = StencilFunction.Always;
+        private static int _stencilReference;
+        private static int _stencilReadMask = 0xFF;
+        private static int _stencilWriteMask = 0xFF;
+        private static GLStencilOp _stencilFail = GLStencilOp.Keep;
+        private static GLStencilOp _stencilDepthFail = GLStencilOp.Keep;
+        private static GLStencilOp _stencilPass = GLStencilOp.Keep;
         private static OpenTK.Graphics.OpenGL.PolygonMode _polygonMode = OpenTK.Graphics.OpenGL.PolygonMode.Fill;
         private static bool _maskR = true, _maskG = true, _maskB = true, _maskA = true;
         private static Color4 _clearColor = new(0, 0, 0, 1);
@@ -683,7 +692,11 @@ namespace MphRead.Mods.Render
         private static Pipeline GetPipeline(PrimitiveTopology topology, Veldrid.Framebuffer fb)
         {
             ProgramInfo program = CurrentProgramInfo();
-            string key = $"{program.Kind}:{topology}:{_depthTest}:{_depthWrite}:{_depthFunction}:{_blend}:{_blendSrc}:{_blendDst}:{_cull}:{_cullFace}:{_polygonMode}:{_scissor}:{_maskR}{_maskG}{_maskB}{_maskA}:{fb.OutputDescription.GetHashCode()}";
+            string key = $"{program.Kind}:{topology}:{_depthTest}:{_depthWrite}:{_depthFunction}:"
+                + $"{_stencilTest}:{_stencilFunction}:{_stencilReference}:{_stencilReadMask}:{_stencilWriteMask}:"
+                + $"{_stencilFail}:{_stencilDepthFail}:{_stencilPass}:{_blend}:{_blendSrc}:{_blendDst}:"
+                + $"{_cull}:{_cullFace}:{_polygonMode}:{_scissor}:{_maskR}{_maskG}{_maskB}{_maskA}:"
+                + $"{fb.OutputDescription.GetHashCode()}";
             if (_pipelines.TryGetValue(key, out Pipeline? pipeline))
             {
                 return pipeline;
@@ -713,6 +726,20 @@ namespace MphRead.Mods.Render
 
             var blendState = new BlendStateDescription(RgbaFloat.White, attachment);
             var depthState = new DepthStencilStateDescription(_depthTest, _depthWrite, MapComparison(_depthFunction));
+            if (_stencilTest)
+            {
+                var behavior = new StencilBehaviorDescription(
+                    MapStencilOperation(_stencilFail),
+                    MapStencilOperation(_stencilPass),
+                    MapStencilOperation(_stencilDepthFail),
+                    MapComparison(_stencilFunction));
+                depthState.StencilTestEnabled = true;
+                depthState.StencilFront = behavior;
+                depthState.StencilBack = behavior;
+                depthState.StencilReadMask = (byte)(_stencilReadMask & 0xFF);
+                depthState.StencilWriteMask = (byte)(_stencilWriteMask & 0xFF);
+                depthState.StencilReference = (uint)(_stencilReference & 0xFF);
+            }
             FaceCullMode cull = !_cull ? FaceCullMode.None
                 : _cullFace == TriangleFace.Front ? FaceCullMode.Front : FaceCullMode.Back;
             PolygonFillMode fill = _polygonMode == OpenTK.Graphics.OpenGL.PolygonMode.Line && _gd!.Features.FillModeWireframe
@@ -770,6 +797,37 @@ namespace MphRead.Mods.Render
                 DepthFunction.Gequal => ComparisonKind.GreaterEqual,
                 DepthFunction.Always => ComparisonKind.Always,
                 _ => ComparisonKind.LessEqual
+            };
+        }
+
+        private static ComparisonKind MapComparison(StencilFunction value)
+        {
+            return value switch
+            {
+                StencilFunction.Never => ComparisonKind.Never,
+                StencilFunction.Less => ComparisonKind.Less,
+                StencilFunction.Equal => ComparisonKind.Equal,
+                StencilFunction.Lequal => ComparisonKind.LessEqual,
+                StencilFunction.Greater => ComparisonKind.Greater,
+                StencilFunction.Notequal => ComparisonKind.NotEqual,
+                StencilFunction.Gequal => ComparisonKind.GreaterEqual,
+                StencilFunction.Always => ComparisonKind.Always,
+                _ => ComparisonKind.Always
+            };
+        }
+
+        private static Veldrid.StencilOperation MapStencilOperation(GLStencilOp value)
+        {
+            return value switch
+            {
+                GLStencilOp.Zero => Veldrid.StencilOperation.Zero,
+                GLStencilOp.Replace => Veldrid.StencilOperation.Replace,
+                GLStencilOp.Incr => Veldrid.StencilOperation.IncrementAndClamp,
+                GLStencilOp.Decr => Veldrid.StencilOperation.DecrementAndClamp,
+                GLStencilOp.Invert => Veldrid.StencilOperation.Invert,
+                GLStencilOp.IncrWrap => Veldrid.StencilOperation.IncrementAndWrap,
+                GLStencilOp.DecrWrap => Veldrid.StencilOperation.DecrementAndWrap,
+                _ => Veldrid.StencilOperation.Keep
             };
         }
 
@@ -1314,10 +1372,11 @@ namespace MphRead.Mods.Render
             switch (cap)
             {
                 case EnableCap.DepthTest: _depthTest = true; break;
-                case EnableCap.Blend: _blend = true; ClearPipelineCache(); break;
-                case EnableCap.CullFace: _cull = true; ClearPipelineCache(); break;
-                case EnableCap.ScissorTest: _scissor = true; ClearPipelineCache(); break;
+                case EnableCap.Blend: _blend = true; break;
+                case EnableCap.CullFace: _cull = true; break;
+                case EnableCap.ScissorTest: _scissor = true; break;
                 case EnableCap.AlphaTest: _alphaTest = true; break;
+                case EnableCap.StencilTest: _stencilTest = true; break;
             }
         }
 
@@ -1326,17 +1385,18 @@ namespace MphRead.Mods.Render
             switch (cap)
             {
                 case EnableCap.DepthTest: _depthTest = false; break;
-                case EnableCap.Blend: _blend = false; ClearPipelineCache(); break;
-                case EnableCap.CullFace: _cull = false; ClearPipelineCache(); break;
-                case EnableCap.ScissorTest: _scissor = false; ClearPipelineCache(); break;
+                case EnableCap.Blend: _blend = false; break;
+                case EnableCap.CullFace: _cull = false; break;
+                case EnableCap.ScissorTest: _scissor = false; break;
                 case EnableCap.AlphaTest: _alphaTest = false; break;
+                case EnableCap.StencilTest: _stencilTest = false; break;
             }
         }
 
         public static void AlphaFunc(AlphaFunction func, float reference) => _alphaFunction = func;
         public static void PolygonMode(TriangleFace face, OpenTK.Graphics.OpenGL.PolygonMode mode)
         {
-            if (_polygonMode != mode) { _polygonMode = mode; ClearPipelineCache(); }
+            _polygonMode = mode;
         }
         public static void LineWidth(float width) { }
         public static void DebugMessageCallback(DebugProc callback, IntPtr userParam) { }
@@ -1361,19 +1421,28 @@ namespace MphRead.Mods.Render
         public static void ClearStencil(int value) => _clearStencil = value;
         public static void ColorMask(bool r, bool g, bool b, bool a)
         {
-            _maskR=r; _maskG=g; _maskB=b; _maskA=a; ClearPipelineCache();
+            _maskR=r; _maskG=g; _maskB=b; _maskA=a;
         }
-        public static void DepthMask(bool value) { _depthWrite = value; ClearPipelineCache(); }
-        public static void DepthFunc(DepthFunction func) { _depthFunction = func; ClearPipelineCache(); }
-        public static void CullFace(TriangleFace face) { _cullFace = face; ClearPipelineCache(); }
+        public static void DepthMask(bool value) { _depthWrite = value; }
+        public static void DepthFunc(DepthFunction func) { _depthFunction = func; }
+        public static void CullFace(TriangleFace face) { _cullFace = face; }
         public static void BlendFunc(BlendingFactor src, BlendingFactor dst)
         {
-            _blendSrc=src; _blendDst=dst; ClearPipelineCache();
+            _blendSrc=src; _blendDst=dst;
         }
-        public static void StencilFunc(StencilFunction func, int reference, int mask) { }
-        public static void StencilOp(OpenTK.Graphics.OpenGL.StencilOp fail,
-            OpenTK.Graphics.OpenGL.StencilOp zfail, OpenTK.Graphics.OpenGL.StencilOp zpass) { }
-        public static void StencilMask(int mask) { }
+        public static void StencilFunc(StencilFunction func, int reference, int mask)
+        {
+            _stencilFunction = func;
+            _stencilReference = reference;
+            _stencilReadMask = mask;
+        }
+        public static void StencilOp(GLStencilOp fail, GLStencilOp zfail, GLStencilOp zpass)
+        {
+            _stencilFail = fail;
+            _stencilDepthFail = zfail;
+            _stencilPass = zpass;
+        }
+        public static void StencilMask(int mask) { _stencilWriteMask = mask; }
         public static void PolygonOffset(float factor, float units) { }
 
         public static void Viewport(int x, int y, int width, int height)

@@ -21,7 +21,7 @@ namespace MphRead.Mods.Render
     {
         private const int FloatsPerVertex = 16;
         private const uint VertexStride = FloatsPerVertex * sizeof(float);
-        private const uint UboSize = 2400;
+        private const uint UboSize = 4224;
         private const int ProjectionOffset = 0;
         private const int ViewOffset = 64;
         private const int ViewInvOffset = 128;
@@ -33,8 +33,29 @@ namespace MphRead.Mods.Render
         private const int Params0Offset = 2352;
         private const int Params1Offset = 2368;
         private const int Params2Offset = 2384;
+        private const int Light1VectorOffset = 2400;
+        private const int Light2VectorOffset = 2416;
+        private const int Light1ColorOffset = 2432;
+        private const int Light2ColorOffset = 2448;
+        private const int DiffuseOffset = 2464;
+        private const int AmbientOffset = 2480;
+        private const int SpecularOffset = 2496;
+        private const int EmissionOffset = 2512;
+        private const int FogColorOffset = 2528;
+        private const int PaletteOverrideOffset = 2544;
+        private const int FlatColorOffset = 2560;
+        private const int Scene0Offset = 2576;
+        private const int Scene1Offset = 2592;
+        private const int Scene2Offset = 2608;
+        private const int ToonTableOffset = 2624;
+        private const int Rtt0Offset = 3136;
+        private const int Cel0Offset = 3152;
+        private const int Cel1Offset = 3168;
+        private const int Shift0Offset = 3184;
+        private const int ShiftTableOffset = 3200;
+        private const int WhiteTableOffset = 3456;
 
-        private enum ProgramKind { Screen, Scene }
+        private enum ProgramKind { Screen, Scene, Rtt, Shift, Cel, Backdrop }
 
         private sealed class Batch
         {
@@ -67,7 +88,7 @@ namespace MphRead.Mods.Render
         private sealed class ProgramInfo
         {
             public ProgramKind Kind = ProgramKind.Screen;
-            public readonly List<int> Shaders = new();
+            public readonly Dictionary<int, ShaderInfo> Shaders = new();
             public readonly Dictionary<string, object> Values = new(StringComparer.Ordinal);
         }
 
@@ -129,6 +150,10 @@ namespace MphRead.Mods.Render
         private static uint _indexBufferBytes;
         private static Shader[]? _sceneShaders;
         private static Shader[]? _screenShaders;
+        private static Shader[]? _rttShaders;
+        private static Shader[]? _shiftShaders;
+        private static Shader[]? _celShaders;
+        private static Shader[]? _backdropShaders;
         private static readonly Dictionary<string, Pipeline> _pipelines = new();
         private static readonly Dictionary<string, ResourceSet> _sets = new();
 
@@ -263,6 +288,18 @@ namespace MphRead.Mods.Render
             _screenShaders = _factory.CreateFromSpirv(
                 new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.ScreenVertex), "main"),
                 new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.ScreenFragment), "main"));
+            _rttShaders = _factory.CreateFromSpirv(
+                new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.ScreenVertex), "main"),
+                new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.RttFragment), "main"));
+            _shiftShaders = _factory.CreateFromSpirv(
+                new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.ScreenVertex), "main"),
+                new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.ShiftFragment), "main"));
+            _celShaders = _factory.CreateFromSpirv(
+                new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.ScreenVertex), "main"),
+                new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.CelFragment), "main"));
+            _backdropShaders = _factory.CreateFromSpirv(
+                new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.ScreenVertex), "main"),
+                new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.BackdropFragment), "main"));
 
             _white = new TextureInfo();
             AllocateTexture(_white, 1, 1, depth: false);
@@ -306,6 +343,10 @@ namespace MphRead.Mods.Render
             _white?.Dispose();
             if (_sceneShaders != null) foreach (Shader shader in _sceneShaders) shader.Dispose();
             if (_screenShaders != null) foreach (Shader shader in _screenShaders) shader.Dispose();
+            if (_rttShaders != null) foreach (Shader shader in _rttShaders) shader.Dispose();
+            if (_shiftShaders != null) foreach (Shader shader in _shiftShaders) shader.Dispose();
+            if (_celShaders != null) foreach (Shader shader in _celShaders) shader.Dispose();
+            if (_backdropShaders != null) foreach (Shader shader in _backdropShaders) shader.Dispose();
             _vertexBuffer?.Dispose();
             _indexBuffer?.Dispose();
             _ubo?.Dispose();
@@ -768,7 +809,15 @@ namespace MphRead.Mods.Render
                 new VertexElementDescription("a_tex0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3) { Offset = 40 },
                 new VertexElementDescription("a_tex1", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2) { Offset = 52 },
                 new VertexElementDescription("a_color_set", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1) { Offset = 60 });
-            Shader[] shaders = program.Kind == ProgramKind.Scene ? _sceneShaders! : _screenShaders!;
+            Shader[] shaders = program.Kind switch
+            {
+                ProgramKind.Scene => _sceneShaders!,
+                ProgramKind.Rtt => _rttShaders!,
+                ProgramKind.Shift => _shiftShaders!,
+                ProgramKind.Cel => _celShaders!,
+                ProgramKind.Backdrop => _backdropShaders!,
+                _ => _screenShaders!
+            };
             var pd = new GraphicsPipelineDescription(
                 blendState,
                 depthState,
@@ -908,12 +957,64 @@ namespace MphRead.Mods.Render
             float showColors = GetFloat(p, "show_colors", 1f);
             float useOverride = GetFloat(p, "use_override", 0f);
             WriteVector4(data, Params0Offset, new Vector4(matAlpha, useTexture, showColors, useOverride));
+
             int alphaMode = !_alphaTest ? 0
                 : _alphaFunction == AlphaFunction.Equal ? 1
                 : _alphaFunction == AlphaFunction.Less ? 2 : 0;
             WriteVector4(data, Params1Offset, new Vector4(alphaMode, 0, 0, 0));
             WriteVector4(data, Params2Offset, new Vector4(
                 _polygonOffsetFactor, _polygonOffsetUnits, _polygonOffsetFill ? 1f : 0f, 0f));
+
+            WriteVector4(data, Light1VectorOffset, new Vector4(GetVector3(p, "light1vec", Vector3.Zero), 0f));
+            WriteVector4(data, Light2VectorOffset, new Vector4(GetVector3(p, "light2vec", Vector3.Zero), 0f));
+            WriteVector4(data, Light1ColorOffset, new Vector4(GetVector3(p, "light1col", Vector3.Zero), 0f));
+            WriteVector4(data, Light2ColorOffset, new Vector4(GetVector3(p, "light2col", Vector3.Zero), 0f));
+            WriteVector4(data, DiffuseOffset, new Vector4(GetVector3(p, "diffuse", Vector3.Zero), 0f));
+            WriteVector4(data, AmbientOffset, new Vector4(GetVector3(p, "ambient", Vector3.Zero), 0f));
+            WriteVector4(data, SpecularOffset, new Vector4(GetVector3(p, "specular", Vector3.Zero), 0f));
+            WriteVector4(data, EmissionOffset, new Vector4(GetVector3(p, "emission", Vector3.Zero), 0f));
+            WriteVector4(data, FogColorOffset, GetVector4(p, "fog_color", Vector4.Zero));
+            WriteVector4(data, PaletteOverrideOffset, GetVector4(p, "pal_override_color", Vector4.Zero));
+            WriteVector4(data, FlatColorOffset, new Vector4(GetVector3(p, "flat_color", Vector3.Zero), 0f));
+
+            WriteVector4(data, Scene0Offset, new Vector4(
+                GetFloat(p, "use_light", 0f),
+                GetFloat(p, "fog_enable", 0f),
+                GetFloat(p, "fog_min", 0f),
+                GetFloat(p, "fog_max", 1f)));
+            WriteVector4(data, Scene1Offset, new Vector4(
+                GetFloat(p, "texgen_mode", 0f),
+                GetFloat(p, "mat_mode", 0f),
+                GetFloat(p, "use_pal_override", 0f),
+                GetFloat(p, "cel_bands", 0f)));
+            WriteVector4(data, Scene2Offset, new Vector4(
+                GetFloat(p, "use_flat", 0f),
+                GetFloat(p, "strength", 0f),
+                0f, 0f));
+            WritePackedVec3Array(data, ToonTableOffset, GetFloatArray(p, "toon_table"), 32);
+
+            WriteVector4(data, Rtt0Offset, new Vector4(
+                GetFloat(p, "alpha", 1f),
+                GetFloat(p, "use_mask", 0f),
+                GetFloat(p, "view_width", 1f),
+                GetFloat(p, "view_height", 1f)));
+            WriteVector4(data, Cel0Offset, new Vector4(
+                GetFloat(p, "texel_w", 1f),
+                GetFloat(p, "texel_h", 1f),
+                GetFloat(p, "outline", 0f),
+                GetFloat(p, "near_plane", 0f)));
+            WriteVector4(data, Cel1Offset, new Vector4(
+                GetFloat(p, "far_plane", 1f),
+                GetFloat(p, "depth_quantum", 0f),
+                GetFloat(p, "probe", 0f),
+                0f));
+            WriteVector4(data, Shift0Offset, new Vector4(
+                GetFloat(p, "shift_idx", 0f),
+                GetFloat(p, "shift_fac", 0f),
+                GetFloat(p, "lerp_fac", 0f),
+                GetFloat(p, "white_fac", 0f)));
+            WritePackedFloatArray(data, ShiftTableOffset, GetFloatArray(p, "shift_table"), 64);
+            WritePackedFloatArray(data, WhiteTableOffset, GetFloatArray(p, "white_table"), 192);
             return data;
         }
 
@@ -934,6 +1035,22 @@ namespace MphRead.Mods.Render
                 if (value is Vector3 v3) return new Vector4(v3, 1f);
             }
             return fallback;
+        }
+
+        private static Vector3 GetVector3(ProgramInfo p, string name, Vector3 fallback)
+        {
+            if (p.Values.TryGetValue(name, out object? value))
+            {
+                if (value is Vector3 v3) return v3;
+                if (value is Vector4 v4) return v4.Xyz;
+            }
+            return fallback;
+        }
+
+        private static float[] GetFloatArray(ProgramInfo p, string name)
+        {
+            return p.Values.TryGetValue(name, out object? value) && value is float[] array
+                ? array : Array.Empty<float>();
         }
 
         private static float GetFloat(ProgramInfo p, string name, float fallback)
@@ -958,6 +1075,31 @@ namespace MphRead.Mods.Render
         {
             float[] f = { value.X, value.Y, value.Z, value.W };
             System.Buffer.BlockCopy(f, 0, data, offset, 16);
+        }
+
+        private static void WritePackedVec3Array(byte[] data, int offset, float[] values, int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                int source = i * 3;
+                WriteVector4(data, offset + i * 16, new Vector4(
+                    source < values.Length ? values[source] : 0f,
+                    source + 1 < values.Length ? values[source + 1] : 0f,
+                    source + 2 < values.Length ? values[source + 2] : 0f,
+                    0f));
+            }
+        }
+
+        private static void WritePackedFloatArray(byte[] data, int offset, float[] values, int count)
+        {
+            for (int i = 0; i < count; i += 4)
+            {
+                WriteVector4(data, offset + i * 4, new Vector4(
+                    i < values.Length ? values[i] : 0f,
+                    i + 1 < values.Length ? values[i + 1] : 0f,
+                    i + 2 < values.Length ? values[i + 2] : 0f,
+                    i + 3 < values.Length ? values[i + 3] : 0f));
+            }
         }
 
         public static int GenTexture()
@@ -1310,7 +1452,11 @@ namespace MphRead.Mods.Render
 
         public static void AttachShader(int program, int shader)
         {
-            if (_programs.TryGetValue(program, out ProgramInfo? p)) p.Shaders.Add(shader);
+            if (_programs.TryGetValue(program, out ProgramInfo? p)
+                && _shaders.TryGetValue(shader, out ShaderInfo? info))
+            {
+                p.Shaders[shader] = info;
+            }
         }
 
         public static void DetachShader(int program, int shader)
@@ -1321,16 +1467,25 @@ namespace MphRead.Mods.Render
         public static void LinkProgram(int program)
         {
             if (!_programs.TryGetValue(program, out ProgramInfo? p)) return;
-            foreach (int shader in p.Shaders)
+            p.Kind = ProgramKind.Screen;
+            foreach (ShaderInfo shader in p.Shaders.Values)
             {
-                if (_shaders.TryGetValue(shader, out ShaderInfo? s) && s.Type == ShaderType.VertexShader
-                    && String.Equals(s.Source, Shaders.VertexShader, StringComparison.Ordinal))
+                if (shader.Type == ShaderType.VertexShader
+                    && String.Equals(shader.Source, Shaders.VertexShader, StringComparison.Ordinal))
                 {
                     p.Kind = ProgramKind.Scene;
                     return;
                 }
+                if (shader.Type != ShaderType.FragmentShader) continue;
+                if (String.Equals(shader.Source, Shaders.RttFragmentShader, StringComparison.Ordinal))
+                    p.Kind = ProgramKind.Rtt;
+                else if (String.Equals(shader.Source, Shaders.ShiftFragmentShader, StringComparison.Ordinal))
+                    p.Kind = ProgramKind.Shift;
+                else if (String.Equals(shader.Source, Shaders.CelFragmentShader, StringComparison.Ordinal))
+                    p.Kind = ProgramKind.Cel;
+                else if (String.Equals(shader.Source, Shaders.BackdropFragmentShader, StringComparison.Ordinal))
+                    p.Kind = ProgramKind.Backdrop;
             }
-            p.Kind = ProgramKind.Screen;
         }
 
         public static void GetProgram(int program, GetProgramParameterName pname, out int value) => value = 1;

@@ -7,8 +7,15 @@
 name: build
 
 on:
+  # Reused by nightly-build.yml so the Nightly artifacts are produced by the
+  # exact same build graph as normal CI.
+  workflow_call:
   push:
-    branches: ["**"]
+    # Nightly goes through nightly-build.yml, which calls this workflow once.
+    # Excluding it here prevents the same expensive matrix from running twice.
+    branches:
+      - "**"
+      - "!nightly"
   pull_request:
   workflow_dispatch:
 

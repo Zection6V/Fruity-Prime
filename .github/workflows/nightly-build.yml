@@ -1,4 +1,6 @@
-# Continuously publish the latest successful build of the nightly branch.
+# Continuously publish the latest successful build pushed to a Nightly source
+# branch. The pushed branch itself is built; this workflow does not switch to
+# or merge another branch.
 #
 # The actual compilation stays in build.yml. This workflow calls that reusable
 # workflow instead of copying its build matrix, so Nightly and ordinary CI use
@@ -9,6 +11,9 @@ on:
   push:
     branches:
       - nightly
+      - develop
+      - main
+      - master
   workflow_dispatch:
 
 concurrency:
@@ -30,7 +35,12 @@ jobs:
   publish:
     name: Publish Nightly release
     needs: build
-    if: github.repository == 'Zection6V/Fruity-Prime' && github.ref == 'refs/heads/nightly'
+    if: >-
+      github.repository == 'Zection6V/Fruity-Prime' &&
+      (github.ref_name == 'nightly' ||
+       github.ref_name == 'develop' ||
+       github.ref_name == 'main' ||
+       github.ref_name == 'master')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -123,7 +133,7 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo "Built automatically from the latest \`nightly\` branch."
+            echo "Built automatically from the latest \`${GITHUB_REF_NAME}\` branch."
             echo
             echo "Commit: \`${GITHUB_SHA}\`"
             echo "Build date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
@@ -194,6 +204,7 @@ jobs:
           {
             echo "### Nightly Build published"
             echo
+            echo "- Source branch: \`${GITHUB_REF_NAME}\`"
             echo "- Tag: \`${NIGHTLY_TAG}\` -> \`${GITHUB_SHA}\`"
             echo "- Assets:"
             (cd dist && ls -1 | sed 's/^/  - /')

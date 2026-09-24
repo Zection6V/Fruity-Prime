@@ -60,7 +60,7 @@ namespace MphRead.Mods
         {
             // Background preview workers need the same legacy context, native
             // error handler and writable directory as the visible launcher.
-            var settings = Render.DesktopGlContext.Settings(background: true);
+            var settings = Render.DesktopRenderWindow.Settings(background: true);
             settings.ClientSize = new Vector2i(width, height);
             settings.Title = $"{Branding.Name} thumbnails";
             return settings;

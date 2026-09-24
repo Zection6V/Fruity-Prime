@@ -37,6 +37,9 @@ layout(set=0,binding=0,std140) uniform CompatUniforms {
     vec4 shift0;
     vec4 shift_values[16];
     vec4 white_values[48];
+    vec4 imm_normal;
+    vec4 imm_tex0;
+    vec4 imm_tex1;
 } u;
 
 bool compat_alpha_pass(float alpha)
@@ -68,7 +71,7 @@ layout(location=1) in vec4 a_color;
 layout(location=2) in vec3 a_normal;
 layout(location=3) in vec3 a_tex0;
 layout(location=4) in vec2 a_tex1;
-layout(location=5) in float a_color_set;
+layout(location=5) in float a_attr_mask;
 ";
 
         public static string SceneVertex { get; } = Common + VertexInputs + @"
@@ -90,7 +93,15 @@ vec3 light_calc(vec3 light_vec, vec3 light_col, vec3 normal_vec,
 
 void main()
 {
-    int mid = clamp(int(a_tex0.z), 0, 31);
+    int attr_mask = int(a_attr_mask + 0.5);
+    bool color_local = (attr_mask & 1) != 0;
+    bool normal_local = (attr_mask & 2) != 0;
+    bool tex0_local = (attr_mask & 4) != 0;
+    vec4 effective_color = color_local ? a_color : u.imm_color;
+    vec3 effective_normal = normal_local ? a_normal : u.imm_normal.xyz;
+    vec3 effective_tex0 = tex0_local ? a_tex0 : u.imm_tex0.xyz;
+
+    int mid = clamp(int(effective_tex0.z), 0, 31);
     mat4 stack_mtx = u.mtx_stack[mid];
     mat4 model_mtx = stack_mtx * u.view_inv_mtx;
     gl_Position = u.proj_mtx * u.view_mtx * model_mtx * vec4(a_position, 1.0);
@@ -101,12 +112,8 @@ void main()
     bool show_colors = u.params0.z > 0.5;
     bool use_light = u.scene0.x > 0.5;
     bool use_texture = u.params0.y > 0.5;
-    // OpenGL display lists capture Color calls that occur inside the list,
-    // but a vertex with no list-local Color uses the current color at
-    // glCallList time. a_color_set distinguishes those two cases.
-    vec4 effective_color = a_color_set > 0.5 ? a_color : u.imm_color;
     vec4 vtx_color = show_colors ? effective_color : vec4(1.0);
-    vec3 normal = normalize(mat3(model_mtx) * a_normal);
+    vec3 normal = normalize(mat3(model_mtx) * effective_normal);
 
     if (use_light) {
         vec3 dif_current = u.diffuse.rgb;
@@ -128,7 +135,7 @@ void main()
     int texgen_mode = int(u.scene1.x + 0.5);
     if (use_texture) {
         if (texgen_mode == 0 || texgen_mode == 1) {
-            fs_tex = (u.tex_mtx * vec4(a_tex0.xy, 0.0, 1.0)).xy;
+            fs_tex = (u.tex_mtx * vec4(effective_tex0.xy, 0.0, 1.0)).xy;
         }
         else {
             mat4 tex_mul = u.tex_mtx;
@@ -138,10 +145,10 @@ void main()
                     * mat4(mat3(stack_mtx)));
             }
             mat2x4 texgen_mtx = mat2x4(
-                vec4(tex_mul[0][0], tex_mul[0][1], tex_mul[0][2], a_tex0.x),
-                vec4(tex_mul[1][0], tex_mul[1][1], tex_mul[1][2], a_tex0.y));
+                vec4(tex_mul[0][0], tex_mul[0][1], tex_mul[0][2], effective_tex0.x),
+                vec4(tex_mul[1][0], tex_mul[1][1], tex_mul[1][2], effective_tex0.y));
             fs_tex = texgen_mode == 2
-                ? vec4(a_normal, 1.0) * texgen_mtx
+                ? vec4(effective_normal, 1.0) * texgen_mtx
                 : vec4(a_position, 1.0) * texgen_mtx;
         }
     }
@@ -262,9 +269,10 @@ void main()
 {
     // OpenGL NDC z=0 maps to window depth 0.5.
     gl_Position = vec4(a_position.xy, 0.5, 1.0);
-    fs_tex = a_tex0.xy;
-    fs_tex1 = a_tex1;
-    fs_color = a_color_set > 0.5 ? a_color : u.imm_color;
+    int attr_mask = int(a_attr_mask + 0.5);
+    fs_tex = (attr_mask & 4) != 0 ? a_tex0.xy : u.imm_tex0.xy;
+    fs_tex1 = (attr_mask & 8) != 0 ? a_tex1 : u.imm_tex1.xy;
+    fs_color = (attr_mask & 1) != 0 ? a_color : u.imm_color;
 }";
 
         public static string ScreenFragment { get; } = Common + FragmentResources + @"

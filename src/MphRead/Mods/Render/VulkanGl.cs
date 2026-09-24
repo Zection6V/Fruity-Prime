@@ -21,7 +21,7 @@ namespace MphRead.Mods.Render
     {
         private const int FloatsPerVertex = 16;
         private const uint VertexStride = FloatsPerVertex * sizeof(float);
-        private const uint UboSize = 4224;
+        private const uint UboSize = 4272;
         private const int ProjectionOffset = 0;
         private const int ViewOffset = 64;
         private const int ViewInvOffset = 128;
@@ -54,6 +54,9 @@ namespace MphRead.Mods.Render
         private const int Shift0Offset = 3184;
         private const int ShiftTableOffset = 3200;
         private const int WhiteTableOffset = 3456;
+        private const int ImmNormalOffset = 4224;
+        private const int ImmTex0Offset = 4240;
+        private const int ImmTex1Offset = 4256;
 
         private enum ProgramKind { Screen, Scene, Rtt, Shift, Cel, Backdrop }
 
@@ -830,10 +833,17 @@ namespace MphRead.Mods.Render
             v.Add(_currentNormal.X); v.Add(_currentNormal.Y); v.Add(_currentNormal.Z);
             v.Add(_currentTex0.X); v.Add(_currentTex0.Y); v.Add(_currentTex0.Z);
             v.Add(_currentTex1.X); v.Add(_currentTex1.Y);
-            // Immediate-mode vertices always capture the color current at the
-            // Vertex call. Only display-list vertices that precede the first
-            // list-local Color command defer to glCallList-time current color.
-            v.Add(!_recording || _vertexColorSet ? 1f : 0f);
+            // OpenGL display lists record attribute-setting commands, not the
+            // current attributes that happened to exist while GL_COMPILE ran.
+            // Keep a compact per-vertex mask so attributes not set locally in
+            // the list can come from glCallList-time current state. Immediate
+            // mode captures all four current attributes at the Vertex call.
+            int attributeMask = !_recording ? 0xF
+                : (_vertexColorSet ? 0x1 : 0)
+                | (_listNormalSet ? 0x2 : 0)
+                | (_listTex0Set ? 0x4 : 0)
+                | (_listTex1Set ? 0x8 : 0);
+            v.Add(attributeMask);
             _batch.VertexCount++;
         }
 
@@ -1203,7 +1213,7 @@ namespace MphRead.Mods.Render
                 new VertexElementDescription("a_normal", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3) { Offset = 28 },
                 new VertexElementDescription("a_tex0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3) { Offset = 40 },
                 new VertexElementDescription("a_tex1", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2) { Offset = 52 },
-                new VertexElementDescription("a_color_set", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1) { Offset = 60 });
+                new VertexElementDescription("a_attr_mask", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1) { Offset = 60 });
             Shader[] shaders = program.Kind switch
             {
                 ProgramKind.Scene => _sceneShaders!,
@@ -1514,6 +1524,9 @@ namespace MphRead.Mods.Render
                 GetFloat(p, "white_fac", 0f)));
             WritePackedFloatArray(data, ShiftTableOffset, GetFloatArray(p, "shift_table"), 64);
             WritePackedFloatArray(data, WhiteTableOffset, GetFloatArray(p, "white_table"), 192);
+            WriteVector4(data, ImmNormalOffset, new Vector4(_currentNormal, 0f));
+            WriteVector4(data, ImmTex0Offset, new Vector4(_currentTex0, 0f));
+            WriteVector4(data, ImmTex1Offset, new Vector4(_currentTex1.X, _currentTex1.Y, 0f, 0f));
             return data;
         }
 

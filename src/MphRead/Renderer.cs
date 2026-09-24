@@ -7391,6 +7391,14 @@ namespace MphRead
             // ends matches here, and the surface renders whatever screen is up
             // into the texture drawn at the end of the frame.
             Mods.Launcher.Gui.Shell.BeforeFrame(this);
+            if (Mods.Launcher.Gui.Shell.RendererRestarting)
+            {
+                // The old backend's launcher-owned GL/Vulkan resources were
+                // released by BeforeFrame. Do not let the closing frame draw
+                // them again just before this native window is destroyed.
+                base.OnRenderFrame(args);
+                return;
+            }
             // The results panel comes and goes with the results themselves,
             // which nothing on this machine announces -- the server decides
             // the match is over. See Shell.TickEndPanel.

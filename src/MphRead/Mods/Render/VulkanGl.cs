@@ -104,6 +104,12 @@ namespace MphRead.Mods.Render
             public uint Height;
             public bool Depth;
             public bool Linear;
+            // OpenGL RGB internal formats have no alpha component. Sampling
+            // them returns alpha 1 even if the compatibility storage has to be
+            // RGBA on Vulkan. Keep that semantic separate from the physical
+            // Veldrid format so render targets cannot leak fragment alpha into
+            // the later fullscreen composite.
+            public bool ForceOpaqueAlpha;
             // CPU-uploaded textures keep the caller's row/UV convention.
             // A Vulkan framebuffer, however, has a top-left UV origin while
             // Fruity's fullscreen quads carry OpenGL framebuffer coordinates
@@ -635,13 +641,15 @@ namespace MphRead.Mods.Render
             return info;
         }
 
-        private static void AllocateTexture(TextureInfo info, int width, int height, bool depth)
+        private static void AllocateTexture(TextureInfo info, int width, int height,
+            bool depth, bool forceOpaqueAlpha)
         {
             InvalidateSets();
             info.Dispose();
             info.Width = (uint)Math.Max(width, 1);
             info.Height = (uint)Math.Max(height, 1);
             info.Depth = depth;
+            info.ForceOpaqueAlpha = !depth && forceOpaqueAlpha;
             TextureUsage usage = depth
                 ? TextureUsage.DepthStencil | TextureUsage.Sampled
                 : TextureUsage.Sampled | TextureUsage.RenderTarget;
@@ -1194,6 +1202,14 @@ namespace MphRead.Mods.Render
                 && texture.FlipVWhenSampledAsOpenGl;
         }
 
+        private static bool BoundTextureForcesOpaqueAlpha(int unit)
+        {
+            int name = _boundTextures[unit];
+            return name != 0
+                && _textures.TryGetValue(name, out TextureInfo? texture)
+                && texture.ForceOpaqueAlpha;
+        }
+
         private static ProgramInfo CurrentProgramInfo()
         {
             if (_currentProgram != 0 && _programs.TryGetValue(_currentProgram, out ProgramInfo? info))
@@ -1259,8 +1275,11 @@ namespace MphRead.Mods.Render
                 && _textureEnvModes[0] == TextureEnvMode.Replace ? 1f : 0f;
             WriteVector4(data, Params1Offset,
                 new Vector4(alphaMode, flipTex0, flipTex1, fixedReplace));
+            float forceOpaqueTex0 = BoundTextureForcesOpaqueAlpha(0) ? 1f : 0f;
+            float forceOpaqueTex1 = BoundTextureForcesOpaqueAlpha(1) ? 1f : 0f;
             WriteVector4(data, Params2Offset, new Vector4(
-                _polygonOffsetFactor, _polygonOffsetUnits, _polygonOffsetFill ? 1f : 0f, 0f));
+                _polygonOffsetFactor, _polygonOffsetUnits,
+                _polygonOffsetFill ? 1f : 0f, forceOpaqueTex0));
 
             WriteVector4(data, Light1VectorOffset, new Vector4(GetVector3(p, "light1vec", Vector3.Zero), 0f));
             WriteVector4(data, Light2VectorOffset, new Vector4(GetVector3(p, "light2vec", Vector3.Zero), 0f));
@@ -1287,7 +1306,7 @@ namespace MphRead.Mods.Render
             WriteVector4(data, Scene2Offset, new Vector4(
                 GetFloat(p, "use_flat", 0f),
                 GetFloat(p, "strength", 0f),
-                0f, 0f));
+                forceOpaqueTex1, 0f));
             WritePackedVec3Array(data, ToonTableOffset, GetFloatArray(p, "toon_table"), 32);
 
             WriteVector4(data, Rtt0Offset, new Vector4(
@@ -1486,7 +1505,8 @@ namespace MphRead.Mods.Render
             bool depth = internalFormat == PixelInternalFormat.Depth24Stencil8
                 || format == GLPixelFormat.DepthStencil;
             TextureInfo info = GetTexture(name);
-            AllocateTexture(info, width, height, depth);
+            AllocateTexture(info, width, height, depth,
+                internalFormat == PixelInternalFormat.Rgb);
             if (pixels != IntPtr.Zero && !depth)
             {
                 int srcBpp = format == GLPixelFormat.Rgb ? 3 : 4;
@@ -1504,7 +1524,8 @@ namespace MphRead.Mods.Render
             bool depth = internalFormat == PixelInternalFormat.Depth24Stencil8
                 || format == GLPixelFormat.DepthStencil;
             TextureInfo info = GetTexture(name);
-            AllocateTexture(info, width, height, depth);
+            AllocateTexture(info, width, height, depth,
+                internalFormat == PixelInternalFormat.Rgb);
             if (!depth && pixels.Length > 0)
             {
                 UploadBytes(info, BytesOf(pixels), width, height, format);
@@ -1605,6 +1626,11 @@ namespace MphRead.Mods.Render
             }
 
             Veldrid.Texture source = CurrentFramebuffer(_readFramebuffer).ColorTargets[0].Target;
+            bool forceOpaqueReadAlpha = _readFramebuffer != 0
+                && _framebuffers.TryGetValue(_readFramebuffer, out FramebufferInfo? readFb)
+                && readFb.ColorTexture != 0
+                && _textures.TryGetValue(readFb.ColorTexture, out TextureInfo? readTexture)
+                && readTexture.ForceOpaqueAlpha;
             int copyX = Math.Clamp(x, 0, Math.Max((int)source.Width - width, 0));
             int copyY = Math.Clamp(y, 0, Math.Max((int)source.Height - height, 0));
             if (_gd.IsUvOriginTopLeft)
@@ -1663,7 +1689,7 @@ namespace MphRead.Mods.Render
                         output[dest++] = b;
                         if (outputBpp == 4)
                         {
-                            output[dest++] = row[src + 3];
+                            output[dest++] = forceOpaqueReadAlpha ? (byte)255 : row[src + 3];
                         }
                     }
                 }

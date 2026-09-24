@@ -39,7 +39,10 @@ namespace MphRead.Mods.Diagnostics
         // Called before buffer swap, after the same UI path used on first launch.
         internal static void AfterDraw(RenderWindow window)
         {
-            if (!_active || (++_frames != 20 && _frames != 40)) return;
+            _frames++;
+            bool checkpoint = _frames == 20 || _frames == 40
+                || (_requireVulkan && (_frames == 30 || _frames == 50 || _frames == 60));
+            if (!_active || !checkpoint) return;
             try
             {
                 if (_frames == 20)
@@ -71,8 +74,41 @@ namespace MphRead.Mods.Diagnostics
                 {
                     CheckVulkanClearSemantics();
                 }
-                if (_frames == 20) window.ClientSize = new Vector2i(1100, 740);
-                else { _passed = true; window.Close(); }
+
+                // Vulkan's cached descriptors, image views, framebuffers and
+                // pipelines are rebuilt around a resize. Cycle several real
+                // window sizes so CI catches resource lifetime regressions
+                // instead of proving only the first swapchain recreation.
+                if (_requireVulkan)
+                {
+                    Vector2i? next = _frames switch
+                    {
+                        20 => new Vector2i(1100, 740),
+                        30 => new Vector2i(1240, 780),
+                        40 => new Vector2i(1060, 720),
+                        50 => new Vector2i(1280, 768),
+                        _ => null
+                    };
+                    if (next.HasValue)
+                    {
+                        Console.WriteLine($"[windowcheck] Vulkan resize stress -> {next.Value.X}x{next.Value.Y}");
+                        window.ClientSize = next.Value;
+                    }
+                    else
+                    {
+                        _passed = true;
+                        window.Close();
+                    }
+                }
+                else if (_frames == 20)
+                {
+                    window.ClientSize = new Vector2i(1100, 740);
+                }
+                else
+                {
+                    _passed = true;
+                    window.Close();
+                }
             }
             catch (Exception ex)
             {

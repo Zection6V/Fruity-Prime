@@ -61,6 +61,11 @@ namespace
             CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
         return result;
 #else
+#if defined(__ANDROID__)
+        const lconv* locale = ::localeconv();
+        const char* separator = locale != nullptr ? locale->decimal_point : nullptr;
+        return separator != nullptr && separator[0] != '\0' ? separator : ".";
+#else
         locale_t locale = newlocale(LC_NUMERIC_MASK, "", nullptr);
         if (locale == static_cast<locale_t>(0))
         {
@@ -72,6 +77,7 @@ namespace
             : ".";
         freelocale(locale);
         return result;
+#endif
 #endif
     }
 
@@ -97,6 +103,11 @@ namespace
             CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
         return result;
 #else
+#if defined(__ANDROID__)
+        const lconv* locale = ::localeconv();
+        const char* sign = locale != nullptr ? locale->negative_sign : nullptr;
+        return sign != nullptr && sign[0] != '\0' ? sign : "-";
+#else
         locale_t locale = newlocale(LC_MONETARY_MASK, "", nullptr);
         if (locale == static_cast<locale_t>(0))
         {
@@ -110,6 +121,7 @@ namespace
 #endif
         freelocale(locale);
         return result;
+#endif
 #endif
     }
 

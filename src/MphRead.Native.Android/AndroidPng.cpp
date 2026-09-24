@@ -40,7 +40,7 @@ namespace
             if (result == JNI_EDETACHED)
             {
                 if (g_javaVm->AttachCurrentThread(
-                        reinterpret_cast<void**>(&_env), nullptr
+                        &_env, nullptr
                     ) != JNI_OK)
                 {
                     throw std::runtime_error(

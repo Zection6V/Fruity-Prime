@@ -37,10 +37,81 @@ amount they are behind it.
 | `NetUnlagged.BeginShot` / `EndShot` | wrap the single `BeamProjectileEntity.Spawn` call in `PlayerInput.cs`, next to the existing `NetDamage.NoteFired` |
 | `PlayerEntity.ModPlaceAt` | position + hitbox + room node, in `PlayerEntityNetAim.cs` |
 
-Rewind depth = `authority NetFrame − AckFrame`, clamped to `MaxRewindFrames`
-(24 = 400 ms). History is `HistoryFrames` 64 ≈ 1.07 s, which is Zandronum's
-`UNLAGGEDTICS 35` (one second at 35 Hz) expressed at 60 and rounded to a power
-of two.
+Rewind depth = `authority NetFrame − (AckFrame + AckSubFrame/256)`, clamped to
+`MaxRewindFrames` (**default 45 = 750 ms** since protocol 7, movable with
+`-maxrewind N`; it was 24 = 400 ms up to protocol 6). History is
+`HistoryFrames` **128 ≈ 2.13 s**, which is deeper than Zandronum's
+`UNLAGGEDTICS 35` because this ring has to cover the round trip *plus* whatever
+a client is holding its puppets back by to smooth them, with the ceiling
+comfortably inside it rather than against its edge.
+
+**The sub-frame is protocol 7's.** A client that interpolates its puppets
+(`NETWORK-SMOOTHING.md`) is not drawing any one snapshot: it draws a point
+between two of them, and `IntentPacket.AckSubFrame` says how far past the named
+one. `Reconcile` lerps its own history between the same two frames by the same
+fraction, so the shooter and the authority are looking at exactly the same
+world — more exactly than before, since an integer ack was itself a rounding of
+up to a frame. Zero from a client that does not interpolate, which is what
+every build before 7 was.
+
+### The ceiling is ours, and it is 2.5x tighter than Q-Zandronum's
+
+Worth stating plainly, because it was not: **Q-Zandronum has no second clamp.**
+`UNLAGGED_Gametic` bounds the rewind by the history and by nothing else --
+
+```c
+int unlaggedGametic = ( ... CLIENTFLAGS_PING_UNLAGGED ) ?
+        gametic - ( player->ulPing * TICRATE / 1000 ) :
+        pClient->lLastServerGametic + 1;
+if ( unlaggedGametic > gametic ) unlaggedGametic = gametic;
+if ( (gametic - unlaggedGametic) >= UNLAGGEDTICS)
+        unlaggedGametic = gametic - UNLAGGEDTICS + 1;      // UNLAGGEDTICS 35
+```
+
+-- so its ceiling **is** its history: one second, `doomdef.h:66`. The 400 ms
+here was a bound this port added on top, and on an intercontinental line it was
+the binding one. The Japan server reported a mean of 19.6 frames with the worst
+pinned at exactly 24 over runs of nine thousand shots: a distribution standing
+against its ceiling, not a tail touching it.
+
+**Measured here, and worse than that.** Two clients at a 320 ms round trip with
+80 ms of jitter and 2% loss, the sniper scenario, under the 24-frame ceiling:
+
+```
+rewound 99   mean 399 ms   clamped 88 (88.9%)   3.2 frames refused each
+depths asked: 23:4 24:7<-ceiling 25:14 26:28 27:24 28:7 29:8 30:2 32:2 37:1 39:1 40:1
+```
+
+The distribution's **mode is two frames past the ceiling**. Nine shots in ten
+were resolved against a world their shooter never saw; the shooter's own machine
+resolved 16 of the 26 hits the authority credited it with, so four shots in ten
+landed with nothing happening on the screen that fired them, and two headshots
+in ten came back as body shots. Protocol 7 moved the default to **45 frames
+(750 ms)**: past that distribution with room for the smoothing delay on top,
+still inside a history twice as deep, and still under the one second
+Q-Zandronum allows. The same scenario at 45 reads **clamped 0, worst asked 42**.
+`NetUnlagged.LegacyMaxRewindFrames` is the old number, for the baseline arm.
+
+**45 is adequate at 320 ms and no more than adequate.** The jump-pad arm at
+320 +- 80 with 2% loss reads `clamped 1 (1.4%), worst asked 45` -- one shot in
+seventy reached the new ceiling exactly. At the top of the 250-400 ms band this
+work is about, or with a client buffering more than three frames, it will start
+folding again. If that shows up, raise it rather than wonder: the history is
+128 frames and `MaxRewindCeiling` allows 120, so there is room. What bounds the
+number is not the ring, it is how far back a player is willing to be shot after
+breaking line of sight.
+
+Two smaller differences in the same function, for the record: Q-Zandronum
+rewinds to `lastServerGametic + 1`, one tic *shallower* than the raw ack -- the
+opposite direction from "give the shooter more" -- and it offers a
+ping-derived depth as an alternative, which this port deliberately does not
+(see *Why the ack and not the ping*).
+
+`NetUnlagged` now counts what the ceiling refuses: `ShotsClamped`,
+`FramesRefused`, `WorstRequested`, a histogram of requested depths, and -- for
+every clamped shot -- the distance between where the rewind went and where it
+was asked to go, since frames are not the quantity that decides a headshot and
+units are. `.claude/testing/HITRIG.md`.
 
 ### Why the ack and not the ping
 
@@ -128,6 +199,14 @@ it is on by default, as Zandronum's `sv_nounlagged` is.
 **A rewind fixes where a shot is resolved, not when the shooter is told.**
 That second half is `NETWORK-PREDICTION.md`, which is built on this one and is
 measured beside it; `-nohitprediction` is its control.
+
+**And it fixes neither when the two machines cannot run the same test at all.**
+A rewind that hits its ceiling, a trigger pull recovered from a press history,
+and above all a shooter killed during the round trip — whose shot the authority
+never runs, because its copy of that player was already dead when the intent
+arrived — are what `NETWORK-HITCLAIMS.md` is for. A claim is a backstop, not a
+substitute: the cheapest hit registration is still the one the authority finds
+itself, which is what raising the ceiling buys.
 
 ### Verified 2026-09-06 (WSL, loopback)
 

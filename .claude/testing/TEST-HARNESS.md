@@ -7,7 +7,7 @@ This document explains the netcheck, maptest and the harness scripts used in `~/
 > extracted game files in `~/mph-test/`. Rebuild what you need rather than
 > assuming a missing script means a broken setup. A two-client run against a
 > real server needs nothing else: copy `~/mph-test/paths.txt` next to
-> `src/MphRead/bin/Release/net9.0/FruityPrime.dll`, then start two
+> `src/MphRead/bin/Release/net10.0/FruityPrime.dll`, then start two
 > `dotnet FruityPrime.dll -netcheck HOST -port N -name X -hunter H -seconds N`
 > processes a few seconds apart and read the two reports against each other.
 
@@ -35,6 +35,16 @@ What the harness records
 
 Map sweeps and probes
 
+- `-spireposecheck "MP1 SANCTORUS"` uses the headless server simulation and
+  real extracted game files to drive Spire through morph and alt attack via
+  relayed intents. It checks that both rock collision positions advance across
+  attack frames with no draw pass. It requires `paths.txt` beside the binary.
+  This probes the collision pose, not whether a target takes damage on a
+  specific frame.
+- `powershell -File tools/check-spire-alt-pose.ps1` is an asset-free source probe for
+  Spire's alt attack collision pose: it checks the simulation update order,
+  both animated rock positions, draw ownership, and attack startup positions.
+  It cannot establish actual rock motion or hit timing.
 - `-maptest "ROOM" -players 8 -seconds 22` loads a room with eight players (a
   different hunter per slot), drives them through the tour, and prints an
   inventory: spawns, jump pads, teleporters, doors, afflictions, deaths.

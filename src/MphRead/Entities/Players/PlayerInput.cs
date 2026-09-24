@@ -1,5 +1,6 @@
 using System;
 using MphRead.Formats;
+using MphRead.Mods.Network;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 
@@ -16,6 +17,20 @@ namespace MphRead.Entities
 
         private void ProcessInput()
         {
+            if (Mods.Network.NetSession.Active && !IsBot)
+            {
+                bool local = SlotIndex == Mods.Network.NetSession.LocalSlot
+                    && Mods.Network.NetSession.LocalSlot >= 0;
+                bool fresh = local || (SlotIndex >= 0
+                    && SlotIndex < Mods.Network.NetSession.RemoteIntentValid.Length
+                    && Mods.Network.NetSession.RemoteIntentValid[SlotIndex]
+                    && Mods.Network.NetSession.RemoteIntents[SlotIndex].Frame != 0
+                    && Mods.Network.NetSession.RemoteIntentAge(SlotIndex)
+                        <= Mods.Network.ContinuousWeaponPhase.MaxIntentAge);
+                Mods.Network.NetSession.ContinuousPhase.Observe(SlotIndex, _scene.FrameCount,
+                    EquipWeapon.Flags.TestFlag(WeaponFlags.Continuous) && Controls.Shoot.IsDown,
+                    fresh);
+            }
             if (_health > 0)
             {
                 if (Flags1.TestFlag(PlayerFlags1.FreeLook))
@@ -105,30 +120,33 @@ namespace MphRead.Entities
         };
 
         /// <summary>
-        /// The DS bottom screen's buttons, pressed with a pen.
+        /// The DS bottom screen, worked with a pen.
         ///
         /// Written straight into the binds rather than synthesised as key
         /// presses: there is no keyboard here to put a key into, and a bind
-        /// is what every one of these actions is actually read from. Only
-        /// while the tip is on a button -- everywhere else in the zone is the
-        /// map, which is to say aiming, which the ordinary pointer path
-        /// already does.
+        /// is what every one of these actions is actually read from.
+        ///
+        /// Add DS actions after raw pointer ownership has been resolved. Independent
+        /// firing sources have already been preserved by the binding resolver.
         /// </summary>
         private static void ApplyStylusZone(PlayerEntity player)
         {
-            if (!Mods.Input.StylusZone.OnButton)
+            PlayerControls controls = player.Controls;
+            // Keep the stylus hold as its own input source instead of writing it
+            // into the shared WeaponMenu bind. That shared bind is also used by
+            // keyboard, mouse and controller input, and leaving a virtual hold in
+            // it can keep the menu open after pen contact ends.
+            player.Input.StylusWeaponMenuDown = Mods.Input.StylusZone.MenuHeld;
+            if (!Mods.Input.StylusZone.CapturingPointer)
             {
                 return;
             }
-            PlayerControls controls = player.Controls;
-            // Neither aiming nor firing while the tip is on a button. On the
-            // DS the stylus aims and a shoulder button fires, so a touch on a
-            // button was never a shot; here the tip is the fire bind, and
-            // without this, choosing a weapon fires it.
-            controls.Shoot.IsDown = false;
-            controls.Shoot.IsPressed = false;
-            controls.Shoot.IsReleased = false;
-            Mods.Input.StylusRegion pressed = Mods.Input.StylusZone.Pressed;
+            if (player.Input.StylusWeaponMenuDown)
+            {
+                player.Input.HasInput = true;
+                return;
+            }
+            Mods.Input.StylusRegion pressed = Mods.Input.StylusZone.TakePressed();
             if (pressed == Mods.Input.StylusRegion.None)
             {
                 return;
@@ -138,9 +156,9 @@ namespace MphRead.Entities
                 Mods.Input.StylusRegion.PowerBeam => controls.PowerBeam,
                 Mods.Input.StylusRegion.Missile => controls.Missile,
                 // The big one is the weapon itself, which on the DS steps to
-                // the next; the small one beside it opens the select.
+                // the next; the small one beside it opens the select, and is
+                // handled above because it is a hold.
                 Mods.Input.StylusRegion.Weapons => controls.NextWeapon,
-                Mods.Input.StylusRegion.WeaponSelect => controls.WeaponMenu,
                 Mods.Input.StylusRegion.AltForm => controls.Morph,
                 _ => null
             };
@@ -172,14 +190,16 @@ namespace MphRead.Entities
                     UpdateZoom(zoom: false);
                 }
             }
-            if ((GameState.Multiplayer || _weaponSlots[2] != BeamType.OmegaCannon) && Controls.WeaponMenu.IsDown)
+            bool weaponMenuDown = Controls.WeaponMenu.IsDown
+                || (IsMainPlayer && Input.StylusWeaponMenuDown);
+            if ((GameState.Multiplayer || _weaponSlots[2] != BeamType.OmegaCannon) && weaponMenuDown)
             {
                 Flags1 |= PlayerFlags1.NoAimInput;
                 Flags1 |= PlayerFlags1.WeaponMenuOpen;
                 _showScoreboard = false;
             }
             bool selected = false;
-            if (!Controls.WeaponMenu.IsDown)
+            if (!weaponMenuDown)
             {
                 selected = EndWeaponMenu();
             }
@@ -363,6 +383,7 @@ namespace MphRead.Entities
             }
             Flags1 &= ~PlayerFlags1.NoAimInput;
             Flags1 &= ~PlayerFlags1.WeaponMenuOpen;
+            Mods.Input.WeaponWheel.Close();
             return selected;
         }
 
@@ -1146,13 +1167,15 @@ namespace MphRead.Entities
             Mods.Network.NetUnlagged.BeginShot(this);
             BeamResultFlags result = BeamProjectileEntity.Spawn(this, EquipInfo, shotOrigin, shotVec, flags, NodeRef, _scene);
             Mods.Network.NetUnlagged.EndShot(this);
-            Mods.Network.NetDamage.NoteFired(this, shotVec, _gunVec1);
             if (result == BeamResultFlags.NoSpawn)
             {
                 EquipInfo.Weapon = curWeapon;
                 PlayBeamEmptySfx(EquipInfo.Weapon.Beam);
-                return false;
+                return NetShotDiagnostics.Finish(this, ShotAttemptResult.NoAmmo);
             }
+            NetShotDiagnostics.Finish(this, ShotAttemptResult.Spawned, shotVec, _gunVec1);
+            ModControllerFeedback(EquipWeapon.MinCharge > 0 && EquipInfo.ChargeLevel >= EquipWeapon.MinCharge * 2
+                ? Mods.Input.GamepadFeedback.ChargedShot : Mods.Input.GamepadFeedback.Fire);
             // todo: update license stats
             _timeSinceShot = 0;
             if (IsMainPlayer)
@@ -1489,6 +1512,17 @@ namespace MphRead.Entities
                     {
                         traction *= Fixed.ToFloat(Values.JumpPadSlideFactor);
                     }
+                    // A boost a flick aimed travels where it was aimed. See
+                    // _boostAimLock: the clamp below keeps the speed and lets
+                    // the direction go, so roll traction across a 0.6 dash
+                    // rotates it about three degrees a frame and a sideways
+                    // boost is pointing forwards again a quarter of a second
+                    // later. Short, and only after an aimed one, so the DS's
+                    // boost still steers exactly as it always did.
+                    if (_boostAimLock > 0)
+                    {
+                        traction = 0;
+                    }
                     if (Controls.RollUp.IsDown)
                     {
                         speedDelta.X += _altRollFbX * traction;
@@ -1651,6 +1685,11 @@ namespace MphRead.Entities
                     }
                     if (_abilities.TestFlag(AbilityFlags.Boost) && AttachedEnemy == null)
                     {
+                        // A whip of the mouse is the same gesture from the
+                        // desktop's end -- nothing else reads a mouse delta
+                        // in the ball -- and it asks for the boost through
+                        // the same one-shot. See Mods.Input.MouseFlick.
+                        ModCheckMouseFlick();
                         // A touch platform's swipe gesture is a flick, not a
                         // hold-and-release: it forces a full charge straight
                         // into the release branch below instead of building
@@ -1672,6 +1711,22 @@ namespace MphRead.Entities
                         {
                             float forward = -SwipeBoostY;
                             float left = -SwipeBoostX;
+                            // Taken as an aim, not snapped. It *was* snapped
+                            // to the four directions the roll binds offer, on
+                            // the reading that the gesture is a choice between
+                            // four things and that the leftover on a sideways
+                            // flick is what made one read as "forward again".
+                            // That was the wrong cure for a real complaint:
+                            // the direction being handed over was contaminated
+                            // by the frames the hand spends breaking out of
+                            // rest, and snapping hid it on two axes out of
+                            // four while making the other two a lie -- a flick
+                            // back and to the left came out flat back, every
+                            // time, whatever the hand did. The measurement is
+                            // fixed where it is taken (see MouseFlick's
+                            // speed-weighted direction) and what arrives here
+                            // is used as it is: the ball leaves along the
+                            // whip, at whatever angle the whip was.
                             float dirX = _altRollFbX * forward + _altRollLrX * left;
                             float dirZ = _altRollFbZ * forward + _altRollLrZ * left;
                             float dirMag = MathF.Sqrt(dirX * dirX + dirZ * dirZ);
@@ -1680,6 +1735,26 @@ namespace MphRead.Entities
                                 boostDirX = dirX / dirMag;
                                 boostDirZ = dirZ / dirMag;
                                 boostAimed = true;
+                                // Long enough to read as the direction that
+                                // was asked for -- 18 frames at 0.6 a frame
+                                // is eleven units of travel, most of a small
+                                // room's width -- and short enough that the
+                                // ball is never somewhere the player cannot
+                                // steer out of.
+                                _boostAimLock = 18;
+                                if (Mods.DebugLog.Active)
+                                {
+                                    // Every flick: which way the hand went,
+                                    // what that is against the basis the ball
+                                    // rolls in, and where the ball was sent.
+                                    // "It goes forward when I flick sideways"
+                                    // is three questions and this is the only
+                                    // line that separates them.
+                                    Mods.DebugLog.Line("input", "boost flick screen "
+                                        + $"({SwipeBoostX:0.00}, {SwipeBoostY:0.00}) -> "
+                                        + $"({forward:0.00} fwd, {left:0.00} left)"
+                                        + $" -> world ({boostDirX:0.00}, {boostDirZ:0.00})");
+                                }
                             }
                         }
                         SwipeBoostX = 0;
@@ -1718,9 +1793,51 @@ namespace MphRead.Entities
                                 float factor = Fixed.ToFloat(Values.BoostSpeedMin)
                                     + _boostCharge * (Fixed.ToFloat(Values.BoostSpeedMax) - Fixed.ToFloat(Values.BoostSpeedMin))
                                     / (Values.BoostChargeMax * 2); // todo: FPS stuff
+                                if (boostAimed)
+                                {
+                                    // Whatever the roll binds put into this
+                                    // frame goes first. The traction block
+                                    // runs earlier in the frame than this one
+                                    // and only checks _boostAimLock, which is
+                                    // set below -- so a player holding forward
+                                    // as they flick sideways had one frame of
+                                    // forward added on top of the dash before
+                                    // the lock took hold, and the aimed boost
+                                    // left at an angle nobody asked for. Only
+                                    // the horizontal part, and only when a
+                                    // flick aimed this: gravity and the alt
+                                    // attacks are on Y and untouched.
+                                    speedDelta.X = 0;
+                                    speedDelta.Z = 0;
+                                    // A boost asked for in a direction has to
+                                    // go in it. Upstream's is an impulse added
+                                    // to whatever the ball is already doing,
+                                    // which is right when it goes where the
+                                    // ball was already pointing and useless
+                                    // when it does not: flicked backwards at
+                                    // speed it merely cancelled some of the
+                                    // roll and the ball carried on forwards,
+                                    // reported as "the mouse goes down and
+                                    // Samus still goes up". So the horizontal
+                                    // speed is projected onto the direction
+                                    // asked for first -- the part of it going
+                                    // the other way is dropped, the part going
+                                    // sideways with it, and nothing is added:
+                                    // the ball leaves along the flick with the
+                                    // momentum it had in that direction and no
+                                    // more. Only an aimed boost does this, so
+                                    // the DS's own is untouched.
+                                    float along = Speed.X * boostDirX + Speed.Z * boostDirZ;
+                                    if (along < 0)
+                                    {
+                                        along = 0;
+                                    }
+                                    Speed = Speed.WithX(boostDirX * along).WithZ(boostDirZ * along);
+                                }
                                 speedDelta = speedDelta.AddX(boostDirX * factor).AddZ(boostDirZ * factor);
                                 _altAttackCooldown = (ushort)(Values.AltAttackCooldown * 2); // todo: FPS stuff
                                 Flags1 |= PlayerFlags1.Boosting;
+                                ModControllerFeedback(Mods.Input.GamepadFeedback.Boost);
                                 _boostDamage = (ushort)(Values.AltAttackDamage * _boostCharge / (Values.BoostChargeMax * 2)); // todo: FPS stuff
                                 if (IsMainPlayer)
                                 {
@@ -2321,7 +2438,9 @@ namespace MphRead.Entities
                 // while the player they are watching takes somebody else's
                 // input entirely.
                 Mods.SpectatorMode.NoteScoreboard(
-                    IsDown(Mods.InputSettings.Current.Pause, keyboardSnap, mouseSnap));
+                    IsDown(Mods.InputSettings.Current.Pause, keyboardSnap, mouseSnap)
+                    || (Mods.Input.GamepadContexts.Current == Mods.Input.GamepadContext.Gameplay
+                        && Mods.Input.GamepadInput.State.Down(Mods.Input.GamepadButtons.Back)));
             }
             for (int i = 0; i < Players.Count; i++)
             {
@@ -2350,6 +2469,7 @@ namespace MphRead.Entities
                 player.Input.PrevMouseState = prevMouseSnap;
                 player.Input.KeyboardState = keyboardSnap;
                 player.Input.MouseState = mouseSnap;
+                player.Input.UpdatePointer();
                 _isScrollingUp = false;
                 _isScrollingDown = false;
                 // todo?: deal with overflow or whatever
@@ -2392,8 +2512,10 @@ namespace MphRead.Entities
                             {
                                 control.NeedsRepress = true;
                             }
-                            bool down = mouseSnap.IsButtonDown(control.MouseButton);
-                            bool prevDown = prevMouseSnap?.IsButtonDown(control.MouseButton) ?? false;
+                            bool primary = control.MouseButton == MouseButton.Left;
+                            bool down = primary ? player.Input.Primary.Down : mouseSnap.IsButtonDown(control.MouseButton);
+                            bool prevDown = primary ? player.Input.Primary.PreviousDown
+                                : prevMouseSnap?.IsButtonDown(control.MouseButton) ?? false;
                             if (control.NeedsRepress && !player._ignoreClick)
                             {
                                 if (!down || !prevDown)
@@ -2401,11 +2523,18 @@ namespace MphRead.Entities
                                     control.NeedsRepress = false;
                                 }
                             }
-                            if (!control.NeedsRepress)
+                            if (control.NeedsRepress)
                             {
-                                control.IsDown = down;
-                                control.IsPressed = control.IsDown && !prevDown;
-                                control.IsReleased = !control.IsDown && prevDown;
+                                control.IsDown = control.IsPressed = control.IsReleased = false;
+                            }
+                            else
+                            {
+                                if (!player.Input.Primary.Resolve(control))
+                                {
+                                    control.IsDown = down;
+                                    control.IsPressed = down && !prevDown;
+                                    control.IsReleased = !down && prevDown;
+                                }
                                 if (control.IsDown || control.IsPressed || control.IsReleased)
                                 {
                                     player.Input.HasInput = true;
@@ -2427,10 +2556,7 @@ namespace MphRead.Entities
                 }
                 if (player.LoadFlags.TestFlag(LoadFlags.Active))
                 {
-                    // After the hardware has been read, because it overrides
-                    // what the hardware said: a pen tip resting on the weapon
-                    // button is the left mouse button held down, which is the
-                    // fire bind. See Mods.Input.StylusZone.
+                    // Stylus actions are additive; raw tip capture happens before bindings.
                     ApplyStylusZone(player);
                 }
                 player._ignoreClick = false;
@@ -2492,16 +2618,35 @@ namespace MphRead.Entities
             public MouseState? PrevMouseState { get; set; }
             public MouseState? MouseState { get; set; }
 
-            // Filtered, so a pointer that teleports does not turn the view.
-            // See Mods.Input.PointerInput: a mouse never reaches the
-            // threshold, and a pen reaches it every time it is lifted off the
-            // tablet and set down somewhere else.
-            public float MouseDeltaX => Mods.Input.StylusZone.OnButton ? 0
-                : Mods.Input.PointerInput.Filter((MouseState?.X - PrevMouseState?.X) ?? 0);
-            public float MouseDeltaY => Mods.Input.StylusZone.OnButton ? 0
-                : Mods.Input.PointerInput.Filter((MouseState?.Y - PrevMouseState?.Y) ?? 0);
+            public Mods.Input.PointerBindings Primary { get; } = new();
+            public float MouseDeltaX { get; private set; }
+            public float MouseDeltaY { get; private set; }
+            public float PointerX => Mods.Input.PointerDevice.Active
+                ? Mods.Input.PointerDevice.Current.X : MouseState?.X ?? 0;
+            public float PointerY => Mods.Input.PointerDevice.Active
+                ? Mods.Input.PointerDevice.Current.Y : MouseState?.Y ?? 0;
+            private bool _loggedCapture;
+
+            public void UpdatePointer()
+            {
+                bool active = Mods.Input.PointerDevice.Active;
+                bool captured = Mods.Input.StylusZone.CapturingPrimaryButton || Mods.Input.StylusZone.Placing;
+                Primary.Update(active ? Mods.Input.PointerDevice.PrimaryDown
+                    : MouseState?.IsButtonDown(MouseButton.Left) == true, !active && captured);
+                (MouseDeltaX, MouseDeltaY) = active ? Mods.Input.PointerDevice.TakeDelta()
+                    : Mods.Input.PointerInput.Filter((MouseState?.X - PrevMouseState?.X) ?? 0,
+                        (MouseState?.Y - PrevMouseState?.Y) ?? 0);
+                if (Mods.DebugLog.Active && captured && !_loggedCapture)
+                {
+                    PlayerControls controls = Mods.InputSettings.Current;
+                    Mods.DebugLog.Line("input", $"stylus firing sources preserved: "
+                        + $"Shoot={controls.Shoot.Type}:{controls.Shoot} AltAttack={controls.AltAttack.Type}:{controls.AltAttack}");
+                }
+                _loggedCapture = captured;
+            }
             public float ClickX { get; set; } = -1;
             public float ClickY { get; set; } = -1;
+            public bool StylusWeaponMenuDown { get; set; }
 
             public bool HasInput { get; set; }
         }

@@ -348,6 +348,28 @@ The catch-all is unchanged and still sits after the buttons: while the results
 screen is up, everything the buttons did not take belongs to the HUD, because
 there is no world to aim at.
 
+### Scrolling the settings used to answer the rows
+
+The launcher's screens are the desktop's, and the desktop's rows acted on the
+press: `ToggleRow` flipped in `OnPointerPressed`, `ChoiceRow` stepped there,
+`KeyRow` and `PadRow` began listening there, `SliderRow` took the value and the
+pointer there. A mouse never notices -- it scrolls with the wheel and presses
+only what it means. A finger has one gesture for both, and every scroll starts
+as a press on whatever is under it, so dragging the settings page toggled,
+cycled, re-bound and re-slid every row the drag began on.
+
+The rule is now in one place, `Mods/Launcher/Gui/Tap.cs`, and it is the same
+one Android itself uses: the press decides nothing, travel past eight points
+gives the gesture up, and the release acts only if it lands inside the control.
+It applies to a finger and a stylus and not to a mouse, so the desktop keeps
+what it had. `MphRead -tapcheck` is the check; see
+`.claude/launcher/LAUNCHER-DESIGN.md` for the rest, including why `SliderRow`
+waits to see which way the finger went.
+
+**Untested on a device**, like everything else in this head: the emulator here
+cannot load a match, and what a real finger does to a real scroller is exactly
+what a written-down gesture cannot prove.
+
 ### Controls no longer reset when the app closes
 
 Two faults, both of them "the desktop does this somewhere this head never runs":
@@ -496,6 +518,28 @@ renderer draws cel shading fine" were measured with cel shading off.
 first seconds of every launch. Read it before trusting anything pushed with
 `adb push`, and push to that path.
 
+### ⚠️ A preview run owns the world, so a match takes it away
+
+`MainActivity.StartMatch` used to *refuse* while an in-process preview run was
+going, toast "Still rendering map previews; try again in a moment" and call
+`AndroidApp.Home.Reset()`. That is what **"je clic et rien ne se passe"** on
+the offline face was, and it is worse than it reads: a first launch renders
+every map's picture without being asked (`StartScreen.CatchUpPreviews`), which
+is minutes on a phone, so the whole of a player's first session met it —
+`Reset()` threw the screen stack away, lost the map they had picked, and put
+them back on the front screen with nothing to read but a toast behind an
+immersive window.
+
+The picture of a map nobody has asked for yet does not outrank playing. The run
+is now asked to stop between rooms (`_stopPreviews`, read by
+`PreviewRun.Render`'s `cancelled` callback, which already existed and was never
+passed one), and `WaitForSteadyWindow` holds the start — with its own deadlines
+paused — until the room in flight is finished with, which is a second or two.
+Whatever it did not get to is rendered by the next launch or from the setup
+screen's **Render map previews** entry. `RenderHere` also refuses to *begin*
+while `_pending != null`, so a run cannot be born into the gap between a start
+being asked for and the `GameView` existing.
+
 ### ⚠️ `ThumbnailMode` is process-wide
 
 `Mods/ThumbnailMode.cs` suppresses the HUD and mutes the sound. The desktop
@@ -506,6 +550,80 @@ which is exactly how it was reported. `ThumbnailMode.Exit()` exists for that,
 `PreviewRun` calls it in a `finally`, and `MainActivity.StartMatch` refuses
 while an in-process run is going.
 
+
+## The moving backdrop
+
+The front screen's photograph breathes on the desktop: a small field of
+domain-warped noise laid over it in `overlay` at 62 per cent, which is the one
+thing on that screen that is never still. It did not breathe here, and the
+reason is structural — `Mods/Render/LauncherPhoto.cs` and `LauncherNoise.cs`
+are GL's, they are **excluded from this csproj**, and there is no GL window
+under the launcher on this head at all.
+
+So the field moved into `Mods/Render/NoiseField.cs`, which is arithmetic and
+nothing else and is compiled everywhere, and
+`Mods/Launcher/Gui/MovingBackdrop.cs` draws it through Skia. The blend is
+Skia's own `BitmapBlendingMode.Overlay`, which against an opaque destination
+works out to exactly the `mix(b, over, strength)` the desktop's fragment shader
+ends on — the same picture, arrived at the same way. The two must never grow
+their own copies of the arithmetic; that is why the field is a third file
+rather than a method on either of them.
+
+The layer has to sit **between** the photograph and the washes, as it does on
+the desktop, so `UiLayout.Backdrop` lays the backdrop down in three pieces
+where nothing below is drawing it (`BackdropPart.Photo`, the layer, then
+`BackdropPart.Washes`). Both bakes are cached bitmaps and a blit apiece; only
+the middle layer costs anything a frame, and it stops the moment it leaves the
+tree.
+
+Three things about drawing a bitmap from a control on this head, each of which
+looked like the layer simply not existing:
+
+- **`Bgra8888` is not drawn.** An `Avalonia.Media.Imaging.Bitmap` built from
+  raw pixels as `PixelFormat.Bgra8888` renders as nothing at all through
+  Avalonia's GL ES backend — no exception, no log line, no pixels. BGRA needs
+  `GL_EXT_texture_format_BGRA8888` and is not there. `Rgba8888` works and is
+  what every GLES driver has. A PNG loaded from `avares://` draws either way,
+  which is what makes this so slow to find: `DrawImage` is clearly working.
+- **The bitmap is cut outside the render pass.** A control's `Render` records
+  render data; a bitmap made during that pass is not one the compositor picks
+  up. `BakedBackdrop` bakes from its arrange for the same reason and this does
+  too.
+- **A control whose first render draws nothing gets no second render.**
+  `InvalidateVisual` on it is then a no-op for ever, which reads as a layer
+  that steps happily in the debug log and never moves on the glass. Cutting
+  the first bitmap in `ArrangeOverride` — before the first render — is what
+  makes it draw at all.
+
+And one about how many of them are running. **Leaving the tree is not the only
+way a backdrop stops being looked at.** Every screen builds its own, and
+`StartScreen.Push` does not detach the screen underneath — it covers it with an
+opaque photograph. So a player on Play or Settings, which are the two pages
+anybody scrolls, had *two* of these filling a noise field and blending a
+full-window layer thirty times a second, one of them behind the other.
+`MovingBackdrop` now keeps a list of the live ones and only the last to arrive
+steps; the rest hold the frame they had and pick the loop up when they are
+uncovered.
+
+## Animations step on the compositor's clock, not on the dispatcher
+
+`Deck.NextFrame` is what every self-driving animation in `Mods/Launcher/Gui`
+asks for its next step through — the button pop, the idle bob, the sheet's
+spring, a tile settling. On the desktop it goes to `UiSurface.RequestFrame`,
+which is the game's own frame. Here it was a bare
+`Dispatcher.UIThread.Post(step, DispatcherPriority.Render)`, and a dispatcher
+post is not a frame: it runs as soon as the queue reaches that priority, so a
+step that asks for the next one — and the idle bob asks for ever — goes round
+as fast as the dispatcher can turn, with the touch events a drag is made of
+queued behind it.
+
+It takes `TopLevel.RequestAnimationFrame` now. That is throttled on the
+compositor (`MediaContext.CommitCompositorsWithThrottling`), and its callbacks
+are drained from a queue that has already been swapped out — so re-asking from
+inside one lands on the frame *after*, which is what the `_framePending` flag
+on each control was trying to arrange by hand. It needs the asking control to
+find its top level, which is why the method takes one; the shell ignores it,
+having exactly one surface.
 
 ## Custom maps
 
@@ -591,15 +709,22 @@ export JAVA_HOME=$HOME/jdk17            # a JDK 17; the workload does not bring 
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1   # or install libicu
 dotnet workload install android
 dotnet build src/MphRead.Android/MphRead.Android.csproj -c Debug \
-  -p:AndroidSdkDirectory=$HOME/android-sdk
+  -p:AndroidSdkDirectory=$HOME/android-sdk \
+  -p:JavaSdkDirectory=$HOME/jdk17 \
+  -p:EmbedAssembliesIntoApk=true
 ```
 
+`JavaSdkDirectory` as well as `JAVA_HOME`: the Android targets look the JDK up
+themselves and fail with *XA5300: The Java SDK directory could not be found*
+when only the variable is set. `EmbedAssembliesIntoApk` is the one below under
+"Three traps" -- a Debug APK without it installs and is hollow.
+
 The SDK needs `platforms;android-35` and `build-tools;35.0.0` to match the
-`net9.0-android35.0` target; `sdkmanager --sdk_root=$HOME/android-sdk` installs
+`net10.0-android36.0` target; `sdkmanager --sdk_root=$HOME/android-sdk` installs
 them. `EnableAvaloniaXamlCompilation=false` is deliberate and explained in the
 csproj.
 
-The APK lands in `bin/Debug/net9.0-android35.0/fr.livetek.fruityprime-Signed.apk`
+The APK lands in `bin/Debug/net10.0-android36.0/fr.livetek.fruityprime-Signed.apk`
 (~20 MB; a Release publish is ~45 MB, being every ABI with the trimmer run).
 `adb install -r` it.
 
@@ -641,6 +766,100 @@ startup with *"No assemblies found in .../.__override__/<abi>. Assuming this is
 part of Fast Deployment."* The build succeeds, the APK installs, and it is
 hollow. `-p:EmbedAssembliesIntoApk=true` is what makes a debug APK someone can
 be handed; it is ~110 MB rather than 20.
+
+**Nothing scaled the launcher's screens here, and the phone is the one head
+that cannot do without it.** Every screen in `Mods/Launcher/Gui` is authored
+for a box near 960x600 of its own points; a phone in landscape hands Avalonia
+about **830x390** (1080x2280 pixels at 2.75x density), and the well alone is
+820 points wide. So the screens were laid out about three times too large for
+the view they were in: the front screen's words ran off both edges, the marks
+at the foot were below the glass, and the server browser -- which was laying
+out perfectly correctly -- did it off the side of the display, which is what
+"the servers are invisible" was. The desktop never showed any of this because
+`UiSurface` has scaled them since it was written; the rule it used lives in
+`UiLayout.Factor` now, and `UiScaleHost` is the twenty lines that apply it on
+this head. Two heads with two curves is the failure that was already on
+record, one screen at a time, so there is one curve.
+
+**And the curve has to be asked in the right unit, which is what the first
+version of it got wrong.** Android's layout point is dp, 1/160 inch; the one
+the screens are drawn in is the desktop's, 1/96. The same number is therefore
+**0.6** of the physical size on a phone that it is on a monitor, so feeding
+the view's dp straight into the curve asks an 830-point view to hold a
+960-point layout, lands on the curve's own 0.6 floor, and draws the text at
+0.36 of desktop size on the screen held closest to the face -- reported,
+correctly, as *"bien trop petit comparé à la dernière release qui était
+parfaitement lisible"*. `UiScaleHost` converts into the authored unit, asks,
+and converts back; a phone comes out at exactly **1.0**, which is the size
+that release drew.
+
+**A phone is short, not small, and that difference is the whole layout
+question.** At 1.0 the box is about 830x390 -- wider than the desktop's own
+minimum and barely half its height. Two things follow, both keyed on the
+height handed over rather than on the platform, so a tablet keeps the desktop
+shape:
+
+- `UiLayout.Well` gives its margins back below `ShortBox`: 44 above and 84
+  below is a comfortable seventh of a desktop window and a third of a phone.
+  And the well's width is a **maximum** now rather than a size
+  (`UiLayout.WellGutter`), so it shrinks to the screen instead of being drawn
+  off both edges of it -- stretch-with-a-maximum, which fills up to the width
+  asked for and centres the remainder.
+- `PlayScreen` swaps axes on a short box: the options go down the right at the
+  width they were drawn for, the list takes the full height on the left, and
+  the map picture -- the one thing on that screen that is nice rather than
+  necessary -- goes. Stacked, the top block wanted 190 points before the list
+  got any, which on a phone left the list one row tall behind the footer.
+
+**Selection is drawn, not inferred.** The rows worked their highlight out from
+hover and focus, which is right on a desktop and empty on a touchscreen: a
+finger hovers nothing and a tap does not reliably leave focus behind, so the
+selected server was drawn like every other row while the address box and JOIN
+were all about it. `UiList` pushes `IsSelected` onto the rows instead.
+
+**The dedicated half of Create server is not offered here.** The package holds
+no server binary and none is published for the platform, an app may not start
+a second process that outlives it, a phone is behind carrier NAT, and the
+process would be killed the moment the player switched away.
+`CreateServerScreen.CanRunHere` is false on Android and the Server type row is
+not drawn at all -- a choice with one answer is not a choice -- with the two
+messages that used to say "pick Dedicated server" saying something true there
+instead.
+
+**The activity asks for landscape, from the icon onwards.** It used to ask
+only for a match, so the program opened portrait, turned sideways to play and
+turned back at the end -- two rotations a match that nobody asked for, each of
+them a full re-measure of the Avalonia tree and a re-bake of the backdrop,
+since the activity handles its own configuration changes. It is also the shape
+the screens want: portrait gives the scale host the least of both axes and
+lands on the 0.6 clamp with the box no bigger for it.
+
+**Check a glyph against Roboto-Bold's cmap before drawing it.** Avalonia here
+does not reach Android's own fallback chain the way the desktop reaches the
+system's, so a character the shipped font lacks is an empty box rather than a
+substitute. `UiTabs` drew its strip arrows as U+25C4/U+25BA, which Roboto-Bold
+does not have: two tofu boxes either side of every tab strip on the phone and
+a correct arrow on the desktop. They are U+2039/U+203A now, which is in the
+font we ship. The rows' arrows never had the problem because they are geometry
+rather than text (`Rows.Arrow`), which is the other way out. Still unchecked on
+a device: U+2197 on Settings -> Player's *Share logs* and U+2615 on Credits.
+
+**An asset the shared sources name is not in this package unless this csproj
+says so, and a missing *font* is fatal.** The two csprojs carry their own
+`AvaloniaResource` lists -- the desktop's names files under `Assets\`, this one
+names the same files under `..\MphRead\Assets\` with a `Link` that puts them
+back at the same path -- so a new asset added for the launcher lands on the
+desktop and nowhere else, and the head that does not have it is the head nobody
+is looking at. `GuiTheme`'s two faces arrived that way with the minimal-UI
+launcher, and Avalonia does **not** fall back for a font family it cannot
+resolve: it throws `InvalidOperationException: Could not create glyphTypeface.
+Font family: Roboto (key: avares://FruityPrime/Assets/Fonts/Roboto-Bold.ttf)`
+out of the *measure pass*, which is an uncaught exception inside
+`AvaloniaActivity.GlobalLayoutListener.OnGlobalLayout` and kills the process
+before the front screen draws a pixel. The pictures next to them are guarded
+(`UiLayout.Load` catches and returns null, so a build missing one gets no
+photograph rather than no launcher); the fonts are not. The check when anything
+under `src/MphRead/Assets/` is added: does `MphRead.Android.csproj` name it too.
 
 **The synchronous `HttpClient.Send` does not exist here.** .NET for Android
 defaults `UseNativeHttpHandler` to true, which puts
@@ -719,6 +938,51 @@ Four things that cost time here and are not obvious:
 fr.livetek.fruityprime/crc64e2a07749a868b9fd.MainActivity`, and `adb shell
 screencap` are enough to see the front screen. With KVM it would be seconds
 rather than minutes.
+
+**`adb shell input tap` does not reach Avalonia at all**, and this is the one
+that will cost an hour twice. The event is dispatched (it shows in
+`dumpsys input`'s `RecentQueue`, the activity's `DispatchTouchEvent` sees it,
+`AvaloniaView` returns handled) and no Avalonia pointer event is ever raised
+from it — not on a control, not on the `TopLevel`. Every other app on the
+device answers those taps, so it reads exactly like the launcher having lost
+its input. Drive it with a real hardware touch instead:
+
+```sh
+# /data/local/tmp/tap.sh DEV X Y, with X and Y in the panel's own 0..32767
+sendevent $D 3 47 0;  sendevent $D 3 57 100; sendevent $D 1 330 1
+sendevent $D 3 53 $X; sendevent $D 3 54 $Y; sendevent $D 3 58 500
+sendevent $D 3 48 5;  sendevent $D 0 0 0
+sendevent $D 3 57 -1; sendevent $D 1 330 0; sendevent $D 0 0 0
+```
+
+`/dev/input/event2` is the emulator's first multi-touch device. The panel is
+portrait and the app is landscape, so a landscape display point `(dx, dy)` on a
+2280x1080 view of a 1080x2280 panel is `X = (1080 - dy)/1080 * 32767`,
+`Y = dx/2280 * 32767`. The keyboard *does* reach Avalonia
+(`input keyevent KEYCODE_TAB`, `KEYCODE_ENTER`, the arrows), which is enough to
+walk the screens when a tap is not needed.
+
+**Never leave a `wm size` override on.** Setting the display to something other
+than the panel (`adb shell wm size 1080x2400`) breaks touch coordinate mapping
+for the *whole system*: nothing responds to a tap anywhere, including the home
+screen, and it looks precisely like the app under test being dead. `adb shell
+wm size reset` before testing input.
+
+**A fresh install is `pm clear` plus the files back.** Clearing wipes
+`paths.txt` and the extracted game files with it, so:
+
+```sh
+adb root
+adb shell pm clear fr.livetek.fruityprime
+adb push --sync ~/mph-test/files/AMHP1 /data/data/fr.livetek.fruityprime/files/files/
+adb push paths.txt /data/data/fr.livetek.fruityprime/files/paths.txt
+adb shell chown -R u0_a140:u0_a140 /data/data/fr.livetek.fruityprime/files
+adb shell chmod -R 777 /data/data/fr.livetek.fruityprime/files
+```
+
+Clearing and *not* putting them back is the other case worth having: it is the
+first-run setup screen, which has its own history (see LAUNCHER-DESIGN.md on a
+screen pushed from an attach).
 
 SwiftShader implements GL ES 3.0, so it is a real check that the shaders
 compile, link and run. It is **not** a check of any picture, and there is now a

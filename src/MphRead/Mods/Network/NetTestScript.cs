@@ -26,7 +26,8 @@ namespace MphRead.Mods.Network
         Unmorph,
         Zoom,
         Afflict,
-        Duel
+        Duel,
+        SelfDestruct
     }
 
     /// <summary>
@@ -88,7 +89,8 @@ namespace MphRead.Mods.Network
             TestPhase.Unmorph,
             TestPhase.Zoom,
             TestPhase.Afflict,
-            TestPhase.Duel
+            TestPhase.Duel,
+            TestPhase.SelfDestruct
         };
 
         /// <summary>How many phases one pass of the tour has.</summary>
@@ -250,6 +252,16 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            // The headshot rig replaces the tour rather than being a phase of
+            // it. A phase would still be one fifteenth of the run, and what it
+            // needs is the whole run holding one weapon at one range -- see
+            // HitRig, which says why the tour is the wrong instrument for the
+            // question rather than merely a slow one.
+            if (HitRig.Active)
+            {
+                HitRig.Drive(player);
+                return;
+            }
             _frame++;
             Drive(player);
         }
@@ -258,6 +270,23 @@ namespace MphRead.Mods.Network
         {
             PlayerControls c = player.Controls;
             Clear(c);
+            if (player.Health == 0)
+            {
+                // Ask to come back, which is what a player does and what the
+                // HUD tells them to do. Rest, WalkForward and LayBombs have
+                // always held fire here and the tour never did: it stood dead
+                // through the whole twenty-second wait instead of the three
+                // seconds the respawn timer actually costs, so a run spent a
+                // large part of itself driving corpses.
+                //
+                // It is also the only way the tour reaches the respawn a
+                // client takes for itself -- the window both the facing bug
+                // and the death-cry bug live in. See
+                // NetPlayerBridge.DescribesTheLifeBefore.
+                Hold(c.Shoot, true);
+                Finish(player, c);
+                return;
+            }
             PlayerEntity? target = FindTarget(player);
             bool onTarget = AimAt(player, target);
             TestPhase phase = Phase;
@@ -371,9 +400,100 @@ namespace MphRead.Mods.Network
                 case TestPhase.Duel:
                     Duel(player, c, target, onTarget);
                     break;
+                case TestPhase.SelfDestruct:
+                    SelfDestruct(player, c);
+                    break;
             }
             Finish(player, c);
         }
+
+        /// <summary>
+        /// Blow yourself up: the rocket jump, taken too far.
+        ///
+        /// The one thing every other phase avoids, and the only way this
+        /// harness reaches the window that two respawn bugs lived in. Both
+        /// machines wait <c>RespawnTime</c> -- three seconds -- from *their
+        /// own* view of a death, so a client only respawns before the
+        /// authority when its own clock started first. Dying to somebody
+        /// else's shot cannot do it: the victim learns from a snapshot, half
+        /// a round trip late, and the authority always stands them back up
+        /// first. Killing yourself can, because the damage is resolved and
+        /// predicted here the frame it lands.
+        ///
+        /// Splash, not the direct hit. The direct-hit path refuses to hurt
+        /// the shooter for the first four frames of a shot's life
+        /// (<c>BeamFlags.SelfDamage</c>), which is every point-blank shot
+        /// there is. <c>CheckSplashDamage</c> has no such exemption and no
+        /// owner check at all -- it walks every player in the room -- so a
+        /// splash weapon fired into the floor takes its own shooter's health
+        /// off, which is what a rocket jump costs.
+        ///
+        /// Into the floor a couple of units ahead rather than straight down:
+        /// an impact inside the player's own volume is skipped as
+        /// <c>colWith</c>, and the shot has to reach terrain for the splash
+        /// to happen at all.
+        /// </summary>
+        private static void SelfDestruct(PlayerEntity player, PlayerControls c)
+        {
+            if (player.IsAltForm || player.IsMorphing)
+            {
+                // A morph ball has no gun. Get out of it first; the phase is
+                // long enough to spend a few frames on that.
+                Hold(c.Morph, Settled(player) && _frame % 40 == 0);
+                return;
+            }
+            if (player.CurrentWeapon != SelfDestructBeam)
+            {
+                player.ModArmWeapon(SelfDestructBeam);
+            }
+            // Close. Splash falls off with distance -- GetInterpolatedValue
+            // scales it by dist/SplashRadius -- so a shot two units out left
+            // the shooter at the rim of its own explosion taking almost
+            // nothing, and the phase produced one self-kill in three clients.
+            // One unit clears the player's own volume (sphere radius is about
+            // half that) and still sits well inside the blast.
+            var ahead = new OpenTK.Mathematics.Vector3(player.Field70, 0, player.Field74);
+            OpenTK.Mathematics.Vector3 spot = player.Position + ahead * 1f;
+            (float turnX, float turnY) = player.ModAimDeltaTowards(spot);
+            if (!Single.IsFinite(turnX) || !Single.IsFinite(turnY))
+            {
+                return;
+            }
+            AimDeltaX = Math.Clamp(turnX, -TurnRate, TurnRate);
+            AimDeltaY = Math.Clamp(turnY, -TurnRate, TurnRate);
+            // Only once the muzzle is actually pointing at the floor. Firing
+            // through the turn scatters shots across the room, where they
+            // hurt everybody except the one player this phase is about.
+            bool aimed = MathF.Abs(turnX) < FiringCone && MathF.Abs(turnY) < FiringCone;
+            // Charged, and that is the whole of it. The Magmaul carries
+            // `AoeCharged`, not `AoeUncharged`: its uncharged shot has no
+            // area damage to catch anybody with, least of all the person who
+            // fired it. A phase that tapped the trigger put 135 shots into
+            // the floor for an empty damage table and not one self-kill,
+            // which reads exactly like a splash rule that does not apply to
+            // the owner and was really a splash that was never there. The
+            // affliction phase above learned the same lesson about the same
+            // 24-frames-of-30 fire pattern.
+            if (_releaseFrames > 0)
+            {
+                _releaseFrames--;
+                return;
+            }
+            if (aimed && player.ModChargeReady)
+            {
+                _releaseFrames = 4;
+                return;
+            }
+            Hold(c.Shoot, true);
+        }
+
+        /// <summary>
+        /// What <see cref="SelfDestruct"/> fires. The Magmaul carries
+        /// <c>SelfDamageUncharged</c> and <c>SurfaceCollision</c> -- it
+        /// reaches the floor and explodes there -- and its splash is the
+        /// largest in the table that a hunter can be handed.
+        /// </summary>
+        private const BeamType SelfDestructBeam = BeamType.Magmaul;
 
         /// <summary>Not in the middle of changing form.</summary>
         private static bool Settled(PlayerEntity player)

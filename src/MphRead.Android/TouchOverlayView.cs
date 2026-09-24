@@ -77,6 +77,13 @@ namespace MphRead.Droid
         protected override void OnDraw(Canvas canvas)
         {
             base.OnDraw(canvas);
+            if (AndroidUiSurface.Current?.Visible == true)
+            {
+                // A screen is drawn into the frame under this one and every
+                // touch belongs to it -- see OnTouchEvent. Buttons a finger
+                // cannot reach are worse than no buttons.
+                return;
+            }
             if (_controls.PadDriving)
             {
                 // A pad is being held: nothing is drawn, and the view stays
@@ -124,6 +131,14 @@ namespace MphRead.Droid
             {
                 return false;
             }
+            if (AndroidUiSurface.Current is AndroidUiSurface surface && surface.Visible)
+            {
+                // The results panel is the one moment in a match when nobody
+                // is aiming, so while it is up every touch is the screen's.
+                // The desktop says the same thing by releasing the cursor for
+                // as long as the panel is drawn.
+                return HandUp(surface, e);
+            }
             switch (e.ActionMasked)
             {
             case MotionEventActions.Down:
@@ -150,6 +165,45 @@ namespace MphRead.Droid
                 return false;
             }
             Invalidate();
+            return true;
+        }
+
+        /// <summary>
+        /// One finger, as the pointer the toolkit would have been given by a
+        /// windowing system. The first only: these screens are a menu, and a
+        /// second finger on a menu is a finger resting on the glass.
+        /// </summary>
+        private static bool HandUp(AndroidUiSurface surface, MotionEvent e)
+        {
+            if (e.ActionMasked == MotionEventActions.PointerDown
+                || e.ActionMasked == MotionEventActions.PointerUp)
+            {
+                return true;
+            }
+            float x = e.GetX(0);
+            float y = e.GetY(0);
+            switch (e.ActionMasked)
+            {
+            case MotionEventActions.Down:
+                // No preparatory move: a touch contact carries its own
+                // position and TouchBegin is the first thing Avalonia may
+                // hear about this id. An update ahead of it is an update for
+                // a contact that does not exist yet, and the press that
+                // followed landed wherever that resolved to.
+                surface.TouchDown(x, y);
+                break;
+            case MotionEventActions.Move:
+                surface.TouchMove(x, y);
+                break;
+            case MotionEventActions.Up:
+                surface.TouchUp(x, y);
+                break;
+            case MotionEventActions.Cancel:
+                surface.TouchUp(x, y);
+                break;
+            default:
+                return false;
+            }
             return true;
         }
     }

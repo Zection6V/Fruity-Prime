@@ -210,6 +210,18 @@ may be cleared outside it.** The first half is asserted by `-drawrate`. The
 second half is the one that bit, and it bit hard enough to be worth stating on
 its own.
 
+Visual effects built in `GetDrawInfo()` must not advance mutable game state or
+consume global RNG according to render count. Lockjaw trail noise is derived
+from its simulation tick and link identity, so repeated draws of one tick have
+the same geometry and leave `Rng.Rng1` unchanged.
+
+`-frametimingcheck` checks the deterministic noise without game assets. With
+Lockjaw links active, `-maptest "TEST ARENA" -hunter Sylux -drawrate 2` (or 4)
+also compares the actual `TrailMulti` vertices across draws of one simulation
+step and checks RNG specifically around `BombEntity.GetDrawInfo()`. The report
+prints the number of active trail checks; zero means that run did not cover the
+effect.
+
 The single-particle table -- `Scene.AddSingleParticle`, filled by
 `BeamProjectileEntity.Draw*`, `PlayerScan.DrawScanModels` and `PlayerDraw`'s
 death sparks -- is written during the entity draws and read at the end of the

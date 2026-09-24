@@ -174,7 +174,7 @@ A bot is an ordinary player whose `Controls` are written by `PlayerAi.ProcessInp
 | Piece | What it does |
 |---|---|
 | `PlayerEntity.IsBot` | marks the slot as AI-driven. `Scene.AddPlayer` sets it on every player after the first, which is right for a local match and wrong for a networked one -- the AI would overwrite relayed input, so a networked session clears it on every slot |
-| `BotLevel` (0-2) | difficulty; clamped and used to index reaction and accuracy tables |
+| `BotLevel` (0-3) | difficulty; clamped and used to index reaction and accuracy tables. 3 is Insane: zero aim deviation, zero extra shot delay, fastest reaction refresh |
 | `AiPersonality` | per-hunter behaviour trees loaded from the ROM's own data, one set per hunter and encounter. `AiPersonalityData1` nodes hold conditions and the function ids to run |
 | `AiData.Process()` | run once per frame per bot from `Scene.UpdateScene`, but only while the bot is alive |
 | `UpdateExecutionPath` / `Execute` | walks the tree and dispatches `Func24Id` to the behaviour functions -- move, aim, fire, morph, use the alt attack, pick a weapon |

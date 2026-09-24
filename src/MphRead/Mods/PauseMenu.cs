@@ -39,50 +39,8 @@ namespace MphRead.Mods
         /// Escape, from the game window. True when the menu took it, so the
         /// caller's own Escape handling -- which quits -- must not run.
         /// </summary>
-        /// <summary>Where the game window is, so the menu can open over it.</summary>
-        public static int WindowX { get; private set; }
-        public static int WindowY { get; private set; }
-        public static int WindowWidth { get; private set; }
-        public static int WindowHeight { get; private set; }
-
-        /// <summary>
-        /// True when the game window has moved or been resized since the menu
-        /// last laid itself out over it. Cleared by whoever acts on it.
-        /// </summary>
-        internal static bool WindowMoved { get; set; }
-
-        /// <summary>
-        /// Take the game window's client rectangle.
-        ///
-        /// Called when the menu opens and then once a frame while it is up.
-        /// The menu is a borderless window laid over the game rather than
-        /// something drawn inside it -- Avalonia cannot render into the GL
-        /// context -- so "part of the window" is a thing it has to keep being:
-        /// a rectangle sampled once at open time detaches the moment anybody
-        /// drags the game window, and what is left behind is exactly the
-        /// floating popup this stopped being.
-        /// </summary>
-        private static void TakeWindowRect(NativeWindow window)
-        {
-            int x = window.ClientLocation.X;
-            int y = window.ClientLocation.Y;
-            int width = window.ClientSize.X;
-            int height = window.ClientSize.Y;
-            if (x == WindowX && y == WindowY
-                && width == WindowWidth && height == WindowHeight)
-            {
-                return;
-            }
-            WindowX = x;
-            WindowY = y;
-            WindowWidth = width;
-            WindowHeight = height;
-            WindowMoved = true;
-        }
-
         public static bool HandleEscape(NativeWindow window)
         {
-            TakeWindowRect(window);
 #if MPHREAD_AVALONIA
             if (!Launcher.Gui.GuiLauncher.EnsureSetup())
             {
@@ -106,22 +64,11 @@ namespace MphRead.Mods
         /// <summary>Called once a frame by the game window.</summary>
         public static void Poll(GameWindow window)
         {
-#if MPHREAD_AVALONIA
-            if (_open)
-            {
-                // Before the toolkit's slice, so a drag that happened since
-                // the last frame is laid out in this one rather than the next.
-                TakeWindowRect(window);
-                if (WindowMoved)
-                {
-                    WindowMoved = false;
-                    Launcher.Gui.PauseMenuWindow.FollowGameWindow();
-                }
-                // The menu's share of this frame. Everything it decided lands
-                // in the flags below before they are read.
-                Launcher.Gui.GuiLauncher.Pump();
-            }
-#endif
+            // Nothing to pump here any more. The menu is a screen in this
+            // window rather than a window of its own, and the toolkit is given
+            // its slice of the frame by Shell.TickUi, on the way to drawing
+            // it -- which is also what makes the menu redraw at the frame rate
+            // rather than at whatever rate a second window was being pumped.
             if (_refocus)
             {
                 _refocus = false;
@@ -161,14 +108,25 @@ namespace MphRead.Mods
                 _quit = false;
                 QuitProgram = true;
                 Close();
+#if MPHREAD_SHELL
+                Launcher.Gui.Shell.Quit(window);
+#else
                 window.Close();
+#endif
             }
             else if (_leave)
             {
                 _leave = false;
                 LeftMatch = true;
                 Close();
+                // Not the window: in the shell the window is the program, and
+                // leaving a match is the launcher coming back into it. A
+                // harness window has no launcher behind it and still closes.
+#if MPHREAD_SHELL
+                Launcher.Gui.Shell.LeaveMatch(window);
+#else
                 window.Close();
+#endif
             }
         }
 
@@ -199,15 +157,15 @@ namespace MphRead.Mods
 
         private static void OpenMenu()
         {
-#if MPHREAD_AVALONIA
-            _open = Launcher.Gui.PauseMenuWindow.Open();
+#if MPHREAD_SHELL
+            _open = Launcher.Gui.Shell.OpenPauseMenu();
 #endif
         }
 
         private static void Close()
         {
-#if MPHREAD_AVALONIA
-            Launcher.Gui.PauseMenuWindow.CloseIfOpen();
+#if MPHREAD_SHELL
+            Launcher.Gui.Shell.CloseMenu();
 #endif
             _open = false;
         }

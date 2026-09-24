@@ -71,6 +71,69 @@ namespace MphRead.Mods.Network
         }
 
         /// <summary>
+        /// The cycle a player built in the launcher, in the order they built
+        /// it.
+        ///
+        /// The time limit and point goal are one pair for the whole list
+        /// rather than one per entry: the screen asks for a match, not for a
+        /// config file, and four numbers per map is the shape of the thing
+        /// this was written to avoid making anybody edit.
+        /// </summary>
+        public static MapRotation FromList(
+            IReadOnlyList<(string RoomKey, GameMode Mode)> maps,
+            float timeLimit, int pointGoal)
+        {
+            var rotation = new MapRotation();
+            foreach ((string room, GameMode mode) in maps)
+            {
+                if (room.Length == 0)
+                {
+                    continue;
+                }
+                rotation._entries.Add(new RotationEntry
+                {
+                    RoomKey = room,
+                    Mode = mode == GameMode.None ? GameMode.Battle : mode,
+                    TimeLimit = timeLimit,
+                    PointGoal = pointGoal
+                });
+            }
+            if (rotation._entries.Count == 0)
+            {
+                rotation._entries.Add(_fallback);
+            }
+            return rotation;
+        }
+
+        /// <summary>
+        /// The same cycle as a rotation file, for a server started as its own
+        /// process -- which is handed its maps on disk rather than on the wire.
+        /// </summary>
+        public static void WriteList(string path,
+            IReadOnlyList<(string RoomKey, GameMode Mode)> maps,
+            float timeLimit, int pointGoal)
+        {
+            var lines = new List<string>
+            {
+                $"# Written by {Mods.Branding.Name}'s create-server screen.",
+                "# One match per line:  ROOM KEY | mode | minutes | points",
+                ""
+            };
+            foreach ((string room, GameMode mode) in maps)
+            {
+                if (room.Length == 0)
+                {
+                    continue;
+                }
+                lines.Add(String.Format(CultureInfo.InvariantCulture,
+                    "{0} | {1} | {2:0.#} | {3}", room,
+                    mode == GameMode.None ? GameMode.Battle : mode,
+                    timeLimit / 60, pointGoal));
+            }
+            File.WriteAllLines(path, lines);
+        }
+
+        /// <summary>
         /// A map to play once, before the cycle carries on from where it was.
         ///
         /// What a passed vote leaves behind. Not an insertion into the list:
@@ -93,6 +156,18 @@ namespace MphRead.Mods.Network
                 TimeLimit = current.TimeLimit,
                 PointGoal = current.PointGoal
             };
+        }
+
+        /// <summary>
+        /// Put the borrowed turn back, because whatever claimed it no longer
+        /// has the room's agreement -- a results-screen vote whose leader
+        /// changed, or one that fell back under the threshold when somebody
+        /// took their pick back or left. Without this a map could be taken by
+        /// a majority that existed for one second.
+        /// </summary>
+        public void ClearPending()
+        {
+            _pending = null;
         }
 
         /// <summary>Advance to the next map, wrapping at the end of the cycle.</summary>

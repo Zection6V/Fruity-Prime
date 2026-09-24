@@ -45,7 +45,7 @@ If you enjoy it: **[ko-fi.com/livetek](https://ko-fi.com/livetek)** ☕
 2. Run it:
    - **Windows** — double-click `FruityPrime.exe`
    - **Linux** — `./FruityPrime -launcher`
-   - **macOS** — `xattr -dr com.apple.quarantine .` once, then the same as Linux
+   - **macOS** — extract the matching `osx-arm64` (Apple Silicon) or `osx-x64` (Intel) archive and open **Fruity Prime.app**. Settings and game files live in `~/Library/Application Support/Fruity Prime/`. See [Mac installation and diagnostics](tools/macos-README.txt) for command-line launch and quarantine fallback.
 3. Click **Game files** and pick your `.nds`. It unpacks itself, once, with a progress bar.
 4. Play.
 
@@ -89,7 +89,7 @@ line option, and the test harness, are in [`CLAUDE.md`](CLAUDE.md).
 
 Fruity Prime is Livetek's fork of [MphRead](https://github.com/NoneGiven/MphRead) by **NoneGiven** —
 the model viewer, the renderer, the format parsers and the recreation of the game itself are theirs.
-That work is in turn built on **dsgraph**, [Chemical](https://gitlab.com/ch-mcl/metroid-prime-hunters-file-document),
+That work is in turn built on **dsgraph**, [chmcl95](https://gitlab.com/ch-mcl/metroid-prime-hunters-file-document),
 [McKay42](https://github.com/McKay42), [Barubary](https://github.com/Barubary/dsdecmp),
 [loveemu](https://github.com/loveemu/loveemu-lab), **Gericom**,
 [CharlesVanEeckhout](https://github.com/CharlesVanEeckhout/actimagine),

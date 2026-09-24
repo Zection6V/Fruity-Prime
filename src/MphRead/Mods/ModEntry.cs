@@ -33,6 +33,37 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+#if !ANDROID && !MPHREAD_SERVER
+            if (OperatingSystem.IsMacOS())
+            {
+                // OpenTK defaults to Apple's system framework on macOS,
+                // not the OpenAL Soft library shipped beside our executable.
+                OpenTK.Audio.OpenAL.OpenALLibraryNameContainer.OverridePath =
+                    System.IO.Path.Combine(Platform.AppPaths.ExecutableDirectory, "libopenal.1.dylib");
+            }
+#endif
+#if MPHREAD_SHELL
+            if (HasFlag(args, "glfwpathcheck"))
+            {
+                Environment.ExitCode = Diagnostics.GlfwPathCheck.Run();
+                return true;
+            }
+            if (HasFlag(args, "thumbnailwindowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.ThumbnailWindowCheck.Run(HasFlag(args, "legacyglcheck"));
+                return true;
+            }
+            if (HasFlag(args, "windowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.LauncherWindowCheck.Run();
+                return true;
+            }
+#endif
+            if (HasFlag(args, "smoketest"))
+            {
+                Environment.ExitCode = Diagnostics.CompatibilityCheck.Run();
+                return true;
+            }
             // Keys and mouse feel, before anything creates a player. Called
             // here because this runs for every invocation, launcher or not.
             InputSettings.Load();
@@ -49,8 +80,44 @@ namespace MphRead.Mods
                 DebugLog.Force();
             }
             DebugLog.Attach();
+            if (OperatingSystem.IsMacOS()) { Diagnostics.PlatformDiagnostics.Start(); }
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
+
+            if (HasFlag(args, "pointercheck"))
+            {
+                Environment.ExitCode = Input.PointerCheck.Run();
+                return true;
+            }
+
+
+            Input.AimAssist.AimAssistDebug.Enabled = HasFlag(args, "gamepadassistdebug");
+            Input.AimAssist.AimAssistDebug.UnassistedArm = HasFlag(args, "gamepadassistbaseline");
+            Input.AimAssist.AimAssistTelemetry.Configure(ValueAfter(args, "gamepadassisttelemetry"));
+
+            if (HasFlag(args, "gamepadcheck"))
+            {
+                Environment.ExitCode = Input.GamepadChecks.Run(ValueAfter(args, "shots"));
+                return true;
+            }
+            if (HasFlag(args, "gamepad"))
+            {
+                double seconds = 15;
+                string? given = ValueAfter(args, "seconds");
+                if (given != null && Double.TryParse(given, out double parsed) && parsed > 0)
+                {
+                    seconds = parsed;
+                }
+                Environment.ExitCode = Input.GamepadProbe.Run(seconds, HasFlag(args, "verbose"));
+                return true;
+            }
+
+            // Arithmetic and cosmetic-noise checks need no extracted game files.
+            if (HasFlag(args, "frametimingcheck"))
+            {
+                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                return true;
+            }
 
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads
@@ -80,10 +147,13 @@ namespace MphRead.Mods
                     relaunch);
                 return true;
             }
-            // Whatever the last update left behind. Here rather than in the
-            // copying process, which cannot delete the directory it is running
-            // from, and cheap when there is nothing there.
-            Update.DesktopUpdate.Clean();
+            // Whatever the last update left behind. The headless diagnostics
+            // are read-only and must leave an update staged beside the
+            // executable alone; ordinary startup still clears it.
+            if (!HasFlag(args, "spireposecheck") && !HasFlag(args, "formcheck"))
+            {
+                Update.DesktopUpdate.Clean();
+            }
             // And the desktop's own installer, unless a platform head has
             // already put its own in place.
             Update.UpdateInstall.UseDesktopIfPossible();
@@ -106,6 +176,19 @@ namespace MphRead.Mods
                 Console.WriteLine($"[net] -netloss {netLoss} is not a percentage");
                 return true;
             }
+            foreach (var option in new (string Name, Func<string?, bool> Configure)[]
+            {
+                ("netjitter", Network.NetLag.ConfigureJitter), ("netseed", Network.NetLag.ConfigureSeed),
+                ("netreorder", Network.NetLag.ConfigureReorder), ("netduplicate", Network.NetLag.ConfigureDuplicate)
+            })
+            {
+                string? value = ValueAfter(args, option.Name);
+                if (value != null && !option.Configure(value))
+                {
+                    Console.WriteLine($"[net] invalid -{option.Name} value: {value}");
+                    return true;
+                }
+            }
             if (Network.NetLag.Active)
             {
                 Console.WriteLine($"[net] simulating a bad line: {Network.NetLag.Describe()}");
@@ -120,6 +203,80 @@ namespace MphRead.Mods
                 Network.NetUnlagged.Enabled = false;
                 Console.WriteLine("[net] lag compensation off: shots resolve "
                     + "against the present");
+            }
+
+            // Puppet positions on a client come from the snapshot alone, not
+            // from the owner's relayed intent. See NetHooks.SnapshotOwnsPuppets
+            // for the measurement: a shooter aiming at the drawn world and
+            // firing into the relayed one landed 11 of the 78 hits the
+            // authority credited it with.
+            if (HasFlag(args, "snapshotpuppets"))
+            {
+                Network.NetHooks.SnapshotOwnsPuppets = true;
+                Console.WriteLine("[net] puppet positions on this client come "
+                    + "from the authority's snapshot, not from relayed intents");
+            }
+
+            // Puppets are put back where their owner said after the movement
+            // step on clients too, not only on the authority. Off by default
+            // and measured against on: see NetHooks.PinPuppetsOnClients for
+            // the frame of physics this removes from between the two worlds.
+            if (HasFlag(args, "clientpin"))
+            {
+                Network.NetHooks.PinPuppetsOnClients = true;
+                Console.WriteLine("[net] puppets are pinned to their owner's "
+                    + "reported position on clients as well as on the authority");
+            }
+
+            // A trigger pull recovered from a press history is rewound by its
+            // own age as well as by its packet's ack. Off by default so the
+            // two can be measured against each other; it costs nothing on a
+            // line that is losing nothing.
+            if (HasFlag(args, "pressage"))
+            {
+                Network.NetUnlagged.PressAgeEnabled = true;
+                Console.WriteLine("[net] recovered trigger pulls are rewound by "
+                    + "their own age as well as by their packet's ack");
+            }
+
+            // The headshot duel, in place of the feature tour. Both arms of a
+            // comparison run the same one, so a difference between them is
+            // the thing being changed rather than the scenario.
+            string? rig = ValueAfter(args, "hitrig");
+            if (rig != null)
+            {
+                if (Network.HitRig.Configure(rig))
+                {
+                    Console.WriteLine($"[net] hit rig: {Network.HitRig.Mode}");
+                }
+                else
+                {
+                    Console.WriteLine($"[net] -hitrig {rig} refused: jump, sniper or duel");
+                }
+            }
+
+            // How far back the rewind may ever be taken, in frames. The one
+            // number an A/B against a real line has to be able to move
+            // without moving anything else: the default 24 (400 ms) was
+            // measured against Japan running into its own ceiling, and a run
+            // that raises it has to be otherwise identical to the run that
+            // did not. Read on the machine that simulates the match, which is
+            // the only one that rewinds anything.
+            string? maxRewind = ValueAfter(args, "maxrewind");
+            if (maxRewind != null)
+            {
+                if (Network.NetUnlagged.ConfigureMaxRewind(maxRewind))
+                {
+                    Console.WriteLine("[net] rewind ceiling "
+                        + $"{Network.NetUnlagged.MaxRewindFrames} frames "
+                        + $"({Network.NetUnlagged.MaxRewindFrames * 1000 / 60} ms)");
+                }
+                else
+                {
+                    Console.WriteLine($"[net] -maxrewind {maxRewind} refused: "
+                        + $"1 to {Network.NetUnlagged.MaxRewindCeiling} frames, "
+                        + "and the history cannot serve more");
+                }
             }
 
             // Client-side hit resolution, off. The other half of the same
@@ -149,18 +306,49 @@ namespace MphRead.Mods
             // is predicted whatever this says, and this does not turn it off:
             // there is nothing to disagree about when the source, the target
             // and the input are all on this machine.
-            if (HasFlag(args, "deathprediction"))
+            if (HasFlag(args, "deathprediction") || HasFlag(args, "nodeathprediction"))
             {
-                Network.NetHitPrediction.DeathEnabled = true;
-                Console.WriteLine("[net] death prediction on: a client's "
-                    + "kills land the frame it lands them");
+                Console.WriteLine("[net] remote death waits for authority; self-death remains predicted");
             }
-            if (HasFlag(args, "nodeathprediction"))
+
+            // A client declaring which of its own shots landed, and the
+            // authority arbitrating them. On by default since protocol 7. Off
+            // restores exactly what protocol 6 did -- the authority's own
+            // answer and nothing else -- which is the control arm for
+            // measuring what claims are worth. Read on both ends: a client
+            // with this off sends none, and a server with it off answers none.
+            // Network.NetHitClaims.
+            if (HasFlag(args, "noclaims"))
             {
-                // Still accepted, and now what the default already does.
-                Network.NetHitPrediction.DeathEnabled = false;
-                Console.WriteLine("[net] death prediction off: a client's "
-                    + "kills land when the authority says so");
+                Network.NetHitClaims.Enabled = false;
+                Console.WriteLine("[net] hit claims off: a shot counts only "
+                    + "where the authority finds it itself");
+            }
+
+            // Remote players drawn on a playout clock, a few frames behind the
+            // newest snapshot, rather than snapped to whichever one arrived
+            // last. On by default; off is the stutter every build before
+            // protocol 7 had, and the control arm. Network.NetSmoothing.
+            if (HasFlag(args, "nointerp"))
+            {
+                Network.NetSmoothing.Enabled = false;
+                Console.WriteLine("[net] puppet interpolation off: remote "
+                    + "players move when their snapshots arrive");
+            }
+
+            // Puppet positions on a client come from the owner's relayed
+            // intent again, the way every build before protocol 7 did. The
+            // control for -snapshotpuppets, which is now the default -- see
+            // NetHooks.SnapshotOwnsPuppets for the measurement that made it
+            // one, and note that it also turns the playout clock off, since a
+            // clock and a relayed intent writing the same puppet on alternate
+            // frames is worse than either.
+            if (HasFlag(args, "relayedpuppets"))
+            {
+                Network.NetHooks.SnapshotOwnsPuppets = false;
+                Network.NetSmoothing.Enabled = false;
+                Console.WriteLine("[net] puppet positions on this client come "
+                    + "from relayed intents, not from the snapshot");
             }
 
             if (HasFlag(args, "credits"))
@@ -272,6 +460,87 @@ namespace MphRead.Mods
             // text launcher offering matches it cannot play.
             doubleClicked = false;
 #endif
+            // The launcher's own screens, looked at without anybody sitting
+            // in front of them. Here rather than with the rest of the
+            // commands, which run after the game-files check: none of these
+            // load a room, all of them exist to be run on a box that has no
+            // extracted game files -- CI is exactly that box -- and behind
+            // that check they could only ever be run on a machine that was
+            // already set up to play.
+            // Pictures of the launcher's own screens, rendered without a
+            // window. The one part of this program that could not be looked at
+            // from a headless box.
+            string? uiShot = ValueAfter(args, "uishot");
+            if (uiShot != null)
+            {
+                Environment.ExitCode = RunUiCapture(uiShot);
+                return true;
+            }
+
+            // What a redraw of those screens costs, split into its parts, at
+            // every resolution anybody plays at. Beside the capture because it
+            // is the same arrangement -- a headless top level and no game
+            // files -- and because "the menus feel slow" is otherwise a report
+            // nothing in this program can answer with a number.
+            if (HasFlag(args, "uibench"))
+            {
+                Environment.ExitCode = RunUiBench(args);
+                return true;
+            }
+
+            // The same three screens laid out five different ways, for
+            // choosing between them by looking. Nothing it draws ships; see
+            // UiDesigns.
+            string? uiDesign = ValueAfter(args, "uidesign");
+            if (uiDesign != null)
+            {
+                Environment.ExitCode = RunUiDesigns(uiDesign);
+                return true;
+            }
+
+            // The same screens, but photographed *in the game window* -- which
+            // is the half -uishot cannot answer, since what it renders is the
+            // layout and not the composite. This opens the real shell window,
+            // lets it draw, reads the window's own buffer and presses Escape
+            // to prove the screens are taking input as well as pixels. Needs a
+            // display; Xvfb is one.
+            string? shellShot = ValueAfter(args, "shellshot");
+            if (shellShot != null)
+            {
+                Environment.ExitCode = RunShellCapture(shellShot);
+                return true;
+            }
+
+            if (HasFlag(args, "frametimingcheck"))
+            {
+                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                return true;
+            }
+
+            // The rule that tells a tap from the beginning of a scroll, which
+            // is what every row on a settings page dragged by a finger turns
+            // on. No display, no toolkit and no touchscreen -- see
+            // Mods/Launcher/Gui/TapCheck.cs.
+            if (HasFlag(args, "tapcheck"))
+            {
+                Environment.ExitCode = RunTapCheck();
+                return true;
+            }
+
+
+            // Display flags, before the launcher and not after it. They used
+            // to be read further down, which is past the block below: the
+            // shell opens its window there and reads the saved window mode as
+            // it does, so `-launcher -fullscreen` was answered windowed by a
+            // preference that had not yet been overridden.
+            if (HasFlag(args, "fullscreen") || HasFlag(args, "borderless"))
+            {
+                WindowMode.ForceStartup(WindowStartMode.BorderlessFullscreen);
+            }
+            else if (HasFlag(args, "windowed"))
+            {
+                WindowMode.ForceStartup(WindowStartMode.Windowed);
+            }
             if ((HasFlag(args, "launcher") || doubleClicked) && !HasFlag(args, "menu"))
             {
 #if MPHREAD_AVALONIA
@@ -398,6 +667,56 @@ namespace MphRead.Mods
                     ValueAfter(args, "masterport"));
                 return true;
             }
+            // The create-server screen's "Host on" page, printed. Every box
+            // the directory knows about, asked on the directory port as well,
+            // with the reason against the ones that cannot run a match --
+            // which is the question that page exists to answer and the one
+            // thing a screenshot of it cannot be diffed against.
+            if (HasFlag(args, "hosts"))
+            {
+                string askHost = ValueAfter(args, "master") ?? NetMasterConfig.DefaultHost;
+                int askPort = ParseMasterPort(args);
+                Console.WriteLine($"[hosts] asking {askHost}:{askPort} and everyone it names");
+                // Printed as they answer, the way the screen fills in, so the
+                // order here is the order there and a slow region is visible
+                // as a slow region rather than as a pause.
+                var candidates = new System.Collections.Generic.List<HostCandidate>();
+                using var finished = new System.Threading.ManualResetEventSlim(false);
+                NetMasterClient.FindHosts(askHost, askPort,
+                    onFound: candidate =>
+                    {
+                        lock (candidates)
+                        {
+                            int before = candidates.Count;
+                            NetMasterClient.Merge(candidates, candidate);
+                            // Only the rows the screen would draw. A machine
+                            // that is already on the list under its other port
+                            // is not a second place to host.
+                            if (candidates.Count > before)
+                            {
+                                Console.WriteLine($"  {candidate.Label,-28} "
+                                    + $"{candidate.Host + ":" + candidate.Port.ToString(
+                                        System.Globalization.CultureInfo.InvariantCulture),-26} "
+                                    + candidate.Describe());
+                            }
+                        }
+                    },
+                    onDone: () => finished.Set());
+                finished.Wait(TimeSpan.FromSeconds(20));
+                int usable = 0;
+                lock (candidates)
+                {
+                    foreach (HostCandidate candidate in candidates)
+                    {
+                        if (candidate.WillHost)
+                        {
+                            usable++;
+                        }
+                    }
+                    Console.WriteLine($"[hosts] {usable} of {candidates.Count} can run a match");
+                }
+                return true;
+            }
             if (!HasFlag(args, "server") && !HasFlag(args, "dedicated"))
             {
                 return false;
@@ -415,10 +734,10 @@ namespace MphRead.Mods
                 maxPlayers = parsedPlayers;
             }
 
-            // Rotation file lives beside the executable, the way a Quake 3
-            // server keeps its config next to the binary.
+            // Rotation follows writable user data: beside the executable on
+            // Windows/Linux, outside the signed application on macOS.
             string rotationPath = ValueAfter(args, "rotation")
-                ?? System.IO.Path.Combine(AppContext.BaseDirectory, "maprotation.txt");
+                ?? System.IO.Path.Combine(Platform.AppPaths.UserDataDirectory, "maprotation.txt");
             MapRotation rotation = MapRotation.LoadOrCreate(rotationPath);
 
             var server = new Network.DedicatedServer(port, maxPlayers, rotation)
@@ -430,18 +749,56 @@ namespace MphRead.Mods
                 // -noshadowfreeze makes the Judicator's ice wave a cone
                 // instead of a column, for everybody in the room.
                 ShadowFreeze = !HasFlag(args, "noshadowfreeze"),
+                // Whether weapon pickups are the picking hunter's affinity
+                // variant -- a different row of the damage table, so it is
+                // broadcast rather than left to each machine's own settings
+                // file. The damage level is not an option: it is pinned to
+                // medium everywhere. See GameState.DamageLevel.
+                AffinityWeapons = HasFlag(args, "affinityweapons"),
                 // Players may change the map by voting unless the admin says
                 // otherwise. See DedicatedServer.AllowMapVotes.
                 AllowMapVotes = !HasFlag(args, "novote"),
                 // This process is the server, so it is the one that may
                 // replace itself. See DedicatedServer.AutoUpdate.
-                AutoUpdate = true,
-                // -simulate makes this server the match's simulation
-                // authority instead of pointing it at the first client to
-                // connect. It needs game files on this machine; without them
-                // it says so and relays as before. See Mods/Network/ServerSim.
-                Simulate = HasFlag(args, "simulate") || HasFlag(args, "authority")
+                AutoUpdate = true
             };
+            // Whether this server will also open *extra* matches, on ports of
+            // its own, for players who ask. Off unless an admin says a range,
+            // because it is their bandwidth and their ports -- and unlike the
+            // directory, a game server has a match of its own to protect.
+            //
+            // This is what lets somebody host in Tokyo. The alternative that
+            // was tried first was a second directory per region, which listed
+            // nothing and existed purely to be asked; a server that can be
+            // asked directly is already listed, already pinged and already
+            // reachable.
+            string? serverHostPorts = ValueAfter(args, "hostports");
+            if (serverHostPorts != null && !serverHostPorts.Equals("none",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                string[] halves = serverHostPorts.Split('-');
+                if (halves.Length == 2 && Int32.TryParse(halves[0], out int hostFirst)
+                    && Int32.TryParse(halves[1], out int hostLast) && hostLast >= hostFirst)
+                {
+                    server.Hosts.SetPorts(hostFirst, hostLast);
+                }
+                else
+                {
+                    Console.WriteLine($"[server] ignoring -hostports {serverHostPorts} "
+                        + "(expected FIRST-LAST)");
+                }
+            }
+            // -simulate and -authority used to turn the simulation on. It is
+            // what a server does now, and there is no relay left to fall back
+            // to, so both are accepted and ignored: every systemd unit and
+            // launch script already deployed passes one of them, and a server
+            // that refused to start on an argument it used to require would be
+            // exactly the breakage this line exists to avoid.
+            if (HasFlag(args, "simulate") || HasFlag(args, "authority"))
+            {
+                Console.WriteLine("[net] -simulate is the default now and does "
+                    + "nothing; a server always runs the match itself");
+            }
             // Listed by default. A dedicated server exists to be found, and a
             // server that has to be told to advertise itself is a server
             // nobody finds -- so the flag is the one that opts out.
@@ -465,7 +822,20 @@ namespace MphRead.Mods
                 cancel.Cancel();
                 server.Stop();
             });
-            server.Run(cancel.Token);
+            try
+            {
+                server.Run(cancel.Token);
+            }
+            catch (ProgramException ex)
+            {
+                // A server that cannot run the match, which since this build
+                // is the only kind of server there is. The reason and what to
+                // do about it are already on the log; a stack trace on top of
+                // them would only bury both, and an operator reading a failed
+                // systemd unit wants the sentence, not the frames.
+                Console.WriteLine($"[server] {ex.Message}");
+                Environment.Exit(1);
+            }
             return true;
         }
 
@@ -501,10 +871,82 @@ namespace MphRead.Mods
             if (OperatingSystem.IsWindows() && ConsoleWindow.OwnsItsConsole())
             {
                 Console.WriteLine("Press any key to close this window...");
-                Console.ReadKey();
+                ConsoleSetup.PauseIfInteractive();
             }
         }
 #endif
+
+        /// <summary>
+        /// Open the shell window, prove it came back where it was told, and
+        /// prove that closing it would remember where it is now.
+        /// </summary>
+        private static bool WindowMemoryCheck()
+        {
+            Launcher.LauncherPrefs.Load();
+            int wasWidth = Launcher.LauncherPrefs.WindowWidth;
+            int wasHeight = Launcher.LauncherPrefs.WindowHeight;
+            int wasX = Launcher.LauncherPrefs.WindowX;
+            int wasY = Launcher.LauncherPrefs.WindowY;
+            bool wasMaximized = Launcher.LauncherPrefs.WindowMaximized;
+            Console.WriteLine(wasWidth > 0
+                ? $"[window] saved: {wasWidth}x{wasHeight} at {wasX},{wasY}"
+                    + (wasMaximized ? ", maximized" : "")
+                : "[window] nothing saved yet");
+            bool ok = true;
+            try
+            {
+                // A size nothing else would produce, so "it came back" cannot
+                // be the default in disguise.
+                Launcher.LauncherPrefs.WindowWidth = 1442;
+                Launcher.LauncherPrefs.WindowHeight = 906;
+                Launcher.LauncherPrefs.WindowX = 60;
+                Launcher.LauncherPrefs.WindowY = 48;
+                Launcher.LauncherPrefs.WindowMaximized = false;
+                using var window = new RenderWindow(shell: true);
+                Console.WriteLine($"[window] opened at {window.ClientSize.X}x"
+                    + $"{window.ClientSize.Y}");
+                if (window.ClientSize.X != 1442 || window.ClientSize.Y != 906)
+                {
+                    Console.WriteLine("[window] FAIL: it did not open at the saved size");
+                    ok = false;
+                }
+                // And the other way: what closing it now would keep.
+                window.ClientSize = new OpenTK.Mathematics.Vector2i(1180, 800);
+                WindowGeometry.Remember(window);
+                Console.WriteLine($"[window] would remember "
+                    + $"{Launcher.LauncherPrefs.WindowWidth}x"
+                    + $"{Launcher.LauncherPrefs.WindowHeight}");
+                if (Launcher.LauncherPrefs.WindowWidth != 1180
+                    || Launcher.LauncherPrefs.WindowHeight != 800)
+                {
+                    Console.WriteLine("[window] FAIL: it did not remember the new size");
+                    ok = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[window] FAIL: {ex.Message}");
+                ok = false;
+            }
+            finally
+            {
+                Launcher.LauncherPrefs.WindowWidth = wasWidth;
+                Launcher.LauncherPrefs.WindowHeight = wasHeight;
+                Launcher.LauncherPrefs.WindowX = wasX;
+                Launcher.LauncherPrefs.WindowY = wasY;
+                Launcher.LauncherPrefs.WindowMaximized = wasMaximized;
+            }
+            Console.WriteLine(ok ? "[window] ok" : "[window] FAILED");
+            return ok;
+        }
+
+        /// <summary>The directory's port from the command line, or the default.</summary>
+        private static int ParseMasterPort(string[] args)
+        {
+            string? value = ValueAfter(args, "masterport");
+            return value != null && Int32.TryParse(value, out int parsed)
+                ? parsed : NetMasterConfig.DefaultPort;
+        }
 
         private static void ListServers(string masterHost, string? portValue)
         {
@@ -521,6 +963,21 @@ namespace MphRead.Mods
                     + "it may be down, or UDP may not reach it");
                 return;
             }
+            // Whether it will start a game for somebody who cannot open a
+            // port, which is what the launcher's create-server screen asks it.
+            // Printed here because the alternative way to find out is to open
+            // that screen and see an empty "Host on" row -- which looks
+            // identical to a directory that is down.
+            Console.WriteLine(result.CanHost switch
+            {
+                true => "[servers] this directory will start games for players",
+                false => "[servers] this directory starts no games (no host port range)",
+                // Told apart from an explicit no, because they need different
+                // things done about them: one is a setting, the other is a
+                // deploy.
+                null => "[servers] this directory is from before it could say whether it "
+                    + "starts games; it is offered anyway, since hosting is the default"
+            });
             if (result.Servers.Count == 0)
             {
                 Console.WriteLine("[servers] the directory is up and has nobody listed");
@@ -572,15 +1029,6 @@ namespace MphRead.Mods
             // remote slots have state. The failure worth catching is not
             // visible on the wire: two correctly connected clients can each
             // hold a scene containing only themselves.
-            // Display flags, for the paths that never open a launcher.
-            if (HasFlag(args, "fullscreen") || HasFlag(args, "borderless"))
-            {
-                WindowMode.Startup = WindowStartMode.BorderlessFullscreen;
-            }
-            else if (HasFlag(args, "windowed"))
-            {
-                WindowMode.Startup = WindowStartMode.Windowed;
-            }
             if (HasFlag(args, "nohelmet"))
             {
                 // Both of them: the helmet is drawn as three layers and the
@@ -590,6 +1038,17 @@ namespace MphRead.Mods
                 // same reason.
                 Features.HelmetOpacity = 0;
                 Features.VisorOpacity = 0;
+            }
+            if (HasFlag(args, "uinativeres"))
+            {
+#if MPHREAD_SHELL
+                // Rasterise the launcher's screens at the window's own
+                // resolution however big it is, rather than capping them at
+                // 1080p and magnifying. Crisper above 1080p, and a lot slower
+                // to redraw -- which only shows while something is moving, so
+                // it is a choice between sharper type and a menu that scrolls.
+                Launcher.Gui.UiSurface.NativeRaster = true;
+#endif
             }
             if (HasFlag(args, "netdebug"))
             {
@@ -623,6 +1082,16 @@ namespace MphRead.Mods
 
             // The multiplayer room list, one per line, so a shell loop can
             // walk every map without hard-coding the names.
+            if (HasFlag(args, "resourceaudit"))
+            {
+                Environment.ExitCode = Multiplayer.ResourceAudit.Run();
+                return true;
+            }
+            if (ValueAfter(args, "healthsimtest") is string healthRoom)
+            {
+                Environment.ExitCode = HealthSimulationTest.Run(healthRoom);
+                return true;
+            }
             if (HasFlag(args, "rooms"))
             {
                 foreach (string room in ThumbnailGenerator.MultiplayerRooms())
@@ -752,7 +1221,7 @@ namespace MphRead.Mods
                 {
                     Environment.ExitCode = MapGen.Q3Convert.Run(q3Convert, ValueAfter(args, "map"),
                         ValueAfter(args, "name"), ValueAfter(args, "out"), HasFlag(args, "noclip"),
-                        scale, textureSize);
+                        HasFlag(args, "noitems"), scale, textureSize);
                 }
                 catch (Exception ex)
                 {
@@ -771,6 +1240,66 @@ namespace MphRead.Mods
                 return true;
             }
 
+            // Everything wrong with a map's collision, said before it is
+            // generated: the format's limits, faces that reject their own
+            // interior, what hurts, and every drawn surface with nothing solid
+            // behind it. Since collision is something a person edits by hand
+            // now, and none of those look like anything in a 3D tool.
+            string? mapCheck = ValueAfter(args, "mapcheck");
+            if (mapCheck != null)
+            {
+                Environment.ExitCode = MapGen.MapCheck.Run(mapCheck);
+                return true;
+            }
+
+            // One hunter, one spot, jump then morph: does the floor stop
+            // working? A report from a real match that no sweep reproduces,
+            // because it needs the two inputs in one order at one place.
+            string? altProbe = ValueAfter(args, "altprobe");
+            if (altProbe != null)
+            {
+                string[] at = (ValueAfter(args, "at") ?? "").Split(',');
+                if (at.Length != 3
+                    || !Single.TryParse(at[0], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float atX)
+                    || !Single.TryParse(at[1], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float atY)
+                    || !Single.TryParse(at[2], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float atZ))
+                {
+                    Console.WriteLine("-altprobe needs -at X,Y,Z");
+                    Environment.ExitCode = 1;
+                    return true;
+                }
+                string? traceDelay = ValueAfter(args, "delay");
+                MapGen.AltFormProbe.TraceDelay = traceDelay != null
+                    && Int32.TryParse(traceDelay, out int parsedDelay) && parsedDelay >= 0
+                    ? parsedDelay
+                    : null;
+                Environment.ExitCode = MapGen.AltFormProbe.Run(altProbe,
+                    new OpenTK.Mathematics.Vector3(atX, atY, atZ), ParseHunter(args));
+                return true;
+            }
+
+            // What pickups a level already holds, as the "items" block a
+            // recipe would carry. The level's own were always imported
+            // silently; this is what lets an author write them down, turn
+            // keepItems off, and own them. Reads and prints -- a recipe can
+            // carry comments and is nobody's to rewrite.
+            string? mapItems = ValueAfter(args, "mapitems");
+            if (mapItems != null)
+            {
+                float? itemScale = null;
+                if (Single.TryParse(ValueAfter(args, "scale"), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float parsedItemScale)
+                    && parsedItemScale > 0)
+                {
+                    itemScale = parsedItemScale;
+                }
+                Environment.ExitCode = MapGen.MapReport.ListItems(mapItems, ValueAfter(args, "map"), itemScale);
+                return true;
+            }
+
             // List a room's materials, with the texture each one uses, so a
             // map can say which of them it wants to borrow.
             string? mapMaterials = ValueAfter(args, "mapmaterials");
@@ -780,19 +1309,12 @@ namespace MphRead.Mods
                 return true;
             }
 
-            // Pictures of the launcher's own screens, rendered without a
-            // window. The one part of this program that could not be looked at
-            // from a headless box.
-            string? uiShot = ValueAfter(args, "uishot");
-            if (uiShot != null)
+            // Spire's slam, driven through the headless simulation. Needs
+            // extracted game files, like -simcheck below.
+            string? spirePoseCheck = ValueAfter(args, "spireposecheck");
+            if (spirePoseCheck != null)
             {
-                Environment.ExitCode = RunUiCapture(uiShot);
-                return true;
-            }
-
-            if (HasFlag(args, "frametimingcheck"))
-            {
-                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                Environment.ExitCode = Network.SpireAltPoseCheck.Run(spirePoseCheck);
                 return true;
             }
 
@@ -824,7 +1346,7 @@ namespace MphRead.Mods
                     simMode = parsedSimMode;
                 }
                 Environment.ExitCode = Network.ServerSimCheck.Run(simCheck, simPlayers,
-                    simSeconds, simMode);
+                    simSeconds, simMode, formCheck: HasFlag(args, "formcheck"));
                 return true;
             }
 
@@ -854,6 +1376,7 @@ namespace MphRead.Mods
                 // target every other capture reads, so seeing it needs a real
                 // window and a read from its buffer.
                 Network.MapAudit.ShowWindow = HasFlag(args, "hudshots");
+                Network.MapAudit.TeamProbe = HasFlag(args, "teamprobe");
                 // -hunter H puts that hunter in slot 0, whose HUD every
                 // capture is taken through. Each of the eight lays its
                 // readouts out differently, so a HUD picture with no hunter
@@ -891,6 +1414,121 @@ namespace MphRead.Mods
                 return true;
             }
 
+            // The window's memory, both halves, without anybody watching a
+            // window.
+            //
+            // It is a feature whose only failure mode is silent -- a window
+            // that opens at the default size looks exactly like a window that
+            // was never resized -- and the half that cannot be checked any
+            // other way is the save, since it runs as the window closes and a
+            // scripted run has no way to press a close button.
+            //
+            // Nothing is written: the preference is put back before this
+            // returns, so running the check is not how somebody's window size
+            // changes.
+            if (HasFlag(args, "windowcheck"))
+            {
+                Environment.ExitCode = WindowMemoryCheck() ? 0 : 1;
+                return true;
+            }
+
+            // The download behind the create-server screen's install mark, on
+            // its own. "The button did nothing" is otherwise unanswerable from
+            // a machine with no display, and the two halves that can fail --
+            // finding the asset and unpacking it -- fail silently into a
+            // screen that only says the package could not be installed.
+            if (HasFlag(args, "installserver"))
+            {
+                Console.WriteLine($"[server] this platform takes the "
+                    + $"\"{Update.UpdateCheck.ServerRid()}\" package");
+                if (!LocalServer.CanInstall)
+                {
+                    Console.WriteLine("[server] no server package is published for it");
+                    Environment.ExitCode = 1;
+                    return true;
+                }
+                int lastPercent = -1;
+                bool installed = LocalServer.Install(fraction =>
+                {
+                    int percent = (int)(fraction * 100);
+                    if (percent >= lastPercent + 10)
+                    {
+                        lastPercent = percent;
+                        Console.WriteLine($"[server] {percent}%");
+                    }
+                });
+                if (!installed)
+                {
+                    Console.WriteLine($"[server] {LocalServer.LastError}");
+                    Environment.ExitCode = 1;
+                    return true;
+                }
+                Console.WriteLine($"[server] installed {LocalServer.InstalledTag} "
+                    + $"into {LocalServer.Directory}");
+                return true;
+            }
+
+            // The launcher's create-server screen, Dedicated half, with no
+            // launcher: start a server on this machine from this build and
+            // report where it landed.
+            //
+            // It exists because that is the one path in the feature that
+            // cannot be checked by rendering a screen -- it spawns a process,
+            // writes a rotation, copies paths.txt and waits for a socket, and
+            // every one of those fails differently on a box with no display.
+            string? hostLocal = ValueAfter(args, "hostlocal");
+            if (hostLocal != null)
+            {
+                var localMaps = new List<(string RoomKey, GameMode Mode)>();
+                GameMode localMode = GameMode.Battle;
+                string? localModeValue = ValueAfter(args, "mode");
+                if (localModeValue != null && Enum.TryParse(localModeValue,
+                    ignoreCase: true, out GameMode parsedLocalMode))
+                {
+                    localMode = parsedLocalMode;
+                }
+                foreach (string entry in hostLocal.Split(',',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    localMaps.Add((entry, localMode));
+                }
+                ServerBinary? binary = LocalServer.Available();
+                Console.WriteLine(binary == null
+                    ? "[hostlocal] nothing on this machine can run a server"
+                    : $"[hostlocal] using {binary.Value.Describe()} "
+                        + $"({binary.Value.Executable})");
+                double holdSeconds = 8;
+                string? holdValue = ValueAfter(args, "seconds");
+                if (holdValue != null && Double.TryParse(holdValue,
+                    System.Globalization.CultureInfo.InvariantCulture, out double parsedHold))
+                {
+                    holdSeconds = parsedHold;
+                }
+                int localPort = LocalServer.Start(
+                    ValueAfter(args, "servername") ?? "Local test server",
+                    localMaps, maxPlayers: PlayerEntity.SlotCapacity,
+                    timeLimit: 7 * 60, pointGoal: 7,
+                    masterHost: ValueAfter(args, "master") ?? NetMasterConfig.DefaultHost,
+                    masterPort: ParseMasterPort(args),
+                    listed: !HasFlag(args, "nomaster"));
+                if (localPort < 0)
+                {
+                    Console.WriteLine($"[hostlocal] {LocalServer.LastError}");
+                    Environment.ExitCode = 1;
+                    return true;
+                }
+                Console.WriteLine($"[hostlocal] listening on 127.0.0.1:{localPort}");
+                ServerStatus localStatus = NetStatus.Query("127.0.0.1", localPort,
+                    allowJoinProbe: false);
+                Console.WriteLine($"[hostlocal] it answers: {localStatus.RoomKey} "
+                    + $"({NetStatus.ModeName(localStatus.Mode)}), "
+                    + $"{localStatus.Players}/{localStatus.MaxPlayers} players");
+                System.Threading.Thread.Sleep((int)(holdSeconds * 1000));
+                LocalServer.Stop();
+                Console.WriteLine("[hostlocal] stopped");
+                return true;
+            }
+
             // Ask the directory to run a match and join it. The launcher's
             // "Online, no setup" in one command -- and the only way to host
             // from a machine with no launcher, which is every machine that is
@@ -913,10 +1551,34 @@ namespace MphRead.Mods
                     hostMode = parsedHostMode;
                 }
                 string hostName = ParseName(args);
-                Console.WriteLine($"[net] asking {masterHost}:{masterPort} to run {hostGame}");
+                // The rest of the cycle, comma separated, for a hosted game
+                // that is meant to outlast one match -- the command-line half
+                // of what the launcher's create-server screen asks for. The
+                // map named by -hostgame is always first, so the two ways of
+                // saying it cannot disagree about what starts.
+                var hostRotation = new List<(string RoomKey, GameMode Mode)>
+                {
+                    (hostGame, hostMode)
+                };
+                string? rotationValue = ValueAfter(args, "maprotation");
+                if (rotationValue != null)
+                {
+                    foreach (string entry in rotationValue.Split(',',
+                        StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries))
+                    {
+                        if (!String.Equals(entry, hostGame, StringComparison.OrdinalIgnoreCase))
+                        {
+                            hostRotation.Add((entry, hostMode));
+                        }
+                    }
+                }
+                Console.WriteLine($"[net] asking {masterHost}:{masterPort} to run {hostGame}"
+                    + (hostRotation.Count > 1 ? $" and {hostRotation.Count - 1} more" : ""));
                 HostedGame game = NetMasterClient.RequestGame(masterHost, masterPort,
                     hostGame, hostMode, timeLimit: 7 * 60, pointGoal: 7,
-                    maxPlayers: PlayerEntity.SlotCapacity, serverName: $"{hostName}'s game");
+                    maxPlayers: PlayerEntity.SlotCapacity, serverName: $"{hostName}'s game",
+                    rotation: hostRotation);
                 if (!game.Started)
                 {
                     Console.WriteLine($"[net] it would not: {game.Reason}");
@@ -976,6 +1638,17 @@ namespace MphRead.Mods
                     System.Globalization.CultureInfo.InvariantCulture, out double parsedRejoin))
                 {
                     rejoinAt = parsedRejoin;
+                }
+                // Vote on the results screen's map ballot. Off unless asked,
+                // because a scripted client that votes changes what a real
+                // server plays next -- see NetCheckClient.MapVoteRow.
+                // A real window and a picture of it, for the half of this
+                // client's output that is HUD -- see NetCheckClient.ShowWindow.
+                Network.NetCheckClient.ShowWindow = HasFlag(args, "hudshots");
+                string? mapVote = ValueAfter(args, "mapvote");
+                if (mapVote != null && Int32.TryParse(mapVote, out int mapVoteRow))
+                {
+                    Network.NetCheckClient.MapVoteRow = Math.Max(0, mapVoteRow);
                 }
                 Environment.ExitCode = Network.NetCheckClient.Run(check, ParsePort(args),
                     ParseName(args), ParseHunter(args), seconds, shots, width, height,
@@ -1115,6 +1788,16 @@ namespace MphRead.Mods
             {
                 RenderOptions.Fog = RenderOptions.ParseOnOff(fog, RenderOptions.Fog);
             }
+            // How wide the view is, for the same paths -- and for a sharper
+            // reason than most of them: what a field of view does to a picture
+            // is the picture, so a screenshot is the only way to compare two
+            // answers to it.
+            string? fov = ValueAfter(args, "fov");
+            if (fov != null && !fov.StartsWith('-'))
+            {
+                RenderOptions.FieldOfView = RenderOptions.ParseFov(fov,
+                    RenderOptions.FieldOfView);
+            }
             string? fps = ValueAfter(args, "fps");
             if (fps != null && !fps.StartsWith('-'))
             {
@@ -1193,6 +1876,32 @@ namespace MphRead.Mods
                 Render.Crosshair.Size = Render.Crosshair.ParseSize(crosshairSize,
                     Render.Crosshair.Size);
             }
+            // The round radar overlay. On by default and reachable from
+            // Settings -> Game -> HUD; these are for the screenshot
+            // commands, which open no launcher.
+            string? radar = ValueAfter(args, "radar");
+            if (radar != null && !radar.StartsWith('-'))
+            {
+                Render.Radar.Enabled = RenderOptions.ParseOnOff(radar, Render.Radar.Enabled);
+            }
+            else if (HasFlag(args, "radar"))
+            {
+                Render.Radar.Enabled = true;
+            }
+            // The dial's background and its rings/cone outline,
+            // independently -- both off leaves only the blips and the
+            // centre marker, which stays regardless of either.
+            string? radarBackground = ValueAfter(args, "radarbackground");
+            if (radarBackground != null && !radarBackground.StartsWith('-'))
+            {
+                Render.Radar.ShowBackground = RenderOptions.ParseOnOff(radarBackground,
+                    Render.Radar.ShowBackground);
+            }
+            string? radarOutlines = ValueAfter(args, "radaroutlines");
+            if (radarOutlines != null && !radarOutlines.StartsWith('-'))
+            {
+                Render.Radar.ShowOutlines = RenderOptions.ParseOnOff(radarOutlines, Render.Radar.ShowOutlines);
+            }
         }
 
         private static bool HasFlag(string[] args, string name)
@@ -1213,6 +1922,37 @@ namespace MphRead.Mods
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RunShellCapture(string directory)
+        {
+#if MPHREAD_SHELL
+            Launcher.Gui.Shell.RequestShots(directory);
+            if (!Launcher.Gui.GuiLauncher.TryRun())
+            {
+                return 1;
+            }
+            // A step that could not press what it named is the check failing,
+            // not a note in the log: what it proves is that a click reaches
+            // the control it was aimed at, and a predicate matching nothing
+            // proves that of nothing.
+            int misses = Launcher.Gui.Shell.ShotMisses;
+            if (misses > 0)
+            {
+                Console.WriteLine($"[shellshot] {misses} step(s) found nothing to press");
+                return 1;
+            }
+            return 0;
+#else
+            Console.WriteLine("[shellshot] this build has no launcher");
+            return 1;
+#endif
+        }
+
+        /// <summary>
+        /// Kept out of <see cref="TryHandle"/> and told not to inline. Same
+        /// reason as the capture below it.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static int RunUiCapture(string directory)
         {
 #if MPHREAD_AVALONIA
@@ -1227,6 +1967,89 @@ namespace MphRead.Mods
             }
 #else
             Console.WriteLine("[uishot] this build has no Avalonia launcher");
+            return 1;
+#endif
+        }
+
+        /// <summary>
+        /// What the screens cost to redraw: `-uibench [screen]`. Same shape as
+        /// the capture above it, and not inlined for the same reason.
+        ///
+        /// Desktop only, unlike the captures: what it measures is the surface
+        /// the screens are drawn into, and Android has a real one.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RunUiBench(string[] args)
+        {
+#if MPHREAD_SHELL
+            try
+            {
+                Launcher.Gui.UiBench.Slow = HasFlag(args, "uibenchslow");
+                Launcher.Gui.UiBench.AsAndroid = HasFlag(args, "uibenchandroid");
+                Launcher.Gui.DeckTile.CacheChrome = !HasFlag(args, "uibenchnochrome");
+                Launcher.Gui.UiBench.FreeFrames = HasFlag(args, "uibenchfree");
+                Launcher.Gui.UiBench.OnlySize = ValueAfter(args, "uibenchsize");
+                Launcher.Gui.UiBench.OnlyMove = ValueAfter(args, "uibenchonly");
+                Launcher.Gui.UiBench.Shot = ValueAfter(args, "uibenchshot");
+                if (Double.TryParse(ValueAfter(args, "uibenchscale"),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double parsed))
+                {
+                    Launcher.Gui.UiBench.ScaleOverride = parsed;
+                }
+                return Launcher.Gui.UiBench.Run(ValueAfter(args, "uibench"));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[uibench] no launcher toolkit here: {ex.Message}");
+                return 1;
+            }
+#else
+            Console.WriteLine("[uibench] this build has no launcher surface to measure");
+            return 1;
+#endif
+        }
+
+        /// <summary>
+        /// The layout studies: `-uidesign DIR`. Same shape as the capture
+        /// above it, and not inlined for the same reason.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RunUiDesigns(string directory)
+        {
+#if MPHREAD_AVALONIA
+            try
+            {
+                return Launcher.Gui.UiDesigns.Run(directory);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[uidesign] no launcher toolkit here: {ex.Message}");
+                return 1;
+            }
+#else
+            Console.WriteLine("[uidesign] this build has no Avalonia launcher");
+            return 1;
+#endif
+        }
+
+        /// <summary>
+        /// The tap-versus-scroll rule on its own: `-tapcheck`. The rule has no
+        /// toolkit in it, but the check that drives it is written in Avalonia's
+        /// coordinate types and lives under Mods/Launcher/Gui/, which a server
+        /// build does not compile at all -- so the call goes through here for
+        /// the same reason the captures above do.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RunTapCheck()
+        {
+#if MPHREAD_AVALONIA
+            return Launcher.Gui.TapCheck.Run();
+#else
+            Console.WriteLine("[tapcheck] this build has no launcher");
             return 1;
 #endif
         }

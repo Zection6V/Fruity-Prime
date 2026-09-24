@@ -1,35 +1,42 @@
 using System;
 using System.Collections.Generic;
 using Avalonia;
+#if MPHREAD_SHELL
+using Avalonia.Headless;
+#endif
 using Avalonia.Themes.Fluent;
-using Avalonia.Threading;
 using MphRead.Mods.Network;
 
 namespace MphRead.Mods.Launcher.Gui
 {
     /// <summary>
-    /// Entry point for the graphical launcher, on every platform.
+    /// Setting the toolkit up, and the way in to the launcher.
     ///
-    /// The loop is the one every game with a front screen has: one launcher,
-    /// then a match, then the launcher again. "Leave match" in the pause menu
-    /// comes back here; "Quit" and closing the launcher are what end the
-    /// program.
+    /// The loop itself is <c>Shell</c>'s: one window for the whole
+    /// program, the front screen drawn inside it, a match loaded into it and
+    /// unloaded again. What is left here is the decision nobody else can make
+    /// -- whether there is a toolkit on this machine at all -- and the
+    /// fallback when there is not.
     ///
-    /// The toolkit is set up **once, on the thread that calls in** -- which is
-    /// the game's own thread, the one the GL context will belong to -- and each
-    /// visit to the launcher is a nested dispatcher loop on it rather than a
-    /// fresh application. Three things make that the right shape and not an
-    /// optimisation:
+    /// The toolkit is set up **once, on the thread that calls in**, which is
+    /// the game's own thread and the one the GL context belongs to. Three
+    /// things make that the right shape and not an optimisation:
     ///
     /// - Avalonia allows one application per process. A second
     ///   <c>AppBuilder.Setup</c> throws, so a launcher that stood one up per
     ///   visit worked exactly once and fell back to the text screen on the way
     ///   back from the first match.
-    /// - macOS will not accept windows off the main thread. AppKit is not
-    ///   thread-safe and a window created anywhere else does not draw, which
-    ///   rules out the private UI thread the WinForms launcher used.
-    /// - The pause menu needs the toolkit *during* a match, on the thread the
-    ///   render loop is running on. Nothing else can pump it.
+    /// - macOS will not accept UI work off the main thread. AppKit is not
+    ///   thread-safe, which rules out the private UI thread the WinForms
+    ///   launcher used.
+    /// - The screens are rendered in the middle of the game's frame, by the
+    ///   thread drawing it. Nothing else can pump the dispatcher they post
+    ///   their work to.
+    ///
+    /// The backend is headless plus Skia rather than the platform's own: the
+    /// screens are drawn into a buffer and composited into the game window
+    /// (<c>UiSurface</c>, <c>Mods.Render.UiOverlay</c>), so this
+    /// program opens exactly one window on every platform.
     /// </summary>
     public static class GuiLauncher
     {
@@ -54,14 +61,19 @@ namespace MphRead.Mods.Launcher.Gui
             }
             try
             {
-                Run();
-                return true;
+#if MPHREAD_SHELL
+                return Shell.Run();
+#else
+                // Android reaches its screens through the activity, not
+                // through here; this class only stands the toolkit up there.
+                return false;
+#endif
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[launcher] the window could not be opened: {ex.Message}");
                 Console.WriteLine("[launcher] falling back to the text launcher");
-                Mods.DebugLog.Exception("launcher", ex);
+                Mods.Diagnostics.PlatformDiagnostics.Report("libglfw.3.dylib", ex);
                 return false;
             }
         }
@@ -73,30 +85,53 @@ namespace MphRead.Mods.Launcher.Gui
         /// line rather than from the launcher, nothing has set the toolkit up
         /// and the first Escape is where it is needed.
         /// </summary>
-        internal static bool EnsureSetup()
+        internal static bool EnsureSetup(bool requireDisplay = true)
         {
             if (_setUp)
             {
                 return true;
             }
-            if (_failed || !Probe())
+            // The compatibility diagnostic only rasterizes offscreen. Normal
+            // launcher callers still need a display for the game's GLFW window.
+            if (_failed || (requireDisplay && !Probe()))
             {
                 return false;
             }
             try
             {
-#if ANDROID
-                // Android stands the toolkit up itself, from the activity, and
-                // has no desktop backend to detect. Nothing here runs there:
-                // this whole class is the desktop launcher loop, and the head
-                // in src/MphRead.Android is the entry point instead.
+#if !MPHREAD_SHELL
+                // Android stands the toolkit up itself, from the activity,
+                // with a real windowing backend and its screens in a view over
+                // the GL surface. Nothing here runs there: this is the desktop
+                // arrangement, and the head in src/MphRead.Android is the
+                // entry point instead.
                 _setUp = false;
                 return false;
 #else
+                // The *headless* backend, deliberately, on every desktop
+                // platform: the screens are rendered into a buffer and drawn
+                // inside the game window (UiSurface, UiOverlay), so this
+                // program opens exactly one window and the launcher is a
+                // screen in the game rather than an application beside it.
+                //
+                // Skia is asked for explicitly because headless defaults to
+                // drawing nothing at all -- it is a unit-testing backend by
+                // origin, and UseHeadlessDrawing false is what turns the real
+                // renderer back on. Nothing else changes: the same controls,
+                // the same layout, the same fonts.
                 AppBuilder.Configure<LauncherApp>()
-                    .UsePlatformDetect()
+                    .UseSkia()
+                    .UseHeadless(new AvaloniaHeadlessPlatformOptions
+                    {
+                        UseHeadlessDrawing = false
+                    })
                     .WithInterFont()
                     .SetupWithoutStarting();
+                // Before anything asks for a render loop: the backend's own
+                // timer renders the whole surface from inside RunJobs, which
+                // the frame calls whether or not it wants a redraw. See
+                // UiRenderTimer.
+                UiRenderTimer.Install();
                 _setUp = true;
                 return true;
 #endif
@@ -111,7 +146,7 @@ namespace MphRead.Mods.Launcher.Gui
                 // The whole stack, into the debug log, because the message
                 // alone is usually a type name from inside Skia or the X11
                 // backend and says nothing about which library is missing.
-                Mods.DebugLog.Exception("launcher", ex);
+                Mods.Diagnostics.PlatformDiagnostics.Report("libSkiaSharp.dylib", ex);
                 SayWhyOnLinux();
                 return false;
             }
@@ -139,13 +174,15 @@ namespace MphRead.Mods.Launcher.Gui
             }
             Console.WriteLine("[launcher] the game itself is unaffected -- the text launcher "
                 + "below starts the same matches.");
-            Console.WriteLine("[launcher] the window needs libICE, libSM and fontconfig, which "
-                + "a minimal install often lacks:");
-            Console.WriteLine("[launcher]   Debian/Ubuntu: sudo apt install libice6 libsm6 "
-                + "libfontconfig1");
-            Console.WriteLine("[launcher]   Fedora: sudo dnf install libICE libSM fontconfig");
+            Console.WriteLine("[launcher] the screens need fontconfig, which a minimal install "
+                + "sometimes lacks:");
+            Console.WriteLine("[launcher]   Debian/Ubuntu: sudo apt install libfontconfig1");
+            Console.WriteLine("[launcher]   Fedora: sudo dnf install fontconfig");
             Console.WriteLine("[launcher]   NixOS/Guix: run it inside an FHS environment, "
                 + "e.g. steam-run ./FruityPrime -launcher");
+            // libICE and libSM used to be on this list, because the launcher
+            // was an X11 window. It is drawn inside the game window now and
+            // binds no windowing libraries of its own at all.
         }
 
         /// <summary>
@@ -168,130 +205,6 @@ namespace MphRead.Mods.Launcher.Gui
                 return false;
             }
             return true;
-        }
-
-        private static void Run()
-        {
-            LauncherPrefs.Load();
-            if (GameFiles.Ready)
-            {
-                // Upstream's CheckSetup does this before anything runs; the
-                // launcher is dispatched before that check, so it does it here
-                // -- and tolerates the files being absent, which is the whole
-                // reason it goes first.
-                GameFiles.ApplyPaths();
-                // A map added after the install was set up has no picture and
-                // no sweep coming to give it one.
-                Mods.ThumbnailGenerator.EnsureCustomPreviews();
-            }
-            IReadOnlyList<string> rooms = Array.Empty<string>();
-
-            while (true)
-            {
-                PauseMenu.Reset();
-                // Read again rather than reusing the object from the last time
-                // round: the pause menu's settings window loads and commits its
-                // own copy, so after a match this one is stale and would write
-                // the old values back over it.
-                MenuSettings settings = GameState.LoadSettings();
-                // LoadSettings only fills in Features; the rest of the file
-                // reaches the engine through Mods.GameSettings.
-                Mods.GameSettings.Apply(settings);
-                LauncherPrefs.Load();
-                Mods.WindowMode.Startup = LauncherPrefs.WindowMode;
-                if (rooms.Count == 0 && GameFiles.Ready)
-                {
-                    // Needs the game files: the room list is read out of them.
-                    rooms = ThumbnailGenerator.MultiplayerRooms();
-                }
-
-                // Before the screen that offers "Random" as a hunter: the
-                // roll is held for one launch so the joined server and the
-                // loaded player agree, and this is where a launch begins.
-                Hunters.Reroll();
-                LaunchPlan plan = Ask(settings, rooms);
-                if (plan.Kind == LaunchKind.None)
-                {
-                    return;
-                }
-                try
-                {
-                    MatchStart.Launch(settings, plan);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine($"The game could not start: {ex.Message}");
-                    Console.WriteLine(ex.StackTrace);
-                    // The Windows build is a GUI binary with no console behind
-                    // it, so the two lines above reach nobody: from the
-                    // player's side the game simply disappears while a map is
-                    // loading. This is the one place that can still be read
-                    // afterwards -- and the whole reason the switch in the
-                    // corner of the front screen exists.
-                    Mods.DebugLog.Line("crash", "the match could not start");
-                    Mods.DebugLog.Exception("crash", ex);
-                    return;
-                }
-                finally
-                {
-                    // Both own a worker thread and a bound socket; a crash in
-                    // the game must not leave either behind.
-                    NetSession.Stop();
-                    NetHostSession.Stop();
-                    // The match may have left one up -- a settings window opened
-                    // from the pause menu on the frame the match ended.
-                    PauseMenuWindow.CloseIfOpen();
-                }
-                if (PauseMenu.QuitProgram)
-                {
-                    return;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Show the front screen and wait for an answer.
-        ///
-        /// A nested dispatcher loop rather than an application lifetime: the
-        /// loop ends when the window closes, the thread carries on into the
-        /// match, and the next visit is another loop on the same toolkit.
-        /// </summary>
-        private static LaunchPlan Ask(MenuSettings settings, IReadOnlyList<string> rooms)
-        {
-            var window = new HomeWindow(settings, rooms);
-            var frame = new DispatcherFrame();
-            window.Closed += (_, _) => frame.Continue = false;
-            window.Show();
-            Dispatcher.UIThread.PushFrame(frame);
-            // The loop ends on the Closed event, which is raised before the
-            // toolkit has finished taking the window down -- and the thread is
-            // about to spend the next twenty minutes inside a match, where
-            // nothing pumps it. On X11 the destroy request would sit unflushed
-            // in the connection's output buffer for all of that, leaving a
-            // launcher painted over the game that started from it.
-            Pump();
-            return window.Plan;
-        }
-
-        /// <summary>
-        /// Give the toolkit a slice of this frame.
-        ///
-        /// Called once a frame by the game while the pause menu is up. The
-        /// posted job runs after everything already queued -- native input
-        /// included -- and ends the loop, so this processes what is pending and
-        /// returns rather than taking the thread over.
-        /// </summary>
-        internal static void Pump()
-        {
-            if (!_setUp)
-            {
-                return;
-            }
-            var frame = new DispatcherFrame(exitWhenRequested: false);
-            Dispatcher.UIThread.Post(() => frame.Continue = false,
-                DispatcherPriority.Background);
-            Dispatcher.UIThread.PushFrame(frame);
         }
     }
 

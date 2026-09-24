@@ -218,7 +218,7 @@ namespace MphRead.Mods.Network
         /// keyboard, so no slot is exempt from being a puppet.
         /// </summary>
         public bool Start(string roomKey, GameMode mode, int maxPlayers,
-            SnapshotSink sink, Action matchEnded)
+            SnapshotSink sink, Action matchEnded, RosterPacket? roster = null, SessionStatePacket? session = null)
         {
             Stop();
             Mods.Headless.Enter();
@@ -232,6 +232,8 @@ namespace MphRead.Mods.Network
                 // the first four.
                 PlayerEntity.MaxPlayers = Math.Clamp(maxPlayers, 2, PlayerEntity.SlotCapacity);
                 NetSession.StartServerAuthority(sink, matchEnded);
+                if (roster is { } players) NetSession.ApplyRoster(players);
+                if (session is { } state) NetSession.ApplySessionState(state);
                 // A size, because the scene divides by it when it builds a
                 // projection. Nothing here ever builds one; this is the DS's
                 // own, so a stray aspect ratio is at least the right one.
@@ -266,6 +268,10 @@ namespace MphRead.Mods.Network
                 Console.WriteLine($"[sim] could not load \"{roomKey}\": {ex}");
                 NetLog.Event($"server simulation failed to start: {ex}");
                 Stop();
+                // Loading can fail before _scene is assigned. Release the partial
+                // authority session and assets so another lobby start can retry.
+                NetSession.Stop();
+                Read.ClearCache();
                 return false;
             }
         }
@@ -355,7 +361,65 @@ namespace MphRead.Mods.Network
         /// The number to read is the mean rewind against the round trips of
         /// the players connected: see NETWORK-UNLAGGED.md.
         /// </summary>
-        public string DescribeUnlagged() => NetUnlagged.Describe();
+        public string DescribeUnlagged() => NetUnlagged.Describe() + "\n" + NetShotDiagnostics.Describe() + NetTimingDiagnostics.Describe();
+
+        /// <summary>
+        /// The requested-rewind distribution. Only the simulating machine has
+        /// one, and it is the reading that says whether the ceiling is a
+        /// safety rail or a wall the room is standing against.
+        /// </summary>
+        public string DescribeRewindDepths() => NetUnlagged.DescribeDepths();
+
+        /// <summary>
+        /// What the machine running the match did with the hits its clients
+        /// said they landed. Only this machine has the numbers -- a client
+        /// sees its own claims answered and nothing about anybody else's --
+        /// and the pair worth reading is <c>applied</c> against
+        /// <c>already resolved</c>: the second is the rewind doing its job
+        /// unaided, the first is what it could not reach.
+        /// </summary>
+        public string? DescribeClaims() => NetHitClaims.Describe();
+
+        /// <summary>
+        /// Whether each client's own arithmetic for a shot came out the same
+        /// as this machine's, a weapon at a time.
+        ///
+        /// The measurement nothing else can take: a claim carries the number
+        /// the *shooter* computed for a shot, and this machine pairs it with
+        /// its own hit for the same shot in order to refuse it as a duplicate
+        /// -- so the comparison is free and it is exact. Both sides run the
+        /// same table, so anything but 100% agreement means one of them is
+        /// reading a quantity the other was never sent, and the weapon it
+        /// happens on says which. NetHitClaims.DescribeAgreement.
+        /// </summary>
+        public string DescribeAgreement() => NetHitClaims.DescribeAgreement();
+
+        /// <summary>
+        /// How many beams each slot's gun spawned *here*.
+        ///
+        /// The number that says whether the two machines agree about how often
+        /// a trigger goes off at all, which nothing else asks. A client's own
+        /// report counts the same thing for itself, and in a rig run the two
+        /// came out at 23 and 253: the shooter and the authority were not
+        /// disagreeing about where a shot went, they were disagreeing about
+        /// how many there were. A hit rate compared across that gap is
+        /// comparing two different volleys.
+        /// </summary>
+        public string DescribeShots()
+        {
+            var text = new System.Text.StringBuilder("shots spawned here (slot: beams):");
+            bool any = false;
+            for (int i = 0; i < NetDamage.Fired.Length; i++)
+            {
+                if (NetDamage.Fired[i] == 0)
+                {
+                    continue;
+                }
+                any = true;
+                text.Append($" {i}:{NetDamage.Fired[i]}");
+            }
+            return any ? text.ToString() : "shots spawned here: none";
+        }
 
         /// <summary>One line for the periodic server report.</summary>
         public string Describe()

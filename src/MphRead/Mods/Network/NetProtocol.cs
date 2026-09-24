@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Text;
 using MphRead.Entities;
 using OpenTK.Mathematics;
@@ -51,7 +52,19 @@ namespace MphRead.Mods.Network
         // server relays what it recognises and drops what it does not, so a
         // build that speaks voice and a build that does not can share a match.
         Vote = 26,          // client -> server, propose a map or answer a proposal
-        VoteState = 27      // server -> clients, the vote in progress
+        VoteState = 27,     // server -> clients, the vote in progress
+        MapChoices = 28,    // server -> clients, the ballot for the next map
+        MapPick = 29,       // client -> server, which of them this player wants
+        HitClaim = 30,      // client -> authority, "this shot of mine landed"
+        HitVerdict = 31,    // authority -> client, what it did with those claims
+        // Map transfer is negotiated before loading a custom room. All requests
+        // are bounded and identify package hashes rather than peer filenames.
+        MapOffer = 32,      // server -> client, "the next map is custom: name, hash, size"
+        MapWant = 33,       // client -> server, "send it, from byte N"
+        MapChunk = 34,      // server -> client, one piece of the .fpmap
+        SessionState = 36, LobbyCommand = 37, LobbyCommandResult = 38,
+        MatchLoaded = 39, MatchLoadFailed = 40,
+        MapDone = 35,        // client -> server, "I have it and it hashes right"
     }
 
     /// <summary>
@@ -77,6 +90,8 @@ namespace MphRead.Mods.Network
 
         public const byte ReasonFull = 1;
         public const byte ReasonProtocol = 2;
+        public const byte ReasonKicked = 3;
+        public const byte ReasonInMatch = 4;
 
         public byte Reason;
         public byte Players;
@@ -103,6 +118,8 @@ namespace MphRead.Mods.Network
         {
             return Reason switch
             {
+                ReasonKicked => "You were removed by the lobby owner.",
+                ReasonInMatch => "This server does not allow joining a match in progress.",
                 ReasonFull => $"{where} is full ({Players}/{MaxPlayers} players). "
                     + "Try again when somebody leaves.",
                 ReasonProtocol => $"{where} is running a different version of the game. "
@@ -135,6 +152,18 @@ namespace MphRead.Mods.Network
         public const int MaxNameBytes = 32;
         public const int Size = 1 + 1 + 1 + 2 + 2 + MaxRoomBytes + MaxNameBytes;
 
+        /// <summary>
+        /// How many maps a requested rotation may carry, and what one costs on
+        /// the wire.
+        ///
+        /// The cap is the datagram rather than a policy: the fixed block is 79
+        /// bytes, an entry is 41, and <see cref="NetConfig.MaxPacketSize"/> is
+        /// 1024, so sixteen leaves room to spare and a number a player would
+        /// actually sit through is far below it anyway.
+        /// </summary>
+        public const int MaxRotation = 16;
+        public const int RotationEntrySize = MaxRoomBytes + 1;
+
         public byte Protocol;
         public byte MaxPlayers;
         public byte Mode;
@@ -143,6 +172,27 @@ namespace MphRead.Mods.Network
         public ushort PointGoal;
         public string RoomKey;
         public string ServerName;
+
+        /// <summary>
+        /// Every map the asker wants played, in order, or an empty list.
+        ///
+        /// Written *after* the fixed block rather than into it, which is the
+        /// whole reason this needed no protocol bump: a directory built before
+        /// rotations existed length-checks the payload against
+        /// <see cref="Size"/> and reads exactly that many bytes, so the tail is
+        /// invisible to it and it plays <see cref="RoomKey"/> on a loop -- the
+        /// behaviour it always had. Entry zero is that same first map, so the
+        /// two halves of the packet never disagree about what starts.
+        /// </summary>
+        public IReadOnlyList<(string RoomKey, GameMode Mode)>? Rotation;
+
+        /// <summary>How many bytes this request takes, tail included.</summary>
+        public ServerSessionPolicy Policy;
+        public bool AllowJoinInProgress = true;
+        public bool RequireReady = true;
+        public MatchFormat Format;
+        public HostRequestPacket() { RoomKey = ""; ServerName = ""; }
+        public int Length => Size + 1 + Math.Min(Rotation?.Count ?? 0, MaxRotation) * RotationEntrySize + 4;
 
         public void Write(Span<byte> dest)
         {
@@ -153,10 +203,27 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[5..], PointGoal);
             NetText.Write(dest.Slice(7, MaxRoomBytes), RoomKey);
             NetText.Write(dest.Slice(7 + MaxRoomBytes, MaxNameBytes), ServerName);
+            int count = Math.Min(Rotation?.Count ?? 0, MaxRotation);
+            dest[Size] = (byte)count;
+            for (int i = 0; i < count; i++)
+            {
+                int at = Size + 1 + i * RotationEntrySize;
+                NetText.Write(dest.Slice(at, MaxRoomBytes), Rotation![i].RoomKey);
+                dest[at + MaxRoomBytes] = (byte)Rotation![i].Mode;
+            }
+            int tail = Size + 1 + count * RotationEntrySize;
+            dest[tail] = (byte)Policy;
+            dest[tail + 1] = AllowJoinInProgress ? (byte)1 : (byte)0;
+            dest[tail + 2] = RequireReady ? (byte)1 : (byte)0;
+            dest[tail + 3] = (byte)Format;
         }
 
         public static HostRequestPacket Read(ReadOnlySpan<byte> src)
         {
+            if (src.Length < Size + 5 || src[Size] > MaxRotation) return default;
+            int tail = Size + 1 + src[Size] * RotationEntrySize;
+            if (src.Length != tail + 4 || src[tail] > 1 || src[tail + 1] > 1
+                || src[tail + 2] > 1 || src[tail + 3] > (byte)MatchFormat.TwoVsTwoVsTwoVsTwo) return default;
             return new HostRequestPacket
             {
                 Protocol = src[0],
@@ -165,8 +232,48 @@ namespace MphRead.Mods.Network
                 TimeLimit = BinaryPrimitives.ReadUInt16LittleEndian(src[3..]),
                 PointGoal = BinaryPrimitives.ReadUInt16LittleEndian(src[5..]),
                 RoomKey = NetText.Read(src.Slice(7, MaxRoomBytes)),
-                ServerName = NetText.Read(src.Slice(7 + MaxRoomBytes, MaxNameBytes))
+                ServerName = NetText.Read(src.Slice(7 + MaxRoomBytes, MaxNameBytes)),
+                Policy = (ServerSessionPolicy)src[tail], AllowJoinInProgress = src[tail + 1] != 0,
+                RequireReady = src[tail + 2] != 0, Format = (MatchFormat)src[tail + 3],
+                Rotation = ReadRotation(src)
             };
+        }
+
+        /// <summary>
+        /// The tail, or null when the sender is an older launcher that wrote
+        /// none. Every length is checked rather than trusted: the count byte
+        /// is the asker's and a truncated datagram must not read past the end
+        /// of what arrived.
+        /// </summary>
+        private static List<(string, GameMode)>? ReadRotation(ReadOnlySpan<byte> src)
+        {
+            if (src.Length <= Size)
+            {
+                return null;
+            }
+            int count = Math.Min((int)src[Size], MaxRotation);
+            if (count == 0)
+            {
+                return null;
+            }
+            var maps = new List<(string, GameMode)>(count);
+            for (int i = 0; i < count; i++)
+            {
+                int at = Size + 1 + i * RotationEntrySize;
+                if (at + RotationEntrySize > src.Length)
+                {
+                    break;
+                }
+                string room = NetText.Read(src.Slice(at, MaxRoomBytes));
+                if (room.Length == 0)
+                {
+                    continue;
+                }
+                byte mode = src[at + MaxRoomBytes];
+                maps.Add((room, Enum.IsDefined(typeof(GameMode), mode)
+                    ? (GameMode)mode : GameMode.Battle));
+            }
+            return maps.Count > 0 ? maps : null;
         }
     }
 
@@ -174,8 +281,9 @@ namespace MphRead.Mods.Network
     public struct HostReplyPacket
     {
         public const int MaxReasonBytes = 96;
-        public const int Size = 1 + 2 + MaxReasonBytes;
+        public const int Size = 1 + 2 + MaxReasonBytes + 16;
 
+        public Guid OwnerToken;
         public bool Started;
         public ushort Port;
         public string Reason;
@@ -185,6 +293,7 @@ namespace MphRead.Mods.Network
             dest[0] = (byte)(Started ? 1 : 0);
             BinaryPrimitives.WriteUInt16LittleEndian(dest[1..], Port);
             NetText.Write(dest.Slice(3, MaxReasonBytes), Reason);
+            OwnerToken.TryWriteBytes(dest.Slice(3 + MaxReasonBytes, 16));
         }
 
         public static HostReplyPacket Read(ReadOnlySpan<byte> src)
@@ -192,6 +301,7 @@ namespace MphRead.Mods.Network
             return new HostReplyPacket
             {
                 Started = src[0] != 0,
+                OwnerToken = new Guid(src.Slice(3 + MaxReasonBytes, 16)),
                 Port = BinaryPrimitives.ReadUInt16LittleEndian(src[1..]),
                 Reason = NetText.Read(src.Slice(3, MaxReasonBytes))
             };
@@ -217,9 +327,35 @@ namespace MphRead.Mods.Network
         public const int MaxNameBytes = 32;
         public const int Size = MatchStatePacket.Size + 2 + MaxNameBytes;
 
+        /// <summary>
+        /// The same packet with one byte of capability on the end.
+        ///
+        /// After the name rather than inside the block, so a server built
+        /// before it existed is read exactly as it always was and a launcher
+        /// built before it existed never looks: the length check is what
+        /// separates the two, and neither side needed a protocol bump.
+        /// </summary>
+        public const int SizeWithFlags = Size + 5;
+
+        /// <summary>Bit 0: this server will open a new match on a port of its own.</summary>
+        public const byte FlagCanHost = 1;
+
+        public SessionPhase Phase;
+        public MatchFormat Format;
+        public bool LobbyEnabled, AllowJoinInProgress;
         public MatchStatePacket Match;
         public byte MaxPlayers;
         public byte Protocol;
+
+        /// <summary>
+        /// What this server can do beyond running the match it is running.
+        ///
+        /// Zero for a server that did not say, which reads as "cannot" -- and
+        /// unlike the directory's own flag that is the *right* default here:
+        /// hosting on a game server is off unless an admin passed
+        /// <c>-hostports</c>, so silence and no really are the same answer.
+        /// </summary>
+        public byte Flags;
         /// <summary>
         /// The name an admin gave this server, or an empty string. A list of
         /// addresses is not a list of servers -- people pick the one they
@@ -233,6 +369,13 @@ namespace MphRead.Mods.Network
             dest[MatchStatePacket.Size] = MaxPlayers;
             dest[MatchStatePacket.Size + 1] = Protocol;
             NetText.Write(dest.Slice(MatchStatePacket.Size + 2, MaxNameBytes), ServerName);
+            if (dest.Length >= SizeWithFlags)
+            {
+                dest[Size] = Flags;
+                dest[Size + 1] = (byte)Phase; dest[Size + 2] = (byte)Format;
+                dest[Size + 3] = LobbyEnabled ? (byte)1 : (byte)0;
+                dest[Size + 4] = AllowJoinInProgress ? (byte)1 : (byte)0;
+            }
         }
 
         public static ServerStatusPacket Read(ReadOnlySpan<byte> src)
@@ -244,7 +387,12 @@ namespace MphRead.Mods.Network
                 Protocol = src[MatchStatePacket.Size + 1],
                 ServerName = src.Length >= Size
                     ? NetText.Read(src.Slice(MatchStatePacket.Size + 2, MaxNameBytes))
-                    : ""
+                    : "",
+                Flags = src.Length > Size ? src[Size] : (byte)0,
+                Phase = src.Length >= SizeWithFlags ? (SessionPhase)src[Size + 1] : SessionPhase.InMatch,
+                Format = src.Length >= SizeWithFlags ? (MatchFormat)src[Size + 2] : MatchFormat.Auto,
+                LobbyEnabled = src.Length >= SizeWithFlags && src[Size + 3] != 0,
+                AllowJoinInProgress = src.Length < SizeWithFlags || src[Size + 4] != 0
             };
         }
     }
@@ -405,8 +553,9 @@ namespace MphRead.Mods.Network
     /// </summary>
     public struct MatchStatePacket
     {
+        public ulong AuthorityEpoch;
         public const int MaxNameBytes = 40;
-        public const int Size = 1 + 4 + 4 + 1 + 1 + 2 + 2 + MaxNameBytes + MaxNameBytes;
+        public const int Size = 1 + 4 + 4 + 1 + 1 + 2 + 2 + MaxNameBytes + MaxNameBytes + 8;
 
         public byte Mode;              // GameMode
         public float TimeRemaining;    // seconds left in this match
@@ -464,13 +613,83 @@ namespace MphRead.Mods.Network
         /// plays exactly as it always did.
         /// </summary>
         public const byte FlagNoShadowFreeze = 1 << 3;
+        /// <summary>
+        /// Bits 4-5: the damage level every machine in this match scales its
+        /// hits by, as the level plus one, so that <b>zero means "this server
+        /// did not say"</b>.
+        ///
+        /// It was a per-machine *setting* -- <c>GameState.DamageLevel</c>, read
+        /// out of each player's own settings file and multiplied into every
+        /// hit inside <c>TakeDamage</c>. Low is 0.75, high is 1.25, so two
+        /// machines that disagreed about it disagreed about the damage of
+        /// every shot of every weapon by up to a third, in the one direction
+        /// nothing can correct: the shooter's client resolves its own hits now
+        /// (<see cref="NetHitPrediction"/>) and the authority resolves them
+        /// again a round trip later, and where the numbers differ the client
+        /// runs a victim's health down faster than the authority does and
+        /// eventually predicts a kill on somebody who is standing up. Three
+        /// uncharged missiles are 96 of a hunter's 99; at the high level they
+        /// are 120.
+        ///
+        /// The same class of rule as friendly fire and the ice wave above it,
+        /// and settled the same way: the machine resolving a shot decides what
+        /// it did. Two spare bits of a byte that was already being sent, so
+        /// there is no protocol change -- a server built before this sends
+        /// zero and every client keeps the behaviour it always had.
+        /// </summary>
+        public const byte FlagDamageShift = 4;
+        public const byte FlagDamageMask = 0b11 << FlagDamageShift;
+        /// <summary>
+        /// Bit 6: weapon pickups are the picking hunter's affinity variant.
+        /// Only meaningful when the damage bits say this server states its
+        /// rules at all, since a lone zero bit cannot be told from silence --
+        /// and it matters for the same reason: an affinity Battlehammer deals
+        /// 18 where the plain one deals 12.
+        /// </summary>
+        public const byte FlagAffinityWeapons = 1 << 6;
 
         public readonly bool Ending => (Flags & FlagEnding) != 0;
         public readonly bool FriendlyFire => (Flags & FlagFriendlyFire) != 0;
         public readonly bool ShadowFreeze => (Flags & FlagNoShadowFreeze) == 0;
 
+        /// <summary>
+        /// The damage level this server plays at, or -1 when it did not say.
+        /// </summary>
+        public readonly int DamageLevel
+        {
+            get
+            {
+                int stated = (Flags & FlagDamageMask) >> FlagDamageShift;
+                return stated == 0 ? -1 : stated - 1;
+            }
+        }
+
+        /// <summary>Whether this server states its damage rules at all.</summary>
+        public readonly bool StatesRules => (Flags & FlagDamageMask) != 0;
+
+        public readonly bool AffinityWeapons => (Flags & FlagAffinityWeapons) != 0;
+
+        /// <summary>
+        /// Pack the two rules into the spare bits of the flags byte. A level
+        /// outside 0-2 is "do not say", which is what an older server sends.
+        /// </summary>
+        public static byte RuleFlags(int damageLevel, bool affinityWeapons)
+        {
+            if (damageLevel < 0 || damageLevel > 2)
+            {
+                return 0;
+            }
+            byte flags = (byte)((damageLevel + 1) << FlagDamageShift);
+            if (affinityWeapons)
+            {
+                flags |= FlagAffinityWeapons;
+            }
+            return flags;
+        }
+
         public void Write(Span<byte> dest)
         {
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[95..], AuthorityEpoch);
             dest[0] = Mode;
             BinaryPrimitives.WriteSingleLittleEndian(dest[1..], TimeRemaining);
             BinaryPrimitives.WriteSingleLittleEndian(dest[5..], TimeElapsed);
@@ -486,6 +705,7 @@ namespace MphRead.Mods.Network
         {
             return new MatchStatePacket
             {
+                AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[95..]),
                 Mode = src[0],
                 TimeRemaining = BinaryPrimitives.ReadSingleLittleEndian(src[1..]),
                 TimeElapsed = BinaryPrimitives.ReadSingleLittleEndian(src[5..]),
@@ -664,10 +884,18 @@ namespace MphRead.Mods.Network
         // rides along for the same reason: it is a property of who is in the
         // slot, the server is the only party that can measure it for
         // everybody, and it already sends this packet every second.
-        public const int EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes;
-        public const int Size = 1 + MaxSlots * EntrySize;
+        public const int EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes + 4;
+        public const int HeaderSize = 17;
+        public const int Size = HeaderSize + MaxSlots * EntrySize;
+        public ushort SessionRevision;
+        public ushort MatchId;
+        public ulong AuthorityEpoch;
+        public uint Revision;
+        public ushort[] Generations;
 
         public byte Count;
+        public sbyte[] Teams;
+        public bool[] LobbyReady;
         public byte[] Slots;      // slot index per entry
         public byte[] Hunters;    // Hunter enum value per entry
         public byte[] Colors;     // suit palette asked for, 0-3
@@ -679,7 +907,10 @@ namespace MphRead.Mods.Network
             return new RosterPacket
             {
                 Count = 0,
+                Generations = new ushort[MaxSlots],
                 Slots = new byte[MaxSlots],
+                Teams = new sbyte[MaxSlots],
+                LobbyReady = new bool[MaxSlots],
                 Hunters = new byte[MaxSlots],
                 Colors = new byte[MaxSlots],
                 Pings = new ushort[MaxSlots],
@@ -691,7 +922,11 @@ namespace MphRead.Mods.Network
         {
             dest[..Size].Clear();
             dest[0] = Count;
-            int offset = 1;
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[1..], MatchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[3..], AuthorityEpoch);
+            BinaryPrimitives.WriteUInt32LittleEndian(dest[11..], Revision);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[15..], SessionRevision);
+            int offset = HeaderSize;
             for (int i = 0; i < Count && i < MaxSlots; i++)
             {
                 dest[offset] = Slots[i];
@@ -699,15 +934,41 @@ namespace MphRead.Mods.Network
                 dest[offset + 2] = Colors[i];
                 BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 3)..], Pings[i]);
                 WriteName(dest.Slice(offset + 5, MaxNameBytes), Names[i]);
+                dest[offset + 7 + MaxNameBytes] = unchecked((byte)Teams[i]);
+                dest[offset + 8 + MaxNameBytes] = LobbyReady[i] ? (byte)1 : (byte)0;
+                BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 21)..], Generations[i]);
                 offset += EntrySize;
             }
+        }
+
+        public static bool TryRead(ReadOnlySpan<byte> src, out RosterPacket roster)
+        {
+            roster = default;
+            if (src.Length != Size || src[0] > MaxSlots) return false;
+            int seen = 0;
+            for (int i = 0; i < src[0]; i++)
+            {
+                int offset = HeaderSize + i * EntrySize;
+                int slot = src[offset];
+                int team = unchecked((sbyte)src[offset + 7 + MaxNameBytes]);
+                if (slot >= MaxSlots || (seen & (1 << slot)) != 0 || src[offset + 1] >= 7
+                    || src[offset + 2] > 3 || team < -1 || team > 3 || src[offset + 8 + MaxNameBytes] > 1)
+                    return false;
+                seen |= 1 << slot;
+            }
+            roster = Read(src);
+            return true;
         }
 
         public static RosterPacket Read(ReadOnlySpan<byte> src)
         {
             RosterPacket roster = Create();
             roster.Count = Math.Min(src[0], (byte)MaxSlots);
-            int offset = 1;
+            roster.MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[1..]);
+            roster.AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[3..]);
+            roster.Revision = BinaryPrimitives.ReadUInt32LittleEndian(src[11..]);
+            roster.SessionRevision = BinaryPrimitives.ReadUInt16LittleEndian(src[15..]);
+            int offset = HeaderSize;
             for (int i = 0; i < roster.Count; i++)
             {
                 roster.Slots[i] = src[offset];
@@ -715,6 +976,9 @@ namespace MphRead.Mods.Network
                 roster.Colors[i] = src[offset + 2];
                 roster.Pings[i] = BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 3)..]);
                 roster.Names[i] = ReadName(src.Slice(offset + 5, MaxNameBytes));
+                roster.Teams[i] = unchecked((sbyte)src[offset + 7 + MaxNameBytes]);
+                roster.LobbyReady[i] = src[offset + 8 + MaxNameBytes] != 0;
+                roster.Generations[i] = BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 21)..]);
                 offset += EntrySize;
             }
             return roster;
@@ -866,6 +1130,10 @@ namespace MphRead.Mods.Network
 
     public struct IntentPacket
     {
+        public ushort MatchId;
+        public ulong AuthorityEpoch;
+        public ushort SlotGeneration;
+        public ushort LifeId;
         /// <summary>
         /// How many frames of rising edges each packet carries. A button held
         /// for one frame -- morph, weapon switch, alt attack -- exists in
@@ -876,7 +1144,73 @@ namespace MphRead.Mods.Network
         /// number each one belongs to lets the receiver take each press once.
         /// </summary>
         public const int PressHistory = 8;
-        public const int Size = 4 + 4 + 12 + 1 + 4 * PressHistory + 12 + 2 + 2 + 4;
+        public const int Size = 4 + 4 + 12 + 1 + 4 * PressHistory + 12 + 2 + 2 + 4 + 1 + 14;
+
+        /// <summary>
+        /// Four bytes appended <b>past</b> <see cref="Size"/>, carrying the
+        /// state that decides what this player's next shot is worth.
+        ///
+        /// <b>Why it is sent at all.</b> Everything else about a shot was
+        /// re-derived on the authority from the buttons in this packet, and
+        /// for the three quantities below that re-derivation is a second
+        /// simulation of the shooter -- the same mistake the aim deltas and
+        /// the ammo count were fixed by, with the same symptom. The charge is
+        /// a count of frames the trigger was held, and this packet is sent
+        /// every *other* frame over a line that reorders and drops, so the
+        /// authority's count is the owner's give or take a few; on a
+        /// partial-charge weapon the damage is a continuous function of that
+        /// count, so the two machines put different numbers on the same shot
+        /// every time it is fired. Double damage and the Prime Hunter bonus
+        /// are worse than that: they are pickups and a mode state, collected
+        /// by each machine's own simulation, so the authority's copy of a
+        /// shooter can simply not have one -- a factor of two on every shot,
+        /// with no packet anywhere that would say so.
+        ///
+        /// Appended rather than folded in, so nothing about the protocol
+        /// moves: every receiver reads exactly <see cref="Size"/> bytes and
+        /// then asks whether there are four more, and a build from before this
+        /// finds none and behaves exactly as it always did.
+        /// </summary>
+        public const int StateSize = 4;
+        public const int FullSize = Size + StateSize;
+
+        /// <summary>
+        /// <c>EquipInfo.ChargeLevel</c> as the owner holds it, clamped to a
+        /// byte -- the longest charge in the game is 300 frames doubled, which
+        /// is the Omega Cannon's and is not chargeable, and every real one is
+        /// under 180. Latched at the frame of the newest trigger release in
+        /// this packet, because that is the charge the shot was fired with;
+        /// the current value otherwise.
+        /// </summary>
+        public byte ChargeLevel;
+
+        /// <summary>
+        /// <c>_boostDamage</c>: what this player's alt-form ram is worth,
+        /// which is its boost charge scaled by the hunter's own alt-attack
+        /// damage. Latched the same way, since the charge is spent the moment
+        /// the ram starts.
+        /// </summary>
+        public byte BoostDamage;
+
+        /// <summary>The two multipliers, as state rather than as an edge.</summary>
+        public byte ShotFlags;
+
+        public const byte FlagDoubleDamage = 1 << 0;
+        /// <summary>
+        /// Whether the sender believes it is the Prime Hunter, which is worth
+        /// x1.5 on every shot. Sent but <b>not applied</b>: who the Prime
+        /// Hunter is is the authority's own state, and a client asserting it
+        /// would be asserting a damage bonus. It travels so that a mismatch
+        /// shows up in a log rather than only in a health bar.
+        /// </summary>
+        public const byte FlagPrimeHunter = 1 << 1;
+
+        /// <summary>
+        /// Whether the sender included the block at all. False for a client
+        /// built before it, and the one thing the authority must check before
+        /// overwriting a puppet's charge with a zero nobody sent.
+        /// </summary>
+        public bool HasState;
 
         public uint Frame;          // client's frame counter, for ordering
         public IntentButtons Buttons;
@@ -944,8 +1278,32 @@ namespace MphRead.Mods.Network
         /// </summary>
         public uint AckFrame;
 
+        /// <summary>
+        /// How far past <see cref="AckFrame"/> the world this client was
+        /// looking at actually sat, in 1/256ths of a frame.
+        ///
+        /// A client that interpolates its puppets is not drawing any one
+        /// snapshot: it draws a point between two of them, deliberately a
+        /// fixed distance behind the newest, because that is what turns a
+        /// stream of positions arriving irregularly into motion. The integer
+        /// ack alone cannot name that point, and rounding it costs up to a
+        /// frame of rewind -- which on a headshot band 0.3 units tall is the
+        /// whole band for anybody moving.
+        ///
+        /// Zero from a client that does not interpolate, which is what every
+        /// build before protocol 7 was, and what <c>-nointerp</c> still is.
+        /// The authority lerps between history[AckFrame] and
+        /// history[AckFrame + 1] by this fraction; at zero that is exactly
+        /// the behaviour it always had.
+        /// </summary>
+        public byte AckSubFrame;
+
         public void Write(Span<byte> dest)
         {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[74..], MatchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[76..], AuthorityEpoch);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[84..], SlotGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[86..], LifeId);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[0..], Frame);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[4..], (uint)Buttons);
             BinaryPrimitives.WriteSingleLittleEndian(dest[8..], Aim.X);
@@ -964,6 +1322,14 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[(at + 12)..], AmmoUa);
             BinaryPrimitives.WriteUInt16LittleEndian(dest[(at + 14)..], AmmoMissiles);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[(at + 16)..], AckFrame);
+            dest[at + 20] = AckSubFrame;
+            if (dest.Length >= FullSize)
+            {
+                dest[Size] = ChargeLevel;
+                dest[Size + 1] = BoostDamage;
+                dest[Size + 2] = ShotFlags;
+                dest[Size + 3] = 0;
+            }
         }
 
         public static IntentPacket Read(ReadOnlySpan<byte> src)
@@ -975,6 +1341,10 @@ namespace MphRead.Mods.Network
             }
             return new IntentPacket
             {
+                MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[74..]),
+                AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[76..]),
+                SlotGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[84..]),
+                LifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[86..]),
                 Frame = BinaryPrimitives.ReadUInt32LittleEndian(src[0..]),
                 Buttons = (IntentButtons)BinaryPrimitives.ReadUInt32LittleEndian(src[4..]),
                 Aim = new Vector3(
@@ -989,7 +1359,16 @@ namespace MphRead.Mods.Network
                     BinaryPrimitives.ReadSingleLittleEndian(src[(29 + PressHistory * 4)..])),
                 AmmoUa = BinaryPrimitives.ReadUInt16LittleEndian(src[(33 + PressHistory * 4)..]),
                 AmmoMissiles = BinaryPrimitives.ReadUInt16LittleEndian(src[(35 + PressHistory * 4)..]),
-                AckFrame = BinaryPrimitives.ReadUInt32LittleEndian(src[(37 + PressHistory * 4)..])
+                AckFrame = BinaryPrimitives.ReadUInt32LittleEndian(src[(37 + PressHistory * 4)..]),
+                AckSubFrame = src[41 + PressHistory * 4],
+                // Only when it is actually there. A client from before this
+                // block sends Size bytes and nothing more, and reading zeros
+                // out of the end of its datagram would tell the authority that
+                // its charge is nothing and its powerups are gone.
+                HasState = src.Length >= FullSize,
+                ChargeLevel = src.Length >= FullSize ? src[Size] : (byte)0,
+                BoostDamage = src.Length >= FullSize ? src[Size + 1] : (byte)0,
+                ShotFlags = src.Length >= FullSize ? src[Size + 2] : (byte)0
             };
         }
     }
@@ -1000,9 +1379,58 @@ namespace MphRead.Mods.Network
     /// health/weapon/team are cheap enough to resend every snapshot rather
     /// than tracking deltas at this stage.
     /// </summary>
+    public struct DamageEvent
+    {
+        // Victim identity is implicit in the enclosing PlayerState. Attacker
+        // life is diagnostic-only; generation is enough to reject attribution
+        // after a slot changes hands. Knockback is bounded to +/-1.5, so a
+        // signed 16-bit fixed-point component preserves it to sub-millimetre
+        // precision while cutting the event from 26 bytes to 15.
+        public const int Size = 15;
+        private const float DirectionScale = 16384f;
+
+        public ushort EventId, AttackerGeneration, Damage;
+        public byte AttackerSlot, Beam, Flags;
+        public Vector3 Direction;
+
+        private static short PackDirection(float value)
+            => (short)Math.Clamp((int)MathF.Round(value * DirectionScale), short.MinValue, short.MaxValue);
+
+        private static float UnpackDirection(short value) => value / DirectionScale;
+
+        public readonly void Write(Span<byte> dest)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest, EventId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[2..], AttackerGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[4..], Damage);
+            dest[6] = AttackerSlot;
+            dest[7] = Beam;
+            dest[8] = Flags;
+            BinaryPrimitives.WriteInt16LittleEndian(dest[9..], PackDirection(Direction.X));
+            BinaryPrimitives.WriteInt16LittleEndian(dest[11..], PackDirection(Direction.Y));
+            BinaryPrimitives.WriteInt16LittleEndian(dest[13..], PackDirection(Direction.Z));
+        }
+
+        public static DamageEvent Read(ReadOnlySpan<byte> src) => new DamageEvent
+        {
+            EventId = BinaryPrimitives.ReadUInt16LittleEndian(src),
+            AttackerGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[2..]),
+            Damage = BinaryPrimitives.ReadUInt16LittleEndian(src[4..]),
+            AttackerSlot = src[6],
+            Beam = src[7],
+            Flags = src[8],
+            Direction = new Vector3(
+                UnpackDirection(BinaryPrimitives.ReadInt16LittleEndian(src[9..])),
+                UnpackDirection(BinaryPrimitives.ReadInt16LittleEndian(src[11..])),
+                UnpackDirection(BinaryPrimitives.ReadInt16LittleEndian(src[13..])))
+        };
+    }
+
     public struct PlayerState
     {
-        public const int Size = 1 + 1 + 12 + 12 + 12 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 12 + 2 + 2 + 2;
+        public ushort SlotGeneration;
+        public ushort LifeId;
+        public const int Size = 54 + DamageEvent.Size * DamageHistory;
 
         public byte SlotIndex;
         public byte Flags;          // bit 0 = active, bit 1 = alt form, bit 2 = spawned
@@ -1018,7 +1446,14 @@ namespace MphRead.Mods.Network
         /// Comparing health instead would replay a repeated snapshot as a
         /// fresh hit and miss two that cancelled out.
         /// </summary>
-        public byte DamageSeq;
+        public ushort DamageEventId;
+        public const int DamageHistory = 4;
+        public DamageEvent Damage0, Damage1, Damage2, Damage3;
+        public readonly DamageEvent EventAt(int index) => index switch
+        {
+            0 => Damage0, 1 => Damage1, 2 => Damage2, 3 => Damage3,
+            _ => throw new ArgumentOutOfRangeException(nameof(index))
+        };
         public byte AttackerSlot;   // 0xFF = nobody
         public byte DamageBeam;     // BeamType, 0xFF = not a beam
         public byte DamageFlags;    // headshot / deathalt / burn
@@ -1120,19 +1555,21 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[38..], Health);
             dest[40] = CurrentWeapon;
             dest[41] = Team;
-            dest[42] = DamageSeq;
-            dest[43] = AttackerSlot;
-            dest[44] = DamageBeam;
-            dest[45] = DamageFlags;
-            WriteVec(dest[46..], HitDirection);
-            BinaryPrimitives.WriteInt16LittleEndian(dest[58..], Points);
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[60..], Kills);
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[62..], Deaths);
+            BinaryPrimitives.WriteInt16LittleEndian(dest[42..], Points);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[44..], Kills);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[46..], Deaths);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[48..], SlotGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[50..], LifeId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[52..], DamageEventId);
+            for (int i = 0; i < DamageHistory; i++)
+            {
+                EventAt(i).Write(dest[(54 + i * DamageEvent.Size)..]);
+            }
         }
 
         public static PlayerState Read(ReadOnlySpan<byte> src)
         {
-            return new PlayerState
+            var state = new PlayerState
             {
                 SlotIndex = src[0],
                 Flags = src[1],
@@ -1142,15 +1579,35 @@ namespace MphRead.Mods.Network
                 Health = BinaryPrimitives.ReadUInt16LittleEndian(src[38..]),
                 CurrentWeapon = src[40],
                 Team = src[41],
-                DamageSeq = src[42],
-                AttackerSlot = src[43],
-                DamageBeam = src[44],
-                DamageFlags = src[45],
-                HitDirection = ReadVec(src[46..]),
-                Points = BinaryPrimitives.ReadInt16LittleEndian(src[58..]),
-                Kills = BinaryPrimitives.ReadUInt16LittleEndian(src[60..]),
-                Deaths = BinaryPrimitives.ReadUInt16LittleEndian(src[62..])
+                Points = BinaryPrimitives.ReadInt16LittleEndian(src[42..]),
+                Kills = BinaryPrimitives.ReadUInt16LittleEndian(src[44..]),
+                Deaths = BinaryPrimitives.ReadUInt16LittleEndian(src[46..]),
+                SlotGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[48..]),
+                LifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[50..]),
+                DamageEventId = BinaryPrimitives.ReadUInt16LittleEndian(src[52..]),
+                Damage0 = DamageEvent.Read(src[54..]),
+                Damage1 = DamageEvent.Read(src[(54 + DamageEvent.Size)..]),
+                Damage2 = DamageEvent.Read(src[(54 + 2 * DamageEvent.Size)..]),
+                Damage3 = DamageEvent.Read(src[(54 + 3 * DamageEvent.Size)..])
             };
+
+            // Keep the existing in-memory convenience fields without paying
+            // for a second copy of the newest damage metadata on the wire.
+            DamageEvent latest = default;
+            for (int i = DamageHistory - 1; i >= 0; i--)
+            {
+                DamageEvent candidate = state.EventAt(i);
+                if (candidate.EventId == state.DamageEventId)
+                {
+                    latest = candidate;
+                    break;
+                }
+            }
+            state.AttackerSlot = latest.EventId == 0 ? (byte)0xFF : latest.AttackerSlot;
+            state.DamageBeam = latest.EventId == 0 ? (byte)0xFF : latest.Beam;
+            state.DamageFlags = latest.Flags;
+            state.HitDirection = latest.Direction;
+            return state;
         }
 
         private static void WriteVec(Span<byte> dest, Vector3 v)
@@ -1177,7 +1634,9 @@ namespace MphRead.Mods.Network
     /// </summary>
     public struct SnapshotHeader
     {
-        public const int Size = 4 + 4 + 4 + 1;
+        public ushort MatchId;
+        public ulong AuthorityEpoch;
+        public const int Size = 4 + 4 + 4 + 1 + 10;
 
         public uint Frame;
         public uint Rng1;
@@ -1186,6 +1645,8 @@ namespace MphRead.Mods.Network
 
         public void Write(Span<byte> dest)
         {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[13..], MatchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[15..], AuthorityEpoch);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[0..], Frame);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[4..], Rng1);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[8..], Rng2);
@@ -1196,6 +1657,8 @@ namespace MphRead.Mods.Network
         {
             return new SnapshotHeader
             {
+                MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[13..]),
+                AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[15..]),
                 Frame = BinaryPrimitives.ReadUInt32LittleEndian(src[0..]),
                 Rng1 = BinaryPrimitives.ReadUInt32LittleEndian(src[4..]),
                 Rng2 = BinaryPrimitives.ReadUInt32LittleEndian(src[8..]),
@@ -1204,10 +1667,270 @@ namespace MphRead.Mods.Network
         }
     }
 
+    /// <summary>
+    /// One hit a client resolved on its own machine and is asking the
+    /// authority to make real.
+    ///
+    /// <b>Why this exists at all.</b> Lag compensation already resolves a
+    /// remote shot against the world its shooter was looking at, and instant
+    /// hit registration already lets that shooter see the hit land on the
+    /// frame they fired it. Both are the authority and the client running the
+    /// *same* test on the *same* positions, which is why they normally agree.
+    /// What neither can do is survive the cases where they cannot run the same
+    /// test:
+    ///
+    /// * the rewind ran into its ceiling, so the authority resolved the shot
+    ///   against a world the shooter never saw (measured at 85% of shots on a
+    ///   320 ms line under the old 400 ms ceiling);
+    /// * the trigger pull arrived out of a press history and the authority
+    ///   cannot tell how old it is;
+    /// * the shooter was killed during the round trip, so the authority never
+    ///   ran the shot at all -- its copy of that player was already dead when
+    ///   the intent arrived. This is the one a player calls unfair rather than
+    ///   laggy: they watched the shot land and then watched the body get up.
+    ///
+    /// A claim is the shooter's own answer to those, carried explicitly. The
+    /// authority does not take it on trust -- see
+    /// <see cref="Mods.Network.NetHitClaims"/> for the five things it checks --
+    /// but where the claim is defensible the shooter's screen is what counts.
+    /// It is exactly reciprocal: every client's claims are checked the same
+    /// way by the same code, so nobody is favoured by having the worse line.
+    ///
+    /// Several claims travel in one packet, and unanswered ones are repeated
+    /// until a verdict arrives, for the reason
+    /// <see cref="IntentPacket.PressHistory"/> repeats presses: UDP loses
+    /// packets, and a lost claim is a kill that did not happen.
+    /// </summary>
+    public struct HitClaimPacket
+    {
+        public ushort MatchId;
+        public ulong AuthorityEpoch;
+        public ushort ShooterGeneration;
+        public ushort ShooterLifeId;
+        public ushort VictimGeneration;
+        public ushort VictimLifeId;
+        public const int Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12 + 18;
+
+        /// <summary>How many claims one datagram may carry.</summary>
+        public const int MaxPerPacket = 6;
+
+        /// <summary>Beam value meaning "not a beam" -- an alt-form attack, a bomb.</summary>
+        public const byte NoBeam = 0xFF;
+
+        /// <summary>The shooter resolved this as a headshot.</summary>
+        public const byte FlagHeadshot = 1 << 0;
+        /// <summary>The shooter's own copy of the victim died of this hit.</summary>
+        public const byte FlagLethal = 1 << 1;
+        /// <summary>Judicator ice, so the authority can freeze the victim too.</summary>
+        public const byte FlagFrozen = 1 << 2;
+        /// <summary>Magmaul fire.</summary>
+        public const byte FlagBurning = 1 << 3;
+        /// <summary>Volt Driver disruption.</summary>
+        public const byte FlagDisrupted = 1 << 4;
+
+        /// <summary>
+        /// Rolling, per shooter, so a verdict can name a claim and a repeat
+        /// can be recognised as the same one rather than applied twice.
+        /// </summary>
+        public ushort ClaimId;
+        /// <summary>The shooter's own frame counter when it resolved the hit.</summary>
+        public uint Frame;
+        /// <summary>
+        /// The authority frame whose world this was resolved against -- the
+        /// same number <see cref="IntentPacket.AckFrame"/> carries, and what
+        /// the authority rewinds to in order to check the claim. It is also
+        /// the timestamp the kill arbitration orders shots by: two players who
+        /// killed each other are separated by which of them pulled the trigger
+        /// in the earlier world, not by which packet arrived first.
+        /// </summary>
+        public uint AckFrame;
+        /// <summary>
+        /// The world-frame the shot that caused this hit was <b>launched</b>
+        /// in -- <c>BeamProjectileEntity.ModLaunchFrame</c>, stamped on every
+        /// machine that spawns a beam.
+        ///
+        /// <b>This is what identifies the shot, and nothing else can.</b>
+        /// Pairing a claim with the authority's own resolution of the same
+        /// shot by *when they arrived* cannot be made exact: the two are
+        /// separated by a round trip, and for anything that travels by however
+        /// far the two copies of the projectile drifted apart over its flight
+        /// as well -- which grows with range. Measured, a window sized to the
+        /// round trip still let one hit in thirty through at zero latency and
+        /// applied it on top of the authority's: the victim took the damage,
+        /// then took it again when the shot they could see arrived. The launch
+        /// frame is the same number on both machines by construction and does
+        /// not care how far the shot flew.
+        ///
+        /// Zero for a hit with no beam behind it -- an alt form's attack, a
+        /// bomb, the void -- which fall back to the time window.
+        /// </summary>
+        public uint LaunchFrame;
+        public byte VictimSlot;
+        public byte Beam;
+        /// <summary>
+        /// Damage as the shooter applied it, after every multiplier its own
+        /// machine knows about. Checked against what that weapon can possibly
+        /// deal before it is believed.
+        /// </summary>
+        public ushort Damage;
+        public byte Flags;
+        /// <summary>
+        /// Where the shooter says the hit landed. The whole of the geometric
+        /// check: the authority looks the victim up in its own history at
+        /// <see cref="AckFrame"/> and refuses a claim whose point is nowhere
+        /// near the body it finds there.
+        /// </summary>
+        public Vector3 HitPoint;
+
+        public void Write(Span<byte> dest)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[31..], MatchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[33..], AuthorityEpoch);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[41..], ShooterGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[43..], ShooterLifeId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[45..], VictimGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[47..], VictimLifeId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[0..], ClaimId);
+            BinaryPrimitives.WriteUInt32LittleEndian(dest[2..], Frame);
+            BinaryPrimitives.WriteUInt32LittleEndian(dest[6..], AckFrame);
+            BinaryPrimitives.WriteUInt32LittleEndian(dest[10..], LaunchFrame);
+            dest[14] = VictimSlot;
+            dest[15] = Beam;
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[16..], Damage);
+            dest[18] = Flags;
+            BinaryPrimitives.WriteSingleLittleEndian(dest[19..], HitPoint.X);
+            BinaryPrimitives.WriteSingleLittleEndian(dest[23..], HitPoint.Y);
+            BinaryPrimitives.WriteSingleLittleEndian(dest[27..], HitPoint.Z);
+        }
+
+        public static HitClaimPacket Read(ReadOnlySpan<byte> src)
+        {
+            return new HitClaimPacket
+            {
+                MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[31..]),
+                AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[33..]),
+                ShooterGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[41..]),
+                ShooterLifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[43..]),
+                VictimGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[45..]),
+                VictimLifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[47..]),
+                ClaimId = BinaryPrimitives.ReadUInt16LittleEndian(src[0..]),
+                Frame = BinaryPrimitives.ReadUInt32LittleEndian(src[2..]),
+                AckFrame = BinaryPrimitives.ReadUInt32LittleEndian(src[6..]),
+                LaunchFrame = BinaryPrimitives.ReadUInt32LittleEndian(src[10..]),
+                VictimSlot = src[14],
+                Beam = src[15],
+                Damage = BinaryPrimitives.ReadUInt16LittleEndian(src[16..]),
+                Flags = src[18],
+                HitPoint = new Vector3(
+                    BinaryPrimitives.ReadSingleLittleEndian(src[19..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(src[23..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(src[27..]))
+            };
+        }
+    }
+
+    /// <summary>
+    /// What the authority did with the claims one client sent it.
+    ///
+    /// Its job is not to tell the shooter whether the hit landed -- the
+    /// snapshot already carries that, as it always did. It is to tell the
+    /// shooter it may stop asking, and, on a refusal, to say so within one
+    /// round trip instead of leaving the prediction to time out over two
+    /// seconds with a victim's health held wrong for the whole of it.
+    ///
+    /// A reason travels with every refusal because "the shot did not count"
+    /// is not a diagnosis, and the three refusals mean completely different
+    /// things: one is a line problem, one is a fair trade, and one is a claim
+    /// the authority thinks is a lie.
+    /// </summary>
+    public struct HitVerdictPacket
+    {
+        public const int HeaderSize = 15;
+        public const int EntrySize = 3;
+        public const int MaxPerPacket = 16;
+
+        /// <summary>The authority applied it. The shooter's screen was right.</summary>
+        public const byte ResultApplied = 0;
+        /// <summary>
+        /// The authority had already resolved this hit itself, so the claim
+        /// changed nothing. The normal outcome on a healthy line, and the one
+        /// that says the rewind is doing its job without help.
+        /// </summary>
+        public const byte ResultDuplicate = 1;
+        /// <summary>
+        /// The shooter was already dead, in their own clock, when they fired.
+        /// Somebody killed them in the world they were looking at, before they
+        /// pulled the trigger, and this is the arbitration doing what it is
+        /// for. Not a fault and not a line problem.
+        /// </summary>
+        public const byte ResultDeadShooter = 2;
+        /// <summary>
+        /// The victim was already dead, or gone, or not in play at the frame
+        /// claimed. Costs the shooter nothing: somebody else got there first.
+        /// </summary>
+        public const byte ResultDeadVictim = 3;
+        /// <summary>
+        /// The authority could not find the victim anywhere near where the
+        /// claim says the hit landed, or the damage is more than that weapon
+        /// can deal, or the claim is older than the history. This is the one
+        /// worth logging: on a clean conscience it means the two machines have
+        /// drifted, and otherwise it means somebody is making hits up.
+        /// </summary>
+        public const byte ResultRefused = 4;
+        /// <summary>The claim named a frame the history no longer holds.</summary>
+        public const byte ResultTooOld = 5;
+        public const byte ResultWrongLife = 6;
+        public const byte ResultGeometry = 7;
+        public const byte ResultDamageLimit = 8;
+        public const byte ResultInvalidLaunch = 9;
+        public const byte ResultNoDamage = 10;
+
+        public ushort ClaimId;
+        public byte Result;
+
+        public static void Write(Span<byte> dest, ReadOnlySpan<(ushort Id, byte Result)> entries,
+            ushort matchId, ulong epoch, ushort generation, ushort lifeId)
+        {
+            dest[0] = (byte)entries.Length;
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[1..], matchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[3..], epoch);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[11..], generation);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[13..], lifeId);
+            for (int i = 0; i < entries.Length; i++)
+            {
+                int at = HeaderSize + i * EntrySize;
+                BinaryPrimitives.WriteUInt16LittleEndian(dest[at..], entries[i].Id);
+                dest[at + 2] = entries[i].Result;
+            }
+        }
+
+        public static string Describe(byte result)
+        {
+            return result switch
+            {
+                ResultWrongLife => "wrong lifecycle",
+                ResultGeometry => "hit point outside reconciliation radius",
+                ResultDamageLimit => "damage exceeds weapon limit",
+                ResultInvalidLaunch => "launch frame follows hit frame",
+                ResultNoDamage => "authority damage rules prevented the hit",
+                ResultApplied => "applied",
+                ResultDuplicate => "already resolved",
+                ResultDeadShooter => "shooter was already dead when it fired",
+                ResultDeadVictim => "victim was already down",
+                ResultRefused => "refused",
+                ResultTooOld => "older than the history",
+                _ => "unknown"
+            };
+        }
+    }
+
     public static class NetConfig
     {
         public const ushort DefaultPort = 27888;
-        public const int MaxPacketSize = 1024;
+        // Keep application datagrams within the IPv6 minimum-MTU budget after
+        // UDP/IP headers. Compact PlayerState leaves worst-case 8-player
+        // snapshots comfortably below this bound.
+        public const int MaxPacketSize = 1232;
         /// <summary>
         /// Bumped when the wire format changes in a way an older build would
         /// misread rather than notice. Version 2 added the ping to the roster:
@@ -1255,8 +1978,51 @@ namespace MphRead.Mods.Network
         /// would not have needed a bump of their own -- an older build ignores
         /// a bit it does not know. They are mentioned here because the byte is
         /// now full: the next flag needs somewhere to live.
+        ///
+        /// Version 7 is hit registration changing hands. Three things move at
+        /// once and each of them alone would force the bump:
+        ///
+        /// * <see cref="PacketType.HitClaim"/> and
+        ///   <see cref="PacketType.HitVerdict"/>. A client now tells the
+        ///   authority which of its own shots landed, and the authority either
+        ///   agrees, finds it has already resolved the same hit, or refuses it
+        ///   with a reason. A version 6 server drops both on the floor -- which
+        ///   is safe, and is also a match where every shot still waits for the
+        ///   authority's own answer, so the feature is silently absent rather
+        ///   than half present.
+        /// * <see cref="IntentPacket.AckSubFrame"/>. The intent grows by one
+        ///   byte, appended, so nothing before it moved -- but a version 6
+        ///   authority would read the packet correctly and rewind to a whole
+        ///   frame while the shooter was looking at a point between two of
+        ///   them, which is the error this exists to remove.
+        /// * The rewind ceiling's default moves from 24 frames to 45. That is
+        ///   behaviour rather than layout, and on its own it would be a
+        ///   <see cref="ProtocolVersion"/> 4-style refusal: a server one build
+        ///   behind resolves 85% of a 320 ms line's shots against a world
+        ///   nobody was looking at, measured.
+        ///
+        /// Version 8 changes continuous-weapon damage timing. Player beams
+        /// now use one per-stream firing phase on every machine. Packet layout
+        /// is unchanged, but version 7 peers would simulate different ammo
+        /// and damage events, so mixed builds must be refused.
+        /// Version 10 integrates lifecycle, persistent lobby, team-resource and
+        /// continuous-phase branches. Rosters retain generations, teams and ready
+        /// flags with separate roster/session revisions; SessionState has an epoch.
+        /// Snapshots retain lifecycle identities, team clocks and health spawners.
+        /// Version 11 also requires custom-map identity/hash negotiation before
+        /// loading a room. Its map-transfer packet IDs remain 32-35.
+        /// Version 12 adds the synchronized hidden-opponent-health rule (bit 6),
+        /// explicit claim refusal reasons and launch-preserving projectile behavior.
+        /// Version 13 compacts PlayerState damage history: victim identity is
+        /// implicit in the enclosing state and knockback uses bounded 16-bit
+        /// fixed-point components. Mixed v12/v13 peers must be refused because
+        /// PlayerState and DamageEvent sizes changed.
+        /// Version 14 uses previously reserved health-spawner flag bits to carry
+        /// the slot that consumed a pickup, so replicas can play local pickup
+        /// feedback only after authority confirmation. Entry size is unchanged,
+        /// but v13 readers reject those bits, so mixed peers must be refused.
         /// </summary>
-        public const int ProtocolVersion = 6;
+        public const int ProtocolVersion = 14;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///
@@ -1395,6 +2161,141 @@ namespace MphRead.Mods.Network
                 Eligible = src[at + 2],
                 Needed = src[at + 3],
                 Seconds = BinaryPrimitives.ReadUInt16LittleEndian(src.Slice(at + 4, 2))
+            };
+        }
+    }
+
+    /// <summary>
+    /// The short list of maps the results screen offers, and how the room has
+    /// voted on it so far.
+    ///
+    /// A different thing from <see cref="VoteStatePacket"/>, which is a
+    /// question put to the room mid-match and answered yes or no. This is the
+    /// intermission's own ballot: the server names a handful of maps when a
+    /// match ends, everybody picks one off the results screen while they are
+    /// reading the scoreboard, and the one in front when the countdown runs
+    /// out is the one loaded. Nobody has to propose anything and nobody is
+    /// interrupted, because there is nothing to interrupt -- which is the
+    /// whole reason the choice belongs here rather than in a vote.
+    ///
+    /// Broadcast on the same timer as everything else rather than once per
+    /// change, for the reason <see cref="MatchStatePacket"/> is: UDP drops,
+    /// and a client that missed the one packet would sit through the
+    /// intermission with no ballot on screen while everybody else voted.
+    ///
+    /// Additive in both directions, so it needs no protocol bump: a server
+    /// built before this never sends one and the results screen simply shows
+    /// the map the rotation was going to play anyway, which is what it showed
+    /// before; a client built before it drops an unknown type on the floor.
+    /// </summary>
+    public struct MapChoicesPacket
+    {
+        /// <summary>
+        /// How many maps the tally can carry: one per player, since that is
+        /// the most distinct maps a room can have picked at once.
+        ///
+        /// The ballot is not a short list any more -- every map is votable and
+        /// the client scrolls its own room list -- so what travels is only
+        /// what has been picked. Eight entries is the worst case and the
+        /// packet is still under three hundred bytes.
+        /// </summary>
+        public const int MaxChoices = 8;
+        public const int MaxRoomBytes = MatchStatePacket.MaxNameBytes;
+        public const int Size = 4 + MaxChoices * (MaxRoomBytes + 1);
+
+        /// <summary>
+        /// Whether the ballot is open at all.
+        ///
+        /// Its own byte rather than "Count is zero", because a ballot with
+        /// nothing picked yet is the state it spends its first seconds in and
+        /// is not the same as no ballot -- one is a list to scroll and the
+        /// other is a results screen that says NEXT and nothing else.
+        /// </summary>
+        public byte Open;
+
+        /// <summary>How many maps below have votes.</summary>
+        public byte Count;
+        public string[] RoomKeys;
+        /// <summary>Votes cast for each, in the same order.</summary>
+        public byte[] Votes;
+        /// <summary>
+        /// How many players could vote when this was counted, for the "3 of 8"
+        /// the rows read.
+        ///
+        /// There is no threshold to send beside it: the map with the most
+        /// votes is the one taken, full stop. A mid-match vote needs a bar to
+        /// clear because it interrupts people who did not ask to be asked; an
+        /// intermission does not, and a bar there only produces the case
+        /// nobody wants -- a room that voted, did not reach seventy per cent,
+        /// and is sent somewhere none of them picked.
+        /// </summary>
+        public byte Eligible;
+
+        public void Write(Span<byte> dest)
+        {
+            dest[..Size].Clear();
+            int count = Math.Clamp((int)Count, 0, MaxChoices);
+            dest[0] = (byte)count;
+            dest[1] = Eligible;
+            dest[2] = Open;
+            for (int i = 0; i < count; i++)
+            {
+                int at = 4 + i * (MaxRoomBytes + 1);
+                ChatPacket.WriteAscii(dest.Slice(at, MaxRoomBytes),
+                    RoomKeys != null && i < RoomKeys.Length ? RoomKeys[i] : "");
+                dest[at + MaxRoomBytes] = Votes != null && i < Votes.Length ? Votes[i] : (byte)0;
+            }
+        }
+
+        public static MapChoicesPacket Read(ReadOnlySpan<byte> src)
+        {
+            int count = Math.Clamp((int)src[0], 0, MaxChoices);
+            var keys = new string[count];
+            var votes = new byte[count];
+            for (int i = 0; i < count; i++)
+            {
+                int at = 4 + i * (MaxRoomBytes + 1);
+                keys[i] = ChatPacket.ReadAscii(src.Slice(at, MaxRoomBytes));
+                votes[i] = src[at + MaxRoomBytes];
+            }
+            return new MapChoicesPacket
+            {
+                Count = (byte)count,
+                RoomKeys = keys,
+                Votes = votes,
+                Eligible = src[1],
+                Open = src[2]
+            };
+        }
+    }
+
+    /// <summary>
+    /// Which map off the ballot this player wants next. Empty means "no
+    /// opinion", which is also how a pick is taken back.
+    ///
+    /// Re-sendable, unlike a vote's ballot: this is asked during an
+    /// intermission with a countdown on screen, so changing your mind while
+    /// the picture is still up is the normal case rather than a way to game a
+    /// race. The server keeps the last one it heard from each slot.
+    /// </summary>
+    public struct MapPickPacket
+    {
+        public const int MaxRoomBytes = MatchStatePacket.MaxNameBytes;
+        public const int Size = MaxRoomBytes;
+
+        public string RoomKey;
+
+        public void Write(Span<byte> dest)
+        {
+            dest[..Size].Clear();
+            ChatPacket.WriteAscii(dest[..MaxRoomBytes], RoomKey);
+        }
+
+        public static MapPickPacket Read(ReadOnlySpan<byte> src)
+        {
+            return new MapPickPacket
+            {
+                RoomKey = ChatPacket.ReadAscii(src[..MaxRoomBytes])
             };
         }
     }

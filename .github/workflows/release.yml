@@ -37,8 +37,12 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.name.outputs.tag }}
+      version: ${{ steps.name.outputs.version }}
+      android_version_code: ${{ steps.name.outputs.android_version_code }}
     steps:
       # Resolved before anything is checked out, because gh api needs no local
       # repo and this is what turns "typed without its v" or "that tag was
@@ -71,6 +75,9 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${INPUT_TAG:-$PUSHED_TAG}"
+          CREATE_TAG=false
+          # Bound each component before doing Bash arithmetic (which can wrap).
+          RELEASE_TAG='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
 
           if [ -n "$TAG" ]; then
             # This project's tags are always v-prefixed (push: tags: ["v*"]);
@@ -92,7 +99,7 @@ jobs:
             # project and does not get a vote.
             LATEST=$(gh api "repos/$REPO/git/refs/tags" --paginate --jq '.[].ref' 2>/dev/null \
               | sed 's#^refs/tags/##' \
-              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | grep -E "$RELEASE_TAG" \
               | sort -V | tail -1 || true)
             if [ -z "$LATEST" ]; then
               # Nothing to bump from. Releases here are numbered from v0.1.0
@@ -110,35 +117,62 @@ jobs:
               TAG="v$MAJOR.$MINOR.$PATCH"
               echo "Newest release tag is $LATEST; $BUMP bump gives $TAG."
             fi
-            if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
-              echo "::error::$TAG already exists. Build it by name, or bump past it."
-              exit 1
-            fi
-            # On the commit this run was dispatched from, which is the tip of
-            # whichever branch the dropdown picked.
-            gh api -X POST "repos/$REPO/git/refs" \
-              -f ref="refs/tags/$TAG" -f sha="$SHA" >/dev/null
-            echo "Created $TAG at ${SHA:0:7}."
-            echo "created=true" >> "$GITHUB_OUTPUT"
+            CREATE_TAG=true
           else
             echo "::error::Give a tag to build, or pick a bump to create the next one."
             exit 1
           fi
 
+          if [[ ! "$TAG" =~ $RELEASE_TAG ]]; then
+            echo "::error::Release tag '$TAG' must use vMAJOR.MINOR.PATCH, with components 0-999 and no leading zeroes."
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          IFS=. read -r MAJOR MINOR PATCH <<< "$VERSION"
+          if (( 10#$MAJOR > 999 || 10#$MINOR > 999 || 10#$PATCH > 999 )); then
+            echo "::error::Release tag '$TAG' cannot be represented by Android's versionCode."
+            exit 1
+          fi
+          ANDROID_VERSION_CODE=$((10#$MAJOR * 1000000 + 10#$MINOR * 1000 + 10#$PATCH))
+          if (( ANDROID_VERSION_CODE < 1 )); then
+            echo "::error::Release tag '$TAG' produces an invalid Android versionCode."
+            exit 1
+          fi
+
+          # Validate before creating a ref: a failed bump must not leave a tag
+          # that cannot be packaged, and that the next bump will build upon.
+          if [ "$CREATE_TAG" = true ]; then
+            if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+              echo "::error::$TAG already exists. Build it by name, or bump past it."
+              exit 1
+            fi
+            gh api -X POST "repos/$REPO/git/refs" \
+              -f ref="refs/tags/$TAG" -f sha="$SHA" >/dev/null
+            echo "Created $TAG at ${SHA:0:7}."
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          # The bare number, for -p:Version. The updater compares this against
-          # the tag on GitHub, so a build that is not stamped here is one that
-          # can never know it is out of date.
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          # All published packages consume this one release number. The
+          # updater compares it against the tag on GitHub, so a build that is
+          # not stamped here can never know it is out of date.
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Android also needs a monotonically increasing integer versionCode;
+          # encode the same semver as MAJOR.MINOR.PATCH without losing order.
+          echo "android_version_code=$ANDROID_VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "### Fruity Prime $TAG" >> "$GITHUB_STEP_SUMMARY"
 
+  release:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ steps.name.outputs.tag }}
+          ref: refs/tags/${{ needs.resolve.outputs.tag }}
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       # For the Android package. The workload brings the .NET side of that
       # toolchain and not a JDK, and the Android SDK's build tools are Java.
@@ -168,11 +202,11 @@ jobs:
 
       - name: publish every target
         env:
-          VERSION: ${{ steps.name.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           stamp="-p:Version=$VERSION -p:InformationalVersion=$VERSION"
-          for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
+          for rid in win-x64 linux-x64; do
             dotnet publish src/MphRead/MphRead.csproj -c Release -r "$rid" $stamp \
               --self-contained true -p:PublishSingleFile=true -o "publish/$rid"
           done
@@ -202,7 +236,7 @@ jobs:
       #
       # InstallAndroidDependencies rather than named sdkmanager packages: it
       # asks for whatever the project's TargetFramework declares, so bumping
-      # net9.0-android35.0 does not silently leave this behind.
+      # net10.0-android36.0 does not silently leave this behind.
       # The signing key, when there is one.
       #
       # This is what makes the in-app updater possible and it is not a
@@ -232,7 +266,8 @@ jobs:
 
       - name: publish the APK
         env:
-          VERSION: ${{ steps.name.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          ANDROID_VERSION_CODE: ${{ needs.resolve.outputs.android_version_code }}
           HAVE_KEYSTORE: ${{ steps.keystore.outputs.have }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -260,6 +295,7 @@ jobs:
             "${signing[@]}" \
             -p:Version="$VERSION" -p:InformationalVersion="$VERSION" \
             -p:ApplicationDisplayVersion="$VERSION" \
+            -p:ApplicationVersion="$ANDROID_VERSION_CODE" \
             -o publish/android
 
       # What the updater will compare against on every phone. Printed, not
@@ -284,14 +320,12 @@ jobs:
       - name: nothing from the game is in the output
         run: >
           tools/check-no-game-assets.sh publish/win-x64 publish/linux-x64
-          publish/osx-x64 publish/osx-arm64
           publish/linux-arm64 publish/win-x64-server publish/linux-x64-server
 
       # What a downloaded release is judged on: the maps are there and ready.
       - name: the custom maps reached every package
         run: >
-          for d in publish/win-x64 publish/linux-x64 publish/osx-x64
-          publish/osx-arm64 publish/linux-arm64; do
+          for d in publish/win-x64 publish/linux-x64 publish/linux-arm64; do
           tools/check-maps-shipped.sh "$d" || exit 1; done
 
       # A GUI game and a console server, which is what makes one
@@ -319,7 +353,7 @@ jobs:
 
       - name: package
         env:
-          TAG: ${{ steps.name.outputs.tag }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -377,34 +411,6 @@ jobs:
           NOTE
           ( cd publish/linux-x64 && tar czf "../../dist/FruityPrime-$TAG-linux-x64.tar.gz" . )
 
-          # The two macOS packages. Same note, and the same launcher: the
-          # front screen is Avalonia on every desktop now, so nothing about a
-          # mac build differs except its processor. Neither has been started
-          # by anybody -- see the known gaps in CLAUDE.md.
-          for rid in osx-x64 osx-arm64; do
-            cp LICENSE "publish/$rid/" 2>/dev/null || true
-            cat > "publish/$rid/README.txt" <<'NOTE'
-          Fruity Prime -- Metroid Prime Hunters, on a Mac, with multiplayer.
-
-          Set up with your own Metroid Prime Hunters cartridge dump (.nds).
-          It is unpacked next to this program and the file is left alone. No
-          game data is included in this download, and none is downloaded.
-
-            ./FruityPrime
-
-          opens the front screen: adventure, play online, play offline against
-          bots, host a game, settings, and the game-files setup.
-
-          macOS keeps downloaded programs quarantined. If it refuses to open
-          this one, clear the flag on the folder:
-
-            xattr -dr com.apple.quarantine .
-
-          F11 or Alt+Enter switches to fullscreen, Escape opens the pause menu.
-          NOTE
-            chmod +x "publish/$rid/FruityPrime" || true
-            ( cd "publish/$rid" && tar czf "../../dist/FruityPrime-$TAG-$rid.tar.gz" . )
-          done
           cat > publish/linux-arm64/SERVER.txt <<'NOTE'
           Fruity Prime dedicated server.
 
@@ -491,6 +497,72 @@ jobs:
           cp publish/android/*-Signed.apk "dist/FruityPrime-$TAG-android.apk"
           ls -la dist
 
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-desktop-android
+          path: dist/*
+          if-no-files-found: error
+
+  macos-release:
+    needs: resolve
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: osx-arm64
+            runner: macos-latest
+          - rid: osx-x64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: check sources and cook maps
+        run: |
+          set -euo pipefail
+          tools/check-no-game-assets.sh
+          tools/check-maps-shipped.sh
+          dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
+      - name: publish and verify macOS release
+        env:
+          RID: ${{ matrix.rid }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          dotnet publish src/MphRead/MphRead.csproj -c Release -r "$RID" \
+            -p:Version="$VERSION" -p:InformationalVersion="$VERSION" \
+            --self-contained true -p:PublishSingleFile=true -o "publish/$RID"
+          chmod +x "publish/$RID/FruityPrime"
+          tools/sign-macos.sh "publish/$RID"
+          tools/check-macos-build.sh "publish/$RID" "$RID"
+          tools/run-macos-smoke.sh "publish/$RID" "$RID"
+          python3 tools/test-compatibility-smoke.py "publish/$RID/FruityPrime"
+          tools/check-no-game-assets.sh "publish/$RID"
+          tools/check-maps-shipped.sh "publish/$RID"
+          tools/package-macos.sh "publish/$RID" dist "$RID" "$VERSION"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.rid }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [resolve, release, macos-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
       # A draft: everything is built and uploaded, and a person presses the
       # button. This is the one workflow whose output people download, and a
       # tag can be pushed by accident; a draft is the step where somebody reads
@@ -507,7 +579,7 @@ jobs:
       - name: release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.name.outputs.tag }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           set -euo pipefail
           cat > notes.md <<'NOTE'
@@ -518,7 +590,8 @@ jobs:
           and none is downloaded.
 
           - **Windows** -- the `win-x64` zip, run `FruityPrime.exe`
-          - **Linux / macOS** -- the `.tar.gz`, run `./FruityPrime -launcher`
+          - **Linux** -- the `.tar.gz`, run `./FruityPrime -launcher`
+          - **macOS** -- the matching `.tar.gz`, open `Fruity Prime.app`
           - **Android** -- the `.apk`
           - **Running a server** -- the `server-` packages, which need no game files
 

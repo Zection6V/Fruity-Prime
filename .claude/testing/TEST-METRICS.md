@@ -26,6 +26,12 @@ Key lines and their meaning
 | `jumppads 7 (7/7 launched)` | seven in the room, seven tried, seven launched the player standing on them |
 | `afflicted freeze 1 burn 2 disrupt 0` | how many players were frozen/burned/disrupted at least once during the run |
 | `(probe freeze ok burn nohit disrupt FAIL)` | the affliction probe: `ok` inflicted it, `nohit` the charged shot missed, `FAIL` hit with no state, `n/a` that hunter wasn't in the match |
+| `hit claims: N declared, A applied, D already resolved (P% stood)` | what this client asked the authority to make real and what came back. **`already resolved` is the healthy majority** -- the authority found the hit itself and the claim changed nothing -- and `applied` is a hit it never would have found. On loopback with no lag the split should be all `already resolved`: 56 received and 54 already resolved, measured. `refused` climbing is the number to chase; `unanswered` non-zero means verdicts are not arriving |
+| `hit claims (as authority): ... (X damage, K kills, H headshots rescued)` | the server's side, every 30 s in its log. These three are the complaint answered directly: each is a shot that landed on somebody's screen and would otherwise have counted for nothing |
+| `void (dead shooter)` | the kill arbitration refusing a shot whose shooter had already been put down in a strictly earlier world. **Not a fault** -- it is the rule working. Zero in every run so far, because nothing in the harness stages a mutual kill on purpose; `-hitrig duel` is what does |
+| `puppet smoothing: on, N frames of buffer` | the playout clock. `interpolated / held` is samples blended against samples that held a position; `starved` is the read point running past everything that arrived, and each one grows the buffer |
+| `% of frames still (longest run N)` in the smoothing line | **not a stutter measurement on its own.** A player standing still contributes still frames honestly and the tour has whole phases of it. Compare between two arms of the same scenario, never as an absolute -- and the same goes for `worst`, which a respawn fills with a room-sized step |
+| `clock snaps` in the smoothing line | read points put back rather than walked back. On a loaded box these are mostly *this* client failing to hold 60 Hz, not the line |
 
 Common traps
 
@@ -36,7 +42,7 @@ Common traps
 - A tolerance of 1.0 silently turns a check into decoration — if a check stops failing, make sure it can still fail.
 - Judging a Sylux against a Weavel's abilities: only three hunters lay bombs, only Weavel leaves a halfturret.
 - Testing a rotation with only one map in it misses nothing — testing it with only *more than one* map misses the "is this a new match" class of bug, which needs the single-map case too. Test both `maprotation-test.txt` (three maps) and `maprotation-one.txt` (one), each with a two-point goal so a match ends inside a run.
-- A run with match restarts in it is not a clean read of the tour: `NetTestScript`'s 15 phases key to the *server's* clock, and a restart resets it, so clients that finish loading a fraction of a second apart land in different phases. Expect `alt form`/`their form stayed wrong for N frames` failures a restart-free run doesn't produce — 181 frames in particular is the correction machinery's full budget working as designed (90 frames grace, a transition attempt, 90 more, then forced), and the check fails at 60, below that budget.
+- A run with match restarts in it is not a clean read of the tour: `NetTestScript`'s 15 phases key to the *server's* clock, and a restart resets it, so clients that finish loading a fraction of a second apart land in different phases. Form reconciliation now uses elapsed simulation frames: eight for a mismatch without a transition, then a bounded attempt/force fallback, while observed transitions receive a latency allowance. A `their form stayed wrong for N frames` result still needs a restart-free run to interpret.
 - Reading one client's column of a cross-check as a defect before checking the others: low for *every* observer is systematic (a rate, a sampling difference); low for one is that client's own story, usually a late join.
 - Comparing final scoreboards in any run where somebody leaves. A leaver's
   score is cleared on every other client (`NetSlotManager.Deactivate`, and
@@ -51,6 +57,19 @@ Common traps
   was reaching nobody. A cross-check is only worth having if the two sides can
   disagree: the owner's side now counts what it *decided* (`SpectatorMode`).
 - Reading `damage pipeline` as healthy just because both ends are non-zero: `25/0` against `0/258` is a byte counter that ran backwards and nearly wrapped forward, not noise on a working pipeline — the three-digit number is the tell.
+- **Reading any timing number from a run that shared the box.** Measured
+  2026-09-14: an unrelated 27-room `-maptest -players 8 -renderprobe` sweep in
+  another terminal took this machine from 4 GB free to 159 MB, and three
+  consecutive hitrig arms died mid-match with no exception, no report and a
+  debug log that simply stops — which reads exactly like a scenario that
+  produced nothing. `free -m` before a run, and again if an arm comes back
+  empty. The counts (claims, hits, kills) survive contention; the milliseconds
+  do not.
+- Reading `hit claims: N applied` on a clean line as the feature doing
+  something. It should be **zero** there: a claim only rescues what the
+  authority's own rewind could not reach, and on loopback it reaches
+  everything. `applied` climbing is a measurement of the line, not of the
+  code.
 
 ## Frame pacing verification (2026-09-05)
 
@@ -118,6 +137,65 @@ and the 24-unit guard only declines a reuse *further* away than that. A reuse
 nearer -- the common case in a firefight -- was blended between two unrelated
 places. Interpolation is gone entirely; `.claude/render/FRAME-PACING.md` has
 what it would take to bring it back.
+
+### Verified 2026-09-14 -- prediction retired by claim id, damage inputs replicated
+
+`run-check.sh 150 Samus Weavel Sylux` on this box (3 clients, nothing else
+running), against the local authoritative server:
+
+```
+0 mismatches, scoreboards agree (within 0 event)
+ALPHA    9 predicted, 9 confirmed (100%), 0 denied, 2 kills predicted, 0 undone
+BRAVO   10 predicted, 10 confirmed (100%), 0 denied, 1 kill predicted, 0 undone
+CHARLIE  6 predicted, 6 confirmed (100%), 0 denied
+```
+
+and the authority's own comparison of each client's number against its own,
+which is new (`NetHitClaims.DescribeAgreement`, on the `sim:` report):
+
+```
+sim: predicted vs resolved damage:
+sim:   PowerBeam   17 paired, 17 agreed (100%), 0 differed -- 102 claimed against 102 resolved
+sim:   Missile      1 paired,  1 agreed (100%), 0 differed --  48 claimed against  48 resolved
+sim:   ShockCoil    2 paired,  2 agreed (100%), 0 differed --   2 claimed against   2 resolved
+```
+
+Two things to read this with:
+
+- **Loopback cannot fail this test.** Every input the replication now carries
+  -- charge level, double damage, the alt-form ram, the damage level, the
+  affinity rule -- is identical on both machines when they are the same box
+  with the same settings file and a 1 ms round trip. 100% here says the
+  plumbing is right, not that the bug is gone; the case it was reported from is
+  a real line with jitter, which is `hard/run-latency.sh` and the Pi.
+- **`Predicted == Confirmed + Denied` holds again.** It did not: self-hits are
+  counted apart (`SelfPredicted`), and their timeouts were being counted in the
+  shared `Denied`, so a run with three unanswered rocket-jump splashes read
+  "13 predicted, 12 confirmed, 2 denied". The per-weapon breakdown is what made
+  it visible, since its columns add up to the aggregate exactly.
+
+A **four**-client run on this box, taken while two `dotnet publish` jobs were
+running, produced one `damage-taken` mismatch. That is the paragraph below,
+not a regression: read a mismatch count here only against a same-day run of
+the build being compared with.
+
+### Verified 2026-09-14 against the Japan server (250 ms, 3 clients)
+
+`run-jap.sh 180 Samus Weavel Sylux` against `13.78.14.98:27892`, which is the
+run that matters: loopback cannot fail the prediction tests, because every
+input is identical on both ends at 1 ms.
+
+```
+JP-A  21 predicted, 19 confirmed (90.5%), 2 denied, 2 kills predicted, 0 undone
+JP-B  35 predicted, 35 confirmed (100%),  0 denied, 3 kills predicted, 0 undone
+JP-C  89 predicted, 89 confirmed (100%),  0 denied, 2 kills predicted, 0 undone
+0 mismatches, scoreboards agree
+health bars: drawn low by 0 / 6 / 3 points (worst 0 / 6 / 1), high by 0
+```
+
+Against the same run before the floor was fixed: **2770 / 4369 / 4193 points
+low, worst 48 / 61 / 32**. See `NETWORK-PREDICTION.md`, *The floor was where the
+error actually lived*.
 
 ### The 6-client mismatch count on this box measures the box
 

@@ -63,7 +63,9 @@ namespace MphRead.Mods.Update
         {
             get
             {
-                if (OperatingSystem.IsAndroid() || !BuildVersion.IsRelease)
+                // Copying files into a signed app invalidates its resource seal.
+                // macOS updates use the release page and replace the whole app.
+                if (OperatingSystem.IsMacOS() || OperatingSystem.IsAndroid() || !BuildVersion.IsRelease)
                 {
                     return false;
                 }
@@ -334,6 +336,7 @@ namespace MphRead.Mods.Update
         /// </summary>
         public static void Clean()
         {
+            if (OperatingSystem.IsMacOS()) { return; }
             try
             {
                 if (Directory.Exists(Staging))

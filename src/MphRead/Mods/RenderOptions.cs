@@ -36,6 +36,49 @@ namespace MphRead.Mods
 
         public const int MinScale = 25;
 
+        /// <summary>
+        /// How wide the view is, in degrees, measured the way the game
+        /// measures it.
+        ///
+        /// The DS game is a 78: <c>PlayerValues.NormalFov</c> is 39 and every
+        /// camera doubles it. That is a narrow picture by the standards of
+        /// anything played with a mouse, and it is the single setting most
+        /// often asked for in a shooter -- so this is a multiplier on whatever
+        /// the camera asked for rather than a replacement for it. Zooming with
+        /// a weapon, the Judicator's scope and every scripted camera all move
+        /// <c>CameraInfo.Fov</c> themselves, and each of them keeps its
+        /// proportions: at 100 the zoom is as tight relative to the hip view
+        /// as it was on the cartridge.
+        ///
+        /// Clamped rather than free. Below about 60 the gun fills the screen;
+        /// above 120 the projection distorts badly enough at the edges that
+        /// aiming gets worse, not better.
+        /// </summary>
+        public static int FieldOfView
+        {
+            get => _fieldOfView;
+            set => _fieldOfView = Math.Clamp(value, MinFov, MaxFov);
+        }
+
+        private static int _fieldOfView = DefaultFov;
+
+        /// <summary>What the DS game plays at: NormalFov 39, doubled.</summary>
+        public const int DefaultFov = 78;
+
+        public const int MinFov = 60;
+        public const int MaxFov = 120;
+
+        /// <summary>
+        /// The multiplier a camera's own field of view is scaled by.
+        /// </summary>
+        public static float FovScale => _fieldOfView / (float)DefaultFov;
+
+        public static int ParseFov(string? value, int fallback)
+        {
+            return Int32.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture,
+                out int parsed) ? Math.Clamp(parsed, MinFov, MaxFov) : fallback;
+        }
+
         /// <summary>Per-vertex lighting. Off is flatter and cheaper.</summary>
         public static bool Lighting { get; set; } = true;
 

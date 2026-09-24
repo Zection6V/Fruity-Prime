@@ -1,3 +1,4 @@
+using MphRead.Mods.Multiplayer;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -277,6 +278,25 @@ namespace MphRead.Entities
         /// </summary>
         public float SwipeBoostX { get; set; }
         public float SwipeBoostY { get; set; }
+        /// <summary>
+        /// Frames of committed travel left on a boost a flick aimed, during
+        /// which the roll binds do not steer.
+        ///
+        /// Without it an aimed boost is undone by the player's own thumb
+        /// inside a quarter of a second, and the arithmetic is brutal: the
+        /// boost leaves at the cap, 0.6 a frame, and the roll adds 0.0339 a
+        /// frame across it -- but the speed clamp that follows keeps the
+        /// *magnitude* and lets the direction go, so every frame rotates the
+        /// velocity about three degrees towards wherever the ball is being
+        /// steered. Roll forward while flicking left and the dash is pointing
+        /// forward again 28 frames later, having drawn exactly the curve that
+        /// was reported as "I flick left and it goes diagonally forward". It
+        /// never came up on the cartridge because the boost there always went
+        /// where the ball was already going. Same shape as
+        /// <see cref="_jumpPadControlLock"/>, and for the same reason: an
+        /// impulse somebody else aimed is not a suggestion.
+        /// </summary>
+        private ushort _boostAimLock = 0;
         private ushort _altAttackCooldown = 0;
         private ushort _altAttackTime = 0;
         private float _altSpinSpeed = 0;
@@ -709,6 +729,10 @@ namespace MphRead.Entities
 
         public void Spawn(Vector3 pos, Vector3 facing, Vector3 up, NodeRef nodeRef, bool respawn)
         {
+            if (!Mods.Network.NetPlayerLifecycle.CanSpawn) return;
+            Mods.Network.NetPlayerLifecycle.OnSpawn(this);
+            Mods.Network.NetSession.ContinuousPhase.ResetSlot(SlotIndex);
+            Mods.Network.NetPlayerBridge.NoteSpawn(SlotIndex);
             // Before anything below reads Hunter: a player who asked to come
             // back as somebody else is changed here, so that the abilities,
             // the energy tank and the HUD this call sets up are the new
@@ -907,6 +931,7 @@ namespace MphRead.Entities
                 _spawnInvulnTimer = (ushort)(Values.SpawnInvulnerability * 2); // todo: FPS stuff
             }
             _boostCharge = 0;
+            _boostAimLock = 0;
             _altAttackCooldown = 0;
             _field4E8 = Vector3.Zero;
             _modelTransform = Matrix4.Identity;
@@ -1683,6 +1708,7 @@ namespace MphRead.Entities
 
         public void TakeDamage(uint damage, DamageFlags flags, Vector3? direction, EntityBase? source)
         {
+            using var predictedScores = new Mods.Network.NetDamage.PredictionScoreScope(Mods.Network.NetHitPrediction.Predicting);
             if (Mods.Network.NetDamage.Suppress(this, source, flags))
             {
                 return;
@@ -1754,7 +1780,10 @@ namespace MphRead.Entities
                 else if (source.Type == EntityType.Player)
                 {
                     attacker = (PlayerEntity)source;
-                    if (attacker._doubleDmgTimer > 0)
+                    // Not again for a rescued hit claim: the shooter's own
+                    // machine already doubled it before it sent the number.
+                    // Mods.Network.NetDamage.ApplyingClaim.
+                    if (attacker._doubleDmgTimer > 0 && !Mods.Network.NetDamage.ApplyingClaim)
                     {
                         damage *= 2;
                     }
@@ -1767,7 +1796,7 @@ namespace MphRead.Entities
             }
             bool ignoreDamage = false;
             if (GameState.SinglePlayer && IsBot && attacker == this || GameState.Teams && !GameState.FriendlyFire
-                && attacker != null && attacker != this && attacker.TeamIndex == TeamIndex)
+                && attacker != null && attacker != this && TeamRules.AreAllies(attacker.TeamIndex, TeamIndex))
             {
                 ignoreDamage = true;
                 damage = 0;
@@ -1786,7 +1815,9 @@ namespace MphRead.Entities
                     GameState.BeamDamageMax[attacker.SlotIndex]
                 );
             }
-            if (damage > 0)
+            // Likewise: the damage level is in the number a claim carries
+            // already. Mods.Network.NetDamage.ApplyingClaim.
+            if (damage > 0 && !Mods.Network.NetDamage.ApplyingClaim)
             {
                 damage = (uint)(damage * Metadata.DamageLevels[GameState.DamageLevel]);
                 if (damage == 0)
@@ -1841,8 +1872,12 @@ namespace MphRead.Entities
             }
             // todo?: something for wifi
             // else...
+            // beam.ModLaunchFrame identifies the *shot*, not the moment it
+            // landed, so the authority's record of this hit and a claim for the
+            // same shot can be paired however long the projectile was in the
+            // air. Mods.Network.NetHitClaims.
             Mods.Network.NetDamage.Note(this, attacker, beam?.Beam ?? BeamType.None, flags, direction,
-                damage, bomb != null);
+                damage, bomb != null, beam?.ModLaunchFrame ?? 0);
             // The last point at which the damage is final and the death has
             // not been decided: a hit this machine's own player has landed is
             // marked here, and a predicted one on somebody else is clamped
@@ -1850,7 +1885,10 @@ namespace MphRead.Entities
             // *this* player is not -- a fall into the void or a rocket jump at
             // low health kills on the frame it happens.
             // Mods.Network.NetHitPrediction.
-            Mods.Network.NetHitPrediction.NoteHit(this, attacker, flags, ref damage);
+            Mods.Network.NetHitPrediction.NoteHit(this, attacker, ref flags, ref damage,
+                beam?.Beam ?? BeamType.None, beam?.ModLaunchFrame ?? 0, beam?.Age ?? 0);
+            if (attacker != this)
+                Mods.Input.AimAssist.AimAssistTelemetry.Hit(attacker, beam?.Beam ?? BeamType.None, damage);
             bool dead = false;
             if (IsBot && GameState.SinglePlayer && AiData.Flags1 && _health <= AiData.HealthThreshold)
             {
@@ -1874,6 +1912,10 @@ namespace MphRead.Entities
                     _hidingTimer = 0;
                 }
             }
+            if (damage > 0 || dead)
+                ModControllerFeedback(dead ? Mods.Input.GamepadFeedback.Death
+                    : bomb != null || beam?.Beam == BeamType.Missile || beam?.Beam == BeamType.Magmaul ? Mods.Input.GamepadFeedback.Explosion
+                    : Mods.Input.GamepadFeedback.Damage);
             if (dead)
             {
                 // todo?: the game encodes the beam in the damage flags for wifi stuff
@@ -2252,7 +2294,7 @@ namespace MphRead.Entities
                         }
                         else
                         {
-                            if (attacker.TeamIndex == TeamIndex)
+                            if (TeamRules.AreAllies(attacker.TeamIndex, TeamIndex))
                             {
                                 GameState.FriendlyKills[attacker.SlotIndex]++;
                                 GameState.KillStreak[attacker.SlotIndex] = 0;

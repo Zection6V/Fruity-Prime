@@ -49,7 +49,17 @@ namespace MphRead.Mods.Network
             // disagreed about it would stop playing at different moments.
             // Applied whether or not the clock is, because the results
             // sequence below is exactly when the clock must be left alone.
-            if (state.PointGoal > 0 && GameState.PointGoal != state.PointGoal)
+            GameMode mode = Enum.IsDefined(typeof(GameMode), state.Mode)
+                ? (GameMode)state.Mode
+                : GameState.Mode;
+            if (MatchGoalRules.UsesTimeTarget(mode))
+            {
+                if (GameState.TimeGoal != state.PointGoal)
+                {
+                    GameState.TimeGoal = state.PointGoal;
+                }
+            }
+            else if (GameState.PointGoal != state.PointGoal)
             {
                 GameState.PointGoal = state.PointGoal;
             }
@@ -61,6 +71,25 @@ namespace MphRead.Mods.Network
             // switched the glitch off on its own would still be frozen through
             // the floor by a server that had not.
             GameState.ShadowFreeze = state.ShadowFreeze;
+            // And whether weapon pickups are the picking hunter's affinity
+            // variant, which is a different row of the damage table -- an
+            // affinity Battlehammer deals 18 where the plain one deals 12. The
+            // same argument again, and a sharper one, because this is
+            // multiplied into the damage itself: a client reading its own
+            // settings took a different amount off every victim's health than
+            // the authority did, ran them to the bottom of the bar a shot
+            // early, and predicted a kill the authority refused.
+            //
+            // Silence is not a no. A server built before this says nothing,
+            // and nothing means "keep playing by the local setting", exactly
+            // as before -- which is what StatesRules asks. The damage level
+            // travels in the same bits and is what marks the packet as
+            // stating anything at all, but it is not adopted here: it is
+            // pinned to medium on every machine. GameState.DamageLevel.
+            if (state.StatesRules)
+            {
+                GameState.AffinityWeapons = state.AffinityWeapons;
+            }
             // Not while the match is ending. MatchTime is the countdown the
             // results sequence itself runs on -- three seconds of the winner's
             // camera, then five of the scoreboard -- so adopting the server's
@@ -71,8 +100,13 @@ namespace MphRead.Mods.Network
                 _lastRoom = state.RoomKey;
                 return;
             }
-            // A time limit of zero means the server runs without one; leave
-            // the local clock alone rather than freezing it at zero.
+            // Negative is the engine/HUD's no-timer sentinel. Infinity cannot
+            // be converted to TimeSpan by the music and HUD timer paths.
+            if (NetSession.ActiveMatchDefinition is { TimeLimitSeconds: 0 } && !state.Ending)
+            {
+                GameState.MatchTime = -1;
+                return;
+            }
             if (state.TimeRemaining <= 0 && state.TimeElapsed <= 0)
             {
                 return;

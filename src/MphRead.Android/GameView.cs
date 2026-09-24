@@ -733,6 +733,7 @@ namespace MphRead.Droid
                 {
                     Scene = _build(_input, _size);
                     Scene.OnLoad();
+                    MphRead.Mods.Network.NetSession.MarkMatchLoaded();
                 }
                 catch (Exception ex)
                 {
@@ -741,6 +742,7 @@ namespace MphRead.Droid
                     // match with what went wrong on screen, rather than taking
                     // the process down from a thread nobody is watching.
                     Console.WriteLine($"[android] the match could not start: {ex}");
+                    MphRead.Mods.Network.NetSession.ReportMatchLoadFailed(ex.Message);
                     Scene = null;
                     _ended = true;
                     _onError(ex.Message);
@@ -782,6 +784,13 @@ namespace MphRead.Droid
                 {
                     ApplyInput();
                     scene.OnSimulationFrame();
+                    if (MphRead.Mods.Network.NetSession.Refused || MphRead.Mods.Network.NetSession.SessionTimedOut)
+                    { End(scene); return false; }
+                    if (MphRead.Mods.Network.NetSession.PersistentLobby && MphRead.Mods.Network.NetSession.IsInLobby)
+                    {
+                        End(scene, keepSession: true);
+                        return false;
+                    }
                 }
                 RequestFrameRate();
                 scene.OnDrawFrame();
@@ -791,6 +800,7 @@ namespace MphRead.Droid
                     return false;
                 }
                 scene.AfterRenderFrame();
+                DrawUi();
                 if (_display != null && _eglSurface != null
                     && !EGL14.EglSwapBuffers(_display, _eglSurface))
                 {
@@ -801,6 +811,102 @@ namespace MphRead.Droid
                     ReleaseSurface();
                 }
                 return true;
+            }
+
+            private byte[] _uiPixels = Array.Empty<byte>();
+            private int _uiVersion;
+            private int _uiDrawn;
+            private int _uiSkipped;
+            private int _uiHole;
+            private long _uiSaid;
+
+            /// <summary>
+            /// The launcher's own picture, over the finished frame -- which on
+            /// this head is the results panel and nothing else.
+            ///
+            /// The desktop does the same thing in the same place (see
+            /// RenderWindow.OnRenderFrame and Mods/Render/UiOverlay.cs). The
+            /// frame is rendered by Skia on the UI thread and comes across as
+            /// pixels; an unchanged version means the texture already on the
+            /// card is still the right one, which is most frames.
+            /// </summary>
+            // Frames the panel was composited on against frames it was not,
+            // while the engine says it is up: the split "the model appears and
+            // disappears" is a report of.
+            private void SayUi()
+            {
+                if (!MphRead.Mods.EndScreen.PanelUp)
+                {
+                    return;
+                }
+                long now = Environment.TickCount64;
+                if (_uiSaid == 0)
+                {
+                    _uiSaid = now;
+                    return;
+                }
+                if (now - _uiSaid < 1000)
+                {
+                    return;
+                }
+                _uiSaid = now;
+                MphRead.Mods.DebugLog.Line("ui", $"end panel drawn {_uiDrawn}, "
+                    + $"skipped {_uiSkipped}, hole {_uiHole}");
+                _uiDrawn = 0;
+                _uiSkipped = 0;
+                _uiHole = 0;
+            }
+
+            private void DrawUi()
+            {
+                AndroidUiSurface? surface = AndroidUiSurface.Current;
+                SayUi();
+                if (surface == null || !surface.Visible)
+                {
+                    _uiSkipped++;
+                    AndroidUiOverlay.Visible = false;
+                    MphRead.Scene.LauncherPreview = false;
+                    return;
+                }
+                _uiDrawn++;
+                if (MphRead.Mods.Render.HunterShot.HoleWanted)
+                {
+                    _uiHole++;
+                }
+                if (surface.TakeFrame(ref _uiPixels, ref _uiVersion, out int w, out int h))
+                {
+                    AndroidUiOverlay.Upload(_uiPixels, w, h);
+                }
+                AndroidUiOverlay.Visible = true;
+                AndroidUiOverlay.Draw(_size.X, _size.Y);
+                // The real hunter, *over* the screens rather than under them:
+                // the panel it stands in is opaque, so under is behind a card.
+                // The stand draws nothing where it goes (see HunterStand) and
+                // this fills that rectangle afterwards. Same order, same
+                // reason and the same call as the desktop's LauncherHunter.
+                if (MphRead.Mods.Render.HunterShot.HoleWanted && Scene != null)
+                {
+                    MphRead.Scene.LauncherPreview = true;
+                    MphRead.Scene.LauncherHunter = MphRead.Mods.Render.HunterShot.HoleHunter;
+                    MphRead.Scene.LauncherSuit = MphRead.Mods.Render.HunterShot.HoleSuit;
+                    MphRead.Scene.PreviewWanted = true;
+                    MphRead.Scene.PreviewLeft = MphRead.Mods.Render.HunterShot.HoleLeft;
+                    MphRead.Scene.PreviewTop = MphRead.Mods.Render.HunterShot.HoleTop;
+                    MphRead.Scene.PreviewRight = MphRead.Mods.Render.HunterShot.HoleRight;
+                    MphRead.Scene.PreviewBottom = MphRead.Mods.Render.HunterShot.HoleBottom;
+                    Scene.ModDrawPreviewAlone(_size);
+                }
+                else
+                {
+                    // The results HUD publishes a preview slot of its own and
+                    // is stepped whether or not it is drawn, so saying "not
+                    // this frame" has to be said to *both* of them or the
+                    // model turns up in the HUD's rectangle, over the
+                    // scoreboard, on a face of the panel that has no hunter on
+                    // it.
+                    MphRead.Scene.LauncherPreview = false;
+                    MphRead.Scene.PreviewWanted = false;
+                }
             }
 
             /// <summary>
@@ -851,7 +957,7 @@ namespace MphRead.Droid
                 }
             }
 
-            private void End(Scene scene)
+            private void End(Scene scene, bool keepSession = false)
             {
                 _ended = true;
                 scene.DoCleanup();
@@ -871,7 +977,8 @@ namespace MphRead.Droid
                     // the player on a dead view.
                     Console.WriteLine($"[android] the save could not be written: {ex}");
                 }
-                _onEnd();
+                if (keepSession) MainActivity.Instance?.RunOnUiThread(() => MainActivity.Instance?.EndMatchToLobby());
+                else _onEnd();
             }
 
             /// <summary>
@@ -1051,6 +1158,9 @@ namespace MphRead.Droid
                 // Start, on a pad, is the MENU button. Same call, same
                 // reason it is a request rather than a call: the menu is a
                 // view swap on the UI thread and this is the GL one.
+                if (MphRead.Mods.Chat.ChatBox.Composing && MphRead.Mods.Input.GamepadInput.TakePress(
+                    MphRead.Mods.Input.GamepadButtons.B | MphRead.Mods.Input.GamepadButtons.Start))
+                    MphRead.Mods.Chat.ChatBox.Cancel();
                 if (MphRead.Mods.Input.GamepadInput.TakeMenuPress())
                 {
                     _onPauseMenu();

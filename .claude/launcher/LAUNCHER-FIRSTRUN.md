@@ -14,3 +14,8 @@ Progress bar
 UI behaviour
 
 - During extraction the progress is drawn in the card; the console draws it with carriage returns only when stdout is a terminal. In a pipe or log the carriage return makes unreadable files.
+
+On macOS the extraction child and launcher use the same Application Support
+directory (`Mods/Platform/AppPaths.cs`), so paths.txt and extracted game files
+never modify the signed app. Existing portable data is not moved automatically;
+see `tools/macos-README.txt` for migration and whole-app updates.

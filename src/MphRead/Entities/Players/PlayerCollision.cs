@@ -831,7 +831,36 @@ namespace MphRead.Entities
                     {
                         factor = 2 * 2; // todo: FPS stuff
                     }
-                    position.Y += result.Plane.Y * v2 * factor;
+                    // A correction may not be a teleport. The factor above is
+                    // a gain on the penetration depth, and at 4x a ceiling it
+                    // is sound only while that depth is small -- which is the
+                    // case it was written for, a head brushing a corner. Deep
+                    // in a ceiling it is a catastrophe. On DUST2, jumping and
+                    // then morphing beside a crate drove Weavel's head 0.63
+                    // into the slab overhead, and 0.63 x 4 threw him 2.5 units
+                    // downward in one frame -- past the crate he was standing
+                    // on, which is 1.56 below. Nothing catches him after that,
+                    // because CheckSphereBetweenPoints discards every face
+                    // whose plane is behind the sweep's starting point, and
+                    // the starting point is now under the crate. He falls out
+                    // of the level.
+                    //
+                    // This is not a custom map's problem. The same inputs on
+                    // MP12 SIC TRANSIT produce the same shove and a 3.04 unit
+                    // drop in one frame, 0.66 of it below the floor; there it
+                    // happens that the floor catches him on the way, so it
+                    // reads as a lurch rather than as falling out. The gap
+                    // between the two is what the geometry happens to be,
+                    // not what the response is doing.
+                    //
+                    // Clamping to the collision radius keeps the gain intact
+                    // for every penetration the hack is actually about (under
+                    // a quarter of the radius it never binds) and costs a deep
+                    // one nothing but another frame to resolve in.
+                    // -altprobe is the measurement.
+                    float step = result.Plane.Y * v2 * factor;
+                    float reach = Fixed.ToFloat(IsAltForm ? Values.AltColRadius : Values.BipedColRadius);
+                    position.Y += Math.Clamp(step, -reach, reach);
                 }
                 float dot = Vector3.Dot(Speed, result.Plane.Xyz);
                 if (dot < 0)

@@ -496,14 +496,16 @@ namespace MphRead.Entities
             }
 
             // duplicated the last value for Guardian
+            // Insane (index 3) is the added difficulty tier: near-zero reaction jitter, everything else maxed out below
             private static readonly IReadOnlyList<IReadOnlyList<uint>> _botLevelRandomValues1
                 = [
                     [ 45, 45, 90, 45, 60, 45, 45, 45 ],
                     [ 15, 15, 10, 10, 10, 10, 10, 10 ],
-                    [ 7, 7, 2, 2, 2, 2, 2, 2 ]
+                    [ 7, 7, 2, 2, 2, 2, 2, 2 ],
+                    [ 1, 1, 1, 1, 1, 1, 1, 1 ]
                 ];
 
-            private static readonly IReadOnlyList<uint> _botLevelRandomValues2 = [150, 45, 10];
+            private static readonly IReadOnlyList<uint> _botLevelRandomValues2 = [150, 45, 10, 1];
 
             private void InitializeSub()
             {
@@ -515,7 +517,7 @@ namespace MphRead.Entities
                 else
                 {
                     // note: the game uses index 1, not index 2, for out-of-range bot levels
-                    int index = Math.Clamp(_player.BotLevel, 0, 2);
+                    int index = Math.Clamp(_player.BotLevel, 0, 3);
                     _field102C = _botLevelRandomValues1[index][(int)_player.Hunter] * 2; // todo: FPS stuff
                     _field1030 = _botLevelRandomValues2[index] * 2; // todo: FPS stuff
                 }
@@ -5406,12 +5408,13 @@ namespace MphRead.Entities
 
             private int Func3_213AFA0(AiContext context, AiPersonalityData5 param)
             {
-                return _player.BotLevel == 2 ? 1 : 0;
+                // Insane (BotLevel 3) takes the same personality-tree branch as Hard
+                return _player.BotLevel >= 2 ? 1 : 0;
             }
 
             private int Func3_213AF80(AiContext context, AiPersonalityData5 param)
             {
-                return _player.BotLevel != 2 ? 1 : 0; // inverted
+                return _player.BotLevel < 2 ? 1 : 0; // inverted
             }
 
             // todo: depending on what these are used for, we might need a hack for Guardians
@@ -6487,8 +6490,10 @@ namespace MphRead.Entities
             }
 
             // todo: member name -- dword_214C75C, dword_214C750
-            private static readonly IReadOnlyList<float> _dotValues = [255 / 256f, 3956 / 4096f, 3849 / 4096f];
-            private static readonly IReadOnlyList<float> _aimValues = [5, 15, 20];
+            // Insane (index 3): the dot threshold of -1 means the exact-angle branch is taken on effectively every
+            // frame instead of falling back to a fixed swing, i.e. the bot always turns exactly onto the target
+            private static readonly IReadOnlyList<float> _dotValues = [255 / 256f, 3956 / 4096f, 3849 / 4096f, -1f];
+            private static readonly IReadOnlyList<float> _aimValues = [5, 15, 20, 180];
 
             // todo: member name -- Func2145C14() updates X, Func21447E8() updates X and Y
             private void Func2145C14(Vector3 position)
@@ -6615,6 +6620,11 @@ namespace MphRead.Entities
                     }
                     else
                     {
+                        // Insane keeps Hard's interval here: this value doubles as the time base for the
+                        // velocity estimate below (field1020Diff), and shortening it further makes that
+                        // estimate noisy -- a one-frame sample divided by a near-zero time base wildly
+                        // overshoots the target's actual velocity, so shots lead way too far ahead and miss.
+                        // Insane's extra sharpness comes from zero aim deviation and zero shot delay instead.
                         _field1020 = 3 * 2; // todo: FPS stuff
                     }
                     if (_field1020 < _player._disruptedTimer)
@@ -6685,7 +6695,49 @@ namespace MphRead.Entities
                             {
                                 finalSpeed = weapon.UnchargedFinalSpeed / 4096f / 2; // todo: FPS stuff
                             }
-                            vec /= finalSpeed; // sktodo-ai: FPS stuff, by usage --> leading shots
+                            vec /= finalSpeed; // sktodo-ai: FPS stuff, by usage --> leading shots (single-iteration estimate)
+                            if (_player.BotLevel >= 3 && finalSpeed > 0)
+                            {
+                                // Insane only. Three separate fixes over the line above:
+                                //
+                                // 1. `targetVel` (== the original `vec`) is a finite difference of two positions
+                                // sampled `field1020Diff` frames apart, and that window is reset early whenever the
+                                // target turns more than 90 degrees relative to this bot -- exactly what "moving"
+                                // does most. A short or uneven sampling window turns a normal strafe into a wildly
+                                // overestimated instantaneous velocity, and that error is what gets multiplied by
+                                // the flight time below. Use the target's actual tracked velocity instead of a
+                                // two-sample guess: `PlayerEntity.Speed` is a real value the engine already keeps,
+                                // so there's nothing to estimate here at all.
+                                //
+                                // 2. `Speed` is in the DS-native "distance per old 30 Hz frame" scale (halved into
+                                // an actual per-tick move at PlayerInput.cs:2155, `Position + Speed / 2`), while
+                                // `finalSpeed` just above is already a few lines' worth of `/4096f/2` conversion
+                                // into "distance per CURRENT 60 Hz tick" -- confirmed against the real projectile
+                                // mover, BeamProjectileEntity.cs, which uses this same finalSpeed unhalved as its
+                                // per-tick `Velocity`. Multiplying a per-old-frame velocity by a per-tick flight
+                                // time (`muzzleDist / finalSpeed`, in ticks) silently doubles the lead distance --
+                                // one old frame is two ticks. This is the actual cause of "aims way ahead of a
+                                // moving target, worse at range": the bias is a flat 2x on the lead term, so it
+                                // grows with the flight time (i.e. with distance) and only shows up at all once the
+                                // target is actually moving. Halving `Speed` here converts it to the same per-tick
+                                // scale as `finalSpeed` before they're combined.
+                                //
+                                // 3. The line above also leads by (this weapon's speed) and the CURRENT distance
+                                // alone, which is only exact if the target's distance to the muzzle doesn't change
+                                // over the flight time -- true for a target moving side-on, false for one closing
+                                // or opening the range, and that error also grows with the flight time, i.e. with
+                                // distance. Re-derive the flight time from the predicted lead point instead of the
+                                // current position, and repeat: this converges on where a straight-line target at
+                                // its real velocity and this weapon's shot, at its real speed, actually meet.
+                                Vector3 realTargetVel = _targetPlayer.Speed / 2f;
+                                Vector3 lead = realTargetVel * (muzzleDist / finalSpeed);
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    float dist = (targetPos + lead - _player._muzzlePos).Length;
+                                    lead = realTargetVel * (dist / finalSpeed);
+                                }
+                                vec = lead;
+                            }
                         }
                         _field1048 = targetPos + vec;
                     }
@@ -6723,7 +6775,7 @@ namespace MphRead.Entities
                             v66 += targetDist / 9;
                         }
                     }
-                    else
+                    else if (_player.BotLevel == 2)
                     {
                         v52 = (dot1 * 0.2f) + 0.01f;
                         v66 = (dot2 * 0.2f) + 0.01f;
@@ -6732,6 +6784,12 @@ namespace MphRead.Entities
                             v52 += targetDist / 50;
                             v66 += targetDist / 50;
                         }
+                    }
+                    else
+                    {
+                        // Insane: no aim deviation at all -- a perfect, dead-on leading shot every time
+                        v52 = 0;
+                        v66 = 0;
                     }
                     if (_player._disruptedTimer > 0)
                     {
@@ -6902,9 +6960,13 @@ namespace MphRead.Entities
                 {
                     shotDelay = 15;
                 }
-                else
+                else if (_player.BotLevel == 2)
                 {
                     shotDelay = 5;
+                }
+                else
+                {
+                    shotDelay = 0; // Insane: fires the instant the weapon's own cooldown allows
                 }
                 if (Flags2.TestFlag(AiFlags2.Bit21))
                 {
@@ -7042,7 +7104,8 @@ namespace MphRead.Entities
                                 float distSqr = toTarget.LengthSquared;
                                 if (distSqr > 3 * 3 && _player.BotLevel == 0
                                     || distSqr > 11 && _player.BotLevel == 1
-                                    || distSqr > 13)
+                                    || distSqr > 13 && _player.BotLevel == 2
+                                    || distSqr > 400 && _player.BotLevel >= 3)
                                 {
                                     SetRandomDelay();
                                 }
@@ -9428,6 +9491,27 @@ namespace MphRead.Entities
                     {
                         FindEntityRef(AiEntRefType.Type5);
                         _node3C = _entityRefs.Field5;
+                    }
+                    else if (_player.BotLevel >= 3)
+                    {
+                        // Insane only: no health item is currently spawned anywhere in the room, so the vanilla
+                        // fallback below just gives up to the wander node. AiEntRefType.Type35 already computes
+                        // the health-specific spawn-aware search (the Field55 counterpart that also considers
+                        // points with nothing spawned yet), but it was never wired to a queued action, and every
+                        // other consumer of _itemSpawnC4 only navigates once a spawn's Item is actually live. Set
+                        // it and navigate regardless, so an Insane bot heads for where health will reappear.
+                        FindEntityRef(AiEntRefType.Type35);
+                        _itemSpawnC4 = _entityRefs.Field35;
+                        if (_itemSpawnC4 != null)
+                        {
+                            FindEntityRef(AiEntRefType.Type4);
+                            _node3C = _entityRefs.Field4;
+                        }
+                        else
+                        {
+                            FindEntityRef(AiEntRefType.Type0);
+                            _node3C = _entityRefs.Field0;
+                        }
                     }
                     else
                     {

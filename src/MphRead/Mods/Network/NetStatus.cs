@@ -19,6 +19,10 @@ namespace MphRead.Mods.Network
         private readonly string? _serverName;
         private readonly string? _message;
 
+        public SessionPhase Phase { get; init; }
+        public MatchFormat Format { get; init; }
+        public bool LobbyEnabled { get; init; }
+        public bool AllowJoinInProgress { get; init; }
         public bool Online { get; init; }
         public string RoomKey
         {
@@ -62,6 +66,17 @@ namespace MphRead.Mods.Network
         /// the number. See <see cref="NetLaunch.DescribeJoinFailure"/>.
         /// </summary>
         public int Protocol { get; init; }
+
+        /// <summary>
+        /// Whether this server will open a *new* match for you, on a port of
+        /// its own, beside the one it is already running.
+        ///
+        /// False for a server that did not say, and that is the right default:
+        /// hosting is off unless an admin passed <c>-hostports</c>, so silence
+        /// and no are the same answer -- unlike the directory's own flag,
+        /// where hosting is on by default and silence means "too old to say".
+        /// </summary>
+        public bool CanHost { get; init; }
 
         public static ServerStatus Offline(string message) => new()
         {
@@ -129,6 +144,7 @@ namespace MphRead.Mods.Network
                 while (DateTime.UtcNow < deadline)
                 {
                     byte[] reply = socket.Receive(ref from);
+                    if (!from.Equals(endPoint)) continue;
                     if (reply.Length >= 1 + ServerStatusPacket.Size
                         && reply[0] == (byte)PacketType.StatusReply)
                     {
@@ -175,6 +191,7 @@ namespace MphRead.Mods.Network
                 while (DateTime.UtcNow < deadline)
                 {
                     byte[] reply = socket.Receive(ref from);
+                    if (!from.Equals(endPoint)) continue;
                     if (reply.Length >= 1 && reply[0] == (byte)PacketType.Welcome)
                     {
                         welcomed = true;
@@ -271,6 +288,9 @@ namespace MphRead.Mods.Network
                 Latency = latency,
                 Legacy = legacy,
                 Protocol = status.Protocol,
+                Phase = status.Phase, Format = status.Format, LobbyEnabled = status.LobbyEnabled,
+                AllowJoinInProgress = status.AllowJoinInProgress,
+                CanHost = (status.Flags & ServerStatusPacket.FlagCanHost) != 0,
                 Message = message
             };
         }
@@ -282,10 +302,7 @@ namespace MphRead.Mods.Network
             var builder = new System.Text.StringBuilder(name.Length + 4);
             for (int i = 0; i < name.Length; i++)
             {
-                if (i > 0 && Char.IsUpper(name[i]))
-                {
-                    builder.Append(' ');
-                }
+                if (i > 0 && Char.IsUpper(name[i])) builder.Append(' ');
                 builder.Append(name[i]);
             }
             return builder.ToString();

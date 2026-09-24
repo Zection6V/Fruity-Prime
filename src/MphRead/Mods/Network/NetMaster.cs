@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace MphRead.Mods.Network
 {
@@ -89,6 +90,18 @@ namespace MphRead.Mods.Network
             _host = host;
             _port = port;
         }
+
+        /// <summary>
+        /// Where this one reports, so another can be made pointing at the same
+        /// directory.
+        ///
+        /// A reporter owns a socket and its own heartbeat clock, so a match a
+        /// server opens for somebody needs one of its own rather than a share
+        /// of this one -- it is a different server, on a different port, with
+        /// a different name.
+        /// </summary>
+        public string Host => _host;
+        public int Port => _port;
 
         /// <summary>Announce, if enough time has passed since the last one.</summary>
         public void Beat(double now, string serverName, ushort port, byte players,
@@ -544,18 +557,32 @@ namespace MphRead.Mods.Network
                 ? (GameMode)request.Mode
                 : GameMode.Battle;
             string name = request.ServerName.Length > 0 ? request.ServerName : "Hosted game";
-            var rotation = MapRotation.SingleMatch(request.RoomKey, mode,
-                request.TimeLimit, request.PointGoal);
+            // The asker's whole cycle when their launcher sent one, and the
+            // single map when it did not. A launcher built before rotations
+            // existed writes no tail at all, so this is the one branch that
+            // keeps every deployed client working unchanged.
+            MapRotation rotation = request.Rotation != null && request.Rotation.Count > 0
+                ? MapRotation.FromList(request.Rotation, request.TimeLimit, request.PointGoal)
+                : MapRotation.SingleMatch(request.RoomKey, mode,
+                    request.TimeLimit, request.PointGoal);
+            Guid ownerToken = request.Policy == ServerSessionPolicy.Lobby ? new Guid(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)) : Guid.Empty;
             var server = new DedicatedServer(port,
                 Math.Clamp((int)request.MaxPlayers, 2, MphRead.Entities.PlayerEntity.SlotCapacity),
                 rotation)
             {
                 ServerName = name,
+                SessionPolicy = request.Policy, Format = request.Format, OwnerToken = ownerToken,
                 // It lists itself the way any other server does, over the
                 // loopback -- which is exactly the case SetPublicAddress
                 // exists for.
-                Reporter = new MasterReporter("127.0.0.1", _port)
+                Reporter = new MasterReporter("127.0.0.1", _port),
+                // The directory runs one of these per hosted match, several at
+                // a time, in this one process -- and a process has one static
+                // NetSession, so it can run one match. The client that joins a
+                // hosted game runs it. See DedicatedServer.RunsTheMatch.
+                RunsTheMatch = false
             };
+            server.SetSessionOptions(request.RequireReady, request.AllowJoinInProgress);
             var cancel = new CancellationTokenSource();
             var entry = new Hosted
             {
@@ -598,8 +625,8 @@ namespace MphRead.Mods.Network
             }
             _hosted.Add(entry);
             Log($"started \"{name}\" on port {port} for {asker.Address} "
-                + $"({request.RoomKey}, {mode})");
-            return new HostReplyPacket { Started = true, Port = (ushort)port, Reason = "" };
+                + $"({request.RoomKey}, {mode}, {rotation.Entries.Count} map(s))");
+            return new HostReplyPacket { Started = true, Port = (ushort)port, Reason = "", OwnerToken = ownerToken };
         }
 
         private int FreeHostPort(double now)
@@ -782,6 +809,14 @@ namespace MphRead.Mods.Network
                     wire.Write(_scratch.AsSpan(offset));
                     offset += MasterEntryPacket.Size;
                 }
+                // What this directory can do, after the entries rather than
+                // in front of them. A launcher built before the byte existed
+                // stops reading once it has taken `count` entries and never
+                // sees it, so nothing needed a protocol bump -- and a launcher
+                // that does read it can tell "no directory answered" from "the
+                // directory answered and does not start games", which are the
+                // same empty list and completely different problems.
+                _scratch[offset++] = (byte)(CanHost ? MasterFlags.CanHost : 0);
                 _transport?.Send(sender, PacketType.MasterList, _scratch.AsSpan(0, offset));
                 sent += count;
             }
@@ -844,11 +879,42 @@ namespace MphRead.Mods.Network
     {
         public IReadOnlyList<MasterListing> Servers { get; init; }
         public bool Answered { get; init; }
+
+        /// <summary>
+        /// Whether this directory will start a game for somebody who cannot
+        /// open a port: true or false when it said, and **null when it did
+        /// not** -- a directory built before the flags byte existed.
+        ///
+        /// Three states rather than two, and the third is the one that
+        /// matters. Folding "did not say" into false was the conservative
+        /// reading and it was wrong: hosting is on by default and has to be
+        /// turned *off* with <c>-hostports none</c>, so every directory
+        /// deployed in the world hosts, and a launcher that reads silence as
+        /// "no" offers nothing to anybody until every one of them is
+        /// redeployed. A launcher reads it as "probably" instead -- see
+        /// <see cref="WillHost"/> -- because the cost of being wrong is a
+        /// clear refusal from the directory at the moment the player presses
+        /// the button, against a row that says "nobody" and explains nothing.
+        /// </summary>
+        public bool? CanHost { get; init; }
+
+        /// <summary>
+        /// Whether to offer this directory as a host: it said yes, or it is
+        /// too old to have said anything. Only an explicit no is a no.
+        /// </summary>
+        public bool WillHost => Answered && CanHost != false;
+    }
+
+    /// <summary>What a directory says about itself, in the byte after its list.</summary>
+    public static class MasterFlags
+    {
+        public const byte CanHost = 1;
     }
 
     /// <summary>What came back from asking the directory to start a game.</summary>
     public readonly struct HostedGame
     {
+        public Guid OwnerToken { get; init; }
         private readonly string? _host;
         private readonly string? _reason;
 
@@ -867,20 +933,310 @@ namespace MphRead.Mods.Network
         }
     }
 
+    /// <summary>
+    /// A machine that could run a match for somebody, and what it said when
+    /// it was asked.
+    /// </summary>
+    public readonly struct HostCandidate
+    {
+        private readonly string? _label;
+        private readonly string? _host;
+
+        /// <summary>What to call it on a list -- a server's own name where there is one.</summary>
+        public string Label
+        {
+            get => _label ?? "";
+            init => _label = value;
+        }
+
+        public string Host
+        {
+            get => _host ?? "";
+            init => _host = value;
+        }
+
+        public int Port { get; init; }
+
+        /// <summary>Whether a directory answered here at all.</summary>
+        public bool Answered { get; init; }
+
+        /// <summary>True, false, or null when nothing answered at all.</summary>
+        public bool? CanHost { get; init; }
+
+        /// <summary>Milliseconds to the answer, or -1.</summary>
+        public int Latency { get; init; }
+
+        public bool WillHost => Answered && CanHost != false;
+
+        /// <summary>
+        /// What to put against this row, in a player's words.
+        ///
+        /// It used to say "no directory here", which is true and useless:
+        /// nobody opening this screen has an opinion about directories, they
+        /// want to know whether they can put their game on this server. The
+        /// answer is the ping when they can and the reason when they cannot.
+        /// </summary>
+        public string Describe()
+        {
+            if (!Answered)
+            {
+                return "not answering";
+            }
+            string ping = Latency >= 0
+                ? Latency.ToString(System.Globalization.CultureInfo.InvariantCulture) + " ms"
+                : "-- ms";
+            return CanHost == false ? $"{ping} -- cannot open new games" : ping;
+        }
+    }
+
     /// <summary>The launcher's end: ask the directory who is up.</summary>
     public static class NetMasterClient
     {
         /// <summary>
-        /// Ask the directory to run a game, and get back where it is.
+        /// Every machine that might run a match, asked one by one.
+        ///
+        /// The list is derived rather than configured: the directory already
+        /// names every server that is up, and a box running a server is the
+        /// obvious box to also be running a directory -- so each listed
+        /// address is asked on the directory port as well, and whatever
+        /// answers goes on the list under that server's own name. A player
+        /// picking "Fruity Prime - Japan" to host on is then picking a place
+        /// they can already see and have already pinged.
+        ///
+        /// Nothing here needs deploying to *this* build. The moment a box in
+        /// the fleet gets a directory on a reachable 27889 it appears, and
+        /// until then it appears greyed with the reason -- which is a far
+        /// better answer than leaving it off the list, since "Japan is not
+        /// offered" and "Japan cannot host" are the same absence otherwise.
+        /// </summary>
+        /// <summary>
+        /// Ask who can open a match for you, and hand each answer over **as it
+        /// arrives**.
+        ///
+        /// The servers themselves are asked, on the port the browser already
+        /// pings them on -- not a directory beside each one. A server that
+        /// was started with <c>-hostports</c> says so in the flags byte of its
+        /// status reply, and it is the machine that would run the match, so
+        /// asking anything else was a layer of indirection with nothing in it.
+        /// The first shape of this put a second directory on every box: they
+        /// listed nothing (every relay reports to the one real directory) and
+        /// existed purely to be asked, which is a component invented to
+        /// satisfy a mistake.
+        ///
+        /// There is still exactly one directory in the world. It answers "who
+        /// is up"; each server answers "can you open me a game".
+        ///
+        /// Nothing here waits for anything, and that took three goes. Asking
+        /// one after another made the wait the slowest timeout *times* the
+        /// number of boxes; asking at once but returning a finished list made
+        /// it the slowest of them. A box that does not answer costs the full
+        /// timeout, so any design where an answer waits on a silence is always
+        /// as slow as its worst member. The server browser was the model: it
+        /// posts a row the moment that server replies.
+        /// </summary>
+        /// <param name="onFound">
+        /// Called once per machine, on a thread pool thread, in whatever order
+        /// they reply. A UI caller marshals it itself.
+        /// </param>
+        /// <param name="onDone">Called once, after the last one.</param>
+        public static void FindHosts(string masterHost, int masterPort,
+            Action<HostCandidate> onFound, Action? onDone = null, int timeoutMs = 1500)
+        {
+            Task.Run(() =>
+            {
+                try
+                {
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    MasterListResult listing = Query(masterHost, masterPort, timeoutMs);
+                    clock.Stop();
+                    // The directory itself is a candidate too, and not as a
+                    // special case: it is a machine with a port range that
+                    // will open a match for you, which is the whole
+                    // definition. It is simply the only one that was ever
+                    // *asked* before -- and it is also the one that can do it
+                    // today, since a relay needs a build carrying HostPool.
+                    onFound(new HostCandidate
+                    {
+                        Label = masterHost,
+                        Host = masterHost,
+                        Port = masterPort,
+                        Answered = listing.Answered,
+                        CanHost = listing.CanHost,
+                        Latency = listing.Answered ? (int)clock.ElapsedMilliseconds : -1
+                    });
+                    var jobs = new List<Task>();
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (MasterListing server in listing.Servers
+                        ?? Array.Empty<MasterListing>())
+                    {
+                        if (server.Address.Length == 0
+                            || !seen.Add($"{server.Address}:{server.Port}"))
+                        {
+                            continue;
+                        }
+                        MasterListing row = server;
+                        jobs.Add(Task.Run(() =>
+                        {
+                            var clock = System.Diagnostics.Stopwatch.StartNew();
+                            ServerStatus status;
+                            try
+                            {
+                                status = NetStatus.Query(row.Address, row.Port,
+                                    allowJoinProbe: false);
+                            }
+                            catch (Exception)
+                            {
+                                status = default;
+                            }
+                            clock.Stop();
+                            onFound(new HostCandidate
+                            {
+                                Label = row.ServerName.Length > 0
+                                    ? row.ServerName : row.Endpoint,
+                                Host = row.Address,
+                                Port = row.Port,
+                                Answered = status.Online,
+                                CanHost = status.Online ? status.CanHost : null,
+                                Latency = status.Online
+                                    ? (status.Latency >= 0
+                                        ? status.Latency : (int)clock.ElapsedMilliseconds)
+                                    : -1
+                            });
+                        }));
+                    }
+                    Task.WhenAll(jobs).ContinueWith(_ => Safely(onDone));
+                }
+                catch (Exception)
+                {
+                    // Every probe swallows its own failure, so this is only
+                    // reached if something upstream threw. The caller still
+                    // has to be told the asking is over, or its screen sits
+                    // on "asking..." with no way out.
+                    Safely(onDone);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Add a candidate to a list, or replace the one already standing for
+        /// the same machine.
+        ///
+        /// One row per machine, not per port. The Pi reaches a host list twice
+        /// -- as the directory on 27889 and as a relay on 27888 -- and they are
+        /// one box: offering both is offering a choice that is not one. The
+        /// row that can actually open a game wins, since that is the only
+        /// difference a player would ever see.
+        ///
+        /// Shared by the screen and by <c>-hosts</c> so the diagnostic cannot
+        /// drift from the picture it exists to check.
+        /// </summary>
+        public static void Merge(List<HostCandidate> into, HostCandidate candidate)
+        {
+            string machine = Resolve(candidate.Host);
+            for (int i = 0; i < into.Count; i++)
+            {
+                if (!String.Equals(Resolve(into[i].Host), machine,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (candidate.WillHost && !into[i].WillHost)
+                {
+                    into[i] = candidate;
+                }
+                return;
+            }
+            into.Add(candidate);
+        }
+
+        private static void Safely(Action? action)
+        {
+            try
+            {
+                action?.Invoke();
+            }
+            catch (Exception)
+            {
+                // A caller's own failure is not this one's to report.
+            }
+        }
+
+        /// <summary>
+        /// Ask one machine whether it runs a directory, and what it knows.
+        ///
+        /// Never throws: every failure is an unanswered candidate, which is a
+        /// row on the screen rather than a screen that never finishes.
+        /// </summary>
+        private static (HostCandidate, MasterListResult) Probe(string host, int port,
+            int timeoutMs, string label)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            MasterListResult answer;
+            try
+            {
+                answer = Query(host, port, timeoutMs);
+            }
+            catch (Exception)
+            {
+                answer = new MasterListResult
+                {
+                    Servers = Array.Empty<MasterListing>(),
+                    Answered = false
+                };
+            }
+            clock.Stop();
+            return (new HostCandidate
+            {
+                Label = label,
+                Host = host,
+                Port = port,
+                Answered = answer.Answered,
+                CanHost = answer.CanHost,
+                Latency = answer.Answered ? (int)clock.ElapsedMilliseconds : -1
+            }, answer);
+        }
+
+        /// <summary>
+        /// The IPv4 behind a name, or the name itself when it has none.
+        ///
+        /// Only ever used as a key for telling two candidates apart. The
+        /// probe resolves again on its own, so a name that starts pointing
+        /// somewhere else between the two is a wrong row, not a wrong
+        /// connection.
+        /// </summary>
+        private static string Resolve(string host)
+        {
+            try
+            {
+                IPAddress[] found = Dns.GetHostAddresses(host);
+                IPAddress? ipv4 = Array.Find(found,
+                    a => a.AddressFamily == AddressFamily.InterNetwork);
+                return ipv4?.ToString() ?? host;
+            }
+            catch (Exception)
+            {
+                return host;
+            }
+        }
+
+        /// <summary>
+        /// Ask a machine to open a game, and get back where it is.
+        ///
+        /// Addressed to whoever will run the match: the directory on its own
+        /// port, or -- since servers answer this too -- a game server on the
+        /// port the browser already pings it on. The caller picks; this only
+        /// sends.
         ///
         /// This is hosting for somebody whose router will not forward a port,
-        /// which is most people: the match runs on the directory's machine,
+        /// which is most people: the match runs on somebody else's machine,
         /// and the person who asked for it joins by connecting outwards like
         /// everybody else. Nothing has to reach into their network at all.
         /// </summary>
         public static HostedGame RequestGame(string masterHost, int masterPort,
             string roomKey, GameMode mode, float timeLimit, int pointGoal,
-            int maxPlayers, string serverName, int timeoutMs = 6000)
+            int maxPlayers, string serverName, int timeoutMs = 6000,
+            IReadOnlyList<(string RoomKey, GameMode Mode)>? rotation = null,
+            ServerSessionPolicy policy = ServerSessionPolicy.Continuous)
         {
             IPEndPoint endPoint;
             try
@@ -911,9 +1267,11 @@ namespace MphRead.Mods.Network
                     TimeLimit = (ushort)Math.Clamp((int)timeLimit, 0, UInt16.MaxValue),
                     PointGoal = (ushort)Math.Clamp(pointGoal, 0, UInt16.MaxValue),
                     RoomKey = roomKey,
-                    ServerName = serverName
+                    ServerName = serverName,
+                    Policy = policy, AllowJoinInProgress = true, RequireReady = true,
+                    Rotation = rotation
                 };
-                var datagram = new byte[1 + HostRequestPacket.Size];
+                var datagram = new byte[1 + request.Length];
                 datagram[0] = (byte)PacketType.HostRequest;
                 request.Write(datagram.AsSpan(1));
                 socket.Send(datagram, datagram.Length, endPoint);
@@ -923,7 +1281,7 @@ namespace MphRead.Mods.Network
                 {
                     byte[] reply = socket.Receive(ref from);
                     if (reply.Length < 1 + HostReplyPacket.Size
-                        || reply[0] != (byte)PacketType.HostReply)
+                        || reply[0] != (byte)PacketType.HostReply || !from.Equals(endPoint))
                     {
                         continue;
                     }
@@ -931,6 +1289,7 @@ namespace MphRead.Mods.Network
                     return new HostedGame
                     {
                         Started = answer.Started,
+                        OwnerToken = answer.OwnerToken,
                         Host = masterHost,
                         Port = answer.Port,
                         Reason = answer.Reason
@@ -957,6 +1316,7 @@ namespace MphRead.Mods.Network
         {
             var found = new List<MasterListing>();
             bool answered = false;
+            bool? canHost = null;
             IPEndPoint endPoint;
             try
             {
@@ -1021,6 +1381,13 @@ namespace MphRead.Mods.Network
                             Protocol = entry.Protocol
                         });
                     }
+                    // The flags byte, when this directory is new enough to
+                    // have written one. Left null when it is not, which is a
+                    // third answer and not a no -- see MasterListResult.CanHost.
+                    if (offset < reply.Length)
+                    {
+                        canHost = (reply[offset] & MasterFlags.CanHost) != 0;
+                    }
                     if (total == 0)
                     {
                         break;
@@ -1035,7 +1402,12 @@ namespace MphRead.Mods.Network
             catch (Exception)
             {
             }
-            return new MasterListResult { Servers = found, Answered = answered };
+            return new MasterListResult
+            {
+                Servers = found,
+                Answered = answered,
+                CanHost = canHost
+            };
         }
     }
 }

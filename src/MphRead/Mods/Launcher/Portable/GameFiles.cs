@@ -24,15 +24,15 @@ namespace MphRead.Mods.Launcher
     public static class GameFiles
     {
         /// <summary>
-        /// Where paths.txt sits. The directory the program was started from
-        /// everywhere but Android, where the package's own directory is
+        /// Where paths.txt sits: Application Support on macOS, beside the
+        /// executable on Windows/Linux. Android's package directory is
         /// read-only and the files a player copies onto the device land
         /// somewhere else entirely -- the head sets this before the first
         /// screen is built, the same way it does LauncherPrefs.Directory.
         /// Whoever sets it must also make it the working directory, since
         /// upstream's Paths reads paths.txt relative to that.
         /// </summary>
-        public static string Root { get; set; } = AppContext.BaseDirectory;
+        public static string Root { get; set; } = Platform.AppPaths.UserDataDirectory;
 
         private static string PathsFile => Path.Combine(Root, "paths.txt");
 
@@ -114,6 +114,18 @@ namespace MphRead.Mods.Launcher
         /// </summary>
         public static bool RunSetup(string romPath, Action<string> report)
         {
+            // Checked here rather than in each caller, since the GUI file
+            // picker, the text launcher's path prompt and Android's in-process
+            // setup all funnel through this one entry point. A file that
+            // isn't one of the seven known dumps is refused before anything
+            // is extracted -- see RomWhitelist.
+            if (!RomWhitelist.TryIdentify(romPath, out string? label))
+            {
+                report("This .nds file doesn't match a known Metroid Prime Hunters "
+                    + "dump (checked by MD5) -- nothing was extracted.");
+                return false;
+            }
+            report($"Recognised: Metroid Prime Hunters, {label}");
             if (InProcessSetup)
             {
                 return RunSetupHere(romPath, report);

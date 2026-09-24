@@ -58,6 +58,14 @@ and the old objection -- "a reimplementation on the server would be a second
 answer free to disagree with the first" -- disappears: it is the same answer,
 compiled from the same file.
 
+Spire's alt attack has one simulation-owned exception to the old draw-derived
+pose: after the alt animation frame update, `PlayerProcess` animates its rock
+nodes and stores both world-space collision positions. `PlayerDraw` animates
+the nodes again for the picture but does not write collision positions. This
+keeps the headless server's slam collision current without changing the startup
+positions set when the attack begins or the render transforms. The
+`-spireposecheck` headless probe verifies moving rock positions with no draw.
+
 | Piece | What it does |
 |---|---|
 | `Mods.Headless.Active` | one switch, in the shape `ThumbnailMode` established. Turns off only work whose output is a picture, a sound or an answer to a person |
@@ -229,26 +237,54 @@ reported *"their form stayed wrong for 78 frames in a row -- authority wanted
 biped, puppet alt/Morph/ended"*. In the relay run ALPHA does not report it
 because ALPHA **is** the authority, and `NetFeatureCheck` skips this check on
 the authority: it is the one machine with nothing to compare against.
-`NetPlayerBridge` reconciles a puppet's form against `IntentButtons.AltFormState`
-**only on the authority**, deliberately -- a client doing it too would take
-form corrections from the owner's intent and the authority's snapshot at once,
-and the two disagree for as long as the authority takes to converge.
+At the time of this run, `NetPlayerBridge` reconciled a puppet's form against
+`IntentButtons.AltFormState` only on the authority. Clients replayed the morph
+press but had no snapshot-based correction.
 
 So the refactor did not create this. It removed slot 0's exemption from it:
-what ALPHA now reports is what the other seven players have always seen. What
-it does raise is a fair follow-up -- with the authority no longer a player,
-the "two sources" objection is weaker, and clients reconciling form from the
-snapshot may now be safe. That is a change to make with a measurement, not
-because it sounds right.
+what ALPHA reported is what the other seven players had already seen. The
+current bridge reconciles the owner's form state on the authority and
+the authority's snapshot on each client. The transition-aware guard lets a
+puppet finish morphing while an older state is still in flight, then corrects
+a lasting mismatch. This 78-frame result predates that change; a restart-free
+latency run is still needed to measure it in play. See
+`NETWORK-DIAGNOSTICS.md` and `.claude/KNOWN-GAPS.md`.
+
+## The relay is gone from a dedicated server, and not from the other two
+
+`RunsTheMatch` defaults to true and the standalone `-server` path never changes
+it, so a dedicated server simulates or does not start. `-simulate` and
+`-authority` are accepted and do nothing, which is what keeps every systemd
+unit and launch script already deployed starting after the update.
+
+**The client-authority path is still there, and it has to be**, because
+`DedicatedServer` is instantiated in two other places that cannot simulate:
+
+| Caller | What it is | Why not |
+|---|---|---|
+| `NetHostSession` | "Host: this computer" -- a server on a thread inside the host's own game | the player who started it already owns the process's session |
+| `NetMaster` | "Host: online" -- one server per hosted match, several at a time, in the directory's process | one process, several matches |
+
+The reason is the same for both and it is that **`NetSession` is static**:
+`ServerSim.Start` calls `NetSession.StartServerAuthority`, and a process has
+exactly one session, so it can run exactly one match. For those two, a client
+running the match is not a fallback -- it is how hosting works, and deleting
+`PacketType.Authority` would delete hosting rather than the relay.
+
+Removing it everywhere means an instance-based `NetSession`. That is a real
+piece of work -- the network state is static end to end, and every hook, the
+unlagged history, the damage pipeline and the prediction all read it as a
+global -- and it should not be started as a side effect of anything else.
 
 ## What is still owed
 
-- **The game files.** A simulating server needs them, and "a dedicated server
-  needs no game files" has been true of every build so far. `ServerSim.Available`
-  is the whole of the concession: without them the server says so at startup
-  and relays exactly as before. Shipping them is not an option
-  (`tools/check-no-game-assets.sh`), so today this is a server whose operator
-  has a dump on the box.
+- **The game files, and they are now required.** A simulating server needs
+  them, and "a dedicated server needs no game files" was true of every build up
+  to and including v0.8.0. It is not true any more: `RunsTheMatch` defaults to
+  true, `ServerSim.Available` is checked at startup, and a server without them
+  **exits 1 with the reason** rather than relaying. Shipping them is not an
+  option (`tools/check-no-game-assets.sh`), so this is a server whose operator
+  has a dump on the box. `SERVER.md` says so on the first screen.
 
   **What a simulating server actually needs is 52 MB**, not the 103 MB of a
   full extraction, found by pruning until it stopped loading and then checking

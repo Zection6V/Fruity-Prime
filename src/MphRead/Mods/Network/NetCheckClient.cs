@@ -125,7 +125,11 @@ namespace MphRead.Mods.Network
             // game sets this and these windows did not.
             Flags = ContextFlags.Default,
             APIVersion = new Version(3, 2),
-            StartVisible = false
+            // Visible only for -hudshots, which reads the window's own buffer
+            // rather than the scene's offscreen target: the HUD is composited
+            // into the frame and a hidden window has no usable back buffer
+            // under Mesa. MapAudit's arrangement, for its reason.
+            StartVisible = ShowWindow
         };
 
         public Scene Scene { get; }
@@ -180,10 +184,22 @@ namespace MphRead.Mods.Network
             if (_shotDirectory != null && _frame % 120 == 0)
             {
                 string path = Path.Combine(_shotDirectory, $"{_name}-{_shots:00}.png");
-                if (ScreenCapture.Save(Scene, path))
+                if (Capture(path))
                 {
                     _shots++;
                     _litFraction = Math.Max(_litFraction, ScreenCapture.NonBlackFraction(Scene));
+                }
+            }
+            // The results screen, which is the one picture of this client that
+            // is entirely HUD: the scoreboard, the hunter picker and the map
+            // ballot under it. Every second of it, because the ballot fills in
+            // as the votes arrive and the last frame is the one worth having.
+            if (_shotDirectory != null && ShowWindow && EndScreen.Available
+                && _frame % 60 == 0 && _endShots < 12)
+            {
+                if (Capture(Path.Combine(_shotDirectory, $"{_name}-end-{_endShots:00}.png")))
+                {
+                    _endShots++;
                 }
             }
             // A frame with an opponent centred and close is the picture worth
@@ -367,9 +383,76 @@ namespace MphRead.Mods.Network
 
         private bool _rebound;
 
+        private int _endShots;
+
+        /// <summary>
+        /// The window when it is visible, the scene's own target when it is
+        /// not. Only the first carries the HUD.
+        /// </summary>
+        private bool Capture(string path)
+        {
+            return ShowWindow
+                ? ScreenCapture.SaveWindow(Scene, path)
+                : ScreenCapture.Save(Scene, path);
+        }
+
+        private int _mapVotesCast;
+        private int _mapVotesCarried;
+        private string _lastBallotRoom = "";
+
+        /// <summary>
+        /// Vote on the results screen, and report whether the server did what
+        /// the room asked.
+        ///
+        /// It votes the way the feature is meant to be used rather than the
+        /// way that is easiest to script: **agree with whatever is already in
+        /// front, and propose row N only when nothing is**. That is the shape
+        /// of the thing -- one player proposes, the rest validate -- and it is
+        /// also the only rule that converges, since a map with a vote is
+        /// pulled to the top of everybody's list and a client picking "row 1"
+        /// after somebody else has voted would be picking a different map than
+        /// the one they meant to agree with.
+        ///
+        /// The measurement is the second half: NextRoomKey is derived from the
+        /// server's rotation, not from the ballot, so it coming round to the
+        /// map the room picked is the whole path in one check -- the picks
+        /// reach the server, the count clears the threshold, the rotation
+        /// borrows a turn, and the map everybody loads is the one they chose.
+        /// </summary>
+        private void VoteOnMap()
+        {
+            if (MapVoteRow < 0 || !MapPick.Available)
+            {
+                return;
+            }
+            string want = MapPick.Order[0];
+            if (MapPick.VotesFor(want) == 0)
+            {
+                // Nothing proposed yet: propose one.
+                want = MapPick.Order[Math.Min(MapVoteRow, MapPick.Order.Count - 1)];
+            }
+            if (!String.Equals(MapPick.Picked, want, StringComparison.OrdinalIgnoreCase))
+            {
+                if (want != _lastBallotRoom)
+                {
+                    _lastBallotRoom = want;
+                    _mapVotesCast++;
+                    Console.WriteLine($"[mapvote] {_name} picked {want}");
+                }
+                MapPick.Choose(MapPick.IndexOf(want));
+            }
+            if (String.Equals(EndScreen.NextRoomKey, want, StringComparison.OrdinalIgnoreCase)
+                && _mapVotesCarried < _mapVotesCast)
+            {
+                _mapVotesCarried++;
+                Console.WriteLine($"[mapvote] {_name} sees the server agree: next is {want}");
+            }
+        }
+
         private void Observe()
         {
             _opponentInView = false;
+            VoteOnMap();
             if (Scene.RoomId != _lastRoomId)
             {
                 if (_lastRoomId != -1)
@@ -588,11 +671,52 @@ namespace MphRead.Mods.Network
             // Only the authority rewinds anything, so on every other client
             // this line reads "nothing to compensate" and says so honestly
             // rather than looking like a zero.
+            Console.WriteLine(NetShotDiagnostics.Describe());
+            Console.WriteLine(NetTimingDiagnostics.Describe());
             Console.WriteLine($"  {NetUnlagged.Describe()}");
+            Console.WriteLine($"  {NetUnlagged.DescribeDepths()}");
             Console.WriteLine($"  {NetHitPrediction.Describe()}");
+            Console.WriteLine($"  {NetHitPrediction.DescribeHeadshots()}");
+            // And the same tally a weapon at a time, which is the only form
+            // of it that can answer "the prediction is wrong with X": one
+            // weapon resolving differently on the authority is invisible in an
+            // aggregate dominated by whatever was fired most.
+            Console.WriteLine($"  {NetHitPrediction.DescribeHealth()}");
+            Console.WriteLine($"  {NetHitPrediction.DescribeDamageLedger()}");
+            foreach (string line in NetHitPrediction.DescribeByWeapon().Split('\n'))
+            {
+                Console.WriteLine($"  {line}");
+            }
+            // What this machine asked the authority to make real, and what it
+            // said back. The number that answers "I shot him and nothing
+            // happened" directly, rather than by inference from a hit rate:
+            // every claim is a hit this client resolved, and every verdict is
+            // the authority agreeing, saying it had already found it, or
+            // saying why not. NetHitClaims.
+            string? claims = NetHitClaims.Describe();
+            if (claims != null)
+            {
+                Console.WriteLine($"  {claims}");
+            }
+            // And how the opponents actually moved, which is the other half of
+            // the same complaint. NetSmoothing.
+            string? smoothing = NetSmoothing.Describe();
+            if (smoothing != null)
+            {
+                Console.WriteLine($"  {smoothing}");
+            }
+            if (HitRig.Active)
+            {
+                Console.WriteLine($"  {HitRig.Describe()}");
+            }
             Console.WriteLine($"  room: {Metadata.GetRoomById(Scene.RoomId, noThrow: true)?.Name ?? "?"} "
                 + $"(server says {NetSession.ServerMatch?.RoomKey ?? "?"}), "
                 + $"{_roomChanges} rotation(s) followed");
+            if (MapVoteRow >= 0)
+            {
+                Console.WriteLine($"  map votes: {_mapVotesCast} cast, "
+                    + $"{_mapVotesCarried} carried by the server");
+            }
             Console.WriteLine($"  packets: snapshots sent={NetSession.SnapshotsSent} "
                 + $"received={NetSession.SnapshotsReceived} "
                 // Reordered snapshots this client refused. Not loss: these
@@ -725,6 +849,30 @@ namespace MphRead.Mods.Network
                     + (Passed ? "" : "no other player was on the map and moving; ")
                     + $"{featureFailures} feature(s) did not cross");
         }
+
+        /// <summary>
+        /// Which row of the results screen's map ballot this client votes for,
+        /// or -1 to leave it alone.
+        ///
+        /// Off by default, and that is not timidity: a scripted client that
+        /// votes changes the map a *real* server plays next, and the hard-case
+        /// batch runs against the public one. The rotation check turns it on,
+        /// which is the run where a vote is the thing being measured.
+        /// </summary>
+        public static int MapVoteRow { get; set; } = -1;
+
+        /// <summary>
+        /// Photograph the window rather than the scene: `-hudshots`.
+        ///
+        /// Everything this harness draws that is *not* the world lives in the
+        /// HUD -- the scoreboard, the chat box, the hunter picker, the map
+        /// ballot -- and none of it has ever been photographable from a
+        /// networked client, because <c>ScreenCapture.Save</c> reads the
+        /// scene's offscreen target and the HUD is composited after it. The
+        /// results screen is the extreme case: it is HUD and nothing else.
+        /// Needs a display; Xvfb is one.
+        /// </summary>
+        public static bool ShowWindow { get; set; }
 
         public static int Run(string host, int port, string name, Hunter hunter, double seconds,
             string? shotDirectory, int width, int height, bool recordDemo = false,

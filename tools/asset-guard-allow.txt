@@ -30,3 +30,13 @@ src/MphRead.Native/Assets/fruity-prime-intro.png
 # fruity-prime-mark.png above, committed so a build needs no image tooling.
 src/MphRead.Android/Resources/mipmap-*/appicon.png
 src/MphRead.Android/Resources/mipmap-*/appicon_foreground.png
+
+# The launcher's backdrop: a frame of MP3 PROVING GROUND photographed through
+# this program, with the collision volumes drawn over it. Exempted on the
+# project owner's decision, and it is the one entry here that is not simply
+# ours -- the geometry and the textures under the wireframe came off the
+# cartridge, which is what the guard refused it for. It is listed by its exact
+# path rather than by a glob over the folder, so a second picture dropped in
+# beside it is refused the way this one was and gets the same decision made
+# about it on purpose.
+src/MphRead/Assets/Backgrounds/launcher-bg.jpg

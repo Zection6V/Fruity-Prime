@@ -33,6 +33,7 @@ namespace MphRead.Mods.Launcher.Gui
         private int _value;
         private bool _dragging;
         private bool _hot;
+        private readonly Tap _tap = new();
 
         public event EventHandler? ValueChanged;
 
@@ -89,18 +90,36 @@ namespace MphRead.Mods.Launcher.Gui
             Value = _min + (int)Math.Round(Math.Clamp(fraction, 0, 1) * (_max - _min));
         }
 
+        private void BeginDrag(PointerEventArgs e, Point p)
+        {
+            _dragging = true;
+            // Captured so a drag that leaves the row keeps moving the
+            // value: letting go of a slider two pixels above the track is
+            // not a gesture anybody means.
+            e.Pointer.Capture(this);
+            SetFromPointer(p.X);
+        }
+
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             Focus();
             Point p = e.GetPosition(this);
-            if (p.X >= _labelWidth && IsEnabled)
+            if (p.X < _labelWidth || !IsEnabled)
             {
-                _dragging = true;
-                // Captured so a drag that leaves the row keeps moving the
-                // value: letting go of a slider two pixels above the track is
-                // not a gesture anybody means.
-                e.Pointer.Capture(this);
-                SetFromPointer(p.X);
+                base.OnPointerPressed(e);
+                return;
+            }
+            if (Tap.Drags(e))
+            {
+                // A finger is not told from a scroll yet. Taking the value --
+                // and the pointer -- here is what made dragging the settings
+                // page slam whatever slider it began on to wherever the finger
+                // went down. Wait for the direction; see OnPointerMoved.
+                _tap.Press(e, this);
+            }
+            else
+            {
+                BeginDrag(e, p);
             }
             base.OnPointerPressed(e);
         }
@@ -118,11 +137,36 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 SetFromPointer(p.X);
             }
+            else if (_tap.Down)
+            {
+                // Which way the finger went decides whose gesture this is: a
+                // track lives across the page and the scroller runs down it,
+                // so sideways is the slider and anything else is the page.
+                if (Tap.Sideways(_tap.Travel(p)))
+                {
+                    _tap.Cancel();
+                    BeginDrag(e, p);
+                }
+                else
+                {
+                    _tap.Moved(e, this);
+                }
+            }
             base.OnPointerMoved(e);
         }
 
         protected override void OnPointerReleased(PointerReleasedEventArgs e)
         {
+            // A tap on the track still sets the value -- it is the one gesture
+            // that never moved, so nothing else can have meant it.
+            if (_tap.Release(e, this) && IsEnabled)
+            {
+                Point p = e.GetPosition(this);
+                if (p.X >= _labelWidth)
+                {
+                    SetFromPointer(p.X);
+                }
+            }
             _dragging = false;
             e.Pointer.Capture(null);
             base.OnPointerReleased(e);
@@ -133,6 +177,13 @@ namespace MphRead.Mods.Launcher.Gui
             _hot = false;
             InvalidateVisual();
             base.OnPointerExited(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            _dragging = false;
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -157,13 +208,13 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnKeyDown(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnGotFocus(e);
         }
 
-        protected override void OnLostFocus(Avalonia.Interactivity.RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnLostFocus(e);
@@ -171,7 +222,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
-            // See MenuEntry.Render: hit testing follows the drawing.
+            // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
             var dim = new SolidColorBrush(Color.FromRgb(70, 76, 90));

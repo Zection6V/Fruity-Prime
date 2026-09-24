@@ -1,0 +1,38 @@
+name: Native C++ All Platforms
+
+on:
+  workflow_dispatch:
+    inputs:
+      checkout_ref:
+        description: Branch, tag, or commit to build
+        required: true
+        type: string
+        default: cpp_v0.8.2
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows / MSVC
+    uses: Zection6V/Fruity-Prime/.github/workflows/native-cpp-windows.yml@cpp_v0.8.2
+    with:
+      checkout_ref: ${{ inputs.checkout_ref }}
+
+  macos:
+    name: macOS / Clang
+    uses: Zection6V/Fruity-Prime/.github/workflows/native-cpp-macos.yml@cpp_v0.8.2
+    with:
+      checkout_ref: ${{ inputs.checkout_ref }}
+
+  linux:
+    name: Linux / GCC
+    uses: Zection6V/Fruity-Prime/.github/workflows/native-cpp-linux.yml@cpp_v0.8.2
+    with:
+      checkout_ref: ${{ inputs.checkout_ref }}
+
+  android:
+    name: Android / NDK (API 24, arm64-v8a + x86_64)
+    uses: Zection6V/Fruity-Prime/.github/workflows/native-cpp-android.yml@cpp_v0.8.2
+    with:
+      checkout_ref: ${{ inputs.checkout_ref }}

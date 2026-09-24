@@ -1356,6 +1356,84 @@ namespace
         std::abort();
     }
 
+#if defined(_WIN32)
+    // AppDomain.UnhandledException in the C# build: a null dereference or a
+    // bad index there is a managed exception, and the log gets its type and
+    // its stack before the process goes. The same fault here is a hardware
+    // exception that never reaches std::terminate, so without this the log
+    // simply stops. Addresses are given as module+offset, and as the address
+    // `addr2line -f -C -e FruityPrime.exe` expects (the image's preferred base
+    // plus the offset), since the loader puts the image somewhere else.
+    LPTOP_LEVEL_EXCEPTION_FILTER PreviousFaultFilter = nullptr;
+
+    [[nodiscard]] std::string DescribeAddress(const void* address)
+    {
+        std::ostringstream text;
+        text.imbue(std::locale::classic());
+        HMODULE module = nullptr;
+        if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                static_cast<LPCWSTR>(address), &module) && module != nullptr)
+        {
+            std::array<char, MAX_PATH> path{};
+            const DWORD length = ::GetModuleFileNameA(module, path.data(),
+                static_cast<DWORD>(path.size()));
+            std::string name(path.data(), length);
+            const std::size_t slash = name.find_last_of("\\/");
+            if (slash != std::string::npos)
+            {
+                name = name.substr(slash + 1);
+            }
+            const auto base = reinterpret_cast<std::uintptr_t>(module);
+            const std::uintptr_t offset = reinterpret_cast<std::uintptr_t>(address) - base;
+            text << name << "+0x" << std::hex << std::uppercase << offset;
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(module);
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+                reinterpret_cast<const std::uint8_t*>(module) + dos->e_lfanew);
+            text << " (addr2line 0x" << (static_cast<std::uintptr_t>(nt->OptionalHeader.ImageBase) + offset)
+                << ")";
+        }
+        else
+        {
+            text << "0x" << std::hex << std::uppercase << reinterpret_cast<std::uintptr_t>(address);
+        }
+        return text.str();
+    }
+
+    LONG WINAPI NativeFaultFilter(EXCEPTION_POINTERS* pointers)
+    {
+        try
+        {
+            const EXCEPTION_RECORD& record = *pointers->ExceptionRecord;
+            std::ostringstream head;
+            head.imbue(std::locale::classic());
+            head << "the process is going down with a native fault 0x" << std::hex << std::uppercase
+                << static_cast<std::uint32_t>(record.ExceptionCode) << std::dec
+                << " on thread " << ::GetCurrentThreadId()
+                << " at " << DescribeAddress(record.ExceptionAddress);
+            if (record.ExceptionCode == EXCEPTION_ACCESS_VIOLATION && record.NumberParameters >= 2)
+            {
+                head << (record.ExceptionInformation[0] == 0 ? ", reading 0x"
+                    : record.ExceptionInformation[0] == 1 ? ", writing 0x" : ", executing 0x")
+                    << std::hex << std::uppercase << record.ExceptionInformation[1];
+            }
+            MphRead::Mods::DebugLog::Line("crash", head.str());
+            std::array<void*, 62> frames{};
+            const USHORT count = ::CaptureStackBackTrace(0,
+                static_cast<DWORD>(frames.size()), frames.data(), nullptr);
+            for (USHORT index = 0; index < count; ++index)
+            {
+                MphRead::Mods::DebugLog::Line("crash", "   at " + DescribeAddress(frames[index]));
+            }
+            FlushWriterNoThrow();
+        }
+        catch (...)
+        {
+        }
+        return PreviousFaultFilter != nullptr ? PreviousFaultFilter(pointers) : EXCEPTION_CONTINUE_SEARCH;
+    }
+#endif
+
     void Hook()
     {
         State& state = GetState();
@@ -1380,6 +1458,9 @@ namespace
         std::call_once(state.TerminateHookOnce, [&state]
         {
             state.PreviousTerminate = std::set_terminate(&TerminateHandler);
+#if defined(_WIN32)
+            PreviousFaultFilter = ::SetUnhandledExceptionFilter(&NativeFaultFilter);
+#endif
         });
     }
 

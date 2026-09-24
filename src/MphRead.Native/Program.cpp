@@ -8,9 +8,12 @@
 #include "Metadata/Rooms.hpp"
 #include "Mods/Branding.hpp"
 #include "Mods/ConsoleWindow.hpp"
+#include "Mods/CrashReport.hpp"
+#include "Mods/Launcher/Portable/RomWhitelist.hpp"
 #include "Mods/ModEntry.hpp"
 #include "Read.hpp"
 #include "Renderer.hpp"
+#include "NativeRuntime/System/Runtime.hpp"
 #include "Utility/Console.hpp"
 #include "Utility/Extract.hpp"
 #include <array>
@@ -875,11 +878,25 @@ namespace MphRead
                 "then perform setup again.");
             WriteLine();
             WriteLine("Press any key to exit...");
-            ReadKey();
+            ConsoleSetup::PauseIfInteractive();
             return true;
         }
         if (args.size() == 1 && !StartsWithDash(args[0]) && FileExists(args[0]))
         {
+            // Same MD5 whitelist the launcher's file picker checks, so
+            // dragging a ROM onto the executable can't skip it.
+            std::optional<std::string> label;
+            if (!Mods::Launcher::RomWhitelist::TryIdentify(args[0], label))
+            {
+                WriteLine("This .nds file doesn't match a known Metroid Prime Hunters "
+                    "dump (checked by MD5).");
+                WriteLine("Nothing was extracted.");
+                WriteLine();
+                WriteLine("Press any key to exit...");
+                ConsoleSetup::PauseIfInteractive();
+                return true;
+            }
+            WriteLine("Recognised: Metroid Prime Hunters, " + label.value_or(std::string()));
             Extract::Setup(args[0]);
             return true;
         }
@@ -892,7 +909,7 @@ namespace MphRead
                 + " executable.");
             WriteLine();
             WriteLine("Press any key to exit...");
-            ReadKey();
+            ConsoleSetup::PauseIfInteractive();
             return true;
         }
         Paths::UpdatePaths();
@@ -924,6 +941,27 @@ namespace MphRead
     }
 
     void Program::Main(const std::vector<std::string>& args)
+    {
+        // First, before anything that can throw. A Windows game build is a
+        // GUI binary with no console, so without this a fault anywhere in
+        // startup is a process that exits with no window, no message and
+        // no file: "I double-click it and nothing happens".
+        Mods::CrashReport::Install();
+        try
+        {
+            Run(args);
+        }
+        catch (const std::exception&)
+        {
+            // The main thread's own. UnhandledException is raised for it
+            // too, but only after the runtime has already printed to a
+            // stderr that a GUI build does not have.
+            Mods::CrashReport::Report(std::current_exception(), "startup");
+            ::MphRead::NativeRuntime::SetEnvironmentExitCode(1);
+        }
+    }
+
+    void Program::Run(const std::vector<std::string>& args)
     {
         ConsoleSetup::Run();
 #if defined(_WIN32)

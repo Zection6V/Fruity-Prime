@@ -2,8 +2,13 @@
 
 #include "Exceptions.hpp"
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <string>
+#include <system_error>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -19,6 +24,9 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <filesystem>
+#include <fstream>
+#include <vector>
+#include <system_error>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -873,6 +881,74 @@ namespace MphRead::NativeRuntime
             }
         }
         return std::string();
+    }
+
+    std::string PathGetDirectoryName(std::string_view path)
+    {
+        const std::size_t root = PathRootLength(path);
+        std::size_t end = path.size();
+        while (end > root && !IsDirectorySeparator(path[end - 1]))
+        {
+            --end;
+        }
+        while (end > root && IsDirectorySeparator(path[end - 1]))
+        {
+            --end;
+        }
+        return end <= root ? std::string(path.substr(0, root)) : std::string(path.substr(0, end));
+    }
+
+    std::string PathGetTempPath()
+    {
+#if defined(_WIN32)
+        std::vector<wchar_t> buffer(MAX_PATH + 1);
+        for (;;)
+        {
+            const DWORD length = ::GetTempPathW(
+                static_cast<DWORD>(buffer.size()), buffer.data());
+            if (length == 0)
+            {
+                return std::string();
+            }
+            if (length < buffer.size())
+            {
+                return Narrow(std::wstring(buffer.data(), length));
+            }
+            buffer.resize(length + 1);
+        }
+#else
+        // Path.GetTempPath on Unix: TMPDIR, then /tmp.
+        const char* value = std::getenv("TMPDIR");
+        std::string result = value == nullptr || *value == ' ' ? std::string("/tmp") : std::string(value);
+        if (result.empty() || !IsDirectorySeparator(result.back()))
+        {
+            result.push_back('/');
+        }
+        return result;
+#endif
+    }
+
+    void FileAppendAllText(const std::string& path, std::string_view contents)
+    {
+        std::ofstream file(std::filesystem::path(std::u8string(path.begin(), path.end())),
+            std::ios::binary | std::ios::app);
+        if (!file)
+        {
+            throw System::IO::IOException("Could not open '" + path + "' for append.");
+        }
+        file.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+        if (!file)
+        {
+            throw System::IO::IOException("Could not write to '" + path + "'.");
+        }
+    }
+
+    void FileDelete(const std::string& path)
+    {
+        std::error_code error;
+        // File.Delete does not fail when the file is not there.
+        (void)std::filesystem::remove(
+            std::filesystem::path(std::u8string(path.begin(), path.end())), error);
     }
 
     DirectoryInfo::DirectoryInfo(std::string_view path)

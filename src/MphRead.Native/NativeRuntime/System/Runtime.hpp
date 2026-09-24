@@ -31,6 +31,18 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] std::string EnvironmentUserProfile();
     // Environment.CurrentDirectory.
     [[nodiscard]] std::string EnvironmentCurrentDirectory();
+    // Environment.OSVersion.ToString().
+    [[nodiscard]] std::string EnvironmentOSVersion();
+    // Environment.Version. This build is not on .NET, so the text says so
+    // rather than naming a runtime version it does not have.
+    [[nodiscard]] std::string EnvironmentVersion();
+    // Environment.Is64BitProcess.
+    [[nodiscard]] bool EnvironmentIs64BitProcess() noexcept;
+    // Environment.ProcessId.
+    [[nodiscard]] std::int32_t EnvironmentProcessId() noexcept;
+    // Environment.CommandLine: the executable and its arguments, quoted the
+    // way the platform gives them.
+    [[nodiscard]] std::string EnvironmentCommandLine();
 
     // System.Runtime.InteropServices.RuntimeInformation. The architecture
     // names are the Architecture enum's own spellings, which is what the game

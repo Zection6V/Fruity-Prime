@@ -66,6 +66,15 @@ namespace MphRead::NativeRuntime
         std::string_view path3, std::string_view path4);
     // Path.GetExtension(path).
     [[nodiscard]] std::string PathGetExtension(std::string_view path);
+    // Path.GetDirectoryName(path): empty for a path with no directory, as
+    // .NET returns null there.
+    [[nodiscard]] std::string PathGetDirectoryName(std::string_view path);
+    // Path.GetTempPath(), ending in a separator.
+    [[nodiscard]] std::string PathGetTempPath();
+    // File.AppendAllText(path, contents).
+    void FileAppendAllText(const std::string& path, std::string_view contents);
+    // File.Delete(path): no error when it is not there.
+    void FileDelete(const std::string& path);
 
     // new DirectoryInfo(path): the members the game reads. A trailing
     // separator is not part of the name, as it is not in .NET.

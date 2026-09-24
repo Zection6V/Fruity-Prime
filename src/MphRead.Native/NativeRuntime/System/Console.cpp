@@ -10,6 +10,11 @@
 #include <string>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <termios.h>
+#include <unistd.h>
+#endif
+
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -254,6 +259,84 @@ namespace MphRead::NativeRuntime
             result.erase(dot);
         }
         return result;
+#endif
+    }
+
+    namespace
+    {
+        void ReadKey(bool intercept)
+        {
+#if defined(_WIN32)
+            const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
+            DWORD mode = 0;
+            if (input == nullptr || input == INVALID_HANDLE_VALUE
+                || ::GetConsoleMode(input, &mode) == 0)
+            {
+                // Console.ReadKey with a redirected or absent input handle.
+                throw System::InvalidOperationException();
+            }
+            const DWORD raw = intercept
+                ? (mode & ~static_cast<DWORD>(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT))
+                : (mode & ~static_cast<DWORD>(ENABLE_LINE_INPUT));
+            ::SetConsoleMode(input, raw);
+            INPUT_RECORD record{};
+            DWORD read = 0;
+            while (::ReadConsoleInputW(input, &record, 1, &read) != 0 && read == 1)
+            {
+                // A modifier on its own is not a key press to .NET either.
+                if (record.EventType == KEY_EVENT && record.Event.KeyEvent.bKeyDown != 0
+                    && record.Event.KeyEvent.wVirtualKeyCode != VK_SHIFT
+                    && record.Event.KeyEvent.wVirtualKeyCode != VK_CONTROL
+                    && record.Event.KeyEvent.wVirtualKeyCode != VK_MENU)
+                {
+                    break;
+                }
+            }
+            ::SetConsoleMode(input, mode);
+#else
+            if (::isatty(STDIN_FILENO) == 0)
+            {
+                throw System::InvalidOperationException();
+            }
+            struct termios previous{};
+            if (::tcgetattr(STDIN_FILENO, &previous) != 0)
+            {
+                throw System::InvalidOperationException();
+            }
+            struct termios raw = previous;
+            raw.c_lflag &= static_cast<tcflag_t>(intercept ? ~(ICANON | ECHO) : ~ICANON);
+            raw.c_cc[VMIN] = 1;
+            raw.c_cc[VTIME] = 0;
+            (void)::tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+            char value = 0;
+            (void)::read(STDIN_FILENO, &value, 1);
+            (void)::tcsetattr(STDIN_FILENO, TCSANOW, &previous);
+#endif
+        }
+    }
+
+    void ConsoleReadKey()
+    {
+        ReadKey(false);
+    }
+
+    void ConsoleReadKeyIntercept()
+    {
+        ReadKey(true);
+    }
+
+    bool ConsoleIsInputRedirected()
+    {
+#if defined(_WIN32)
+        const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
+        if (input == nullptr || input == INVALID_HANDLE_VALUE)
+        {
+            return true;
+        }
+        DWORD mode = 0;
+        return ::GetConsoleMode(input, &mode) == 0;
+#else
+        return ::isatty(STDIN_FILENO) == 0;
 #endif
     }
 }

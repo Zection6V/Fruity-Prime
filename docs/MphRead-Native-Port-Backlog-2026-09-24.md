@@ -12,6 +12,15 @@
 `MphRead-Native-CSharp-to-Cpp-Pitfalls.md` のとおり。1つのバッチを終える
 たびにネイティブをビルドし、緑のままコミットする。
 
+**番号は依存順ではない。** 実際の順序は次のとおり（着手して分かった分を反映）:
+
+1 → 3（`Mods` 直下の葉）→ 6（入力）→ 7（描画）→ 8（チーム）→ 9（ネット）
+→ 10（マップ生成）→ 11（ランチャー可搬部）→ 12（ランチャー GUI）
+→ 4・5（更新・チャット）→ **2（Diagnostics）** → 13（エンジン）→ 14（Android）。
+
+`Mods/Diagnostics` は葉に見えて、`WindowGeometry`・`Render::UiOverlay`・
+`GuiLauncher`・`MapGen::CustomRooms` を呼ぶ**利用側**なので最後に近い。
+
 ## 1. Platform helpers — 2 ファイル (新規 2), C# +73 行
 
 | S | +/- | C# | C++ |

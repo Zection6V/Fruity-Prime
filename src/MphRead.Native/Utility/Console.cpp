@@ -1,5 +1,9 @@
 #include "Console.hpp"
+
+#include "../Mods/Platform/AppPaths.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
+#include "NativeRuntime/System/Console.hpp"
+#include "NativeRuntime/System/Exceptions.hpp"
 
 #include <atomic>
 #include <clocale>
@@ -379,6 +383,26 @@ namespace MphRead
         return *value;
     }
 
+    void ConsoleSetup::PauseIfInteractive()
+    {
+        if (::MphRead::NativeRuntime::ConsoleIsInputRedirected())
+        {
+            return;
+        }
+        try
+        {
+            ::MphRead::NativeRuntime::ConsoleReadKey();
+        }
+        catch (const System::InvalidOperationException&)
+        {
+            // No console to read from. The message above it was still
+            // printed, which is the part that mattered.
+        }
+        catch (const System::IO::IOException&)
+        {
+        }
+    }
+
     void ConsoleSetup::Run()
     {
         ConsoleSetupState& state = State();
@@ -387,7 +411,12 @@ namespace MphRead
         state.LaunchDirectory.store(
             std::make_shared<const std::string>(CurrentDirectory()),
             std::memory_order_relaxed);
-        std::filesystem::current_path(BaseDirectory());
+        // Upstream reads/writes settings, saves and extraction output relative
+        // to cwd. On macOS this must be writable and outside the signed app.
+        ::MphRead::Mods::Platform::AppPaths::PrepareUserData();
+        const std::string userData = ::MphRead::Mods::Platform::AppPaths::UserDataDirectory();
+        std::filesystem::current_path(
+            std::filesystem::path(std::u8string(userData.begin(), userData.end())));
 
 #if defined(_WIN32)
         constexpr int StdOutputHandle = -11;

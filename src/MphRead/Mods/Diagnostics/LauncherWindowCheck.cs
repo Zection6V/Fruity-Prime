@@ -55,6 +55,11 @@ namespace MphRead.Mods.Diagnostics
                     Link(Shaders.RttVertexShader, Shaders.RttFragmentShader);
                     Link(Shaders.RttVertexShader, Shaders.CelFragmentShader);
                     Link(Shaders.RttVertexShader, Shaders.ShiftFragmentShader);
+                    Link(Shaders.BackdropVertexShader, Shaders.BackdropFragmentShader);
+                    if (_requireVulkan)
+                    {
+                        CheckVulkanRejectsUnknownShader();
+                    }
                 }
                 int width = window.FramebufferSize.X, height = window.FramebufferSize.Y;
                 if (!Render.UiOverlay.HasFrame || width <= 0 || height <= 0)
@@ -846,6 +851,35 @@ namespace MphRead.Mods.Diagnostics
             {
                 GL.DeleteProgram(program);
                 throw;
+            }
+        }
+
+        private static void CheckVulkanRejectsUnknownShader()
+        {
+            int shader = GL.CreateShader(ShaderType.FragmentShader);
+            try
+            {
+                GL.ShaderSource(shader,
+                    "#version 120\nvoid main() { gl_FragColor = vec4(0.25, 0.5, 0.75, 1.0); }");
+                GL.CompileShader(shader);
+                GL.GetShader(shader, ShaderParameter.CompileStatus, out int compiled);
+                if (compiled != 0)
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan accepted a shader source with no translated backend equivalent.");
+                }
+                string log = GL.GetShaderInfoLog(shader);
+                if (String.IsNullOrWhiteSpace(log))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan rejected an unknown shader without an actionable info log.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan rejects untranslated shader sources.");
+            }
+            finally
+            {
+                GL.DeleteShader(shader);
             }
         }
 

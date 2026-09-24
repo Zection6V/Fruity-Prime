@@ -4,6 +4,7 @@
 #include "NativeRuntime/System/Json.hpp"
 #include "Mods/DebugLog.hpp"
 #include "Mods/Headless.hpp"
+#include "Mods/Multiplayer/TeamVisuals.hpp"
 #include "Mods/Network/NetMatchEnd.hpp"
 #include "Mods/Network/NetSession.hpp"
 #include "NativeRuntime/System/IO.hpp"
@@ -327,10 +328,10 @@ namespace MphRead
     std::int32_t GameState::_primeHunter = -1;
 
     bool GameState::_teams = false;
+    std::int32_t GameState::_teamCount = 2;
     bool GameState::_friendlyFire = false;
     std::int32_t GameState::_pointGoal = 0;
     float GameState::_timeGoal = 0.0F;
-    std::int32_t GameState::_damageLevel = 1;
     bool GameState::_octolithReset = false;
     bool GameState::_radarPlayers = false;
     bool GameState::_affinityWeapons = false;
@@ -441,14 +442,16 @@ namespace MphRead
 
     bool GameState::Teams() noexcept { return _teams; }
     void GameState::Teams(bool value) noexcept { _teams = value; }
+    std::int32_t GameState::TeamCount() noexcept { return _teamCount; }
+    void GameState::TeamCount(std::int32_t value) noexcept { _teamCount = value; }
     bool GameState::FriendlyFire() noexcept { return _friendlyFire; }
     void GameState::FriendlyFire(bool value) noexcept { _friendlyFire = value; }
     std::int32_t GameState::PointGoal() noexcept { return _pointGoal; }
     void GameState::PointGoal(std::int32_t value) noexcept { _pointGoal = value; }
     float GameState::TimeGoal() noexcept { return _timeGoal; }
     void GameState::TimeGoal(float value) noexcept { _timeGoal = value; }
-    std::int32_t GameState::DamageLevel() noexcept { return _damageLevel; }
-    void GameState::DamageLevel(std::int32_t value) noexcept { _damageLevel = value; }
+    std::int32_t GameState::DamageLevel() noexcept { return 1; }
+    void GameState::DamageLevel(std::int32_t value) noexcept { (void)value; }
     bool GameState::OctolithReset() noexcept { return _octolithReset; }
     void GameState::OctolithReset(bool value) noexcept { _octolithReset = value; }
     bool GameState::RadarPlayers() noexcept { return _radarPlayers; }
@@ -1054,8 +1057,7 @@ namespace MphRead
                 auto player = PlayerAt(i);
                 if (HasLoadFlag(player->LoadFlags(), Entities::LoadFlags::Active))
                 {
-                    player->SetTeam(player->TeamIndex() == 0 ? Team::Orange : Team::Green);
-                    player->SetRecolor(player->TeamIndex() == 0 ? 4 : 5);
+                    Mods::Multiplayer::TeamVisuals::Apply(*player);
                 }
             }
         }
@@ -1207,17 +1209,29 @@ namespace MphRead
                 bool invalid = Entities::PlayerEntity::MaxPlayers() < 2;
                 if (!invalid && _teams)
                 {
-                    std::array<bool, 2> teams{};
+                    std::array<bool, 4> teams{};
                     for (std::int32_t i = 0;
                          i < static_cast<std::int32_t>(SlotCapacity); ++i)
                     {
                         auto player = PlayerAt(i);
                         if (HasLoadFlag(player->LoadFlags(), Entities::LoadFlags::Active))
                         {
-                            ArrayAt(teams, player->TeamIndex()) = true;
+                            if (static_cast<std::uint32_t>(player->TeamIndex())
+                                < static_cast<std::uint32_t>(_teamCount))
+                            {
+                                ArrayAt(teams, player->TeamIndex()) = true;
+                            }
                         }
                     }
-                    invalid = !teams[0] || !teams[1];
+                    std::int32_t representedTeams = 0;
+                    for (std::int32_t team = 0; team < _teamCount; ++team)
+                    {
+                        if (ArrayAt(teams, team))
+                        {
+                            representedTeams = WrapAdd(representedTeams, 1);
+                        }
+                    }
+                    invalid = representedTeams < 2;
                 }
                 if (invalid && !_menuPause)
                 {
@@ -1264,7 +1278,7 @@ namespace MphRead
 
             if (_matchTime != 0.0F && !_forceEndGame)
             {
-                if (Multiplayer())
+                if (Multiplayer() && _matchTime > 0.0F)
                 {
                     const TimeSpanParts time = TimeSpanFromSeconds(_matchTime);
                     if (time.TotalMinutes < 1.0 && time.Seconds <= 59
@@ -1348,7 +1362,7 @@ namespace MphRead
         else if (_matchState == MphRead::MatchState::GameOver)
         {
             auto winner = PlayerAt(ArrayAt(_resultSlots, 0));
-            if (winner->Health() > 0
+            if (!IsResultTie() && winner->Health() > 0
                 && HasLoadFlag(winner->LoadFlags(), Entities::LoadFlags::Active)
                 && HasLoadFlag(winner->LoadFlags(), Entities::LoadFlags::Spawned))
             {
@@ -1531,10 +1545,16 @@ namespace MphRead
     void GameState::ModeStateSurvival(Scene* scene)
     {
         Require(scene);
+        UpdateSurvival(scene->FrameTime());
+    }
+
+    void GameState::UpdateSurvival(float frameTime)
+    {
         _radarPlayers = false;
         std::int32_t playersAlive = 0;
         std::int32_t botsAlive = 0;
-        std::array<bool, 2> teamsAlive{};
+        std::array<bool, 4> teamsAlive{};
+        std::int32_t aliveTeamCount = 0;
 
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(SlotCapacity); ++i)
         {
@@ -1543,7 +1563,7 @@ namespace MphRead
                 && (player->Health() > 0
                     || ArrayAt(_teamDeaths, player->TeamIndex()) <= _pointGoal))
             {
-                ArrayAt(_time, i) += scene->FrameTime();
+                ArrayAt(_time, i) += frameTime;
                 if (player->IsBot())
                 {
                     botsAlive = WrapAdd(botsAlive, 1);
@@ -1554,15 +1574,20 @@ namespace MphRead
                 }
                 if (_teams)
                 {
-                    assert(player->TeamIndex() == 0 || player->TeamIndex() == 1);
-                    ArrayAt(teamsAlive, player->TeamIndex()) = true;
+                    if (static_cast<std::uint32_t>(player->TeamIndex())
+                            < static_cast<std::uint32_t>(_teamCount)
+                        && !ArrayAt(teamsAlive, player->TeamIndex()))
+                    {
+                        ArrayAt(teamsAlive, player->TeamIndex()) = true;
+                        aliveTeamCount = WrapAdd(aliveTeamCount, 1);
+                    }
                 }
             }
         }
 
-        if (playersAlive == 0
-            || WrapAdd(playersAlive, botsAlive) < 2
-            || (_teams && (!teamsAlive[0] || !teamsAlive[1])))
+        if (Mods::Network::NetMatchEnd::MayEndOnScore()
+            && (WrapAdd(playersAlive, botsAlive) < 2
+                || (_teams && aliveTeamCount < 2)))
         {
             _matchTime = 0.0F;
             for (std::int32_t i = 0; i < static_cast<std::int32_t>(SlotCapacity); ++i)
@@ -2071,7 +2096,9 @@ namespace MphRead
         {
             auto player = PlayerAt(i);
             if (!HasLoadFlag(player->LoadFlags(), Entities::LoadFlags::Initial)
-                || player->TeamIndex() == -1)
+                || static_cast<std::uint32_t>(player->TeamIndex())
+                    >= static_cast<std::uint32_t>(
+                        _teams ? _teamCount : static_cast<std::int32_t>(SlotCapacity)))
             {
                 continue;
             }
@@ -2086,7 +2113,9 @@ namespace MphRead
             if (_mode == GameMode::Survival
                 || _mode == GameMode::SurvivalTeams)
             {
-                if (ArrayAt(_teamTime, player->TeamIndex()) < ArrayAt(_time, i))
+                if (ArrayAt(_time, i) == -1.0F
+                    || (ArrayAt(_teamTime, player->TeamIndex()) != -1.0F
+                        && ArrayAt(_teamTime, player->TeamIndex()) < ArrayAt(_time, i)))
                 {
                     ArrayAt(_teamTime, player->TeamIndex()) = ArrayAt(_time, i);
                 }
@@ -2120,6 +2149,7 @@ namespace MphRead
         {
             std::int32_t opponents = 0;
             std::int32_t lastTeam = -1;
+            std::int32_t opponentMask = 0;
             for (std::int32_t i = 0; i < static_cast<std::int32_t>(SlotCapacity); ++i)
             {
                 auto player = PlayerAt(i);
@@ -2130,8 +2160,10 @@ namespace MphRead
                 if (player->Health() > 0
                     || ArrayAt(_teamDeaths, player->TeamIndex()) <= _pointGoal)
                 {
-                    if (player->TeamIndex() != MainPlayer()->TeamIndex())
+                    if (player->TeamIndex() != MainPlayer()->TeamIndex()
+                        && (opponentMask & (1 << player->TeamIndex())) == 0)
                     {
+                        opponentMask |= 1 << player->TeamIndex();
                         opponents = WrapAdd(opponents, 1);
                         lastTeam = player->TeamIndex();
                     }
@@ -2156,126 +2188,8 @@ namespace MphRead
             }
         }
 
-        _activePlayers = 0;
-        if (_teams)
-        {
-            std::int32_t a = 0;
-            for (std::int32_t t = 0; t < 2; ++t)
-            {
-                for (std::int32_t p = 0;
-                     p < static_cast<std::int32_t>(SlotCapacity); ++p)
-                {
-                    auto player = PlayerAt(p);
-                    if (player->TeamIndex() == t)
-                    {
-                        ArrayAt(_standings, p)
-                            = static_cast<std::int32_t>(SlotCapacity) - 1;
-                        if (HasLoadFlag(
-                            player->LoadFlags(), Entities::LoadFlags::Active))
-                        {
-                            ArrayAt(_resultSlots, a) = p;
-                            a = WrapAdd(a, 1);
-                            _activePlayers = WrapAdd(_activePlayers, 1);
-                        }
-                    }
-                }
-            }
-        }
-        else
-        {
-            std::int32_t a = 0;
-            for (std::int32_t p = 0;
-                 p < static_cast<std::int32_t>(SlotCapacity); ++p)
-            {
-                ArrayAt(_standings, p)
-                    = static_cast<std::int32_t>(SlotCapacity) - 1;
-                if (HasLoadFlag(
-                    PlayerAt(p)->LoadFlags(), Entities::LoadFlags::Active))
-                {
-                    ArrayAt(_resultSlots, a) = p;
-                    a = WrapAdd(a, 1);
-                    _activePlayers = WrapAdd(_activePlayers, 1);
-                }
-            }
-        }
-
-        for (std::int32_t index = 0; index < _activePlayers; ++index)
-        {
-            for (std::int32_t nextIndex = WrapAdd(index, 1);
-                 nextIndex < _activePlayers; ++nextIndex)
-            {
-                const std::int32_t slot = ArrayAt(_resultSlots, index);
-                const std::int32_t nextSlot = ArrayAt(_resultSlots, nextIndex);
-                const std::int32_t teamIndex = PlayerAt(slot)->TeamIndex();
-                const std::int32_t nextTeamIndex = PlayerAt(nextSlot)->TeamIndex();
-                if ((_teams && teamIndex != nextTeamIndex
-                        && CompareTeams(teamIndex, nextTeamIndex) < 0)
-                    || ComparePlayers(slot, nextSlot) < 0)
-                {
-                    ArrayAt(_resultSlots, index) = nextSlot;
-                    ArrayAt(_resultSlots, nextIndex) = slot;
-                }
-            }
-        }
-
-        if (_teams)
-        {
-            std::int32_t v47 = 0;
-            const std::int32_t v48 = CompareTeams(0, 1);
-            std::array<std::int32_t, 2> v57{};
-            if (v48 <= 0)
-            {
-                v57[0] = v48 != 0 ? 1 : 0;
-                v57[1] = 0;
-            }
-            else
-            {
-                v57[0] = 0;
-                v57[1] = 1;
-            }
-
-            for (std::int32_t i = 0; i < _activePlayers - 1; ++i)
-            {
-                const std::int32_t slot = ArrayAt(_resultSlots, i);
-                const std::int32_t nextSlot
-                    = ArrayAt(_resultSlots, WrapAdd(i, 1));
-                const std::int32_t teamIndex = PlayerAt(slot)->TeamIndex();
-                ArrayAt(_standings, slot) = ArrayAt(v57, teamIndex);
-                ArrayAt(_teamStandings, slot) = v47;
-                if (teamIndex != PlayerAt(nextSlot)->TeamIndex())
-                {
-                    if (ComparePlayers(slot, nextSlot) != 0)
-                    {
-                        v47 = WrapAdd(v47, 1);
-                    }
-                }
-                else
-                {
-                    v47 = 0;
-                }
-            }
-
-            const std::int32_t index = _activePlayers - 1;
-            ArrayAt(_standings, index)
-                = ArrayAt(v57, PlayerAt(ArrayAt(_resultSlots, index))->TeamIndex());
-            ArrayAt(_teamStandings, index) = v47;
-        }
-        else
-        {
-            std::int32_t index = 0;
-            std::int32_t v47 = 0;
-            for (index = 0; index < _activePlayers - 1; ++index)
-            {
-                const std::int32_t slot = ArrayAt(_resultSlots, index);
-                ArrayAt(_standings, slot) = v47;
-                if (ComparePlayers(
-                    slot, ArrayAt(_resultSlots, WrapAdd(index, 1))) != 0)
-                {
-                    v47 = WrapAdd(index, 1);
-                }
-            }
-            ArrayAt(_standings, ArrayAt(_resultSlots, index)) = v47;
-        }
+        UpdateStandings();
+        // todo: update license info
     }
 
     std::int32_t GameState::ComparePlayers(
@@ -2380,7 +2294,7 @@ namespace MphRead
         }
         if (_mode == GameMode::Capture
             || _mode == GameMode::NodesTeams
-            || _mode == GameMode::BattleTeams)
+            || _mode == GameMode::BountyTeams)
         {
             if (points1 == points2 && kills1 == kills2) return 0;
             if (points1 < points2 || (points1 == points2 && kills1 < kills2)) return -1;
@@ -2653,10 +2567,10 @@ namespace MphRead
 
         _primeHunter = -1;
         _teams = false;
+        _teamCount = 2;
         _friendlyFire = false;
         _pointGoal = 0;
         _timeGoal = 0.0F;
-        _damageLevel = 1;
         _octolithReset = false;
         _radarPlayers = false;
         _affinityWeapons = false;
@@ -3157,6 +3071,7 @@ namespace MphRead::GameStateDetail
             ReadString(object2, "SfxVolume", value->SfxVolume);
             ReadString(object2, "MusicVolume", value->MusicVolume);
             ReadString(object2, "ResolutionScale", value->ResolutionScale);
+            ReadString(object2, "FieldOfView", value->FieldOfView);
             ReadString(object2, "Lighting", value->Lighting);
             ReadString(object2, "Fog", value->Fog);
             ReadString(object2, "TextureFiltering", value->TextureFiltering);
@@ -3228,6 +3143,7 @@ namespace MphRead::GameStateDetail
         object->Set("SfxVolume", Json::MakeString(value->SfxVolume));
         object->Set("MusicVolume", Json::MakeString(value->MusicVolume));
         object->Set("ResolutionScale", Json::MakeString(value->ResolutionScale));
+        object->Set("FieldOfView", Json::MakeString(value->FieldOfView));
         object->Set("Lighting", Json::MakeString(value->Lighting));
         object->Set("Fog", Json::MakeString(value->Fog));
         object->Set("TextureFiltering", Json::MakeString(value->TextureFiltering));

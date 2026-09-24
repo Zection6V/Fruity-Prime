@@ -661,6 +661,10 @@ namespace MphRead::Mods
 
         RenderOptions::ResolutionScale(RenderOptions::ParseScale(
             AsStringView(settings->ResolutionScale), RenderOptions::ResolutionScale()));
+        // Read once a frame by the camera, so this reaches the match that is
+        // running behind the settings page as soon as it is saved.
+        RenderOptions::FieldOfView(RenderOptions::ParseFov(
+            AsStringView(settings->FieldOfView), RenderOptions::FieldOfView()));
         RenderOptions::Lighting(RenderOptions::ParseOnOff(
             AsStringView(settings->Lighting), RenderOptions::Lighting()));
         RenderOptions::Fog(RenderOptions::ParseOnOff(
@@ -704,23 +708,10 @@ namespace MphRead::Mods
             GameState::PointGoal(pointGoal);
         }
 
-        if (Equals(settings->DamageLevel, "low"))
-        {
-            GameState::DamageLevel(0);
-        }
-        else if (Equals(settings->DamageLevel, "high"))
-        {
-            GameState::DamageLevel(2);
-        }
-        else if (Equals(settings->DamageLevel, "medium"))
-        {
-            GameState::DamageLevel(1);
-        }
-        else
-        {
-            GameState::DamageLevel(GameState::DamageLevel());
-        }
-
+        // Not the damage level. It is pinned to medium -- see
+        // GameState::DamageLevel -- because it scales every weapon's damage
+        // and was the one match rule each machine read out of its own file.
+        // The key stays in settings.json and is ignored.
         GameState::FriendlyFire(Equals(settings->FriendlyFire, "on"));
         GameState::RadarPlayers(Equals(settings->HunterRadar, "on"));
         GameState::AffinityWeapons(Equals(settings->AffinityWeapons, "on"));

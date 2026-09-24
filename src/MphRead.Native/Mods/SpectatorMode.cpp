@@ -52,6 +52,13 @@ namespace
         return std::bit_cast<std::int32_t>(
             static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
     }
+
+    [[nodiscard]] constexpr std::int32_t SubtractInt32Unchecked(
+        std::int32_t left, std::int32_t right) noexcept
+    {
+        return std::bit_cast<std::int32_t>(
+            static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right));
+    }
 }
 
 namespace MphRead::Mods
@@ -120,6 +127,24 @@ namespace MphRead::Mods
             _cameraRequest = false;
         }
         Switch(next);
+    }
+
+    void SpectatorMode::CyclePrevious()
+    {
+        if (!_isSpectating)
+        {
+            return;
+        }
+        const std::int32_t previous = FindPreviousActiveSlot(PlayerEntity::MainPlayerIndex());
+        if (previous == -1)
+        {
+            return;
+        }
+        if (_freeCamera)
+        {
+            _cameraRequest = false;
+        }
+        Switch(previous);
     }
 
     void SpectatorMode::ToggleView()
@@ -204,6 +229,35 @@ namespace MphRead::Mods
         _freeCamera = false;
         _showScoreboard = false;
         _cameraRequest.reset();
+    }
+
+    std::int32_t SpectatorMode::FindPreviousActiveSlot(std::int32_t fromSlot)
+    {
+        const std::int32_t localSlot = Network::NetHooks::LocalSlot();
+        const auto& players = PlayerEntity::Players();
+        for (std::int32_t offset = 1;
+            offset <= static_cast<std::int32_t>(players.size()); ++offset)
+        {
+            const std::int32_t index
+                = AddInt32Unchecked(
+                    SubtractInt32Unchecked(fromSlot, offset),
+                    static_cast<std::int32_t>(players.size()))
+                % static_cast<std::int32_t>(players.size());
+            if (index == localSlot)
+            {
+                continue;
+            }
+            const std::shared_ptr<PlayerEntity> candidate
+                = ManagedAt(players, index);
+            PlayerEntity& candidateRef = RequireReference(candidate);
+            if (TestFlag(candidateRef.LoadFlags(), LoadFlags::Active)
+                && TestFlag(candidateRef.LoadFlags(), LoadFlags::Spawned)
+                && candidateRef.Health() > 0)
+            {
+                return index;
+            }
+        }
+        return -1;
     }
 
     std::int32_t SpectatorMode::FindNextActiveSlot(std::int32_t fromSlot)

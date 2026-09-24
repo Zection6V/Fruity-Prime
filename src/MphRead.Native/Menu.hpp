@@ -32,6 +32,7 @@ namespace MphRead
         std::string SfxVolume = "0.35";
         std::string MusicVolume = "0.50";
         std::string ResolutionScale = "100";
+        std::string FieldOfView = "78";
         std::string Lighting = "on";
         std::string Fog = "on";
         std::string TextureFiltering = "off";

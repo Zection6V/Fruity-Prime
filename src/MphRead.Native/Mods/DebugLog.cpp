@@ -1258,6 +1258,15 @@ namespace
     // at thread exit under MinGW.
     thread_local std::array<void*, 48> ThrowFrames{};
     thread_local USHORT ThrowFrameCount = 0;
+    // The exception object last recorded: a plain `throw;` raises the same
+    // object again and must not replace where it was first thrown.
+    thread_local const void* ThrowObject = nullptr;
+    // Set while DebugLog::Exception rethrows a stored exception to read it,
+    // so that the rethrow does not replace the record it is about to print.
+    thread_local bool ThrowRecordPinned = false;
+    // Set while a fault handler is logging: a fault inside the logging is not
+    // logged again.
+    thread_local bool InFaultHandler = false;
 #endif
 
     [[nodiscard]] std::optional<std::string> NativeStackTrace()
@@ -1411,7 +1420,9 @@ namespace
             std::uint32_t Rva;
             std::string Name;
         };
-        static std::vector<Function> functions;
+        // Never destroyed: abort() and the fault handlers can ask for a name
+        // after static destructors have run at exit.
+        static std::vector<Function>& functions = *new std::vector<Function>();
         static bool loaded = false;
         if (!loaded)
         {
@@ -1624,8 +1635,15 @@ namespace
         if (record.ExceptionCode == 0x20474343U || record.ExceptionCode == 0xE06D7363U)
         {
             // A C++ throw (GCC's SEH unwinder, or MSVC's): remember where.
-            ThrowFrameCount = ::CaptureStackBackTrace(1,
-                static_cast<DWORD>(ThrowFrames.size()), ThrowFrames.data(), nullptr);
+            const std::size_t objectIndex = record.ExceptionCode == 0xE06D7363U ? 1 : 0;
+            const void* object = record.NumberParameters > objectIndex
+                ? reinterpret_cast<const void*>(record.ExceptionInformation[objectIndex]) : nullptr;
+            if (!ThrowRecordPinned && (object == nullptr || object != ThrowObject))
+            {
+                ThrowObject = object;
+                ThrowFrameCount = ::CaptureStackBackTrace(1,
+                    static_cast<DWORD>(ThrowFrames.size()), ThrowFrames.data(), nullptr);
+            }
             return EXCEPTION_CONTINUE_SEARCH;
         }
         if (!IsFatalCode(record.ExceptionCode)
@@ -1653,10 +1671,19 @@ namespace
                     &written, nullptr);
             }
         }
-        if (record.ExceptionCode == 0xC0000374U || record.ExceptionCode == EXCEPTION_STACK_OVERFLOW)
+        if (record.ExceptionCode == 0xC0000374U || record.ExceptionCode == EXCEPTION_STACK_OVERFLOW
+            || InFaultHandler)
         {
             return EXCEPTION_CONTINUE_SEARCH;
         }
+        InFaultHandler = true;
+        struct Leave final
+        {
+            ~Leave()
+            {
+                InFaultHandler = false;
+            }
+        } leave;
         try
         {
             std::ostringstream head;
@@ -1695,6 +1722,11 @@ namespace
     // from is written first; returning lets the process end as it would have.
     extern "C" void AbortSignalHandler(int)
     {
+        if (InFaultHandler)
+        {
+            return;
+        }
+        InFaultHandler = true;
         try
         {
             MphRead::Mods::DebugLog::Line("crash", "the process is going down through abort() on thread "
@@ -2125,6 +2157,18 @@ namespace MphRead::Mods
         {
             return;
         }
+#if defined(_WIN32)
+        // Reading the exception means rethrowing it, and that rethrow must
+        // not replace where it was really thrown.
+        ThrowRecordPinned = true;
+        struct Unpin final
+        {
+            ~Unpin()
+            {
+                ThrowRecordPinned = false;
+            }
+        } unpin;
+#endif
         try
         {
             std::rethrow_exception(exception);

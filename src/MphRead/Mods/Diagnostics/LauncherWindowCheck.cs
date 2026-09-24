@@ -387,6 +387,7 @@ namespace MphRead.Mods.Diagnostics
                 }
 
                 CheckVulkanUniformIsolation(framebuffer, size);
+                CheckVulkanGeometryIsolation(framebuffer, size);
                 CheckVulkanSceneTextureUniformIsolation(framebuffer, size);
                 CheckVulkanFixedFunctionTextureState(framebuffer, size);
                 CheckVulkanCopyTexSubImageOrientation(framebuffer, size);
@@ -470,6 +471,46 @@ namespace MphRead.Mods.Diagnostics
                 GL.DepthMask(true);
                 GL.DeleteProgram(program);
             }
+        }
+
+        private static void CheckVulkanGeometryIsolation(int framebuffer, int size)
+        {
+            GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+            GL.Viewport(0, 0, size, size);
+            GL.UseProgram(0);
+            GL.ActiveTexture(TextureUnit.Texture0);
+            GL.BindTexture(TextureTarget.Texture2D, 0);
+            GL.Disable(EnableCap.Texture2D);
+            GL.Disable(EnableCap.Blend);
+            GL.Disable(EnableCap.DepthTest);
+            GL.Disable(EnableCap.StencilTest);
+            GL.Disable(EnableCap.CullFace);
+            GL.Disable(EnableCap.AlphaTest);
+            GL.Disable(EnableCap.ScissorTest);
+            GL.ColorMask(true, true, true, true);
+            GL.DepthMask(false);
+            GL.ClearColor(0f, 0f, 0f, 1f);
+            GL.Clear(ClearBufferMask.ColorBufferBit);
+
+            // These two draws stay in one submission. A geometry buffer that
+            // is overwritten by the second upload before the first draw has
+            // consumed it turns the red left quad into the green right one.
+            DrawColoredTestQuad(-1f, -0.05f, 1f, 0f, 0f);
+            DrawColoredTestQuad(0.05f, 1f, 0f, 1f, 0f);
+
+            byte[] pixels = new byte[size * size * 4];
+            GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+            GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                PixelType.UnsignedByte, pixels);
+            if (!PixelIs(pixels, size, size / 4, size / 2, 255, 0, 0)
+                || !PixelIs(pixels, size, size * 3 / 4, size / 2, 0, 255, 0))
+            {
+                throw new InvalidOperationException(
+                    "Vulkan draw geometry was overwritten by a later draw in the same frame.");
+            }
+            Console.WriteLine("[windowcheck] Vulkan per-draw geometry isolation passed.");
+            GL.Enable(EnableCap.Texture2D);
+            GL.DepthMask(true);
         }
 
         private static void CheckVulkanSceneTextureUniformIsolation(
@@ -959,6 +1000,18 @@ namespace MphRead.Mods.Diagnostics
         private static void DrawTestQuad(float left, float right)
         {
             GL.Begin(PrimitiveType.Quads);
+            GL.Vertex3(left, -1f, 0f);
+            GL.Vertex3(right, -1f, 0f);
+            GL.Vertex3(right, 1f, 0f);
+            GL.Vertex3(left, 1f, 0f);
+            GL.End();
+        }
+
+        private static void DrawColoredTestQuad(float left, float right,
+            float red, float green, float blue)
+        {
+            GL.Begin(PrimitiveType.Quads);
+            GL.Color4(red, green, blue, 1f);
             GL.Vertex3(left, -1f, 0f);
             GL.Vertex3(right, -1f, 0f);
             GL.Vertex3(right, 1f, 0f);

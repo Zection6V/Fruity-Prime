@@ -2548,8 +2548,10 @@ namespace MphRead
         return entry;
     }
 
-    void Scene::UnlinkBeamEffect(const std::shared_ptr<Entities::BeamEffectEntity>& entry)
+    void Scene::UnlinkBeamEffect(std::shared_ptr<Entities::BeamEffectEntity> entry)
     {
+        // Taken by value: a caller may pass a slot of _activeBeamEffects itself,
+        // which RemoveFirst shifts. C# passes the object, not the slot.
         RemoveFirst(_activeBeamEffects, entry);
         _inactiveBeamEffects.push(entry);
     }
@@ -2584,8 +2586,9 @@ namespace MphRead
         return entry;
     }
 
-    void Scene::UnlinkBomb(const std::shared_ptr<Entities::BombEntity>& entry)
+    void Scene::UnlinkBomb(std::shared_ptr<Entities::BombEntity> entry)
     {
+        // Taken by value, as UnlinkBeamEffect is.
         RemoveFirst(_activeBombs, entry);
         _inactiveBombs.push(entry);
     }
@@ -2712,8 +2715,14 @@ namespace MphRead
         return entry;
     }
 
-    void Scene::UnlinkEffectElement(const std::shared_ptr<EffectElementEntry>& element)
+    void Scene::UnlinkEffectElement(std::shared_ptr<EffectElementEntry> element)
     {
+        // Taken by value. ClearEffects passes _activeElements[i] itself, and
+        // RemoveFirst below shifts the vector: a reference would then name the
+        // next, still active element, and it is that one this function would
+        // clear and hand back to the pool -- the pool then held one element
+        // twice, and the second user of it found ParticleDefinitions empty.
+        // C# passes the object, never the slot.
         while (!element->Particles->empty())
         {
             auto particle = element->Particles->front();

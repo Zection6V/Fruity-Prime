@@ -722,9 +722,9 @@ public: \
     void EndCutscene(bool resetFade = false); \
     void ResetFrameCount(); \
     std::shared_ptr<MphRead::Entities::BeamEffectEntity> InitBeamEffect(const MphRead::Entities::BeamEffectEntityData& data); \
-    void UnlinkBeamEffect(const std::shared_ptr<MphRead::Entities::BeamEffectEntity>& entry); \
+    void UnlinkBeamEffect(std::shared_ptr<MphRead::Entities::BeamEffectEntity> entry); \
     std::shared_ptr<MphRead::Entities::BombEntity> InitBomb(); \
-    void UnlinkBomb(const std::shared_ptr<MphRead::Entities::BombEntity>& entry); \
+    void UnlinkBomb(std::shared_ptr<MphRead::Entities::BombEntity> entry); \
     void AddSingleParticle(MphRead::SingleType type, OpenTK::Mathematics::Vector3 position, \
         OpenTK::Mathematics::Vector3 color, float alpha, float scale); \
     void UnlinkEffectEntry(const std::shared_ptr<MphRead::Effects::EffectEntry>& entry); \
@@ -870,7 +870,7 @@ private: \
     std::shared_ptr<MphRead::Effects::EffectEntry> InitEffectEntry(); \
     std::shared_ptr<MphRead::Effects::EffectElementEntry> InitEffectElement(const std::shared_ptr<MphRead::Effect>& effect, \
         const std::shared_ptr<MphRead::EffectElement>& element, std::shared_ptr<MphRead::Formats::Collision::EntityCollision> entCol, bool child); \
-    void UnlinkEffectElement(const std::shared_ptr<MphRead::Effects::EffectElementEntry>& element); \
+    void UnlinkEffectElement(std::shared_ptr<MphRead::Effects::EffectElementEntry> element); \
     std::shared_ptr<MphRead::Effects::EffectParticle> InitEffectParticle(); \
     void UnlinkEffectParticle(const std::shared_ptr<MphRead::Effects::EffectParticle>& particle); \
     void SpawnEffect(std::int32_t effectId, OpenTK::Mathematics::Matrix4 transform, bool child, \

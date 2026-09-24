@@ -97,71 +97,23 @@ namespace MphRead.Mods.Render
                 return Active;
             }
 
-            RenderBackendRegistration requested =
-                RenderBackendRegistry.Find(Requested) ?? RenderBackendRegistry.OpenGl;
-            RenderBackendRegistration selected = requested;
-            if (!RenderBackendRegistry.CanActivate(selected))
-            {
-                selected = RenderBackendRegistry.OpenGl;
-            }
+            RenderBackendRegistration requested = RenderBackendRegistry.Find(Requested)
+                ?? throw new InvalidOperationException(
+                    $"Unknown graphics renderer '{Requested}'.");
 
-            if (!RenderBackendRegistry.CanActivate(selected)
-                || selected.Implementation == null)
+            if (!RenderBackendRegistry.CanActivate(requested)
+                || requested.Implementation == null)
             {
                 throw new PlatformNotSupportedException(
-                    "No usable graphics renderer is available on this platform.");
+                    $"The selected graphics renderer '{requested.DisplayName}' "
+                    + "is not available on this platform or runtime.");
             }
 
-            Active = selected.Kind;
-            _activeImplementation = selected.Implementation;
+            Active = requested.Kind;
+            _activeImplementation = requested.Implementation;
             WindowCreated = true;
-
-            if (requested.Kind != selected.Kind)
-            {
-                DebugLog.Line("render",
-                    $"{requested.DisplayName} was requested but is unavailable; "
-                    + $"using {selected.DisplayName}");
-            }
+            DebugLog.Line("render", $"using renderer {requested.DisplayName}");
             return Active;
-        }
-
-        internal static bool TryFallbackToOpenGlAfterStartupFailure(Exception failure)
-        {
-            // Forced renderer diagnostics must prove the requested backend
-            // actually starts; silently falling back would make their success
-            // meaningless. Ordinary player startup gets one safe recovery.
-            if (_forced.HasValue || !WindowCreated || Active == RendererBackendKind.OpenGL)
-            {
-                return false;
-            }
-
-            RenderBackendRegistration openGl = RenderBackendRegistry.OpenGl;
-            if (!RenderBackendRegistry.CanActivate(openGl) || openGl.Implementation == null)
-            {
-                return false;
-            }
-
-            RendererBackendKind failed = Active;
-            try
-            {
-                _activeImplementation?.Shutdown();
-            }
-            catch (Exception cleanup)
-            {
-                DebugLog.Line("render",
-                    $"cleanup after {failed} startup failure also failed: {cleanup.Message}");
-            }
-
-            Active = RendererBackendKind.OpenGL;
-            _activeImplementation = openGl.Implementation;
-            // Requested deliberately stays on the player's choice. The
-            // fallback is for this process only; opening settings still shows
-            // Vulkan and RestartRequired remains true instead of silently
-            // rewriting their preference.
-            DebugLog.Line("render",
-                $"{failed} failed during window/device initialization "
-                + $"({failure.GetType().Name}: {failure.Message}); retrying with OpenGL");
-            return true;
         }
 
         internal static RenderWindowApi WindowApi

@@ -27,18 +27,10 @@ namespace MphRead.Mods.Render
     /// </summary>
     public static class UiOverlay
     {
-        /// <summary>
-        /// The texture name this takes, chosen rather than asked for.
-        ///
-        /// Kept in the launcher's reserved high-name range. Scene/model
-        /// textures now come from <c>glGenTextures</c> (and the Vulkan
-        /// equivalent allocator), so they cannot collide with one another
-        /// across the launcher's preview scene and a match. This fixed name is
-        /// retained to keep the UI objects visibly separate from game assets
-        /// in diagnostics and to preserve the launcher's existing lifetime.
-        /// </summary>
-        private const int Name = 1_000_000;
-
+        // All textures, including launcher-owned ones, use the backend
+        // allocator. A single graphics context can host a launcher preview
+        // Scene and a match Scene at the same time, so fixed/manual names are
+        // not a safe ownership boundary.
         private static int _texture;
         private static int _width;
         private static int _height;
@@ -70,7 +62,7 @@ namespace MphRead.Mods.Render
             GL.ActiveTexture(TextureUnit.Texture0);
             if (_texture == 0)
             {
-                _texture = Name;
+                _texture = GL.GenTexture();
                 GL.BindTexture(TextureTarget.Texture2D, _texture);
                 // Linear, alone in this program apart from the weapon icons:
                 // the UI is drawn at the window's own resolution, so there is

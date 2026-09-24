@@ -1247,26 +1247,56 @@ namespace
         return nested == nullptr ? std::exception_ptr{} : nested->nested_ptr();
     }
 
+#if defined(_WIN32)
+    [[nodiscard]] std::string DescribeAddress(const void* address);
+
+    // Where the exception being logged was thrown. The first-chance handler
+    // below sees every C++ throw (the runtime raises it as a Windows
+    // exception) and records the stack here; the catch that logs it runs
+    // much later, after the stack that mattered has unwound. Trivially
+    // destructible on purpose: a thread_local with a destructor is not safe
+    // at thread exit under MinGW.
+    thread_local std::array<void*, 48> ThrowFrames{};
+    thread_local USHORT ThrowFrameCount = 0;
+#endif
+
     [[nodiscard]] std::optional<std::string> NativeStackTrace()
     {
 #if defined(_WIN32)
         std::array<void*, 64> frames{};
-        const USHORT count = CaptureStackBackTrace(0,
-            static_cast<DWORD>(frames.size()), frames.data(), nullptr);
+        USHORT count = 0;
+        USHORT first = 2;
+        bool thrown = false;
+        if (ThrowFrameCount != 0)
+        {
+            count = ThrowFrameCount;
+            std::copy_n(ThrowFrames.begin(), count, frames.begin());
+            ThrowFrameCount = 0;
+            first = 0;
+            thrown = true;
+        }
+        else
+        {
+            count = CaptureStackBackTrace(0,
+                static_cast<DWORD>(frames.size()), frames.data(), nullptr);
+        }
         if (count == 0)
         {
             return std::nullopt;
         }
         std::ostringstream result;
         result.imbue(std::locale::classic());
-        for (USHORT index = 2; index < count; ++index)
+        if (thrown)
         {
-            if (index != 2)
+            result << "   (thrown from)";
+        }
+        for (USHORT index = first; index < count; ++index)
+        {
+            if (index != first || thrown)
             {
                 result << NewLine;
             }
-            result << "   at 0x" << std::hex << std::uppercase
-                << reinterpret_cast<std::uintptr_t>(frames[index]);
+            result << "   at " << DescribeAddress(frames[index]);
         }
         const std::string text = result.str();
         return text.empty() ? std::nullopt
@@ -1591,6 +1621,13 @@ namespace
     LONG CALLBACK FirstChanceFaultHandler(EXCEPTION_POINTERS* pointers)
     {
         const EXCEPTION_RECORD& record = *pointers->ExceptionRecord;
+        if (record.ExceptionCode == 0x20474343U || record.ExceptionCode == 0xE06D7363U)
+        {
+            // A C++ throw (GCC's SEH unwinder, or MSVC's): remember where.
+            ThrowFrameCount = ::CaptureStackBackTrace(1,
+                static_cast<DWORD>(ThrowFrames.size()), ThrowFrames.data(), nullptr);
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
         if (!IsFatalCode(record.ExceptionCode)
             || FirstChanceFaultsLogged.fetch_add(1) >= FirstChanceFaultLimit)
         {

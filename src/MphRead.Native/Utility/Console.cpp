@@ -234,7 +234,7 @@ namespace
 #else
         // No portable process-independent locale hook exists here. Retain a
         // thread-local invariant object rather than introducing global state.
-        thread_local const std::locale invariantCulture = std::locale::classic();
+        static const std::locale invariantCulture = std::locale::classic();
         (void)invariantCulture;
 #endif
     }

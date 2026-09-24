@@ -1,4 +1,5 @@
 #include "Buffers.hpp"
+#include "ThreadStatic.hpp"
 
 #include "Exceptions.hpp"
 
@@ -132,8 +133,9 @@ namespace MphRead::NativeRuntime
 
         std::array<ArrayRef, NumBuckets>& ThreadLocalBuckets()
         {
-            thread_local std::array<ArrayRef, NumBuckets> buckets;
-            return buckets;
+            // A [ThreadStatic] field. See ThreadStatic.hpp.
+            static ThreadStatic<std::array<ArrayRef, NumBuckets>> buckets;
+            return buckets.Value();
         }
     }
 

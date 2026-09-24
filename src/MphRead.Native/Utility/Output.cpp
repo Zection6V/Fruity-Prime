@@ -41,7 +41,7 @@ namespace
             (void)::uselocale(invariantLocale);
         }
 #else
-        thread_local const std::locale invariantCulture = std::locale::classic();
+        static const std::locale invariantCulture = std::locale::classic();
         (void)invariantCulture;
 #endif
     }

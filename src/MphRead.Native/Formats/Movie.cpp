@@ -1,4 +1,5 @@
 #include "Movie.hpp"
+#include "../NativeRuntime/System/ThreadStatic.hpp"
 
 #include "../GameState.hpp"
 #include "../Scene.hpp"
@@ -394,11 +395,17 @@ namespace System
 
     namespace
     {
-        thread_local std::locale CurrentCultureLocale = std::locale();
+        std::locale MakeCurrentCultureLocale()
+        {
+            return std::locale();
+        }
+
+        ::MphRead::NativeRuntime::ThreadStatic<std::locale> CurrentCultureLocaleSlot(
+            &MakeCurrentCultureLocale);
     }
 
     Globalization::CultureInfo::CultureInfo()
-        : _locale(CurrentCultureLocale)
+        : _locale(CurrentCultureLocaleSlot.Value())
     {
     }
 
@@ -409,12 +416,12 @@ namespace System
 
     Globalization::CultureInfo Globalization::CultureInfo::CurrentCulture()
     {
-        return CultureInfo(CurrentCultureLocale);
+        return CultureInfo(CurrentCultureLocaleSlot.Value());
     }
 
     void Globalization::CultureInfo::SetCurrentCulture(CultureInfo culture)
     {
-        CurrentCultureLocale = std::move(culture._locale);
+        CurrentCultureLocaleSlot.Value() = std::move(culture._locale);
     }
 
     Decimal::Decimal(std::int32_t value) noexcept
@@ -863,8 +870,21 @@ namespace MphRead::Formats::MovieNativeRuntime
 
     namespace
     {
-        thread_local std::shared_ptr<SynchronizationContext> CurrentSynchronizationContext{};
-        thread_local std::shared_ptr<TaskScheduler> CurrentTaskScheduler{};
+        // [ThreadStatic] fields. See NativeRuntime/System/ThreadStatic.hpp.
+        ::MphRead::NativeRuntime::ThreadStatic<std::shared_ptr<SynchronizationContext>>
+            CurrentSynchronizationContextSlot;
+        ::MphRead::NativeRuntime::ThreadStatic<std::shared_ptr<TaskScheduler>>
+            CurrentTaskSchedulerSlot;
+
+        std::shared_ptr<SynchronizationContext>& CurrentSynchronizationContextRef()
+        {
+            return CurrentSynchronizationContextSlot.Value();
+        }
+
+        std::shared_ptr<TaskScheduler>& CurrentTaskSchedulerRef()
+        {
+            return CurrentTaskSchedulerSlot.Value();
+        }
 
         class DefaultTaskScheduler final : public TaskScheduler
         {
@@ -938,18 +958,18 @@ namespace MphRead::Formats::MovieNativeRuntime
                             return;
                         }
                         std::shared_ptr<SynchronizationContext> previous
-                            = std::move(CurrentSynchronizationContext);
-                        CurrentSynchronizationContext = context;
+                            = std::move(CurrentSynchronizationContextRef());
+                        CurrentSynchronizationContextRef() = context;
                         try
                         {
                             ResumeWithExecutionContext(registration);
                         }
                         catch (...)
                         {
-                            CurrentSynchronizationContext = std::move(previous);
+                            CurrentSynchronizationContextRef() = std::move(previous);
                             throw;
                         }
-                        CurrentSynchronizationContext = std::move(previous);
+                        CurrentSynchronizationContextRef() = std::move(previous);
                     });
             }
             else if (registration.Scheduler)
@@ -1116,18 +1136,18 @@ namespace MphRead::Formats::MovieNativeRuntime
 
     std::shared_ptr<SynchronizationContext> SynchronizationContext::Current() noexcept
     {
-        return CurrentSynchronizationContext;
+        return CurrentSynchronizationContextRef();
     }
 
     void SynchronizationContext::SetSynchronizationContext(
         std::shared_ptr<SynchronizationContext> context) noexcept
     {
-        CurrentSynchronizationContext = std::move(context);
+        CurrentSynchronizationContextRef() = std::move(context);
     }
 
     std::shared_ptr<TaskScheduler> TaskScheduler::Current() noexcept
     {
-        return CurrentTaskScheduler ? CurrentTaskScheduler : DefaultSchedulerInstance();
+        return CurrentTaskSchedulerRef() ? CurrentTaskSchedulerRef() : DefaultSchedulerInstance();
     }
 
     std::shared_ptr<TaskScheduler> TaskScheduler::Default() noexcept
@@ -1140,18 +1160,18 @@ namespace MphRead::Formats::MovieNativeRuntime
         std::shared_ptr<TaskScheduler> self = shared_from_this();
         Queue([self = std::move(self), continuation = std::move(continuation)]() mutable
         {
-            std::shared_ptr<TaskScheduler> previous = std::move(CurrentTaskScheduler);
-            CurrentTaskScheduler = self;
+            std::shared_ptr<TaskScheduler> previous = std::move(CurrentTaskSchedulerRef());
+            CurrentTaskSchedulerRef() = self;
             try
             {
                 continuation();
             }
             catch (...)
             {
-                CurrentTaskScheduler = std::move(previous);
+                CurrentTaskSchedulerRef() = std::move(previous);
                 throw;
             }
-            CurrentTaskScheduler = std::move(previous);
+            CurrentTaskSchedulerRef() = std::move(previous);
         });
     }
 

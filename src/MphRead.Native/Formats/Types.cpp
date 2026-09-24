@@ -1,4 +1,5 @@
 #include "Types.hpp"
+#include "../NativeRuntime/System/ThreadStatic.hpp"
 
 #include "../NativeRuntime/System/Globalization.hpp"
 
@@ -19,7 +20,14 @@ namespace
     constexpr std::uint32_t Prime4 = 668265263U;
     constexpr std::uint32_t Prime5 = 374761393U;
 
-    thread_local std::string ManagedCurrentNegativeSign = "-";
+    std::string MakeManagedCurrentNegativeSign()
+    {
+        return "-";
+    }
+
+    // A [ThreadStatic] field. See NativeRuntime/System/ThreadStatic.hpp.
+    ::MphRead::NativeRuntime::ThreadStatic<std::string> ManagedCurrentNegativeSignSlot(
+        &MakeManagedCurrentNegativeSign);
 
     template <typename T>
     T& AssignReadonly(T& self, const T& other) noexcept
@@ -262,7 +270,7 @@ namespace
         std::string result;
         if (value < 0)
         {
-            result += ManagedCurrentNegativeSign;
+            result += ManagedCurrentNegativeSignSlot.Value();
         }
         result.append(digits, end);
         return result;
@@ -288,7 +296,7 @@ namespace MphRead::NativeRuntime
 {
     void SetManagedCurrentNegativeSign(std::string negativeSign)
     {
-        ManagedCurrentNegativeSign = negativeSign;
+        ManagedCurrentNegativeSignSlot.Value() = negativeSign;
     }
 }
 

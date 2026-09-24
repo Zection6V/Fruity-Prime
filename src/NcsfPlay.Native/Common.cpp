@@ -23,7 +23,10 @@
 
 namespace
 {
-	thread_local std::optional<NCSFCommon::NumberFormatInfo> CurrentCultureNumberFormatOverride;
+	// A [ThreadStatic] field, held through a plain pointer: under MinGW a
+	// thread_local with a destructor can be destroyed after its storage has
+	// been freed, which faults as the thread exits. Allocated only when set.
+	thread_local std::optional<NCSFCommon::NumberFormatInfo>* CurrentCultureNumberFormatOverride = nullptr;
 
 	[[nodiscard]] constexpr bool IsParseWhiteSpace(char16_t value) noexcept
 	{
@@ -798,16 +801,20 @@ namespace NCSFCommon
 {
 	NumberFormatInfo GetCurrentCultureNumberFormat()
 	{
-		if (CurrentCultureNumberFormatOverride)
+		if (CurrentCultureNumberFormatOverride != nullptr && *CurrentCultureNumberFormatOverride)
 		{
-			return *CurrentCultureNumberFormatOverride;
+			return **CurrentCultureNumberFormatOverride;
 		}
 		return LoadExecutionThreadNumberFormat();
 	}
 
 	void SetCurrentCultureNumberFormat(std::optional<NumberFormatInfo> format)
 	{
-		CurrentCultureNumberFormatOverride = std::move(format);
+		if (CurrentCultureNumberFormatOverride == nullptr)
+		{
+			CurrentCultureNumberFormatOverride = new std::optional<NumberFormatInfo>();
+		}
+		*CurrentCultureNumberFormatOverride = std::move(format);
 	}
 
 	void Common::ThrowNotSupported()

@@ -488,6 +488,19 @@ namespace
             if (auto value = LocaleString(LOCALE_SNEGATIVESIGN); value && !value->empty()) result.NegativeSign = *value;
             if (auto value = LocaleString(LOCALE_SPOSITIVESIGN); value && !value->empty()) result.PositiveSign = *value;
 #else
+#if defined(__ANDROID__)
+            if (const lconv* locale = ::localeconv(); locale != nullptr)
+            {
+                if (locale->decimal_point != nullptr && locale->decimal_point[0] != '\0')
+                {
+                    result.DecimalSeparator = locale->decimal_point;
+                }
+                if (locale->thousands_sep != nullptr)
+                {
+                    result.GroupSeparator = locale->thousands_sep;
+                }
+            }
+#else
             locale_t locale = CurrentPosixLocale();
             if (locale != static_cast<locale_t>(0))
             {
@@ -501,6 +514,7 @@ namespace
                 if (auto value = LocaleString(THOUSEP)) result.GroupSeparator = *value;
                 ::freelocale(locale);
             }
+#endif
             ApplyIcuNumberSigns(result);
 #endif
         }

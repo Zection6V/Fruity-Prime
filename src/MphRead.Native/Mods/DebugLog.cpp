@@ -1366,6 +1366,109 @@ namespace
     // plus the offset), since the loader puts the image somewhere else.
     LPTOP_LEVEL_EXCEPTION_FILTER PreviousFaultFilter = nullptr;
 
+    // The nearest function symbol at or below an RVA of this executable, from
+    // the COFF symbol table a MinGW link leaves in the image unless it is
+    // stripped. Read once, on the first fault.
+    [[nodiscard]] std::string ExecutableSymbol(std::uintptr_t rva)
+    {
+        struct Function
+        {
+            std::uint32_t Rva;
+            std::string Name;
+        };
+        static std::vector<Function> functions;
+        static bool loaded = false;
+        if (!loaded)
+        {
+            loaded = true;
+            std::array<char, MAX_PATH> path{};
+            const DWORD length = ::GetModuleFileNameA(nullptr, path.data(), static_cast<DWORD>(path.size()));
+            std::ifstream file(std::string(path.data(), length), std::ios::binary);
+            IMAGE_DOS_HEADER dos{};
+            IMAGE_NT_HEADERS nt{};
+            if (!file.read(reinterpret_cast<char*>(&dos), sizeof(dos)) || !file.seekg(dos.e_lfanew)
+                || !file.read(reinterpret_cast<char*>(&nt), sizeof(nt)) || nt.Signature != IMAGE_NT_SIGNATURE
+                || nt.FileHeader.PointerToSymbolTable == 0 || nt.FileHeader.NumberOfSymbols == 0)
+            {
+                return {};
+            }
+            std::vector<IMAGE_SECTION_HEADER> sections(nt.FileHeader.NumberOfSections);
+            file.seekg(dos.e_lfanew + 4 + static_cast<std::streamoff>(sizeof(IMAGE_FILE_HEADER))
+                + nt.FileHeader.SizeOfOptionalHeader);
+            file.read(reinterpret_cast<char*>(sections.data()),
+                static_cast<std::streamsize>(sections.size() * sizeof(IMAGE_SECTION_HEADER)));
+            const std::size_t count = nt.FileHeader.NumberOfSymbols;
+            std::vector<std::uint8_t> table(count * 18);
+            file.seekg(nt.FileHeader.PointerToSymbolTable);
+            file.read(reinterpret_cast<char*>(table.data()), static_cast<std::streamsize>(table.size()));
+            std::uint32_t stringsSize = 0;
+            file.read(reinterpret_cast<char*>(&stringsSize), sizeof(stringsSize));
+            std::vector<char> strings(stringsSize > 4 ? stringsSize : 4);
+            file.read(strings.data() + 4, static_cast<std::streamsize>(strings.size() - 4));
+            if (!file)
+            {
+                return {};
+            }
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                const std::uint8_t* entry = table.data() + index * 18;
+                std::uint32_t value = 0;
+                std::int16_t section = 0;
+                std::uint16_t type = 0;
+                std::memcpy(&value, entry + 8, 4);
+                std::memcpy(&section, entry + 12, 2);
+                std::memcpy(&type, entry + 14, 2);
+                const std::uint8_t aux = entry[17];
+                if (section > 0 && static_cast<std::size_t>(section) <= sections.size() && (type & 0xF0) == 0x20)
+                {
+                    std::string name;
+                    std::uint32_t zero = 0;
+                    std::memcpy(&zero, entry, 4);
+                    if (zero == 0)
+                    {
+                        std::uint32_t offset = 0;
+                        std::memcpy(&offset, entry + 4, 4);
+                        if (offset < strings.size())
+                        {
+                            name = std::string(strings.data() + offset);
+                        }
+                    }
+                    else
+                    {
+                        name = std::string(reinterpret_cast<const char*>(entry),
+                            strnlen(reinterpret_cast<const char*>(entry), 8));
+                    }
+                    functions.push_back({sections[static_cast<std::size_t>(section - 1)].VirtualAddress + value,
+                        std::move(name)});
+                }
+                index += aux;
+            }
+            std::sort(functions.begin(), functions.end(),
+                [](const Function& left, const Function& right) { return left.Rva < right.Rva; });
+        }
+        auto after = std::upper_bound(functions.begin(), functions.end(), rva,
+            [](std::uintptr_t value, const Function& function) { return value < function.Rva; });
+        if (after == functions.begin())
+        {
+            return {};
+        }
+        const Function& function = *std::prev(after);
+        std::string name = function.Name;
+#if defined(__GNUG__)
+        int status = 0;
+        std::unique_ptr<char, decltype(&std::free)> demangled(
+            abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status), &std::free);
+        if (status == 0 && demangled)
+        {
+            name = demangled.get();
+        }
+#endif
+        std::ostringstream text;
+        text.imbue(std::locale::classic());
+        text << name << "+0x" << std::hex << std::uppercase << (rva - function.Rva);
+        return text.str();
+    }
+
     [[nodiscard]] std::string DescribeAddress(const void* address)
     {
         std::ostringstream text;
@@ -1387,11 +1490,27 @@ namespace
             const auto base = reinterpret_cast<std::uintptr_t>(module);
             const std::uintptr_t offset = reinterpret_cast<std::uintptr_t>(address) - base;
             text << name << "+0x" << std::hex << std::uppercase << offset;
-            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(module);
-            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
-                reinterpret_cast<const std::uint8_t*>(module) + dos->e_lfanew);
-            text << " (addr2line 0x" << (static_cast<std::uintptr_t>(nt->OptionalHeader.ImageBase) + offset)
-                << ")";
+            // The loader rewrites ImageBase in the mapped header when it
+            // relocates the image, so the preferred base is read off disk.
+            std::ifstream file(std::string(path.data(), length), std::ios::binary);
+            IMAGE_DOS_HEADER dos{};
+            IMAGE_NT_HEADERS nt{};
+            if (file.read(reinterpret_cast<char*>(&dos), sizeof(dos))
+                && file.seekg(dos.e_lfanew)
+                && file.read(reinterpret_cast<char*>(&nt), sizeof(nt))
+                && nt.Signature == IMAGE_NT_SIGNATURE)
+            {
+                text << " (addr2line 0x"
+                    << (static_cast<std::uintptr_t>(nt.OptionalHeader.ImageBase) + offset) << ")";
+            }
+            if (module == ::GetModuleHandleW(nullptr))
+            {
+                const std::string symbol = ExecutableSymbol(offset);
+                if (!symbol.empty())
+                {
+                    text << " " << symbol;
+                }
+            }
         }
         else
         {

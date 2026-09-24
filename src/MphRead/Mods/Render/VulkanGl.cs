@@ -445,13 +445,22 @@ namespace MphRead.Mods.Render
             }
             if (_commandsOpen)
             {
+                // EnsureFrame never begins a new list until the previous
+                // fenced frame has completed, so an open list is the only
+                // outstanding work here. Submit the partial frame and wait
+                // before destroying anything it recorded.
                 _commands!.End();
                 _gd.SubmitCommands(_commands);
                 _commandsOpen = false;
+                _gd.WaitForIdle();
+                return;
             }
-            _gd.WaitForIdle();
             if (_frameInFlight)
             {
+                // Present submitted this frame with our reusable fence.
+                // Waiting the fence is sufficient and avoids a device-wide
+                // idle when no newer command list has been recorded.
+                _gd.WaitForFence(_frameFence!);
                 _frameFence!.Reset();
                 _frameInFlight = false;
             }

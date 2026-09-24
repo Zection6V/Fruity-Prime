@@ -328,6 +328,7 @@ namespace MphRead.Mods.Diagnostics
                 }
 
                 CheckVulkanFramebufferSamplingOrientation(texture, framebuffer, size);
+                CheckVulkanRttMaskOrientation(texture, framebuffer, size);
             }
             finally
             {
@@ -432,6 +433,130 @@ namespace MphRead.Mods.Diagnostics
                 if (program != 0) GL.DeleteProgram(program);
                 GL.DeleteFramebuffer(targetFramebuffer);
                 GL.DeleteTexture(targetTexture);
+            }
+        }
+
+        private static void CheckVulkanRttMaskOrientation(
+            int sourceTexture, int sourceFramebuffer, int size)
+        {
+            int maskTexture = GL.GenTexture();
+            int targetTexture = GL.GenTexture();
+            int targetFramebuffer = GL.GenFramebuffer();
+            int program = 0;
+            try
+            {
+                // The source is solid red. The mask is a CPU-uploaded image
+                // whose first half of rows has alpha and second half does not.
+                // With OpenGL's bottom-left gl_FragCoord plus the RTT shader's
+                // 1-y mask lookup, those first texture rows cover the TOP half
+                // of the screen.
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, sourceFramebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.ColorMask(true, true, true, true);
+                GL.ClearColor(1f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+
+                byte[] mask = new byte[size * size * 4];
+                for (int y = 0; y < size / 2; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        int at = (y * size + x) * 4;
+                        mask[at] = 255;
+                        mask[at + 1] = 255;
+                        mask[at + 2] = 255;
+                        mask[at + 3] = 255;
+                    }
+                }
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, maskTexture);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba,
+                    size, size, 0, PixelFormat.Rgba, PixelType.UnsignedByte, mask);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                    (int)TextureMinFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                    (int)TextureMagFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS,
+                    (int)TextureWrapMode.ClampToEdge);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT,
+                    (int)TextureWrapMode.ClampToEdge);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+
+                GL.BindTexture(TextureTarget.Texture2D, targetTexture);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba,
+                    size, size, 0, PixelFormat.Rgba, PixelType.UnsignedByte, IntPtr.Zero);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                    (int)TextureMinFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                    (int)TextureMagFilter.Nearest);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, targetFramebuffer);
+                GL.FramebufferTexture2D(FramebufferTarget.Framebuffer,
+                    FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D,
+                    targetTexture, 0);
+                if (GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer)
+                    != FramebufferErrorCode.FramebufferComplete)
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan RTT-mask regression target is incomplete.");
+                }
+
+                program = CreateProgram(Shaders.RttVertexShader, Shaders.RttFragmentShader);
+                GL.UseProgram(program);
+                GL.Uniform1(GL.GetUniformLocation(program, "alpha"), 1f);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_mask"), 1);
+                GL.Uniform1(GL.GetUniformLocation(program, "view_width"), (float)size);
+                GL.Uniform1(GL.GetUniformLocation(program, "view_height"), (float)size);
+                GL.Uniform4(GL.GetUniformLocation(program, "fade_color"), Vector4.Zero);
+
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, sourceTexture);
+                GL.ActiveTexture(TextureUnit.Texture1);
+                GL.BindTexture(TextureTarget.Texture2D, maskTexture);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.Viewport(0, 0, size, size);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Enable(EnableCap.Blend);
+                GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Color4(1f, 1f, 1f, 1f);
+                GL.Begin(PrimitiveType.TriangleStrip);
+                GL.TexCoord3(1f, 1f, 0f); GL.Vertex3(1f, 1f, 0f);
+                GL.TexCoord3(0f, 1f, 0f); GL.Vertex3(-1f, 1f, 0f);
+                GL.TexCoord3(1f, 0f, 0f); GL.Vertex3(1f, -1f, 0f);
+                GL.TexCoord3(0f, 0f, 0f); GL.Vertex3(-1f, -1f, 0f);
+                GL.End();
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, targetFramebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 2, size * 3 / 4, 0, 0, 0)
+                    || !PixelIs(pixels, size, size / 2, size / 4, 255, 0, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan RTT mask did not preserve OpenGL gl_FragCoord/Y orientation.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan OpenGL-compatible RTT mask orientation passed.");
+            }
+            finally
+            {
+                GL.UseProgram(0);
+                GL.Disable(EnableCap.Blend);
+                GL.ActiveTexture(TextureUnit.Texture1);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                if (program != 0) GL.DeleteProgram(program);
+                GL.DeleteFramebuffer(targetFramebuffer);
+                GL.DeleteTexture(targetTexture);
+                GL.DeleteTexture(maskTexture);
             }
         }
 

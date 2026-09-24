@@ -162,8 +162,11 @@ namespace MphRead
         private bool _transformRoomNodes = false;
         private bool _outputCameraPos = false;
 
-        // map each model's texture ID/palette ID combinations to the bound OpenGL texture ID and "onlyOpaque" boolean
-        private int _textureCount = 0;
+        // Map each model's texture/palette/recolor combination to a backend-
+        // generated texture object and its opacity property. The shell can
+        // keep a launcher preview Scene alive while a match Scene is created,
+        // so a per-Scene integer counter cannot safely name objects in the
+        // shared GL/Vulkan namespace.
         private readonly Dictionary<int, TextureMap> _texPalMap = new Dictionary<int, TextureMap>();
 
         private int _shaderProgramId = 0;
@@ -798,7 +801,6 @@ namespace MphRead
             _frameBuffer = GL.GenFramebuffer();
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
             _screenTexture = GL.GenTexture();
-            _textureCount++;
             Vector2i renderTarget = RenderSize;
             _targetSize = renderTarget;
             GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
@@ -819,7 +821,6 @@ namespace MphRead
             // The ink pass's copy of the scene. Same size and same filtering;
             // it is only ever sampled texel for texel.
             _celTexture = GL.GenTexture();
-            _textureCount++;
             GL.BindTexture(TextureTarget.Texture2D, _celTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, renderTarget.X, renderTarget.Y, 0,
                 PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
@@ -1318,8 +1319,9 @@ namespace MphRead
                 var map = new TextureMap();
                 foreach ((int textureId, int paletteId, int recolorId) in combos)
                 {
-                    bool onlyOpaque = BindTexture(model, textureId, paletteId, recolorId);
-                    map.Add(textureId, paletteId, recolorId, _textureCount, onlyOpaque);
+                    (int bindingId, bool onlyOpaque) =
+                        BindTexture(model, textureId, paletteId, recolorId);
+                    map.Add(textureId, paletteId, recolorId, bindingId, onlyOpaque);
                 }
                 _texPalMap.Add(model.Id, map);
             }
@@ -1337,13 +1339,13 @@ namespace MphRead
             {
                 return value.Get(textureId, paletteId, recolorId).BindingId;
             }
-            BindTexture(model, textureId, paletteId, recolorId);
-            return _textureCount;
+            return BindTexture(model, textureId, paletteId, recolorId).BindingId;
         }
 
-        private bool BindTexture(Model model, int textureId, int paletteId, int recolorId)
+        private (int BindingId, bool OnlyOpaque) BindTexture(
+            Model model, int textureId, int paletteId, int recolorId)
         {
-            _textureCount++;
+            int bindingId = GL.GenTexture();
             bool onlyOpaque = true;
             var pixels = new List<uint>();
             var average = new FlatColor();
@@ -1354,12 +1356,12 @@ namespace MphRead
                 average.Add(pixel);
             }
             Texture texture = model.Recolors[recolorId].Textures[textureId];
-            GL.BindTexture(TextureTarget.Texture2D, _textureCount);
+            GL.BindTexture(TextureTarget.Texture2D, bindingId);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, texture.Width, texture.Height, 0,
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
-            _flatColors[_textureCount] = average.Result;
-            return onlyOpaque;
+            _flatColors[bindingId] = average.Result;
+            return (bindingId, onlyOpaque);
         }
 
         /// <summary>
@@ -1426,13 +1428,13 @@ namespace MphRead
 
         public int BindGetTexture(IReadOnlyList<ColorRgba> data, int width, int height)
         {
-            _textureCount++;
-            GL.BindTexture(TextureTarget.Texture2D, _textureCount);
+            int bindingId = GL.GenTexture();
+            GL.BindTexture(TextureTarget.Texture2D, bindingId);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, width, height, 0,
                 PixelFormat.Rgba, PixelType.UnsignedByte, data.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
-            _flatColors[_textureCount] = AverageOf(data);
-            return _textureCount;
+            _flatColors[bindingId] = AverageOf(data);
+            return bindingId;
         }
 
         public void BindTexture(IReadOnlyList<ColorRgba> data, int width, int height, int bindingId)
@@ -2034,12 +2036,10 @@ namespace MphRead
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
                 return;
             }
             _depthTexture = GL.GenTexture();
-            _textureCount++;
             GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,
                 target.X, target.Y, 0, PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
@@ -2064,7 +2064,6 @@ namespace MphRead
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
             }
         }

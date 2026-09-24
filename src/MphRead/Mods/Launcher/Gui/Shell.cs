@@ -468,6 +468,19 @@ namespace MphRead.Mods.Launcher.Gui
             _played = plan;
             _front?.SuspendLobby();
             UiSurface.Current?.Hide();
+
+            // The front screen's hunter preview owns a side Scene in the same
+            // graphics context as the match. Models cache display-list IDs on
+            // the Model itself, while Scene.UnloadGl() tears down those IDs
+            // globally through Read.CachedModels/Read.ClearCache. Keeping the
+            // side Scene alive across this ownership handoff therefore lets
+            // two Scenes believe they own the same context-global objects.
+            //
+            // End the preview Scene before the match allocates anything. It is
+            // recreated lazily the next time the launcher asks for a hunter,
+            // so one Scene is the sole owner of model textures/lists during a
+            // match on both OpenGL and Vulkan.
+            LauncherHunter.Release();
             try
             {
                 if (!MatchStart.Begin(window, _settings, plan))

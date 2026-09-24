@@ -382,6 +382,7 @@ namespace MphRead.Mods.Diagnostics
                 }
 
                 CheckVulkanFixedFunctionTextureState(framebuffer, size);
+                CheckVulkanCopyTexSubImageOrientation(framebuffer, size);
                 CheckVulkanFramebufferSamplingOrientation(texture, framebuffer, size);
                 CheckVulkanRttMaskOrientation(texture, framebuffer, size);
             }
@@ -479,6 +480,97 @@ namespace MphRead.Mods.Diagnostics
                 GL.Enable(EnableCap.Texture2D);
                 GL.DepthMask(true);
                 GL.DeleteTexture(sample);
+            }
+        }
+
+        private static void CheckVulkanCopyTexSubImageOrientation(
+            int sourceFramebuffer, int size)
+        {
+            int copiedTexture = GL.GenTexture();
+            int program = 0;
+            try
+            {
+                // OpenGL framebuffer coordinates are bottom-left. Make the
+                // lower half red and upper half green so y=0 has an
+                // unambiguous expected result after a framebuffer-to-texture
+                // copy on Vulkan's top-left-origin images.
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, sourceFramebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(0);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(false);
+
+                GL.Enable(EnableCap.ScissorTest);
+                GL.Scissor(0, 0, size, size / 2);
+                GL.ClearColor(1f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Scissor(0, size / 2, size, size / 2);
+                GL.ClearColor(0f, 1f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Disable(EnableCap.ScissorTest);
+
+                GL.BindTexture(TextureTarget.Texture2D, copiedTexture);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba,
+                    size, size / 2, 0, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, IntPtr.Zero);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, sourceFramebuffer);
+                GL.CopyTexSubImage2D(TextureTarget.Texture2D, 0,
+                    0, 0, 0, 0, size, size / 2);
+
+                // Draw the copied half back over the same FBO. A correct
+                // OpenGL-coordinate copy is uniformly red. The old Vulkan
+                // implementation copied the top half instead and produced
+                // green here.
+                program = CreateProgram(Shaders.RttVertexShader, Shaders.RttFragmentShader);
+                GL.UseProgram(program);
+                GL.Uniform1(GL.GetUniformLocation(program, "alpha"), 1f);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_mask"), 0);
+                GL.Uniform4(GL.GetUniformLocation(program, "fade_color"), Vector4.Zero);
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, sourceFramebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Color4(1f, 1f, 1f, 1f);
+                GL.Begin(PrimitiveType.TriangleStrip);
+                GL.TexCoord3(1f, 1f, 0f); GL.Vertex3(1f, 1f, 0f);
+                GL.TexCoord3(0f, 1f, 0f); GL.Vertex3(-1f, 1f, 0f);
+                GL.TexCoord3(1f, 0f, 0f); GL.Vertex3(1f, -1f, 0f);
+                GL.TexCoord3(0f, 0f, 0f); GL.Vertex3(-1f, -1f, 0f);
+                GL.End();
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, sourceFramebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 2, size / 2, 255, 0, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan CopyTexSubImage2D did not use OpenGL bottom-left source coordinates.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan OpenGL-compatible CopyTexSubImage2D orientation passed.");
+            }
+            finally
+            {
+                GL.UseProgram(0);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.DepthMask(true);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                if (program != 0) GL.DeleteProgram(program);
+                GL.DeleteTexture(copiedTexture);
             }
         }
 

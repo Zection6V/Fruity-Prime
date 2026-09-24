@@ -95,6 +95,31 @@ namespace MphRead.Mods.Render
         }
 
         /// <summary>
+        /// Tear down the launcher's side scene while its current renderer is
+        /// still alive. A renderer switch invalidates every shader, texture and
+        /// display-list object owned by that scene, so keeping it across the
+        /// new native window would hand the next backend stale object names.
+        /// </summary>
+        public static void Release()
+        {
+            Reset();
+            if (_scene != null)
+            {
+                try
+                {
+                    _scene.DoCleanup();
+                }
+                finally
+                {
+                    _scene.UnloadGl();
+                    _scene = null;
+                }
+            }
+            _failed = false;
+            _said = false;
+        }
+
+        /// <summary>
         /// Draw it, if a screen asked and there is somewhere to draw it.
         ///
         /// Called from the launcher's own frame, after the photograph and

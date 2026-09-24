@@ -1313,8 +1313,10 @@ namespace MphRead.Mods.Render
                 bool linear = param == (int)TextureMinFilter.Linear || param == (int)TextureMagFilter.Linear;
                 if (linear != info.Linear)
                 {
+                    // Resource-set keys include the filter state, so changing
+                    // it selects a different sampler/set without invalidating
+                    // descriptors that may still be referenced by GPU work.
                     info.Linear = linear;
-                    InvalidateSets();
                 }
                 return;
             }
@@ -1335,7 +1337,9 @@ namespace MphRead.Mods.Render
                     if (address == info.AddressV) return;
                     info.AddressV = address;
                 }
-                InvalidateSets();
+                // Address modes are also part of the resource-set
+                // cache key; keep old sets alive and select/create the matching
+                // sampler lazily on the next draw.
             }
         }
 

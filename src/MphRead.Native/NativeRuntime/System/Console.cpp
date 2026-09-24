@@ -241,7 +241,7 @@ namespace MphRead::NativeRuntime
             result.data(), size, nullptr, nullptr);
         return result;
 #else
-        char buffer[HOST_NAME_MAX + 1]{};
+        char buffer[256]{};
         if (::gethostname(buffer, sizeof(buffer) - 1) != 0)
         {
             throw System::InvalidOperationException();

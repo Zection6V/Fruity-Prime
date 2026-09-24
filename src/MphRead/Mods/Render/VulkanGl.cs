@@ -147,6 +147,32 @@ namespace MphRead.Mods.Render
             }
         }
 
+        private sealed class UniformSlot : IDisposable
+        {
+            public DeviceBuffer Buffer { get; }
+            public ResourceSet? Set;
+            public string SetKey = "";
+
+            public UniformSlot(ResourceFactory factory)
+            {
+                Buffer = factory.CreateBuffer(new BufferDescription(
+                    UboSize, BufferUsage.UniformBuffer | BufferUsage.Dynamic));
+            }
+
+            public void InvalidateSet()
+            {
+                Set?.Dispose();
+                Set = null;
+                SetKey = "";
+            }
+
+            public void Dispose()
+            {
+                InvalidateSet();
+                Buffer.Dispose();
+            }
+        }
+
         private static GraphicsDevice? _gd;
         private static ResourceFactory? _factory;
         private static CommandList? _commands;
@@ -154,7 +180,6 @@ namespace MphRead.Mods.Render
         private static bool _commandsOpen;
         private static bool _frameInFlight;
         private static ResourceLayout? _layout;
-        private static DeviceBuffer? _ubo;
         private static ResourceLayout? _clearLayout;
         private static DeviceBuffer? _clearUbo;
         private static ResourceSet? _clearSet;
@@ -170,8 +195,9 @@ namespace MphRead.Mods.Render
         private static Shader[]? _backdropShaders;
         private static Shader[]? _clearShaders;
         private static readonly Dictionary<string, Pipeline> _pipelines = new();
-        private static readonly Dictionary<string, ResourceSet> _sets = new();
         private static readonly Dictionary<string, Sampler> _samplers = new();
+        private static readonly List<UniformSlot> _uniformSlots = new();
+        private static int _uniformSlotIndex;
 
         private static readonly Dictionary<int, TextureInfo> _textures = new();
         private static readonly Dictionary<int, FramebufferInfo> _framebuffers = new();
@@ -293,8 +319,6 @@ namespace MphRead.Mods.Render
             _factory = _gd.ResourceFactory;
             _commands = _factory.CreateCommandList();
             _frameFence = _factory.CreateFence(false);
-            _ubo = _factory.CreateBuffer(new BufferDescription(UboSize,
-                BufferUsage.UniformBuffer | BufferUsage.Dynamic));
 
             _layout = _factory.CreateResourceLayout(new ResourceLayoutDescription(
                 new ResourceLayoutElementDescription("CompatUniforms", ResourceKind.UniformBuffer,
@@ -361,7 +385,7 @@ namespace MphRead.Mods.Render
             }
             _gd.WaitForIdle();
             foreach (Pipeline pipeline in _pipelines.Values) pipeline.Dispose();
-            foreach (ResourceSet set in _sets.Values) set.Dispose();
+            foreach (UniformSlot slot in _uniformSlots) slot.Dispose();
             foreach (Sampler sampler in _samplers.Values) sampler.Dispose();
             foreach (TextureInfo texture in _textures.Values) texture.Dispose();
             foreach (FramebufferInfo framebuffer in _framebuffers.Values) framebuffer.Dispose();
@@ -379,14 +403,14 @@ namespace MphRead.Mods.Render
             _clearSet?.Dispose();
             _clearUbo?.Dispose();
             _clearLayout?.Dispose();
-            _ubo?.Dispose();
             _layout?.Dispose();
             _commands?.Dispose();
             _frameFence?.Dispose();
             _gd.Dispose();
 
             _pipelines.Clear();
-            _sets.Clear();
+            _uniformSlots.Clear();
+            _uniformSlotIndex = 0;
             _samplers.Clear();
             _textures.Clear();
             _framebuffers.Clear();
@@ -402,7 +426,6 @@ namespace MphRead.Mods.Render
             _frameFence = null;
             _frameInFlight = false;
             _layout = null;
-            _ubo = null;
             _clearLayout = null;
             _clearUbo = null;
             _clearSet = null;
@@ -472,6 +495,7 @@ namespace MphRead.Mods.Render
                 _gd.WaitForFence(_frameFence!);
                 _frameFence!.Reset();
                 _frameInFlight = false;
+                _uniformSlotIndex = 0;
                 return;
             }
             if (_frameInFlight)
@@ -482,6 +506,7 @@ namespace MphRead.Mods.Render
                 _gd.WaitForFence(_frameFence!);
                 _frameFence!.Reset();
                 _frameInFlight = false;
+                _uniformSlotIndex = 0;
             }
         }
 
@@ -496,6 +521,7 @@ namespace MphRead.Mods.Render
                 _gd!.WaitForFence(_frameFence!);
                 _frameFence!.Reset();
                 _frameInFlight = false;
+                _uniformSlotIndex = 0;
             }
             _commands!.Begin();
             _commandsOpen = true;
@@ -597,8 +623,10 @@ namespace MphRead.Mods.Render
         private static void InvalidateSets()
         {
             SynchronizeResourceMutation();
-            foreach (ResourceSet set in _sets.Values) set.Dispose();
-            _sets.Clear();
+            foreach (UniformSlot slot in _uniformSlots)
+            {
+                slot.InvalidateSet();
+            }
         }
 
         private static void ClearPipelineCache()
@@ -818,8 +846,14 @@ namespace MphRead.Mods.Render
                 viewportWidth, viewportHeight, 0, 1));
 
             byte[] ubo = BuildUniforms();
-            _commands.UpdateBuffer(_ubo!, 0, ubo);
-            ResourceSet set = GetResourceSet();
+            UniformSlot uniformSlot = AcquireUniformSlot();
+            // Veldrid 4.9 CommandList.UpdateBuffer emits a transfer -> vertex-
+            // input barrier for every buffer, even uniform buffers. That does
+            // not synchronize shader uniform reads. Each draw therefore owns
+            // a persistently mapped UBO slot, updated directly before submit;
+            // slots are not reused until the frame fence has completed.
+            _gd.UpdateBuffer(uniformSlot.Buffer, 0, ubo);
+            ResourceSet set = GetResourceSet(uniformSlot);
             if (triangles.Length > 0)
             {
                 _commands.SetPipeline(GetPipeline(PrimitiveTopology.TriangleList, fb));
@@ -1042,7 +1076,16 @@ namespace MphRead.Mods.Render
             };
         }
 
-        private static ResourceSet GetResourceSet()
+        private static UniformSlot AcquireUniformSlot()
+        {
+            if (_uniformSlotIndex == _uniformSlots.Count)
+            {
+                _uniformSlots.Add(new UniformSlot(_factory!));
+            }
+            return _uniformSlots[_uniformSlotIndex++];
+        }
+
+        private static ResourceSet GetResourceSet(UniformSlot slot)
         {
             TextureInfo t0 = _boundTextures[0] == 0 ? _white! : GetTexture(_boundTextures[0]);
             TextureInfo t1 = _boundTextures[1] == 0 ? _white! : GetTexture(_boundTextures[1]);
@@ -1050,16 +1093,18 @@ namespace MphRead.Mods.Render
             if (t1.View == null) t1 = _white!;
             string key = $"{_boundTextures[0]}:{t0.Version}:{t0.Linear}:{t0.AddressU}:{t0.AddressV}"
                 + $"|{_boundTextures[1]}:{t1.Version}:{t1.Linear}:{t1.AddressU}:{t1.AddressV}";
-            if (_sets.TryGetValue(key, out ResourceSet? set))
+            if (slot.Set != null && slot.SetKey == key)
             {
-                return set;
+                return slot.Set;
             }
+
+            slot.InvalidateSet();
             Sampler s0 = GetSampler(t0);
             Sampler s1 = GetSampler(t1);
-            set = _factory!.CreateResourceSet(new ResourceSetDescription(
-                _layout!, _ubo!, t0.View!, s0, t1.View!, s1));
-            _sets[key] = set;
-            return set;
+            slot.Set = _factory!.CreateResourceSet(new ResourceSetDescription(
+                _layout!, slot.Buffer, t0.View!, s0, t1.View!, s1));
+            slot.SetKey = key;
+            return slot.Set;
         }
 
         private static Sampler GetSampler(TextureInfo texture)
@@ -1525,6 +1570,7 @@ namespace MphRead.Mods.Render
             _gd.WaitForFence(_frameFence!);
             _frameFence!.Reset();
             _frameInFlight = false;
+            _uniformSlotIndex = 0;
 
             int outputBpp = format == GLPixelFormat.Rgb ? 3 : 4;
             byte[] output = new byte[width * height * outputBpp];

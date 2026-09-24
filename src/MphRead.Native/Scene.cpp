@@ -191,7 +191,11 @@ namespace MphRead
         InsertEntityByType(entity);
         if (entity->Id != -1)
         {
-            _entityMap.Add(entity->Id, std::move(entity));
+            // The key is read before the entity is moved into the value
+            // parameter: argument evaluation order is unspecified, and GCC
+            // on x64 Windows builds the second argument first.
+            const std::int32_t id = entity->Id;
+            _entityMap.Add(id, std::move(entity));
         }
     }
 

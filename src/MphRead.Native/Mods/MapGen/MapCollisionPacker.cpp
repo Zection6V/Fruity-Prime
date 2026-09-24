@@ -5,6 +5,7 @@
 #include "../../Utility/Repack.hpp"
 #include "../../Utility/RepackCollision.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -23,6 +24,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::OpenTK::Mathematics::ComponentMax;
+using ::OpenTK::Mathematics::ComponentMin;
 
 namespace
 {
@@ -58,22 +61,6 @@ namespace
             throw std::length_error("List count exceeds Int32.MaxValue.");
         }
         return static_cast<std::int32_t>(count);
-    }
-
-    [[nodiscard]] Vector3 ComponentMin(Vector3 a, Vector3 b) noexcept
-    {
-        a.X = a.X < b.X ? a.X : b.X;
-        a.Y = a.Y < b.Y ? a.Y : b.Y;
-        a.Z = a.Z < b.Z ? a.Z : b.Z;
-        return a;
-    }
-
-    [[nodiscard]] Vector3 ComponentMax(Vector3 a, Vector3 b) noexcept
-    {
-        a.X = a.X > b.X ? a.X : b.X;
-        a.Y = a.Y > b.Y ? a.Y : b.Y;
-        a.Z = a.Z > b.Z ? a.Z : b.Z;
-        return a;
     }
 
     struct Vector3Equal final

@@ -4,10 +4,13 @@
 #include "../InputSettings.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Entities/Players/PlayerInput.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cmath>
 #include <cstdint>
+
+using ::MphRead::NativeRuntime::MathMin;
 
 namespace
 {
@@ -17,18 +20,6 @@ namespace
         return std::bit_cast<float>(bits);
     }
 
-    float DotNetMin(float val1, float val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val1 < val2 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val1) ? val1 : val2;
-    }
 }
 
 namespace MphRead::Mods::Input
@@ -105,7 +96,7 @@ namespace MphRead::Mods::Input
         {
             return {0.0F, 0.0F};
         }
-        const float scaled = DotNetMin((length - dead) / (1.0F - dead), 1.0F);
+        const float scaled = MathMin((length - dead) / (1.0F - dead), 1.0F);
         return {x / length * scaled, y / length * scaled};
     }
 

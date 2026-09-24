@@ -25,6 +25,7 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Clamp;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::IsZero;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -51,26 +52,6 @@ namespace
     [[nodiscard]] constexpr Vector3 ComponentMultiply(Vector3 left, Vector3 right) noexcept
     {
         return Vector3(left.X * right.X, left.Y * right.Y, left.Z * right.Z);
-    }
-
-    [[nodiscard]] Vector3 Clamp(Vector3 value, Vector3 min, Vector3 max) noexcept
-    {
-        const auto clamp = [](float component, float minimum, float maximum) noexcept
-        {
-            if (component < minimum)
-            {
-                return minimum;
-            }
-            if (component > maximum)
-            {
-                return maximum;
-            }
-            return component;
-        };
-        return Vector3(
-            clamp(value.X, min.X, max.X),
-            clamp(value.Y, min.Y, max.Y),
-            clamp(value.Z, min.Z, max.Z));
     }
 
     [[nodiscard]] Matrix4 LookAt(Vector3 eye, Vector3 target, Vector3 up)

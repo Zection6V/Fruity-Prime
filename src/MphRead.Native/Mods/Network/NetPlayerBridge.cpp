@@ -7,6 +7,7 @@
 #include "NetLog.hpp"
 #include "NetRoomChange.hpp"
 #include "NetSession.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -34,6 +35,7 @@
 #endif
 
 using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::MathMax;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 
@@ -98,23 +100,6 @@ namespace
             return std::numeric_limits<std::uint16_t>::max();
         }
         return static_cast<std::uint16_t>(value);
-    }
-
-    [[nodiscard]] float ManagedMax(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left == right && left == 0.0F)
-        {
-            return std::signbit(left) ? right : left;
-        }
-        return left > right ? left : right;
     }
 
 #if defined(_WIN32)
@@ -819,7 +804,7 @@ namespace MphRead::Mods::Network
         if (distance > SnapDistance)
         {
             _snaps = UncheckedIncrement(_snaps);
-            _worstSnap = ManagedMax(_worstSnap, distance);
+            _worstSnap = MathMax(_worstSnap, distance);
             Move(player, reported);
             return;
         }

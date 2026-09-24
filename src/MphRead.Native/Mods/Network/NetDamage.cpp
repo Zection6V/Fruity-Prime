@@ -5,6 +5,7 @@
 #include "NetHooks.hpp"
 #include "NetLog.hpp"
 #include "NetSession.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -29,6 +30,8 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::MathMax;
 using ::OpenTK::Mathematics::IsZero;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -55,40 +58,6 @@ namespace
     void UncheckedIncrement(std::int32_t& value) noexcept
     {
         value = UncheckedAddInt32(value, 1);
-    }
-
-    [[nodiscard]] float ManagedClamp(float value, float minimum, float maximum) noexcept
-    {
-        if (value < minimum)
-        {
-            return minimum;
-        }
-        if (value > maximum)
-        {
-            return maximum;
-        }
-        return value;
-    }
-
-    [[nodiscard]] double ManagedMax(double left, double right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left == right)
-        {
-            if (left == 0.0)
-            {
-                return std::signbit(left) ? right : left;
-            }
-            return left;
-        }
-        return left > right ? left : right;
     }
 
     [[nodiscard]] std::string CurrentCultureDecimalSeparator()
@@ -355,14 +324,14 @@ namespace MphRead::Mods::Network
         UncheckedIncrement(Fired[static_cast<std::size_t>(slot)]);
         if (LengthSquared(shotVec) > 0.0001F && LengthSquared(aimVec) > 0.0001F)
         {
-            const float dot = ManagedClamp(
+            const float dot = MathClamp(
                 OpenTK::Mathematics::Vector3::Dot(
                     shotVec.Normalized(), aimVec.Normalized()),
                 -1.0F, 1.0F);
             const double degrees = std::acos(static_cast<double>(dot))
                 * 180.0 / std::numbers::pi;
             AimDrift[static_cast<std::size_t>(slot)] += degrees;
-            WorstDrift[static_cast<std::size_t>(slot)] = ManagedMax(
+            WorstDrift[static_cast<std::size_t>(slot)] = MathMax(
                 WorstDrift[static_cast<std::size_t>(slot)], degrees);
         }
     }

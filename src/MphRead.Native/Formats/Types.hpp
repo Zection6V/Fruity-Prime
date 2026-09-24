@@ -560,6 +560,84 @@ namespace OpenTK::Mathematics
         matrix.M43 = value.Z;
     }
 
+    // Vector3.Clamp(vec, min, max): each component, NaN passing through.
+    [[nodiscard]] constexpr Vector3 Clamp(Vector3 value, Vector3 min, Vector3 max) noexcept
+    {
+        value.X = value.X < min.X ? min.X : value.X > max.X ? max.X : value.X;
+        value.Y = value.Y < min.Y ? min.Y : value.Y > max.Y ? max.Y : value.Y;
+        value.Z = value.Z < min.Z ? min.Z : value.Z > max.Z ? max.Z : value.Z;
+        return value;
+    }
+
+    // Vector3.ComponentMin/ComponentMax: a plain comparison per component,
+    // not Math.Min -- so a NaN or a signed zero in b is not special.
+    [[nodiscard]] constexpr Vector3 ComponentMin(Vector3 a, Vector3 b) noexcept
+    {
+        a.X = a.X < b.X ? a.X : b.X;
+        a.Y = a.Y < b.Y ? a.Y : b.Y;
+        a.Z = a.Z < b.Z ? a.Z : b.Z;
+        return a;
+    }
+
+    [[nodiscard]] constexpr Vector3 ComponentMax(Vector3 a, Vector3 b) noexcept
+    {
+        a.X = a.X > b.X ? a.X : b.X;
+        a.Y = a.Y > b.Y ? a.Y : b.Y;
+        a.Z = a.Z > b.Z ? a.Z : b.Z;
+        return a;
+    }
+
+    // Vector3.DistanceSquared(vec1, vec2).
+    [[nodiscard]] constexpr float DistanceSquared(Vector3 vec1, Vector3 vec2) noexcept
+    {
+        return ((vec2.X - vec1.X) * (vec2.X - vec1.X))
+            + ((vec2.Y - vec1.Y) * (vec2.Y - vec1.Y))
+            + ((vec2.Z - vec1.Z) * (vec2.Z - vec1.Z));
+    }
+
+    // Matrix4.CreateRotationX(angle), CreateRotationZ(angle).
+    [[nodiscard]] inline Matrix4 CreateRotationX(float angle) noexcept
+    {
+        const float cos = std::cos(angle);
+        const float sin = std::sin(angle);
+        Matrix4 result = IdentityMatrix();
+        result.M22 = cos;
+        result.M23 = sin;
+        result.M32 = -sin;
+        result.M33 = cos;
+        return result;
+    }
+
+    [[nodiscard]] inline Matrix4 CreateRotationZ(float angle) noexcept
+    {
+        const float cos = std::cos(angle);
+        const float sin = std::sin(angle);
+        Matrix4 result = IdentityMatrix();
+        result.M11 = cos;
+        result.M12 = sin;
+        result.M21 = -sin;
+        result.M22 = cos;
+        return result;
+    }
+
+    // Matrix4.CreateFromAxisAngle(axis, angle), in OpenTK's order: the axis
+    // normalised, the angle negated, t * x * x rather than x * x * t.
+    [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept;
+
+    // matrix.Determinant, term for term as OpenTK sums it.
+    [[nodiscard]] float Determinant(const Matrix4& matrix) noexcept;
+
+    // Matrix4.Invert(mat): throws InvalidOperationException for a singular
+    // matrix. OpenTK takes its SSE3 path on x86 and x64 and its scalar
+    // fallback elsewhere, and the two round differently; this does the same
+    // arithmetic in the same order as whichever of them the C# would run on
+    // this processor.
+    [[nodiscard]] Matrix4 Invert(const Matrix4& matrix);
+
+    // matrix.Inverted(): the inverse, or the matrix itself when its
+    // determinant is zero.
+    [[nodiscard]] Matrix4 Inverted(const Matrix4& matrix);
+
     static_assert(std::is_standard_layout_v<Vector2> && sizeof(Vector2) == 8);
     static_assert(std::is_standard_layout_v<Vector3> && sizeof(Vector3) == 12);
     static_assert(std::is_standard_layout_v<Vector3i> && sizeof(Vector3i) == 12);

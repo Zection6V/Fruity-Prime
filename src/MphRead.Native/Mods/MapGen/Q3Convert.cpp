@@ -46,6 +46,8 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
@@ -139,40 +141,6 @@ namespace
         return std::bit_cast<std::int32_t>(
             static_cast<std::uint32_t>(left)
             + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] float ManagedMin(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left == right && left == 0.0F)
-        {
-            return std::signbit(left) || std::signbit(right) ? -0.0F : 0.0F;
-        }
-        return left < right ? left : right;
-    }
-
-    [[nodiscard]] float ManagedMax(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left == right && left == 0.0F)
-        {
-            return std::signbit(left) && std::signbit(right) ? -0.0F : 0.0F;
-        }
-        return left > right ? left : right;
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
@@ -1910,12 +1878,12 @@ namespace MphRead::Mods::MapGen
             = ArrayAt(max.get(), 1) - ArrayAt(min.get(), 1);
         const float zExtent
             = ArrayAt(max.get(), 2) - ArrayAt(min.get(), 2);
-        const float widest = ManagedMax(
+        const float widest = MathMax(
             xExtent,
-            ManagedMax(yExtent, zExtent));
+            MathMax(yExtent, zExtent));
         const float unit = forcedScale.has_value()
             ? *forcedScale
-            : RoundToEven(ManagedMax(
+            : RoundToEven(MathMax(
                 35.0F,
                 widest / TargetExtent));
 
@@ -1979,7 +1947,7 @@ namespace MphRead::Mods::MapGen
             RoundToEven(ArrayAt(min.get(), 2) / unit)
             - 5.0F);
         definition->FarClip(
-            RoundToEven(ManagedMin(
+            RoundToEven(MathMin(
                 400.0F,
                 widest / unit * 1.2F)));
 
@@ -2157,10 +2125,10 @@ namespace MphRead::Mods::MapGen
                     = Require(vertex->Position());
                 for (std::size_t axis = 0; axis < 3; ++axis)
                 {
-                    ArrayAt(min.get(), axis) = ManagedMin(
+                    ArrayAt(min.get(), axis) = MathMin(
                         ArrayAt(min.get(), axis),
                         ArrayAt(position, axis));
-                    ArrayAt(max.get(), axis) = ManagedMax(
+                    ArrayAt(max.get(), axis) = MathMax(
                         ArrayAt(max.get(), axis),
                         ArrayAt(position, axis));
                 }
@@ -2176,9 +2144,9 @@ namespace MphRead::Mods::MapGen
         float reach = 0.0F;
         for (std::size_t axis = 0; axis < 3; ++axis)
         {
-            reach = ManagedMax(
+            reach = MathMax(
                 reach,
-                ManagedMax(
+                MathMax(
                     std::fabs(ArrayAt(min, axis)),
                     std::fabs(ArrayAt(max, axis)))
                     / unit);

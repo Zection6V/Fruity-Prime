@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <string>
 #include <type_traits>
 
 namespace MphRead::NativeRuntime
@@ -91,4 +92,79 @@ namespace MphRead::NativeRuntime
         }
         return static_cast<std::int32_t>(std::trunc(wide));
     }
+
+    namespace Detail
+    {
+        template <typename T>
+        [[nodiscard]] T FloatMax(T val1, T val2) noexcept
+        {
+            if (val1 != val2)
+            {
+                if (!std::isnan(val1))
+                {
+                    return val2 < val1 ? val1 : val2;
+                }
+                return val1;
+            }
+            return std::signbit(val2) ? val1 : val2;
+        }
+
+        template <typename T>
+        [[nodiscard]] T FloatMin(T val1, T val2) noexcept
+        {
+            if (val1 != val2)
+            {
+                if (!std::isnan(val1))
+                {
+                    return val1 < val2 ? val1 : val2;
+                }
+                return val1;
+            }
+            return std::signbit(val1) ? val1 : val2;
+        }
+    }
+
+    // Math.Max / MathF.Max (.NET Core 3.0 and later): a NaN on either side
+    // wins, and +0 is greater than -0. std::max and std::fmax do neither.
+    // Math.Min / MathF.Min likewise, -0 less than +0. One overload per C#
+    // overload, so a mixed call converts the way the C# one does.
+    [[nodiscard]] inline float MathMax(float val1, float val2) noexcept { return Detail::FloatMax(val1, val2); }
+    [[nodiscard]] inline double MathMax(double val1, double val2) noexcept { return Detail::FloatMax(val1, val2); }
+    [[nodiscard]] inline float MathMin(float val1, float val2) noexcept { return Detail::FloatMin(val1, val2); }
+    [[nodiscard]] inline double MathMin(double val1, double val2) noexcept { return Detail::FloatMin(val1, val2); }
+    [[nodiscard]] constexpr std::int32_t MathMax(std::int32_t val1, std::int32_t val2) noexcept { return val1 >= val2 ? val1 : val2; }
+    [[nodiscard]] constexpr std::int32_t MathMin(std::int32_t val1, std::int32_t val2) noexcept { return val1 <= val2 ? val1 : val2; }
+    [[nodiscard]] constexpr std::uint32_t MathMax(std::uint32_t val1, std::uint32_t val2) noexcept { return val1 >= val2 ? val1 : val2; }
+    [[nodiscard]] constexpr std::uint32_t MathMin(std::uint32_t val1, std::uint32_t val2) noexcept { return val1 <= val2 ? val1 : val2; }
+    [[nodiscard]] constexpr std::int64_t MathMax(std::int64_t val1, std::int64_t val2) noexcept { return val1 >= val2 ? val1 : val2; }
+    [[nodiscard]] constexpr std::int64_t MathMin(std::int64_t val1, std::int64_t val2) noexcept { return val1 <= val2 ? val1 : val2; }
+
+    namespace Detail
+    {
+        template <typename T>
+        [[nodiscard]] T Clamp(T value, T min, T max)
+        {
+            if (min > max)
+            {
+                throw System::ArgumentException(
+                    "'" + std::to_string(min) + "' cannot be greater than " + std::to_string(max) + ".");
+            }
+            if (value < min)
+            {
+                return min;
+            }
+            if (value > max)
+            {
+                return max;
+            }
+            return value;
+        }
+    }
+
+    // Math.Clamp(value, min, max): ArgumentException when min is greater
+    // than max; a NaN value comes back as it went in.
+    [[nodiscard]] inline float MathClamp(float value, float min, float max) { return Detail::Clamp(value, min, max); }
+    [[nodiscard]] inline double MathClamp(double value, double min, double max) { return Detail::Clamp(value, min, max); }
+    [[nodiscard]] inline std::int32_t MathClamp(std::int32_t value, std::int32_t min, std::int32_t max) { return Detail::Clamp(value, min, max); }
+    [[nodiscard]] inline std::uint32_t MathClamp(std::uint32_t value, std::uint32_t min, std::uint32_t max) { return Detail::Clamp(value, min, max); }
 }

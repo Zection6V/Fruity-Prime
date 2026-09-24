@@ -1,4 +1,5 @@
 #include "Rows.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -8,37 +9,14 @@
 #include <limits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
+
 namespace
 {
     using namespace MphRead::Mods::Launcher::Gui;
 
     const int TransparentBrushIdentity = 0;
-
-    [[nodiscard]] double MathMax(double val1, double val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val2 < val1 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val2) ? val1 : val2;
-    }
-
-    [[nodiscard]] double MathMin(double val1, double val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val1 < val2 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val1) ? val1 : val2;
-    }
 
     [[nodiscard]] std::int32_t ClampInt32(
         std::int32_t value, std::int32_t min, std::int32_t max)

@@ -19,15 +19,20 @@
 #include <stdexcept>
 #include <utility>
 
+using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::ClearScale;
+using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateRotationZ;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::CreateTranslation;
+using ::OpenTK::Mathematics::Determinant;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::IdentityMatrix;
+using ::OpenTK::Mathematics::Inverted;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::Multiply;
 
@@ -81,28 +86,6 @@ namespace
             result.push_back(values[i]);
         }
         return result;
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
-    {
-        const float sin = std::sin(angle);
-        const float cos = std::cos(angle);
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, cos, sin, 0.0F),
-            Vector4(0.0F, -sin, cos, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationZ(float angle) noexcept
-    {
-        const float sin = std::sin(angle);
-        const float cos = std::cos(angle);
-        return Matrix4(
-            Vector4(cos, sin, 0.0F, 0.0F),
-            Vector4(-sin, cos, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     [[nodiscard]] Vector3 ExtractScale(Matrix4 value) noexcept
@@ -210,130 +193,6 @@ namespace
         return angles;
     }
 
-    [[nodiscard]] float Determinant(Matrix4 value) noexcept
-    {
-        const float m11 = value.M11;
-        const float m12 = value.M12;
-        const float m13 = value.M13;
-        const float m14 = value.M14;
-        const float m21 = value.M21;
-        const float m22 = value.M22;
-        const float m23 = value.M23;
-        const float m24 = value.M24;
-        const float m31 = value.M31;
-        const float m32 = value.M32;
-        const float m33 = value.M33;
-        const float m34 = value.M34;
-        const float m41 = value.M41;
-        const float m42 = value.M42;
-        const float m43 = value.M43;
-        const float m44 = value.M44;
-
-        return
-            (m11 * m22 * m33 * m44) - (m11 * m22 * m34 * m43) + (m11 * m23 * m34 * m42) - (m11 * m23 * m32 * m44)
-            + (m11 * m24 * m32 * m43) - (m11 * m24 * m33 * m42) - (m12 * m23 * m34 * m41) + (m12 * m23 * m31 * m44)
-            - (m12 * m24 * m31 * m43) + (m12 * m24 * m33 * m41) - (m12 * m21 * m33 * m44) + (m12 * m21 * m34 * m43)
-            + (m13 * m24 * m31 * m42) - (m13 * m24 * m32 * m41) + (m13 * m21 * m32 * m44) - (m13 * m21 * m34 * m42)
-            + (m13 * m22 * m34 * m41) - (m13 * m22 * m31 * m44) - (m14 * m21 * m32 * m43) + (m14 * m21 * m33 * m42)
-            - (m14 * m22 * m33 * m41) + (m14 * m22 * m31 * m43) - (m14 * m23 * m31 * m42) + (m14 * m23 * m32 * m41);
-    }
-
-    [[nodiscard]] Matrix4 Invert(Matrix4 value)
-    {
-        if (Determinant(value) == 0.0F)
-        {
-            return value;
-        }
-
-        const float a = value.M11;
-        const float b = value.M21;
-        const float c = value.M31;
-        const float d = value.M41;
-        const float e = value.M12;
-        const float f = value.M22;
-        const float g = value.M32;
-        const float h = value.M42;
-        const float i = value.M13;
-        const float j = value.M23;
-        const float k = value.M33;
-        const float l = value.M43;
-        const float m = value.M14;
-        const float n = value.M24;
-        const float o = value.M34;
-        const float p = value.M44;
-
-        const float kpLo = k * p - l * o;
-        const float jpLn = j * p - l * n;
-        const float joKn = j * o - k * n;
-        const float ipLm = i * p - l * m;
-        const float ioKm = i * o - k * m;
-        const float inJm = i * n - j * m;
-
-        const float a11 = +(f * kpLo - g * jpLn + h * joKn);
-        const float a12 = -(e * kpLo - g * ipLm + h * ioKm);
-        const float a13 = +(e * jpLn - f * ipLm + h * inJm);
-        const float a14 = -(e * joKn - f * ioKm + g * inJm);
-
-        const float det = a * a11 + b * a12 + c * a13 + d * a14;
-        if (std::abs(det) < std::numeric_limits<float>::denorm_min())
-        {
-            throw MphRead::SceneDetail::InvalidOperationException();
-        }
-
-        const float invDet = 1.0F / det;
-        Matrix4 result{};
-        result.M11 = a11 * invDet;
-        result.M12 = a12 * invDet;
-        result.M13 = a13 * invDet;
-        result.M14 = a14 * invDet;
-
-        result.M21 = -(b * kpLo - c * jpLn + d * joKn) * invDet;
-        result.M22 = +(a * kpLo - c * ipLm + d * ioKm) * invDet;
-        result.M23 = -(a * jpLn - b * ipLm + d * inJm) * invDet;
-        result.M24 = +(a * joKn - b * ioKm + c * inJm) * invDet;
-
-        const float gpHo = g * p - h * o;
-        const float fpHn = f * p - h * n;
-        const float foGn = f * o - g * n;
-        const float epHm = e * p - h * m;
-        const float eoGm = e * o - g * m;
-        const float enFm = e * n - f * m;
-
-        result.M31 = +(b * gpHo - c * fpHn + d * foGn) * invDet;
-        result.M32 = -(a * gpHo - c * epHm + d * eoGm) * invDet;
-        result.M33 = +(a * fpHn - b * epHm + d * enFm) * invDet;
-        result.M34 = -(a * foGn - b * eoGm + c * enFm) * invDet;
-
-        const float glHk = g * l - h * k;
-        const float flHj = f * l - h * j;
-        const float fkGj = f * k - g * j;
-        const float elHi = e * l - h * i;
-        const float ekGi = e * k - g * i;
-        const float ejFi = e * j - f * i;
-
-        result.M41 = -(b * glHk - c * flHj + d * fkGj) * invDet;
-        result.M42 = +(a * glHk - c * elHi + d * ekGi) * invDet;
-        result.M43 = -(a * flHj - b * elHi + d * ejFi) * invDet;
-        result.M44 = +(a * fkGj - b * ekGi + c * ejFi) * invDet;
-        return result;
-    }
-
-    [[nodiscard]] float Clamp(float value, float minimum, float maximum)
-    {
-        if (minimum > maximum)
-        {
-            throw System::ArgumentException();
-        }
-        if (value < minimum)
-        {
-            return minimum;
-        }
-        if (value > maximum)
-        {
-            return maximum;
-        }
-        return value;
-    }
 }
 
 namespace MphRead::Entities
@@ -713,7 +572,7 @@ namespace MphRead::Entities
         if (entCol != nullptr)
         {
             entCol->Transform = transform;
-            entCol->Inverse1 = Invert(transform);
+            entCol->Inverse1 = Inverted(transform);
             entCol->CurrentCenter = Matrix::Vec3MultMtx4(
                 entCol->InitialCenter, transform);
         }
@@ -725,7 +584,7 @@ namespace MphRead::Entities
             = ManagedArrayAt(EntityCollision, slot);
         if (entCol != nullptr)
         {
-            entCol->Inverse2 = Invert(entCol->Transform);
+            entCol->Inverse2 = Inverted(entCol->Transform);
         }
     }
 
@@ -1400,7 +1259,7 @@ namespace MphRead::Entities
     {
         float newVelocity = velocity + step * 30.0F * 31.0F
             * RequireReference(_scene).FrameTime();
-        newVelocity = Clamp(newVelocity, minVelocity, maxVelocity);
+        newVelocity = MathClamp(newVelocity, minVelocity, maxVelocity);
         const float displacement = velocity * RequireReference(_scene).FrameTime()
             + (newVelocity - velocity) / 2.0F
                 * RequireReference(_scene).FrameTime();

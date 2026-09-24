@@ -4,40 +4,18 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Scene.hpp"
 #include "../Input/StylusZone.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
 
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
+
 namespace
 {
-    float DotNetMax(float val1, float val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val2 < val1 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val2) ? val1 : val2;
-    }
-
-    float DotNetMin(float val1, float val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val1 < val2 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val1) ? val1 : val2;
-    }
-
     std::int32_t DotNetToInt32(float value) noexcept
     {
         if (std::isnan(value))
@@ -94,7 +72,7 @@ namespace MphRead::Entities
         float alpha = StylusZone::Placing() ? 0.55F : StylusZone::Opacity();
         OpenTK::Mathematics::Vector4 edge(_stylusInk.Xyz(), alpha);
         OpenTK::Mathematics::Vector4 fill(_stylusFill.Xyz(), alpha * 0.5F);
-        float line = DotNetMax(0.5F, height / 96.0F);
+        float line = MathMax(0.5F, height / 96.0F);
         RequireScene(_scene).DrawHudFlatBox(left, top, left + width, top + line, edge);
         RequireScene(_scene).DrawHudFlatBox(left, top + height - line, left + width, top + height, edge);
         RequireScene(_scene).DrawHudFlatBox(left, top, left + line, top + height, edge);
@@ -107,7 +85,7 @@ namespace MphRead::Entities
             bool lit = !StylusZone::Placing() && StylusZone::Contact()
                 && StylusZone::Region() == button.Region;
             OpenTK::Mathematics::Vector4 colour = lit
-                ? OpenTK::Mathematics::Vector4(_stylusLit.Xyz(), DotNetMin(1.0F, alpha * 3.0F))
+                ? OpenTK::Mathematics::Vector4(_stylusLit.Xyz(), MathMin(1.0F, alpha * 3.0F))
                 : fill;
             DrawStylusCircle(left + button.X * scaleX, top + button.Y * scaleY,
                 button.Radius * scaleX, button.Radius * scaleY, colour);
@@ -129,7 +107,7 @@ namespace MphRead::Entities
         {
             float y = -radiusY + (static_cast<float>(i) + 0.5F) * step;
             float t = y / radiusY;
-            float half = radiusX * std::sqrt(DotNetMax(0.0F, 1.0F - t * t));
+            float half = radiusX * std::sqrt(MathMax(0.0F, 1.0F - t * t));
             if (half <= 0.0F)
             {
                 continue;

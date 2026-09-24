@@ -32,6 +32,7 @@ using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateRotationZ;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 using ::OpenTK::Mathematics::Multiply;
 using ::OpenTK::Mathematics::SetRow3;
@@ -138,17 +139,6 @@ namespace
             }
         }
         return true;
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationZ(float angle) noexcept
-    {
-        const float cosine = std::cos(angle);
-        const float sine = std::sin(angle);
-        return Matrix4(
-            Vector4(cosine, sine, 0.0F, 0.0F),
-            Vector4(-sine, cosine, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
 }

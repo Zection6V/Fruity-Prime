@@ -6,6 +6,7 @@
 #include "../Entities/EntityBase.hpp"
 #include "../Renderer.hpp"
 #include "../Mods/Network/NetLog.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
 
 #include <algorithm>
@@ -23,6 +24,8 @@
 #include <utility>
 
 using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Equal;
@@ -188,32 +191,6 @@ namespace
     {
         auto& array = Require(results);
         return array[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] float MinFloat(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        return std::fmin(left, right);
-    }
-
-    [[nodiscard]] float MaxFloat(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        return std::fmax(left, right);
     }
 
     [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
@@ -1533,35 +1510,35 @@ namespace MphRead::Formats
             const Vector3 p1 = *point1;
 
             limitMin = Vector3(
-                MinFloat(
-                    MinFloat(
+                MathMin(
+                    MathMin(
                         std::numeric_limits<float>::max(),
                         p1.X),
                     point2.X) - margin,
-                MinFloat(
-                    MinFloat(
+                MathMin(
+                    MathMin(
                         std::numeric_limits<float>::max(),
                         p1.Y),
                     point2.Y) - margin,
-                MinFloat(
-                    MinFloat(
+                MathMin(
+                    MathMin(
                         std::numeric_limits<float>::max(),
                         p1.Z),
                     point2.Z) - margin);
 
             limitMax = Vector3(
-                MaxFloat(
-                    MaxFloat(
+                MathMax(
+                    MathMax(
                         std::numeric_limits<float>::lowest(),
                         p1.X),
                     point2.X) + margin,
-                MaxFloat(
-                    MaxFloat(
+                MathMax(
+                    MathMax(
                         std::numeric_limits<float>::lowest(),
                         p1.Y),
                     point2.Y) + margin,
-                MaxFloat(
-                    MaxFloat(
+                MathMax(
+                    MathMax(
                         std::numeric_limits<float>::lowest(),
                         p1.Z),
                     point2.Z) + margin);
@@ -1803,35 +1780,35 @@ namespace MphRead::Formats
         if (includeEntities)
         {
             const Vector3 limitMin(
-                MinFloat(
-                    MinFloat(
+                MathMin(
+                    MathMin(
                         std::numeric_limits<float>::max(),
                         point1.X),
                     point2.X) - margin,
-                MinFloat(
-                    MinFloat(
+                MathMin(
+                    MathMin(
                         std::numeric_limits<float>::max(),
                         point1.Y),
                     point2.Y) - margin,
-                MinFloat(
-                    MinFloat(
+                MathMin(
+                    MathMin(
                         std::numeric_limits<float>::max(),
                         point1.Z),
                     point2.Z) - margin);
 
             const Vector3 limitMax(
-                MaxFloat(
-                    MaxFloat(
+                MathMax(
+                    MathMax(
                         std::numeric_limits<float>::lowest(),
                         point1.X),
                     point2.X) + margin,
-                MaxFloat(
-                    MaxFloat(
+                MathMax(
+                    MathMax(
                         std::numeric_limits<float>::lowest(),
                         point1.Y),
                     point2.Y) + margin,
-                MaxFloat(
-                    MaxFloat(
+                MathMax(
+                    MathMax(
                         std::numeric_limits<float>::lowest(),
                         point1.Z),
                     point2.Z) + margin);
@@ -1884,29 +1861,29 @@ namespace MphRead::Formats
                 }
 
                 const Vector3 entMin(
-                    MinFloat(
+                    MathMin(
                         std::numeric_limits<float>::max(),
                         entCol->CurrentCenter.X)
                         - entCol->MaxDistance,
-                    MinFloat(
+                    MathMin(
                         std::numeric_limits<float>::max(),
                         entCol->CurrentCenter.Y)
                         - entCol->MaxDistance,
-                    MinFloat(
+                    MathMin(
                         std::numeric_limits<float>::max(),
                         entCol->CurrentCenter.Z)
                         - entCol->MaxDistance);
 
                 const Vector3 entMax(
-                    MaxFloat(
+                    MathMax(
                         std::numeric_limits<float>::lowest(),
                         entCol->CurrentCenter.X)
                         + entCol->MaxDistance,
-                    MaxFloat(
+                    MathMax(
                         std::numeric_limits<float>::lowest(),
                         entCol->CurrentCenter.Y)
                         + entCol->MaxDistance,
-                    MaxFloat(
+                    MathMax(
                         std::numeric_limits<float>::lowest(),
                         entCol->CurrentCenter.Z)
                         + entCol->MaxDistance);

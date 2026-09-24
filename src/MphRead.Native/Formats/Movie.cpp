@@ -13,6 +13,7 @@
 #include "../Sound/Music.hpp"
 #include "../Sound/Sfx.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -37,6 +38,7 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 
 namespace System
@@ -1541,11 +1543,6 @@ namespace MphRead::Formats
 
     namespace
     {
-        [[nodiscard]] std::int32_t ClampInt(std::int32_t value, std::int32_t minimum, std::int32_t maximum) noexcept
-        {
-            return std::max(minimum, std::min(maximum, value));
-        }
-
         [[nodiscard]] std::int32_t WrapInt32Add(std::int32_t left, std::int32_t right) noexcept
         {
             const std::uint32_t result = std::bit_cast<std::uint32_t>(left)
@@ -2604,9 +2601,9 @@ namespace MphRead::Formats
         const std::int32_t g = y - u / 2 - v;
         const std::int32_t b = y + 2 * u;
         return ColorRgb(
-            static_cast<std::uint8_t>(ClampInt(r, 0, 255)),
-            static_cast<std::uint8_t>(ClampInt(g, 0, 255)),
-            static_cast<std::uint8_t>(ClampInt(b, 0, 255)));
+            static_cast<std::uint8_t>(MathClamp(r, 0, 255)),
+            static_cast<std::uint8_t>(MathClamp(g, 0, 255)),
+            static_cast<std::uint8_t>(MathClamp(b, 0, 255)));
     }
 
     VxFrame::VxFrame(
@@ -3109,7 +3106,7 @@ namespace MphRead::Formats
                     RequireManagedReference(prevVideoFrame->_planeBufferY), 1,
                     WrapInt32Add(x, vec.X), WrapInt32Add(y, vec.Y));
                 const std::int32_t pixel = WrapInt32Add(predicted, dcY);
-                RequireManagedReference(_planeBufferY)(y, x) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                RequireManagedReference(_planeBufferY)(y, x) = static_cast<std::uint8_t>(MathClamp(pixel, 0, 255));
             }
         }
         for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, 2))
@@ -3120,7 +3117,7 @@ namespace MphRead::Formats
                     RequireManagedReference(prevVideoFrame->_planeBufferU), 2,
                     WrapInt32Add(x, vec.X), WrapInt32Add(y, vec.Y));
                 const std::int32_t pixel = WrapInt32Add(predicted, dcU);
-                RequireManagedReference(_planeBufferU)(y / 2, x / 2) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                RequireManagedReference(_planeBufferU)(y / 2, x / 2) = static_cast<std::uint8_t>(MathClamp(pixel, 0, 255));
             }
         }
         for (std::int32_t y = block.Y; y < WrapInt32Add(block.Y, block.H); y = WrapInt32Add(y, 2))
@@ -3131,7 +3128,7 @@ namespace MphRead::Formats
                     RequireManagedReference(prevVideoFrame->_planeBufferV), 2,
                     WrapInt32Add(x, vec.X), WrapInt32Add(y, vec.Y));
                 const std::int32_t pixel = WrapInt32Add(predicted, dcV);
-                RequireManagedReference(_planeBufferV)(y / 2, x / 2) = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                RequireManagedReference(_planeBufferV)(y / 2, x / 2) = static_cast<std::uint8_t>(MathClamp(pixel, 0, 255));
             }
         }
     }
@@ -3442,28 +3439,28 @@ namespace MphRead::Formats
                 PlaneBufferGetter(planeBuffer, step, bx, by),
                 ArithmeticInt32ShiftRight(WrapInt32Add(z0, z3), 6));
             planeBuffer(by / step, bx / step)
-                = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                = static_cast<std::uint8_t>(MathClamp(pixel, 0, 255));
 
             by = WrapInt32Add(y, step);
             pixel = WrapInt32Add(
                 PlaneBufferGetter(planeBuffer, step, bx, by),
                 ArithmeticInt32ShiftRight(WrapInt32Add(z1, z2), 6));
             planeBuffer(by / step, bx / step)
-                = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                = static_cast<std::uint8_t>(MathClamp(pixel, 0, 255));
 
             by = WrapInt32Add(y, WrapInt32Multiply(step, 2));
             pixel = WrapInt32Add(
                 PlaneBufferGetter(planeBuffer, step, bx, by),
                 ArithmeticInt32ShiftRight(WrapInt32Subtract(z1, z2), 6));
             planeBuffer(by / step, bx / step)
-                = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                = static_cast<std::uint8_t>(MathClamp(pixel, 0, 255));
 
             by = WrapInt32Add(y, WrapInt32Multiply(step, 3));
             pixel = WrapInt32Add(
                 PlaneBufferGetter(planeBuffer, step, bx, by),
                 ArithmeticInt32ShiftRight(WrapInt32Subtract(z0, z3), 6));
             planeBuffer(by / step, bx / step)
-                = static_cast<std::uint8_t>(ClampInt(pixel, 0, 255));
+                = static_cast<std::uint8_t>(MathClamp(pixel, 0, 255));
         }
     }
 
@@ -4377,7 +4374,7 @@ namespace MphRead::Formats
             sample /= 16384;
             sampleBuffer[static_cast<std::size_t>(i)]
                 = static_cast<std::int16_t>(
-                    ClampInt(sample, std::numeric_limits<std::int16_t>::min(),
+                    MathClamp(sample, std::numeric_limits<std::int16_t>::min(),
                         std::numeric_limits<std::int16_t>::max()));
         }
 

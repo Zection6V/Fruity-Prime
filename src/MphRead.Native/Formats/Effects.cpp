@@ -29,6 +29,7 @@
 #endif
 
 using ::MphRead::HasFlag;
+using ::OpenTK::Mathematics::CreateRotationZ;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::CreateTranslation;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -147,17 +148,6 @@ namespace
         value.M41 = position.X;
         value.M42 = position.Y;
         value.M43 = position.Z;
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationZ(float angle)
-    {
-        float sin = std::sin(angle);
-        float cos = std::cos(angle);
-        return Matrix4(
-            Vector4(cos, sin, 0.0F, 0.0F),
-            Vector4(-sin, cos, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     [[nodiscard]] constexpr std::int32_t WrapAddInt32(

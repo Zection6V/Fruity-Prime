@@ -17,6 +17,7 @@
 #include <utility>
 
 using ::OpenTK::Mathematics::CreateTranslation;
+using ::OpenTK::Mathematics::DistanceSquared;
 
 namespace
 {
@@ -49,14 +50,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    [[nodiscard]] constexpr float DistanceSquared(Vector3 left, Vector3 right) noexcept
-    {
-        const float x = left.X - right.X;
-        const float y = left.Y - right.Y;
-        const float z = left.Z - right.Z;
-        return x * x + y * y + z * z;
     }
 
     [[nodiscard]] constexpr std::int32_t ManagedInt32(std::uint32_t value) noexcept

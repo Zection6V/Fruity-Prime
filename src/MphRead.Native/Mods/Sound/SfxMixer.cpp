@@ -1,4 +1,5 @@
 #include "SfxMixer.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #if defined(__ANDROID__)
@@ -14,6 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+
 
 
 namespace MphRead::Mods::Sound
@@ -65,80 +67,6 @@ namespace MphRead::Mods::Sound
             std::uint64_t bits = std::bit_cast<std::uint64_t>(value);
             bits += static_cast<std::uint64_t>(static_cast<std::int64_t>(amount));
             return std::bit_cast<std::int64_t>(bits);
-        }
-
-        float DotNetMin(float first, float second)
-        {
-            if (std::isnan(first))
-            {
-                return first;
-            }
-            if (std::isnan(second))
-            {
-                return second;
-            }
-            if (first < second)
-            {
-                return first;
-            }
-            if (second < first)
-            {
-                return second;
-            }
-            if (first == 0.0F && second == 0.0F)
-            {
-                return std::signbit(first) ? first : second;
-            }
-            return first;
-        }
-
-        float DotNetMax(float first, float second)
-        {
-            if (std::isnan(first))
-            {
-                return first;
-            }
-            if (std::isnan(second))
-            {
-                return second;
-            }
-            if (first > second)
-            {
-                return first;
-            }
-            if (second > first)
-            {
-                return second;
-            }
-            if (first == 0.0F && second == 0.0F)
-            {
-                return std::signbit(first) ? second : first;
-            }
-            return first;
-        }
-
-        [[noreturn]] void ThrowMinMax(float minimum, float maximum)
-        {
-            std::ostringstream message;
-            message << '\'' << minimum << "' cannot be greater than " << maximum << '.';
-            throw std::invalid_argument(message.str());
-        }
-
-        float DotNetClamp(float value, float minimum, float maximum)
-        {
-            if (minimum > maximum)
-            {
-                ThrowMinMax(minimum, maximum);
-            }
-            if (value < minimum)
-            {
-                return minimum;
-            }
-            if (value > maximum)
-            {
-                return maximum;
-            }
-            return value;
         }
 
         std::int32_t DotNetDoubleToInt32(double value)
@@ -582,10 +510,10 @@ namespace MphRead::Mods::Sound
         switch (param)
         {
         case ALSourcef::Gain:
-            voice.Gain = DotNetMax(0.0F, value);
+            voice.Gain = MathMax(0.0F, value);
             break;
         case ALSourcef::Pitch:
-            voice.Pitch = DotNetClamp(value, 0.01F, 8.0F);
+            voice.Pitch = MathClamp(value, 0.01F, 8.0F);
             break;
         case ALSourcef::ReferenceDistance:
             voice.ReferenceDistance = value;
@@ -761,7 +689,7 @@ namespace MphRead::Mods::Sound
         }
         for (std::size_t i = 0; i < output.Size(); i++)
         {
-            output.Set(i, DotNetClamp(output.Get(i), -1.0F, 1.0F));
+            output.Set(i, MathClamp(output.Get(i), -1.0F, 1.0F));
         }
     }
 
@@ -867,8 +795,8 @@ namespace MphRead::Mods::Sound
         if (voice.RolloffFactor > 0.0F && span > 0.0F && !std::isinf(span)
             && voice.MaxDistance < std::numeric_limits<float>::max())
         {
-            const float clamped = DotNetClamp(distance, voice.ReferenceDistance, voice.MaxDistance);
-            attenuation = DotNetClamp(1.0F - voice.RolloffFactor
+            const float clamped = MathClamp(distance, voice.ReferenceDistance, voice.MaxDistance);
+            attenuation = MathClamp(1.0F - voice.RolloffFactor
                 * (clamped - voice.ReferenceDistance) / span, 0.0F, 1.0F);
         }
         float pan = 0.0F;
@@ -879,15 +807,18 @@ namespace MphRead::Mods::Sound
             const Vector3 side = Cross(facing, up);
             if (LengthSquared(side) > 0.0001F)
             {
-                pan = DotNetClamp(Dot(Divide(relative, distance), Normalized(side)), -1.0F, 1.0F);
+                pan = MathClamp(Dot(Divide(relative, distance), Normalized(side)), -1.0F, 1.0F);
             }
         }
-        left = DotNetMin(1.0F, std::sqrt(0.5F * (1.0F - pan)) * 1.41421356F) * attenuation;
-        right = DotNetMin(1.0F, std::sqrt(0.5F * (1.0F + pan)) * 1.41421356F) * attenuation;
+        left = MathMin(1.0F, std::sqrt(0.5F * (1.0F - pan)) * 1.41421356F) * attenuation;
+        right = MathMin(1.0F, std::sqrt(0.5F * (1.0F + pan)) * 1.41421356F) * attenuation;
     }
 }
 #endif
 
+using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;

@@ -14,6 +14,7 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -41,6 +42,8 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Length;
 
@@ -111,81 +114,6 @@ namespace
     {
         ConsoleWrite(value);
         ConsoleWrite(ManagedNewLine());
-    }
-
-    [[nodiscard]] float ManagedMin(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left < right)
-        {
-            return left;
-        }
-        if (right < left)
-        {
-            return right;
-        }
-        if (left == 0.0F && right == 0.0F)
-        {
-            return std::signbit(left) || std::signbit(right) ? -0.0F : 0.0F;
-        }
-        return left;
-    }
-
-    [[nodiscard]] float ManagedMax(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left > right)
-        {
-            return left;
-        }
-        if (right > left)
-        {
-            return right;
-        }
-        if (left == 0.0F && right == 0.0F)
-        {
-            return !std::signbit(left) || !std::signbit(right) ? 0.0F : -0.0F;
-        }
-        return left;
-    }
-
-    [[nodiscard]] double ManagedMax(double left, double right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left > right)
-        {
-            return left;
-        }
-        if (right > left)
-        {
-            return right;
-        }
-        if (left == 0.0 && right == 0.0)
-        {
-            return !std::signbit(left) || !std::signbit(right) ? 0.0 : -0.0;
-        }
-        return left;
     }
 
     [[nodiscard]] std::size_t Utf16Length(std::string_view value) noexcept
@@ -1094,10 +1022,10 @@ namespace MphRead::Mods::Network
 
             const float minYCurrent = record.MinY;
             const float minYPosition = player.Position.Y;
-            record.MinY = ManagedMin(minYCurrent, minYPosition);
+            record.MinY = MathMin(minYCurrent, minYPosition);
             const float maxYCurrent = record.MaxY;
             const float maxYPosition = player.Position.Y;
-            record.MaxY = ManagedMax(maxYCurrent, maxYPosition);
+            record.MaxY = MathMax(maxYCurrent, maxYPosition);
 
             if (record.HaveFramePrevious)
             {
@@ -1113,7 +1041,7 @@ namespace MphRead::Mods::Network
                     IncrementInt32(record.Teleports);
                     const double worstStepCurrent = record.WorstStep;
                     record.WorstStep
-                        = ManagedMax(worstStepCurrent, static_cast<double>(frameStep));
+                        = MathMax(worstStepCurrent, static_cast<double>(frameStep));
                 }
             }
             record.LastFramePosition = static_cast<Vector3>(player.Position);
@@ -1194,7 +1122,7 @@ namespace MphRead::Mods::Network
                 const double gap = static_cast<double>(
                     Length(authorityPosition - puppetPosition));
                 const double worstPositionGapCurrent = record.WorstPositionGap;
-                record.WorstPositionGap = ManagedMax(worstPositionGapCurrent, gap);
+                record.WorstPositionGap = MathMax(worstPositionGapCurrent, gap);
             }
         }
     }

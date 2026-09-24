@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 
+using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -56,19 +57,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::IndexOutOfRangeException();
             }
             return enemy.HitPlayers[static_cast<std::size_t>(slotIndex)];
-        }
-
-        [[nodiscard]] float Clamp(float value, float min, float max) noexcept
-        {
-            if (value < min)
-            {
-                return min;
-            }
-            if (value > max)
-            {
-                return max;
-            }
-            return value;
         }
 
         [[nodiscard]] std::int32_t RoundToInt32ToEven(float value) noexcept
@@ -171,7 +159,7 @@ namespace MphRead::Entities::Enemies
                 float force = 1.0F;
                 if (!HitMainPlayer(*this))
                 {
-                    const float factor = Clamp(distance / 2.0F, 0.0F, 1.0F);
+                    const float factor = MathClamp(distance / 2.0F, 0.0F, 1.0F);
                     damage -= RoundToInt32ToEven(
                         static_cast<float>(damage) - 15.0F * factor);
                     force -= factor;

@@ -30,6 +30,7 @@
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateRotationZ;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::IdentityMatrix;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -130,17 +131,6 @@ namespace
         {
             return storage[static_cast<std::size_t>(index)];
         }
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationZ(float angle)
-    {
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
-        return Matrix4(
-            Vector4(c, s, 0.0F, 0.0F),
-            Vector4(-s, c, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     [[nodiscard]] constexpr Vector3 MatrixRow3(const Matrix4& matrix) noexcept

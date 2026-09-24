@@ -27,6 +27,8 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
@@ -109,40 +111,6 @@ namespace
             throw MphRead::SceneDetail::IndexOutOfRangeException();
         }
         return storage[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] float MathFMin(float x, float y) noexcept
-    {
-        if (std::isnan(x))
-        {
-            return x;
-        }
-        if (std::isnan(y))
-        {
-            return y;
-        }
-        if (x == y && x == 0.0F)
-        {
-            return std::signbit(x) || std::signbit(y) ? -0.0F : 0.0F;
-        }
-        return x < y ? x : y;
-    }
-
-    [[nodiscard]] float MathFMax(float x, float y) noexcept
-    {
-        if (std::isnan(x))
-        {
-            return x;
-        }
-        if (std::isnan(y))
-        {
-            return y;
-        }
-        if (x == y && x == 0.0F)
-        {
-            return !std::signbit(x) || !std::signbit(y) ? 0.0F : -0.0F;
-        }
-        return x > y ? x : y;
     }
 
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
@@ -637,14 +605,14 @@ namespace MphRead::Entities
             point2 = static_cast<Vector3>(Position) + altVolume.SpherePosition;
             margin = altVolume.SphereRadius + 0.4F;
             limitMin = Vector3(
-                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.X), point2.X) - margin,
-                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.Y), point2.Y) - margin,
-                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.Z), point2.Z) - margin);
+                MathMin(MathMin(std::numeric_limits<float>::max(), point1.X), point2.X) - margin,
+                MathMin(MathMin(std::numeric_limits<float>::max(), point1.Y), point2.Y) - margin,
+                MathMin(MathMin(std::numeric_limits<float>::max(), point1.Z), point2.Z) - margin);
             limitMax = Vector3(
-                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.X), point2.X) + margin,
-                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.Y), point2.Y) + margin,
-                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.Z), point2.Z) + margin);
-            limitMin.Y = MathFMin(
+                MathMax(MathMax(std::numeric_limits<float>::lowest(), point1.X), point2.X) + margin,
+                MathMax(MathMax(std::numeric_limits<float>::lowest(), point1.Y), point2.Y) + margin,
+                MathMax(MathMax(std::numeric_limits<float>::lowest(), point1.Z), point2.Z) + margin);
+            limitMin.Y = MathMin(
                 limitMin.Y,
                 static_cast<Vector3>(Position).Y
                     + Fixed::ToFloat(Values().MaxPickupHeight));
@@ -660,13 +628,13 @@ namespace MphRead::Entities
                     - Fixed::ToFloat(Values().MinPickupHeight))
                 / 2.0F + 0.4F;
             limitMin = Vector3(
-                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.X), point2.X) - margin,
-                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.Y), point2.Y) - margin,
-                MathFMin(MathFMin(std::numeric_limits<float>::max(), point1.Z), point2.Z) - margin);
+                MathMin(MathMin(std::numeric_limits<float>::max(), point1.X), point2.X) - margin,
+                MathMin(MathMin(std::numeric_limits<float>::max(), point1.Y), point2.Y) - margin,
+                MathMin(MathMin(std::numeric_limits<float>::max(), point1.Z), point2.Z) - margin);
             limitMax = Vector3(
-                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.X), point2.X) + margin,
-                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.Y), point2.Y) + margin,
-                MathFMax(MathFMax(std::numeric_limits<float>::lowest(), point1.Z), point2.Z) + margin);
+                MathMax(MathMax(std::numeric_limits<float>::lowest(), point1.X), point2.X) + margin,
+                MathMax(MathMax(std::numeric_limits<float>::lowest(), point1.Y), point2.Y) + margin,
+                MathMax(MathMax(std::numeric_limits<float>::lowest(), point1.Z), point2.Z) + margin);
         }
         bool includeEntities
             = GameState::TransitionState() == MphRead::TransitionState::None;
@@ -1257,7 +1225,7 @@ namespace MphRead::Entities
                             Vector3 speed = Speed();
                             speed.Y += 4.0F * dot * yFactor / 2.0F;
                             SetSpeed(speed);
-                            SetSpeed(WithY(Speed(), MathFMin(Speed().Y, 0.15F)));
+                            SetSpeed(WithY(Speed(), MathMin(Speed().Y, 0.15F)));
                         }
                     }
                 }
@@ -1290,7 +1258,7 @@ namespace MphRead::Entities
                         speed = Speed();
                         speed.Y += dot * 0.2F;
                         SetSpeed(speed);
-                        SetSpeed(WithY(Speed(), MathFMin(Speed().Y, 0.25F)));
+                        SetSpeed(WithY(Speed(), MathMin(Speed().Y, 0.25F)));
                     }
                 }
             }

@@ -30,6 +30,7 @@ using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateFromAxisAngle;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
@@ -82,35 +83,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
         {
             return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
-
-        [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
-        {
-            axis = axis.Normalized();
-            const float axisX = axis.X;
-            const float axisY = axis.Y;
-            const float axisZ = axis.Z;
-
-            const float cosine = std::cos(-angle);
-            const float sine = std::sin(-angle);
-            const float t = 1.0F - cosine;
-
-            const float tXX = t * axisX * axisX;
-            const float tXY = t * axisX * axisY;
-            const float tXZ = t * axisX * axisZ;
-            const float tYY = t * axisY * axisY;
-            const float tYZ = t * axisY * axisZ;
-            const float tZZ = t * axisZ * axisZ;
-
-            const float sinX = sine * axisX;
-            const float sinY = sine * axisY;
-            const float sinZ = sine * axisZ;
-
-            return Matrix4(
-                Vector4(tXX + cosine, tXY - sinZ, tXZ + sinY, 0.0F),
-                Vector4(tXY + sinZ, tYY + cosine, tYZ - sinX, 0.0F),
-                Vector4(tXZ - sinY, tYZ + sinX, tZZ + cosine, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
         }
 
         void ScaleRow2Xyz(Matrix4& value, float scale) noexcept

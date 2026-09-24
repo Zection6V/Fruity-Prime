@@ -6,6 +6,7 @@
 #include "../../Renderer.hpp"
 #include "../../Scene.hpp"
 #include "../Network/MapVote.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -14,20 +15,10 @@
 #include <string>
 #include <string_view>
 
+using ::MphRead::NativeRuntime::MathMax;
+
 namespace
 {
-    float DotNetMax(float val1, float val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val2 < val1 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val2) ? val1 : val2;
-    }
 }
 
 namespace
@@ -107,7 +98,7 @@ namespace MphRead::Entities
         bool buttons = VoteByTouch() && !MapVote::Answered();
         float height = VoteLineHeight * 2.0F + 4.0F
             + (buttons ? VoteButtonHeight() + VoteButtonGap() : 0.0F);
-        float width = DotNetMax(
+        float width = MathMax(
             118.0F, VoteButtonWidth() * 2.0F + VoteButtonGap() + 6.0F);
         float right = VoteLeft() + width * aspect;
 

@@ -2,6 +2,7 @@
 
 #include "../../Input/GamepadDesktop.hpp"
 #include "../../Input/GamepadInput.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -12,22 +13,11 @@
 #include <string_view>
 #include <utility>
 
+using ::MphRead::NativeRuntime::MathMax;
+
 namespace
 {
     using MphRead::Mods::Input::GamepadButtons;
-
-    [[nodiscard]] double MathMax(double val1, double val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val2 < val1 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val2) ? val1 : val2;
-    }
 
     [[nodiscard]] GamepadButtons BitAnd(
         GamepadButtons left, GamepadButtons right) noexcept

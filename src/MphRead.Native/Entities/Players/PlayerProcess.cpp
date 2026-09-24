@@ -45,13 +45,20 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::AddX;
 using ::OpenTK::Mathematics::AddZ;
+using ::OpenTK::Mathematics::Clamp;
+using ::OpenTK::Mathematics::CreateFromAxisAngle;
+using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::DistanceSquared;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -199,62 +206,6 @@ namespace
         return std::bit_cast<std::int32_t>(value);
     }
 
-    [[nodiscard]] float DistanceSquared(Vector3 left, Vector3 right) noexcept
-    {
-        return LengthSquared(Subtract(left, right));
-    }
-
-    [[nodiscard]] float MathMin(float x, float y) noexcept
-    {
-        if (std::isnan(x))
-        {
-            return x;
-        }
-        if (std::isnan(y))
-        {
-            return y;
-        }
-        if (x == y && x == 0.0F)
-        {
-            return std::signbit(x) || std::signbit(y) ? -0.0F : 0.0F;
-        }
-        return x < y ? x : y;
-    }
-
-    [[nodiscard]] float MathMax(float x, float y) noexcept
-    {
-        if (std::isnan(x))
-        {
-            return x;
-        }
-        if (std::isnan(y))
-        {
-            return y;
-        }
-        if (x == y && x == 0.0F)
-        {
-            return !std::signbit(x) || !std::signbit(y) ? 0.0F : -0.0F;
-        }
-        return x > y ? x : y;
-    }
-
-    [[nodiscard]] float MathClamp(float value, float minimum, float maximum)
-    {
-        if (minimum > maximum)
-        {
-            throw std::invalid_argument("minimum cannot be greater than maximum");
-        }
-        return value < minimum ? minimum : value > maximum ? maximum : value;
-    }
-
-    [[nodiscard]] Vector3 ClampVector3(Vector3 value, Vector3 minimum, Vector3 maximum) noexcept
-    {
-        value.X = value.X < minimum.X ? minimum.X : value.X > maximum.X ? maximum.X : value.X;
-        value.Y = value.Y < minimum.Y ? minimum.Y : value.Y > maximum.Y ? maximum.Y : value.Y;
-        value.Z = value.Z < minimum.Z ? minimum.Z : value.Z > maximum.Z ? maximum.Z : value.Z;
-        return value;
-    }
-
     [[nodiscard]] Vector3 Row0(const Matrix4& value) noexcept
     {
         return Vector3(value.M11, value.M12, value.M13);
@@ -294,48 +245,6 @@ namespace
         value.M31 = row.X;
         value.M32 = row.Y;
         value.M33 = row.Z;
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
-    {
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, c, s, 0.0F),
-            Vector4(0.0F, -s, c, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
-    {
-        const float scale = 1.0F / Length(axis);
-        axis.X *= scale;
-        axis.Y *= scale;
-        axis.Z *= scale;
-        const float axisX = axis.X;
-        const float axisY = axis.Y;
-        const float axisZ = axis.Z;
-
-        const float cos = std::cos(-angle);
-        const float sin = std::sin(-angle);
-        const float t = 1.0F - cos;
-
-        const float tXX = t * axisX * axisX;
-        const float tXY = t * axisX * axisY;
-        const float tXZ = t * axisX * axisZ;
-        const float tYY = t * axisY * axisY;
-        const float tYZ = t * axisY * axisZ;
-        const float tZZ = t * axisZ * axisZ;
-        const float sinX = sin * axisX;
-        const float sinY = sin * axisY;
-        const float sinZ = sin * axisZ;
-
-        return Matrix4(
-            Vector4(tXX + cos, tXY - sinZ, tXZ + sinY, 0.0F),
-            Vector4(tXY + sinZ, tYY + cos, tYZ - sinX, 0.0F),
-            Vector4(tXZ - sinY, tYZ + sinX, tZZ + cos, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     [[nodiscard]] std::uint16_t FloatToUInt16Unchecked(float value) noexcept
@@ -1525,7 +1434,7 @@ namespace MphRead::Entities
             {
                 TakeDamage(0, DamageFlags::Death, std::nullopt, nullptr);
             }
-            Position = ClampVector3(Position,
+            Position = Clamp(Position,
                 WithY(room.Meta().PlayerMin, Position.Y), room.Meta().PlayerMax);
         }
         if (Position.Y < room.Meta().KillHeight)

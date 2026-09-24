@@ -82,7 +82,9 @@
 #include <thread>
 #include <type_traits>
 
+using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateRotationZ;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::CreateTranslation;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -138,22 +140,6 @@ namespace
 
     namespace GLMath
     {
-        [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
-        {
-            const float c = std::cos(angle);
-            const float s = std::sin(angle);
-            return Matrix4(Vector4(1,0,0,0), Vector4(0,c,s,0),
-                Vector4(0,-s,c,0), Vector4(0,0,0,1));
-        }
-
-        [[nodiscard]] Matrix4 CreateRotationZ(float angle) noexcept
-        {
-            const float c = std::cos(angle);
-            const float s = std::sin(angle);
-            return Matrix4(Vector4(c,s,0,0), Vector4(-s,c,0,0),
-                Vector4(0,0,1,0), Vector4(0,0,0,1));
-        }
-
         [[nodiscard]] Matrix4 Transpose(Matrix4 value) noexcept
         {
             return Matrix4(
@@ -2363,10 +2349,10 @@ namespace MphRead
         if (_cameraMode == MphRead::CameraMode::Pivot)
         {
             _viewMatrix.M43 = -_pivotDistance;
-            _viewMatrix = Multiply(GLMath::CreateRotationX(DegreesToRadians(_pivotAngleX)), _viewMatrix);
+            _viewMatrix = Multiply(CreateRotationX(DegreesToRadians(_pivotAngleX)), _viewMatrix);
             _viewMatrix = Multiply(CreateRotationY(DegreesToRadians(_pivotAngleY)), _viewMatrix);
             _viewInvRotMatrix = _viewInvRotYMatrix = CreateRotationY(DegreesToRadians(-_pivotAngleY));
-            _viewInvRotMatrix = Multiply(GLMath::CreateRotationX(DegreesToRadians(-_pivotAngleX)), _viewInvRotMatrix);
+            _viewInvRotMatrix = Multiply(CreateRotationX(DegreesToRadians(-_pivotAngleX)), _viewInvRotMatrix);
         }
         else if (_cameraMode == MphRead::CameraMode::Roam || _cameraMode == MphRead::CameraMode::Player)
         {
@@ -4321,7 +4307,7 @@ namespace MphRead
         const float scale = _rendererSize.Y / 192.0F;
         const Vector3 position3d(position.X * _rendererSize.X - _rendererSize.X / 2.0F,
             (1.0F - position.Y) * _rendererSize.Y - _rendererSize.Y / 2.0F, -1.0F);
-        Matrix4 transform = GLMath::CreateRotationZ(DegreesToRadians(angle))
+        Matrix4 transform = CreateRotationZ(DegreesToRadians(angle))
             * CreateScale(scale, scale, 1.0F) * CreateTranslation(position3d);
         GL::UniformMatrix4(_shaderLocations->MatrixStack, false, transform);
         const auto model = inst->Model();

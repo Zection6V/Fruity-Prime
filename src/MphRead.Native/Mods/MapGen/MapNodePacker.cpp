@@ -19,8 +19,12 @@
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::ComponentMax;
+using ::OpenTK::Mathematics::ComponentMin;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::Multiply;
 using ::OpenTK::Mathematics::Subtract;
@@ -57,56 +61,6 @@ namespace MphRead::Mods::MapGen
 
         using Route = std::pair<std::uint16_t, std::uint16_t>;
         using RoutesForNode = std::vector<Route>;
-
-        [[nodiscard]] float ManagedMin(float left, float right) noexcept
-        {
-            if (std::isnan(left))
-            {
-                return left;
-            }
-            if (std::isnan(right))
-            {
-                return right;
-            }
-            if (left == right && left == 0.0F)
-            {
-                return std::signbit(left) || std::signbit(right) ? -0.0F : 0.0F;
-            }
-            return left < right ? left : right;
-        }
-
-        [[nodiscard]] float ManagedMax(float left, float right) noexcept
-        {
-            if (std::isnan(left))
-            {
-                return left;
-            }
-            if (std::isnan(right))
-            {
-                return right;
-            }
-            if (left == right && left == 0.0F)
-            {
-                return std::signbit(left) && std::signbit(right) ? -0.0F : 0.0F;
-            }
-            return left > right ? left : right;
-        }
-
-        [[nodiscard]] Vector3 ComponentMin(Vector3 left, Vector3 right) noexcept
-        {
-            return Vector3(
-                left.X < right.X ? left.X : right.X,
-                left.Y < right.Y ? left.Y : right.Y,
-                left.Z < right.Z ? left.Z : right.Z);
-        }
-
-        [[nodiscard]] Vector3 ComponentMax(Vector3 left, Vector3 right) noexcept
-        {
-            return Vector3(
-                left.X > right.X ? left.X : right.X,
-                left.Y > right.Y ? left.Y : right.Y,
-                left.Z > right.Z ? left.Z : right.Z);
-        }
 
         [[nodiscard]] std::int32_t UncheckedInt32(float value) noexcept
         {
@@ -700,12 +654,12 @@ namespace MphRead::Mods::MapGen
             for (std::size_t i = 0; i < points->Length(); i++)
             {
                 const Vector3 corner = (*points)[i];
-                minX = ManagedMin(minX, corner.X);
-                maxX = ManagedMax(maxX, corner.X);
-                minY = ManagedMin(minY, corner.Y);
-                maxY = ManagedMax(maxY, corner.Y);
-                minZ = ManagedMin(minZ, corner.Z);
-                maxZ = ManagedMax(maxZ, corner.Z);
+                minX = MathMin(minX, corner.X);
+                maxX = MathMax(maxX, corner.X);
+                minY = MathMin(minY, corner.Y);
+                maxY = MathMax(maxY, corner.Y);
+                minZ = MathMin(minZ, corner.Z);
+                maxZ = MathMax(maxZ, corner.Z);
             }
             return point.X >= minX - 0.05F && point.X <= maxX + 0.05F
                 && point.Z >= minZ - 0.05F && point.Z <= maxZ + 0.05F
@@ -720,8 +674,8 @@ namespace MphRead::Mods::MapGen
             Vector3 from,
             Vector3 to)
         {
-            const float low = ManagedMin(from.Y, to.Y) + 0.3F;
-            const float high = ManagedMax(from.Y, to.Y) + Headroom;
+            const float low = MathMin(from.Y, to.Y) + 0.3F;
+            const float high = MathMax(from.Y, to.Y) + Headroom;
             std::unordered_set<std::int32_t> seen{};
             for (const std::int32_t cell : Cells(from, to, min, spacing, grid.Columns, grid.Rows))
             {

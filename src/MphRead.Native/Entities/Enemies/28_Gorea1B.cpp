@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+using ::OpenTK::Mathematics::CreateFromAxisAngle;
 using ::OpenTK::Mathematics::CreateRotationY;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::IdentityMatrix;
@@ -107,16 +108,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Enemy28Entity &RequireEnemy(Enemy28Entity *enemy) { return RequireReference(enemy); }
         [[nodiscard]] PlayerEntity &MainPlayer() { return RequireReference(PlayerEntity::Main()); }
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept { return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor); }
-        [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
-        {
-            const float x = axis.X;
-            const float y = axis.Y;
-            const float z = axis.Z;
-            const float cosine = std::cos(angle);
-            const float sine = std::sin(angle);
-            const float oneMinus = 1.0F - cosine;
-            return Matrix4(Vector4(cosine + x * x * oneMinus, x * y * oneMinus + z * sine, x * z * oneMinus - y * sine, 0.0F), Vector4(y * x * oneMinus - z * sine, cosine + y * y * oneMinus, y * z * oneMinus + x * sine, 0.0F), Vector4(z * x * oneMinus + y * sine, z * y * oneMinus - x * sine, cosine + z * z * oneMinus, 0.0F), Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
         [[nodiscard]] std::int32_t AddInt32Unchecked(std::int32_t left, std::int32_t right) noexcept
         {
             const std::uint32_t sum = std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right);

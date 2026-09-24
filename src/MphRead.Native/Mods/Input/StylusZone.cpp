@@ -1,8 +1,13 @@
 #include "StylusZone.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cmath>
 #include <utility>
+
+using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 
 namespace
 {
@@ -12,44 +17,6 @@ namespace
         return std::bit_cast<float>(bits);
     }
 
-    float DotNetClamp(float value, float minimum, float maximum) noexcept
-    {
-        if (value < minimum)
-        {
-            return minimum;
-        }
-        if (value > maximum)
-        {
-            return maximum;
-        }
-        return value;
-    }
-
-    float DotNetMax(float val1, float val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val2 < val1 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val2) ? val1 : val2;
-    }
-
-    float DotNetMin(float val1, float val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val1 < val2 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val1) ? val1 : val2;
-    }
 }
 
 namespace MphRead::Mods::Input
@@ -141,9 +108,9 @@ namespace MphRead::Mods::Input
 
     void StylusZone::SetRect(float left, float top, float width) noexcept
     {
-        _width = DotNetClamp(width, 0.10F, 1.0F);
-        _left = DotNetClamp(left, 0.0F, 1.0F - _width);
-        _top = DotNetClamp(top, 0.0F, DotNetMax(0.0F, 1.0F - Height()));
+        _width = MathClamp(width, 0.10F, 1.0F);
+        _left = MathClamp(left, 0.0F, 1.0F - _width);
+        _top = MathClamp(top, 0.0F, MathMax(0.0F, 1.0F - Height()));
     }
 
     bool StylusZone::Placing() noexcept
@@ -169,8 +136,8 @@ namespace MphRead::Mods::Input
         {
             return;
         }
-        _placeAnchorX = DotNetClamp(x, 0.0F, 1.0F);
-        _placeAnchorY = DotNetClamp(y, 0.0F, 1.0F);
+        _placeAnchorX = MathClamp(x, 0.0F, 1.0F);
+        _placeAnchorY = MathClamp(y, 0.0F, 1.0F);
         _placeAnchored = true;
     }
 
@@ -180,8 +147,8 @@ namespace MphRead::Mods::Input
         {
             return;
         }
-        const float width = DotNetAbs(DotNetClamp(x, 0.0F, 1.0F) - _placeAnchorX);
-        SetRect(DotNetMin(_placeAnchorX, x), DotNetMin(_placeAnchorY, y), width);
+        const float width = DotNetAbs(MathClamp(x, 0.0F, 1.0F) - _placeAnchorX);
+        SetRect(MathMin(_placeAnchorX, x), MathMin(_placeAnchorY, y), width);
     }
 
     void StylusZone::PlacementUp() noexcept

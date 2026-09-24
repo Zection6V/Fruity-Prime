@@ -10,6 +10,7 @@
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 
+using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
@@ -108,23 +109,6 @@ namespace
             result = -static_cast<std::int32_t>(value);
         }
         return true;
-    }
-
-    [[nodiscard]] double MathClamp(double value, double minimum, double maximum)
-    {
-        if (minimum > maximum)
-        {
-            throw std::invalid_argument("minimum is greater than maximum");
-        }
-        if (value < minimum)
-        {
-            return minimum;
-        }
-        if (value > maximum)
-        {
-            return maximum;
-        }
-        return value;
     }
 
     [[nodiscard]] std::string FormatInt32(std::int32_t value)
@@ -259,7 +243,7 @@ namespace MphRead::Mods::Launcher
 
     bool SetupProgress::Set(double fraction, const std::string& stage)
     {
-        const double clamped = MathClamp(fraction, 0, 0.99);
+        const double clamped = MathClamp(fraction, 0.0, 0.99);
         const bool changed = clamped > _fraction + 0.0005 || stage != _stage;
         if (clamped > _fraction)
         {

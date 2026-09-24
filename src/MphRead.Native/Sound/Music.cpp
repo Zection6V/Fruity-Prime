@@ -6,6 +6,7 @@
 #include "../Formats/Sound.hpp"
 #include "../GameState.hpp"
 #include "../Formats/Formats.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -16,6 +17,8 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+
+using ::MphRead::NativeRuntime::MathClamp;
 
 namespace
 {
@@ -253,22 +256,6 @@ namespace MphRead
             }
         };
 
-        float ClampFloat(float value, float minimum, float maximum)
-        {
-            if (minimum > maximum)
-            {
-                throw std::invalid_argument("min");
-            }
-            if (value < minimum) return minimum;
-            if (value > maximum) return maximum;
-            return value;
-        }
-
-        std::int32_t ClampInt(std::int32_t value, std::int32_t minimum, std::int32_t maximum)
-        {
-            return std::min(std::max(value, minimum), maximum);
-        }
-
         float g_userVolume = 1.0F;
         float g_musicVolume = 1.0F;
         std::shared_ptr<const std::vector<std::shared_ptr<MusicTrack>>> g_musicInfo;
@@ -371,7 +358,7 @@ namespace MphRead
 
     void Music::SetUserVolume(float volume)
     {
-        g_userVolume = ClampFloat(volume, 0.0F, 1.0F);
+        g_userVolume = MathClamp(volume, 0.0F, 1.0F);
         if (MusicPlayer::State() != PlaybackState::Stopped)
         {
             MusicPlayer::Volume(Volume());
@@ -450,7 +437,7 @@ namespace MphRead
 
     void Music::PlayRoomMusic(std::int32_t roomId, std::int32_t track)
     {
-        track = ClampInt(track, 0, 2);
+        track = MathClamp(track, 0, 2);
         for (const RoomMusic& room : RoomMusicInfo())
         {
             if (room.RoomId == roomId)
@@ -1058,7 +1045,7 @@ namespace MphRead
         EnsureMusicPlayerInitialized();
         std::shared_ptr<NCSFPlayerStream> stream;
         { std::lock_guard<std::recursive_mutex> guard(g_playerMutex); stream = g_stream; }
-        if (stream) stream->VolumeModification(ClampFloat(value, 0.0F, 1.0F));
+        if (stream) stream->VolumeModification(MathClamp(value, 0.0F, 1.0F));
     }
 
     std::uint16_t MusicPlayer::Tempo() noexcept

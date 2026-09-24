@@ -29,7 +29,9 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateTranslation;
+using ::OpenTK::Mathematics::DistanceSquared;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::IdentityMatrix;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
@@ -59,25 +61,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        [[nodiscard]] float DistanceSquared(Vector3 left, Vector3 right) noexcept
-        {
-            const float x = left.X - right.X;
-            const float y = left.Y - right.Y;
-            const float z = left.Z - right.Z;
-            return x * x + y * y + z * z;
-        }
-
-        [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
-        {
-            const float cosine = std::cos(angle);
-            const float sine = std::sin(angle);
-            return Matrix4(
-                Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-                Vector4(0.0F, cosine, sine, 0.0F),
-                Vector4(0.0F, -sine, cosine, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
         }
 
         void SetRow3Xyz(Matrix4& matrix, Vector3 value) noexcept

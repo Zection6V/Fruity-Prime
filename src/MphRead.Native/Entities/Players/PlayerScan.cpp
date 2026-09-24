@@ -26,6 +26,7 @@
 #include <type_traits>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 
@@ -110,18 +111,6 @@ namespace
         return std::bit_cast<std::int32_t>(value);
     }
 
-    [[nodiscard]] constexpr float ClampFloat(float value, float minimum, float maximum) noexcept
-    {
-        if (value < minimum)
-        {
-            return minimum;
-        }
-        if (value > maximum)
-        {
-            return maximum;
-        }
-        return value;
-    }
 }
 
 namespace MphRead::Entities
@@ -533,7 +522,7 @@ namespace MphRead::Entities
         if (current.Entity && _boxSizeFac < 4.0F)
         {
             float pixelSize = current.Scale * 90.0F;
-            pixelSize = ClampFloat(pixelSize, 4.0F, 14.0F);
+            pixelSize = MathClamp(pixelSize, 4.0F, 14.0F);
             pixelSize *= _boxSizeFac;
             const bool small = pixelSize < 8.0F;
             Hud::HudObjectInstance& cornerInst = RequireReference(_scanCornerInst);

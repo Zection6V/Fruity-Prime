@@ -35,6 +35,7 @@
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateFromAxisAngle;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -105,34 +106,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::IndexOutOfRangeException();
             }
             return values[static_cast<std::size_t>(index)];
-        }
-
-        [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
-        {
-            axis = axis.Normalized();
-            const float cosine = std::cos(angle);
-            const float sine = std::sin(angle);
-            const float oneMinusCosine = 1.0F - cosine;
-            const float x = axis.X;
-            const float y = axis.Y;
-            const float z = axis.Z;
-            return Matrix4(
-                Vector4(
-                    oneMinusCosine * x * x + cosine,
-                    oneMinusCosine * x * y + sine * z,
-                    oneMinusCosine * x * z - sine * y,
-                    0.0F),
-                Vector4(
-                    oneMinusCosine * x * y - sine * z,
-                    oneMinusCosine * y * y + cosine,
-                    oneMinusCosine * y * z + sine * x,
-                    0.0F),
-                Vector4(
-                    oneMinusCosine * x * z + sine * y,
-                    oneMinusCosine * y * z - sine * x,
-                    oneMinusCosine * z * z + cosine,
-                    0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
         }
 
         [[nodiscard]] Vector3 Vec3MultMtx3(Vector3 value, Matrix4 matrix) noexcept

@@ -54,9 +54,13 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::ComponentMax;
+using ::OpenTK::Mathematics::ComponentMin;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Equal;
@@ -158,40 +162,6 @@ namespace
         return std::bit_cast<std::int32_t>(std::bit_cast<std::uint32_t>(value) + 1U);
     }
 
-    [[nodiscard]] float MathFMin(float x, float y) noexcept
-    {
-        if (std::isnan(x))
-        {
-            return x;
-        }
-        if (std::isnan(y))
-        {
-            return y;
-        }
-        if (x == y && x == 0.0F)
-        {
-            return std::signbit(x) || std::signbit(y) ? -0.0F : 0.0F;
-        }
-        return x < y ? x : y;
-    }
-
-    [[nodiscard]] float MathFMax(float x, float y) noexcept
-    {
-        if (std::isnan(x))
-        {
-            return x;
-        }
-        if (std::isnan(y))
-        {
-            return y;
-        }
-        if (x == y && x == 0.0F)
-        {
-            return !std::signbit(x) || !std::signbit(y) ? 0.0F : -0.0F;
-        }
-        return x > y ? x : y;
-    }
-
     [[nodiscard]] std::vector<float> CopyManagedArray(
         const MphRead::ManagedArray<float>& values)
     {
@@ -202,16 +172,6 @@ namespace
             result.push_back(values[i]);
         }
         return result;
-    }
-
-    [[nodiscard]] Vector3 ComponentMin(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(MathFMin(left.X, right.X), MathFMin(left.Y, right.Y), MathFMin(left.Z, right.Z));
-    }
-
-    [[nodiscard]] Vector3 ComponentMax(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(MathFMax(left.X, right.X), MathFMax(left.Y, right.Y), MathFMax(left.Z, right.Z));
     }
 
     template <std::size_t Size>
@@ -1512,10 +1472,10 @@ namespace MphRead::Entities
                             Vector3 destPoint = ArrayAt(_startPointList, j);
                             if (Func2117F84(point1, destPoint) >= 0.0F)
                             {
-                                minX = MathFMin(minX, destPoint.X);
-                                maxX = MathFMax(maxX, destPoint.X);
-                                minY = MathFMin(minY, destPoint.Y);
-                                maxY = MathFMax(maxY, destPoint.Y);
+                                minX = MathMin(minX, destPoint.X);
+                                maxX = MathMax(maxX, destPoint.X);
+                                minY = MathMin(minY, destPoint.Y);
+                                maxY = MathMax(maxY, destPoint.Y);
                             }
                             nextInfo.Count = UncheckedIncrement(nextInfo.Count);
                         }
@@ -1525,10 +1485,10 @@ namespace MphRead::Entities
 
             if (v28 >= 3)
             {
-                minX = MathFMax(minX, 0.0F);
-                maxX = MathFMin(maxX, 1.0F);
-                minY = MathFMax(minY, 0.0F);
-                maxY = MathFMin(maxY, 1.0F);
+                minX = MathMax(minX, 0.0F);
+                maxX = MathMin(maxX, 1.0F);
+                minY = MathMax(minY, 0.0F);
+                maxY = MathMin(maxY, 1.0F);
                 if (minX < maxX - 1.0F / 800.0F && minY < maxY - 1.0F / 600.0F)
                 {
                     const Formats::Culling::NodeRef nextNodeRef = otherSide ? portal.NodeRef1 : portal.NodeRef2;
@@ -1536,10 +1496,10 @@ namespace MphRead::Entities
                     {
                         _visNodeRefRecursionDepth = UncheckedIncrement(_visNodeRefRecursionDepth);
                         RoomPartVisInfo& nextVisInfo = RequireReference(GetPartVisInfo(nextNodeRef));
-                        nextVisInfo.ViewMinX = MathFMin(nextVisInfo.ViewMinX, minX);
-                        nextVisInfo.ViewMaxX = MathFMax(nextVisInfo.ViewMaxX, maxX);
-                        nextVisInfo.ViewMinY = MathFMin(nextVisInfo.ViewMinY, minY);
-                        nextVisInfo.ViewMaxY = MathFMax(nextVisInfo.ViewMaxY, maxY);
+                        nextVisInfo.ViewMinX = MathMin(nextVisInfo.ViewMinX, minX);
+                        nextVisInfo.ViewMaxX = MathMax(nextVisInfo.ViewMaxX, maxX);
+                        nextVisInfo.ViewMinY = MathMin(nextVisInfo.ViewMinY, minY);
+                        nextVisInfo.ViewMaxY = MathMax(nextVisInfo.ViewMaxY, maxY);
                         ArrayAt(_activeRoomParts, nextNodeRef.PartIndex) = true;
                         _roomFrustumIndex = UncheckedIncrement(_roomFrustumIndex);
                         RoomFrustumItem& nextFrustumItem = RequireReference(nextValue);
@@ -1736,9 +1696,9 @@ namespace MphRead::Entities
         const Vector3 min = _partBoundsMin[static_cast<std::size_t>(partIndex)];
         const Vector3 max = _partBoundsMax[static_cast<std::size_t>(partIndex)];
         if (min.X > max.X) return std::numeric_limits<float>::max();
-        float depth = MathFMin(position.X - min.X, max.X - position.X);
-        depth = MathFMin(depth, MathFMin(position.Y - min.Y, max.Y - position.Y));
-        depth = MathFMin(depth, MathFMin(position.Z - min.Z, max.Z - position.Z));
+        float depth = MathMin(position.X - min.X, max.X - position.X);
+        depth = MathMin(depth, MathMin(position.Y - min.Y, max.Y - position.Y));
+        depth = MathMin(depth, MathMin(position.Z - min.Z, max.Z - position.Z));
         return depth;
     }
 
@@ -2134,7 +2094,7 @@ namespace MphRead::Entities
         float between = Length(Subtract(portalPosition, cameraPosition));
         between /= 8.0F;
         if (between < 1.0F / 4096.0F) between = 0.0F;
-        return MathFMin(between, 1.0F);
+        return MathMin(between, 1.0F);
     }
 
     void RoomEntity::GetDisplayVolumes()

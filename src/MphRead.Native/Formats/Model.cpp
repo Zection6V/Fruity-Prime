@@ -20,7 +20,9 @@
 #include <utility>
 #include <vector>
 
+using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateRotationZ;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::CreateTranslation;
 using ::OpenTK::Mathematics::Multiply;
@@ -126,30 +128,6 @@ namespace
             Vector4(0.0F, 1.0F, 0.0F, 0.0F),
             Vector4(0.0F, 0.0F, 1.0F, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
-    {
-        const float cos = std::cos(angle);
-        const float sin = std::sin(angle);
-        Matrix4 result = Identity();
-        result.M22 = cos;
-        result.M23 = sin;
-        result.M32 = -sin;
-        result.M33 = cos;
-        return result;
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationZ(float angle) noexcept
-    {
-        const float cos = std::cos(angle);
-        const float sin = std::sin(angle);
-        Matrix4 result = Identity();
-        result.M11 = cos;
-        result.M12 = sin;
-        result.M21 = -sin;
-        result.M22 = cos;
-        return result;
     }
 
     [[nodiscard]] Matrix4 ClearRotation(Matrix4 matrix) noexcept

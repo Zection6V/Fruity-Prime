@@ -3,6 +3,7 @@
 #include "../../Branding.hpp"
 #include "../../ThumbnailGenerator.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <cmath>
 #include <condition_variable>
@@ -19,38 +20,14 @@
 
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 
 namespace
 {
     constexpr std::string_view BrandUri
         = "avares://FruityPrime/Assets/fruity-prime-logo.png";
-
-    [[nodiscard]] double MathMax(double val1, double val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val2 < val1 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val2) ? val1 : val2;
-    }
-
-    [[nodiscard]] double MathMin(double val1, double val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val1 < val2 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val1) ? val1 : val2;
-    }
 
     [[nodiscard]] std::u16string Utf8ToUtf16(std::string_view text)
     {

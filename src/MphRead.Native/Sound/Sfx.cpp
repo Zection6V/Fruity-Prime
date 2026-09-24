@@ -65,6 +65,7 @@ extern "C"
 }
 #endif
 
+using ::OpenTK::Mathematics::DistanceSquared;
 using ::OpenTK::Mathematics::Scale;
 
 namespace MphRead::Sound
@@ -119,14 +120,6 @@ namespace MphRead::Sound
                 NullReference();
             }
             return instance;
-        }
-
-        float DistanceSquared(Vector3 a, Vector3 b) noexcept
-        {
-            const float x = a.X - b.X;
-            const float y = a.Y - b.Y;
-            const float z = a.Z - b.Z;
-            return x * x + y * y + z * z;
         }
 
         std::int32_t ManagedIncrement(std::int32_t value) noexcept

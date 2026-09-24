@@ -13,6 +13,8 @@
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 
+using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
@@ -35,47 +37,12 @@ namespace
         return std::bit_cast<std::int32_t>(difference);
     }
 
-    [[nodiscard]] std::int32_t MathMax(std::int32_t left, std::int32_t right) noexcept
-    {
-        return left > right ? left : right;
-    }
-
-    [[nodiscard]] double MathMax(double val1, double val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val2 < val1 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val2) ? val1 : val2;
-    }
-
     [[nodiscard]] std::int32_t ClampInt32(
         std::int32_t value, std::int32_t min, std::int32_t max)
     {
         if (min > max)
         {
             throw SliderRowArgumentException(min, max);
-        }
-        if (value < min)
-        {
-            return min;
-        }
-        if (value > max)
-        {
-            return max;
-        }
-        return value;
-    }
-
-    [[nodiscard]] double ClampDouble(double value, double min, double max)
-    {
-        if (min > max)
-        {
-            throw SliderRowArgumentException();
         }
         if (value < min)
         {
@@ -396,7 +363,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
         const GuiRect track = Track();
         const double fraction = (x - track.X) / MathMax(1.0, track.Width);
-        const double scaled = ClampDouble(fraction, 0.0, 1.0)
+        const double scaled = MathClamp(fraction, 0.0, 1.0)
             * static_cast<double>(SubtractUnchecked(_max, _min));
         Value(AddUnchecked(_min, DoubleToInt32Unchecked(RoundToEven(scaled))));
     }

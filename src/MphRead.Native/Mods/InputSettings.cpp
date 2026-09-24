@@ -9,6 +9,7 @@
 #include "Branding.hpp"
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "Launcher/Portable/LauncherPrefs.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -25,6 +26,8 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::MathClamp;
 
 namespace MphRead::Mods
 {
@@ -565,19 +568,6 @@ namespace MphRead::Mods
             }
             parsed = result;
             return true;
-        }
-
-        float DotNetClamp(float value, float min, float max) noexcept
-        {
-            if (value < min)
-            {
-                return min;
-            }
-            if (value > max)
-            {
-                return max;
-            }
-            return value;
         }
 
         template <typename TEnum>
@@ -1154,7 +1144,7 @@ namespace MphRead::Mods
 
     void InputSettings::GamepadDeadZone(float value) noexcept
     {
-        _gamepadDeadZone = DotNetClamp(value, 0.0F, 0.9F);
+        _gamepadDeadZone = MathClamp(value, 0.0F, 0.9F);
     }
 
     float InputSettings::GamepadLookSensitivity() noexcept
@@ -1164,7 +1154,7 @@ namespace MphRead::Mods
 
     void InputSettings::GamepadLookSensitivity(float value) noexcept
     {
-        _gamepadLook = DotNetClamp(value, 0.1F, 5.0F);
+        _gamepadLook = MathClamp(value, 0.1F, 5.0F);
     }
 
     bool InputSettings::GamepadInvertY() noexcept
@@ -1448,7 +1438,7 @@ namespace MphRead::Mods
                     float parsed = 0.0F;
                     if (TryParseSingle(value, parsed))
                     {
-                        MouseSensitivity(DotNetClamp(parsed, 0.05F, 10.0F));
+                        MouseSensitivity(MathClamp(parsed, 0.05F, 10.0F));
                     }
                     continue;
                 }
@@ -1479,7 +1469,7 @@ namespace MphRead::Mods
                     if (TryParseSingle(value, opacity))
                     {
                         Input::StylusZone::Opacity(
-                            DotNetClamp(opacity, 0.02F, 1.0F));
+                            MathClamp(opacity, 0.02F, 1.0F));
                     }
                 }
                 if (key == "stylus_zone_rect")

@@ -1,12 +1,15 @@
 #include "KeyRow.hpp"
 
 #include "../../InputSettings.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <iterator>
 #include <utility>
+
+using ::MphRead::NativeRuntime::MathMax;
 
 namespace
 {
@@ -24,19 +27,6 @@ namespace
     constexpr InputMouseButton MouseMiddle = static_cast<InputMouseButton>(2);
     constexpr InputMouseButton MouseButton4 = static_cast<InputMouseButton>(3);
     constexpr InputMouseButton MouseButton5 = static_cast<InputMouseButton>(4);
-
-    [[nodiscard]] double MathMax(double val1, double val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val2 < val1 ? val1 : val2;
-            }
-            return val1;
-        }
-        return std::signbit(val2) ? val1 : val2;
-    }
 
     [[nodiscard]] bool Contains(GuiRect rect, KeyRowPoint point) noexcept
     {

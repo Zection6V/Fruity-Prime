@@ -7,6 +7,7 @@
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 
+using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
@@ -48,18 +49,6 @@ namespace
         return std::string(buffer, result.ptr);
     }
 
-    [[nodiscard]] double MathMax(double left, double right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        return left > right ? left : right;
-    }
 }
 
 namespace MphRead::Mods::Launcher::Gui

@@ -14,6 +14,7 @@
 #include "NetSession.hpp"
 #include "NetTestScript.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -27,6 +28,7 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::MathClamp;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::Multiply;
@@ -62,24 +64,6 @@ namespace
     [[nodiscard]] constexpr bool HasFlag(std::uint32_t value, std::uint32_t flag) noexcept
     {
         return (value & flag) == flag;
-    }
-
-    [[nodiscard]] std::int32_t ManagedClamp(
-        std::int32_t value, std::int32_t min, std::int32_t max)
-    {
-        if (min > max)
-        {
-            throw std::invalid_argument("min cannot be greater than max.");
-        }
-        if (value < min)
-        {
-            return min;
-        }
-        if (value > max)
-        {
-            return max;
-        }
-        return value;
     }
 
     [[nodiscard]] std::string BoolText(bool value)
@@ -633,9 +617,9 @@ namespace MphRead::Entities
     void PlayerEntity::ModSetAmmo(std::int32_t ua, std::int32_t missiles)
     {
         const std::int32_t uaMax = (*this)._ammoMax[0];
-        ((*this)._ammo[0] = ManagedClamp(ua, 0, uaMax));
+        ((*this)._ammo[0] = MathClamp(ua, 0, uaMax));
         const std::int32_t missileMax = (*this)._ammoMax[1];
-        ((*this)._ammo[1] = ManagedClamp(missiles, 0, missileMax));
+        ((*this)._ammo[1] = MathClamp(missiles, 0, missileMax));
     }
 
     void PlayerEntity::ModSetZoom(bool zoomed)

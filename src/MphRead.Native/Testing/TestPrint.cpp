@@ -2,6 +2,7 @@
 
 #include "../Formats/Formats.hpp"
 #include "../Formats/Model.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -24,6 +25,8 @@
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
+
+using ::MphRead::NativeRuntime::MathMax;
 
 namespace
 {
@@ -1792,19 +1795,6 @@ namespace
 #endif
     }
 
-    [[nodiscard]] float ManagedMax(float left, float right) noexcept
-    {
-        // .NET 9 Math.Max(float,float): propagate NaN and prefer +0 over -0.
-        if (left != right)
-        {
-            if (!std::isnan(left))
-            {
-                return right < left ? left : right;
-            }
-            return left;
-        }
-        return std::signbit(right) ? left : right;
-    }
 }
 
 namespace MphRead::Testing
@@ -1910,13 +1900,13 @@ namespace MphRead::Testing
         using OpenTK::Mathematics::Vector3;
 
         const Vector3 sight_vec(0.0F, 0.0F, -1.0F);
-        const float dif_factor = ManagedMax(
+        const float dif_factor = MathMax(
             0.0F, -Vector3::Dot(light_vec, normal_vec));
         const Vector3 half_vec(
             (light_vec.X + sight_vec.X) / 2.0F,
             (light_vec.Y + sight_vec.Y) / 2.0F,
             (light_vec.Z + sight_vec.Z) / 2.0F);
-        float spe_factor = ManagedMax(
+        float spe_factor = MathMax(
             0.0F,
             Vector3::Dot(
                 Vector3(-half_vec.X, -half_vec.Y, -half_vec.Z), normal_vec));

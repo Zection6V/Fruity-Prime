@@ -20,6 +20,7 @@
 #include "NetSlotManager.hpp"
 #include "NetUnlagged.hpp"
 #include "PlayerColors.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -59,6 +60,7 @@
 #endif
 
 using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::MathMax;
 
 namespace
 {
@@ -86,31 +88,6 @@ namespace
     void IncrementInt64(std::int64_t& value) noexcept
     {
         value = AddInt64Unchecked(value, 1);
-    }
-
-    [[nodiscard]] double ManagedMax(double left, double right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left > right)
-        {
-            return left;
-        }
-        if (right > left)
-        {
-            return right;
-        }
-        if (left == 0.0 && right == 0.0)
-        {
-            return !std::signbit(left) || !std::signbit(right) ? 0.0 : -0.0;
-        }
-        return left;
     }
 
     struct NumberSymbols
@@ -1082,7 +1059,7 @@ namespace MphRead::Mods::Network
         {
             if (_lastServerPacket > 0.0 && time > _lastServerPacket)
             {
-                _longestServerSilence = ManagedMax(
+                _longestServerSilence = MathMax(
                     _longestServerSilence, time - _lastServerPacket);
             }
             _lastServerPacket = time;

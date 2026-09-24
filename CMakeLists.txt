@@ -117,6 +117,14 @@ if(FRUITY_STOP_TOKEN_OPTIONS)
     target_link_options(fruity_mphread_native PUBLIC ${FRUITY_STOP_TOKEN_OPTIONS})
 endif()
 target_link_libraries(fruity_mphread_native PUBLIC fruity_ncsfplay_native Threads::Threads ZLIB::ZLIB)
+# The C# JIT never fuses a * b + c into one fused multiply-add, so neither may
+# the port: a fused result rounds once where the C# rounds twice, and every
+# transform, collision test and inverse would drift in the last bit. GCC in
+# ISO mode and MSVC already keep them apart; Clang (macOS, the Android NDK)
+# contracts by default, and on arm64, where FMA is always there, it does.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(fruity_mphread_native PUBLIC -ffp-contract=off)
+endif()
 set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Native")
 
 # The windowed launcher. The name is upstream's, from the toolkit the C# build

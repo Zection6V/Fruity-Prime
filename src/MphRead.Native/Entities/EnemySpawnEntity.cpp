@@ -62,6 +62,7 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::DistanceSquared;
 using ::OpenTK::Mathematics::Multiply;
 
 namespace MphRead::Entities
@@ -91,14 +92,6 @@ namespace MphRead::Entities
                 throw System::NullReferenceException();
             }
             return *GameState::StorySave;
-        }
-
-        [[nodiscard]] float DistanceSquared(Vector3 left, Vector3 right) noexcept
-        {
-            const float x = left.X - right.X;
-            const float y = left.Y - right.Y;
-            const float z = left.Z - right.Z;
-            return x * x + y * y + z * z;
         }
 
         [[nodiscard]] std::int32_t AddInt32Unchecked(

@@ -36,10 +36,13 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::ComponentMax;
+using ::OpenTK::Mathematics::ComponentMin;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::Multiply;
@@ -186,39 +189,6 @@ namespace
     {
         return std::bit_cast<std::int32_t>(
             static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] float ManagedMax(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left == right && left == 0.0F)
-        {
-            return std::signbit(left) && std::signbit(right) ? -0.0F : 0.0F;
-        }
-        return left > right ? left : right;
-    }
-
-    [[nodiscard]] Vector3 ComponentMin(Vector3 a, Vector3 b) noexcept
-    {
-        a.X = a.X < b.X ? a.X : b.X;
-        a.Y = a.Y < b.Y ? a.Y : b.Y;
-        a.Z = a.Z < b.Z ? a.Z : b.Z;
-        return a;
-    }
-
-    [[nodiscard]] Vector3 ComponentMax(Vector3 a, Vector3 b) noexcept
-    {
-        a.X = a.X > b.X ? a.X : b.X;
-        a.Y = a.Y > b.Y ? a.Y : b.Y;
-        a.Z = a.Z > b.Z ? a.Z : b.Z;
-        return a;
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
@@ -768,7 +738,7 @@ namespace MphRead::Mods::MapGen
             const std::vector<float>* maxs = Require(model->Maxs());
             const float spanX = ArrayAt(maxs, 0) - ArrayAt(mins, 0);
             const float spanY = ArrayAt(maxs, 1) - ArrayAt(mins, 1);
-            skySpan = ManagedMax(spanX, spanY) / unit;
+            skySpan = MathMax(spanX, spanY) / unit;
         }
 
         std::int32_t skipped = 0;
@@ -847,7 +817,7 @@ namespace MphRead::Mods::MapGen
                     ProjectSky(
                         built,
                         static_cast<float>(width) * SkyTiles
-                            / ManagedMax(1.0F, skySpan));
+                            / MathMax(1.0F, skySpan));
                 }
 
                 map->Faces().push_back(built);
@@ -2150,9 +2120,9 @@ namespace MphRead::Mods::MapGen
                         destination.X, destination.Y, destination.Z}));
                 pad->Size(std::make_shared<std::vector<float>>(
                     std::initializer_list<float>{
-                        ManagedMax(upper.X - lower.X, 0.8F),
-                        ManagedMax(upper.Y - lower.Y, 0.8F),
-                        ManagedMax(upper.Z - lower.Z, 0.8F)}));
+                        MathMax(upper.X - lower.X, 0.8F),
+                        MathMax(upper.Y - lower.Y, 0.8F),
+                        MathMax(upper.Z - lower.Z, 0.8F)}));
                 jumpPads->push_back(std::move(pad));
                 ++pads;
             }

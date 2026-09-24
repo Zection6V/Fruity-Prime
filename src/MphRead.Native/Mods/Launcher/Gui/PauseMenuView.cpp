@@ -5,26 +5,17 @@
 #include "../../Network/NetSession.hpp"
 #include "../../SpectatorMode.hpp"
 #include "../../WindowMode.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <utility>
 
+using ::MphRead::NativeRuntime::MathClamp;
+
 namespace
 {
-    [[nodiscard]] double Clamp(double value, double min, double max) noexcept
-    {
-        if (value < min)
-        {
-            return min;
-        }
-        if (value > max)
-        {
-            return max;
-        }
-        return value;
-    }
 }
 
 namespace MphRead::Mods::Launcher::Gui
@@ -466,7 +457,7 @@ namespace MphRead::Mods::Launcher::Gui
         {
             return;
         }
-        const double scale = Clamp(height / state.NeededHeight, 0.5, 1.0);
+        const double scale = MathClamp(height / state.NeededHeight, 0.5, 1.0);
         const std::optional<double> current =
             state.Adapter->GetLayoutScaleY(state.Scaler);
         if (current.has_value() && std::abs(*current - scale) < 0.001)

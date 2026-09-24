@@ -7,6 +7,7 @@
 #include "../Scene.hpp"
 #include "../SceneSetup.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
 
 #include <algorithm>
@@ -37,6 +38,8 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 
@@ -130,48 +133,6 @@ namespace
     {
         return left.X == right.X && left.Y == right.Y
             && left.Z == right.Z && left.W == right.W;
-    }
-
-    [[nodiscard]] float FloatMin(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left == right)
-        {
-            if (left == 0.0F && (std::signbit(left) || std::signbit(right)))
-            {
-                return -0.0F;
-            }
-            return left;
-        }
-        return left < right ? left : right;
-    }
-
-    [[nodiscard]] float FloatMax(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left == right)
-        {
-            if (left == 0.0F && (!std::signbit(left) || !std::signbit(right)))
-            {
-                return 0.0F;
-            }
-            return left;
-        }
-        return left > right ? left : right;
     }
 
     [[nodiscard]] float ComponentMin(const std::vector<Vector3>& points, std::int32_t component)
@@ -775,12 +736,12 @@ namespace
                 if (FindPoint(points, point) == -1)
                 {
                     points.push_back(point);
-                    minX = FloatMin(minX, point.X);
-                    minY = FloatMin(minY, point.Y);
-                    minZ = FloatMin(minZ, point.Z);
-                    maxX = FloatMax(maxX, point.X);
-                    maxY = FloatMax(maxY, point.Y);
-                    maxZ = FloatMax(maxZ, point.Z);
+                    minX = MathMin(minX, point.X);
+                    minY = MathMin(minY, point.Y);
+                    minZ = MathMin(minZ, point.Z);
+                    maxX = MathMax(maxX, point.X);
+                    maxY = MathMax(maxY, point.Y);
+                    maxZ = MathMax(maxZ, point.Z);
                 }
             }
             const Vector4 plane = itemValue.Plane;
@@ -970,12 +931,12 @@ namespace
                     planes.push_back(plane);
                 }
                 vectors.emplace_back(point1Index, point2Index, planeIndex);
-                minX = FloatMin(minX, point2.X);
-                minY = FloatMin(minY, point2.Y);
-                minZ = FloatMin(minZ, point2.Z);
-                maxX = FloatMax(maxX, point2.X);
-                maxY = FloatMax(maxY, point2.Y);
-                maxZ = FloatMax(maxZ, point2.Z);
+                minX = MathMin(minX, point2.X);
+                minY = MathMin(minY, point2.Y);
+                minZ = MathMin(minZ, point2.Z);
+                maxX = MathMax(maxX, point2.X);
+                maxY = MathMax(maxY, point2.Y);
+                maxZ = MathMax(maxZ, point2.Z);
             }
         };
 

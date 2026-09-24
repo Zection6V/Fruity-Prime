@@ -6,6 +6,7 @@
 #include "../../Program.hpp"
 #include "BuiltMap.hpp"
 #include "MapDefinition.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <bit>
@@ -20,6 +21,8 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 
@@ -51,40 +54,6 @@ namespace
             ArrayBounds();
         }
         return (*values)[index];
-    }
-
-    [[nodiscard]] float ManagedMin(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left == right && left == 0.0F)
-        {
-            return std::signbit(left) || std::signbit(right) ? -0.0F : 0.0F;
-        }
-        return left < right ? left : right;
-    }
-
-    [[nodiscard]] float ManagedMax(float left, float right) noexcept
-    {
-        if (std::isnan(left))
-        {
-            return left;
-        }
-        if (std::isnan(right))
-        {
-            return right;
-        }
-        if (left == right && left == 0.0F)
-        {
-            return std::signbit(left) && std::signbit(right) ? -0.0F : 0.0F;
-        }
-        return left > right ? left : right;
     }
 
     [[nodiscard]] float ManagedAbs(float value) noexcept
@@ -790,22 +759,22 @@ namespace MphRead::Mods::MapGen
 
         const float x0Left = ArrayValue(brush->Min(), 0);
         const float x0Right = ArrayValue(brush->Max(), 0);
-        const float x0 = ManagedMin(x0Left, x0Right);
+        const float x0 = MathMin(x0Left, x0Right);
         const float y0Left = ArrayValue(brush->Min(), 1);
         const float y0Right = ArrayValue(brush->Max(), 1);
-        const float y0 = ManagedMin(y0Left, y0Right);
+        const float y0 = MathMin(y0Left, y0Right);
         const float z0Left = ArrayValue(brush->Min(), 2);
         const float z0Right = ArrayValue(brush->Max(), 2);
-        const float z0 = ManagedMin(z0Left, z0Right);
+        const float z0 = MathMin(z0Left, z0Right);
         const float x1Left = ArrayValue(brush->Min(), 0);
         const float x1Right = ArrayValue(brush->Max(), 0);
-        const float x1 = ManagedMax(x1Left, x1Right);
+        const float x1 = MathMax(x1Left, x1Right);
         const float y1Left = ArrayValue(brush->Min(), 1);
         const float y1Right = ArrayValue(brush->Max(), 1);
-        const float y1 = ManagedMax(y1Left, y1Right);
+        const float y1 = MathMax(y1Left, y1Right);
         const float z1Left = ArrayValue(brush->Min(), 2);
         const float z1Right = ArrayValue(brush->Max(), 2);
-        const float z1 = ManagedMax(z1Left, z1Right);
+        const float z1 = MathMax(z1Left, z1Right);
 
         const Vector3 normals[6] = {
             Vector3(0.0F, 1.0F, 0.0F),
@@ -1087,11 +1056,11 @@ namespace MphRead::Mods::MapGen
             to.Z - from.Z);
         const float horizontal = Length(Vector3(delta.X, 0.0F, delta.Z));
         constexpr float Gravity = 77.0F / 4096.0F;
-        const float rise = ManagedMax(delta.Y, 0.0F)
-            + ManagedMax(2.0F, horizontal * 0.22F);
+        const float rise = MathMax(delta.Y, 0.0F)
+            + MathMax(2.0F, horizontal * 0.22F);
         const float up = std::sqrt(2.0F * Gravity * rise);
         const float fall = std::sqrt(
-            2.0F * Gravity * ManagedMax(rise - delta.Y, 0.01F));
+            2.0F * Gravity * MathMax(rise - delta.Y, 0.01F));
         const float frames = (up + fall) / Gravity;
         const Vector3 velocity(
             delta.X / frames,

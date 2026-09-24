@@ -23,6 +23,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::CreateFromAxisAngle;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace MphRead::Entities::Enemies
@@ -98,34 +99,6 @@ namespace MphRead::Entities::Enemies
                 throw std::overflow_error("Arithmetic operation resulted in an overflow.");
             }
             return dividend / divisor;
-        }
-
-        [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
-        {
-            axis = axis.Normalized();
-            const float x = axis.X;
-            const float y = axis.Y;
-            const float z = axis.Z;
-            const float cosine = std::cos(angle);
-            const float sine = std::sin(angle);
-            const float oneMinus = 1.0F - cosine;
-            return Matrix4(
-                Vector4(
-                    cosine + x * x * oneMinus,
-                    x * y * oneMinus + z * sine,
-                    x * z * oneMinus - y * sine,
-                    0.0F),
-                Vector4(
-                    y * x * oneMinus - z * sine,
-                    cosine + y * y * oneMinus,
-                    y * z * oneMinus + x * sine,
-                    0.0F),
-                Vector4(
-                    z * x * oneMinus + y * sine,
-                    z * y * oneMinus - x * sine,
-                    cosine + z * z * oneMinus,
-                    0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
         }
 
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)

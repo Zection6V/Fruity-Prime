@@ -41,6 +41,7 @@
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
@@ -286,16 +287,6 @@ namespace
             position += newValue.size();
         }
         return value;
-    }
-
-    [[nodiscard]] std::int32_t ClampInt(
-        std::int32_t value, std::int32_t minimum, std::int32_t maximum)
-    {
-        if (minimum > maximum)
-        {
-            throw std::invalid_argument("'minimum' cannot be greater than maximum.");
-        }
-        return std::min(std::max(value, minimum), maximum);
     }
 
     [[nodiscard]] std::shared_ptr<const std::vector<std::uint16_t>>
@@ -1225,13 +1216,13 @@ namespace MphRead::Utility
                 if (optionValues.ComputeBounds == ComputeBounds::Capped)
                 {
                     dlistMin.emplace_back(
-                        ClampInt(ManagedMul(minimum.X, scale), clampMin, clampMax),
-                        ClampInt(ManagedMul(minimum.Y, scale), clampMin, clampMax),
-                        ClampInt(ManagedMul(minimum.Z, scale), clampMin, clampMax));
+                        MathClamp(ManagedMul(minimum.X, scale), clampMin, clampMax),
+                        MathClamp(ManagedMul(minimum.Y, scale), clampMin, clampMax),
+                        MathClamp(ManagedMul(minimum.Z, scale), clampMin, clampMax));
                     dlistMax.emplace_back(
-                        ClampInt(ManagedMul(maximum.X, scale), clampMin, clampMax),
-                        ClampInt(ManagedMul(maximum.Y, scale), clampMin, clampMax),
-                        ClampInt(ManagedMul(maximum.Z, scale), clampMin, clampMax));
+                        MathClamp(ManagedMul(maximum.X, scale), clampMin, clampMax),
+                        MathClamp(ManagedMul(maximum.Y, scale), clampMin, clampMax),
+                        MathClamp(ManagedMul(maximum.Z, scale), clampMin, clampMax));
                 }
                 else
                 {

@@ -25,6 +25,7 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::CreateTranslation;
 using ::OpenTK::Mathematics::Divide;
@@ -74,17 +75,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::IndexOutOfRangeException();
             }
             return array[static_cast<std::size_t>(index)];
-        }
-
-        [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
-        {
-            const float cos = std::cos(angle);
-            const float sin = std::sin(angle);
-            return Matrix4(
-                Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-                Vector4(0.0F, cos, sin, 0.0F),
-                Vector4(0.0F, -sin, cos, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
         }
 
         [[nodiscard]] bool AnimationEnded(ModelInstance& model)

@@ -28,6 +28,7 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Inverted;
 using ::OpenTK::Mathematics::Multiply;
 using ::OpenTK::Mathematics::ScaleVector;
 
@@ -38,80 +39,6 @@ namespace
     using OpenTK::Mathematics::Matrix3;
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] Matrix4 Invert(Matrix4 value)
-    {
-        const float a = value.M11;
-        const float b = value.M21;
-        const float c = value.M31;
-        const float d = value.M41;
-        const float e = value.M12;
-        const float f = value.M22;
-        const float g = value.M32;
-        const float h = value.M42;
-        const float i = value.M13;
-        const float j = value.M23;
-        const float k = value.M33;
-        const float l = value.M43;
-        const float m = value.M14;
-        const float n = value.M24;
-        const float o = value.M34;
-        const float p = value.M44;
-
-        const float kpLo = k * p - l * o;
-        const float jpLn = j * p - l * n;
-        const float joKn = j * o - k * n;
-        const float ipLm = i * p - l * m;
-        const float ioKm = i * o - k * m;
-        const float inJm = i * n - j * m;
-
-        const float a11 = +(f * kpLo - g * jpLn + h * joKn);
-        const float a12 = -(e * kpLo - g * ipLm + h * ioKm);
-        const float a13 = +(e * jpLn - f * ipLm + h * inJm);
-        const float a14 = -(e * joKn - f * ioKm + g * inJm);
-
-        const float det = a * a11 + b * a12 + c * a13 + d * a14;
-        if (std::abs(det) < std::numeric_limits<float>::denorm_min())
-        {
-            throw std::runtime_error("Matrix is singular and cannot be inverted.");
-        }
-
-        const float invDet = 1.0F / det;
-        Matrix4 result{};
-        result.M11 = a11 * invDet;
-        result.M12 = a12 * invDet;
-        result.M13 = a13 * invDet;
-        result.M14 = a14 * invDet;
-        result.M21 = -(b * kpLo - c * jpLn + d * joKn) * invDet;
-        result.M22 = +(a * kpLo - c * ipLm + d * ioKm) * invDet;
-        result.M23 = -(a * jpLn - b * ipLm + d * inJm) * invDet;
-        result.M24 = +(a * joKn - b * ioKm + c * inJm) * invDet;
-
-        const float gpHo = g * p - h * o;
-        const float fpHn = f * p - h * n;
-        const float foGn = f * o - g * n;
-        const float epHm = e * p - h * m;
-        const float eoGm = e * o - g * m;
-        const float enFm = e * n - f * m;
-
-        result.M31 = +(b * gpHo - c * fpHn + d * foGn) * invDet;
-        result.M32 = -(a * gpHo - c * epHm + d * eoGm) * invDet;
-        result.M33 = +(a * fpHn - b * epHm + d * enFm) * invDet;
-        result.M34 = -(a * foGn - b * eoGm + c * enFm) * invDet;
-
-        const float glHk = g * l - h * k;
-        const float flHj = f * l - h * j;
-        const float fkGj = f * k - g * j;
-        const float elHi = e * l - h * i;
-        const float ekGi = e * k - g * i;
-        const float ejFi = e * j - f * i;
-
-        result.M41 = -(b * glHk - c * flHj + d * fkGj) * invDet;
-        result.M42 = +(a * glHk - c * elHi + d * ekGi) * invDet;
-        result.M43 = -(a * flHj - b * elHi + d * ejFi) * invDet;
-        result.M44 = +(a * fkGj - b * ekGi + c * ejFi) * invDet;
-        return result;
-    }
 
     template <std::size_t Size>
     [[nodiscard]] std::int32_t GetChecked(
@@ -270,7 +197,7 @@ namespace MphRead::Entities
             {
                 _parent->GetDrawInfo();
                 _invPos = Matrix::Vec3MultMtx4(
-                    Position, Invert(_parent->CollisionTransform()));
+                    Position, Inverted(_parent->CollisionTransform()));
                 _invSetUp = true;
             }
             Position = Matrix::Vec3MultMtx4(_invPos, _parent->CollisionTransform());

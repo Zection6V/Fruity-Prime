@@ -1,22 +1,12 @@
 #include "TrackedText.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <cmath>
 
+using ::MphRead::NativeRuntime::MathMax;
+
 namespace
 {
-    double MathMax(double val1, double val2) noexcept
-    {
-        if (val1 != val2)
-        {
-            if (!std::isnan(val1))
-            {
-                return val2 < val1 ? val1 : val2;
-            }
-            return val1;
-        }
-
-        return std::signbit(val2) ? val1 : val2;
-    }
 }
 
 namespace MphRead::Mods::Launcher::Gui

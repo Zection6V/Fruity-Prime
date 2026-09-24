@@ -401,9 +401,8 @@ namespace MphRead::Entities::Enemies
         modelDataRef.AnimateNodes(
             0, false, IdentityMatrix(), modelDataRef.Scale, model.AnimInfo);
         const Matrix4 transform = GetTransformMatrix(FacingVector(), UpVector());
-        const Matrix4 nodeScale = Matrix::Multiply44(
-            RequireReference(node).Animation, CreateScale(static_cast<Vector3>(Scale)));
-        const Matrix4 finalTransform = Matrix::Multiply44(nodeScale, transform);
+        const Matrix4 finalTransform
+            = RequireReference(node).Animation * CreateScale(static_cast<Vector3>(Scale)) * transform;
         const Vector3 position = Matrix::Vec3MultMtx4(offset, finalTransform);
         _hurtVolumeInit = CollisionVolume(position, _hurtVolumeInit.SphereRadius);
     }

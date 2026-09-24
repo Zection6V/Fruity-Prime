@@ -1663,7 +1663,7 @@ namespace MphRead::Entities
     float RoomEntity::Func2117F84(Vector3 point, Vector3& dest) const
     {
         Scene& scene = RequireReference(_scene);
-        const Matrix4 matrix = Matrix::Multiply44(scene.ViewMatrix(), scene.PerspectiveMatrix());
+        const Matrix4 matrix = scene.ViewMatrix() * scene.PerspectiveMatrix();
         const float v4 = point.X * matrix.M14 + point.Y * matrix.M24
             + point.Z * matrix.M34 + matrix.M44;
         if (v4 <= 0.0F) return v4;

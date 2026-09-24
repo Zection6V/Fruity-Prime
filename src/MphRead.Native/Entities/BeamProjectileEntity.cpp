@@ -2407,7 +2407,7 @@ namespace MphRead::Entities
             const Vector3 temp = Vector3::Cross(Vector3(1, 0, 0), up);
             facing = Normalize(Vector3::Cross(up, temp));
         }
-        Matrix4 transform = Matrix::Multiply44(ScaleMatrix(_maxDistance), GetTransformMatrix(facing, up));
+        Matrix4 transform = ScaleMatrix(_maxDistance) * GetTransformMatrix(facing, up);
         SetRow3(transform, Position);
         const std::shared_ptr<BeamEffectEntity> ent = BeamEffectEntity::Create(
             BeamEffectEntityData(0, false, transform), _scene);

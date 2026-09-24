@@ -590,7 +590,7 @@ namespace MphRead::Entities
         for (std::size_t i = 0; i < RequireReference(model.Nodes).size(); ++i)
         {
             Node& node = RequireReference((*model.Nodes)[i]);
-            node.Animation = Matrix::Multiply44(node.Animation, root);
+            node.Animation *= root;
         }
         model.UpdateMatrixStack();
         UpdateMaterials(inst, Recolor());
@@ -653,7 +653,7 @@ namespace MphRead::Entities
             const Vector3 modelScale = RequireReference(inst.Model()).Scale;
             if (modelScale.X != 1.0F || modelScale.Y != 1.0F || modelScale.Z != 1.0F)
             {
-                texgenMatrix = Matrix::Multiply44(CreateScale(modelScale), texgenMatrix);
+                texgenMatrix = CreateScale(modelScale) * texgenMatrix;
             }
             Matrix4 product = texgenMatrix;
             product.M12 *= -1.0F;
@@ -674,8 +674,8 @@ namespace MphRead::Entities
             const float rotY = static_cast<float>(yInt >> 20) * (360.0F / 4096.0F);
             constexpr float degreesToRadians = 0.01745329251994329576923690768489F;
             Matrix4 rot = RotationZ(rotZ * degreesToRadians);
-            rot = Matrix::Multiply44(rot, RotationY(rotY * degreesToRadians));
-            product = Matrix::Multiply44(rot, product);
+            rot *= RotationY(rotY * degreesToRadians);
+            product = rot * product;
             const float scalar = 1.0F / static_cast<float>(texture.Width / 2);
             product.M11 *= scalar;
             product.M12 *= scalar;

@@ -130,7 +130,7 @@ namespace
     {
         [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
         {
-            return MphRead::Matrix::Multiply44(left, right);
+            return left * right;
         }
 
         [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
@@ -3527,7 +3527,7 @@ namespace MphRead
                     if (TypeExtensions::TestFlag(particle->Owner->Flags, EffElemFlags::UseTransform)
                         && !TypeExtensions::TestFlag(particle->Owner->Flags, EffElemFlags::UseMesh))
                     {
-                        matrix = Matrix::Multiply44(particle->Owner->Transform, matrix);
+                        matrix = particle->Owner->Transform * matrix;
                     }
                     particle->InvokeSetVecsFunc(matrix);
                     particle->InvokeDrawFunc(1);
@@ -4258,8 +4258,8 @@ namespace MphRead
         const float scale = _rendererSize.Y / 192.0F;
         const Vector3 position3d(position.X * _rendererSize.X - _rendererSize.X / 2.0F,
             (1.0F - position.Y) * _rendererSize.Y - _rendererSize.Y / 2.0F, -1.0F);
-        Matrix4 transform = Matrix::Multiply44(GLMath::CreateRotationZ(DegreesToRadians(angle)),
-            Matrix::Multiply44(GLMath::CreateScale(scale, scale, 1.0F), GLMath::CreateTranslation(position3d)));
+        Matrix4 transform = GLMath::CreateRotationZ(DegreesToRadians(angle))
+            * GLMath::CreateScale(scale, scale, 1.0F) * GLMath::CreateTranslation(position3d);
         GL::UniformMatrix4(_shaderLocations->MatrixStack, false, transform);
         const auto model = inst->Model();
         UpdateMaterials(model, 0);

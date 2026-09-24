@@ -1,5 +1,7 @@
 #include "BeamProjectileEntity.hpp"
 
+#include "../NativeRuntime/System/Buffers.hpp"
+
 #include "../Features.hpp"
 #include "../GameState.hpp"
 #include "../MemoryArrays.hpp"
@@ -1553,7 +1555,7 @@ namespace MphRead::Entities
         const Texture& texture = ManagedAt(RequireReference(recolor.Textures), 0);
         const float uvS = (texture.Width - (1.0F / 16.0F)) / texture.Width;
         const float uvT = (texture.Height - (1.0F / 16.0F)) / texture.Height;
-        auto uvsAndVerts = std::make_shared<ManagedArray<Vector3>>(8);
+        auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(8);
         (*uvsAndVerts)[0] = Vector3::Zero;
         (*uvsAndVerts)[1] = Vector3(
             Position.X - _backPosition.X,
@@ -1592,7 +1594,7 @@ namespace MphRead::Entities
         const ::MphRead::Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
         const Texture& texture = ManagedAt(RequireReference(recolor.Textures), 0);
         const float uvT = (texture.Height - (1.0F / 16.0F)) / texture.Height;
-        auto uvsAndVerts = std::make_shared<ManagedArray<Vector3>>(static_cast<std::size_t>(count));
+        auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(count);
         for (std::int32_t i = 0; i < segments; ++i)
         {
             float uvS = 0.0F;
@@ -1623,7 +1625,7 @@ namespace MphRead::Entities
         const Texture& texture = ManagedAt(RequireReference(recolor.Textures), 0);
         const float uvS2 = (texture.Width - (1.0F / 16.0F)) / texture.Width;
         const float uvT2 = (texture.Height / 4.0F - (1.0F / 16.0F)) / texture.Height;
-        auto uvsAndVerts = std::make_shared<ManagedArray<Vector3>>(8);
+        auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(8);
         (*uvsAndVerts)[0] = Vector3::Zero;
         (*uvsAndVerts)[1] = Vector3(0, -height, 0);
         (*uvsAndVerts)[2] = Vector3(0, uvT2, 0);
@@ -1665,7 +1667,7 @@ namespace MphRead::Entities
         const ::MphRead::Recolor& recolor = RequireReference(ManagedAt(RequireReference(model.Recolors), 0));
         const Texture& texture = ManagedAt(RequireReference(recolor.Textures), 0);
         const float uvT = (texture.Height - (1.0F / 16.0F)) / texture.Height;
-        auto uvsAndVerts = std::make_shared<ManagedArray<Vector3>>(static_cast<std::size_t>(count));
+        auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(count);
         for (std::int32_t i = 0; i < segments; ++i)
         {
             float uvS = 0.0F;

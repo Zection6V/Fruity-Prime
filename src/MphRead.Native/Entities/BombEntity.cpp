@@ -1,5 +1,7 @@
 #include "BombEntity.hpp"
 
+#include "../NativeRuntime/System/Buffers.hpp"
+
 #include "../Formats/CollisionDetection.hpp"
 #include "../Formats/Effects.hpp"
 #include "../GameState.hpp"
@@ -1070,8 +1072,7 @@ namespace MphRead::Entities
         MphRead::Recolor& recolorData = VectorAt(model.Recolors, recolor);
         const Texture& texture = VectorAt(recolorData.Textures, 0);
         const float uvT = (texture.Height - (1.0F / 16.0F)) / texture.Height;
-        auto uvsAndVerts = std::make_shared<ManagedArray<Vector3>>(
-            static_cast<std::size_t>(count));
+        auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(count);
         for (std::int32_t i = 0; i < segments; ++i)
         {
             float uvS = 0.0F;

@@ -26,11 +26,26 @@ namespace MphRead::NativeRuntime::Avalonia
                 _window.Content(content);
                 _window.ClientSize(_width, _height);
                 _window.MinimumSize(_minWidth, _minHeight);
+                _window.Decorated(_decorated);
+                _window.Topmost(_topmost);
                 if (_center)
                 {
                     _window.CenterOnScreen();
                 }
+                else if (_placed)
+                {
+                    _window.Position(_x, _y);
+                }
                 _window.Show();
+            }
+
+            void Place(std::int32_t x, std::int32_t y)
+            {
+                _x = x;
+                _y = y;
+                _placed = true;
+                _center = false;
+                _window.Position(x, y);
             }
 
             [[nodiscard]] Toolkit::Window& Window() noexcept { return _window; }
@@ -40,6 +55,11 @@ namespace MphRead::NativeRuntime::Avalonia
             double _minWidth = 0.0;
             double _minHeight = 0.0;
             bool _center = false;
+            bool _decorated = true;
+            bool _topmost = false;
+            bool _placed = false;
+            std::int32_t _x = 0;
+            std::int32_t _y = 0;
 
         private:
             Toolkit::Window _window;
@@ -98,6 +118,7 @@ namespace MphRead::NativeRuntime::Avalonia
             void SetPosition(Launcher::PauseMenuWindowPixelPoint position) override
             {
                 _position = position;
+                _window.Place(position.X, position.Y);
             }
 
             [[nodiscard]] double Width() const override { return _window._width; }
@@ -453,7 +474,8 @@ namespace MphRead::NativeRuntime::Avalonia
             void SetSystemDecorations(
                 Launcher::PauseMenuWindowSystemDecorations decorations) override
             {
-                (void)decorations;
+                _window._decorated
+                    = decorations != Launcher::PauseMenuWindowSystemDecorations::None;
             }
 
             void SetTransparencyLevelHint(
@@ -476,7 +498,11 @@ namespace MphRead::NativeRuntime::Avalonia
 
             [[nodiscard]] bool Topmost() const override { return _topmost; }
 
-            void SetTopmost(bool topmost) override { _topmost = topmost; }
+            void SetTopmost(bool topmost) override
+            {
+                _topmost = topmost;
+                _window._topmost = topmost;
+            }
 
             void SetShowInTaskbar(bool showInTaskbar) override
             {
@@ -506,6 +532,7 @@ namespace MphRead::NativeRuntime::Avalonia
             void SetPosition(Launcher::PauseMenuWindowPixelPoint position) override
             {
                 _position = position;
+                _window.Place(position.X, position.Y);
             }
 
             [[nodiscard]] double Width() const override { return _window._width; }

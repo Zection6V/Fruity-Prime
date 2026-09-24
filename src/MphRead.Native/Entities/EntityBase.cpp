@@ -1,5 +1,7 @@
 #include "EntityBase.hpp"
 
+#include "../NativeRuntime/System/Buffers.hpp"
+
 #include "../Formats/Collision.hpp"
 #include "../Formats/Entity.hpp"
 #include "../Mods/Network/DemoPlayback.hpp"
@@ -1410,7 +1412,7 @@ namespace MphRead::Entities
         std::shared_ptr<ManagedArray<Vector3>> verts = ManagedArray<Vector3>::Empty();
         if (volume.Type == VolumeType::Box)
         {
-            verts = std::make_shared<ManagedArray<Vector3>>(8);
+            verts = MphRead::NativeRuntime::RentFromSharedArrayPool(8);
             const Vector3 point0 = volume.BoxPosition;
             const Vector3 sideX = Multiply(volume.BoxVector1, volume.BoxDot1);
             const Vector3 sideY = Multiply(volume.BoxVector2, volume.BoxDot2);
@@ -1426,7 +1428,7 @@ namespace MphRead::Entities
         }
         else if (volume.Type == VolumeType::Cylinder)
         {
-            verts = std::make_shared<ManagedArray<Vector3>>(34);
+            verts = MphRead::NativeRuntime::RentFromSharedArrayPool(34);
             const Vector3 vector = volume.CylinderVector.Normalized();
             const float radius = volume.CylinderRadius;
             const Matrix3 rotation = Matrix::RotateAlign(Vector3(0.0F, 1.0F, 0.0F), vector);
@@ -1459,8 +1461,7 @@ namespace MphRead::Entities
         {
             constexpr std::int32_t stackCount = Scene::DisplaySphereStacks;
             constexpr std::int32_t sectorCount = Scene::DisplaySphereSectors;
-            verts = std::make_shared<ManagedArray<Vector3>>(
-                static_cast<std::size_t>((stackCount + 1) * (sectorCount + 1)));
+            verts = MphRead::NativeRuntime::RentFromSharedArrayPool((stackCount + 1) * (sectorCount + 1));
             const float radius = volume.SphereRadius;
             const float pi = std::acos(-1.0F);
             const float sectorStep = 2.0F * pi / static_cast<float>(sectorCount);

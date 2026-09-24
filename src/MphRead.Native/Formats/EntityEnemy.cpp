@@ -1,7 +1,9 @@
 #include "EntityEnemy.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <string>
@@ -501,5 +503,107 @@ namespace MphRead::Editor
         PrintValue(SpawnNodeName, other->SpawnNodeName, "SpawnNodeName");
         PrintValue(ParentId, other->ParentId, "ParentId");
         PrintValue(EmptyMessage, other->EmptyMessage, "EmptyMessage");
+    }
+}
+
+namespace MphRead
+{
+    namespace
+    {
+        // The sixteen wire bytes of a node name, as the managed array of chars
+        // the struct carries. C# marshals char[] one byte per element here.
+        [[nodiscard]] std::shared_ptr<ManagedArray<char16_t>> NodeNameArray(
+            const std::array<char, 16>& raw)
+        {
+            auto name = std::make_shared<ManagedArray<char16_t>>(raw.size());
+            for (std::size_t i = 0; i < raw.size(); ++i)
+            {
+                (*name)[i] = static_cast<char16_t>(
+                    static_cast<unsigned char>(raw[i]));
+            }
+            return name;
+        }
+    }
+
+    EnemySpawnEntityData::EnemySpawnEntityData(MarshaledTag,
+        const NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout& raw)
+        : Header(raw.Header),
+          EnemyType(raw.EnemyType),
+          Padding25(raw.Padding25),
+          Padding26(raw.Padding26),
+          Fields(raw.Fields),
+          LinkedEntityId(raw.LinkedEntityId),
+          SpawnTotal(raw.SpawnTotal),
+          SpawnLimit(raw.SpawnLimit),
+          SpawnCount(raw.SpawnCount),
+          Active(raw.Active),
+          AlwaysActive(raw.AlwaysActive),
+          ItemChance(raw.ItemChance),
+          SpawnerHealth(raw.SpawnerHealth),
+          CooldownTime(raw.CooldownTime),
+          InitialCooldown(raw.InitialCooldown),
+          Padding1C6(raw.Padding1C6),
+          ActiveDistance(raw.ActiveDistance),
+          EnemyActiveDistance(raw.EnemyActiveDistance),
+          NodeName(NodeNameArray(raw.NodeName)),
+          EntityId1(raw.EntityId1),
+          Padding1E2(raw.Padding1E2),
+          Message1(raw.Message1),
+          EntityId2(raw.EntityId2),
+          Padding1EA(raw.Padding1EA),
+          Message2(raw.Message2),
+          EntityId3(raw.EntityId3),
+          Padding1F2(raw.Padding1F2),
+          Message3(raw.Message3),
+          ItemType(raw.ItemType)
+    {
+    }
+
+    EnemySpawnEntityData EnemySpawnEntityData::FromMarshaledBytes(
+        const std::array<std::uint8_t, MarshaledSize>& bytes)
+    {
+        NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout raw{};
+        std::memcpy(static_cast<void*>(std::addressof(raw)), bytes.data(), bytes.size());
+        return EnemySpawnEntityData(MarshaledTag{}, raw);
+    }
+
+    FhEnemySpawnEntityData::FhEnemySpawnEntityData(MarshaledTag,
+        const NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout& raw)
+        : Header(raw.Header),
+          Box(raw.Box),
+          Cylinder(raw.Cylinder),
+          Sphere(raw.Sphere),
+          EnemyType(raw.EnemyType),
+          SpawnTotal(raw.SpawnTotal),
+          SpawnLimit(raw.SpawnLimit),
+          SpawnCount(raw.SpawnCount),
+          PaddingEB(raw.PaddingEB),
+          Cooldown(raw.Cooldown),
+          StartFrame(raw.StartFrame),
+          NodeName(NodeNameArray(raw.NodeName)),
+          ParentId(raw.ParentId),
+          Padding102(raw.Padding102),
+          EmptyMessage(raw.EmptyMessage)
+    {
+    }
+
+    FhEnemySpawnEntityData FhEnemySpawnEntityData::FromMarshaledBytes(
+        const std::array<std::uint8_t, MarshaledSize>& bytes)
+    {
+        using Layout = NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout;
+        Layout raw{};
+        std::memcpy(static_cast<void*>(std::addressof(raw)), bytes.data(), bytes.size());
+        // A collision volume is a union on the wire and a discriminated value
+        // here, so it is read rather than copied.
+        const auto volume = [&bytes](std::size_t offset)
+        {
+            std::array<std::uint8_t, 64> raw64{};
+            std::memcpy(raw64.data(), bytes.data() + offset, raw64.size());
+            return FhRawCollisionVolume::FromMarshaledBytes(raw64);
+        };
+        raw.Box = volume(offsetof(Layout, Box));
+        raw.Cylinder = volume(offsetof(Layout, Cylinder));
+        raw.Sphere = volume(offsetof(Layout, Sphere));
+        return FhEnemySpawnEntityData(MarshaledTag{}, raw);
     }
 }

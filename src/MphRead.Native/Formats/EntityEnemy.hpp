@@ -252,6 +252,12 @@ namespace MphRead
         [[nodiscard]] EnemySpawnFields12 S12() const noexcept { return View<EnemySpawnFields12>(); }
     };
 
+    namespace NativeInteropDetail
+    {
+        struct EnemySpawnEntityDataUnmanagedLayout;
+        struct FhEnemySpawnEntityDataUnmanagedLayout;
+    }
+
     struct EnemySpawnEntityData
     {
         const EntityDataHeader Header{};
@@ -284,9 +290,23 @@ namespace MphRead
         const Message Message3{};
         const MphRead::ItemType ItemType{};
 
+        // NodeName is a managed array here and sixteen bytes on the wire, so
+        // the C++ layout is not the ABI layout and the reader is told the size
+        // to take rather than deducing it from the struct.
+        static constexpr std::size_t MarshaledSize = 512;
+        [[nodiscard]] static EnemySpawnEntityData FromMarshaledBytes(
+            const std::array<std::uint8_t, MarshaledSize>& bytes);
+
         EnemySpawnEntityData() noexcept = default;
         EnemySpawnEntityData(const EnemySpawnEntityData&) noexcept = default;
         EnemySpawnEntityData& operator=(const EnemySpawnEntityData& other) noexcept;
+
+    private:
+        struct MarshaledTag final
+        {
+        };
+        EnemySpawnEntityData(MarshaledTag,
+            const NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout& raw);
     };
 
     struct FhEnemySpawnEntityData
@@ -307,9 +327,20 @@ namespace MphRead
         const std::uint16_t Padding102 = 0;
         const FhMessage EmptyMessage{};
 
+        static constexpr std::size_t MarshaledSize = 268;
+        [[nodiscard]] static FhEnemySpawnEntityData FromMarshaledBytes(
+            const std::array<std::uint8_t, MarshaledSize>& bytes);
+
         FhEnemySpawnEntityData() noexcept = default;
         FhEnemySpawnEntityData(const FhEnemySpawnEntityData&) noexcept = default;
         FhEnemySpawnEntityData& operator=(const FhEnemySpawnEntityData& other) noexcept;
+
+    private:
+        struct MarshaledTag final
+        {
+        };
+        FhEnemySpawnEntityData(MarshaledTag,
+            const NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout& raw);
     };
 
     namespace NativeInteropDetail
@@ -373,6 +404,10 @@ namespace MphRead
     static_assert(sizeof(EnumSpawnUnion) == 400);
     static_assert(alignof(EnumSpawnUnion) == 4);
     static_assert(sizeof(NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout) == 512);
+    static_assert(sizeof(NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout)
+        == EnemySpawnEntityData::MarshaledSize);
+    static_assert(sizeof(NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout)
+        == FhEnemySpawnEntityData::MarshaledSize);
     static_assert(offsetof(NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout, NodeName) == 468);
     static_assert(offsetof(NativeInteropDetail::EnemySpawnEntityDataUnmanagedLayout, EntityId1) == 484);
     static_assert(sizeof(NativeInteropDetail::FhEnemySpawnEntityDataUnmanagedLayout) == 268);

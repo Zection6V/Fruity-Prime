@@ -23,6 +23,55 @@ namespace MphRead::NativeRuntime::Gui
             return ready;
         }
 
+        // Every toolkit window shares one context, so a texture made while
+        // drawing one -- the glyph atlas, above all -- is the same texture in
+        // the next. Without it the pause menu opened over a match drew every
+        // letter as a blank box, because its own context had never seen the
+        // atlas. The group is rooted in a window that is never shown and never
+        // destroyed, so the textures outlive any window that made them.
+        [[nodiscard]] GLFWwindow* ShareRoot()
+        {
+            static GLFWwindow* root = []() -> GLFWwindow*
+            {
+                if (!EnsureGlfw())
+                {
+                    return nullptr;
+                }
+                ::glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+                ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+                ::glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_ANY_PROFILE);
+                ::glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+                return ::glfwCreateWindow(1, 1, "", nullptr, nullptr);
+            }();
+            return root;
+        }
+
+        // The context in force on the way in, put back on the way out: the
+        // game's renderer owns one of its own and goes on drawing into it the
+        // moment the pause menu's pump returns.
+        class BorrowedContext final
+        {
+        public:
+            explicit BorrowedContext(GLFWwindow* handle) noexcept
+                : _previous(::glfwGetCurrentContext())
+            {
+                ::glfwMakeContextCurrent(handle);
+            }
+
+            ~BorrowedContext()
+            {
+                ::glfwMakeContextCurrent(_previous);
+            }
+
+            BorrowedContext(const BorrowedContext&) = delete;
+            BorrowedContext& operator=(const BorrowedContext&) = delete;
+            BorrowedContext(BorrowedContext&&) = delete;
+            BorrowedContext& operator=(BorrowedContext&&) = delete;
+
+        private:
+            GLFWwindow* _previous = nullptr;
+        };
+
         GLFWcursor*& CursorFor(Cursor kind)
         {
             static GLFWcursor* arrow = nullptr;
@@ -260,7 +309,7 @@ namespace MphRead::NativeRuntime::Gui
         ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
         ::glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_ANY_PROFILE);
         ::glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-        _handle = ::glfwCreateWindow(940, 560, "", nullptr, nullptr);
+        _handle = ::glfwCreateWindow(940, 560, "", nullptr, ShareRoot());
         if (_handle == nullptr)
         {
             // Nothing above this can tell an unopenable window from one that
@@ -340,6 +389,32 @@ namespace MphRead::NativeRuntime::Gui
         ::glfwGetWindowSize(_handle, &width, &height);
         ::glfwSetWindowPos(_handle, areaX + (areaWidth - width) / 2,
             areaY + (areaHeight - height) / 2);
+    }
+
+    void Window::Position(std::int32_t x, std::int32_t y)
+    {
+        if (_handle != nullptr)
+        {
+            ::glfwSetWindowPos(_handle, x, y);
+        }
+    }
+
+    void Window::Decorated(bool value)
+    {
+        if (_handle != nullptr)
+        {
+            ::glfwSetWindowAttrib(
+                _handle, GLFW_DECORATED, value ? GLFW_TRUE : GLFW_FALSE);
+        }
+    }
+
+    void Window::Topmost(bool value)
+    {
+        if (_handle != nullptr)
+        {
+            ::glfwSetWindowAttrib(
+                _handle, GLFW_FLOATING, value ? GLFW_TRUE : GLFW_FALSE);
+        }
     }
 
     void Window::Show()
@@ -444,7 +519,7 @@ namespace MphRead::NativeRuntime::Gui
         _width = std::max(1, width);
         _height = std::max(1, height);
 
-        ::glfwMakeContextCurrent(_handle);
+        const BorrowedContext context(_handle);
         Layout();
 
         if (_reportedWidth != _width)
@@ -473,7 +548,7 @@ namespace MphRead::NativeRuntime::Gui
         {
             return false;
         }
-        ::glfwMakeContextCurrent(_handle);
+        const BorrowedContext context(_handle);
 
         const std::int32_t texture = GL::GenTexture();
         GL::BindTexture(GL::TextureTarget::Texture2D, texture);

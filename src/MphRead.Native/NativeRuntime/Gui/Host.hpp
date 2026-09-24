@@ -112,6 +112,12 @@ namespace MphRead::NativeRuntime::Gui
         void ClientSize(double width, double height);
         void MinimumSize(double width, double height);
         void CenterOnScreen();
+        // Where the window sits, in screen pixels.
+        void Position(std::int32_t x, std::int32_t y);
+        // A window with no frame, and one that stays over the others: what an
+        // overlay such as the pause menu is.
+        void Decorated(bool value);
+        void Topmost(bool value);
         void Background(Color value) noexcept { _background = value; }
         void Content(ElementPtr content) { _content = std::move(content); }
         [[nodiscard]] const ElementPtr& Content() const noexcept { return _content; }

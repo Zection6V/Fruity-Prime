@@ -116,25 +116,43 @@ namespace MphRead
             }
         }
 
+        // How many bytes the type occupies unmarshalled. It is sizeof(T)
+        // unless the type says otherwise, which it does when its C++ layout is
+        // not its ABI layout -- a managed array member, say, which is a
+        // pointer here and bytes on the wire.
+        template <typename T>
+        [[nodiscard]] inline constexpr std::size_t MarshaledSize() noexcept
+        {
+            if constexpr (requires { T::MarshaledSize; })
+            {
+                return T::MarshaledSize;
+            }
+            else
+            {
+                return sizeof(T);
+            }
+        }
+
         template <typename T>
         [[nodiscard]] inline T MarshalRead(std::span<const std::uint8_t> bytes)
         {
-            if (bytes.size() < sizeof(T))
+            constexpr std::size_t size = MarshaledSize<T>();
+            if (bytes.size() < size)
             {
                 ThrowRange();
             }
-            if constexpr (requires(const std::array<std::uint8_t, sizeof(T)>& raw)
+            if constexpr (requires(const std::array<std::uint8_t, size>& raw)
                 { T::FromMarshaledBytes(raw); })
             {
-                std::array<std::uint8_t, sizeof(T)> raw{};
-                std::memcpy(raw.data(), bytes.data(), sizeof(T));
+                std::array<std::uint8_t, size> raw{};
+                std::memcpy(raw.data(), bytes.data(), size);
                 return T::FromMarshaledBytes(raw);
             }
             else
             {
                 T value{};
-                std::memcpy(static_cast<void*>(std::addressof(value)), bytes.data(), sizeof(T));
-                MaterializeByValArrays(value, bytes.first(sizeof(T)));
+                std::memcpy(static_cast<void*>(std::addressof(value)), bytes.data(), size);
+                MaterializeByValArrays(value, bytes.first(size));
                 return value;
             }
         }
@@ -345,7 +363,7 @@ namespace MphRead
         {
             const std::int32_t start = ReadDetail::ManagedInt32(entry.DataOffset);
 #ifndef NDEBUG
-            if (entry.Length != sizeof(T))
+            if (entry.Length != ReadDetail::MarshaledSize<T>())
             {
                 std::abort();
             }

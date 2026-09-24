@@ -1,5 +1,7 @@
 #include "PlayerDraw.hpp"
 
+#include "../../NativeRuntime/System/Buffers.hpp"
+
 #include "../../Features.hpp"
 #include "../../Formats/CollisionDetection.hpp"
 #include "../../GameState.hpp"
@@ -789,7 +791,7 @@ namespace MphRead::Entities
                     const Matrix4 transform(
                         Vector4(row1, 0.0F), Vector4(row2, 0.0F),
                         Vector4(row3, 0.0F), Vector4(row4, 1.0F));
-                    auto uvsAndVerts = std::make_shared<::MphRead::ManagedArray<Vector3>>(8);
+                    auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(8);
                     (*uvsAndVerts)[0] = Vector3(0.0F, 0.0F, 0.0F);
                     (*uvsAndVerts)[1] = Vector3(-0.75F, 0.03125F, -0.75F);
                     (*uvsAndVerts)[2] = Vector3(0.0F, 1.0F, 0.0F);
@@ -834,8 +836,7 @@ namespace MphRead::Entities
 
         std::int32_t count = 0;
         const std::int32_t index = ManagedAt(_mbTrailIndices, SlotIndex());
-        auto uvsAndVerts = std::make_shared<::MphRead::ManagedArray<Vector3>>(
-            static_cast<std::size_t>(8 * _mbTrailSegments));
+        auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(8 * _mbTrailSegments);
         for (std::int32_t i = 0; i < _mbTrailSegments; ++i)
         {
             const std::int32_t base = index - 1 - i;

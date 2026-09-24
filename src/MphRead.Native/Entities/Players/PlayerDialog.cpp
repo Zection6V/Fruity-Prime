@@ -744,11 +744,14 @@ namespace MphRead::Entities
     void PlayerEntity::DrawDialogs()
     {
         auto& scene = RequireReference(_scene);
-        auto& messageBox = RequireReference(_messageBoxInst);
         const float baseY = _dialogType == ::MphRead::Entities::DialogType::Event
             ? 27.0F : 47.0F;
+        // The message box is only made for a single-player HUD, so it is read
+        // where the C# reads it and nowhere else: hoisting it to the top of
+        // the method turned every multiplayer frame into a null reference.
         if (!ScanVisor() && _overlayMessage1)
         {
+            auto& messageBox = RequireReference(_messageBoxInst);
             const float posX = 64.0F / 256.0F;
             const float posY = baseY / 192.0F;
             const float width = static_cast<float>(messageBox.Width) / 256.0F;
@@ -814,9 +817,11 @@ namespace MphRead::Entities
             }
         }
         if (_dialogType == ::MphRead::Entities::DialogType::Event
-            && messageBox.Timer <= 0.0F
-            && messageBox.Time - messageBox.Timer >= 16.0F / 30.0F)
+            && RequireReference(_messageBoxInst).Timer <= 0.0F
+            && RequireReference(_messageBoxInst).Time
+                - RequireReference(_messageBoxInst).Timer >= 16.0F / 30.0F)
         {
+            auto& messageBox = RequireReference(_messageBoxInst);
             if (_eventType <= ::MphRead::Entities::EventType::OmegaCannon
                 || _eventType == ::MphRead::Entities::EventType::Octolith
                 || _eventType == ::MphRead::Entities::EventType::UATank)
@@ -883,7 +888,8 @@ namespace MphRead::Entities
         if (((_dialogType == ::MphRead::Entities::DialogType::Okay
                 || _dialogType == ::MphRead::Entities::DialogType::Event
                 || _dialogType == ::MphRead::Entities::DialogType::YesNo)
-                && messageBox.Time - messageBox.Timer >= 16.0F / 30.0F)
+                && RequireReference(_messageBoxInst).Time
+                    - RequireReference(_messageBoxInst).Timer >= 16.0F / 30.0F)
             || _dialogType == ::MphRead::Entities::DialogType::Scan)
         {
             std::int32_t start = 0;

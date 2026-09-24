@@ -1,5 +1,7 @@
 #include "RoomEntity.hpp"
 
+#include "../NativeRuntime/System/Buffers.hpp"
+
 #include "../Formats/Collision.hpp"
 #include "../Formats/CollisionDetection.hpp"
 #include "../Formats/Entity.hpp"
@@ -2266,7 +2268,7 @@ namespace MphRead::Entities
                 Portal& portal = RequireReference(portalValue);
                 if (!portal.Active) continue;
                 const auto& points = RequireReference(portal.Points);
-                auto verts = std::make_shared<ManagedArray<Vector3>>(points.size());
+                auto verts = MphRead::NativeRuntime::RentFromSharedArrayPool(static_cast<std::int32_t>(points.size()));
                 for (std::size_t i = 0; i < points.size(); ++i)
                 {
                     (*verts)[i] = points[i];
@@ -2281,7 +2283,7 @@ namespace MphRead::Entities
         }
         else if (scene.ShowVolumes() == VolumeDisplay::KillPlane && !Meta().FirstHunt)
         {
-            auto verts = std::make_shared<ManagedArray<Vector3>>(4);
+            auto verts = MphRead::NativeRuntime::RentFromSharedArrayPool(4);
             (*verts)[0] = Vector3(10000.0F, scene.KillHeight(), 10000.0F);
             (*verts)[1] = Vector3(10000.0F, scene.KillHeight(), -10000.0F);
             (*verts)[2] = Vector3(-10000.0F, scene.KillHeight(), -10000.0F);
@@ -2296,7 +2298,7 @@ namespace MphRead::Entities
                 ? Meta().CameraMin : Meta().PlayerMin;
             const Vector3 maxLimit = scene.ShowVolumes() == VolumeDisplay::CameraLimit
                 ? Meta().CameraMax : Meta().PlayerMax;
-            auto bverts = std::make_shared<ManagedArray<Vector3>>(8);
+            auto bverts = MphRead::NativeRuntime::RentFromSharedArrayPool(8);
             const Vector3 point0 = minLimit;
             const Vector3 sideX(maxLimit.X - minLimit.X, 0.0F, 0.0F);
             const Vector3 sideY(0.0F, maxLimit.Y - minLimit.Y, 0.0F);

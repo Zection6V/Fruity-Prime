@@ -49,14 +49,9 @@ namespace MphRead.Mods.Render
     /// </summary>
     public static class LauncherNoise
     {
-        /// <summary>
-        /// The texture name, chosen rather than asked for, one above
-        /// <see cref="LauncherPhoto"/>'s. Scene/model textures now use the
-        /// backend allocator; this fixed high name remains a reserved launcher
-        /// resource and is easy to identify in diagnostics.
-        /// </summary>
-        private const int Name = 1_000_002;
-
+        // Allocated from the shared backend namespace. Keeping launcher
+        // resources out of hand-picked numeric ranges removes the last source
+        // of texture-name ownership outside the allocator.
         private static readonly NoiseField _field = new();
 
         private static int _texture;
@@ -106,7 +101,7 @@ namespace MphRead.Mods.Render
                 bool fresh = _texture == 0;
                 if (fresh)
                 {
-                    _texture = Name;
+                    _texture = GL.GenTexture();
                 }
                 GL.BindTexture(TextureTarget.Texture2D, _texture);
                 // Every piece of unpack state said out loud, for the reason

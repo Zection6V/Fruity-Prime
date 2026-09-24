@@ -124,8 +124,42 @@ namespace MphRead.Mods.Diagnostics
             }
         }
 
+        private static void CheckVulkanTextureNameAllocation()
+        {
+            const int manualHighName = 2_000_000;
+            int generated = 0;
+            try
+            {
+                // Fruity deliberately binds fixed 1,000,000+ names for its
+                // desktop overlays while the scene also calls GenTexture.
+                // Binding an arbitrary OpenGL name creates that object, but it
+                // must not drag the generated-name allocator up beside it.
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, manualHighName);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                generated = GL.GenTexture();
+                if (generated >= manualHighName)
+                {
+                    throw new InvalidOperationException(
+                        $"Vulkan texture-name allocation followed a manually bound high name ({generated}).");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan generated/manual texture namespaces stay disjoint.");
+            }
+            finally
+            {
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                if (generated != 0)
+                {
+                    GL.DeleteTexture(generated);
+                }
+                GL.DeleteTexture(manualHighName);
+            }
+        }
+
         private static void CheckVulkanClearSemantics()
         {
+            CheckVulkanTextureNameAllocation();
             const int size = 16;
             int texture = GL.GenTexture();
             int framebuffer = GL.GenFramebuffer();

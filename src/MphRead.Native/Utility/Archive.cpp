@@ -31,6 +31,8 @@ using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetDirectoryName;
+using ::MphRead::NativeRuntime::PathGetFileName;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -51,30 +53,6 @@ namespace
     {
         static ManagedRegistry<T>* registry = new ManagedRegistry<T>();
         return *registry;
-    }
-
-    [[nodiscard]] std::optional<std::string> GetDirectoryName(const std::string& path)
-    {
-        if (path.empty())
-        {
-            return std::nullopt;
-        }
-        const std::filesystem::path nativePath = PathFromUtf8(path);
-        const std::filesystem::path parent = nativePath.parent_path();
-        if (parent.empty())
-        {
-            return std::string();
-        }
-        if (parent == nativePath)
-        {
-            return std::nullopt;
-        }
-        return PathToUtf8(parent);
-    }
-
-    [[nodiscard]] std::string GetFileName(const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).filename());
     }
 
     [[nodiscard]] std::uint32_t ReadUInt32Native(const std::uint8_t* bytes) noexcept
@@ -723,7 +701,7 @@ namespace MphRead::Archive
         std::optional<std::string> outputDirectory = destination;
         if (!outputDirectory)
         {
-            outputDirectory = GetDirectoryName(path);
+            outputDirectory = PathGetDirectoryName(path);
         }
 
         const std::vector<std::uint8_t> bytes = FileReadAllBytes(path);
@@ -819,7 +797,7 @@ namespace MphRead::Archive
             + static_cast<std::uint64_t>(ArchiveSizes::FileHeader) * fileCount);
         for (const std::string& filePath : *filePaths)
         {
-            const std::string filename = GetFileName(filePath);
+            const std::string filename = PathGetFileName(filePath);
             if (Utf16Length(filename) > 32)
             {
                 ThrowWrite();

@@ -1,5 +1,6 @@
 #include "Updater.hpp"
 #include "BuildVersion.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
 
 #include <atomic>
@@ -28,6 +29,7 @@
 extern char** environ;
 #endif
 
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::Utf8ToWide;
 
 namespace MphRead::Mods::Update
@@ -466,10 +468,8 @@ namespace MphRead::Mods::Update
 #elif defined(__APPLE__)
             return StartDesktopCommand("open", url);
 #else
-            const char* display = std::getenv("DISPLAY");
-            const char* wayland = std::getenv("WAYLAND_DISPLAY");
-            if ((display == nullptr || *display == '\0')
-                && (wayland == nullptr || *wayland == '\0'))
+            if (EnvironmentGetVariable("DISPLAY").value_or("").empty()
+                && EnvironmentGetVariable("WAYLAND_DISPLAY").value_or("").empty())
             {
                 return false;
             }

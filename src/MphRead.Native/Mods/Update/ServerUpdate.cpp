@@ -2,9 +2,12 @@
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "BuildVersion.hpp"
 #include "DesktopUpdate.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Runtime.hpp"
 
 #include <atomic>
 #include <cerrno>
@@ -48,8 +51,14 @@
 #endif
 #endif
 
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::DirectoryExists;
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
+using ::MphRead::NativeRuntime::FileDelete;
+using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetExtension;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::Utf8ToWide;
 using ::MphRead::NativeRuntime::WideToUtf8;
@@ -100,63 +109,9 @@ namespace MphRead::Mods::Update
             return *state;
         }
 
-        FileSystemPath ReadProcessPath()
-        {
-#ifdef _WIN32
-            std::vector<wchar_t> buffer(512);
-            for (;;)
-            {
-                const DWORD length = ::GetModuleFileNameW(nullptr, buffer.data(),
-                    static_cast<DWORD>(buffer.size()));
-                if (length == 0)
-                {
-                    throw std::system_error(static_cast<int>(::GetLastError()),
-                        std::system_category());
-                }
-                if (length < buffer.size() - 1)
-                {
-                    return FileSystemPath(std::wstring(buffer.data(), length));
-                }
-                buffer.resize(buffer.size() * 2);
-            }
-#elif defined(__APPLE__)
-            std::uint32_t size = 0;
-            (void)::_NSGetExecutablePath(nullptr, &size);
-            std::vector<char> buffer(static_cast<std::size_t>(size) + 1U, '\0');
-            if (::_NSGetExecutablePath(buffer.data(), &size) != 0)
-            {
-                throw std::runtime_error("Could not determine the process path.");
-            }
-            char resolved[PATH_MAX]{};
-            if (::realpath(buffer.data(), resolved) != nullptr)
-            {
-                return FileSystemPath(resolved);
-            }
-            return FileSystemPath(buffer.data());
-#elif defined(__linux__) || defined(__ANDROID__)
-            std::vector<char> buffer(512);
-            for (;;)
-            {
-                const ssize_t length = ::readlink("/proc/self/exe", buffer.data(), buffer.size());
-                if (length < 0)
-                {
-                    throw std::system_error(errno, std::generic_category());
-                }
-                if (static_cast<std::size_t>(length) < buffer.size())
-                {
-                    return FileSystemPath(std::string(buffer.data(),
-                        static_cast<std::size_t>(length)));
-                }
-                buffer.resize(buffer.size() * 2);
-            }
-#else
-#error Unsupported platform for AppContext.BaseDirectory equivalence.
-#endif
-        }
-
         const FileSystemPath& BaseDirectoryPath()
         {
-            static const FileSystemPath value = ReadProcessPath().parent_path();
+            static const FileSystemPath value = PathFromUtf8(AppContextBaseDirectory()).parent_path();
             return value;
         }
 
@@ -217,109 +172,6 @@ namespace MphRead::Mods::Update
             std::cout.flush();
         }
 
-        bool DirectoryExists(const FileSystemPath& path) noexcept
-        {
-            std::error_code error;
-            const bool result = std::filesystem::is_directory(path, error);
-            return !error && result;
-        }
-
-        bool FileExists(const FileSystemPath& path) noexcept
-        {
-#ifdef _WIN32
-            WIN32_FILE_ATTRIBUTE_DATA data{};
-            if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data))
-            {
-                return (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-            }
-
-            const DWORD error = ::GetLastError();
-            switch (error)
-            {
-            case ERROR_FILE_NOT_FOUND:
-            case ERROR_PATH_NOT_FOUND:
-            case ERROR_NOT_READY:
-            case ERROR_INVALID_NAME:
-            case ERROR_BAD_PATHNAME:
-            case ERROR_BAD_NETPATH:
-            case ERROR_BAD_NET_NAME:
-            case ERROR_INVALID_PARAMETER:
-            case ERROR_NETWORK_UNREACHABLE:
-            case ERROR_NETWORK_ACCESS_DENIED:
-            case ERROR_INVALID_HANDLE:
-            case ERROR_FILENAME_EXCED_RANGE:
-                return false;
-            default:
-                break;
-            }
-
-            WIN32_FIND_DATAW findData{};
-            HANDLE handle = ::FindFirstFileW(path.c_str(), &findData);
-            if (handle == INVALID_HANDLE_VALUE)
-            {
-                return false;
-            }
-            (void)::FindClose(handle);
-            return (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-#else
-            struct stat info{};
-            if (::lstat(path.c_str(), &info) != 0)
-            {
-                return false;
-            }
-            if (S_ISLNK(info.st_mode) && ::stat(path.c_str(), &info) != 0)
-            {
-                // File.Exists reports a dangling symbolic link as an existing
-                // non-directory entry.
-                return true;
-            }
-            return !S_ISDIR(info.st_mode);
-#endif
-        }
-
-        void DeleteFile(const FileSystemPath& path)
-        {
-#ifdef _WIN32
-            if (::DeleteFileW(path.c_str()))
-            {
-                return;
-            }
-            const DWORD error = ::GetLastError();
-            if (error == ERROR_FILE_NOT_FOUND)
-            {
-                return;
-            }
-            throw std::filesystem::filesystem_error("File.Delete", path,
-                std::error_code(static_cast<int>(error), std::system_category()));
-#else
-            if (::unlink(path.c_str()) == 0)
-            {
-                return;
-            }
-            const int error = errno;
-            if (error == ENOENT)
-            {
-                const FileSystemPath parent = path.parent_path();
-                if (parent.empty() || DirectoryExists(parent))
-                {
-                    return;
-                }
-            }
-            else if (error == EROFS)
-            {
-                struct stat info{};
-                if (::lstat(path.c_str(), &info) != 0 && errno == ENOENT)
-                {
-                    return;
-                }
-            }
-
-            const int reported = error == EISDIR ? EACCES : error;
-            throw std::filesystem::filesystem_error("File.Delete", path,
-                std::error_code(reported, std::generic_category()));
-#endif
-        }
-
         void MoveNoReplace(const FileSystemPath& source, const FileSystemPath& destination)
         {
 #ifdef _WIN32
@@ -361,7 +213,7 @@ namespace MphRead::Mods::Update
             throw std::filesystem::filesystem_error("File.Move", source, destination,
                 std::error_code(errno, std::generic_category()));
 #else
-            if (FileExists(destination) || DirectoryExists(destination))
+            if (FileExists(PathToUtf8(destination)) || DirectoryExists(PathToUtf8(destination)))
             {
                 throw std::filesystem::filesystem_error("File.Move", source, destination,
                     std::make_error_code(std::errc::file_exists));
@@ -469,16 +321,6 @@ namespace MphRead::Mods::Update
                     action(path);
                 }
             });
-        }
-
-        bool HasExtension(const FileSystemPath& path)
-        {
-            // Path.GetExtension scans the final path component from the end.
-            // A trailing dot is no extension; a leading dot followed by text
-            // (for example .tool) is an extension.
-            const std::string name = PathToUtf8(path.filename());
-            const std::size_t dot = name.rfind('.');
-            return dot != std::string::npos && dot + 1 < name.size();
         }
 
 #ifdef _WIN32
@@ -790,13 +632,8 @@ namespace MphRead::Mods::Update
 
     bool ServerUpdate::Supervised() noexcept
     {
-        const char* invocation = std::getenv("INVOCATION_ID");
-        if (invocation != nullptr && *invocation != '\0')
-        {
-            return true;
-        }
-        const char* listenPid = std::getenv("LISTEN_PID");
-        return listenPid != nullptr && *listenPid != '\0';
+        return !EnvironmentGetVariable("INVOCATION_ID").value_or("").empty()
+            || !EnvironmentGetVariable("LISTEN_PID").value_or("").empty();
     }
 
     bool ServerUpdate::AtStartup(const std::vector<std::string>& commandLine)
@@ -962,7 +799,7 @@ namespace MphRead::Mods::Update
     {
         const std::string staged = DesktopUpdate::StagedBuildPath();
         const std::string target = BaseDirectoryText();
-        if (!DirectoryExists(PathFromUtf8(staged)))
+        if (!DirectoryExists(staged))
         {
             GetState().Staged.store(false, std::memory_order_release);
             return false;
@@ -1033,7 +870,7 @@ namespace MphRead::Mods::Update
                 PathToUtf8(destination) + IncomingSuffix);
             std::filesystem::copy_file(path, incoming,
                 std::filesystem::copy_options::overwrite_existing);
-            if (FileExists(destination))
+            if (FileExists(PathToUtf8(destination)))
             {
                 Displace(PathToUtf8(destination));
             }
@@ -1044,21 +881,23 @@ namespace MphRead::Mods::Update
 
     void ServerUpdate::Displace(const std::string& destination)
     {
-        const FileSystemPath destinationPath = PathFromUtf8(destination);
         try
         {
-            DeleteFile(destinationPath);
+            FileDelete(destination);
             return;
         }
-        catch (const std::filesystem::filesystem_error&)
+        catch (const System::IO::IOException&)
         {
-            // IOException / UnauthorizedAccessException equivalent: in-use
-            // files fall through to the rename, whose failure remains visible.
+            // An executable that is running: moved aside below instead, and
+            // the rename's own failure is the one that is reported.
+        }
+        catch (const System::UnauthorizedAccessException&)
+        {
         }
 
-        const FileSystemPath aside = PathFromUtf8(destination + OldSuffix);
-        DeleteFile(aside);
-        MoveNoReplace(destinationPath, aside);
+        const std::string aside = destination + OldSuffix;
+        FileDelete(aside);
+        MoveNoReplace(PathFromUtf8(destination), PathFromUtf8(aside));
     }
 
     void ServerUpdate::SweepOld(const std::string& target) noexcept
@@ -1070,7 +909,7 @@ namespace MphRead::Mods::Update
             {
                 try
                 {
-                    DeleteFile(path);
+                    FileDelete(PathToUtf8(path));
                 }
                 catch (...)
                 {
@@ -1080,7 +919,7 @@ namespace MphRead::Mods::Update
             {
                 try
                 {
-                    DeleteFile(path);
+                    FileDelete(PathToUtf8(path));
                 }
                 catch (...)
                 {
@@ -1135,7 +974,7 @@ namespace MphRead::Mods::Update
         try
         {
             const FileSystemPath file = PathFromUtf8(path);
-            if (HasExtension(file))
+            if (!PathGetExtension(PathToUtf8(file)).empty())
             {
                 return;
             }

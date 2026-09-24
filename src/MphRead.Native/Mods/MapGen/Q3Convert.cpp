@@ -49,6 +49,7 @@
 
 using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
+using ::MphRead::NativeRuntime::DirectoryCreateDirectory;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::ManagedListAt;
@@ -56,6 +57,7 @@ using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetFullPath;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
@@ -774,38 +776,6 @@ namespace
         (void)path;
         return false;
 #endif
-    }
-
-    [[nodiscard]] std::string FullPath(
-        const std::string& path)
-    {
-        if (path.empty())
-        {
-            throw System::ArgumentException();
-        }
-        if (WindowsEffectivelyEmpty(path))
-        {
-            throw System::ArgumentException();
-        }
-        ValidatePathText(path);
-        return PathToUtf8(
-            std::filesystem::absolute(
-                PathFromUtf8(path)).lexically_normal());
-    }
-
-    void CreateDirectory(const std::string& path)
-    {
-        if (path.empty())
-        {
-            throw System::ArgumentException();
-        }
-        if (WindowsEffectivelyEmpty(path))
-        {
-            throw System::ArgumentException();
-        }
-        ValidatePathText(path);
-        (void)std::filesystem::create_directories(
-            PathFromUtf8(path));
     }
 
     void CopyFile(
@@ -1594,7 +1564,7 @@ namespace MphRead::Mods::MapGen
         const std::string directory = outputDir.has_value()
             ? *outputDir
             : PathCombine(CustomRooms::MapDirectory(), prefix);
-        CreateDirectory(directory);
+        DirectoryCreateDirectory(directory);
 
         std::shared_ptr<std::vector<float>> min;
         std::shared_ptr<std::vector<float>> max;
@@ -1631,8 +1601,8 @@ namespace MphRead::Mods::MapGen
         const std::string levelName = FileName(sourceValue);
         const std::string beside
             = PathCombine(directory, levelName);
-        const std::string besideFullPath = FullPath(beside);
-        const std::string sourceFullPath = FullPath(sourceValue);
+        const std::string besideFullPath = PathGetFullPath(beside);
+        const std::string sourceFullPath = PathGetFullPath(sourceValue);
         if (besideFullPath != sourceFullPath)
         {
             CopyFile(sourceValue, beside);

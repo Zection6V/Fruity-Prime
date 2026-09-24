@@ -500,6 +500,50 @@ namespace MphRead::NativeRuntime
 #endif
     }
 
+#if defined(_WIN32)
+    namespace
+    {
+        // FileSystem.FillAttributeInfo: GetFileAttributesEx, and where that
+        // fails for a reason other than the entry not being there -- a file
+        // another process holds open with no sharing, such as the page file --
+        // FindFirstFile, which still reports it.
+        [[nodiscard]] std::optional<DWORD> ReadAttributes(const std::wstring& path) noexcept
+        {
+            WIN32_FILE_ATTRIBUTE_DATA data{};
+            if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data))
+            {
+                return data.dwFileAttributes;
+            }
+            switch (::GetLastError())
+            {
+            case ERROR_FILE_NOT_FOUND:
+            case ERROR_PATH_NOT_FOUND:
+            case ERROR_NOT_READY:
+            case ERROR_INVALID_NAME:
+            case ERROR_BAD_PATHNAME:
+            case ERROR_BAD_NETPATH:
+            case ERROR_BAD_NET_NAME:
+            case ERROR_INVALID_PARAMETER:
+            case ERROR_NETWORK_UNREACHABLE:
+            case ERROR_NETWORK_ACCESS_DENIED:
+            case ERROR_INVALID_HANDLE:
+            case ERROR_FILENAME_EXCED_RANGE:
+                return std::nullopt;
+            default:
+                break;
+            }
+            WIN32_FIND_DATAW find{};
+            const HANDLE handle = ::FindFirstFileW(path.c_str(), &find);
+            if (handle == INVALID_HANDLE_VALUE)
+            {
+                return std::nullopt;
+            }
+            (void)::FindClose(handle);
+            return find.dwFileAttributes;
+        }
+    }
+#endif
+
     bool FileExists(std::string_view path) noexcept
     {
         // File.Exists: false for an empty path, one with a NUL in it, one
@@ -514,10 +558,8 @@ namespace MphRead::NativeRuntime
         {
             const std::string value(path);
 #if defined(_WIN32)
-            const std::wstring wide = Wtf8ToWide(value);
-            const DWORD attributes = GetFileAttributesW(wide.c_str());
-            return attributes != INVALID_FILE_ATTRIBUTES
-                && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+            const std::optional<DWORD> attributes = ReadAttributes(Wtf8ToWide(value));
+            return attributes.has_value() && (*attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
 #else
             struct stat info{};
             if (::stat(value.c_str(), &info) != 0)
@@ -543,10 +585,8 @@ namespace MphRead::NativeRuntime
         {
             const std::string value(path);
 #if defined(_WIN32)
-            const std::wstring wide = Wtf8ToWide(value);
-            const DWORD attributes = GetFileAttributesW(wide.c_str());
-            return attributes != INVALID_FILE_ATTRIBUTES
-                && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            const std::optional<DWORD> attributes = ReadAttributes(Wtf8ToWide(value));
+            return attributes.has_value() && (*attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 #else
             struct stat info{};
             if (::stat(value.c_str(), &info) != 0)
@@ -866,6 +906,36 @@ namespace MphRead::NativeRuntime
         return result;
     }
 
+    std::string PathCombine(std::span<const std::string> paths)
+    {
+        // Path.Combine(params string[]): the last rooted part starts the
+        // result, empty parts are skipped, and a separator is added only when
+        // the result so far does not already end in one.
+        std::size_t first = 0;
+        for (std::size_t index = 0; index < paths.size(); ++index)
+        {
+            if (!paths[index].empty() && IsPathRooted(paths[index]))
+            {
+                first = index;
+            }
+        }
+        std::string result;
+        for (std::size_t index = first; index < paths.size(); ++index)
+        {
+            const std::string& path = paths[index];
+            if (path.empty())
+            {
+                continue;
+            }
+            if (!result.empty() && !IsDirectorySeparator(result.back()))
+            {
+                result.push_back(PreferredSeparator);
+            }
+            result += path;
+        }
+        return result;
+    }
+
     std::string PathGetExtension(std::string_view path)
     {
         for (std::size_t i = path.size(); i > 0; --i)
@@ -884,9 +954,16 @@ namespace MphRead::NativeRuntime
         return std::string();
     }
 
-    std::string PathGetDirectoryName(std::string_view path)
+    std::optional<std::string> PathGetDirectoryName(std::string_view path)
     {
+        // Path.GetDirectoryName: null for an empty path and for a root, and
+        // otherwise everything before the last separator with any run of
+        // separators there trimmed off.
         const std::size_t root = PathRootLength(path);
+        if (path.size() <= root)
+        {
+            return std::nullopt;
+        }
         std::size_t end = path.size();
         while (end > root && !IsDirectorySeparator(path[end - 1]))
         {
@@ -896,7 +973,32 @@ namespace MphRead::NativeRuntime
         {
             --end;
         }
-        return end <= root ? std::string(path.substr(0, root)) : std::string(path.substr(0, end));
+        const std::string_view result = path.substr(0, end);
+#if defined(_WIN32)
+        // Windows also hands the result back with every '/' made a '\\' and
+        // every run of separators after the first character collapsed to one
+        // (PathInternal.NormalizeDirectorySeparators).
+        std::string normalized;
+        normalized.reserve(result.size());
+        for (std::size_t i = 0; i < result.size(); ++i)
+        {
+            if (IsDirectorySeparator(result[i]))
+            {
+                if (i > 0 && i + 1 < result.size() && IsDirectorySeparator(result[i + 1]))
+                {
+                    continue;
+                }
+                normalized.push_back('\\');
+            }
+            else
+            {
+                normalized.push_back(result[i]);
+            }
+        }
+        return normalized;
+#else
+        return std::string(result);
+#endif
     }
 
     std::string PathGetTempPath()
@@ -946,10 +1048,49 @@ namespace MphRead::NativeRuntime
 
     void FileDelete(const std::string& path)
     {
-        std::error_code error;
-        // File.Delete does not fail when the file is not there.
-        (void)std::filesystem::remove(
-            std::filesystem::path(std::u8string(path.begin(), path.end())), error);
+        const std::string fullPath = PathGetFullPath(path);
+#if defined(_WIN32)
+        if (::DeleteFileW(Wtf8ToWide(fullPath).c_str()) == FALSE)
+        {
+            const DWORD error = ::GetLastError();
+            // A file that is not there is not an error; a directory that is
+            // not there is.
+            if (error != ERROR_FILE_NOT_FOUND)
+            {
+                ThrowForWin32Error(error, fullPath);
+            }
+        }
+#else
+        if (::unlink(fullPath.c_str()) != 0)
+        {
+            const int error = errno;
+            if (error == ENOENT)
+            {
+                // FileSystem.Unix matches Windows: a missing parent directory
+                // is DirectoryNotFoundException, a missing file is nothing.
+                const std::optional<std::string> directory = PathGetDirectoryName(fullPath);
+                if (directory.has_value() && !directory->empty() && !DirectoryExists(*directory))
+                {
+                    ThrowForErrno(error, fullPath, true);
+                }
+                return;
+            }
+            if (error == EROFS)
+            {
+                // A read-only file system is only an error when the file is there.
+                struct stat info{};
+                if (::lstat(fullPath.c_str(), &info) != 0 && errno == ENOENT)
+                {
+                    return;
+                }
+            }
+            if (error == EISDIR)
+            {
+                throw System::UnauthorizedAccessException("Access to the path '" + fullPath + "' is denied.");
+            }
+            ThrowForErrno(error, fullPath, false);
+        }
+#endif
     }
 
     DirectoryInfo::DirectoryInfo(std::string_view path)

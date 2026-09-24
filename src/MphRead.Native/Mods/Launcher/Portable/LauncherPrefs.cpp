@@ -11,6 +11,7 @@
 #include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Runtime.hpp"
 
 #include <array>
 #include <charconv>
@@ -61,9 +62,13 @@
 #include <sys/stat.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllLines;
+using ::MphRead::NativeRuntime::FileWriteAllLines;
 using ::MphRead::NativeRuntime::Int32TryParseInvariant;
+using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::StringTrimView;
@@ -314,203 +319,8 @@ namespace
 #if defined(__APPLE__) || defined(__OpenBSD__) || defined(__sun) \
     || defined(__linux__) \
     || (defined(__unix__) && !defined(__EMSCRIPTEN__) && !defined(__wasi__))
-    [[nodiscard]] std::optional<std::string> RealPath(const char* path)
-    {
-        std::unique_ptr<char, decltype(&std::free)> resolved(
-            realpath(path, nullptr), &std::free);
-        if (!resolved)
-        {
-            return std::nullopt;
-        }
-        return Utf8GetString(resolved.get());
-    }
 #endif
 
-    [[nodiscard]] std::optional<std::string> ProcessPath()
-    {
-#if defined(_WIN32)
-        std::vector<wchar_t> buffer(260);
-        for (;;)
-        {
-            const DWORD length = GetModuleFileNameW(
-                nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-            if (length == 0)
-            {
-                return std::nullopt;
-            }
-            if (length < buffer.size())
-            {
-                return WideToWtf8(std::wstring_view(buffer.data(), length));
-            }
-            if (buffer.size()
-                > static_cast<std::size_t>(
-                    std::numeric_limits<DWORD>::max()) / 2U)
-            {
-                return std::nullopt;
-            }
-            buffer.resize(buffer.size() * 2U);
-        }
-#elif defined(__APPLE__)
-        std::uint32_t size = 1;
-        char probe = 0;
-        if (_NSGetExecutablePath(&probe, &size) == 0)
-        {
-            return std::nullopt;
-        }
-        if (size == 0)
-        {
-            return std::nullopt;
-        }
-        std::vector<char> buffer(size);
-        if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-        {
-            return std::nullopt;
-        }
-        return RealPath(buffer.data());
-#elif defined(__FreeBSD__)
-        static const int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
-        char path[PATH_MAX];
-        std::size_t length = sizeof(path);
-        if (sysctl(name, 4, path, &length, nullptr, 0) != 0 || length == 0)
-        {
-            return std::nullopt;
-        }
-        return Utf8GetString(
-            std::string_view(path, path[length - 1] == '\0'
-                ? length - 1
-                : length));
-#elif defined(__OpenBSD__)
-        return RealPath("/proc/curproc/exe");
-#elif defined(__sun)
-        const char* path = getexecname();
-        return path == nullptr ? std::nullopt : RealPath(path);
-#elif defined(__EMSCRIPTEN__) || defined(__wasi__)
-        return std::nullopt;
-#elif defined(__linux__)
-        if (std::optional<std::string> path = RealPath("/proc/self/exe"))
-        {
-            return path;
-        }
-#if defined(AT_EXECFN)
-        const auto executable
-            = reinterpret_cast<const char*>(getauxval(AT_EXECFN));
-        if (executable != nullptr)
-        {
-            return RealPath(executable);
-        }
-#endif
-        return std::nullopt;
-#elif defined(__unix__)
-        return RealPath("/proc/curproc/exe");
-#else
-        return std::nullopt;
-#endif
-    }
-
-    [[nodiscard]] std::string CurrentDirectoryWithSeparator()
-    {
-        const std::filesystem::path current = std::filesystem::current_path();
-#if defined(_WIN32)
-        std::string result = WideToWtf8(current.native());
-        if (result.empty()
-            || (result.back() != '\\' && result.back() != '/'))
-        {
-            result.push_back('\\');
-        }
-#else
-        std::string result = Utf8GetString(current.native());
-        if (result.empty() || result.back() != '/')
-        {
-            result.push_back('/');
-        }
-#endif
-        return result;
-    }
-
-    [[nodiscard]] std::string AppContextBaseDirectory()
-    {
-        const std::optional<std::string> processPath = ProcessPath();
-        if (processPath.has_value())
-        {
-#if defined(_WIN32)
-            const std::size_t separator = processPath->find_last_of("/\\");
-#else
-            const std::size_t separator = processPath->find_last_of('/');
-#endif
-            if (separator != std::string::npos)
-            {
-                return processPath->substr(0, separator + 1);
-            }
-        }
-        return CurrentDirectoryWithSeparator();
-    }
-
-    [[nodiscard]] bool IsDirectorySeparator(char value) noexcept
-    {
-#if defined(_WIN32)
-        return value == '\\' || value == '/';
-#else
-        return value == '/';
-#endif
-    }
-
-    [[nodiscard]] std::string CombineLauncherPath(
-        std::string_view directory)
-    {
-        constexpr std::string_view FileName = "launcher.txt";
-        if (directory.empty())
-        {
-            return std::string(FileName);
-        }
-
-        std::string path(directory);
-        if (!IsDirectorySeparator(path.back())
-#if defined(_WIN32)
-            && path.back() != ':'
-#endif
-        )
-        {
-#if defined(_WIN32)
-            path.push_back('\\');
-#else
-            path.push_back('/');
-#endif
-        }
-        path.append(FileName);
-        return path;
-    }
-
-    void WriteAllLines(
-        std::string_view path, const std::vector<std::string>& lines)
-    {
-        if (path.find('\0') != std::string_view::npos)
-        {
-            throw std::invalid_argument("Path contains a null character.");
-        }
-
-        std::ofstream stream(
-            PathFromUtf8(path),
-            std::ios::out | std::ios::binary | std::ios::trunc);
-        if (!stream.is_open())
-        {
-            throw std::ios_base::failure("Could not write launcher preferences.");
-        }
-        stream.exceptions(std::ios::badbit | std::ios::failbit);
-
-#if defined(_WIN32)
-        constexpr std::string_view NewLine = "\r\n";
-#else
-        constexpr std::string_view NewLine = "\n";
-#endif
-
-        for (const std::string& line : lines)
-        {
-            stream.write(line.data(), static_cast<std::streamsize>(line.size()));
-            stream.write(
-                NewLine.data(), static_cast<std::streamsize>(NewLine.size()));
-        }
-        stream.close();
-    }
 }
 
 namespace MphRead::Mods::Launcher
@@ -793,7 +603,7 @@ namespace MphRead::Mods::Launcher
 
     std::string LauncherPrefs::Path()
     {
-        return CombineLauncherPath(_directory);
+        return PathCombine(_directory, "launcher.txt");
     }
 
     void LauncherPrefs::Load()
@@ -1026,7 +836,7 @@ namespace MphRead::Mods::Launcher
             lines.emplace_back(
                 std::string("window_maximized=")
                     + (_windowMaximized ? "true" : "false"));
-            WriteAllLines(path, lines);
+            FileWriteAllLines(path, lines);
         }
         catch (const std::exception&)
         {

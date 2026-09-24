@@ -5,6 +5,7 @@
 #include "Branding.hpp"
 #include "Launcher/Portable/LauncherPrefs.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -42,6 +43,8 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::Utf16ToUtf8;
 using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
@@ -1442,40 +1445,6 @@ namespace
         }
     }
 
-    [[nodiscard]] bool FileExistsLikeDotNet(const std::filesystem::path& path) noexcept
-    {
-#if defined(_WIN32)
-        std::error_code error;
-        const std::filesystem::file_status status = std::filesystem::status(path, error);
-        if (error || status.type() == std::filesystem::file_type::not_found)
-        {
-            return false;
-        }
-        return status.type() != std::filesystem::file_type::directory;
-#else
-        struct stat status{};
-        if (::lstat(path.c_str(), &status) != 0)
-        {
-            return false;
-        }
-        if (S_ISLNK(status.st_mode))
-        {
-            struct stat target{};
-            int statResult = 0;
-            do
-            {
-                statResult = ::stat(path.c_str(), &target);
-            }
-            while (statResult < 0 && errno == EINTR);
-            if (statResult == 0)
-            {
-                return !S_ISDIR(target.st_mode);
-            }
-            return true;
-        }
-        return !S_ISDIR(status.st_mode);
-#endif
-    }
 }
 
 namespace MphRead::Mods
@@ -1630,7 +1599,7 @@ namespace MphRead::Mods
             {
                 std::filesystem::create_directories(parent);
             }
-            if (FileExistsLikeDotNet(archivePath))
+            if (FileExists(PathToUtf8(archivePath)))
             {
                 std::filesystem::remove(archivePath);
             }

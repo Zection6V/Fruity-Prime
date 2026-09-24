@@ -5,6 +5,7 @@
 #include "GamepadMappings.hpp"
 #include "PadBindings.hpp"
 #include "../InputSettings.hpp"
+#include "../../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
 
 #include <algorithm>
@@ -26,252 +27,10 @@
 #include <type_traits>
 #include <vector>
 
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#elif defined(__APPLE__)
-#include <dlfcn.h>
-#include <mach-o/dyld.h>
-#elif defined(__linux__) && !defined(__ANDROID__)
-#include <dlfcn.h>
-#include <unistd.h>
-#endif
-
-using ::MphRead::NativeRuntime::Utf8GetString;
+namespace Glfw = ::OpenTK::Windowing::GraphicsLibraryFramework;
 
 namespace
 {
-    class GlfwBindingUnavailable final : public std::runtime_error
-    {
-    public:
-        explicit GlfwBindingUnavailable(const char* procedure)
-            : std::runtime_error(std::string("GLFW binding unavailable: ") + procedure)
-        {
-        }
-    };
-
-    using Init = int (*)();
-    using Terminate = void (*)();
-    using PollEvents = void (*)();
-    using JoystickBool = int (*)(int);
-    using JoystickString = const char* (*)(int);
-    using JoystickFloats = const float* (*)(int, int*);
-    using JoystickBytes = const unsigned char* (*)(int, int*);
-
-#if defined(_WIN32)
-    [[nodiscard]] HMODULE GlfwModule() noexcept
-    {
-        static HMODULE module = []() noexcept -> HMODULE
-        {
-            for (const wchar_t* name : {L"glfw3.3.dll", L"glfw3.dll", L"glfw.dll"})
-            {
-                if (HMODULE handle = GetModuleHandleW(name))
-                {
-                    return handle;
-                }
-                if (HMODULE handle = LoadLibraryW(name))
-                {
-                    return handle;
-                }
-            }
-            return nullptr;
-        }();
-        return module;
-    }
-
-    template <typename T>
-    [[nodiscard]] T GlfwProc(const char* name) noexcept
-    {
-        const HMODULE module = GlfwModule();
-        return module == nullptr
-            ? nullptr
-            : reinterpret_cast<T>(GetProcAddress(module, name));
-    }
-#elif defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
-    [[nodiscard]] std::optional<std::filesystem::path> ExecutableDirectory() noexcept
-    {
-        try
-        {
-#if defined(__APPLE__)
-            std::uint32_t size = 1;
-            char probe = 0;
-            if (_NSGetExecutablePath(&probe, &size) == 0 || size == 0)
-            {
-                return std::nullopt;
-            }
-            std::vector<char> buffer(size);
-            if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-            {
-                return std::nullopt;
-            }
-            return std::filesystem::path(buffer.data()).parent_path();
-#else
-            std::vector<char> buffer(256);
-            for (;;)
-            {
-                const ssize_t length = readlink(
-                    "/proc/self/exe", buffer.data(), buffer.size());
-                if (length < 0)
-                {
-                    return std::nullopt;
-                }
-                if (static_cast<std::size_t>(length) < buffer.size())
-                {
-                    return std::filesystem::path(std::string(
-                        buffer.data(), static_cast<std::size_t>(length))).parent_path();
-                }
-                buffer.resize(buffer.size() * 2U);
-            }
-#endif
-        }
-        catch (...)
-        {
-            return std::nullopt;
-        }
-    }
-
-    [[nodiscard]] void* GlfwModule() noexcept
-    {
-        static void* module = []() noexcept -> void*
-        {
-#if defined(__APPLE__)
-            constexpr const char* names[] = {
-                "glfw.3.3.dylib", "libglfw.3.3.dylib",
-                "glfw.3.dylib", "libglfw.3.dylib",
-                "glfw.dylib", "libglfw.dylib", "glfw"};
-#else
-            constexpr const char* names[] = {
-                "glfw.so.3.3", "libglfw.so.3.3",
-                "glfw.so.3", "libglfw.so.3",
-                "glfw.so", "libglfw.so", "glfw"};
-#endif
-            if (const auto directory = ExecutableDirectory())
-            {
-                for (const char* name : names)
-                {
-                    try
-                    {
-                        const std::string local = (*directory / name).string();
-                        if (void* handle = dlopen(
-                            local.c_str(), RTLD_LAZY | RTLD_LOCAL))
-                        {
-                            return handle;
-                        }
-                    }
-                    catch (...)
-                    {
-                    }
-                }
-            }
-            for (const char* name : names)
-            {
-                if (void* handle = dlopen(name, RTLD_LAZY | RTLD_LOCAL))
-                {
-                    return handle;
-                }
-            }
-            return nullptr;
-        }();
-        return module;
-    }
-
-    template <typename T>
-    [[nodiscard]] T GlfwProc(const char* name) noexcept
-    {
-        void* module = GlfwModule();
-        return module == nullptr
-            ? nullptr
-            : reinterpret_cast<T>(dlsym(module, name));
-    }
-#else
-    template <typename T>
-    [[nodiscard]] T GlfwProc(const char*) noexcept
-    {
-        return nullptr;
-    }
-#endif
-
-#define MPHREAD_GLFW_API(name, type, symbol) \
-    [[nodiscard]] type name() noexcept \
-    { \
-        static const auto value = GlfwProc<type>(symbol); \
-        return value; \
-    }
-
-    MPHREAD_GLFW_API(InitApi, Init, "glfwInit")
-    MPHREAD_GLFW_API(TerminateApi, Terminate, "glfwTerminate")
-    MPHREAD_GLFW_API(PollEventsApi, PollEvents, "glfwPollEvents")
-    MPHREAD_GLFW_API(JoystickPresentApi, JoystickBool, "glfwJoystickPresent")
-    MPHREAD_GLFW_API(JoystickNameApi, JoystickString, "glfwGetJoystickName")
-    MPHREAD_GLFW_API(IsGamepadApi, JoystickBool, "glfwJoystickIsGamepad")
-    MPHREAD_GLFW_API(JoystickAxesApi, JoystickFloats, "glfwGetJoystickAxes")
-    MPHREAD_GLFW_API(JoystickButtonsApi, JoystickBytes, "glfwGetJoystickButtons")
-    MPHREAD_GLFW_API(JoystickHatsApi, JoystickBytes, "glfwGetJoystickHats")
-#undef MPHREAD_GLFW_API
-
-    template <typename T>
-    [[nodiscard]] T Require(T function, const char* procedure)
-    {
-        if (function == nullptr)
-        {
-            throw GlfwBindingUnavailable(procedure);
-        }
-        return function;
-    }
-
-    [[nodiscard]] bool GlfwInit()
-    {
-        return Require(InitApi(), "glfwInit")() == 1;
-    }
-
-    void GlfwTerminate()
-    {
-        Require(TerminateApi(), "glfwTerminate")();
-    }
-
-    void GlfwPollEvents()
-    {
-        Require(PollEventsApi(), "glfwPollEvents")();
-    }
-
-    [[nodiscard]] bool JoystickPresent(std::int32_t slot)
-    {
-        return Require(JoystickPresentApi(), "glfwJoystickPresent")(slot) == 1;
-    }
-
-    [[nodiscard]] std::optional<std::string> JoystickName(std::int32_t slot)
-    {
-        const char* value = Require(
-            JoystickNameApi(), "glfwGetJoystickName")(slot);
-        return value == nullptr
-            ? std::nullopt
-            : std::optional<std::string>{Utf8GetString(value)};
-    }
-
-    [[nodiscard]] bool JoystickIsGamepad(std::int32_t slot)
-    {
-        return Require(IsGamepadApi(), "glfwJoystickIsGamepad")(slot) == 1;
-    }
-
-    template <typename T>
-    [[nodiscard]] std::int32_t JoystickLength(
-        T function, std::int32_t slot, const char* procedure)
-    {
-        int count = 0;
-        const auto* values = Require(function, procedure)(slot, &count);
-        if (values == nullptr)
-        {
-            return 0;
-        }
-        if (count < 0)
-        {
-            throw std::out_of_range("GLFW joystick item count was negative.");
-        }
-        return static_cast<std::int32_t>(count);
-    }
-
     template <typename T>
     [[nodiscard]] std::string FormatFixed(T value, std::int32_t decimals)
     {
@@ -534,7 +293,7 @@ namespace MphRead::Mods::Input
 {
     std::int32_t GamepadProbe::Run(double seconds)
     {
-        if (!GlfwInit())
+        if (!Glfw::GLFW::Init())
         {
             std::cout << "[gamepad] GLFW would not start; no pads can be read here.\n";
             return 1;
@@ -547,10 +306,10 @@ namespace MphRead::Mods::Input
         }
         catch (...)
         {
-            GlfwTerminate();
+            Glfw::GLFW::Terminate();
             throw;
         }
-        GlfwTerminate();
+        Glfw::GLFW::Terminate();
         return result;
     }
 
@@ -600,7 +359,7 @@ namespace MphRead::Mods::Input
         bool everMoved = false;
         while (elapsedSeconds() < seconds)
         {
-            GlfwPollEvents();
+            Glfw::GLFW::PollEvents();
             GamepadDesktop::Poll();
             GamepadInput::BeginFrame();
             GamepadState state = GamepadInput::State;
@@ -649,13 +408,13 @@ namespace MphRead::Mods::Input
         std::int32_t found = 0;
         for (std::int32_t i = 0; i < 16; ++i)
         {
-            if (!JoystickPresent(i))
+            if (!Glfw::GLFW::JoystickPresent(i))
             {
                 continue;
             }
             ++found;
-            const std::string name = JoystickName(i).value_or("?");
-            if (JoystickIsGamepad(i))
+            const std::string name = Glfw::GLFW::GetJoystickName(i).value_or("?");
+            if (Glfw::GLFW::JoystickIsGamepad(i))
             {
                 std::cout << "  slot " << i << ": " << name << " -- mapped, usable\n";
                 continue;
@@ -664,11 +423,11 @@ namespace MphRead::Mods::Input
             std::cout << "  slot " << i << ": " << name
                 << " -- no mapping for this device; read raw, on a guessed layout\n";
             const std::int32_t axisCount
-                = JoystickLength(JoystickAxesApi(), i, "glfwGetJoystickAxes");
+                = static_cast<std::int32_t>(Glfw::GLFW::GetJoystickAxes(i).size());
             const std::int32_t buttonCount
-                = JoystickLength(JoystickButtonsApi(), i, "glfwGetJoystickButtons");
+                = static_cast<std::int32_t>(Glfw::GLFW::GetJoystickButtons(i).size());
             const std::int32_t hatCount
-                = JoystickLength(JoystickHatsApi(), i, "glfwGetJoystickHats");
+                = static_cast<std::int32_t>(Glfw::GLFW::GetJoystickHats(i).size());
             std::cout << "    axes " << axisCount
                 << ", buttons " << buttonCount
                 << ", hats " << hatCount << '\n';

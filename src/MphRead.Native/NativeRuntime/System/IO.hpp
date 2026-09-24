@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -46,6 +47,19 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] std::string PathGetFullPath(const std::string& path);
     // File.Exists(path): false for a directory and for anything unreadable.
     [[nodiscard]] bool FileExists(std::string_view path) noexcept;
+    [[nodiscard]] inline bool FileExists(const std::string& path) noexcept
+    {
+        return FileExists(std::string_view(path));
+    }
+    [[nodiscard]] inline bool FileExists(const char* path) noexcept
+    {
+        return path != nullptr && FileExists(std::string_view(path));
+    }
+    // File.Exists(null) is false.
+    [[nodiscard]] inline bool FileExists(const std::optional<std::string>& path) noexcept
+    {
+        return path.has_value() && FileExists(std::string_view(*path));
+    }
     // Directory.Exists(path).
     [[nodiscard]] bool DirectoryExists(std::string_view path) noexcept;
     // File.ReadAllLines(path): decoded as StreamReaderDecode does, with CR, LF
@@ -85,16 +99,20 @@ namespace MphRead::NativeRuntime
     // is inserted only where one is missing.
     [[nodiscard]] std::string PathCombine(std::string_view path1, std::string_view path2,
         std::string_view path3, std::string_view path4);
+    // Path.Combine(params string[] paths): unlike the fixed-arity forms, a
+    // separator is added whenever the result so far does not end in one.
+    [[nodiscard]] std::string PathCombine(std::span<const std::string> paths);
     // Path.GetExtension(path).
     [[nodiscard]] std::string PathGetExtension(std::string_view path);
-    // Path.GetDirectoryName(path): empty for a path with no directory, as
-    // .NET returns null there.
-    [[nodiscard]] std::string PathGetDirectoryName(std::string_view path);
+    // Path.GetDirectoryName(path): nullopt where .NET returns null -- an
+    // empty path, or a root -- and "" for a bare file name.
+    [[nodiscard]] std::optional<std::string> PathGetDirectoryName(std::string_view path);
     // Path.GetTempPath(), ending in a separator.
     [[nodiscard]] std::string PathGetTempPath();
     // File.AppendAllText(path, contents).
     void FileAppendAllText(const std::string& path, std::string_view contents);
-    // File.Delete(path): no error when it is not there.
+    // File.Delete(path): nothing when the file is not there, and
+    // DirectoryNotFoundException when its directory is not.
     void FileDelete(const std::string& path);
 
     // new DirectoryInfo(path): the members the game reads. A trailing

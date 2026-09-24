@@ -7,8 +7,9 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
-#include "../NativeRuntime/System/IO.hpp"
 #include "../Formats/Types.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -26,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::FileWriteAllText;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
 
@@ -44,13 +46,6 @@ namespace
     using MphRead::Export::Collada;
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
-
-    void WriteAllText(std::string_view path, std::string_view text)
-    {
-        std::ofstream stream(PathFromUtf8(path), std::ios::binary | std::ios::trunc);
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
-        stream.write(text.data(), static_cast<std::streamsize>(text.size()));
-    }
 
     void AppendTabs(std::string &output, std::int32_t count)
     {
@@ -268,7 +263,7 @@ namespace MphRead::Export
             }
         }
 
-        WriteAllText(
+        FileWriteAllText(
             Paths::Combine(exportPath, "import_" + model.Name + ".py"),
             Scripting::GenerateScript(model, lists.front()));
     }
@@ -594,7 +589,7 @@ namespace MphRead::Export
         output += "\n</COLLADA>";
 
         const std::string exportPath = Paths::Combine(Paths::Export(), model.Name);
-        WriteAllText(
+        FileWriteAllText(
             Paths::Combine(exportPath, model.Name + "_" + recolor.Name + ".dae"),
             output);
         return results;

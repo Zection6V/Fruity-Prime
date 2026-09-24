@@ -24,7 +24,9 @@
 #include "../../Mods/Network/NetHooks.hpp"
 #include "../../Sound/Sfx.hpp"
 #include "../../Utility/Rng.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -45,6 +47,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::MathMax;
@@ -208,7 +211,7 @@ namespace MphRead::Entities
     {
         if (!_bombCountCheck.has_value())
         {
-            _bombCountCheck = std::getenv("MPHREAD_BOMB_CHECK") != nullptr;
+            _bombCountCheck = EnvironmentGetVariable("MPHREAD_BOMB_CHECK").has_value();
         }
         return *_bombCountCheck;
     }

@@ -16,9 +16,12 @@
 #include <unordered_set>
 #include <utility>
 #include "../../NativeRuntime/System/IO.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RoundToEven;
@@ -1081,7 +1084,7 @@ namespace MphRead::Mods::MapGen
     {
         std::vector<Node> fine = Sample(solid, FineSpacing);
         Connect(solid, fine, FineSpacing);
-        if (std::getenv("FP_NODEDEBUG") != nullptr)
+        if (EnvironmentGetVariable("FP_NODEDEBUG").has_value())
         {
             const std::int32_t edges = DegreeSum(fine) / 2;
             std::printf("  [nodes] fine %d nodes, %d edges, largest component %d\n",
@@ -1099,7 +1102,7 @@ namespace MphRead::Mods::MapGen
             spacing *= 1.4F;
         }
         const std::int32_t edges = DegreeSum(nodes) / 2;
-        if (std::getenv("FP_NODEDEBUG") != nullptr)
+        if (EnvironmentGetVariable("FP_NODEDEBUG").has_value())
         {
             const std::int32_t largest = Largest(nodes);
             const std::int32_t maxDegree = MaxDegree(nodes);

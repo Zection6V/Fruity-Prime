@@ -4,6 +4,7 @@
 // System.Environment and System.OperatingSystem: the members the game calls.
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace MphRead::NativeRuntime
@@ -56,8 +57,11 @@ namespace MphRead::NativeRuntime
     // same answer DebugLog's system line already gives.
     [[nodiscard]] std::string RuntimeInformationFrameworkDescription();
 
-    // AppContext.BaseDirectory: the directory the executable is in, UTF-8,
-    // ending in a separator.
+    // Environment.ProcessPath: the executable, resolved, or nullopt where the
+    // platform will not say. WTF-8 on Windows (see Encoding.hpp).
+    [[nodiscard]] std::optional<std::string> EnvironmentProcessPath();
+    // AppContext.BaseDirectory: the directory the executable is in, ending in
+    // a separator; the current directory where there is no executable path.
     [[nodiscard]] std::string AppContextBaseDirectory();
 
     // Environment.ExitCode.

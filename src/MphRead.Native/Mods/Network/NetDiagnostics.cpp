@@ -8,6 +8,7 @@
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
 #include <array>
@@ -33,6 +34,7 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::HasFlag;
 
 namespace
@@ -397,7 +399,7 @@ namespace MphRead::Mods::Network
         if (!_checked)
         {
             _checked = true;
-            _enabled = std::getenv("MPHREAD_NET_DEBUG") != nullptr;
+            _enabled = EnvironmentGetVariable("MPHREAD_NET_DEBUG").has_value();
         }
         return _enabled;
     }

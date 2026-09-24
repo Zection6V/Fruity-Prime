@@ -1,4 +1,5 @@
 #include "CustomRooms.hpp"
+#include "../Platform/AppPaths.hpp"
 
 #include "MapBundle.hpp"
 #include "MapDefinition.hpp"
@@ -45,6 +46,8 @@ using ::MphRead::NativeRuntime::DirectoryExists;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetFileName;
+using ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::Utf16ToUtf8;
@@ -954,66 +957,6 @@ namespace
         }
     };
 
-    [[nodiscard]] std::filesystem::path ExecutablePath()
-    {
-#if defined(_WIN32)
-        std::vector<wchar_t> buffer(512);
-        for (;;)
-        {
-            const DWORD length = GetModuleFileNameW(
-                nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-            if (length == 0)
-            {
-                throw std::system_error(
-                    static_cast<int>(GetLastError()), std::system_category(),
-                    "GetModuleFileNameW failed");
-            }
-            if (length < buffer.size())
-            {
-                return std::filesystem::path(
-                    buffer.data(), buffer.data() + length);
-            }
-            buffer.resize(buffer.size() * 2);
-        }
-#elif defined(__APPLE__)
-        std::uint32_t size = 0;
-        (void)_NSGetExecutablePath(nullptr, &size);
-        if (size == 0)
-        {
-            throw std::runtime_error("_NSGetExecutablePath failed");
-        }
-        std::vector<char> buffer(size);
-        if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-        {
-            throw std::runtime_error("_NSGetExecutablePath failed");
-        }
-        return std::filesystem::absolute(PathFromUtf8(buffer.data()));
-#else
-        std::vector<char> buffer(512);
-        for (;;)
-        {
-            const ssize_t length = readlink(
-                "/proc/self/exe", buffer.data(), buffer.size());
-            if (length < 0)
-            {
-                throw std::system_error(
-                    errno, std::generic_category(), "readlink(/proc/self/exe) failed");
-            }
-            if (static_cast<std::size_t>(length) < buffer.size())
-            {
-                return PathFromUtf8(std::string_view(
-                    buffer.data(), static_cast<std::size_t>(length)));
-            }
-            buffer.resize(buffer.size() * 2);
-        }
-#endif
-    }
-
-    [[nodiscard]] std::string ExecutableBaseDirectory()
-    {
-        return PathToUtf8(ExecutablePath().parent_path());
-    }
-
     [[nodiscard]] std::filesystem::file_time_type GetLastWriteTimeUtc(
         const std::string& path)
     {
@@ -1035,22 +978,6 @@ namespace
         }
         throw std::filesystem::filesystem_error(
             "last_write_time", nativePath, error);
-    }
-
-    [[nodiscard]] std::string GetFileName(const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
-    [[nodiscard]] std::string GetFileNameWithoutExtension(const std::string& path)
-    {
-        std::string fileName = GetFileName(path);
-        const std::size_t dot = fileName.find_last_of('.');
-        if (dot != std::string::npos)
-        {
-            fileName.resize(dot);
-        }
-        return fileName;
     }
 
     [[nodiscard]] bool ExtensionMatches(
@@ -1108,7 +1035,7 @@ namespace
 
         for (const std::string& path : files.Results)
         {
-            files.Names.insert(GetFileNameWithoutExtension(path));
+            files.Names.insert(PathGetFileNameWithoutExtension(path));
         }
 
         // Directory.EnumerateFiles creates its enumerable (and opens the root)
@@ -1131,7 +1058,7 @@ namespace
                 && ExtensionMatches(entry.path(), ".json"))
             {
                 const std::string path = PathToUtf8(entry.path());
-                if (!files.Names.contains(GetFileNameWithoutExtension(path)))
+                if (!files.Names.contains(PathGetFileNameWithoutExtension(path)))
                 {
                     files.Results.push_back(path);
                 }
@@ -1149,7 +1076,7 @@ namespace
         std::string MapDirectory;
 
         CustomRoomsState()
-            : MapDirectory(PathCombine(ExecutableBaseDirectory(), "maps"))
+            : MapDirectory(::MphRead::Mods::Platform::AppPaths::Maps())
         {
         }
     };
@@ -1304,7 +1231,7 @@ namespace MphRead::Mods::MapGen
             }
             catch (const std::exception& ex)
             {
-                const std::string fileName = GetFileName(path);
+                const std::string fileName = PathGetFileName(path);
                 const std::string message =
                     "Ignoring map " + fileName + ": " + ex.what();
                 std::cout << message << std::endl;
@@ -1569,7 +1496,7 @@ namespace MphRead::Mods::MapGen
         const std::optional<std::string>& source = def->SourcePath();
         if (source.has_value())
         {
-            file = GetFileName(*source);
+            file = PathGetFileName(*source);
         }
 
         return def->Name()

@@ -30,7 +30,9 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllLines;
+using ::MphRead::NativeRuntime::FileWriteAllLines;
 using ::MphRead::NativeRuntime::Int32TryParseInvariant;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::PathToUtf8;
@@ -665,36 +667,6 @@ namespace MphRead::Mods
             return value >= '0' && value <= '9';
         }
 
-        void WriteAllLines(const std::filesystem::path& path,
-            const std::vector<std::string>& lines)
-        {
-            std::ofstream stream(path, std::ios::trunc);
-            if (!stream)
-            {
-                throw std::runtime_error("Could not open controls file.");
-            }
-            for (const std::string& line : lines)
-            {
-                stream << line << '\n';
-                if (!stream)
-                {
-                    throw std::runtime_error("Could not write controls file.");
-                }
-            }
-            stream.close();
-            if (!stream)
-            {
-                throw std::runtime_error("Could not write controls file.");
-            }
-        }
-
-        bool FileExists(const std::filesystem::path& path) noexcept
-        {
-            std::error_code error;
-            const bool exists = std::filesystem::is_regular_file(path, error);
-            return !error && exists;
-        }
-
         bool IsAndroid() noexcept
         {
 #if defined(__ANDROID__)
@@ -1063,7 +1035,7 @@ namespace MphRead::Mods
     void InputSettings::Load()
     {
         const std::filesystem::path path = Path();
-        if (!FileExists(path))
+        if (!FileExists(PathToUtf8(path)))
         {
             return;
         }
@@ -1369,7 +1341,7 @@ namespace MphRead::Mods
                 lines.push_back(std::string(property.Name) + "=" + value);
             }
 
-            WriteAllLines(Path(), lines);
+            FileWriteAllLines(PathToUtf8(Path()), lines);
         }
         catch (...)
         {

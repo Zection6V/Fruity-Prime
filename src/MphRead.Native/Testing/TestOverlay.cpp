@@ -20,31 +20,13 @@
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetDirectoryName;
+using ::MphRead::NativeRuntime::PathGetFileName;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringReplace;
 
 namespace
 {
-    [[nodiscard]] std::string GetDirectoryName(const std::string& path)
-    {
-        if (path.empty())
-        {
-            return {};
-        }
-        const std::filesystem::path nativePath = PathFromUtf8(path);
-        const std::filesystem::path rootPath = nativePath.root_path();
-        if (!rootPath.empty() && nativePath == rootPath)
-        {
-            return {};
-        }
-        return PathToUtf8(nativePath.parent_path());
-    }
-
-    [[nodiscard]] std::string GetFileName(const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
     [[nodiscard]] bool Contains(
         const std::vector<std::string>& values,
         const std::string& value)
@@ -98,7 +80,7 @@ namespace
         {
             if (!entry.is_directory())
             {
-                files.push_back(GetFileName(PathToUtf8(entry.path())));
+                files.push_back(PathGetFileName(PathToUtf8(entry.path())));
             }
         }
     }
@@ -159,9 +141,9 @@ namespace MphRead::Testing
     void TestOverlay::CompareGames(const std::string& game1, const std::string& game2)
     {
         const std::string root1 = Paths::Combine(
-            GetDirectoryName(Paths::FileSystem()), game1);
+            PathGetDirectoryName(Paths::FileSystem()).value_or(""), game1);
         const std::string root2 = Paths::Combine(
-            GetDirectoryName(Paths::FileSystem()), game2);
+            PathGetDirectoryName(Paths::FileSystem()).value_or(""), game2);
 
         const std::vector<std::string> dirs1 = EnumerateDirectoriesRecursive(root1);
         const std::vector<std::string> dirs2 = EnumerateDirectoriesRecursive(root2);

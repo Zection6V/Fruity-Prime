@@ -1,6 +1,5 @@
 #include "ModEntry.hpp"
 
-#include "../NativeRuntime/System/Runtime.hpp"
 
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Features.hpp"
@@ -58,6 +57,7 @@
 #include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
 
 #include <algorithm>
 #include <array>
@@ -97,6 +97,7 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
 using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
@@ -566,63 +567,9 @@ namespace
 #endif
     }
 
-    [[nodiscard]] std::optional<std::string> ProcessPath()
-    {
-#if defined(_WIN32)
-        std::vector<wchar_t> buffer(512);
-        for (;;)
-        {
-            const DWORD length = GetModuleFileNameW(nullptr, buffer.data(),
-                static_cast<DWORD>(buffer.size()));
-            if (length == 0)
-            {
-                return std::nullopt;
-            }
-            if (length < buffer.size() - 1)
-            {
-                return WideToWtf8(std::wstring_view(buffer.data(), length));
-            }
-            buffer.resize(buffer.size() * 2);
-        }
-#elif defined(__APPLE__)
-        std::uint32_t size = 0;
-        (void)_NSGetExecutablePath(nullptr, &size);
-        if (size == 0)
-        {
-            return std::nullopt;
-        }
-        std::vector<char> buffer(size);
-        if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-        {
-            return std::nullopt;
-        }
-        std::array<char, PATH_MAX> resolved{};
-        if (realpath(buffer.data(), resolved.data()) != nullptr)
-        {
-            return std::string(resolved.data());
-        }
-        return std::string(buffer.data());
-#else
-        std::vector<char> buffer(512);
-        for (;;)
-        {
-            const ssize_t length = readlink("/proc/self/exe", buffer.data(), buffer.size());
-            if (length < 0)
-            {
-                return std::nullopt;
-            }
-            if (static_cast<std::size_t>(length) < buffer.size())
-            {
-                return std::string(buffer.data(), static_cast<std::size_t>(length));
-            }
-            buffer.resize(buffer.size() * 2);
-        }
-#endif
-    }
-
     [[nodiscard]] std::string AppBaseDirectory()
     {
-        const std::optional<std::string> path = ProcessPath();
+        const std::optional<std::string> path = EnvironmentProcessPath();
         if (!path.has_value())
         {
             throw std::runtime_error("process path is unavailable");
@@ -918,7 +865,7 @@ namespace
         using MphRead::Mods::Network::NetConfig;
         using MphRead::Mods::Network::NetMasterConfig;
 
-        const std::optional<std::string> processPath = ProcessPath();
+        const std::optional<std::string> processPath = EnvironmentProcessPath();
         std::string executable = processPath.has_value()
             ? FileNameWithoutExtension(*processPath)
             : std::string("MphReadServer");

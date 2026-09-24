@@ -27,7 +27,9 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetExtension;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
 
@@ -131,40 +133,6 @@ namespace
             throw System::OverflowException();
         }
         return static_cast<std::size_t>(value);
-    }
-
-    [[nodiscard]] bool FileExists(
-        const std::optional<std::string>& path) noexcept
-    {
-        return path.has_value() && MphRead::NativeRuntime::FileExists(*path);
-    }
-
-    [[nodiscard]] bool IsDirectorySeparator(char value) noexcept
-    {
-#if defined(_WIN32)
-        return value == '/' || value == '\\';
-#else
-        return value == '/';
-#endif
-    }
-
-    [[nodiscard]] std::string GetExtension(std::string_view path)
-    {
-        for (std::size_t i = path.size(); i > 0; --i)
-        {
-            const char value = path[i - 1];
-            if (value == '.')
-            {
-                return i == path.size()
-                    ? std::string()
-                    : std::string(path.substr(i - 1));
-            }
-            if (IsDirectorySeparator(value))
-            {
-                break;
-            }
-        }
-        return {};
     }
 
     [[nodiscard]] bool OrdinalIgnoreCaseEquals(
@@ -893,7 +861,7 @@ namespace MphRead::Mods::MapGen
         {
             if (FileExists(path)
                 && !OrdinalIgnoreCaseEquals(
-                    GetExtension(*path), ".bsp"))
+                    PathGetExtension(*path), ".bsp"))
             {
                 archives.Values.push_back(OpenZipRead(*path));
             }

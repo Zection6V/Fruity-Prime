@@ -1,7 +1,8 @@
 #include "Branding.hpp"
 #include "Update/BuildVersion.hpp"
-#include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -46,6 +47,8 @@
 #include <stdlib.h>
 #endif
 
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
+using ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension;
 using ::MphRead::NativeRuntime::Utf8GetString;
 using ::MphRead::NativeRuntime::WideToWtf8;
 
@@ -166,130 +169,8 @@ namespace
 
 #if defined(__APPLE__) || defined(__OpenBSD__) || defined(__sun) || defined(__linux__) \
     || (defined(__unix__) && !defined(__EMSCRIPTEN__) && !defined(__wasi__))
-    [[nodiscard]] std::optional<std::string> RealPath(const char* path)
-    {
-        std::unique_ptr<char, decltype(&std::free)> resolved(realpath(path, nullptr), &std::free);
-        if (!resolved)
-        {
-            return std::nullopt;
-        }
-        return std::string(resolved.get());
-    }
 #endif
 
-    [[nodiscard]] std::optional<std::string> ReadProcessPath()
-    {
-#if defined(_WIN32)
-        std::vector<wchar_t> buffer(260);
-        for (;;)
-        {
-            const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-            if (length == 0)
-            {
-                const DWORD error = GetLastError();
-                throw std::system_error(static_cast<int>(error), std::system_category());
-            }
-            if (length < buffer.size())
-            {
-                return WideToWtf8(std::wstring_view(buffer.data(), static_cast<std::size_t>(length)));
-            }
-            if (buffer.size() > static_cast<std::size_t>(std::numeric_limits<DWORD>::max()) / 2U)
-            {
-                throw std::length_error("Process path is too long.");
-            }
-            buffer.resize(buffer.size() * 2U);
-        }
-#elif defined(__APPLE__)
-        char path[PATH_MAX];
-        std::uint32_t length = PATH_MAX;
-        if (_NSGetExecutablePath(path, &length) != 0)
-        {
-            return std::nullopt;
-        }
-        return RealPath(path);
-#elif defined(__FreeBSD__)
-        static const int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
-        char path[PATH_MAX];
-        std::size_t length = sizeof(path);
-        if (sysctl(name, 4, path, &length, nullptr, 0) != 0)
-        {
-            return std::nullopt;
-        }
-        return std::string(path);
-#elif defined(__OpenBSD__)
-        return RealPath("/proc/curproc/exe");
-#elif defined(__sun)
-        const char* path = getexecname();
-        return path == nullptr ? std::nullopt : RealPath(path);
-#elif defined(__EMSCRIPTEN__)
-        return std::nullopt;
-#elif defined(__wasi__)
-        return std::string("/managed");
-#elif defined(__linux__)
-        if (std::optional<std::string> path = RealPath("/proc/self/exe"))
-        {
-            return path;
-        }
-#if defined(AT_EXECFN)
-        const auto executable = reinterpret_cast<const char*>(getauxval(AT_EXECFN));
-        if (executable != nullptr)
-        {
-            return RealPath(executable);
-        }
-#endif
-        return std::nullopt;
-#elif defined(__unix__)
-        return RealPath("/proc/curproc/exe");
-#else
-        return std::nullopt;
-#endif
-    }
-
-    [[nodiscard]] const std::optional<std::string>& ProcessPath()
-    {
-        static const std::optional<std::string> processPath = []
-        {
-            std::optional<std::string> path = ReadProcessPath();
-#if !defined(_WIN32)
-            if (path.has_value())
-            {
-                *path = Utf8GetString(*path);
-            }
-#endif
-            if (path.has_value() && path->empty())
-            {
-                path.reset();
-            }
-            return path;
-        }();
-        return processPath;
-    }
-
-    [[nodiscard]] std::string GetFileNameWithoutExtension(std::string_view path)
-    {
-#if defined(_WIN32)
-        const std::size_t root = GetWindowsRootLength(path);
-        const std::size_t separator = path.find_last_of("/\\");
-        const std::size_t start
-            = separator == std::string_view::npos || separator < root
-            ? root
-            : separator + 1;
-#else
-        const std::size_t separator = path.find_last_of('/');
-        const std::size_t start
-            = separator == std::string_view::npos
-            ? 0
-            : separator + 1;
-#endif
-
-        std::string_view name = path.substr(start);
-        const std::size_t period = name.find_last_of('.');
-        if (period != std::string_view::npos)
-        {
-            name = name.substr(0, period);
-        }
-        return std::string(name);
-    }
 }
 
 namespace MphRead
@@ -298,12 +179,12 @@ namespace MphRead
     {
         std::string Branding::Executable()
         {
-            const std::optional<std::string>& path = ProcessPath();
+            const std::optional<std::string> path = EnvironmentProcessPath();
             if (!path.has_value())
             {
                 return std::string(FileName);
             }
-            std::string name = GetFileNameWithoutExtension(*path);
+            std::string name = PathGetFileNameWithoutExtension(*path);
             return name.empty() ? std::string(FileName) : name;
         }
 

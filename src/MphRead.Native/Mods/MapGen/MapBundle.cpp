@@ -48,6 +48,9 @@ using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetExtension;
+using ::MphRead::NativeRuntime::PathGetFileName;
+using ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StreamReaderDecode;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -70,35 +73,6 @@ namespace
 {
     using ByteVector = std::vector<std::uint8_t>;
     using MphRead::Mods::MapGen::MapBundle;
-
-    [[nodiscard]] std::string GetFileName(const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
-    [[nodiscard]] std::string GetFileNameWithoutExtension(const std::string& path)
-    {
-        std::string fileName = GetFileName(path);
-        const std::size_t dot = fileName.find_last_of('.');
-        if (dot == std::string::npos)
-        {
-            return fileName;
-        }
-        fileName.resize(dot);
-        return fileName;
-    }
-
-    [[nodiscard]] std::string GetExtension(const std::string& path)
-    {
-        const std::string fileName = GetFileName(path);
-        const std::size_t dot = fileName.find_last_of('.');
-        if (dot == std::string::npos || dot + 1 == fileName.size())
-        {
-            return {};
-        }
-        return fileName.substr(dot);
-    }
-
 
 #if !defined(_WIN32)
     [[nodiscard]] void* FindVersionedIcuSymbol(void* library, const char* base) noexcept
@@ -341,33 +315,6 @@ namespace
         {
             throw std::runtime_error("Could not write ZIP archive.");
         }
-    }
-
-    [[nodiscard]] ByteVector ReadAllBytes(
-        std::ifstream& stream, const std::string& path)
-    {
-        stream.seekg(0, std::ios::end);
-        const std::streamoff length = stream.tellg();
-        if (length < 0)
-        {
-            throw std::runtime_error("Could not read file: " + path);
-        }
-        stream.seekg(0, std::ios::beg);
-        ByteVector bytes(static_cast<std::size_t>(length));
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()), length);
-            if (!stream)
-            {
-                throw std::runtime_error("Could not read file: " + path);
-            }
-        }
-        return bytes;
-    }
-
-    [[nodiscard]] ByteVector ReadAllBytes(const std::string& path)
-    {
-        return FileReadAllBytes(path);
     }
 
     [[nodiscard]] std::uint32_t Crc32(const ByteVector& bytes) noexcept
@@ -1702,7 +1649,7 @@ namespace MphRead::Mods::MapGen
 {
     bool MapBundle::Is(const std::string& path)
     {
-        return OrdinalIgnoreCaseEquals(GetExtension(path), Extension);
+        return OrdinalIgnoreCaseEquals(PathGetExtension(path), Extension);
     }
 
     std::string MapBundle::Cook(
@@ -1735,7 +1682,7 @@ namespace MphRead::Mods::MapGen
         const std::optional<std::string>& requestedMapName = import->MapName();
         const std::string mapName = requestedMapName
             ? *requestedMapName
-            : GetFileNameWithoutExtension(*level);
+            : PathGetFileNameWithoutExtension(*level);
         const ByteVector trimmed = Q3Bsp::Trim(
             Q3Bsp::ReadLevel(*level, import->MapName()));
 
@@ -1750,7 +1697,7 @@ namespace MphRead::Mods::MapGen
                 throw ProgramException(
                     definition->Name() + ": its textures (" + *import->Textures()
                     + ") are not beside its recipe and could not be baked from "
-                    + GetFileName(*level)
+                    + PathGetFileName(*level)
                     + ". A bundle without them is a room with no materials, "
                       "so this is a failure and not a bundle.");
             }
@@ -1760,10 +1707,10 @@ namespace MphRead::Mods::MapGen
             ? *outputPath
             : PathCombine(
                 CustomRooms::MapDirectory(),
-                GetFileNameWithoutExtension(recipePath) + Extension);
-        const std::string recipeName = GetFileName(recipePath);
+                PathGetFileNameWithoutExtension(recipePath) + Extension);
+        const std::string recipeName = PathGetFileName(recipePath);
         const std::string textureName = texturePath
-            ? GetFileName(*texturePath) : std::string{};
+            ? PathGetFileName(*texturePath) : std::string{};
 
         std::shared_ptr<MapDefinition> inside = MapDefinition::Load(recipePath);
         if (MapImport* insideImport = inside->Import(); insideImport != nullptr)
@@ -1797,7 +1744,7 @@ namespace MphRead::Mods::MapGen
                 if (texturePath)
                 {
                     entries.push_back(WriteZipEntry(
-                        file, textureName, ReadAllBytes(*texturePath)));
+                        file, textureName, FileReadAllBytes(*texturePath)));
                 }
 
                 finalizationStarted = true;
@@ -1856,12 +1803,7 @@ namespace MphRead::Mods::MapGen
 
     std::optional<std::string> MapBundle::ReadRecipe(const std::string& bundlePath)
     {
-        std::ifstream file(PathFromUtf8(bundlePath), std::ios::binary);
-        if (!file)
-        {
-            throw std::runtime_error("Could not open file: " + bundlePath);
-        }
-        const ByteVector archive = ReadAllBytes(file, bundlePath);
+        const ByteVector archive = FileReadAllBytes(bundlePath);
         const std::vector<ZipEntry> entries = ReadZipEntries(archive);
         const auto found = std::find_if(entries.begin(), entries.end(),
             [](const ZipEntry& entry)
@@ -1883,12 +1825,7 @@ namespace MphRead::Mods::MapGen
             return std::nullopt;
         }
 
-        std::ifstream file(PathFromUtf8(bundlePath), std::ios::binary);
-        if (!file)
-        {
-            throw std::runtime_error("Could not open file: " + bundlePath);
-        }
-        const ByteVector archive = ReadAllBytes(file, bundlePath);
+        const ByteVector archive = FileReadAllBytes(bundlePath);
         const std::vector<ZipEntry> entries = ReadZipEntries(archive);
         auto found = std::find_if(entries.begin(), entries.end(),
             [&](const ZipEntry& entry)

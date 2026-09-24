@@ -3,6 +3,7 @@
 #include "Branding.hpp"
 #include "Update/BuildVersion.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -52,6 +53,9 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
+using ::MphRead::NativeRuntime::FileAppendAllText;
+using ::MphRead::NativeRuntime::FileWriteAllText;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 
@@ -64,99 +68,6 @@ namespace MphRead::Mods::Launcher::Detail
 
 namespace
 {
-    [[nodiscard]] std::optional<std::filesystem::path> ProcessPath()
-    {
-#if defined(_WIN32)
-        std::vector<wchar_t> buffer(260);
-        for (;;)
-        {
-            const DWORD length = ::GetModuleFileNameW(
-                nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-            if (length == 0)
-            {
-                return std::nullopt;
-            }
-            if (length < buffer.size())
-            {
-                return std::filesystem::path(std::wstring(buffer.data(), length));
-            }
-            if (buffer.size() > static_cast<std::size_t>(
-                    std::numeric_limits<DWORD>::max()) / 2U)
-            {
-                return std::nullopt;
-            }
-            buffer.resize(buffer.size() * 2U);
-        }
-#elif defined(__APPLE__)
-        std::uint32_t size = 1024;
-        std::vector<char> buffer(size);
-        while (_NSGetExecutablePath(buffer.data(), &size) != 0)
-        {
-            buffer.resize(size);
-        }
-        std::unique_ptr<char, decltype(&std::free)> resolved(
-            ::realpath(buffer.data(), nullptr), &std::free);
-        if (!resolved)
-        {
-            return std::nullopt;
-        }
-        return PathFromUtf8(resolved.get());
-#elif defined(__FreeBSD__)
-        static const int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
-        std::size_t size = 0;
-        if (::sysctl(name, 4, nullptr, &size, nullptr, 0) != 0 || size == 0)
-        {
-            return std::nullopt;
-        }
-        std::vector<char> buffer(size);
-        if (::sysctl(name, 4, buffer.data(), &size, nullptr, 0) != 0 || size == 0)
-        {
-            return std::nullopt;
-        }
-        const std::size_t length = buffer[size - 1] == '\0' ? size - 1 : size;
-        return PathFromUtf8(std::string_view(buffer.data(), length));
-#elif defined(__linux__)
-        std::unique_ptr<char, decltype(&std::free)> resolved(
-            ::realpath("/proc/self/exe", nullptr), &std::free);
-        if (resolved)
-        {
-            return PathFromUtf8(resolved.get());
-        }
-#if defined(AT_EXECFN)
-        const auto executable = reinterpret_cast<const char*>(::getauxval(AT_EXECFN));
-        if (executable != nullptr)
-        {
-            resolved.reset(::realpath(executable, nullptr));
-            if (resolved)
-            {
-                return PathFromUtf8(resolved.get());
-            }
-        }
-#endif
-        return std::nullopt;
-#elif defined(__unix__)
-        std::unique_ptr<char, decltype(&std::free)> resolved(
-            ::realpath("/proc/curproc/exe", nullptr), &std::free);
-        if (!resolved)
-        {
-            return std::nullopt;
-        }
-        return PathFromUtf8(resolved.get());
-#else
-        return std::nullopt;
-#endif
-    }
-
-    [[nodiscard]] std::filesystem::path AppContextBaseDirectory()
-    {
-        const std::optional<std::filesystem::path> processPath = ProcessPath();
-        if (!processPath.has_value())
-        {
-            throw std::runtime_error("Could not determine AppContext.BaseDirectory.");
-        }
-        return processPath->parent_path();
-    }
-
     [[nodiscard]] std::tm LocalTime(std::time_t value)
     {
         std::tm result{};
@@ -219,7 +130,7 @@ namespace
     [[nodiscard]] std::string BaseDirectoryLastWriteTime()
     {
         const std::filesystem::file_time_type fileTime
-            = std::filesystem::last_write_time(AppContextBaseDirectory());
+            = std::filesystem::last_write_time(PathFromUtf8(AppContextBaseDirectory()));
         const std::time_t value = std::chrono::system_clock::to_time_t(
             ToSystemClock(fileTime));
         // The C# interpolation deliberately uses a format string beginning in
@@ -698,15 +609,6 @@ namespace
     }
 #endif
 
-    void WriteAllText(const std::string& path, std::string_view text)
-    {
-        WriteBytes(PathFromUtf8(path), text, std::ios::trunc);
-    }
-
-    void AppendAllText(const std::string& path, std::string_view text)
-    {
-        WriteBytes(PathFromUtf8(path), text, std::ios::app);
-    }
 }
 
 namespace MphRead::Mods
@@ -746,7 +648,7 @@ namespace MphRead::Mods
             contents += " room(s) to render";
             contents += NewLine();
 
-            WriteAllText(path, contents);
+            FileWriteAllText(path, contents);
             _failed.store(false, std::memory_order_relaxed);
         }
         catch (...)
@@ -778,7 +680,7 @@ namespace MphRead::Mods
                 text += "] ";
                 text += line;
                 text += NewLine();
-                AppendAllText(path, text);
+                FileAppendAllText(path, text);
                 return;
             }
             catch (const std::ios_base::failure&)

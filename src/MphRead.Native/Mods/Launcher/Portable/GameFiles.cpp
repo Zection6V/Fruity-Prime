@@ -6,6 +6,7 @@
 #include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Runtime.hpp"
 
 #include <array>
 #include <cerrno>
@@ -96,7 +97,9 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
 using ::MphRead::NativeRuntime::DirectoryExists;
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllText;
 using ::MphRead::NativeRuntime::PathCombine;
@@ -236,129 +239,7 @@ namespace
 #if defined(__APPLE__) || defined(__OpenBSD__) || defined(__sun) \
     || defined(__linux__) || defined(__ANDROID__) \
     || (defined(__unix__) && !defined(__EMSCRIPTEN__) && !defined(__wasi__))
-    [[nodiscard]] std::optional<std::string> RealPath(const char* path)
-    {
-        std::unique_ptr<char, decltype(&std::free)> resolved(
-            realpath(path, nullptr), &std::free);
-        if (!resolved)
-        {
-            return std::nullopt;
-        }
-        return Utf8GetString(resolved.get());
-    }
 #endif
-
-    [[nodiscard]] std::optional<std::string> ProcessPath()
-    {
-#if defined(_WIN32)
-        std::vector<wchar_t> buffer(260);
-        for (;;)
-        {
-            const DWORD length = GetModuleFileNameW(
-                nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-            if (length == 0)
-            {
-                return std::nullopt;
-            }
-            if (length < buffer.size())
-            {
-                return WideToWtf8(std::wstring_view(buffer.data(), length));
-            }
-            if (buffer.size() > static_cast<std::size_t>(
-                    std::numeric_limits<DWORD>::max()) / 2U)
-            {
-                return std::nullopt;
-            }
-            buffer.resize(buffer.size() * 2U);
-        }
-#elif defined(__APPLE__)
-        std::uint32_t size = 1;
-        char probe = 0;
-        if (_NSGetExecutablePath(&probe, &size) == 0 || size == 0)
-        {
-            return std::nullopt;
-        }
-        std::vector<char> buffer(size);
-        if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-        {
-            return std::nullopt;
-        }
-        return RealPath(buffer.data());
-#elif defined(__FreeBSD__)
-        static const int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
-        char path[PATH_MAX];
-        std::size_t length = sizeof(path);
-        if (sysctl(name, 4, path, &length, nullptr, 0) != 0 || length == 0)
-        {
-            return std::nullopt;
-        }
-        return Utf8GetString(std::string_view(
-            path, path[length - 1] == '\0' ? length - 1 : length));
-#elif defined(__OpenBSD__)
-        return RealPath("/proc/curproc/exe");
-#elif defined(__sun)
-        const char* path = getexecname();
-        return path == nullptr ? std::nullopt : RealPath(path);
-#elif defined(__EMSCRIPTEN__) || defined(__wasi__)
-        return std::nullopt;
-#elif defined(__ANDROID__)
-        return RealPath("/proc/self/exe");
-#elif defined(__linux__)
-        if (std::optional<std::string> path = RealPath("/proc/self/exe"))
-        {
-            return path;
-        }
-#if defined(AT_EXECFN)
-        const auto executable = reinterpret_cast<const char*>(getauxval(AT_EXECFN));
-        if (executable != nullptr)
-        {
-            return RealPath(executable);
-        }
-#endif
-        return std::nullopt;
-#elif defined(__unix__)
-        return RealPath("/proc/curproc/exe");
-#else
-        return std::nullopt;
-#endif
-    }
-
-    [[nodiscard]] std::string CurrentDirectoryWithSeparator()
-    {
-        const std::filesystem::path current = std::filesystem::current_path();
-#if defined(_WIN32)
-        std::string result = WideToWtf8(current.native());
-        if (result.empty() || (result.back() != '\\' && result.back() != '/'))
-        {
-            result.push_back('\\');
-        }
-#else
-        std::string result = Utf8GetString(current.native());
-        if (result.empty() || result.back() != '/')
-        {
-            result.push_back('/');
-        }
-#endif
-        return result;
-    }
-
-    [[nodiscard]] std::string AppContextBaseDirectory()
-    {
-        const std::optional<std::string> processPath = ProcessPath();
-        if (processPath.has_value())
-        {
-#if defined(_WIN32)
-            const std::size_t separator = processPath->find_last_of("/\\");
-#else
-            const std::size_t separator = processPath->find_last_of('/');
-#endif
-            if (separator != std::string::npos)
-            {
-                return processPath->substr(0, separator + 1);
-            }
-        }
-        return CurrentDirectoryWithSeparator();
-    }
 
     [[noreturn]] void ThrowReadFailure(std::string_view path, int error)
     {
@@ -1327,7 +1208,7 @@ namespace MphRead::Mods::Launcher
             return RunSetupHere(romPath, report);
         }
 
-        const std::optional<std::string> executable = ProcessPath();
+        const std::optional<std::string> executable = EnvironmentProcessPath();
         if (!executable.has_value())
         {
             report("Could not find the MphRead executable.");

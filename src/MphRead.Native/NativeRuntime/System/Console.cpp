@@ -203,14 +203,39 @@ namespace MphRead::NativeRuntime
 
     std::optional<std::string> EnvironmentGetVariable(const std::string& name)
     {
-        // Environment.GetEnvironmentVariable returns null both for a missing
-        // variable and for an empty one on Windows; getenv reports the same.
+#if defined(_WIN32)
+        // The wide API, as .NET reads it: getenv would hand back the value in
+        // the ANSI code page.
+        const std::wstring wideName = Wtf8ToWide(name);
+        std::vector<wchar_t> buffer(128);
+        for (;;)
+        {
+            ::SetLastError(ERROR_SUCCESS);
+            const DWORD length = ::GetEnvironmentVariableW(
+                wideName.c_str(), buffer.data(), static_cast<DWORD>(buffer.size()));
+            if (length == 0)
+            {
+                if (::GetLastError() == ERROR_ENVVAR_NOT_FOUND)
+                {
+                    return std::nullopt;
+                }
+                return std::string();
+            }
+            if (length < buffer.size())
+            {
+                return WideToWtf8(std::wstring_view(buffer.data(), length));
+            }
+            buffer.resize(length);
+        }
+#else
+        // .NET decodes the environment block as UTF-8.
         const char* const value = std::getenv(name.c_str());
         if (value == nullptr)
         {
             return std::nullopt;
         }
-        return std::string(value);
+        return Utf8GetString(std::string_view(value));
+#endif
     }
 
     std::string EnvironmentMachineName()

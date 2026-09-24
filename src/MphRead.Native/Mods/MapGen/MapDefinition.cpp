@@ -35,8 +35,13 @@ using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllText;
+using ::MphRead::NativeRuntime::FileWriteAllText;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetDirectoryName;
+using ::MphRead::NativeRuntime::PathGetFileName;
+using ::MphRead::NativeRuntime::PathGetFullPath;
+using ::MphRead::NativeRuntime::PathIsPathRooted;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::Utf8Scalar;
@@ -90,40 +95,6 @@ namespace
             | (static_cast<std::uint32_t>(bytes[1]) << 16)
             | (static_cast<std::uint32_t>(bytes[2]) << 8)
             | static_cast<std::uint32_t>(bytes[3]);
-    }
-
-    void WriteAllText(const std::string& path, const std::string& text)
-    {
-        std::ofstream stream(PathFromUtf8(path), std::ios::binary | std::ios::trunc);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file for writing: " + path);
-        }
-        stream.write(text.data(), static_cast<std::streamsize>(text.size()));
-        if (!stream)
-        {
-            throw std::ios_base::failure("I/O error while writing file: " + path);
-        }
-    }
-
-    [[nodiscard]] std::string GetFullPath(const std::string& path)
-    {
-        return PathToUtf8(std::filesystem::absolute(PathFromUtf8(path)).lexically_normal());
-    }
-
-    [[nodiscard]] std::string GetDirectoryName(const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).parent_path());
-    }
-
-    [[nodiscard]] std::string GetFileName(const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
-    [[nodiscard]] bool IsPathRooted(const std::string& path)
-    {
-        return PathFromUtf8(path).has_root_path();
     }
 
     enum class JsonKind
@@ -1698,7 +1669,7 @@ namespace MphRead::Mods::MapGen
             std::optional<std::string> recipe = MapBundle::ReadRecipe(path);
             if (!recipe)
             {
-                throw ProgramException(GetFileName(path) + " has no map in it.");
+                throw ProgramException(PathGetFileName(path) + " has no map in it.");
             }
             text = std::move(*recipe);
         }
@@ -1712,8 +1683,8 @@ namespace MphRead::Mods::MapGen
         {
             throw ProgramException("Could not read map definition " + path + ".");
         }
-        result->_baseDirectory = GetDirectoryName(GetFullPath(path));
-        result->_sourcePath = GetFullPath(path);
+        result->_baseDirectory = PathGetDirectoryName(PathGetFullPath(path));
+        result->_sourcePath = PathGetFullPath(path);
         result->_bundlePath = MapBundle::Is(path) ? result->_sourcePath : std::optional<std::string>{};
         if (result->_import)
         {
@@ -1725,7 +1696,7 @@ namespace MphRead::Mods::MapGen
 
     void MapDefinition::Save(const std::string& path) const
     {
-        WriteAllText(path, Serialize());
+        FileWriteAllText(path, Serialize());
     }
 
     std::string MapDefinition::Serialize() const
@@ -1823,7 +1794,7 @@ namespace MphRead::Mods::MapGen
         {
             return name;
         }
-        if (IsPathRooted(name))
+        if (PathIsPathRooted(name))
         {
             return std::nullopt;
         }

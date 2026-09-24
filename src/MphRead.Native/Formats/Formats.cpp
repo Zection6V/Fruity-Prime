@@ -29,6 +29,8 @@
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllLines;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::StringTrim;
@@ -305,11 +307,6 @@ namespace
         return empty;
     }
 
-    [[nodiscard]] std::string GetFileNameWithoutExtension(std::string_view name)
-    {
-        return PathToUtf8(PathFromUtf8(name).stem());
-    }
-
     [[nodiscard]] std::int64_t TickCount64Milliseconds() noexcept
     {
         using namespace std::chrono;
@@ -360,79 +357,6 @@ namespace
             return value == '\\' || value == '/';
         }
         return value == separator;
-    }
-
-    [[nodiscard]] bool IsManagedPathRooted(std::string_view path) noexcept
-    {
-        if (path.empty())
-        {
-            return false;
-        }
-
-        const char separator = std::filesystem::path::preferred_separator;
-        if (separator == '\\')
-        {
-            if (IsManagedDirectorySeparator(path[0]))
-            {
-                return true;
-            }
-            if (path.size() >= 2 && path[1] == ':')
-            {
-                const unsigned char drive = static_cast<unsigned char>(path[0]);
-                return (drive >= 'A' && drive <= 'Z')
-                    || (drive >= 'a' && drive <= 'z');
-            }
-            return false;
-        }
-
-        return path[0] == separator;
-    }
-
-    [[nodiscard]] bool IsManagedCombineSeparator(char value) noexcept
-    {
-        if (IsManagedDirectorySeparator(value))
-        {
-            return true;
-        }
-        return std::filesystem::path::preferred_separator == '\\' && value == ':';
-    }
-
-    [[nodiscard]] std::string CombinePaths(
-        const std::vector<std::string>& paths)
-    {
-        std::size_t firstComponent = 0;
-        for (std::size_t index = 0; index < paths.size(); ++index)
-        {
-            if (!paths[index].empty() && IsManagedPathRooted(paths[index]))
-            {
-                firstComponent = index;
-            }
-        }
-
-        std::string result;
-        const char separator = std::filesystem::path::preferred_separator;
-        for (std::size_t index = firstComponent; index < paths.size(); ++index)
-        {
-            const std::string& path = paths[index];
-            if (path.empty())
-            {
-                continue;
-            }
-
-            if (result.empty())
-            {
-                result = path;
-            }
-            else
-            {
-                if (!IsManagedCombineSeparator(result.back()))
-                {
-                    result.push_back(separator);
-                }
-                result += path;
-            }
-        }
-        return result;
     }
 
     template <typename T>
@@ -758,7 +682,7 @@ namespace MphRead
         std::shared_ptr<const std::vector<std::shared_ptr<EffectElement>>> elements,
         std::string name)
         : Id(id),
-          Name(StringReplace(GetFileNameWithoutExtension(name), "_PS", "")),
+          Name(StringReplace(PathGetFileNameWithoutExtension(name), "_PS", "")),
           Field0(raw.Field0),
           Funcs(FreezeMap(funcs)),
           List2(std::move(list2)),
@@ -1649,16 +1573,16 @@ namespace MphRead
 
     std::string Paths::Combine(std::string path1, std::string path2)
     {
-        return CombinePaths({Replace(std::move(path1)), Replace(std::move(path2))});
+        return PathCombine(Replace(std::move(path1)), Replace(std::move(path2)));
     }
 
     std::string Paths::Combine(
         std::string path1, std::string path2, std::string path3)
     {
-        return CombinePaths({
+        return PathCombine(
             Replace(std::move(path1)),
             Replace(std::move(path2)),
-            Replace(std::move(path3))});
+            Replace(std::move(path3)));
     }
 
     std::string Paths::Combine(
@@ -1667,11 +1591,11 @@ namespace MphRead
         std::string path3,
         std::string path4)
     {
-        return CombinePaths({
+        return PathCombine(
             Replace(std::move(path1)),
             Replace(std::move(path2)),
             Replace(std::move(path3)),
-            Replace(std::move(path4))});
+            Replace(std::move(path4)));
     }
 
     std::string Paths::Combine(std::vector<std::string>& paths)
@@ -1680,7 +1604,7 @@ namespace MphRead
         {
             path = Replace(std::move(path));
         }
-        return CombinePaths(paths);
+        return PathCombine(paths);
     }
 
     [[noreturn]] void CollectionExtensions::ThrowSpanRange()

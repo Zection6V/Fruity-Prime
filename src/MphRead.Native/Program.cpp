@@ -51,6 +51,7 @@ using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllText;
 using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringTrimView;
 
@@ -67,17 +68,6 @@ namespace
             if (ch >= 'A' && ch <= 'Z')
                 ch = static_cast<char>(ch - 'A' + 'a');
         return result;
-    }
-    [[nodiscard]] std::string GetFileNameWithoutExtension(std::string_view path)
-    {
-#if defined(_WIN32)
-        const std::size_t separator = path.find_last_of("/\\");
-#else
-        const std::size_t separator = path.find_last_of('/');
-#endif
-        const std::string_view fileName = separator == std::string_view::npos ? path : path.substr(separator + 1);
-        const std::size_t period = fileName.find_last_of('.');
-        return period == std::string_view::npos ? std::string(fileName) : std::string(fileName.substr(0, period));
     }
     void WriteLine() { std::cout << '\n'; }
     void WriteLine(std::string_view value) { std::cout << value << '\n'; }
@@ -670,7 +660,7 @@ namespace MphRead
                 if (entry.is_regular_file())
                 {
                     const std::string path = PathToUtf8(entry.path());
-                    Read::ExtractArchive(GetFileNameWithoutExtension(path));
+                    Read::ExtractArchive(PathGetFileNameWithoutExtension(path));
                 }
             }
         }

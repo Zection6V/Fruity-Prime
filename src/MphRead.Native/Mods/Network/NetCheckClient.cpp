@@ -19,6 +19,7 @@
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
@@ -40,6 +41,7 @@
 #include <typeinfo>
 #include <utility>
 
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::Utf16Length;
 using ::MphRead::TestFlag;
@@ -143,16 +145,6 @@ namespace
             value.append(width - length, ' ');
         }
         return value;
-    }
-
-    [[nodiscard]] std::optional<std::string> EnvironmentVariable(const char* name)
-    {
-        const char* value = std::getenv(name);
-        if (value == nullptr)
-        {
-            return std::nullopt;
-        }
-        return std::string(value);
     }
 
     [[nodiscard]] bool TryParseInvariantDouble(const std::string& input, double& value)
@@ -524,7 +516,7 @@ namespace MphRead::Mods::Network
 
     void NetCheckClient::DriveVoteTest()
     {
-        const std::optional<std::string> room = EnvironmentVariable("MPHREAD_VOTE_TEST");
+        const std::optional<std::string> room = EnvironmentGetVariable("MPHREAD_VOTE_TEST");
         if (!room.has_value())
         {
             return;
@@ -554,7 +546,7 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        const std::optional<std::string> at = EnvironmentVariable("MPHREAD_NET_REBIND");
+        const std::optional<std::string> at = EnvironmentGetVariable("MPHREAD_NET_REBIND");
         double seconds = 0.0;
         if (!at.has_value() || !TryParseInvariantDouble(*at, seconds))
         {
@@ -1025,7 +1017,7 @@ namespace MphRead::Mods::Network
                 << OptionalInterpolation(DemoRecorder::CurrentPath()) << '\n';
             DemoRecorder::Stop();
         }
-        if (EnvironmentVariable("MPHREAD_CLIP_TEST").has_value())
+        if (EnvironmentGetVariable("MPHREAD_CLIP_TEST").has_value())
         {
             const double held = DemoClip::Held();
             const std::optional<std::string> first = DemoClip::Save();

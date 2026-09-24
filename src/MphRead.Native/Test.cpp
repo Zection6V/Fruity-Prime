@@ -39,6 +39,7 @@
 using ::MphRead::NativeRuntime::EnvironmentNewLine;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::Int32ToUInt32;
+using ::MphRead::NativeRuntime::PathGetFileName;
 using ::MphRead::NativeRuntime::ShiftLeft;
 using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
@@ -443,11 +444,6 @@ namespace
             && value.substr(value.size() - suffix.size()) == suffix;
     }
 
-    [[nodiscard]] std::string GetFileName(const std::string& path)
-    {
-        return ::MphRead::NativeRuntime::PathGetFileName(path);
-    }
-
     [[nodiscard]] std::string ManagedToLower(std::string value)
     {
         // System.String.ToLower is culture-sensitive. This preserves the ASCII
@@ -634,7 +630,7 @@ namespace MphRead
         for (const std::string& path : paths)
         {
             const std::vector<std::uint8_t> bytes = FileReadAllBytes(path);
-            const std::string name = GetFileName(path);
+            const std::string name = PathGetFileName(path);
             const Header header = Read::ReadStruct<Header>(
                 std::span<const std::uint8_t>(bytes));
 

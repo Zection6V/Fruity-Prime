@@ -11,8 +11,10 @@
 #include "Network/NetProtocol.hpp"
 #include "RenderOptions.hpp"
 #include "Update/BuildVersion.hpp"
+#include "../NativeRuntime/System/Console.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
 
 #include <algorithm>
 #include <array>
@@ -82,7 +84,11 @@
 #include <cxxabi.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
 using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathGetDirectoryName;
 using ::MphRead::NativeRuntime::WideToUtf8;
 using ::MphRead::NativeRuntime::Wtf8ToWide;
 
@@ -95,15 +101,6 @@ namespace
 #endif
 
     constexpr std::int32_t KeepFiles = 8;
-
-    [[nodiscard]] bool IsDirectorySeparator(char value) noexcept
-    {
-#if defined(_WIN32)
-        return value == '\\' || value == '/';
-#else
-        return value == '/';
-#endif
-    }
 
     [[nodiscard]] std::filesystem::path PathFromManagedString(std::string_view path)
     {
@@ -667,26 +664,6 @@ namespace
         return std::string(path.substr(0, period));
     }
 
-    [[nodiscard]] std::optional<std::string> GetDirectoryName(std::string_view path)
-    {
-        const std::size_t separator = path.find_last_of("/\\");
-        if (separator == std::string_view::npos)
-        {
-            return std::nullopt;
-        }
-        if (separator == 0)
-        {
-            return std::string(path.substr(0, 1));
-        }
-#if defined(_WIN32)
-        if (separator == 2 && path.size() >= 3 && path[1] == ':')
-        {
-            return std::string(path.substr(0, 3));
-        }
-#endif
-        return std::string(path.substr(0, separator));
-    }
-
     [[nodiscard]] bool Redirect(const std::shared_ptr<FileSink>& stream) noexcept
     {
 #if defined(_WIN32)
@@ -866,93 +843,6 @@ namespace
 #endif
     }
 
-    [[nodiscard]] std::optional<std::string> ProcessPath()
-    {
-#if defined(_WIN32)
-        std::vector<wchar_t> buffer(260);
-        for (;;)
-        {
-            const DWORD length = GetModuleFileNameW(nullptr, buffer.data(),
-                static_cast<DWORD>(buffer.size()));
-            if (length == 0)
-            {
-                return std::nullopt;
-            }
-            if (length < buffer.size())
-            {
-                return WideToUtf8(std::wstring_view(buffer.data(), length));
-            }
-            if (buffer.size() > static_cast<std::size_t>(MAXDWORD) / 2U)
-            {
-                return std::nullopt;
-            }
-            buffer.resize(buffer.size() * 2U);
-        }
-#elif defined(__APPLE__)
-        std::uint32_t size = 0;
-        (void)_NSGetExecutablePath(nullptr, &size);
-        if (size == 0)
-        {
-            return std::nullopt;
-        }
-        std::vector<char> buffer(size);
-        if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-        {
-            return std::nullopt;
-        }
-        std::error_code error;
-        const std::filesystem::path canonical = std::filesystem::canonical(
-            std::filesystem::path(buffer.data()), error);
-        return error ? std::optional<std::string>(buffer.data())
-            : std::optional<std::string>(canonical.string());
-#elif defined(__linux__) || defined(__ANDROID__)
-        std::vector<char> buffer(256);
-        for (;;)
-        {
-            const ssize_t length = ::readlink("/proc/self/exe", buffer.data(), buffer.size());
-            if (length < 0)
-            {
-                return std::nullopt;
-            }
-            if (static_cast<std::size_t>(length) < buffer.size())
-            {
-                return std::string(buffer.data(), static_cast<std::size_t>(length));
-            }
-            buffer.resize(buffer.size() * 2U);
-        }
-#else
-        return std::nullopt;
-#endif
-    }
-
-    [[nodiscard]] std::string BaseDirectory()
-    {
-        const std::optional<std::string> path = ProcessPath();
-        if (path.has_value())
-        {
-            const std::size_t separator = path->find_last_of("/\\");
-            if (separator != std::string::npos)
-            {
-                return path->substr(0, separator + 1);
-            }
-        }
-        std::filesystem::path current = std::filesystem::current_path();
-#if defined(_WIN32)
-        std::string result = WideToUtf8(current.native());
-        if (result.empty() || !IsDirectorySeparator(result.back()))
-        {
-            result.push_back('\\');
-        }
-#else
-        std::string result = current.string();
-        if (result.empty() || result.back() != '/')
-        {
-            result.push_back('/');
-        }
-#endif
-        return result;
-    }
-
     [[nodiscard]] std::vector<std::string> CommandLineArgs()
     {
 #if defined(_WIN32)
@@ -1019,7 +909,7 @@ namespace
             }
         }
 #endif
-        if (const std::optional<std::string> path = ProcessPath())
+        if (const std::optional<std::string> path = EnvironmentProcessPath())
         {
             return {*path};
         }
@@ -1043,16 +933,14 @@ namespace
 
     [[nodiscard]] std::string EnvironmentValue(std::string_view name)
     {
-        const std::string key(name);
-        const char* value = std::getenv(key.c_str());
-        return value == nullptr || *value == '\0' ? "(unset)" : std::string(value);
+        const std::optional<std::string> value = EnvironmentGetVariable(std::string(name));
+        return !value.has_value() || value->empty() ? "(unset)" : *value;
     }
 
     [[nodiscard]] bool EnvironmentValueIsNullOrEmpty(std::string_view name)
     {
-        const std::string key(name);
-        const char* value = std::getenv(key.c_str());
-        return value == nullptr || *value == '\0';
+        const std::optional<std::string> value = EnvironmentGetVariable(std::string(name));
+        return !value.has_value() || value->empty();
     }
 
     [[nodiscard]] std::string ProgramVersionText()
@@ -1811,7 +1699,7 @@ namespace
 
             if (EnvironmentValueIsNullOrEmpty("DOTNET_DbgEnableMiniDump"))
             {
-                const std::string directory = GetDirectoryName(*logPath).value_or(".");
+                const std::string directory = PathGetDirectoryName(*logPath).value_or(".");
                 MphRead::Mods::DebugLog::Line("crash",
                     "no crash dump is configured. For a native stack from the "
                     "next crash, start the game with these three set (type 4 is "
@@ -1862,7 +1750,7 @@ namespace
             + ", .NET native, " + std::to_string(ProcessorCount()) + " cpu(s)");
         DebugLog::Line("system", "64-bit process=" + BooleanText(sizeof(void*) == 8)
             + ", culture=" + CultureName());
-        DebugLog::Line("paths", "base=" + BaseDirectory());
+        DebugLog::Line("paths", "base=" + AppContextBaseDirectory());
         DebugLog::Line("paths", "prefs=" + LauncherPrefs::Directory());
         const std::optional<std::string> path = DebugLog::Path();
         DebugLog::Line("paths", "log=" + path.value_or(""));

@@ -1,12 +1,15 @@
 #include "GamepadMappings.hpp"
 
 #include "GamepadLayout.hpp"
+#include "../../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../Launcher/Portable/LauncherPrefs.hpp"
-#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Runtime.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -45,6 +48,8 @@
 #endif
 #endif
 
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllText;
 using ::MphRead::NativeRuntime::PathCombine;
@@ -52,6 +57,8 @@ using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::StringTrimView;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::Utf8GetString;
+
+namespace Glfw = ::OpenTK::Windowing::GraphicsLibraryFramework;
 
 namespace
 {
@@ -64,322 +71,6 @@ namespace
 #else
         return path.u8string();
 #endif
-    }
-
-    [[nodiscard]] std::optional<std::filesystem::path> ProcessPath()
-    {
-#if defined(_WIN32)
-        std::vector<wchar_t> buffer(260);
-        for (;;)
-        {
-            const DWORD length = GetModuleFileNameW(
-                nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-            if (length == 0)
-            {
-                return std::nullopt;
-            }
-            if (length < buffer.size())
-            {
-                return std::filesystem::path(
-                    std::wstring(buffer.data(), static_cast<std::size_t>(length)));
-            }
-            if (buffer.size()
-                > static_cast<std::size_t>(std::numeric_limits<DWORD>::max()) / 2U)
-            {
-                return std::nullopt;
-            }
-            buffer.resize(buffer.size() * 2U);
-        }
-#elif defined(__APPLE__)
-        std::uint32_t size = 1;
-        char probe = 0;
-        if (_NSGetExecutablePath(&probe, &size) == 0 || size == 0)
-        {
-            return std::nullopt;
-        }
-        std::vector<char> buffer(size);
-        if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-        {
-            return std::nullopt;
-        }
-        std::error_code error;
-        const std::filesystem::path canonical
-            = std::filesystem::canonical(PathFromUtf8(buffer.data()), error);
-        return error ? std::optional<std::filesystem::path>{}
-            : std::optional<std::filesystem::path>{canonical};
-#elif defined(__linux__)
-        std::error_code error;
-        const std::filesystem::path procPath
-            = std::filesystem::canonical("/proc/self/exe", error);
-        if (!error)
-        {
-            return procPath;
-        }
-#if defined(AT_EXECFN)
-        const auto executable
-            = reinterpret_cast<const char*>(getauxval(AT_EXECFN));
-        if (executable != nullptr)
-        {
-            error.clear();
-            const std::filesystem::path execPath
-                = std::filesystem::canonical(PathFromUtf8(executable), error);
-            if (!error)
-            {
-                return execPath;
-            }
-        }
-#endif
-        return std::nullopt;
-#else
-        return std::nullopt;
-#endif
-    }
-
-    [[nodiscard]] std::string BaseDirectory()
-    {
-        if (const std::optional<std::filesystem::path> process = ProcessPath())
-        {
-            return ToUtf8(process->parent_path());
-        }
-        return ToUtf8(std::filesystem::current_path());
-    }
-
-    [[nodiscard]] std::optional<std::string> EnvironmentVariable()
-    {
-#if defined(_WIN32)
-        constexpr wchar_t Name[] = L"SDL_GAMECONTROLLERCONFIG";
-        SetLastError(ERROR_SUCCESS);
-        DWORD required = GetEnvironmentVariableW(Name, nullptr, 0);
-        if (required == 0)
-        {
-            return GetLastError() == ERROR_ENVVAR_NOT_FOUND
-                ? std::nullopt
-                : std::optional<std::string>{""};
-        }
-
-        for (;;)
-        {
-            std::vector<wchar_t> buffer(required);
-            SetLastError(ERROR_SUCCESS);
-            const DWORD length = GetEnvironmentVariableW(
-                Name, buffer.data(), required);
-            if (length == 0)
-            {
-                return GetLastError() == ERROR_ENVVAR_NOT_FOUND
-                    ? std::nullopt
-                    : std::optional<std::string>{""};
-            }
-            if (length >= required)
-            {
-                required = length;
-                continue;
-            }
-            if (length > static_cast<DWORD>(std::numeric_limits<int>::max()))
-            {
-                throw std::length_error("Environment variable is too long.");
-            }
-            const int bytes = WideCharToMultiByte(
-                CP_UTF8, 0, buffer.data(), static_cast<int>(length),
-                nullptr, 0, nullptr, nullptr);
-            if (bytes <= 0)
-            {
-                return std::string{};
-            }
-            std::string result(static_cast<std::size_t>(bytes), '\0');
-            (void)WideCharToMultiByte(
-                CP_UTF8, 0, buffer.data(), static_cast<int>(length),
-                result.data(), bytes, nullptr, nullptr);
-            return result;
-        }
-#else
-        const char* value = std::getenv("SDL_GAMECONTROLLERCONFIG");
-        return value == nullptr
-            ? std::nullopt
-            : std::optional<std::string>{Utf8GetString(value)};
-#endif
-    }
-
-    class GlfwBindingUnavailable final : public std::runtime_error
-    {
-    public:
-        explicit GlfwBindingUnavailable(const char* procedure)
-            : std::runtime_error(
-                std::string("GLFW binding unavailable: ") + procedure)
-        {
-        }
-    };
-
-    using UpdateMappings = int (*)(const char*);
-    using JoystickString = const char* (*)(int);
-
-#if defined(_WIN32)
-    [[nodiscard]] HMODULE GlfwModule() noexcept
-    {
-        static HMODULE module = []() noexcept -> HMODULE
-        {
-            for (const wchar_t* name : {L"glfw3.3.dll", L"glfw3.dll", L"glfw.dll"})
-            {
-                if (HMODULE handle = GetModuleHandleW(name))
-                {
-                    return handle;
-                }
-                if (HMODULE handle = LoadLibraryW(name))
-                {
-                    return handle;
-                }
-            }
-            return nullptr;
-        }();
-        return module;
-    }
-
-    template <typename T>
-    [[nodiscard]] T GlfwProc(const char* name) noexcept
-    {
-        const HMODULE module = GlfwModule();
-        return module == nullptr
-            ? nullptr
-            : reinterpret_cast<T>(GetProcAddress(module, name));
-    }
-#elif defined(__APPLE__) || (defined(__unix__) && !defined(__ANDROID__))
-    [[nodiscard]] std::optional<std::filesystem::path>
-        GlfwExecutableDirectory() noexcept
-    {
-        try
-        {
-#if defined(__APPLE__)
-            std::uint32_t size = 1;
-            char probe = 0;
-            if (_NSGetExecutablePath(&probe, &size) == 0 || size == 0)
-            {
-                return std::nullopt;
-            }
-            std::vector<char> buffer(size);
-            if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-            {
-                return std::nullopt;
-            }
-            return std::filesystem::path(buffer.data()).parent_path();
-#elif defined(__linux__)
-            std::vector<char> buffer(256);
-            for (;;)
-            {
-                const ssize_t length = readlink(
-                    "/proc/self/exe", buffer.data(), buffer.size());
-                if (length < 0)
-                {
-                    return std::nullopt;
-                }
-                if (static_cast<std::size_t>(length) < buffer.size())
-                {
-                    return std::filesystem::path(std::string(
-                        buffer.data(), static_cast<std::size_t>(length))).parent_path();
-                }
-                buffer.resize(buffer.size() * 2U);
-            }
-#else
-            return std::nullopt;
-#endif
-        }
-        catch (...)
-        {
-            return std::nullopt;
-        }
-    }
-
-    [[nodiscard]] void* GlfwModule() noexcept
-    {
-        static void* module = []() noexcept -> void*
-        {
-#if defined(__APPLE__)
-            constexpr const char* names[] = {
-                "glfw.3.3.dylib", "libglfw.3.3.dylib",
-                "glfw.3.dylib", "libglfw.3.dylib",
-                "glfw.dylib", "libglfw.dylib", "glfw"};
-#else
-            constexpr const char* names[] = {
-                "glfw.so.3.3", "libglfw.so.3.3",
-                "glfw.so.3", "libglfw.so.3",
-                "glfw.so", "libglfw.so", "glfw"};
-#endif
-            if (const auto directory = GlfwExecutableDirectory())
-            {
-                for (const char* name : names)
-                {
-                    try
-                    {
-                        const std::string local = (*directory / name).string();
-                        if (void* handle = dlopen(
-                            local.c_str(), RTLD_LAZY | RTLD_LOCAL))
-                        {
-                            return handle;
-                        }
-                    }
-                    catch (...)
-                    {
-                    }
-                }
-            }
-            for (const char* name : names)
-            {
-                if (void* handle = dlopen(name, RTLD_LAZY | RTLD_LOCAL))
-                {
-                    return handle;
-                }
-            }
-            return nullptr;
-        }();
-        return module;
-    }
-
-    template <typename T>
-    [[nodiscard]] T GlfwProc(const char* name) noexcept
-    {
-        void* module = GlfwModule();
-        return module == nullptr
-            ? nullptr
-            : reinterpret_cast<T>(dlsym(module, name));
-    }
-#else
-    template <typename T>
-    [[nodiscard]] T GlfwProc(const char*) noexcept
-    {
-        return nullptr;
-    }
-#endif
-
-    [[nodiscard]] UpdateMappings UpdateMappingsApi() noexcept
-    {
-        static const auto value
-            = GlfwProc<UpdateMappings>("glfwUpdateGamepadMappings");
-        return value;
-    }
-
-    [[nodiscard]] JoystickString GuidApi() noexcept
-    {
-        static const auto value
-            = GlfwProc<JoystickString>("glfwGetJoystickGUID");
-        return value;
-    }
-
-    [[nodiscard]] JoystickString NameApi() noexcept
-    {
-        static const auto value
-            = GlfwProc<JoystickString>("glfwGetJoystickName");
-        return value;
-    }
-
-    [[nodiscard]] std::optional<std::string> ReadJoystickString(
-        JoystickString function, std::int32_t slot, const char* procedure)
-    {
-        if (function == nullptr)
-        {
-            throw GlfwBindingUnavailable(procedure);
-        }
-        const char* value = function(slot);
-        return value == nullptr
-            ? std::nullopt
-            : std::optional<std::string>{Utf8GetString(value)};
     }
 
 }
@@ -423,7 +114,7 @@ namespace MphRead::Mods::Input
             }
         }
 
-        const std::optional<std::string> config = EnvironmentVariable();
+        const std::optional<std::string> config = EnvironmentGetVariable("SDL_GAMECONTROLLERCONFIG");
         if (config.has_value()
             && !StringTrimView(*config).empty()
             && Apply(*config))
@@ -443,7 +134,7 @@ namespace MphRead::Mods::Input
 
     std::vector<std::string> GamepadMappings::Paths()
     {
-        const std::string beside = PathCombine(BaseDirectory(), FileName);
+        const std::string beside = PathCombine(AppContextBaseDirectory(), FileName);
         const std::string settings = PathCombine(
             Launcher::LauncherPrefs::Directory(), FileName);
         return beside == settings
@@ -476,14 +167,9 @@ namespace MphRead::Mods::Input
     {
         try
         {
-            const UpdateMappings function = UpdateMappingsApi();
-            if (function == nullptr)
-            {
-                throw GlfwBindingUnavailable("glfwUpdateGamepadMappings");
-            }
-            return function(text.c_str()) != 0;
+            return Glfw::GLFW::UpdateGamepadMappings(text);
         }
-        catch (const GlfwBindingUnavailable&)
+        catch (const Glfw::GlfwUnavailableException&)
         {
             return false;
         }
@@ -515,11 +201,9 @@ namespace MphRead::Mods::Input
 
     std::string GamepadMappings::Suggest(std::int32_t slot)
     {
-        std::string guid = ReadJoystickString(
-            GuidApi(), slot, "glfwGetJoystickGUID").value_or(
+        std::string guid = Glfw::GLFW::GetJoystickGUID(slot).value_or(
                 "00000000000000000000000000000000");
-        std::string name = ReadJoystickString(
-            NameApi(), slot, "glfwGetJoystickName").value_or("gamepad");
+        std::string name = Glfw::GLFW::GetJoystickName(slot).value_or("gamepad");
         for (char& character : name)
         {
             if (character == ',')

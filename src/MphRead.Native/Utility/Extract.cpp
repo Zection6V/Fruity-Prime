@@ -51,12 +51,16 @@
 #endif
 
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::DirectoryCreateDirectory;
 using ::MphRead::NativeRuntime::EnvironmentNewLine;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetExtension;
+using ::MphRead::NativeRuntime::PathGetFileName;
+using ::MphRead::NativeRuntime::PathGetFullPath;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::StringTrim;
@@ -332,26 +336,6 @@ namespace
         {
             throw std::ios_base::failure("Could not write file: " + path);
         }
-    }
-
-    void CreateDirectory(const std::string& path)
-    {
-        std::filesystem::create_directories(PathFromUtf8(path));
-    }
-
-    [[nodiscard]] std::string GetFullPath(const std::string& path)
-    {
-        return PathToUtf8(std::filesystem::absolute(PathFromUtf8(path)).lexically_normal());
-    }
-
-    [[nodiscard]] std::string GetFileName(const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
-    [[nodiscard]] std::string GetExtension(const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).extension());
     }
 
     struct Utf8Position final
@@ -724,7 +708,7 @@ namespace
         writeFiles = [&](const std::shared_ptr<Extract::DirInfo>& dir, const std::string& path)
         {
             std::cout << "Writing " << path << "..." << '\n';
-            CreateDirectory(path);
+            DirectoryCreateDirectory(path);
             for (const std::shared_ptr<Extract::FileInfo>& file : *dir->Files)
             {
                 const std::int32_t fileIndex = std::bit_cast<std::int32_t>(file->Index);
@@ -752,7 +736,7 @@ namespace
                 if (entry.is_regular_file())
                 {
                     const std::string path = PathToUtf8(entry.path());
-                    if (ToLowerAscii(GetExtension(path)) == ".arc")
+                    if (ToLowerAscii(PathGetExtension(path)) == ".arc")
                     {
                         Read::ExtractArchive(path);
                     }
@@ -761,7 +745,7 @@ namespace
 
             std::cout << "Converting sound_data.sdat..." << '\n';
             const std::string sdatDest = Paths::Combine("files", root->Name, "_seq");
-            CreateDirectory(sdatDest);
+            DirectoryCreateDirectory(sdatDest);
             ConvertSdat(
                 Paths::Combine(
                     Paths::Combine("files", root->Name, "data", "sound"),
@@ -770,7 +754,7 @@ namespace
         }
 
         const std::string ftcDir = Paths::Combine("files", root->Name, "ftc");
-        CreateDirectory(ftcDir);
+        DirectoryCreateDirectory(ftcDir);
 
         auto writeFile = [&](const std::string& name, std::int32_t offset, std::int32_t size)
         {
@@ -822,14 +806,14 @@ namespace
         }
 
         const std::string ftcDest = Paths::Combine("files", root->Name, "_bin");
-        CreateDirectory(ftcDest);
+        DirectoryCreateDirectory(ftcDest);
         for (const std::filesystem::directory_entry& entry
             : std::filesystem::directory_iterator(PathFromUtf8(ftcDir)))
         {
             if (entry.is_regular_file())
             {
                 const std::string path = PathToUtf8(entry.path());
-                const std::string filename = GetFileName(path);
+                const std::string filename = PathGetFileName(path);
                 if (filename == "arm9.bin" || StartsWith(filename, "overlay9_"))
                 {
                     std::cout << "Decompressing " << filename << "..." << '\n';
@@ -927,8 +911,8 @@ namespace MphRead
         ExtractRomData(rootName);
 
         const std::string newPath = isFh
-            ? GetFullPath(Paths::Combine("files", rootName, "data"))
-            : GetFullPath(Paths::Combine("files", rootName));
+            ? PathGetFullPath(Paths::Combine("files", rootName, "data"))
+            : PathGetFullPath(Paths::Combine("files", rootName));
         Paths::SetPath(rootName, newPath);
 
         static constexpr std::array<std::string_view, 10> versionKeys = {

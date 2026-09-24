@@ -38,6 +38,7 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::FileDelete;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 
@@ -833,16 +834,6 @@ namespace MphRead::Mods::Update
             }
         }
 
-        void DeleteFile(const std::string& path)
-        {
-            std::error_code error;
-            std::filesystem::remove(PathFromUtf8(path), error);
-            if (error)
-            {
-                ThrowFileError(path, error);
-            }
-        }
-
         void MoveFile(const std::string& source, const std::string& destination)
         {
             std::error_code error;
@@ -1130,7 +1121,7 @@ namespace MphRead::Mods::Update
 
             if (path != nullptr && FileExists(*path))
             {
-                DeleteFile(*path);
+                FileDelete(*path);
             }
             if (path == nullptr)
             {
@@ -1252,7 +1243,7 @@ namespace MphRead::Mods::Update
         {
             if (FileExists(partial))
             {
-                DeleteFile(partial);
+                FileDelete(partial);
             }
         }
         catch (const IOException&)

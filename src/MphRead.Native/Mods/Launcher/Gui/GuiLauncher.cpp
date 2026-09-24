@@ -13,6 +13,7 @@
 #include "../../Network/NetHostSession.hpp"
 #include "../../Network/NetSession.hpp"
 #include "../../../GameState.hpp"
+#include "../../../NativeRuntime/System/Console.hpp"
 
 #include <cstdlib>
 #include <exception>
@@ -26,6 +27,8 @@
 #if defined(__APPLE__) && defined(__MACH__)
 #include <TargetConditionals.h>
 #endif
+
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 
 namespace MphRead::Mods::Launcher::Gui
 {
@@ -108,12 +111,6 @@ namespace MphRead::Mods::Launcher::Gui
 #else
             return false;
 #endif
-        }
-
-        [[nodiscard]] bool IsNullOrEmptyEnvironmentVariable(const char* name) noexcept
-        {
-            const char* value = std::getenv(name);
-            return value == nullptr || value[0] == '\0';
         }
 
         void StopFrame(void* context)
@@ -238,8 +235,8 @@ namespace MphRead::Mods::Launcher::Gui
         {
             return true;
         }
-        if (IsNullOrEmptyEnvironmentVariable("DISPLAY")
-            && IsNullOrEmptyEnvironmentVariable("WAYLAND_DISPLAY"))
+        if (EnvironmentGetVariable("DISPLAY").value_or("").empty()
+            && EnvironmentGetVariable("WAYLAND_DISPLAY").value_or("").empty())
         {
             std::cout << "[launcher] no DISPLAY or WAYLAND_DISPLAY; "
                 << "using the text launcher\n";

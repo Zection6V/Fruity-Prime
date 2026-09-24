@@ -6,6 +6,7 @@
 #include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
 
 #include <algorithm>
 #include <array>
@@ -57,6 +58,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::Utf8ToUtf16;
 using ::MphRead::NativeRuntime::Utf8ToWide;
@@ -1264,84 +1266,9 @@ namespace
         return count;
     }
 
-    std::optional<std::string> QueryCurrentProcessPath()
-    {
-#ifdef _WIN32
-        std::vector<wchar_t> buffer(260);
-        while (true)
-        {
-            const DWORD capacity = static_cast<DWORD>(
-                std::min<std::size_t>(
-                    buffer.size(), std::numeric_limits<DWORD>::max()));
-            const DWORD length =
-                ::GetModuleFileNameW(nullptr, buffer.data(), capacity);
-            if (length == 0)
-            {
-                const DWORD error = ::GetLastError();
-                throw std::system_error(
-                    static_cast<int>(error), std::system_category());
-            }
-            if (length < capacity)
-            {
-                return WideToUtf8(std::wstring_view(buffer.data(), length));
-            }
-            if (buffer.size() > std::numeric_limits<std::size_t>::max() / 2
-                || buffer.size() * 2 > std::numeric_limits<DWORD>::max())
-            {
-                throw std::length_error("process path is too long");
-            }
-            buffer.resize(buffer.size() * 2);
-        }
-#elif defined(__APPLE__)
-        char buffer[PATH_MAX];
-        std::uint32_t size = static_cast<std::uint32_t>(sizeof(buffer));
-        if (::_NSGetExecutablePath(buffer, &size) != 0)
-        {
-            return std::nullopt;
-        }
-        char* resolved = ::realpath(buffer, nullptr);
-        if (resolved == nullptr)
-        {
-            return std::nullopt;
-        }
-        std::string result(resolved);
-        std::free(resolved);
-        return result;
-#else
-        const char* link =
-#if defined(__linux__)
-            "/proc/self/exe";
-#else
-            "/proc/curproc/exe";
-#endif
-        char* resolved = ::realpath(link, nullptr);
-        if (resolved != nullptr)
-        {
-            std::string result(resolved);
-            std::free(resolved);
-            return result;
-        }
-#if defined(__linux__) && defined(AT_EXECFN)
-        const auto raw = ::getauxval(AT_EXECFN);
-        if (raw != 0)
-        {
-            resolved = ::realpath(
-                reinterpret_cast<const char*>(raw), nullptr);
-            if (resolved != nullptr)
-            {
-                std::string result(resolved);
-                std::free(resolved);
-                return result;
-            }
-        }
-#endif
-        return std::nullopt;
-#endif
-    }
-
     const std::optional<std::string>& CurrentProcessPath()
     {
-        static const std::optional<std::string> path = QueryCurrentProcessPath();
+        static const std::optional<std::string> path = EnvironmentProcessPath();
         return path;
     }
 

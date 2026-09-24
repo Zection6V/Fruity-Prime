@@ -3,9 +3,11 @@
 
 #include "BuildVersion.hpp"
 #include "UpdateDownload.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Runtime.hpp"
 
 #include <archive.h>
 #include <archive_entry.h>
@@ -59,11 +61,18 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::DirectoryCreateDirectory;
 using ::MphRead::NativeRuntime::DirectoryExists;
+using ::MphRead::NativeRuntime::EnvironmentCurrentDirectory;
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
+using ::MphRead::NativeRuntime::FileDelete;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetDirectoryName;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::Utf8ToWide;
 using ::MphRead::NativeRuntime::WideToUtf8;
@@ -104,84 +113,6 @@ namespace MphRead::Mods::Update
             }
         };
 
-        [[nodiscard]] std::string CurrentExecutablePath()
-        {
-#if defined(_WIN32)
-            std::vector<wchar_t> buffer(260);
-            for (;;)
-            {
-                const DWORD capacity = static_cast<DWORD>(buffer.size());
-                ::SetLastError(ERROR_SUCCESS);
-                const DWORD length = ::GetModuleFileNameW(nullptr, buffer.data(), capacity);
-                if (length == 0)
-                {
-                    throw std::system_error(
-                        static_cast<int>(::GetLastError()), std::system_category());
-                }
-                if (length < capacity)
-                {
-                    return WideToUtf8(std::wstring_view(buffer.data(), length));
-                }
-                if (buffer.size() > 32768U)
-                {
-                    throw std::length_error("process path is too long");
-                }
-                buffer.resize(buffer.size() * 2U);
-            }
-#elif defined(__APPLE__)
-            std::uint32_t size = 0;
-            (void)::_NSGetExecutablePath(nullptr, &size);
-            if (size == 0)
-            {
-                throw std::runtime_error("could not locate the current executable");
-            }
-            std::vector<char> buffer(size);
-            if (::_NSGetExecutablePath(buffer.data(), &size) != 0)
-            {
-                throw std::runtime_error("could not locate the current executable");
-            }
-            std::unique_ptr<char, decltype(&std::free)> resolved(
-                ::realpath(buffer.data(), nullptr), &std::free);
-            if (!resolved)
-            {
-                throw std::system_error(errno, std::generic_category());
-            }
-            return std::string(resolved.get());
-#else
-            std::vector<char> buffer(256);
-            for (;;)
-            {
-                const ssize_t length = ::readlink(
-                    "/proc/self/exe", buffer.data(), buffer.size());
-                if (length < 0)
-                {
-                    throw std::system_error(errno, std::generic_category());
-                }
-                if (static_cast<std::size_t>(length) < buffer.size())
-                {
-                    return std::string(buffer.data(), static_cast<std::size_t>(length));
-                }
-                buffer.resize(buffer.size() * 2U);
-            }
-#endif
-        }
-
-        [[nodiscard]] const std::string& BaseDirectory()
-        {
-            static const std::string value = []
-            {
-                fs::path directory = PathFromUtf8(CurrentExecutablePath()).parent_path();
-                directory /= "";
-                std::string text = PathToUtf8(directory);
-                if (text.empty() || (text.back() != '/' && text.back() != '\\'))
-                {
-                    text.push_back(static_cast<char>(fs::path::preferred_separator));
-                }
-                return text;
-            }();
-            return value;
-        }
-
         [[nodiscard]] bool IsAndroid() noexcept
         {
 #if defined(__ANDROID__)
@@ -209,65 +140,6 @@ namespace MphRead::Mods::Update
                     "Access to the path '" + path + "' is denied.");
             }
             throw IOException(error.message());
-        }
-
-        void CreateDirectory(const std::string& path)
-        {
-            std::error_code error;
-            fs::create_directories(PathFromUtf8(path), error);
-            if (error)
-            {
-                ThrowFileError(path, error);
-            }
-        }
-
-        void DeleteFile(const std::string& path)
-        {
-#if defined(_WIN32)
-            const std::wstring native = Utf8ToWide(path);
-            if (!::DeleteFileW(native.c_str()))
-            {
-                const DWORD error = ::GetLastError();
-                if (error == ERROR_FILE_NOT_FOUND)
-                {
-                    return;
-                }
-                ThrowFileError(path,
-                    std::error_code(static_cast<int>(error), std::system_category()));
-            }
-#else
-            if (::unlink(PathFromUtf8(path).c_str()) != 0)
-            {
-                const int error = errno;
-                if (error == ENOENT)
-                {
-                    const fs::path parent = PathFromUtf8(path).parent_path();
-                    if (parent.empty())
-                    {
-                        return;
-                    }
-                    std::error_code parentError;
-                    if (fs::is_directory(parent, parentError) && !parentError)
-                    {
-                        return;
-                    }
-                }
-                if (error == EROFS)
-                {
-                    struct stat info{};
-                    if (::lstat(PathFromUtf8(path).c_str(), &info) != 0 && errno == ENOENT)
-                    {
-                        return;
-                    }
-                }
-                if (error == EISDIR)
-                {
-                    throw UnauthorizedAccessException(
-                        "Access to the path '" + path + "' is denied.");
-                }
-                ThrowFileError(path, std::error_code(error, std::generic_category()));
-            }
-#endif
         }
 
         void WriteEmptyFile(const std::string& path)
@@ -623,7 +495,7 @@ namespace MphRead::Mods::Update
             const fs::path parent = PathFromUtf8(output).parent_path();
             if (!parent.empty())
             {
-                CreateDirectory(PathToUtf8(parent));
+                DirectoryCreateDirectory(PathToUtf8(parent));
             }
 
 #if defined(_WIN32)
@@ -925,7 +797,7 @@ namespace MphRead::Mods::Update
                         {
                             throw IOException("Zip entry name ends in directory separator character but contains data.");
                         }
-                        CreateDirectory(output);
+                        DirectoryCreateDirectory(output);
                         continue;
                     }
 
@@ -1123,25 +995,27 @@ namespace MphRead::Mods::Update
                 return executable;
             }
 
-            const fs::path executableDirectory
-                = PathFromUtf8(CurrentExecutablePath()).parent_path();
-            std::string candidate = PathToUtf8(
-                executableDirectory / PathFromUtf8(executable));
+            // Process.ResolvePath: beside this executable, then the current
+            // directory, then PATH.
+            if (const std::optional<std::string> processPath = EnvironmentProcessPath())
+            {
+                const std::string beside = PathCombine(
+                    PathGetDirectoryName(*processPath).value_or(std::string()), executable);
+                if (FileExists(beside))
+                {
+                    return beside;
+                }
+            }
+
+            std::string candidate = PathCombine(EnvironmentCurrentDirectory(), executable);
             if (FileExists(candidate))
             {
                 return candidate;
             }
 
-            candidate = PathToUtf8(fs::current_path() / PathFromUtf8(executable));
-            if (FileExists(candidate))
+            if (const std::optional<std::string> pathValue = EnvironmentGetVariable("PATH"))
             {
-                return candidate;
-            }
-
-            const char* pathValue = std::getenv("PATH");
-            if (pathValue != nullptr)
-            {
-                const std::string_view paths(pathValue);
+                const std::string_view paths(*pathValue);
                 std::size_t start = 0;
                 while (start <= paths.size())
                 {
@@ -1541,7 +1415,7 @@ namespace MphRead::Mods::Update
 
     std::string DesktopUpdate::Staging()
     {
-        return PathCombine(BaseDirectory(), ".update");
+        return PathCombine(AppContextBaseDirectory(), ".update");
     }
 
     std::string DesktopUpdate::StagedBuild()
@@ -1576,9 +1450,9 @@ namespace MphRead::Mods::Update
         }
         try
         {
-            const std::string probe = PathCombine(BaseDirectory(), ".update-probe");
+            const std::string probe = PathCombine(AppContextBaseDirectory(), ".update-probe");
             WriteEmptyFile(probe);
-            DeleteFile(probe);
+            FileDelete(probe);
             return true;
         }
         catch (...)
@@ -1609,7 +1483,7 @@ namespace MphRead::Mods::Update
         {
             Clean();
             const std::string staging = Staging();
-            CreateDirectory(staging);
+            DirectoryCreateDirectory(staging);
 
             const std::optional<std::string>& assetName = update.AssetName.Get();
             if (!assetName.has_value())
@@ -1631,9 +1505,9 @@ namespace MphRead::Mods::Update
             }
 
             const std::string stagedBuild = StagedBuild();
-            CreateDirectory(stagedBuild);
+            DirectoryCreateDirectory(stagedBuild);
             ExtractArchive(archive, stagedBuild, zip);
-            DeleteFile(archive);
+            FileDelete(archive);
 
             const std::string binary = PathCombine(stagedBuild, UpdateCheck::BinaryName());
             if (!FileExists(binary))
@@ -1668,7 +1542,7 @@ namespace MphRead::Mods::Update
             const std::string binary = PathCombine(stagedBuild, UpdateCheck::BinaryName());
             std::vector<std::string> arguments;
             arguments.emplace_back("-" + std::string(ApplyFlag));
-            arguments.push_back(BaseDirectory());
+            arguments.push_back(AppContextBaseDirectory());
             arguments.push_back(std::to_string(CurrentProcessId()));
             if (relaunchArgs.has_value())
             {
@@ -1700,7 +1574,7 @@ namespace MphRead::Mods::Update
     {
         std::cout << "[update] applying to " << target << '\n';
         WaitForExit(waitFor);
-        const std::string source = BaseDirectory();
+        const std::string source = AppContextBaseDirectory();
         try
         {
             Copy(source, target);

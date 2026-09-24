@@ -16,16 +16,12 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetFileName;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::Utf8GetString;
 
 namespace
 {
-    [[nodiscard]] std::string GetFileName(std::string_view path)
-    {
-        return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
     void AppendReplacement(std::string& output)
     {
         output.push_back(static_cast<char>(0xEF));
@@ -273,7 +269,7 @@ namespace MphRead::Mods::MapGen
             throw std::ios_base::failure("Could not open file for reading: " + path);
         }
         stream.exceptions(std::ios::badbit);
-        return Load(stream, GetFileName(path));
+        return Load(stream, PathGetFileName(path));
     }
 
     MapTexturePack MapTexturePack::Load(std::istream& stream, const std::string& path)
@@ -286,14 +282,14 @@ namespace MphRead::Mods::MapGen
             || magic[2] != static_cast<std::uint8_t>('T')
             || magic[3] != static_cast<std::uint8_t>('X'))
         {
-            throw ProgramException(GetFileName(path) + " is not a texture pack.");
+            throw ProgramException(PathGetFileName(path) + " is not a texture pack.");
         }
 
         const std::uint16_t version = reader.ReadUInt16();
         if (version != 1)
         {
             throw ProgramException(
-                GetFileName(path) + " is version " + std::to_string(version)
+                PathGetFileName(path) + " is version " + std::to_string(version)
                 + "; this build reads 1.");
         }
 

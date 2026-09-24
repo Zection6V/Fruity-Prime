@@ -39,9 +39,14 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::DirectoryCreateDirectory;
+using ::MphRead::NativeRuntime::FileDelete;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::Int32ToUInt32;
+using ::MphRead::NativeRuntime::PathGetDirectoryName;
+using ::MphRead::NativeRuntime::PathGetFileName;
+using ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension;
 using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -117,29 +122,6 @@ namespace
         return std::bit_cast<std::int32_t>(value);
     }
 
-    [[nodiscard]] std::string GetFileName(const std::string& path)
-    {
-        const std::size_t slash = path.find_last_of("/\\");
-        return slash == std::string::npos ? path : path.substr(slash + 1);
-    }
-
-    [[nodiscard]] std::string GetFileNameWithoutExtension(const std::string& path)
-    {
-        std::string name = GetFileName(path);
-        const std::size_t dot = name.find_last_of('.');
-        if (dot != std::string::npos)
-        {
-            name.erase(dot);
-        }
-        return name;
-    }
-
-    [[nodiscard]] std::string GetDirectoryName(const std::string& path)
-    {
-        const std::size_t slash = path.find_last_of("/\\");
-        return slash == std::string::npos ? std::string{} : path.substr(0, slash);
-    }
-
     [[nodiscard]] std::vector<std::string> EnumerateFiles(const std::string& path)
     {
         std::vector<std::string> result;
@@ -162,30 +144,6 @@ namespace
             }
         }
         return result;
-    }
-
-    void CreateDirectory(const std::string& path)
-    {
-        if (path.empty())
-        {
-            return;
-        }
-        std::error_code error;
-        std::filesystem::create_directories(::MphRead::NativeRuntime::PathFromUtf8(path), error);
-        if (error)
-        {
-            throw System::IO::IOException(error.message());
-        }
-    }
-
-    void DeleteFile(const std::string& path)
-    {
-        std::error_code error;
-        std::filesystem::remove(::MphRead::NativeRuntime::PathFromUtf8(path), error);
-        if (error)
-        {
-            throw System::IO::IOException(error.message());
-        }
     }
 
     void CopyFile(const std::string& source, const std::string& destination)
@@ -470,7 +428,7 @@ namespace MphRead::Testing
         {
             path = R"(C:\Users\auser\Home\MPH\_FS\amfe\data\movies\spawn_yellow-15fps-down-right.avi.fv)";
         }
-        const std::string movieName = GetFileNameWithoutExtension(*path);
+        const std::string movieName = PathGetFileNameWithoutExtension(*path);
         if (verify)
         {
             DebugWriteLine("Verifying " + *path + ".fv...");
@@ -642,7 +600,7 @@ namespace MphRead::Testing
                 const std::string outputPath =
                     R"(C:\Users\auser\Home\MPH\Data\_Export\_FV\)"
                     + movieName + "\\" + imageFilename;
-                CreateDirectory(GetDirectoryName(outputPath));
+                DirectoryCreateDirectory(PathGetDirectoryName(outputPath).value());
                 std::ofstream imageStream(::MphRead::NativeRuntime::PathFromUtf8(outputPath), std::ios::binary | std::ios::trunc);
                 if (!imageStream)
                 {
@@ -801,7 +759,7 @@ namespace MphRead::Testing
             const std::string audioOutput =
                 R"(C:\Users\auser\Home\MPH\Data\_Export\_FV\)"
                 + movieName + R"(\audio.wav)";
-            CreateDirectory(GetDirectoryName(audioOutput));
+            DirectoryCreateDirectory(PathGetDirectoryName(audioOutput).value());
             std::ofstream output(::MphRead::NativeRuntime::PathFromUtf8(audioOutput), std::ios::binary | std::ios::trunc);
             if (!output)
             {
@@ -3600,7 +3558,7 @@ namespace MphRead::Testing
         for (const std::string& filePath
             : EnumerateFiles(Paths::Combine(Paths::FileSystem(), "cameraEditor")))
         {
-            const std::string name = GetFileName(filePath);
+            const std::string name = PathGetFileName(filePath);
             if (name != "cameraEditBG.bin")
             {
                 [[maybe_unused]] const auto seq = Formats::CameraSequence::Load(name, nullptr);
@@ -3701,7 +3659,7 @@ namespace MphRead::Testing
 
         std::cout << "Converting model...\n";
         auto [model, texture] = Utility::Repack::RepackRoomModel(room, true);
-        const std::string modelPath = GetFileName(overMeta ? overMeta->ModelPath : meta->ModelPath);
+        const std::string modelPath = PathGetFileName(overMeta ? overMeta->ModelPath : meta->ModelPath);
         const std::string modelDest = Paths::Combine(folder, modelPath);
         const std::string texDest = Paths::Combine(
             folder,
@@ -3713,14 +3671,14 @@ namespace MphRead::Testing
         std::cout << "Converting collision...\n";
         const std::vector<byte> collision = Utility::RepackCollision::RepackMphRoom(room);
         const std::string colDest = Paths::Combine(
-            folder, GetFileName(overMeta ? overMeta->CollisionPath : meta->CollisionPath));
+            folder, PathGetFileName(overMeta ? overMeta->CollisionPath : meta->CollisionPath));
         FileWriteAllBytes(colDest, collision);
 
         std::cout << "Converting animation...\n";
         const std::string animSrc = Paths::Combine(fileSystem, meta->AnimationPath);
         const std::string animDest = Paths::Combine(
-            folder, GetFileName(overMeta ? overMeta->AnimationPath : meta->AnimationPath));
-        DeleteFile(animDest);
+            folder, PathGetFileName(overMeta ? overMeta->AnimationPath : meta->AnimationPath));
+        FileDelete(animDest);
         CopyFile(animSrc, animDest);
 
         if (meta->Hybrid)
@@ -3743,8 +3701,8 @@ namespace MphRead::Testing
                 nodeDest = Paths::Combine(
                     folder, RequireString(overMeta->NodePath, "path2"));
             }
-            DeleteFile(entDest);
-            DeleteFile(nodeDest);
+            FileDelete(entDest);
+            FileDelete(nodeDest);
             CopyFile(entSrc, entDest);
             CopyFile(nodeSrc, nodeDest);
         }
@@ -3754,7 +3712,7 @@ namespace MphRead::Testing
             const std::vector<byte> entity = Utility::Repack::RepackMphEntities(room);
             const std::string entDest = Paths::Combine(
                 folder,
-                GetFileName(overMeta
+                PathGetFileName(overMeta
                     ? RequireString(overMeta->EntityPath, "path")
                     : RequireString(meta->EntityPath, "path")));
             FileWriteAllBytes(entDest, entity);
@@ -3769,7 +3727,7 @@ namespace MphRead::Testing
         std::cout << " Compressing...\n";
         (void)LZ10::Compress(
             outPath, StringReplace(outPath, "out.arc", archiveName + ".arc"));
-        DeleteFile(outPath);
+        FileDelete(outPath);
         std::cout << "Done.\n";
         Nop();
     }
@@ -3798,21 +3756,21 @@ namespace MphRead::Testing
         std::cout << "Converting model...\n";
         auto [model, ignoredTexture] = Utility::Repack::RepackRoomModel(room, false, filter);
         (void)ignoredTexture;
-        const std::string modelPath = GetFileName(overMeta ? overMeta->ModelPath : meta->ModelPath);
+        const std::string modelPath = PathGetFileName(overMeta ? overMeta->ModelPath : meta->ModelPath);
         const std::string modelDest = Paths::Combine(folder, modelPath);
         FileWriteAllBytes(modelDest, model);
 
         std::cout << "Converting collision...\n";
         const std::vector<byte> collision = Utility::RepackCollision::RepackFhRoom(room, filter);
         const std::string colDest = Paths::Combine(
-            folder, GetFileName(overMeta ? overMeta->CollisionPath : meta->CollisionPath));
+            folder, PathGetFileName(overMeta ? overMeta->CollisionPath : meta->CollisionPath));
         FileWriteAllBytes(colDest, collision);
 
         std::cout << "Converting animation...\n";
         const std::string animSrc = Paths::Combine(fileSystem, meta->AnimationPath);
         const std::string animDest = Paths::Combine(
-            folder, GetFileName(overMeta ? overMeta->AnimationPath : meta->AnimationPath));
-        DeleteFile(animDest);
+            folder, PathGetFileName(overMeta ? overMeta->AnimationPath : meta->AnimationPath));
+        FileDelete(animDest);
         CopyFile(animSrc, animDest);
 
         if (meta->Hybrid)
@@ -3835,8 +3793,8 @@ namespace MphRead::Testing
                 nodeDest = Paths::Combine(
                     folder, RequireString(overMeta->NodePath, "path2"));
             }
-            DeleteFile(entDest);
-            DeleteFile(nodeDest);
+            FileDelete(entDest);
+            FileDelete(nodeDest);
             CopyFile(entSrc, entDest);
             CopyFile(nodeSrc, nodeDest);
         }
@@ -3847,7 +3805,7 @@ namespace MphRead::Testing
                 Utility::Repack::RepackFhEntities(room, filter);
             const std::string entDest = Paths::Combine(
                 folder,
-                GetFileName(overMeta
+                PathGetFileName(overMeta
                     ? RequireString(overMeta->EntityPath, "path")
                     : RequireString(meta->EntityPath, "path")));
             FileWriteAllBytes(entDest, entity);

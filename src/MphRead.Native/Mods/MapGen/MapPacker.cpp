@@ -53,6 +53,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::AppendUtf8;
+using ::MphRead::NativeRuntime::DirectoryCreateDirectory;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::PathCombine;
@@ -709,16 +710,6 @@ namespace
             AppendUtf8(result, InvariantLower(scalar));
         }
         return result;
-    }
-
-    void CreateDirectory(const std::string& path)
-    {
-        if (path.empty())
-        {
-            throw std::invalid_argument(
-                "The value cannot be an empty string. (Parameter 'path')");
-        }
-        std::filesystem::create_directories(PathFromUtf8(path));
     }
 
     [[nodiscard]] std::string FormatN0(std::size_t value)
@@ -1398,8 +1389,8 @@ namespace MphRead::Mods::MapGen
             NullReference();
         }
         MapDefinition* def = map->Definition();
-        CreateDirectory(archiveDir);
-        CreateDirectory(entityDir);
+        DirectoryCreateDirectory(archiveDir);
+        DirectoryCreateDirectory(entityDir);
         if (def == nullptr)
         {
             NullReference();
@@ -1423,7 +1414,7 @@ namespace MphRead::Mods::MapGen
         FileWriteAllBytes(collisionPath, collision);
         const std::string entityPath = PathCombine(entityDir, prefix + "_Ent.bin");
         FileWriteAllBytes(entityPath, entities);
-        CreateDirectory(nodeDir);
+        DirectoryCreateDirectory(nodeDir);
         const std::string nodePath = PathCombine(nodeDir, prefix + "_Node.bin");
         FileWriteAllBytes(nodePath, nodes);
 

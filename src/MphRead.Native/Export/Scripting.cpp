@@ -26,6 +26,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetFullPath;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringTrimView;
 
@@ -116,11 +117,6 @@ namespace
         std::uint32_t Value;
         std::size_t Length;
     };
-
-    [[nodiscard]] std::string GetFullPath(std::string_view value)
-    {
-        return PathToUtf8(std::filesystem::absolute(PathFromUtf8(value)).lexically_normal());
-    }
 
     [[nodiscard]] std::int32_t FindCombo(
         const std::vector<std::pair<std::int32_t, std::int32_t>> &combos,
@@ -418,7 +414,7 @@ namespace MphRead::Export
         StringBuilderExtensions::AppendIndent(sb);
         AppendLine(sb, "cleanup()");
         StringBuilderExtensions::AppendIndent(sb);
-        const std::string daePath = GetFullPath(Paths::Combine(
+        const std::string daePath = PathGetFullPath(Paths::Combine(
             Paths::Combine(Paths::Export(), model.Name), model.Name + "_{suffix}.dae"));
         AppendLine(sb, "bpy.ops.wm.collada_import(filepath =");
         StringBuilderExtensions::AppendIndent(sb);

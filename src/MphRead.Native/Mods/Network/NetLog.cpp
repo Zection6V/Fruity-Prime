@@ -7,8 +7,11 @@
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Runtime.hpp"
 
 #include <array>
 #include <cerrno>
@@ -49,8 +52,11 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
 using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
+using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::HasFlag;
+using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::Utf16Length;
 using ::MphRead::NativeRuntime::Utf8Scalar;
 
@@ -416,55 +422,6 @@ namespace
             + separator + Digits(now.Calendar.tm_sec, 2);
     }
 
-    [[nodiscard]] std::filesystem::path ExecutableDirectory()
-    {
-#if defined(_WIN32)
-        std::vector<wchar_t> buffer(512);
-        for (;;)
-        {
-            const DWORD length = GetModuleFileNameW(
-                nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-            if (length == 0)
-            {
-                throw std::system_error(
-                    static_cast<int>(GetLastError()), std::system_category());
-            }
-            if (length < buffer.size())
-            {
-                return std::filesystem::path(
-                    std::wstring(buffer.data(), static_cast<std::size_t>(length))).parent_path();
-            }
-            buffer.resize(buffer.size() * 2U);
-        }
-#elif defined(__APPLE__)
-        std::uint32_t size = 0;
-        (void)_NSGetExecutablePath(nullptr, &size);
-        std::vector<char> buffer(size);
-        if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-        {
-            throw std::runtime_error("AppContext.BaseDirectory resolution failed.");
-        }
-        return std::filesystem::weakly_canonical(
-            std::filesystem::path(buffer.data())).parent_path();
-#elif defined(__linux__)
-        std::vector<char> buffer(512);
-        for (;;)
-        {
-            const ssize_t length = readlink("/proc/self/exe", buffer.data(), buffer.size());
-            if (length < 0)
-            {
-                throw std::system_error(errno, std::generic_category());
-            }
-            if (static_cast<std::size_t>(length) < buffer.size())
-            {
-                return std::filesystem::path(
-                    std::string(buffer.data(), static_cast<std::size_t>(length))).parent_path();
-            }
-            buffer.resize(buffer.size() * 2U);
-        }
-#endif
-    }
-
     [[nodiscard]] std::string NullableText(const std::optional<std::string>& value)
     {
         return value.has_value() ? *value : std::string();
@@ -497,10 +454,10 @@ namespace MphRead::Mods::Network
 
     double NetLog::ReadInterval()
     {
-        const char* value = std::getenv("MPHREAD_NETLOG_INTERVAL");
-        if (value != nullptr)
+        const std::optional<std::string> value = EnvironmentGetVariable("MPHREAD_NETLOG_INTERVAL");
+        if (value.has_value())
         {
-            std::istringstream stream(value);
+            std::istringstream stream(*value);
             stream.imbue(std::locale::classic());
             stream >> std::ws;
             double parsed = 0.0;
@@ -525,7 +482,7 @@ namespace MphRead::Mods::Network
         try
         {
             const std::string safe = SafeClientName(clientName);
-            const std::filesystem::path baseDirectory = ExecutableDirectory();
+            const std::filesystem::path baseDirectory = PathFromUtf8(AppContextBaseDirectory());
             const std::string fileName = "netlog-" + safe + ".txt";
             const std::u8string utf8FileName(
                 reinterpret_cast<const char8_t*>(fileName.data()), fileName.size());

@@ -83,6 +83,11 @@ namespace
 #if defined(_WIN32)
         return LocaleInfoUtf8(LOCALE_SDECIMAL, ".");
 #else
+#if defined(__ANDROID__)
+        const lconv* locale = ::localeconv();
+        const char* value = locale != nullptr ? locale->decimal_point : nullptr;
+        return value != nullptr && value[0] != '\0' ? value : ".";
+#else
         locale_t locale = newlocale(LC_NUMERIC_MASK, "", nullptr);
         if (locale == static_cast<locale_t>(0))
         {
@@ -93,12 +98,18 @@ namespace
         freelocale(locale);
         return result;
 #endif
+#endif
     }
 
     [[nodiscard]] std::string NegativeSign()
     {
 #if defined(_WIN32)
         return LocaleInfoUtf8(LOCALE_SNEGATIVESIGN, "-");
+#else
+#if defined(__ANDROID__)
+        const lconv* locale = ::localeconv();
+        const char* value = locale != nullptr ? locale->negative_sign : nullptr;
+        return value != nullptr && value[0] != '\0' ? value : "-";
 #else
         locale_t locale = newlocale(LC_MONETARY_MASK, "", nullptr);
         if (locale == static_cast<locale_t>(0))
@@ -113,6 +124,7 @@ namespace
 #endif
         freelocale(locale);
         return result;
+#endif
 #endif
     }
 
@@ -148,6 +160,30 @@ namespace
 #if defined(_WIN32)
         return LocaleInfoUtf8(LOCALE_STIME, ":");
 #else
+#if defined(__ANDROID__)
+        std::tm sample{};
+        sample.tm_hour = 11;
+        sample.tm_min = 22;
+        sample.tm_sec = 33;
+        std::array<char, 64> buffer{};
+        if (std::strftime(buffer.data(), buffer.size(), "%X", &sample) == 0)
+        {
+            return ":";
+        }
+        const std::string_view formatted(buffer.data());
+        const std::size_t hour = formatted.find("11");
+        if (hour == std::string_view::npos)
+        {
+            return ":";
+        }
+        const std::size_t minute = formatted.find("22", hour + 2);
+        if (minute == std::string_view::npos || minute <= hour + 2)
+        {
+            return ":";
+        }
+        const std::string_view separator = formatted.substr(hour + 2, minute - (hour + 2));
+        return separator.empty() ? ":" : std::string(separator);
+#else
         locale_t locale = newlocale(LC_TIME_MASK, "", nullptr);
         if (locale == static_cast<locale_t>(0))
         {
@@ -175,6 +211,7 @@ namespace
         }
         freelocale(locale);
         return result;
+#endif
 #endif
     }
 

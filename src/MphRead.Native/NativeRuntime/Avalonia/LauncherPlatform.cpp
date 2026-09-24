@@ -63,6 +63,24 @@ namespace MphRead::NativeRuntime::Avalonia
             Launcher::GuiLauncherPlatform& _platform;
         };
 
+        // GuiTheme's application icon, on a window.
+        void ApplyAppIcon(Toolkit::Window& window)
+        {
+            const std::optional<Launcher::GuiWindowIcon>& icon
+                = Launcher::GuiTheme::AppIcon.Value();
+            if (!icon.has_value())
+            {
+                return;
+            }
+            const auto* const pixels
+                = static_cast<const IconPixels*>(icon->Native.get());
+            if (pixels == nullptr)
+            {
+                return;
+            }
+            window.Icon(pixels->Width, pixels->Height, pixels->Rgba.data());
+        }
+
         class HomeWindowHost final : public Launcher::HomeWindowAdapter
         {
         public:
@@ -114,9 +132,8 @@ namespace MphRead::NativeRuntime::Avalonia
 
             void SetIcon(Launcher::HomeWindowIcon icon) override
             {
-                // The one icon there is, and GLFW takes it from the executable
-                // on Windows, so there is nothing to set.
                 (void)icon;
+                ApplyAppIcon(_window);
             }
 
             void SetWidth(double width) override { _width = width; }

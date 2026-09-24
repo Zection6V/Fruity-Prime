@@ -18,25 +18,33 @@ namespace MphRead::NativeRuntime::Avalonia
     namespace
     {
         // A window and the element tree one of the screen hosts builds in it.
+        // The window itself is made when it is first shown, because whether it
+        // has a frame and whether the desktop shows through it are fixed when
+        // the surface is created and are not known until then.
         class ScreenWindow
         {
         public:
             void Open(const Toolkit::ElementPtr& content)
             {
-                _window.Content(content);
-                _window.ClientSize(_width, _height);
-                _window.MinimumSize(_minWidth, _minHeight);
-                _window.Decorated(_decorated);
-                _window.Topmost(_topmost);
+                if (_window == nullptr)
+                {
+                    _window = std::make_unique<Toolkit::Window>(
+                        Toolkit::WindowOptions{_decorated, _transparent, _topmost});
+                    _window->Title(_title);
+                    _window->Background(_background);
+                }
+                _window->Content(content);
+                _window->ClientSize(_width, _height);
+                _window->MinimumSize(_minWidth, _minHeight);
                 if (_center)
                 {
-                    _window.CenterOnScreen();
+                    _window->CenterOnScreen();
                 }
                 else if (_placed)
                 {
-                    _window.Position(_x, _y);
+                    _window->Position(_x, _y);
                 }
-                _window.Show();
+                _window->Show();
             }
 
             void Place(std::int32_t x, std::int32_t y)
@@ -45,10 +53,40 @@ namespace MphRead::NativeRuntime::Avalonia
                 _y = y;
                 _placed = true;
                 _center = false;
-                _window.Position(x, y);
+                if (_window != nullptr)
+                {
+                    _window->Position(x, y);
+                }
             }
 
-            [[nodiscard]] Toolkit::Window& Window() noexcept { return _window; }
+            void Title(std::string title)
+            {
+                _title = std::move(title);
+                if (_window != nullptr)
+                {
+                    _window->Title(_title);
+                }
+            }
+
+            void Background(Toolkit::Color color)
+            {
+                _background = color;
+                if (_window != nullptr)
+                {
+                    _window->Background(color);
+                }
+            }
+
+            void Close()
+            {
+                if (_window != nullptr)
+                {
+                    _window->Close();
+                }
+            }
+
+            // Null until the window has been shown once.
+            [[nodiscard]] Toolkit::Window* Handle() noexcept { return _window.get(); }
 
             double _width = 720.0;
             double _height = 520.0;
@@ -57,12 +95,15 @@ namespace MphRead::NativeRuntime::Avalonia
             bool _center = false;
             bool _decorated = true;
             bool _topmost = false;
+            bool _transparent = false;
             bool _placed = false;
             std::int32_t _x = 0;
             std::int32_t _y = 0;
 
         private:
-            Toolkit::Window _window;
+            std::unique_ptr<Toolkit::Window> _window;
+            std::string _title;
+            Toolkit::Color _background = Toolkit::Color::FromArgb(0xFF101014);
         };
 
         // The two dialogs the pause menu opens, in one window as the adapter
@@ -81,7 +122,7 @@ namespace MphRead::NativeRuntime::Avalonia
             }
 
             // --- the window itself
-            void Close() override { _window.Window().Close(); }
+            void Close() override { _window.Close(); }
 
             void SetIcon(const std::optional<Launcher::GuiWindowIcon>& icon) override
             {
@@ -90,7 +131,7 @@ namespace MphRead::NativeRuntime::Avalonia
 
             void SetBackground(const Launcher::GuiBrush& brush) override
             {
-                _window.Window().Background(ToColor(brush));
+                _window.Background(ToColor(brush));
             }
 
             void SetWidth(double width) override { _window._width = width; }
@@ -136,7 +177,7 @@ namespace MphRead::NativeRuntime::Avalonia
             // --- the settings dialog
             void SetTitle(std::string title) override
             {
-                _window.Window().Title(title);
+                _window.Title(title);
             }
 
             void SetRequestedThemeVariant(
@@ -181,7 +222,7 @@ namespace MphRead::NativeRuntime::Avalonia
             // --- the map picker dialog
             void SetTitle(std::u16string_view title) override
             {
-                _window.Window().Title(Utf8(title));
+                _window.Title(Utf8(title));
             }
 
             void SetRequestedThemeVariant(
@@ -229,7 +270,7 @@ namespace MphRead::NativeRuntime::Avalonia
                 // A modal dialog is a nested frame, as it is on the managed
                 // side: the call returns when the window closes.
                 bool open = true;
-                _window.Window().Closed([&open]() { open = false; });
+                _window.Handle()->Closed([&open]() { open = false; });
                 Toolkit::Dispatcher::Instance().PushFrame(
                     [&open]() { return open; });
                 completion.Invoke();
@@ -427,7 +468,7 @@ namespace MphRead::NativeRuntime::Avalonia
             void Show() override
             {
                 _window.Open(_screen->Root());
-                _window.Window().KeyDown(
+                _window.Handle()->KeyDown(
                     [this](std::int32_t code, bool& handled)
                     {
                         Launcher::PauseMenuWindowKeyEventArgs e;
@@ -439,7 +480,7 @@ namespace MphRead::NativeRuntime::Avalonia
                         }
                         handled = e.Handled;
                     });
-                _window.Window().Closed(
+                _window.Handle()->Closed(
                     [this]()
                     {
                         Launcher::PauseMenuWindowEventArgs e;
@@ -457,11 +498,11 @@ namespace MphRead::NativeRuntime::Avalonia
 
             void Activate() override {}
 
-            void Close() override { _window.Window().Close(); }
+            void Close() override { _window.Close(); }
 
             void SetTitle(std::string title) override
             {
-                _window.Window().Title(title);
+                _window.Title(title);
             }
 
             void SetIcon(const std::optional<Launcher::GuiWindowIcon>& icon) override
@@ -482,12 +523,19 @@ namespace MphRead::NativeRuntime::Avalonia
                 std::span<const Launcher::PauseMenuWindowTransparencyLevel> levels)
                 override
             {
-                (void)levels;
+                for (const Launcher::PauseMenuWindowTransparencyLevel level : levels)
+                {
+                    if (level == Launcher::PauseMenuWindowTransparencyLevel::Transparent)
+                    {
+                        _window._transparent = true;
+                        break;
+                    }
+                }
             }
 
             void SetBackground(const Launcher::GuiBrush& brush) override
             {
-                _window.Window().Background(ToColor(brush));
+                _window.Background(ToColor(brush));
             }
 
             void SetRequestedThemeVariant(

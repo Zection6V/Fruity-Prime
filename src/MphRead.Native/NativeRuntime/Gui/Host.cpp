@@ -299,7 +299,8 @@ namespace MphRead::NativeRuntime::Gui
         return EnsureGlfw();
     }
 
-    Window::Window()
+    Window::Window(WindowOptions options)
+        : _transparent(options.Transparent)
     {
         if (!EnsureGlfw())
         {
@@ -309,6 +310,10 @@ namespace MphRead::NativeRuntime::Gui
         ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
         ::glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_ANY_PROFILE);
         ::glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        ::glfwWindowHint(GLFW_DECORATED, options.Decorated ? GLFW_TRUE : GLFW_FALSE);
+        ::glfwWindowHint(GLFW_FLOATING, options.Topmost ? GLFW_TRUE : GLFW_FALSE);
+        ::glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER,
+            options.Transparent ? GLFW_TRUE : GLFW_FALSE);
         _handle = ::glfwCreateWindow(940, 560, "", nullptr, ShareRoot());
         if (_handle == nullptr)
         {
@@ -329,6 +334,9 @@ namespace MphRead::NativeRuntime::Gui
         ::glfwSetCursorPosCallback(_handle, &Window::OnCursorPos);
         ::glfwSetScrollCallback(_handle, &Window::OnScroll);
         ::glfwSetWindowCloseCallback(_handle, &Window::OnClose);
+        ::glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+        ::glfwWindowHint(GLFW_FLOATING, GLFW_FALSE);
+        ::glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_FALSE);
         Dispatcher::Instance().Register(this);
     }
 
@@ -348,6 +356,20 @@ namespace MphRead::NativeRuntime::Gui
         {
             ::glfwSetWindowTitle(_handle, std::string(value).c_str());
         }
+    }
+
+    void Window::Icon(std::int32_t width, std::int32_t height, const std::uint8_t* rgba)
+    {
+        if (_handle == nullptr || width <= 0 || height <= 0 || rgba == nullptr)
+        {
+            return;
+        }
+        GLFWimage image{};
+        image.width = width;
+        image.height = height;
+        // GLFW reads the pixels during the call and keeps nothing.
+        image.pixels = const_cast<unsigned char*>(rgba);
+        ::glfwSetWindowIcon(_handle, 1, &image);
     }
 
     void Window::ClientSize(double width, double height)
@@ -495,7 +517,9 @@ namespace MphRead::NativeRuntime::Gui
     {
         Backend().BeginFrame(
             static_cast<std::int32_t>(_width), static_cast<std::int32_t>(_height));
-        Backend().FillRoundedRect(Rect{0.0, 0.0, _width, _height}, 0.0, _background);
+        // Cleared rather than filled, so a transparent window writes its own
+        // alpha instead of blending over whatever the buffer held.
+        Backend().Clear(_background);
         Backend().EndFrame();
 
         if (_content != nullptr)

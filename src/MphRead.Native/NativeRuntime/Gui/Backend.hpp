@@ -54,6 +54,11 @@ namespace MphRead::NativeRuntime::Gui
         virtual void BeginFrame(std::int32_t width, std::int32_t height) = 0;
         virtual void EndFrame() = 0;
 
+        // The whole surface set to this colour, alpha included. A window that
+        // is transparent needs the alpha written rather than blended, which is
+        // what separates this from filling a rectangle.
+        virtual void Clear(Color color) = 0;
+
         // Nothing outside the rectangle is drawn; no value clears the clip.
         virtual void SetClip(const std::optional<Rect>& rect) = 0;
 

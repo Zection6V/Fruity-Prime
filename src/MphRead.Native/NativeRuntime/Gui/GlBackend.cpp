@@ -49,6 +49,12 @@ namespace MphRead::NativeRuntime::Gui
                 GL::Disable(GL::EnableCap::ScissorTest);
             }
 
+            void Clear(Color color) override
+            {
+                GL::ClearColor(color.R, color.G, color.B, color.A);
+                GL::Clear(GL::ClearBufferMask::ColorBufferBit);
+            }
+
             void EndFrame() override
             {
                 GL::Disable(GL::EnableCap::ScissorTest);

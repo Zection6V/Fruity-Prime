@@ -1646,10 +1646,15 @@ namespace MphRead::Entities
         {
             assert(_targetPlayer);
             _targetPlayer->GetPosition(_field1048);
+            // The two draws are named so they land in X and Z in the order
+            // C# draws them: C++ leaves argument evaluation order open, and
+            // the transposed pair aims the bot somewhere else.
+            const float spreadX = Rng::GetRandomInt2(8192) / 4096.0F - 1;
+            const float spreadZ = Rng::GetRandomInt2(8192) / 4096.0F - 1;
             _field1048 = ::OpenTK::Mathematics::Vector3(
-                _field1048.X + (Rng::GetRandomInt2(8192) / 4096.0F - 1),
+                _field1048.X + spreadX,
                 _field1048.Y + (_targetPlayer->IsAltForm() ? _targetPlayer->Values().AltColYPos : 0.5F),
-                _field1048.Z + (Rng::GetRandomInt2(8192) / 4096.0F - 1));
+                _field1048.Z + spreadZ);
             if (!Func213842C()) _field1048 = AddZ(_field1048, _field1048.Z < 0 ? -1.5F : 1.5F);
             Func2145738(_field1048);
         }

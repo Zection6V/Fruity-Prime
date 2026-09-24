@@ -23,14 +23,6 @@ namespace MphRead::NativeRuntime::Avalonia
 {
     namespace
     {
-        // The icon's own pixels, which is all a window ever needs of it.
-        struct IconPixels final
-        {
-            std::int32_t Width = 0;
-            std::int32_t Height = 0;
-            std::vector<std::uint8_t> Rgba;
-        };
-
         // The lists and reports the thumbnail host passes about as opaque
         // references. They are owned here for the length of the process, as
         // the managed objects they stand for are owned by the collector.
@@ -179,8 +171,7 @@ namespace MphRead::Mods::Launcher::Gui::Detail
         {
             return std::nullopt;
         }
-        auto pixels
-            = std::make_shared<::MphRead::NativeRuntime::Avalonia::IconPixels>();
+        auto pixels = std::make_shared<::MphRead::NativeRuntime::Avalonia::IconPixels>();
         pixels->Width = image.Width;
         pixels->Height = image.Height;
         pixels->Rgba = image.Pixels;

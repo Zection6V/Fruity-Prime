@@ -1514,6 +1514,7 @@ namespace MphRead::Formats::MovieNativeRuntime
 }
 namespace MphRead::Formats
 {
+
     namespace
     {
         [[nodiscard]] std::int32_t ClampInt(std::int32_t value, std::int32_t minimum, std::int32_t maximum) noexcept
@@ -2266,7 +2267,10 @@ namespace MphRead::Formats
         reader.Position(SeekTableOffset);
         for (std::int32_t i = 0; i < SeekTableCount; ++i)
         {
-            (*SeekTable)[0] = SeekTableEntry(reader.ReadInt32(), reader.ReadInt32());
+            // Named so the two reads keep the order C# gives them.
+            const std::int32_t frameId = reader.ReadInt32();
+            const std::int32_t frameOffset = reader.ReadInt32();
+            (*SeekTable)[0] = SeekTableEntry(frameId, frameOffset);
         }
 
         if (Quantizer < 12 || Quantizer > 161)
@@ -3034,9 +3038,14 @@ namespace MphRead::Formats
 
         if (hasDelta)
         {
+            // The two reads are named so they happen in the order C# gives
+            // them: argument evaluation order is unspecified in C++, and
+            // reading a bit stream out of order swaps X with Y.
+            const std::int32_t deltaX = _reader->ReadSignedExpGolomb();
+            const std::int32_t deltaY = _reader->ReadSignedExpGolomb();
             predictionVector = Vector2ir(
-                WrapInt32Add(predictionVector.X, _reader->ReadSignedExpGolomb()),
-                WrapInt32Add(predictionVector.Y, _reader->ReadSignedExpGolomb()));
+                WrapInt32Add(predictionVector.X, deltaX),
+                WrapInt32Add(predictionVector.Y, deltaY));
         }
 
         RequireManagedReference(_vectors)((block.Y / 16) + 1, (block.X / 16) + 1) = predictionVector;
@@ -3075,7 +3084,9 @@ namespace MphRead::Formats
 
     void VideoFrame::PredictInterDC(Block block)
     {
-        const Vector2ir vec(_reader->ReadSignedExpGolomb(), _reader->ReadSignedExpGolomb());
+        const std::int32_t vecX = _reader->ReadSignedExpGolomb();
+        const std::int32_t vecY = _reader->ReadSignedExpGolomb();
+        const Vector2ir vec(vecX, vecY);
 
         const std::int32_t sourceX = WrapInt32Add(block.X, vec.X);
         const std::int32_t sourceY = WrapInt32Add(block.Y, vec.Y);
@@ -4826,9 +4837,15 @@ namespace MphRead
         }
         {
             const std::stop_token token = _decoderCts.load()->get_token();
+            std::fprintf(stderr, "[probe] spawning image task
+");
             NativeRuntime::TaskRun([this]()
             {
+                std::fprintf(stderr, "[probe] image task body
+");
                 (void)UpdateMovieImage(_decoderCts.load()->get_token());
+                std::fprintf(stderr, "[probe] image task returned
+");
             }, token);
         }
     }
@@ -5007,6 +5024,9 @@ namespace MphRead
         Duration nextFrameElapsed = frameTime;
         const Duration tolerance = std::chrono::milliseconds(15);
         const auto start = std::chrono::steady_clock::now();
+        std::fprintf(stderr, "[probe] UpdateMovieImage entered stop=%d count=%d
+",
+            (int)token.stop_requested(), (int)_movieFrameCount);
         while (!token.stop_requested() && _movieFrameCount != Int32MaxValue)
         {
             const Duration elapsed = std::chrono::steady_clock::now() - start;

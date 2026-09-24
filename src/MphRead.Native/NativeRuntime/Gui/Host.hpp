@@ -93,10 +93,21 @@ namespace MphRead::NativeRuntime::Gui
         std::vector<Window*> _windows;
     };
 
+    // What a window has to be told before it exists, because the platform
+    // fixes these when the surface is created.
+    struct WindowOptions final
+    {
+        bool Decorated = true;
+        // A surface whose alpha reaches the desktop: the pause menu is an
+        // overlay with the match showing through it.
+        bool Transparent = false;
+        bool Topmost = false;
+    };
+
     class Window final
     {
     public:
-        Window();
+        explicit Window(WindowOptions options = {});
         ~Window();
 
         Window(const Window&) = delete;
@@ -109,6 +120,9 @@ namespace MphRead::NativeRuntime::Gui
         [[nodiscard]] static bool Available();
 
         void Title(std::string_view value);
+        // The picture the desktop shows for this window, as RGBA pixels.
+        void Icon(std::int32_t width, std::int32_t height,
+            const std::uint8_t* rgba);
         void ClientSize(double width, double height);
         void MinimumSize(double width, double height);
         void CenterOnScreen();
@@ -199,6 +213,7 @@ namespace MphRead::NativeRuntime::Gui
         double _reportedWidth = -1.0;
         bool _open = false;
         bool _shown = false;
+        bool _transparent = false;
         Cursor _cursor = Cursor::Arrow;
     };
 }

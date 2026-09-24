@@ -49,6 +49,14 @@ namespace MphRead::NativeRuntime::Avalonia
         Launcher::GuiColor color);
     [[nodiscard]] FormattedRun* RunOf(const void* handle) noexcept;
 
+    // The application icon's own pixels, which is all a window needs of it.
+    struct IconPixels final
+    {
+        std::int32_t Width = 0;
+        std::int32_t Height = 0;
+        std::vector<std::uint8_t> Rgba;
+    };
+
     // A decoded picture. The texture is made on the first draw rather than on
     // decoding, because a control may load its image while the tree is being
     // measured, which happens with no drawing surface current.

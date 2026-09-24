@@ -6891,6 +6891,18 @@ namespace MphRead
             // IgnoreUnavailableGlfwFeatures for why a throw here is fatal
             // rather than catchable.
             IgnoreUnavailableGlfwFeatures();
+#if !ANDROID
+            // OpenGL is ready as soon as GameWindow's base constructor returns.
+            // Vulkan has no OpenTK graphics context, so bring its device and
+            // swapchain up here as the equivalent lifetime point. The shell
+            // builds and rasterizes its first UI screen before Run()/OnLoad();
+            // delaying Vulkan initialization until OnLoad therefore made the
+            // first UiOverlay upload dereference an uninitialized backend.
+            if (Mods.Render.RendererBackend.UseVulkan)
+            {
+                Mods.Render.RenderGl.Initialize(this);
+            }
+#endif
             // The mark, on this window: it is the only one the program has
             // now, so it is the only one that can carry it. Set here rather
             // than in the settings above because those are static and shared

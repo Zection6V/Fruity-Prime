@@ -47,12 +47,14 @@
 #include <dlfcn.h>
 #include <locale.h>
 #include <wchar.h>
+#include "../../NativeRuntime/System/Managed.hpp"
 #endif
 
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace MphRead::Utility
 {
@@ -293,27 +295,6 @@ namespace
             return std::numeric_limits<std::int32_t>::max();
         }
         return static_cast<std::int32_t>(std::trunc(wide));
-    }
-
-    [[nodiscard]] float RoundToEven(float value) noexcept
-    {
-        if (!std::isfinite(value) || value == 0.0F)
-        {
-            return value;
-        }
-        const float lower = std::floor(value);
-        const float fraction = value - lower;
-        if (fraction < 0.5F)
-        {
-            return lower;
-        }
-        if (fraction > 0.5F)
-        {
-            return lower + 1.0F;
-        }
-        const float magnitude = std::fabs(lower);
-        const bool even = std::fmod(magnitude, 2.0F) == 0.0F;
-        return even ? lower : lower + 1.0F;
     }
 
     [[nodiscard]] std::int32_t RoundedInt32(float value) noexcept

@@ -9,14 +9,17 @@
 #include <cmath>
 #include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
-#include "../../Formats/Types.hpp"
 
 #include <cstdint>
 #include <exception>
 #include <limits>
 #include <string>
 #include <memory>
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../Formats/Types.hpp"
 
+using ::MphRead::NativeRuntime::RoundToEven;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
@@ -92,27 +95,6 @@ namespace
             Vector4(x.Y, y.Y, z.Y, 0.0F),
             Vector4(x.Z, y.Z, z.Z, 0.0F),
             Vector4(-Vector3::Dot(x, eye), -Vector3::Dot(y, eye), -Vector3::Dot(z, eye), 1.0F));
-    }
-
-    [[nodiscard]] float RoundToEven(float value) noexcept
-    {
-        if (!std::isfinite(value) || std::fabs(value) >= 8388608.0F)
-        {
-            return value;
-        }
-        const float floorValue = std::floor(value);
-        const float fraction = value - floorValue;
-        if (fraction < 0.5F)
-        {
-            return floorValue;
-        }
-        if (fraction > 0.5F)
-        {
-            return floorValue + 1.0F;
-        }
-        return std::fmod(floorValue, 2.0F) == 0.0F
-            ? floorValue
-            : floorValue + 1.0F;
     }
 
     [[nodiscard]] std::int32_t FloatToInt32Unchecked(float value) noexcept

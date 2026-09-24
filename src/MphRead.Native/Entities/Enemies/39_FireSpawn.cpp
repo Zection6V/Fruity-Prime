@@ -8,6 +8,7 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
@@ -24,6 +25,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::RoundToEven;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace MphRead::Entities::Enemies
@@ -175,25 +177,6 @@ namespace MphRead::Entities::Enemies
                 Vector4(0.0F, 1.0F, 0.0F, 0.0F),
                 Vector4(sine, 0.0F, cosine, 0.0F),
                 Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] float RoundToEven(float value) noexcept
-        {
-            if (!std::isfinite(value))
-            {
-                return value;
-            }
-            const float lower = std::floor(value);
-            const float fraction = value - lower;
-            if (fraction < 0.5F)
-            {
-                return lower;
-            }
-            if (fraction > 0.5F)
-            {
-                return lower + 1.0F;
-            }
-            return std::fmod(lower, 2.0F) == 0.0F ? lower : lower + 1.0F;
         }
 
         [[nodiscard]] std::uint32_t RoundRadiusToUInt32(float radius) noexcept

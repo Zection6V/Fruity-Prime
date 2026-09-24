@@ -24,6 +24,7 @@
 #include "../../Mods/Network/NetUnlagged.hpp"
 #include "../../Mods/SpectatorMode.hpp"
 #include "../../Utility/Rng.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
@@ -43,6 +44,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Length;
@@ -123,31 +125,6 @@ namespace
     [[nodiscard]] constexpr bool VectorEquals(Vector3 a, Vector3 b) noexcept
     {
         return a.X == b.X && a.Y == b.Y && a.Z == b.Z;
-    }
-
-    [[nodiscard]] float DotNetRound(float value) noexcept
-    {
-        if (!std::isfinite(value) || value == 0.0F)
-        {
-            return value;
-        }
-        const float floorValue = std::floor(value);
-        const float fraction = value - floorValue;
-        float rounded;
-        if (fraction < 0.5F)
-        {
-            rounded = floorValue;
-        }
-        else if (fraction > 0.5F)
-        {
-            rounded = floorValue + 1.0F;
-        }
-        else
-        {
-            const float half = floorValue * 0.5F;
-            rounded = half == std::floor(half) ? floorValue : floorValue + 1.0F;
-        }
-        return std::copysign(rounded, value);
     }
 
     [[nodiscard]] Matrix4 IdentityMatrix() noexcept
@@ -907,7 +884,7 @@ namespace MphRead::Entities
             if (Features::HudSway() && !Features::FixedWeapon())
             {
                 const float average = (sum + amount) / 8.0F;
-                _hudShiftY = std::clamp(-DotNetRound(average), -8.0F, 8.0F);
+                _hudShiftY = std::clamp(-RoundToEven(average), -8.0F, 8.0F);
             }
             else
             {
@@ -932,7 +909,7 @@ namespace MphRead::Entities
             if (Features::HudSway() && !Features::FixedWeapon())
             {
                 const float average = (sum + amount) / 8.0F;
-                _hudShiftX = std::clamp(DotNetRound(average), -8.0F, 8.0F);
+                _hudShiftX = std::clamp(RoundToEven(average), -8.0F, 8.0F);
             }
             else
             {

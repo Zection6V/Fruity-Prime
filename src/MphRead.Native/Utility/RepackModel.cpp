@@ -6,7 +6,6 @@
 #include "../Read.hpp"
 #include "../SceneSetup.hpp"
 #include "../Formats/Model.hpp"
-#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -31,6 +30,8 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #if defined(DEBUG)
 #define REPACK_MODEL_DEBUG_ASSERT(condition) do { if (!(condition)) { std::abort(); } } while (false)
@@ -40,6 +41,7 @@
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
 {
@@ -116,31 +118,6 @@ namespace
         return (bits & 0x200U) != 0
             ? std::bit_cast<std::int32_t>(bits | 0xFFFFFC00U)
             : static_cast<std::int32_t>(bits);
-    }
-
-    [[nodiscard]] double RoundToEven(double value) noexcept
-    {
-        if (!std::isfinite(value))
-        {
-            return value;
-        }
-        double integral = 0.0;
-        const double fraction = std::modf(value, &integral);
-        const double absolute = std::fabs(fraction);
-        if (absolute < 0.5)
-        {
-            return integral;
-        }
-        const double direction = fraction < 0.0 ? -1.0 : 1.0;
-        if (absolute > 0.5)
-        {
-            return integral + direction;
-        }
-        if (std::fmod(std::fabs(integral), 2.0) == 0.0)
-        {
-            return integral;
-        }
-        return integral + direction;
     }
 
     template <typename T>

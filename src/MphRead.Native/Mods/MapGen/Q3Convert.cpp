@@ -42,12 +42,14 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include "../../NativeRuntime/System/Managed.hpp"
 #endif
 
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
 {
@@ -171,41 +173,6 @@ namespace
             return std::signbit(left) && std::signbit(right) ? -0.0F : 0.0F;
         }
         return left > right ? left : right;
-    }
-
-    [[nodiscard]] float RoundToEven(float value) noexcept
-    {
-        if (!std::isfinite(value) || value == 0.0F)
-        {
-            return value;
-        }
-        if (std::fabs(value) >= 8388608.0F)
-        {
-            return value;
-        }
-
-        const float lower = std::floor(value);
-        const float difference = value - lower;
-        float rounded;
-        if (difference < 0.5F)
-        {
-            rounded = lower;
-        }
-        else if (difference > 0.5F)
-        {
-            rounded = lower + 1.0F;
-        }
-        else
-        {
-            rounded = std::fmod(std::fabs(lower), 2.0F) == 0.0F
-                ? lower
-                : lower + 1.0F;
-        }
-        if (rounded == 0.0F)
-        {
-            return std::copysign(0.0F, value);
-        }
-        return rounded;
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept

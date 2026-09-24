@@ -2,7 +2,6 @@
 
 #include "../../Formats/NodeData.hpp"
 #include "BuiltMap.hpp"
-#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -16,7 +15,11 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../Formats/Types.hpp"
 
+using ::MphRead::NativeRuntime::RoundToEven;
 using ::OpenTK::Mathematics::Length;
 
 namespace MphRead::Mods::MapGen
@@ -145,26 +148,6 @@ namespace MphRead::Mods::MapGen
         {
             return std::bit_cast<std::int32_t>(
                 static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] float RoundToEven(float value) noexcept
-        {
-            if (!std::isfinite(value))
-            {
-                return value;
-            }
-            const float floor = std::floor(value);
-            const float fraction = value - floor;
-            if (fraction < 0.5F)
-            {
-                return floor;
-            }
-            if (fraction > 0.5F)
-            {
-                return floor + 1.0F;
-            }
-            const float half = floor * 0.5F;
-            return half == std::floor(half) ? floor : floor + 1.0F;
         }
 
         void SwapFloats(std::vector<float>& values, std::int32_t left, std::int32_t right) noexcept

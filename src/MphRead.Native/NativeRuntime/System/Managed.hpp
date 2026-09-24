@@ -6,6 +6,7 @@
 
 #include "Exceptions.hpp"
 
+#include <cmath>
 #include <memory>
 #include <type_traits>
 
@@ -50,5 +51,20 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] T& RequireReference(T& value) noexcept
     {
         return value;
+    }
+
+    // Math.Round(double) and MathF.Round(float): to the nearest integer, a
+    // tie to the even one, the sign of a zero kept. That is IEEE
+    // round-to-nearest, which std::nearbyint does under the default rounding
+    // mode -- and nothing in the program changes it. The per-file copies
+    // this replaces floored and patched, and turned -0.4 into +0.
+    [[nodiscard]] inline float RoundToEven(float value) noexcept
+    {
+        return std::nearbyint(value);
+    }
+
+    [[nodiscard]] inline double RoundToEven(double value) noexcept
+    {
+        return std::nearbyint(value);
     }
 }

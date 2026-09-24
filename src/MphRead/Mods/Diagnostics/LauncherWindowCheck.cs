@@ -388,6 +388,7 @@ namespace MphRead.Mods.Diagnostics
 
                 CheckVulkanUniformIsolation(framebuffer, size);
                 CheckVulkanGeometryIsolation(framebuffer, size);
+                CheckVulkanAlphaTestReference(framebuffer, size);
                 CheckVulkanDisplayListCurrentColor(framebuffer, size);
                 CheckVulkanRgbRenderTargetAlpha(framebuffer, size);
                 CheckVulkanSceneTextureUniformIsolation(framebuffer, size);
@@ -513,6 +514,83 @@ namespace MphRead.Mods.Diagnostics
             Console.WriteLine("[windowcheck] Vulkan per-draw geometry isolation passed.");
             GL.Enable(EnableCap.Texture2D);
             GL.DepthMask(true);
+        }
+
+        private static void CheckVulkanAlphaTestReference(
+            int framebuffer, int size)
+        {
+            AlphaFunction[] functions =
+            {
+                AlphaFunction.Never,
+                AlphaFunction.Less,
+                AlphaFunction.Equal,
+                AlphaFunction.Lequal,
+                AlphaFunction.Greater,
+                AlphaFunction.Notequal,
+                AlphaFunction.Gequal,
+                AlphaFunction.Always
+            };
+            bool[] expected =
+            {
+                false, false, true, true, false, false, true, true
+            };
+
+            try
+            {
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(0);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Texture2D);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(false);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Enable(EnableCap.AlphaTest);
+
+                const float reference = 0.5f;
+                for (int i = 0; i < functions.Length; i++)
+                {
+                    float left = -1f + 2f * i / functions.Length;
+                    float right = -1f + 2f * (i + 1) / functions.Length;
+                    GL.AlphaFunc(functions[i], reference);
+                    GL.Color4(1f, 1f, 1f, reference);
+                    DrawTestQuad(left, right);
+                }
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                for (int i = 0; i < functions.Length; i++)
+                {
+                    int x = Math.Clamp((2 * i + 1) * size / (2 * functions.Length),
+                        0, size - 1);
+                    byte expectedValue = expected[i] ? (byte)255 : (byte)0;
+                    if (!PixelIs(pixels, size, x, size / 2,
+                        expectedValue, expectedValue, expectedValue))
+                    {
+                        throw new InvalidOperationException(
+                            $"Vulkan alpha test diverged from OpenGL for {functions[i]} at reference {reference}.");
+                    }
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan OpenGL alpha-function/reference semantics passed.");
+            }
+            finally
+            {
+                GL.Disable(EnableCap.AlphaTest);
+                GL.AlphaFunc(AlphaFunction.Always, 0f);
+                GL.Color4(1f, 1f, 1f, 1f);
+                GL.Enable(EnableCap.Texture2D);
+                GL.DepthMask(true);
+            }
         }
 
         private static void CheckVulkanDisplayListCurrentColor(

@@ -121,6 +121,10 @@ jobs:
             MESA_GL_VERSION_OVERRIDE=2.1 MESA_EXTENSION_OVERRIDE=-GL_KHR_debug \
             publish/linux-x64/FruityPrime -thumbnailwindowcheck -legacyglcheck
 
+      - name: emit Vulkan SPIR-V for precompiled-shader migration
+        if: matrix.id == 'linux-x64'
+        run: publish/linux-x64/FruityPrime -vulkanspirvdump
+
       - name: Vulkan launcher smoke with lavapipe
         if: matrix.id == 'linux-x64'
         run: |

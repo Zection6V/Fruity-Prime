@@ -53,6 +53,11 @@ namespace MphRead.Mods
                 Environment.ExitCode = Diagnostics.ThumbnailWindowCheck.Run(HasFlag(args, "legacyglcheck"));
                 return true;
             }
+            if (HasFlag(args, "vulkanspirvdump"))
+            {
+                Environment.ExitCode = Diagnostics.VulkanSpirvDump.Run();
+                return true;
+            }
             if (HasFlag(args, "vulkanwindowcheck"))
             {
                 Render.RendererBackend.ForceForProcess(Render.RendererBackendKind.Vulkan);

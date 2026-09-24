@@ -1056,8 +1056,18 @@ namespace MphRead.Mods.Render
             Array.Copy(lines, 0, indices, triangles.Length, lines.Length);
 
             BindCurrentFramebuffer();
-            _commands!.UpdateBuffer(geometry.VertexBuffer!, 0, vertices);
-            _commands.UpdateBuffer(geometry.IndexBuffer!, 0, indices);
+            // Do not use CommandList.UpdateBuffer for geometry on Veldrid
+            // 4.9. Its Vulkan CopyBuffer barrier uses
+            // VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT for every non-uniform
+            // destination, including index buffers. That does not make a
+            // transfer write visible to index fetch on strict drivers and can
+            // produce exactly the torn/stippled triangles seen on hardware
+            // while Lavapipe appears correct. These buffers are Dynamic and a
+            // GeometrySlot is never reused until the frame fence completes, so
+            // update their host-visible storage before recording the draw
+            // instead of taking Veldrid's broken transfer path.
+            _gd.UpdateBuffer(geometry.VertexBuffer!, 0, vertices);
+            _gd.UpdateBuffer(geometry.IndexBuffer!, 0, indices);
             Veldrid.Framebuffer fb = CurrentFramebuffer(_drawFramebuffer);
             _commands!.SetVertexBuffer(0, geometry.VertexBuffer);
             _commands.SetIndexBuffer(geometry.IndexBuffer!, IndexFormat.UInt32);

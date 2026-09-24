@@ -1819,7 +1819,7 @@ namespace
 
             sigset_t allSignals{};
             sigset_t oldSignals{};
-            ::sigfillset(&allSignals);
+            sigfillset(&allSignals);
             const int maskResult =
                 ::pthread_sigmask(SIG_SETMASK, &allSignals, &oldSignals);
             if (maskResult != 0)
@@ -1882,7 +1882,7 @@ namespace
                 // in the fork child during its pre-exec setup.
                 struct sigaction defaultAction{};
                 defaultAction.sa_handler = SIG_DFL;
-                ::sigemptyset(&defaultAction.sa_mask);
+                sigemptyset(&defaultAction.sa_mask);
                 for (int signal = 1; signal < NSIG; ++signal)
                 {
                     if (signal == SIGKILL || signal == SIGSTOP)

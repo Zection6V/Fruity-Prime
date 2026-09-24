@@ -1,7 +1,13 @@
-name: Native C++ All Platforms
+name: Native C++ Build
 
 on:
   workflow_dispatch:
+    inputs:
+      checkout_ref:
+        description: Branch, tag, or commit to build
+        required: true
+        type: string
+        default: cpp_v0.8.2
 
 permissions:
   contents: read
@@ -9,16 +15,142 @@ permissions:
 jobs:
   windows:
     name: Windows / MSVC
-    uses: ./.github/workflows/native-cpp-windows.yml
+    runs-on: windows-2025
 
-  macos:
-    name: macOS / Clang
-    uses: ./.github/workflows/native-cpp-macos.yml
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Install native dependencies
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            throw "VCPKG_INSTALLATION_ROOT is not set on the runner."
+          }
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT "vcpkg.exe"
+          if (-not (Test-Path $vcpkg)) {
+            throw "vcpkg.exe was not found at $vcpkg"
+          }
+          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows --clean-after-build
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build/native -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Build C++ FruityPrime
+        shell: pwsh
+        run: |
+          cmake --build build/native --config RelWithDebInfo --parallel 2 --target fruity_prime
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: FruityPrime-cpp-windows-${{ github.run_number }}
+          if-no-files-found: error
+          path: |
+            build/native/RelWithDebInfo/FruityPrime.exe
+            build/native/RelWithDebInfo/*.dll
+            build/native/RelWithDebInfo/fruity-prime-logo.png
+            build/native/RelWithDebInfo/fruity-prime-mark.png
 
   linux:
     name: Linux / GCC
-    uses: ./.github/workflows/native-cpp-linux.yml
+    runs-on: ubuntu-24.04
 
-  android:
-    name: Android / NDK (API 24, arm64-v8a + x86_64)
-    uses: ./.github/workflows/native-cpp-android.yml
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Install native dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            libarchive-dev \
+            libcurl4-openssl-dev \
+            zlib1g-dev \
+            libgl-dev \
+            libglx-dev \
+            libopengl-dev \
+            libglfw3-dev \
+            libfreetype-dev \
+            libopenal-dev \
+            libicu-dev
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build C++ FruityPrime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build/native --config RelWithDebInfo --parallel 2 --target fruity_prime
+
+      - name: Upload Linux build
+        uses: actions/upload-artifact@v4
+        with:
+          name: FruityPrime-cpp-linux-${{ github.run_number }}
+          if-no-files-found: error
+          path: |
+            build/native/FruityPrime
+            build/native/fruity-prime-logo.png
+            build/native/fruity-prime-mark.png
+
+  macos:
+    name: macOS / Clang
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Install native dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install curl libarchive zlib glfw freetype openal-soft
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib);$(brew --prefix glfw);$(brew --prefix freetype);$(brew --prefix openal-soft)" >> "$GITHUB_ENV"
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+
+      - name: Build C++ FruityPrime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build/native --config RelWithDebInfo --parallel 2 --target fruity_prime
+
+      - name: Upload macOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: FruityPrime-cpp-macos-${{ github.run_number }}
+          if-no-files-found: error
+          path: |
+            build/native/FruityPrime
+            build/native/fruity-prime-logo.png
+            build/native/fruity-prime-mark.png

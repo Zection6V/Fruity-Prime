@@ -116,6 +116,18 @@ namespace MphRead.Mods.Render
             return Active;
         }
 
+        /// <summary>
+        /// Release the renderer/window pairing after that native window has
+        /// shut down. The next window may then lock the currently requested
+        /// backend, which is how a settings change takes effect without
+        /// restarting the process.
+        /// </summary>
+        internal static void ReleaseWindow()
+        {
+            WindowCreated = false;
+            _activeImplementation = null;
+        }
+
         internal static RenderWindowApi WindowApi
         {
             get
@@ -124,7 +136,9 @@ namespace MphRead.Mods.Render
                 {
                     throw new InvalidOperationException("Renderer backend has not been locked.");
                 }
-                return RenderBackendRegistry.Find(Active)?.WindowApi ?? RenderWindowApi.OpenGL;
+                return RenderBackendRegistry.Find(Active)?.WindowApi
+                    ?? throw new InvalidOperationException(
+                        $"No window API is registered for renderer '{Active}'.");
             }
         }
 #endif

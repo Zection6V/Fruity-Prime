@@ -30,7 +30,7 @@ namespace MphRead.Entities
             }
             if (Hunter == Hunter.Spire && Flags2.TestFlag(PlayerFlags2.AltAttack))
             {
-                UpdateSpireAltAttack();
+                AnimateSpireAltAttack();
             }
             int lod = 0;
             Flags2 &= ~PlayerFlags2.Lod1;
@@ -225,14 +225,6 @@ namespace MphRead.Entities
             _altModel.Model.UpdateMatrixStack();
             UpdateMaterials(_altModel, Recolor);
             GetDrawItems(_altModel, _altModel.Model.Nodes[0], _curAlpha);
-        }
-
-        private void UpdateSpireAltAttack()
-        {
-            Matrix4 transform = GetTransformMatrix(_spireAltFacing, _spireAltUp);
-            _altModel.Model.AnimateNodes(index: 0, useNodeTransform: false, transform, Vector3.One, _altModel.AnimInfo);
-            _spireRockPosL = _spireAltNodes[0]!.Animation.Row3.Xyz + Position;
-            _spireRockPosR = _spireAltNodes[1]!.Animation.Row3.Xyz + Position;
         }
 
         private void DrawSpireAltAttack()

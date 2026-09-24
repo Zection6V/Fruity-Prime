@@ -30,7 +30,30 @@ namespace MphRead.Mods
         /// cores. Measured on an 8-core box rendering 28 rooms: 5.2 s at ten,
         /// 4.1 s at eight.
         /// </summary>
-        public static int DefaultParallelism => Math.Clamp(Environment.ProcessorCount, 2, 10);
+        // Mac previews use one background app process for the entire batch.
+        public static int DefaultParallelism => OperatingSystem.IsMacOS()
+            ? 1 : Math.Clamp(Environment.ProcessorCount, 2, 10);
+
+        private static readonly object _batchLock = new();
+        private static bool _workerFailed;
+        private static readonly object _processLock = new();
+        private static readonly HashSet<Process> _activeWorkers = new();
+        private static bool _exiting;
+
+        static ThumbnailBatch()
+        {
+            AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+            {
+                Process[] active;
+                lock (_processLock)
+                {
+                    _exiting = true;
+                    active = new Process[_activeWorkers.Count];
+                    _activeWorkers.CopyTo(active);
+                }
+                foreach (Process worker in active) StopWorker(worker);
+            };
+        }
 
         /// <summary>
         /// Whether previews can be rendered at all here. Every worker is a
@@ -42,119 +65,139 @@ namespace MphRead.Mods
             && Environment.ProcessPath != null;
 
         public static int Run(IReadOnlyList<string> rooms, int parallelism,
-                              int width, int height, Action<string>? report = null)
+                              int width, int height, Action<string>? report = null,
+                              TimeSpan? workerTimeout = null)
         {
-            ThumbnailLog.Begin(rooms.Count);
-            if (rooms.Count == 0)
+            // Setup and the front screen can request previews concurrently.
+            // Recheck the cache after waiting rather than starting duplicate workers.
+            lock (_batchLock)
             {
-                return 0;
+                if (_workerFailed)
+                {
+                    report?.Invoke("Preview generation stopped after a worker failure; restart the app to retry.");
+                    return 0;
+                }
+                var missing = new List<string>();
+                foreach (string room in rooms)
+                    if (!ThumbnailGenerator.Exists(room)) missing.Add(room);
+                if (missing.Count == 0) return 0;
+                ThumbnailLog.Begin(missing.Count);
+                parallelism = OperatingSystem.IsMacOS() ? 1 : Math.Clamp(parallelism, 1, 16);
+                TimeSpan timeout = workerTimeout ?? TimeSpan.FromMinutes(5);
+                if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(workerTimeout));
+                string? exePath = Environment.ProcessPath;
+                if (exePath == null)
+                    return RunSerial(missing, width, height, report);
+                int written = RunWorkers(missing, parallelism, width, height, exePath,
+                    timeout, report, out List<string> failed, out bool abnormalExit);
+                if (abnormalExit)
+                {
+                    _workerFailed = true;
+                    string note = "[thumbnails] worker failed; stopping previews without automatic retries";
+                    report?.Invoke(note);
+                    ThumbnailLog.Write(note);
+                }
+                else if (failed.Count > 0 && parallelism > 1)
+                {
+                    // Retry graceful capture failures at lower GPU pressure, but
+                    // never turn a native crash into another wave of app launches.
+                    string note = $"[thumbnails] {failed.Count} preview(s) missing; retrying in one worker";
+                    report?.Invoke(note);
+                    ThumbnailLog.Write(note);
+                    written += RunWorkers(failed, 1, width, height, exePath, timeout,
+                        report, out _, out _workerFailed);
+                }
+                return written;
             }
-            parallelism = Math.Clamp(parallelism, 1, 16);
-            string? exePath = Environment.ProcessPath;
-            if (exePath == null)
-            {
-                Console.WriteLine("[thumbnails] cannot locate this executable; running serially");
-                return RunSerial(rooms, width, height, report);
-            }
-            int written = RunWorkers(rooms, parallelism, width, height, exePath, report,
-                out List<string> failed);
-            if (failed.Count > 0 && parallelism > 1)
-            {
-                // Ten of these run at once, and each is a GL context with a
-                // 1600x900 offscreen target and a room's worth of textures in
-                // it. A discrete card does not notice; an integrated one
-                // sharing system memory can refuse the allocations, and what
-                // that looks like from inside is texture calls failing with
-                // GL_INVALID_OPERATION and every frame coming out black --
-                // while the same room renders perfectly in the game, which is
-                // one context rather than ten.
-                //
-                // So a run that lost rooms tries them again one at a time
-                // before giving up. Still as worker processes: GLFW wants its
-                // windows on the main thread and the launcher calls this from
-                // a background one, so capturing in-process here would trade
-                // one fault for another.
-                string note = $"[thumbnails] {failed.Count} preview(s) failed with {parallelism} "
-                    + "at a time; retrying them one at a time";
-                Console.WriteLine(note);
-                report?.Invoke(note);
-                ThumbnailLog.Write(note);
-                written += RunWorkers(failed, 1, width, height, exePath, report, out _);
-            }
-            return written;
         }
 
         private static int RunWorkers(IReadOnlyList<string> rooms, int parallelism,
-                                      int width, int height, string exePath,
-                                      Action<string>? report, out List<string> failedRooms)
+                                      int width, int height, string exePath, TimeSpan timeout,
+                                      Action<string>? report, out List<string> failedRooms,
+                                      out bool abnormalExit)
         {
-            var failed = new List<string>();
-            failedRooms = failed;
+            failedRooms = new List<string>();
+            abnormalExit = false;
             var running = new List<Process>();
-            foreach (IReadOnlyList<string> share in Shares(rooms, parallelism))
+            var pending = new HashSet<string>(rooms, StringComparer.OrdinalIgnoreCase);
+            int written = 0;
+            var clock = Stopwatch.StartNew();
+            try
             {
-                Process? proc = StartWorker(exePath, share, width, height);
-                if (proc != null)
+                foreach (IReadOnlyList<string> share in Shares(rooms, parallelism))
                 {
+                    Process? proc = StartWorker(exePath, share, width, height);
+                    if (proc == null) { abnormalExit = true; break; }
                     running.Add(proc);
                 }
-            }
-            // Watched through the directory the workers write into, rather
-            // than by which process exited: a worker now holds several rooms,
-            // so its exit says nothing about the ones it finished minutes
-            // ago. Android's batch reports the same way and for the same
-            // reason -- see PreviewWorkers.Watch.
-            var pending = new HashSet<string>(rooms, StringComparer.OrdinalIgnoreCase);
-            int done = 0;
-            int written = 0;
-            while (true)
-            {
-                bool allExited = true;
-                for (int i = 0; i < running.Count; i++)
+                while (!abnormalExit)
                 {
-                    if (!running[i].HasExited)
+                    bool allExited = true;
+                    foreach (Process proc in running)
                     {
-                        allExited = false;
+                        if (!proc.HasExited) { allExited = false; continue; }
+                        if (proc.ExitCode != 0)
+                        {
+                            ThumbnailLog.Write($"worker {proc.Id} exited with code {proc.ExitCode}");
+                            abnormalExit = true;
+                        }
+                    }
+                    if (allExited || abnormalExit) break;
+                    if (clock.Elapsed >= timeout)
+                    {
+                        ThumbnailLog.Write($"worker timeout after {timeout.TotalSeconds:0} seconds");
+                        abnormalExit = true;
                         break;
                     }
+                    ReportCompleted();
+                    Thread.Sleep(50);
                 }
-                foreach (string room in rooms)
-                {
-                    if (!pending.Contains(room) || !ThumbnailGenerator.Exists(room))
-                    {
-                        continue;
-                    }
-                    pending.Remove(room);
-                    written++;
-                    done++;
-                    string ok = $"[thumbnails] {done}/{rooms.Count}  ok  {room}";
-                    Console.WriteLine(ok);
-                    report?.Invoke(ok);
-                }
-                if (allExited)
-                {
-                    break;
-                }
-                Thread.Sleep(50);
             }
-            // Whatever no worker managed to write, however its process ended.
-            foreach (string room in rooms)
+            finally
             {
-                if (!pending.Contains(room))
-                {
-                    continue;
-                }
-                failed.Add(room);
-                done++;
-                string line = $"[thumbnails] {done}/{rooms.Count}  FAILED  {room}";
-                Console.WriteLine(line);
+                // Bound every worker lifetime, including monitor/report failures.
+                foreach (Process proc in running) StopWorker(proc);
+            }
+            ReportCompleted();
+            foreach (string room in pending)
+            {
+                failedRooms.Add(room);
+                string line = $"[thumbnails] FAILED {room}";
                 report?.Invoke(line);
-            }
-            for (int i = 0; i < running.Count; i++)
-            {
-                running[i].Dispose();
+                ThumbnailLog.Write(line);
             }
             return written;
+
+            void ReportCompleted()
+            {
+                foreach (string room in rooms)
+                {
+                    if (!pending.Contains(room) || !ThumbnailGenerator.Exists(room)) continue;
+                    pending.Remove(room);
+                    written++;
+                    report?.Invoke($"[thumbnails] {written}/{rooms.Count} ok {room}");
+                }
+            }
+        }
+
+        private static void StopWorker(Process proc)
+        {
+            try
+            {
+                if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+                // The asynchronous readers drain both pipes while it exits.
+                if (proc.WaitForExit(5000)) proc.WaitForExit();
+            }
+            catch (InvalidOperationException) { }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                ThumbnailLog.Write($"could not stop preview worker: {ex.Message}");
+            }
+            finally
+            {
+                lock (_processLock) _activeWorkers.Remove(proc);
+                proc.Dispose();
+            }
         }
 
         /// <summary>
@@ -194,12 +237,21 @@ namespace MphRead.Mods
             {
                 FileName = exePath,
                 UseShellExecute = false,
+                CreateNoWindow = true,
                 // Workers find paths.txt through the working directory, the
                 // same way a normal launch does.
                 WorkingDirectory = Directory.GetCurrentDirectory(),
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
+            if (Path.GetFileNameWithoutExtension(exePath).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            {
+#pragma warning disable IL3000 // Only a framework-dependent dotnet launch reaches this branch.
+                string? assembly = System.Reflection.Assembly.GetEntryAssembly()?.Location;
+#pragma warning restore IL3000
+                if (String.IsNullOrEmpty(assembly)) return null;
+                info.ArgumentList.Add(assembly);
+            }
             for (int i = 0; i < share.Count; i++)
             {
                 info.ArgumentList.Add("-thumbnail");
@@ -207,19 +259,42 @@ namespace MphRead.Mods
             }
             info.ArgumentList.Add("-size");
             info.ArgumentList.Add($"{width}x{height}");
+            Process? proc = null;
             try
             {
-                Process? proc = Process.Start(info);
+                lock (_processLock)
+                {
+                    if (_exiting) return null;
+                    proc = Process.Start(info);
+                    if (proc != null) _activeWorkers.Add(proc);
+                }
                 if (proc == null)
                 {
                     Console.WriteLine($"[thumbnails] could not start a worker for "
                         + $"{share.Count} room(s)");
                 }
+                if (proc != null)
+                {
+                    int lines = 0;
+                    void Drain(object sender, DataReceivedEventArgs e)
+                    {
+                        // Keep draining after the log cap: otherwise a verbose
+                        // renderer fills its redirected pipe and never exits.
+                        if (e.Data == null || Interlocked.Increment(ref lines) > 64) return;
+                        string line = e.Data.Length > 2048 ? e.Data[..2048] : e.Data;
+                        ThumbnailLog.Write(line);
+                    }
+                    proc.OutputDataReceived += Drain;
+                    proc.ErrorDataReceived += Drain;
+                    proc.BeginOutputReadLine();
+                    proc.BeginErrorReadLine();
+                }
                 return proc;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[thumbnails] worker failed to start: {ex.Message}");
+                if (proc != null) StopWorker(proc);
+                ThumbnailLog.Write($"worker failed to start: {ex.Message}");
                 return null;
             }
         }

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -75,4 +76,38 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] std::string PathGetFileNameWithoutExtension(const std::string& path);
     // Path.GetInvalidFileNameChars().
     [[nodiscard]] std::vector<char> PathGetInvalidFileNameChars();
+    // Path.Combine(path1, path2, path3, path4): a rooted later part replaces
+    // what came before it, an empty part contributes nothing, and a separator
+    // is inserted only where one is missing.
+    [[nodiscard]] std::string PathCombine(std::string_view path1, std::string_view path2,
+        std::string_view path3, std::string_view path4);
+    // Path.GetExtension(path).
+    [[nodiscard]] std::string PathGetExtension(std::string_view path);
+    // Path.GetDirectoryName(path): empty for a path with no directory, as
+    // .NET returns null there.
+    [[nodiscard]] std::string PathGetDirectoryName(std::string_view path);
+    // Path.GetTempPath(), ending in a separator.
+    [[nodiscard]] std::string PathGetTempPath();
+    // File.AppendAllText(path, contents).
+    void FileAppendAllText(const std::string& path, std::string_view contents);
+    // File.Delete(path): no error when it is not there.
+    void FileDelete(const std::string& path);
+
+    // new DirectoryInfo(path): the members the game reads. A trailing
+    // separator is not part of the name, as it is not in .NET.
+    class DirectoryInfo final
+    {
+    public:
+        explicit DirectoryInfo(std::string_view path);
+
+        [[nodiscard]] const std::string& Name() const noexcept;
+        [[nodiscard]] const std::string& FullName() const noexcept;
+        [[nodiscard]] std::string Extension() const;
+        // DirectoryInfo.Parent: null at a root.
+        [[nodiscard]] std::shared_ptr<DirectoryInfo> Parent() const;
+
+    private:
+        std::string _fullName;
+        std::string _name;
+    };
 }

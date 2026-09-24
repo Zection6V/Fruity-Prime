@@ -3,21 +3,152 @@
 What's below is unproven or partially proven, not broken. Say so rather than
 claiming coverage that isn't there.
 
-- **With the server as the authority, nobody gets the snapshot-based form
-  correction any more.** `NetPlayerBridge` reconciles a puppet's alt form
-  against `IntentButtons.AltFormState` only on the authority -- deliberately,
-  because a client doing it as well would take corrections from the owner's
-  intent and the authority's snapshot at once. When the authority was a
-  player, that player's own view of everybody was corrected; now the authority
-  is not a player, so every client converges by replaying presses alone.
-  Measured against the Pi with 150 ms injected on two of three clients, this
-  shows up as one client reporting a remote player in the wrong form for 78
-  consecutive frames. It is **not new** -- the relay control does not report
-  it only because the client that would have is the authority and is exempt
-  from the check -- but it is now everybody's. Whether clients can safely
-  reconcile form from the snapshot once the authority is not a player is an
-  open question, and one to settle with `run-remote-lag.sh` rather than by
-  reasoning. See `.claude/multiplayer/NETWORK-SERVERAUTH.md`.
+- **The tap rule has never met a finger.** *Written 2026-09-15.*
+  `Mods/Launcher/Gui/Tap.cs` is the answer to "scrolling the settings on
+  Android activates the buttons": no row acts on its press any more, and a
+  gesture that travels more than eight points is given up. `-tapcheck` proves
+  the rule on written-down coordinates and the desktop's `-uishot`/`-shellshot`
+  prove the screens still take a click, but nothing here has dragged a real
+  settings page on a real phone -- the emulator available cannot load a match,
+  and touch is the one input this box does not have. What could still be wrong
+  is the *interaction* with Avalonia's `ScrollGestureRecognizer` (it is assumed
+  to take the pointer at thirty points, which is its default and was not
+  measured on a device), not the rule.
+
+- **A client's own beam is spawned before its puppets are placed, and turning
+  snapshot-owned puppets on made that visible.** *Found and fixed
+  2026-09-14; the fix is not yet re-measured.* `ProcessInput` runs before the
+  movement step, so with the placement happening only in
+  `NetHooks.AfterRemoteMovement` a client's shot was tested against the
+  position the previous frame's step left behind while the intent it travelled
+  with acked *this* frame's. One frame of a target's motion, against a headshot
+  band 0.30 units tall and a runner measured at 0.377 units a frame: the whole
+  band. `TryApplyRemoteInput` now writes the same read point the restore does.
+
+  **What the measurement actually says, which is less than it first looked.**
+  It was noticed as headshot agreement falling from 75% to 30% between the
+  arena's protocol-6 and protocol-7 arms -- and on the *pads* map the same pair
+  moved the other way, 63.6% to 81.8%. Nine to thirteen headshots per arm is
+  exactly the sample size this file's own advice says not to read a percentage
+  from, and two arms disagreeing in direction is what that looks like. The
+  consistent signal is `local%`, which fell on **both** maps (72.7 to 64.0, and
+  85.0 to 56.5): the shooter's own machine resolved a smaller share of the hits
+  the authority credited it with, which is the shape a one-frame gap between
+  the drawn world and the shot world makes.
+
+  **Both arms were re-run on the fixed build and the disagreement did not go
+  away.** The four pairings, 100 s each at 320 ms +- 80 with 2% loss:
+
+  | arm | ceiling | clamped | local% | headshots agreed |
+  |---|---|---|---|---|
+  | arena-p6 | 24 | 80.0% | 72.7 | 6/8 (75.0%) |
+  | arena-p7b | 45 | **0%** | 59.1 | 4/8 (50.0%) |
+  | pads-p6 | 24 | 87.5% | 85.0 | 7/11 (63.6%) |
+  | pads-p7b | 45 | **1.4%** | 74.1 | 13/16 (**81.2%**) |
+
+  The pads map says protocol 7 is better on both headshots (63.6 to 81.2) and
+  confirmation (85.0 to 100.0); the arena says it is worse on both. Eight to
+  sixteen headshots an arm cannot separate those, and `local%` is lower on
+  protocol 7 in **both** pairings -- which is at least partly death prediction
+  being on, since a client that kills a puppet locally then sees hits on that
+  slot it never resolved.
+
+  So: **the ceiling and the claim counts are measured; the percentages are
+  not.** What is solid is `clamped` (80.0/87.5% down to 0/1.4%), every
+  protocol-7 arm rescuing real kills and headshots, and the duel's 14 predicted
+  headshots agreed 12/12 with none downgraded. Anything derived from `hs%` or
+  `local%` at this sample size is noise, and settling it needs either much
+  longer arms or the Pi rather than a contended WSL box. The one-frame gap is
+  still a real fault and the fix is still right; it is simply not what this
+  instrument can see.
+- **Hit claims and the kill arbitration are proven on a loopback with latency
+  injected into it, and have never met a real line.** *Added 2026-09-14.* The
+  mechanism is measured end to end -- claims declared, answered, refused,
+  rescued, with 0 unanswered over a 70 s three-client run and `3 kills, 2
+  headshots rescued` in a 120 s sniper arm at 320 ms -- but every one of those
+  runs was `-netlag` on 127.0.0.1. The case the arbitration exists for is two
+  players killing each other across a real intercontinental line, and what is
+  *not* known is how often `ResultDeadShooter` actually fires there, nor
+  whether the 18-frame grace window is the right length when the jitter is the
+  internet's rather than a number this box chose. `tools/hitrig/bench-p7.sh`
+  against the Pi, or `bench-japan.sh`, is what would settle it.
+- **The geometric gate on a claim has never refused anything, so its tolerance
+  is untested from the wrong side.** `ClaimRadius` is 2.0 units and every run
+  so far reads `0 refused`. That is the right outcome and it is also no
+  evidence about where the gate actually sits: nothing has yet produced a claim
+  the authority disagrees with, so it is not known whether 2.0 is generous, mean
+  or irrelevant. A run with `-relayedpuppets` on one client and the default on
+  another -- two clients deliberately holding different copies of the same
+  puppet -- is the experiment.
+- **A mutual kill has not been staged deliberately.** The arbitration's rule --
+  a shot counts unless its shooter was put down by a hit aimed at a strictly
+  earlier world -- is exercised only by whatever the scripted tour happens to
+  produce, and `VoidedDeadShooter` has read zero in every run. Nothing in
+  `HitRig` or `NetTestScript` makes two clients shoot each other at the same
+  instant on purpose, which is what the rule is for. Until one does, the
+  ordering is proven by reading the code rather than by measurement.
+- **The playout clock's snap counter is contaminated by this box.** 96 clock
+  snaps in a 60 s loopback run is mostly the *client* failing to hold 60 Hz
+  while three clients and a server share a WSL CPU, not the line. The same
+  number on a real machine would mean something quite different, and the two
+  cannot be told apart from the report as it stands.
+- **`% of frames still` in the smoothing line is not a stutter measurement on
+  its own.** A player standing still contributes still frames honestly -- the
+  scripted tour has whole phases of it -- and a respawn contributes a huge
+  step to `worst`. Both are only meaningful compared between two arms of the
+  same scenario.
+- **The rig's own shooter fired a third of what it asked for, and the reason
+  was the rig.** *Closed 2026-09-10.* `HitRig.FinishControls` wrote its binds
+  after the pass that sets `Input.HasInput`, so the engine saw an idle player,
+  lowered the gun, and `TryFireWeapon` refused at the `GunAnimation.UpDown`
+  check -- ahead of `NetDamage.NoteFired`, so the refused shots did not even
+  register as attempted. `NetTestScript.FinishControls` has carried the fix
+  since the tour hit the same wall; this driver is newer and missed it.
+
+  | slot 0 (the shooter) | its own machine | the observer | the authority |
+  |---|---|---|---|
+  | before | **19** | 52 | 57 |
+  | after (70 s sniper arm) | **28** | 26 | 30 |
+
+  Every hit-registration percentage measured before this compared two
+  different volleys and should be discarded, not re-read.
+
+- **The authority spawns beams for a dead player that the player's own machine
+  never spawned, and the reason is not established.** Fell out of the arm that
+  closed the gap above: in the same 70 s run, slot 1 -- the runner, which
+  presses fire only while dead, since holding fire is what asks for an early
+  respawn -- read **0** beams on its own machine, **15** on the observer and
+  **29** on the authority. Three machines, three answers, for a slot that
+  fired nothing it meant to fire.
+
+  The shape that fits is the revive boundary: the trigger is still held when
+  the authority's copy comes back, and it empties into the floor there, while
+  the owner's copy comes back later with the trigger already released. That is
+  a guess. What is measured is the disagreement.
+
+  It does not touch the headshot numbers -- those shots are aimed at the floor
+  by design (`HitRig.Drive`) and land on nobody -- but it does inflate the
+  authority's shot count, so quote per-slot counts rather than a total. Follow
+  it with `NetDamage.Fired` around a death, on all three machines.
+
+- **`NetDamage._attacker` resets to slot 0 rather than to `NoSlot`.**
+  `ForgetSlot` sets it to `0` and `Reset` clears the array, so between a reset
+  and the first hit a slot's snapshot names **slot 0** as the attacker.
+  `NetDamage.Replay` reads that as `mine` on the client that holds slot 0.
+  Today it is latent -- `landed` is zero for such a slot, and `Replay` returns
+  on that first -- but it is one reordering away from a client crediting itself
+  with damage it did not deal, and it is a one-word fix (`NoSlot`) whenever
+  that file is next touched.
+
+- **Live validation of snapshot-based form reconciliation remains.** The
+  authority now reconciles from the owner's intent and each client from the
+  authority's snapshot, with a transition-aware guard for stale state. The
+  prior Pi run with 150 ms injected on two of three clients found a remote
+  puppet wrong for 78 consecutive frames; that predates this change. The
+  deterministic form test covers morph and unmorph at 150 and 300 ms, but a
+  restart-free `run-remote-lag.sh` run is still needed to measure real packet
+  timing and whether any visual bounce remains. See
+  `.claude/multiplayer/NETWORK-DIAGNOSTICS.md`.
 - **The damage pipeline's `Replayed` count reads zero for one slot on one
   client, and the reason is not established.** Measured against Japan,
   2026-09-09, four two-client runs: the first client's slot carries the same
@@ -42,20 +173,31 @@ claiming coverage that isn't there.
   the reports from before this work, and it is the long-standing
   `damage-taken` mismatch in `NETWORK-DIAGNOSTICS.md` (17 against 7) seen from
   another angle.
-- **A continuous weapon does not resolve the same hits on two machines, and
-  nothing here makes it.** The Shock Coil's damage is divided by 32 and
-  dithered off `scene.FrameCount`, so the frame parity that produces a damaging
-  hit is a property of each machine's own counter: measured against Japan, the
-  authority landed 131 hits where the client that fired them resolved 28. The
-  totals are near enough that nobody notices the damage, and the *count* is
-  what `NetHitPrediction.Confirm` retires predictions by -- so one snapshot
-  retires everything outstanding and the hold collapses. The visible symptom,
-  a victim's health bar climbing back up when the trigger is released, is now
-  covered by the shown-health floor in `HealthFor`
-  (`.claude/multiplayer/NETWORK-PREDICTION.md`), but that is a floor on what is
-  *drawn*. The two machines still disagree about which frames landed a hit, and
-  making them agree -- dithering off a clock both sides share, or sending the
-  count rather than deriving it -- has not been attempted.
+- **Continuous-weapon hit agreement is measured now, and the 131/28 figure it
+  was justified by does not reproduce.** Shock Coil's old `scene.FrameCount`
+  dither differed on each machine. Spawn now derives one phase from the owner's
+  `NetFrame` or a per-slot clock seeded from `IntentPacket.Frame +
+  RemoteIntentAge` on a remote machine. The remote clock advances through a held
+  stream without re-anchoring to packets that arrive late, and the phase is used
+  for ammo, damage and the homing ramp. The beam retains that phase for its
+  enemy hit gate. Invalid or stale intents and offline play use scene timing.
+  Measured against the Japan box at 275 ms -- 13 arms of 180 s, TEST ARENA, a
+  simulating server, `-hitrig shockcoil` -- hit-count agreement went 70.7% to
+  74.2% and unpredicted hits 31.5% to 27.1%. Three things came out of that
+  campaign. **The 131-against-28 is wrong**: the shortfall on the same weapon
+  against the same box is 70%, not 21%. **The dither was never the larger
+  half** -- damage *per hit* already agreed to 97.8% before the change and moved
+  0.4 points, so the disagreement is entirely a hit *count*, and the ramp's
+  unreplicated `ShockCoilTimer` is therefore not contributing a measurable
+  error either. And **the means are not significant** at n=13: all four metrics
+  move the right way, none reaches |t| = 2. What is robust is the spread, which
+  is the signature the mechanism predicts -- the old dither drew an arbitrary
+  clock offset per session, so the base arm ranges 60.6-78.6% where this one
+  ranges 70.3-78.4% (F = 3.8; unpredicted hits, 20.8-43.2% against 23.7-30.3%,
+  F = 6.9). The residual quarter is untouched and unexplained by either arm:
+  both simulations still have to acquire the same target and process every hit,
+  and that is not shown here. The shown-health floor in `HealthFor` still covers
+  the visible rebound (`.claude/multiplayer/NETWORK-PREDICTION.md`).
 - **The scoreboard crash reported in bot matches is not reproduced here, and
   is therefore not fixed.** Reported from a phone, 2026-09-06: *"in bot matches
   the game still sometimes crashes when trying to view the scoreboard."* The
@@ -121,7 +263,7 @@ claiming coverage that isn't there.
   under its GL), so "Escape opens the pause menu over a running match" is
   proven on the menu's side (flags, windows, the pump) and unproven on the
   game's.
-- **macOS is cross-compiled and unrun.** See `.claude/launcher/LAUNCHER-OVERVIEW.md`.
+- **macOS interactive gameplay and Finder/Gatekeeper launch need manual verification.** Native CI now checks signed startup on both architectures; see `.claude/build-deploy/MACOS.md`.
 - **The Android match runs on an emulator; how it *looks* there proves
   nothing.** With the game files copied onto the device, an emulator (API 30,
   x86_64, software CPU and SwiftShader) has been driven front screen → offline
@@ -226,3 +368,23 @@ claiming coverage that isn't there.
   pickup is simulated from replicated positions and three clients in a 90 s
   match agreed exactly (`12`, `12`, `12`) — but "probably fine" isn't
   "measured".
+
+## A relative root in paths.txt used to break every read
+
+`AMHE0=files\AMHE0` -- a path relative to the program -- made the game report
+every room's spawns and every hunter model missing, from a folder with the
+root repeated two or three times:
+
+    ...\files\AMHE0\files\AMHE0\files\AMHE0\levels\entities\mp3_Ent.bin
+
+The files were where they should be. Several read paths combine the root in
+more than once -- `Read.GetEntities` combines it, calls `GetEntitiesFromPath`
+which combines it again, which calls `ReadBytes` which combines it a third
+time -- and that is invisible for an absolute root, since `Path.Combine(abs,
+abs)` is `abs`. Only a relative one stacks, which is why nobody had seen it:
+the launcher writes an absolute path and a hand-written relative one is rare.
+
+`Paths.Absolute` makes every root from paths.txt absolute as it is read,
+against the program's own directory. Reproduced and fixed on the same machine:
+a relative root gave 30 spawn failures and 1 missing model before, 0 and 0
+after.

@@ -411,6 +411,15 @@ namespace MphRead
         // OpenTK.Windowing.Common.WindowBorder.
         enum class WindowBorderValue : std::int32_t { Resizable = 0, Fixed = 1, Hidden = 2 };
 
+        // OpenTK.Windowing.Common.WindowState, as far as the game reads it.
+        enum class WindowStateValue : std::int32_t
+        {
+            Normal = 0,
+            Minimized = 1,
+            Maximized = 2,
+            Fullscreen = 3
+        };
+
         class Window
         {
         public:
@@ -449,6 +458,10 @@ namespace MphRead
             virtual void ClientSize(OpenTK::Mathematics::Vector2i value) = 0;
             // CurrentMonitor.ClientArea.
             [[nodiscard]] virtual MonitorArea CurrentMonitorClientArea() const = 0;
+            // Monitors.GetMonitors(), each one's ClientArea.
+            [[nodiscard]] virtual std::vector<MonitorArea> MonitorClientAreas() const = 0;
+            [[nodiscard]] virtual WindowStateValue WindowState() const = 0;
+            virtual void WindowStateMaximized() = 0;
             virtual void WindowStateNormal() = 0;
             virtual void Floating(bool value) = 0;
             [[nodiscard]] virtual bool IsFocused() const = 0;
@@ -579,6 +592,9 @@ namespace MphRead
         [[nodiscard]] OpenTK::Mathematics::Vector2i ClientSize() const;
         void ClientSize(OpenTK::Mathematics::Vector2i value);
         [[nodiscard]] RendererPlatform::MonitorArea CurrentMonitorClientArea() const;
+        [[nodiscard]] std::vector<RendererPlatform::MonitorArea> MonitorClientAreas() const;
+        [[nodiscard]] RendererPlatform::WindowStateValue WindowState() const;
+        void WindowStateMaximized();
         void WindowStateNormal();
         void Floating(bool value);
         [[nodiscard]] bool IsFocused() const;

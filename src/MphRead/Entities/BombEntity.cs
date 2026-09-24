@@ -1,3 +1,4 @@
+using MphRead.Mods.Multiplayer;
 using System;
 using System.Buffers;
 using System.Diagnostics;
@@ -5,6 +6,7 @@ using MphRead.Effects;
 using MphRead.Entities.Enemies;
 using MphRead.Formats;
 using MphRead.Formats.Culling;
+using MphRead.Mods.Render;
 using OpenTK.Mathematics;
 
 namespace MphRead.Entities
@@ -28,6 +30,13 @@ namespace MphRead.Entities
         public EffectEntry? Effect { get; private set; }
         private ModelInstance? _trailModel = null;
         private int _bindingId = 0;
+        private ulong _lockjawVisualTick;
+
+        // Map-audit hooks stay inert outside -maptest -drawrate checks. The
+        // RNG check is scoped here because other draw work advances effects.
+        internal int ModLockjawTrailBindingId => _bindingId;
+        internal static bool ModAuditLockjawDrawRng;
+        internal static int ModLockjawDrawRngChanges;
 
         public BombEntity(Scene scene) : base(EntityType.Bomb, scene)
         {
@@ -99,6 +108,10 @@ namespace MphRead.Entities
 
         public override bool Process()
         {
+            if (BombType == BombType.Lockjaw)
+            {
+                _lockjawVisualTick++;
+            }
             EntityBase? hitEntity = null;
             _soundSource.Update(Position, rangeIndex: 5);
             UpdateNodeRefVolume();
@@ -114,7 +127,7 @@ namespace MphRead.Entities
             {
                 foreach (PlayerEntity player in _scene.GetPlayerEntities())
                 {
-                    if (player == Owner || player.Health == 0 || player.TeamIndex == Owner.TeamIndex)
+                    if (player == Owner || player.Health == 0 || TeamRules.AreAllies(player.TeamIndex, Owner.TeamIndex))
                     {
                         // Counted apart from the other two refusals: a bomb
                         // that skips every player because it thinks they are
@@ -559,22 +572,33 @@ namespace MphRead.Entities
 
         public override void GetDrawInfo()
         {
+            uint rngBefore = ModAuditLockjawDrawRng && BombType == BombType.Lockjaw
+                ? Rng.Rng1 : 0;
             if (BombType == BombType.Lockjaw)
             {
                 if (BombIndex == 1)
                 {
-                    DrawLockjawTrail(Position, Owner.SyluxBombs[0]!.Position, Fixed.ToFloat(614), 10);
+                    DrawLockjawTrail(Position, Owner.SyluxBombs[0]!.Position, Fixed.ToFloat(614), 10,
+                        targetBombIndex: 0);
                 }
                 else if (BombIndex == 2)
                 {
-                    DrawLockjawTrail(Position, Owner.SyluxBombs[1]!.Position, Fixed.ToFloat(614), 10);
-                    DrawLockjawTrail(Position, Owner.SyluxBombs[0]!.Position, Fixed.ToFloat(614), 10);
+                    DrawLockjawTrail(Position, Owner.SyluxBombs[1]!.Position, Fixed.ToFloat(614), 10,
+                        targetBombIndex: 1);
+                    DrawLockjawTrail(Position, Owner.SyluxBombs[0]!.Position, Fixed.ToFloat(614), 10,
+                        targetBombIndex: 0);
                 }
             }
             base.GetDrawInfo();
+            if (ModAuditLockjawDrawRng && BombType == BombType.Lockjaw
+                && Rng.Rng1 != rngBefore)
+            {
+                ModLockjawDrawRngChanges++;
+            }
         }
 
-        private void DrawLockjawTrail(Vector3 point1, Vector3 point2, float height, int segments)
+        private void DrawLockjawTrail(Vector3 point1, Vector3 point2, float height, int segments,
+            int targetBombIndex)
         {
             Debug.Assert(_trailModel != null);
             if (segments < 2)
@@ -604,9 +628,12 @@ namespace MphRead.Entities
                 float z = vec.Z * pct;
                 if (i > 0 && i < segments - 1)
                 {
-                    x += Rng.GetRandomInt1(0x800) / 4096f - 0.25f;
-                    y += Rng.GetRandomInt1(0x800) / 4096f - 0.25f;
-                    z += Rng.GetRandomInt1(0x800) / 4096f - 0.25f;
+                    x += LockjawTrailNoise.Sample(_lockjawVisualTick, Owner.SlotIndex,
+                        BombIndex, targetBombIndex, i, axis: 0);
+                    y += LockjawTrailNoise.Sample(_lockjawVisualTick, Owner.SlotIndex,
+                        BombIndex, targetBombIndex, i, axis: 1);
+                    z += LockjawTrailNoise.Sample(_lockjawVisualTick, Owner.SlotIndex,
+                        BombIndex, targetBombIndex, i, axis: 2);
                 }
                 uvsAndVerts[4 * i] = new Vector3(uvS, 0, 0);
                 uvsAndVerts[4 * i + 1] = new Vector3(x, y - height, z);
@@ -692,6 +719,8 @@ namespace MphRead.Entities
             }
             bomb.Owner = owner;
             bomb.BombType = type;
+            // Bomb entities are pooled; a new placement starts a new visual clock.
+            bomb._lockjawVisualTick = 0;
             bomb.Transform = transform;
             bomb.Recolor = owner.Recolor;
             bomb.Flags = BombFlags.None;

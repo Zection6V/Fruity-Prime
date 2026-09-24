@@ -1,5 +1,7 @@
 #include "LauncherPrefs.hpp"
 
+#include "../../Platform/AppPaths.hpp"
+
 #include "../../../Formats/Enums.hpp"
 #include "../../WindowMode.hpp"
 #include "../../Branding.hpp"
@@ -1198,7 +1200,7 @@ namespace
 
 namespace MphRead::Mods::Launcher
 {
-    std::string LauncherPrefs::_directory = AppContextBaseDirectory();
+    std::string LauncherPrefs::_directory = Platform::AppPaths::UserDataDirectory();
     std::string LauncherPrefs::_serverAddress(LauncherPrefs::DefaultServer);
     std::int32_t LauncherPrefs::_serverPort = Network::NetConfig::DefaultPort;
     std::string LauncherPrefs::_masterHost = Network::NetMasterConfig::DefaultHost;
@@ -1214,6 +1216,11 @@ namespace MphRead::Mods::Launcher
     bool LauncherPrefs::_hostOnMaster = true;
     std::int32_t LauncherPrefs::_lastKind = 0;
     bool LauncherPrefs::_autoUpdate = true;
+    std::int32_t LauncherPrefs::_windowWidth = 0;
+    std::int32_t LauncherPrefs::_windowHeight = 0;
+    std::int32_t LauncherPrefs::_windowX = 0;
+    std::int32_t LauncherPrefs::_windowY = 0;
+    bool LauncherPrefs::_windowMaximized = false;
     MphRead::Mods::WindowStartMode LauncherPrefs::_windowMode
         = static_cast<MphRead::Mods::WindowStartMode>(0);
     bool LauncherPrefs::_debugLogs = true;
@@ -1389,6 +1396,76 @@ namespace MphRead::Mods::Launcher
         _windowMode = value;
     }
 
+    std::int32_t LauncherPrefs::WindowWidth() noexcept
+    {
+        return _windowWidth;
+    }
+
+    void LauncherPrefs::WindowWidth(std::int32_t value) noexcept
+    {
+        _windowWidth = value;
+    }
+
+    std::int32_t LauncherPrefs::WindowHeight() noexcept
+    {
+        return _windowHeight;
+    }
+
+    void LauncherPrefs::WindowHeight(std::int32_t value) noexcept
+    {
+        _windowHeight = value;
+    }
+
+    std::int32_t LauncherPrefs::WindowX() noexcept
+    {
+        return _windowX;
+    }
+
+    void LauncherPrefs::WindowX(std::int32_t value) noexcept
+    {
+        _windowX = value;
+    }
+
+    std::int32_t LauncherPrefs::WindowY() noexcept
+    {
+        return _windowY;
+    }
+
+    void LauncherPrefs::WindowY(std::int32_t value) noexcept
+    {
+        _windowY = value;
+    }
+
+    bool LauncherPrefs::WindowMaximized() noexcept
+    {
+        return _windowMaximized;
+    }
+
+    void LauncherPrefs::WindowMaximized(bool value) noexcept
+    {
+        _windowMaximized = value;
+    }
+
+    void LauncherPrefs::ReadPair(
+        std::string_view value, std::int32_t& first, std::int32_t& second)
+    {
+        first = 0;
+        second = 0;
+        const std::size_t at = value.find_first_of("xX,");
+        if (at == std::string_view::npos || at == 0)
+        {
+            return;
+        }
+        std::int32_t a = 0;
+        std::int32_t b = 0;
+        if (TryParseInt32(value.substr(0, at), a)
+            && TryParseInt32(value.substr(at + 1), b))
+        {
+            first = a;
+            second = b;
+        }
+    }
+
     bool LauncherPrefs::DebugLogs() noexcept
     {
         return _debugLogs;
@@ -1532,6 +1609,30 @@ namespace MphRead::Mods::Launcher
                     _windowMode = MphRead::Mods::WindowMode::Parse(
                         std::optional<std::string_view>{value}, _windowMode);
                 }
+                else if (key == "window_size")
+                {
+                    std::int32_t width = 0;
+                    std::int32_t height = 0;
+                    ReadPair(value, width, height);
+                    _windowWidth = width;
+                    _windowHeight = height;
+                }
+                else if (key == "window_pos")
+                {
+                    std::int32_t x = 0;
+                    std::int32_t y = 0;
+                    ReadPair(value, x, y);
+                    _windowX = x;
+                    _windowY = y;
+                }
+                else if (key == "window_maximized")
+                {
+                    bool maximized = false;
+                    if (TryParseBoolean(value, maximized))
+                    {
+                        _windowMaximized = maximized;
+                    }
+                }
                 else if (key == "auto_update")
                 {
                     bool autoUpdate = false;
@@ -1603,6 +1704,13 @@ namespace MphRead::Mods::Launcher
                     + (static_cast<std::int32_t>(_windowMode) == 1
                         ? "borderless"
                         : "windowed"));
+            lines.emplace_back("window_size=" + Int32ToInvariant(_windowWidth)
+                + "x" + Int32ToInvariant(_windowHeight));
+            lines.emplace_back("window_pos=" + Int32ToInvariant(_windowX)
+                + "," + Int32ToInvariant(_windowY));
+            lines.emplace_back(
+                std::string("window_maximized=")
+                    + (_windowMaximized ? "true" : "false"));
             WriteAllLines(path, lines);
         }
         catch (const std::exception&)

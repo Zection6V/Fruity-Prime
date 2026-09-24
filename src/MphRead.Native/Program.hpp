@@ -18,6 +18,11 @@ namespace MphRead
         // is private; native startup has no CLR entry-point metadata.
         static void Main(const std::vector<std::string>& args);
 
+    private:
+        static void Run(const std::vector<std::string>& args);
+
+    public:
+
         static const Mods::Update::Version Version;
 
         Program() = delete;

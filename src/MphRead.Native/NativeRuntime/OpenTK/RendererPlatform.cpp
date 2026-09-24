@@ -338,6 +338,48 @@ namespace
             return area;
         }
 
+        std::vector<MphRead::RendererPlatform::MonitorArea> MonitorClientAreas() const override
+        {
+            std::vector<MphRead::RendererPlatform::MonitorArea> areas;
+            int count = 0;
+            GLFWmonitor** const monitors = ::glfwGetMonitors(&count);
+            if (monitors == nullptr)
+            {
+                return areas;
+            }
+            for (int i = 0; i < count; ++i)
+            {
+                int x = 0;
+                int y = 0;
+                int width = 0;
+                int height = 0;
+                ::glfwGetMonitorWorkarea(monitors[i], &x, &y, &width, &height);
+                MphRead::RendererPlatform::MonitorArea area;
+                area.Min = OpenTK::Mathematics::Vector2i(x, y);
+                area.Size = OpenTK::Mathematics::Vector2i(width, height);
+                areas.push_back(area);
+            }
+            return areas;
+        }
+
+        MphRead::RendererPlatform::WindowStateValue WindowState() const override
+        {
+            if (::glfwGetWindowAttrib(_handle, GLFW_ICONIFIED) != GLFW_FALSE)
+            {
+                return MphRead::RendererPlatform::WindowStateValue::Minimized;
+            }
+            if (::glfwGetWindowAttrib(_handle, GLFW_MAXIMIZED) != GLFW_FALSE)
+            {
+                return MphRead::RendererPlatform::WindowStateValue::Maximized;
+            }
+            return MphRead::RendererPlatform::WindowStateValue::Normal;
+        }
+
+        void WindowStateMaximized() override
+        {
+            ::glfwMaximizeWindow(_handle);
+        }
+
         void WindowStateNormal() override
         {
             ::glfwRestoreWindow(_handle);

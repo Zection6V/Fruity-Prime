@@ -53,9 +53,148 @@ the whole of the work — no relay framing, no punching, no new transport path,
 |---|---|
 | `HostRequest`/`HostReply` | launcher → directory: room, mode, time limit, point goal, cap, name. Directory starts an ordinary `DedicatedServer` on a port from its range and answers with the port |
 | `-hostports 27900-27919` on the directory | the range it may use, one port per game. Default on — a feature that has to be configured to work is a feature nobody has. `-hostports none` disables it |
-| Host card: "Online, no setup" vs "On this PC" | first is default and hides the port/listing rows — nothing to choose, findability is the point |
-| `MphRead -hostgame "ROOM" [-mode M]` | same thing from a command line — the only way to host with no launcher |
+| **Create server** (launcher, Online face) | the screen this is reached from now: name, game type, hunter, map rotation, **Host on**, and Hosted vs Dedicated. See the launcher table in CLAUDE.md |
+| `MphRead -hostgame "ROOM" [-mode M] [-maprotation "A,B,C"]` | same thing from a command line — the only way to host with no launcher |
 | `HostedIdleSeconds` (180) | an unjoined game is shut down and its port returned. Generous, since the usual reason one's empty is that the requester is still loading the map |
+
+### The two additive fields, and why the directory has to be redeployed
+
+Both were appended **past the fixed block** rather than inserted into it, so
+`NetConfig.ProtocolVersion` did not move and no deployed client or server was
+invalidated. Both are also therefore inert until a directory is redeployed,
+which is the thing to check first when either looks broken.
+
+| Field | Where | Old peer does what |
+|---|---|---|
+| The asker's whole map cycle — `[count][count × (40-byte room key + 1-byte mode)]` after `HostRequestPacket.Size` | `HostRequest`, launcher → directory | length-checks against `Size`, reads exactly that, and plays `RoomKey` on a loop — the behaviour it always had. Entry 0 **is** `RoomKey`, so the two halves can never disagree about what starts |
+| One flags byte after the entries, bit 0 = "this directory starts games" (`MasterFlags.CanHost`) | `MasterList`, directory → launcher | a launcher from before stops reading once it has taken `count` entries and never sees it. A launcher that reads it and finds **nothing** treats that as a *third* state, not as a no — see below |
+
+`EntriesPerPacket` is `(1024 − 1 − 2) / 82` = 12, so a full reply is 987 bytes
+and the flags byte fits with room to spare. A sixteen-map request is 737 bytes
+including the type byte, against `MaxPacketSize` 1024 — which is where
+`HostRequestPacket.MaxRotation` comes from; it is the datagram, not a policy.
+
+**Silence is not a no**, and getting that backwards made the whole feature
+dead on arrival. `MasterListResult.CanHost` is `bool?`: true or false when the
+directory said, null when it is too old to have said. The first version folded
+null into false as the "conservative" reading, and against the live directory
+that produced **Host on: nobody** — because hosting is on by default and has
+to be turned *off* with `-hostports none`, so every directory deployed in the
+world hosts and none of them could say so. `WillHost` is `Answered &&
+CanHost != false`: only an explicit no is a no. The cost of guessing wrong is
+one clear refusal from `HostReply` at the moment the player presses the
+button; the cost of the conservative reading was a row that said nothing and
+explained less.
+
+`MphRead -servers` prints all three states, which is what tells a directory
+that is down from one that is up and does not host from one that is simply
+old — the first needs looking at, the second is a setting, the third is a
+deploy.
+
+Measured against the live directory on 2026-09-14, **with no redeploy**:
+`-hostgame "MP6 HEADSHOT" -maprotation "MP1 SANCTORUS,MP4 HIGHGROUND"` was
+answered with port 27900, joined, and became authority. The rotation tail was
+ignored by the old build, which is exactly the documented degradation — one
+map instead of three, and nothing broken.
+
+### Who can host: the servers themselves
+
+**Any `DedicatedServer` started with `-hostports A-B` will open extra matches
+on ports of its own** (`Mods/Network/HostPool.cs`), and says so in a flags byte
+appended to its status reply. The create-server screen asks every server the
+directory names, on the port the browser already pings it on.
+
+That is the second shape of this. The first put a **directory on every box**,
+and it was wrong in a way worth recording: those directories listed nothing —
+every relay reports to the one real directory — and existed purely to be asked
+"will you host". A component invented to satisfy a layering mistake. Starting a
+match on a machine is a property of *being that machine*, not of being a
+directory, and the machine is already listed, already pinged and already
+reachable.
+
+So: **one directory in the world.** It answers "who is up". Each server answers
+"can you open me a game". The directory is a host candidate too, since it has a
+port range and will open one — `HostPool` was lifted out of `MasterServer`, so
+both run the same code.
+
+| Piece | What |
+|---|---|
+| `-hostports A-B` on a **server** | the range it may open extra matches on. **Off** by default, unlike the directory's: it is an admin's bandwidth and their ports, and a game server has a match of its own to protect |
+| `ServerStatusPacket.Flags` bit 0 | "I will open new games". Appended past `Size`, so an older server is read exactly as before and an older launcher never looks — no protocol bump |
+| Silence = **no** here | the opposite of the directory's flag, and right both times: hosting on a server is off unless asked for, so not saying and saying no are the same answer; hosting on a directory is on unless turned off, so not saying means "too old to ask" |
+| `NetMasterClient.Merge` | one row per **machine**, not per port. The Pi arrives as the directory on 27889 and as a relay on 27888; the row that can actually open a game wins. Shared with `-hosts` so the diagnostic cannot drift from the picture |
+| Hosted matches are `RunsTheMatch = false` | a process has one static `NetSession` and can simulate one match; that one is the server's own. A hosted match is run by whichever client joins first, exactly as when the directory started them |
+| `Hosts.Count` counts toward auto-update | hosted games live in this process, so a restart ends them — a server with one is not empty |
+
+Verified 2026-09-14 on loopback: a `-server ... -hostports 28900-28903` was
+asked for a 3-map rotation on its own port and opened it on 28900, which was
+then joined.
+
+**The fleet.** NSGs are open 27888-28999/UDP inbound on the three Azure VMs and
+each relay now carries `-hostports 27900-27919`, inert until a release carrying
+`HostPool` reaches them. `-hosts` reads `1 of 4` until then: the Pi's directory
+hosts today, the relays will. See [[azure-server-fleet]].
+
+## A server on the player's own machine
+
+The other half of "I want to run a server", and the half nothing in the
+launcher could reach before: **Server type → Dedicated server** starts an
+ordinary `DedicatedServer` as its own process on this box and joins it over
+the loopback (`Mods/Network/LocalServer.cs`). What it buys over a hosted game
+is that it is the player's — their rotation, their uptime, nobody else's port
+range and no reaping when it empties. What it costs is the thing hosting was
+invented to avoid: **UDP 27888 has to reach this PC** before anybody outside
+can join, which the screen says before the choice rather than after.
+
+Three things in there are worth keeping in view:
+
+- **It gets its own window and its own life.** A server the player started
+  has to outlive the client that started it — somebody quitting to the front
+  screen has not asked to end the match everybody else is in. On Windows that
+  is `UseShellExecute = true`, which starts the process independently *and*
+  gives a console binary a console of its own; elsewhere a child already
+  outlives its parent. `LocalServer.Stop` is not called on shutdown, and
+  starting a second server does not stop the first (`FreePort` has already
+  moved past its port). Stop exists for `-hostlocal`, which starts one to
+  measure it.
+- **Which binary, and why Windows is the exception.** Everywhere but Windows
+  the game build is a console program that already accepts `-server`, so
+  `LocalServer.Available()` takes `Environment.ProcessPath` (with the `.dll`
+  as a prefix argument when that path is `dotnet`, since a framework-dependent
+  apphost cannot find a runtime here). That is also the `ProtocolVersion`
+  argument: a server started from the *latest release* on a client a release
+  behind is a server that client cannot join, which is the failure the
+  download was meant to prevent — hence `-noautoupdate` on the child too.
+  **On Windows the game exe is not a candidate at all.** It accepts `-server`
+  and it is a `WinExe`, so the server it starts has no console: nothing it
+  logs is ever seen and there is no window to close. `FruityPrimeServer.exe`
+  is looked for beside the game first and in `<base>/server/` second, and its
+  absence is the *only* case where the screen's install mark appears.
+  `MphRead -installserver` is that download on its own, for when it is the
+  button that has to be diagnosed; it prints the tag it fetched, which is the
+  latest release and not necessarily this build.
+- **`paths.txt` is copied next to the server**, and only when the server is
+  somewhere else. A server runs the match itself, so it needs the extracted
+  game files, and it looks for `paths.txt` beside its own binary rather than
+  in the working directory — `ConsoleSetup.Run` makes the binary's directory
+  current before anything reads either. Without the copy the server refuses to
+  start with a message nobody sees, because it is a process with no console.
+  `LocalServer.Start` checks `GameFiles.Problem()` here rather than leaving
+  the refusal to the child, for the same reason.
+- **The join is `127.0.0.1`.** A router that hairpins badly is a thing that
+  exists, and a player watching their own server fail to admit them has no way
+  to tell that apart from a server that did not start.
+
+`MphRead -hostlocal "A,B,C"` is that path with no launcher, which is how it is
+checked from a box with no display: it spawns the process, writes the
+rotation, copies `paths.txt`, waits for the socket and prints where it landed.
+Measured here: three maps, listed on a local directory, answering
+`StatusQuery` on 127.0.0.1:27888, and joined by a real `-netcheck` client.
+
+macOS has **no** server package (`release.yml` publishes win-x64, linux-x64
+and linux-arm64 servers and nothing else), so `UpdateCheck.ServerRid()` returns
+`""` there and the screen says so rather than offering a download that 404s.
+A Mac can still use Hosted, which needs nothing installed.
 
 Hole punching was the other candidate and wasn't worth it: needs a rendezvous
 protocol, needs a relay fallback anyway, and has a failure mode for every

@@ -690,6 +690,33 @@ namespace MphRead.Mods.Network
             // ModRefreshNodeRef started saying so. Zero on most maps.
             Console.WriteLine($"    node lookups unresolved: "
                 + $"{NetPlayerBridge.NodeLookupsUnresolved} -- these players are drawn uncalled");
+            // The respawn this client took for itself, which is where two
+            // separate bugs lived and which the tour could not reach until it
+            // learned to blow itself up. Read the three together:
+            //
+            //   self-kills  the window opened at all -- no self-kill, no
+            //               early respawn, and the two numbers after it mean
+            //               nothing rather than mean zero
+            //   turned      respawns where the authority's spawn point was
+            //               not the one chosen here, and the player was
+            //               turned to face the way it faces
+            //   stale       snapshots about the life just ended, dropped
+            //               instead of replayed onto the life just begun --
+            //               each one a death cry that would have played on
+            //               the frame the player stood up
+            Console.WriteLine($"    own respawn: {NetHitPrediction.SelfDeathsPredicted} self-kill(s) "
+                + $"predicted, {NetPlayerBridge.SpawnFacingsTurned} spawn facing(s) turned "
+                + $"(worst {NetPlayerBridge.WorstSpawnFacing:0.0} deg), "
+                + $"{NetPlayerBridge.StaleDeathsIgnored} stale death(s) ignored");
+            if (NetHitPrediction.SelfDeathsPredicted == 0)
+            {
+                // Said out loud rather than left as a zero. "The early-respawn
+                // path was never exercised" and "it was exercised and was
+                // clean" are the same two zeroes otherwise, and the first one
+                // is not a pass.
+                Console.WriteLine("    note: nobody killed themselves, so the early respawn "
+                    + "-- and everything that only goes wrong there -- went untested");
+            }
             if (NetPlayerBridge.RejectedUpdates > 0)
             {
                 // Never silently: a rejected update means somebody produced a

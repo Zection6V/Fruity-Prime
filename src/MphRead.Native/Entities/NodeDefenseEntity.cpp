@@ -1,4 +1,6 @@
 #include "NodeDefenseEntity.hpp"
+#include <type_traits>
+#include <algorithm>
 
 #include "../GameState.hpp"
 #include "../HUD/HudInfo.hpp"
@@ -31,6 +33,13 @@ using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
+    [[nodiscard]] bool TestLoadFlag(
+        MphRead::Entities::LoadFlags value, MphRead::Entities::LoadFlags flag) noexcept
+    {
+        using U = std::underlying_type_t<MphRead::Entities::LoadFlags>;
+        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
+    }
+
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
@@ -223,10 +232,9 @@ namespace MphRead::Entities
 
     bool NodeDefenseEntity::IsOccupied() const
     {
-        return RequireReference(_occupiedBy)[CheckedOccupiedIndex(0)]
-            || RequireReference(_occupiedBy)[CheckedOccupiedIndex(1)]
-            || RequireReference(_occupiedBy)[CheckedOccupiedIndex(2)]
-            || RequireReference(_occupiedBy)[CheckedOccupiedIndex(3)];
+        // Array.IndexOf(_occupiedBy, true) >= 0.
+        const std::vector<bool>& occupiedBy = RequireReference(_occupiedBy);
+        return std::find(occupiedBy.begin(), occupiedBy.end(), true) != occupiedBy.end();
     }
 
     float NodeDefenseEntity::Progress() const noexcept
@@ -269,7 +277,7 @@ namespace MphRead::Entities
 
     void NodeDefenseEntity::ProcessDefender()
     {
-        std::int32_t team = 4;
+        std::int32_t team = NoTeam;
         _contested = false;
 
         auto enumerator = RequireReference(_scene).GetPlayerEntities().GetEnumerator();
@@ -277,10 +285,13 @@ namespace MphRead::Entities
         {
             std::shared_ptr<PlayerEntity> playerValue = enumerator.Current();
             PlayerEntity& player = RequireReference(playerValue);
-            if (player.Health() > 0
+            if (TestLoadFlag(player.LoadFlags(), LoadFlags::Active) && player.Health() > 0
+                && static_cast<std::uint32_t>(player.TeamIndex())
+                    < static_cast<std::uint32_t>(GameState::Teams()
+                        ? GameState::TeamCount() : PlayerEntity::SlotCapacity)
                 && _volume.TestPoint(player.Volume().SpherePosition))
             {
-                if (team == 4)
+                if (team == NoTeam)
                 {
                     team = player.TeamIndex();
                 }
@@ -293,12 +304,12 @@ namespace MphRead::Entities
 
         if (_contested)
         {
-            team = 4;
+            team = NoTeam;
         }
 
         float speed;
         float rotation;
-        if (team == 4)
+        if (team == NoTeam)
         {
             std::tie(speed, rotation)
                 = ConstantAcceleration(-0.25F, _spinSpeed, 0.0F);
@@ -328,7 +339,7 @@ namespace MphRead::Entities
         std::int32_t value1 = 0;
         std::int32_t value2 = 0;
         std::vector<bool> prevOccupiedBy(PlayerEntity::SlotCapacity, false);
-        for (std::int32_t i = 0; i < 4; ++i)
+        for (std::int32_t i = 0; i < PlayerEntity::SlotCapacity; ++i)
         {
             const std::size_t index = CheckedOccupiedIndex(i);
             prevOccupiedBy[index] = RequireReference(_occupiedBy)[index];
@@ -345,7 +356,10 @@ namespace MphRead::Entities
         {
             std::shared_ptr<PlayerEntity> playerValue = playerEnumerator.Current();
             PlayerEntity& player = RequireReference(playerValue);
-            if (player.Health() > 0
+            if (TestLoadFlag(player.LoadFlags(), LoadFlags::Active) && player.Health() > 0
+                && static_cast<std::uint32_t>(player.TeamIndex())
+                    < static_cast<std::uint32_t>(GameState::Teams()
+                        ? GameState::TeamCount() : PlayerEntity::SlotCapacity)
                 && _volume.TestPoint(player.Volume().SpherePosition))
             {
                 if (_occupyingTeam == player.TeamIndex())
@@ -354,7 +368,7 @@ namespace MphRead::Entities
                     occupiedByAny = true;
                     slot = player.SlotIndex();
                 }
-                else if (_occupyingTeam == 4 && _currentTeam != player.TeamIndex())
+                else if (_occupyingTeam == NoTeam && _currentTeam != player.TeamIndex())
                 {
                     RequireReference(_occupiedBy)[CheckedOccupiedIndex(player.SlotIndex())] = true;
                     occupiedByAny = true;
@@ -424,7 +438,7 @@ namespace MphRead::Entities
                     value1 = 3;
                 }
             }
-            _occupyingTeam = 4;
+            _occupyingTeam = NoTeam;
             _progress = 0.0F;
             _inProgress = false;
             std::tie(_spinSpeed, rotation)
@@ -434,18 +448,18 @@ namespace MphRead::Entities
         std::int32_t nodeCount = 0;
         std::int32_t team = _currentTeam;
         float scoreThreshold = 150.0F / 30.0F;
-        if (team == 4)
+        if (team == NoTeam)
         {
             team = _occupyingTeam;
         }
-        if (team != 4)
+        if (team != NoTeam)
         {
             auto nodeEnumerator = RequireReference(_scene).GetNodeDefenseEntities().GetEnumerator();
             while (nodeEnumerator.MoveNext())
             {
                 std::shared_ptr<NodeDefenseEntity> nodeValue = nodeEnumerator.Current();
                 NodeDefenseEntity& node = RequireReference(nodeValue);
-                if (node._currentTeam == team && node._occupyingTeam == 4)
+                if (node._currentTeam == team && node._occupyingTeam == NoTeam)
                 {
                     nodeCount = Memory::Detail::UncheckedAdd(nodeCount, 1);
                     if (nodeCount > 1)
@@ -456,7 +470,7 @@ namespace MphRead::Entities
             }
         }
 
-        if (_currentTeam != 4 && !occupiedByAny)
+        if (_currentTeam != NoTeam && !occupiedByAny)
         {
             _scoreTimer += RequireReference(_scene).FrameTime();
             if (_scoreTimer >= scoreThreshold)
@@ -550,7 +564,7 @@ namespace MphRead::Entities
                 ColorRgba(31U), 1, 90.0F / 30.0F, 17, msg);
         }
 
-        for (std::int32_t i = 0; i < 4; ++i)
+        for (std::int32_t i = 0; i < PlayerEntity::SlotCapacity; ++i)
         {
             std::shared_ptr<PlayerEntity> playerValue
                 = PlayerEntity::Players()[static_cast<std::size_t>(i)];
@@ -585,7 +599,7 @@ namespace MphRead::Entities
         _currentTeam = _occupyingTeam;
         _progress = 0.0F;
         _inProgress = false;
-        _occupyingTeam = 4;
+        _occupyingTeam = NoTeam;
         _scoreTimer = 150.0F / 30.0F;
         if (_currentTeam == RequireReference(PlayerEntity::Main()).TeamIndex())
         {
@@ -603,7 +617,7 @@ namespace MphRead::Entities
     {
         const bool blinking = _blinkTimer > 0.0F;
         ColorRgb color = _neutralColor;
-        if (_currentTeam == 4)
+        if (_currentTeam == NoTeam)
         {
             if (blinking)
             {

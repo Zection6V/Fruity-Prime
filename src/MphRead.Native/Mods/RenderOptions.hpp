@@ -14,6 +14,37 @@ namespace MphRead::Mods
 
         inline static constexpr std::int32_t MinScale = 25;
 
+        // How wide the view is, in degrees, measured the way the game
+        // measures it.
+        //
+        // The DS game is a 78: PlayerValues::NormalFov is 39 and every camera
+        // doubles it. That is a narrow picture by the standards of anything
+        // played with a mouse, and it is the single setting most often asked
+        // for in a shooter -- so this is a multiplier on whatever the camera
+        // asked for rather than a replacement for it. Zooming with a weapon,
+        // the Judicator's scope and every scripted camera all move
+        // CameraInfo::Fov themselves, and each of them keeps its proportions:
+        // at 100 the zoom is as tight relative to the hip view as it was on
+        // the cartridge.
+        //
+        // Clamped rather than free. Below about 60 the gun fills the screen;
+        // above 120 the projection distorts badly enough at the edges that
+        // aiming gets worse, not better.
+        [[nodiscard]] static std::int32_t FieldOfView() noexcept;
+        static void FieldOfView(std::int32_t value) noexcept;
+
+        // What the DS game plays at: NormalFov 39, doubled.
+        inline static constexpr std::int32_t DefaultFov = 78;
+
+        inline static constexpr std::int32_t MinFov = 60;
+        inline static constexpr std::int32_t MaxFov = 120;
+
+        // The multiplier a camera's own field of view is scaled by.
+        [[nodiscard]] static float FovScale() noexcept;
+
+        [[nodiscard]] static std::int32_t ParseFov(
+            std::optional<std::string_view> value, std::int32_t fallback) noexcept;
+
         [[nodiscard]] static bool Lighting() noexcept;
         static void Lighting(bool value) noexcept;
 
@@ -53,6 +84,7 @@ namespace MphRead::Mods
         RenderOptions& operator=(const RenderOptions&) = delete;
 
     private:
+        static std::int32_t _fieldOfView;
         static std::int32_t _resolutionScale;
         static bool _lighting;
         static bool _celShading;

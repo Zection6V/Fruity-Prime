@@ -248,7 +248,8 @@ namespace MphRead.Entities
                                 }
                             }
                         }
-                        if (GameState.SinglePlayer || Controls.Shoot.IsDown || time <= 0 || IsBot
+                        if (GameState.SinglePlayer || Controls.Shoot.IsDown
+                            || Mods.Network.NetPlayerBridge.RespawnRequested(SlotIndex) || time <= 0 || IsBot
                             || Mods.Network.NetHooks.ForceSpawn(this)) // todo: or forced
                         {
                             // todo?: something with wi-fi
@@ -364,6 +365,10 @@ namespace MphRead.Entities
             if (_altAttackCooldown > 0)
             {
                 _altAttackCooldown--;
+            }
+            if (_boostAimLock > 0)
+            {
+                _boostAimLock--;
             }
             if (_jumpPadControlLock > 0)
             {
@@ -807,6 +812,10 @@ namespace MphRead.Entities
             if ((IsAltForm || IsMorphing) && _frozenTimer == 0)
             {
                 UpdateAnimFrames(_altModel);
+            }
+            if (Hunter == Hunter.Spire && Flags2.TestFlag(PlayerFlags2.AltAttack))
+            {
+                UpdateSpireAltCollisionPose();
             }
             if (_boostEffect != null)
             {
@@ -1286,6 +1295,7 @@ namespace MphRead.Entities
             distSqr *= distSqr;
             foreach (ItemInstanceEntity item in _scene.GetItemInstanceEntities())
             {
+                if (!Mods.Network.NetHealthSync.OwnsPickup(item) || item.DespawnTimer == 0) continue;
                 bool inRange = false;
                 if (IsAltForm)
                 {
@@ -1330,10 +1340,7 @@ namespace MphRead.Entities
                         pickedUp = true;
                         _timeSinceHeal = 0;
                         GainHealth(_healthPickupAmounts[(int)item.ItemType]);
-                        if (Sfx.TimedSfxMute == 0)
-                        {
-                            PlaySfx(item.ItemType == ItemType.HealthSmall ? SfxId.POWER_UP1 : SfxId.POWER_UP2);
-                        }
+                        PlayHealthPickupSfx(item.ItemType);
                     }
                     break;
                 case ItemType.UASmall:
@@ -1465,9 +1472,19 @@ namespace MphRead.Entities
                 }
                 if (pickedUp)
                 {
-                    item.OnPickedUp();
+                    item.OnPickedUp(this);
                 }
             }
+        }
+
+        internal void PlayHealthPickupSfx(ItemType itemType)
+        {
+            if (!IsMainPlayer || Sfx.TimedSfxMute != 0
+                || !Mods.Multiplayer.MapResourceRules.IsHealth(itemType))
+            {
+                return;
+            }
+            _soundSource.PlayFreeSfx(itemType == ItemType.HealthSmall ? SfxId.POWER_UP1 : SfxId.POWER_UP2);
         }
 
         private void PickUpWeapon(ItemType itemType)
@@ -1796,6 +1813,23 @@ namespace MphRead.Entities
                 _modelTransform = GetTransformMatrix(new Vector3(_field80, 0, _field84), Vector3.UnitY);
             }
         }
+
+        private void AnimateSpireAltAttack()
+        {
+            Matrix4 transform = GetTransformMatrix(_spireAltFacing, _spireAltUp);
+            _altModel.Model.AnimateNodes(index: 0, useNodeTransform: false, transform, Vector3.One, _altModel.AnimInfo);
+        }
+
+        private void UpdateSpireAltCollisionPose()
+        {
+            // Keep collision pose advancing even when no draw pass runs.
+            AnimateSpireAltAttack();
+            _spireRockPosL = _spireAltNodes[0]!.Animation.Row3.Xyz + Position;
+            _spireRockPosR = _spireAltNodes[1]!.Animation.Row3.Xyz + Position;
+        }
+
+        internal (Vector3 Left, Vector3 Right) ModSpireAltCollisionPose()
+            => (_spireRockPosL, _spireRockPosR);
 
         private void UpdateStinglarvaSegments()
         {

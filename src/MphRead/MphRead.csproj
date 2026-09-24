@@ -10,7 +10,7 @@
          desktop platforms, so nothing here needs the Windows desktop TFM any
          more, which is also what makes an osx or android build of these
          sources possible at all. -->
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <!-- A console binary everywhere except a Windows game build, which is a GUI
          one: double-clicking it has to open the launcher and nothing else, and
          a console subsystem process gets a terminal before Main can hide it.
@@ -44,6 +44,8 @@
     <AssemblyName>FruityPrime</AssemblyName>
     <AssemblyName Condition="'$(MphReadServer)' == 'true' and $(RuntimeIdentifier.StartsWith('win'))">FruityPrimeServer</AssemblyName>
     <Product>Fruity Prime</Product>
+    <!-- A local build must not masquerade as the SDK's default 1.0.0 release. -->
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">local</InformationalVersion>
     <RootNamespace>MphRead</RootNamespace>
     <!-- Not the same question as "has no launcher": a server build is shipped
          with no game files and no way to get any, which is why it answers a
@@ -55,6 +57,14 @@
          download. -->
     <MphReadAvalonia Condition="'$(MphReadServer)' != 'true'">true</MphReadAvalonia>
     <DefineConstants Condition="'$(MphReadAvalonia)' == 'true'">$(DefineConstants);MPHREAD_AVALONIA</DefineConstants>
+    <!-- The one-window shell: the launcher and the pause menu rendered into
+         the game window (Mods/Launcher/Gui/Shell.cs, UiSurface.cs). Desktop
+         only, and not because Android cannot do it: Android already
+         does it the other way round, with real Avalonia views over the GL
+         surface, which is what a platform whose windowing system *is* a view
+         stack gives for nothing. The Android head defines MPHREAD_AVALONIA
+         without this one and leaves those two files out. -->
+    <DefineConstants Condition="'$(MphReadAvalonia)' == 'true'">$(DefineConstants);MPHREAD_SHELL</DefineConstants>
     <!-- The exe's own icon: Explorer, the taskbar, a pinned shortcut. Two
          variants of the same mark, because the game and the server are two
          different things to have pinned next to each other, and the server's
@@ -67,6 +77,29 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <ProduceReferenceAssembly>False</ProduceReferenceAssembly>
+    <!-- The launcher's screens are drawn into the game window through an
+         ITopLevelImpl of our own (Mods/Launcher/Gui/UiTopLevel.cs), which is
+         the supported way to put Avalonia inside somebody else's frame and is
+         the difference between a menu that scrolls and one that does not: the
+         toolkit's headless backend allocates and frees a full-window bitmap
+         per redraw and forces two extra rasterisations per input event.
+
+         Avalonia ships reference assemblies that hide the platform interfaces,
+         so implementing one needs this switch, which is Avalonia's own. It
+         also pins us to an exact version: these interfaces are allowed to
+         change between releases, so the Avalonia PackageReferences above are
+         exact versions and not ranges, and bumping them means rebuilding
+         against the new shape rather than hoping. AVA3001 is the warning that
+         says so and is expected. -->
+    <AvaloniaAccessUnstablePrivateApis Condition="'$(MphReadAvalonia)' == 'true'">true</AvaloniaAccessUnstablePrivateApis>
+    <!-- AVA3001 is the notice the switch above prints on every build: "you are
+         using unstable internal APIs". It is saying something true and it has
+         been acted on rather than waved away, which is what the exact version
+         pins are for: bumping Avalonia means rebuilding against the new shape
+         of ITopLevelImpl and IRenderTimer, deliberately. Silenced because the
+         build has no other warnings and one that fires unconditionally is one
+         that teaches people to stop reading them. -->
+    <NoWarn Condition="'$(MphReadAvalonia)' == 'true'">$(NoWarn);AVA3001</NoWarn>
   </PropertyGroup>
 
   <!-- Mods\Launcher\Gui\ is the front screen and every window behind it, in
@@ -80,15 +113,75 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(MphReadAvalonia)' == 'true'">
-    <PackageReference Include="Avalonia" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.11" />
+    <PackageReference Include="Avalonia" Version="12.1.2" />
+    <!-- Desktop is still here for the platform's fonts, its Skia backend and
+         the packages the render path pulls in; what it is no longer used for
+         is a window. The launcher's screens are rendered by the *headless*
+         backend into a buffer and drawn inside the game window
+         (Mods/Render/UiOverlay.cs), so the program opens exactly one window on
+         every platform and the launcher is a screen in the game rather than a
+         second application beside it. -->
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Headless" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2" />
     <!-- Loaded at runtime through avares://, Avalonia's own asset scheme: a
-         plain EmbeddedResource is not visible to AssetLoader. The wordmark
-         is the splash screen's default picture; the mark is the window icon. -->
+         plain EmbeddedResource is not visible to AssetLoader. The wordmark is
+         the corner of every launcher screen; the mark is the window icon. -->
     <AvaloniaResource Include="Assets\fruity-prime-logo.png" />
     <AvaloniaResource Include="Assets\fruity-prime-mark.png" />
+    <!-- The same file again, as a plain embedded resource: the *window's*
+         icon is set on the GL window, which knows nothing about avares:// and
+         is created before the toolkit is. Mods/Render/WindowIcon.cs reads it.
+         A few kilobytes, and the alternative is the launcher's icon existing
+         only on a screen the program no longer opens. -->
+    <EmbeddedResource Include="Assets\fruity-prime-mark.png" />
+    <!-- The launcher's two faces and its backdrop: fonts from
+         OpenQuake3/defrag's ui/font, whose UI this one is built to. -->
+    <AvaloniaResource Include="Assets\Fonts\heyNovember.ttf" />
+    <!-- Pixelify Sans, SIL OFL 1.1 (licence beside it). The deck theme's
+         display face: Balatro sets its whole UI in a pixel font and the
+         chunky faces read as web buttons without one.
+
+         Three static instances cut from the upstream variable file
+         (tools/cut-pixelify.py), not the variable file itself: Avalonia's
+         font manager does not set a variation axis, so asking a wght-variable
+         face for 600 got the 400 default with a synthesised bold over it:
+         every label a stem too heavy, which on a pixel face is the whole
+         difference between the reference's buttons and ours. 400 for the
+         rows, 600 for the labels, 700 for the wordmark. -->
+    <AvaloniaResource Include="Assets\Fonts\PixelifySans-Regular.ttf" />
+    <AvaloniaResource Include="Assets\Fonts\PixelifySans-SemiBold.ttf" />
+    <AvaloniaResource Include="Assets\Fonts\PixelifySans-Bold.ttf" />
+    <!-- JetBrains Mono, SIL OFL 1.1 (licence beside it). The deck theme's
+         body face, and it is not interchangeable with the display one: the
+         reference sets its labels, its headings and its wordmark in the pixel
+         face and everything that is read (a mode name, a ping, a note under
+         the foot) in a mono, because a pixel face at eleven points
+         loses the difference between an "e" and an "o". Two weights, since
+         400 and 700 are both used and a synthesised bold on a mono is a
+         smear. -->
+    <AvaloniaResource Include="Assets\Fonts\JetBrainsMono-Regular.ttf" />
+    <AvaloniaResource Include="Assets\Fonts\JetBrainsMono-Bold.ttf" />
+    <!-- IP-to-country ranges, so the browser can put a flag beside a server
+         without asking a third party where every server you are looking at
+         is. Built from DB-IP Lite (CC BY 4.0) by tools/build-ipcountry.py;
+         the attribution the licence requires is on the Credits page. About a
+         megabyte, which is the price of the question being answered offline. -->
+    <AvaloniaResource Include="Assets\Geo\ipcountry.bin.gz" />
+    <AvaloniaResource Include="Assets\Fonts\Roboto-Bold.ttf" />
+    <AvaloniaResource Include="Assets\Backgrounds\launcher-bg.jpg" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The backdrop again, as a plain embedded resource, for the same reason
+         the mark is above: on the desktop the photograph is drawn by GL under
+         the screens rather than rasterised into them (Mods/Render/
+         LauncherPhoto.cs, which explains why), and that side of the window
+         knows nothing about avares://. Not inside the Avalonia group: the
+         server build carries no toolkit and still compiles the file. -->
+    <EmbeddedResource Include="Assets\Backgrounds\launcher-bg.jpg" />
   </ItemGroup>
 
   <ItemGroup>
@@ -130,7 +223,7 @@
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</MphReadAudioRid>
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">win-x64</MphReadAudioRid>
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux'))">linux-x64</MphReadAudioRid>
-    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">osx-x64</MphReadAudioRid>
+    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">$(NETCoreSdkRuntimeIdentifier)</MphReadAudioRid>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('win'))">
@@ -156,6 +249,29 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="gamecontrollerdb.txt;gamecontrollerdb.LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- The native packages ship their own debug symbols, and since SkiaSharp 3
+       (which Avalonia 12 binds) publish copies them: libSkiaSharp.pdb is 80 MB
+       and libHarfBuzzSharp.pdb another 20, on a download that is otherwise
+       about a hundred. Nobody debugging this program steps into Skia's C++,
+       and the managed symbols are embedded in the binary (DebugType above).
+
+       Filtered rather than switched off at the source: there is no package
+       option for it, and AllowedReferenceRelatedFileExtensions only reaches
+       *managed* references. Ours are left alone; what goes is only what came
+       out of a package's runtimes/ folder, and that is still in the NuGet
+       cache for anyone who wants it. -->
+  <Target Name="MphReadDropNativeSymbols" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish
+        Remove="@(ResolvedFileToPublish)"
+        Condition="'%(Extension)' == '.pdb' and '%(ResolvedFileToPublish.AssetType)' == 'native'" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
     <None Update="paths.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -178,7 +294,7 @@
        publishes. -->
   <ItemGroup>
     <!-- What ships: the bundles, and any map file loose at the top of maps/. -->
-    <None Include="..\..\maps\**\*.fpmap;..\..\maps\*.json;..\..\maps\*.bsp;..\..\maps\*.tex" Link="maps\%(RecursiveDir)%(Filename)%(Extension)">
+    <None Include="..\..\maps\**\*.fpmap;..\..\maps\*.json;..\..\maps\*.bsp;..\..\maps\*.tex;..\..\maps\*.obj" Link="maps\%(RecursiveDir)%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <!-- What a map is worked on as: a folder holding the recipe, somebody
@@ -187,8 +303,8 @@
          package carrying the folder as well as the bundle would carry the
          same map twice, one copy of it naming a .pk3 that is deliberately not
          there. -->
-    <None Include="..\..\maps\**\*.json;..\..\maps\**\*.bsp;..\..\maps\**\*.tex;..\..\maps\**\*.pk3"
-          Exclude="..\..\maps\*.json;..\..\maps\*.bsp;..\..\maps\*.tex"
+    <None Include="..\..\maps\**\*.json;..\..\maps\**\*.bsp;..\..\maps\**\*.tex;..\..\maps\**\*.pk3;..\..\maps\**\*.obj;..\..\maps\**\*.mtl"
+          Exclude="..\..\maps\*.json;..\..\maps\*.bsp;..\..\maps\*.tex;..\..\maps\*.obj"
           Link="maps\%(RecursiveDir)%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>Never</CopyToPublishDirectory>

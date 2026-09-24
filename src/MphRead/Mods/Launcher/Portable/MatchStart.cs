@@ -19,19 +19,47 @@ namespace MphRead.Mods.Launcher
     public static class MatchStart
     {
         /// <summary>
-        /// Load what the plan asked for and run until the match ends.
+        /// Load what the plan asked for into a window of its own and run until
+        /// the match ends.
         ///
-        /// For an online or hosted game the front screen has already joined --
-        /// hosting included, because a host runs the server in this process and
-        /// joins it over the loopback like everybody else -- so all that is
-        /// left is to load what the server says is running.
+        /// The text launcher's path, and the only one left that owns a window:
+        /// it has no front screen to come back to, so a match is the whole of
+        /// its session. The launcher proper calls <see cref="Begin"/> against
+        /// the window it is already running in.
         /// </summary>
         public static void Launch(MenuSettings settings, LaunchPlan plan)
+        {
+            RenderWindow.LogCreatingWindow();
+            using var renderer = new RenderWindow();
+            if (!Begin(renderer, settings, plan))
+            {
+                return;
+            }
+            renderer.Run();
+            AfterMatch();
+        }
+
+        /// <summary>
+        /// Build the match into a window that already exists.
+        ///
+        /// This is what <c>MatchStart.Launch</c> was, with the two lines that
+        /// owned a window taken out -- the same order, the same slot
+        /// arithmetic, the same deference to what the server says it is
+        /// running. Taking them out is what lets the launcher run inside the
+        /// game window: a match is now a scene loaded into the window the
+        /// front screen is being drawn in, and leaving one unloads the scene
+        /// rather than destroying the window.
+        ///
+        /// False means nothing was loaded and there is nothing to run: no game
+        /// files, a map that will not build, a demo that will not open. The
+        /// caller puts the front screen back up.
+        /// </summary>
+        public static bool Begin(RenderWindow window, MenuSettings settings, LaunchPlan plan)
         {
             if (!GameFiles.Ready)
             {
                 Console.WriteLine("[launcher] no game files; nothing to load");
-                return;
+                return false;
             }
             GameFiles.ApplyPaths();
             // The custom maps, here rather than only in ModEntry.TryHandle.
@@ -47,13 +75,11 @@ namespace MphRead.Mods.Launcher
             MapGen.CustomRooms.GenerateMissing();
             if (plan.Kind == LaunchKind.Adventure)
             {
-                LaunchAdventure(plan);
-                return;
+                return BeginAdventure(window, plan);
             }
             if (plan.Kind == LaunchKind.Demo)
             {
-                LaunchDemo(plan);
-                return;
+                return BeginDemo(window, plan);
             }
             // No slot means nothing can be written, which is what a match
             // needs: leaving the story's slot selected would let a multiplayer
@@ -79,7 +105,7 @@ namespace MphRead.Mods.Launcher
                 : settings.RoomKey;
             if (roomKey.Length == 0 || roomKey == "none")
             {
-                return;
+                return false;
             }
 
             // A custom map that failed to build is still a room in the table --
@@ -91,11 +117,10 @@ namespace MphRead.Mods.Launcher
             if (unplayable != null)
             {
                 Console.WriteLine($"[launcher] {unplayable}");
-                return;
+                return false;
             }
 
-            RenderWindow.LogCreatingWindow();
-            using var renderer = new RenderWindow();
+            EnsureScene(window);
             // The server's rotation decides the mode as well as the map; a
             // client that kept its own menu choice would score a different
             // game from everyone else on the same level. Settled before the
@@ -121,17 +146,51 @@ namespace MphRead.Mods.Launcher
 
             if (NetSession.Active)
             {
-                NetLaunch.BuildPlayers(renderer.Scene, plan.Hunter,
+                NetLaunch.DisableCheatsForMatch();
+                NetLaunch.BuildPlayers(window.Scene, plan.Hunter,
                     localRecolor: LauncherPrefs.LastColor, teams: teamPlay);
             }
             else
             {
-                AddLocalPlayers(renderer, plan, teamPlay);
+                AddLocalPlayers(window, plan, teamPlay);
             }
-            renderer.AddRoom(roomKey, mode, playerCount: NetSession.Active
+            window.AddRoom(roomKey, mode, playerCount: NetSession.Active
                 ? NetLaunch.RoomPlayerCount
                 : 0);
-            renderer.Run();
+            window.LoadScene();
+            NetSession.MarkMatchLoaded();
+            return true;
+        }
+
+        /// <summary>
+        /// The scene a match is built into: the window's own if it came with
+        /// one, a new one otherwise.
+        ///
+        /// Both exist. A window opened for one match builds its scene in the
+        /// constructor as it always did; the shell's window opens with none
+        /// and is given one per match.
+        /// </summary>
+        private static void EnsureScene(RenderWindow window)
+        {
+            if (!window.HasScene)
+            {
+                window.BeginScene();
+            }
+        }
+
+        /// <summary>
+        /// What has to happen after a match, whichever way it ended.
+        ///
+        /// The line after the render loop, when a match was a window; the
+        /// point the scene is unloaded at, now that it is not.
+        /// </summary>
+        public static void AfterMatch()
+        {
+            if (Mods.Network.DemoPlayback.IsActive)
+            {
+                DemoPlayback.Stop();
+            }
+            CommitAdventureSave();
         }
 
         /// <summary>
@@ -145,27 +204,24 @@ namespace MphRead.Mods.Launcher
         /// <see cref="Menu.SaveSlot"/> is 0 -- and asking for one player, since
         /// the multiplayer path's bot filling has no meaning here.
         /// </summary>
-        private static void LaunchAdventure(LaunchPlan plan)
+        private static bool BeginAdventure(RenderWindow window, LaunchPlan plan)
         {
             string roomKey = AdventureSave.Begin(plan.SaveSlot, plan.NewGame);
             if (roomKey.Length == 0)
             {
                 Console.WriteLine("[launcher] no adventure room to load");
-                return;
+                return false;
             }
             GameState.Mode = GameMode.SinglePlayer;
-            RenderWindow.LogCreatingWindow();
-            using (var renderer = new RenderWindow())
-            {
-                // Back to the four a DS game had: a previous offline match in
-                // the same session may have raised this to eight, and the
-                // story's own setup counts on the retail number.
-                PlayerEntity.MaxPlayers = 4;
-                renderer.AddPlayer(plan.Hunter, recolor: LauncherPrefs.LastColor, team: -1);
-                renderer.AddRoom(roomKey, GameMode.SinglePlayer);
-                renderer.Run();
-            }
-            CommitAdventureSave();
+            EnsureScene(window);
+            // Back to the four a DS game had: a previous offline match in
+            // the same session may have raised this to eight, and the
+            // story's own setup counts on the retail number.
+            PlayerEntity.MaxPlayers = 4;
+            window.AddPlayer(plan.Hunter, recolor: LauncherPrefs.LastColor, team: -1);
+            window.AddRoom(roomKey, GameMode.SinglePlayer);
+            window.LoadScene();
+            return true;
         }
 
         /// <summary>
@@ -178,29 +234,29 @@ namespace MphRead.Mods.Launcher
         /// a player becomes available, since there is no local player to
         /// spawn as here.
         /// </summary>
-        private static void LaunchDemo(LaunchPlan plan)
+        private static bool BeginDemo(RenderWindow window, LaunchPlan plan)
         {
             PlayerEntity.MaxPlayers = PlayerEntity.SlotCapacity;
             if (!DemoPlayback.Join(plan.DemoPath))
             {
                 Console.WriteLine("[demo] could not open or read the demo file");
-                return;
+                return false;
             }
             (string RoomKey, GameMode Mode)? room = NetLaunch.ServerRoom();
             if (room == null)
             {
                 Console.WriteLine("[demo] the demo has no match info");
                 DemoPlayback.Stop();
-                return;
+                return false;
             }
             Menu.SaveSlot = 0;
-            RenderWindow.LogCreatingWindow();
-            using var renderer = new RenderWindow();
-            NetLaunch.BuildPlayers(renderer.Scene, Hunter.Samus, localRecolor: 0,
+            EnsureScene(window);
+            NetLaunch.BuildPlayers(window.Scene, Hunter.Samus, localRecolor: 0,
                 teams: GameState.IsTeamMode(room.Value.Mode), localSlot: -1);
-            renderer.AddRoom(room.Value.RoomKey, room.Value.Mode, playerCount: NetLaunch.RoomPlayerCount);
-            renderer.Run();
-            DemoPlayback.Stop();
+            window.AddRoom(room.Value.RoomKey, room.Value.Mode,
+                playerCount: NetLaunch.RoomPlayerCount);
+            window.LoadScene();
+            return true;
         }
 
         /// <summary>
@@ -262,7 +318,7 @@ namespace MphRead.Mods.Launcher
                 var hunter = (Hunter)(((int)plan.Hunter + i) % 7);
                 renderer.AddPlayer(hunter, recolor: 0, team: teamPlay ? i % 2 : -1);
             }
-            int level = Math.Clamp(plan.BotLevel, 0, 2);
+            int level = Math.Clamp(plan.BotLevel, 0, 3);
             for (int i = 0; i < PlayerEntity.Players.Count; i++)
             {
                 PlayerEntity player = PlayerEntity.Players[i];

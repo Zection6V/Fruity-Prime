@@ -346,8 +346,9 @@ namespace MphRead.Mods.Network
                 + "`Scene.AddPlayer` sets it on every player after the first, which is right for a "
                 + "local match and wrong for a networked one -- the AI would overwrite relayed "
                 + "input, so a networked session clears it on every slot |");
-            text.AppendLine("| `BotLevel` (0-2) | difficulty; clamped and used to index reaction "
-                + "and accuracy tables |");
+            text.AppendLine("| `BotLevel` (0-3) | difficulty; clamped and used to index reaction "
+                + "and accuracy tables. 3 is Insane: zero aim deviation, zero extra shot delay, "
+                + "fastest reaction refresh |");
             text.AppendLine("| `AiPersonality` | per-hunter behaviour trees loaded from the ROM's "
                 + "own data, one set per hunter and encounter. `AiPersonalityData1` nodes hold "
                 + "conditions and the function ids to run |");

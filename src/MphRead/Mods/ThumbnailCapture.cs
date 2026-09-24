@@ -56,25 +56,15 @@ namespace MphRead.Mods
             UpdateFrequency = 0
         };
 
-        private static NativeWindowSettings WindowSettings(int width, int height) => new()
+        internal static NativeWindowSettings WindowSettings(int width, int height)
         {
-            ClientSize = new Vector2i(width, height),
-            Title = $"{Branding.Name} thumbnails",
-            Profile = ContextProfile.Compatability,
-            // Explicitly, exactly as the game's own window does. Left
-            // unset, OpenTK's default gave this window a *forward-compatible*
-            // context, which removes every deprecated entry point -- and this
-            // engine draws in immediate mode, so that is all of them. The
-            // profile mask still answers "compatibility", so nothing looked
-            // wrong; the driver only admitted it in a shader warning that
-            // mentioned "OGL 3.0 forward-compatible context". Every frame came
-            // out black with GL_INVALID_OPERATION on an Intel Iris Xe, while
-            // the game rendered perfectly on the same machine, because the
-            // game sets this and these windows did not.
-            Flags = ContextFlags.Default,
-            APIVersion = new Version(3, 2),
-            StartVisible = false
-        };
+            // Background preview workers need the same legacy context, native
+            // error handler and writable directory as the visible launcher.
+            var settings = Render.DesktopGlContext.Settings(background: true);
+            settings.ClientSize = new Vector2i(width, height);
+            settings.Title = $"{Branding.Name} thumbnails";
+            return settings;
+        }
 
         public Scene Scene { get; }
         public bool Succeeded => _captured;
@@ -106,7 +96,9 @@ namespace MphRead.Mods
             Scene.Size = ClientSize;
             // Before the scene builds anything, so the driver's complaint
             // about the first refused call is caught rather than inferred.
+            ThumbnailLog.Write($"{_roomKey}: initializing preview diagnostics");
             ScreenCapture.EnableDebugOutput(ThumbnailLog.Write);
+            ThumbnailLog.Write($"{_roomKey}: loading preview scene");
             Scene.OnLoad();
             base.OnLoad();
             // OnResize normally sets the viewport and resizes the offscreen

@@ -227,6 +227,60 @@ void main()
 }
 ";
 
+        /// <summary>
+        /// The front screen's ground: the photograph with the moving field
+        /// laid over it in <c>overlay</c>.
+        ///
+        /// Two coordinate sets, because the two layers are framed differently.
+        /// The photograph is cropped to fill the window the way
+        /// <c>UniformToFill</c> filled it, so unit 0 carries the trimmed
+        /// rectangle; the field is stretched edge to edge like the canvas it
+        /// is a port of, so unit 1 carries a plain 0..1.
+        /// </summary>
+        public static string BackdropVertexShader { get; } = @"
+#version 120
+
+varying vec2 photocoord;
+varying vec2 noisecoord;
+
+void main()
+{
+    gl_Position = vec4(gl_Vertex.xy, 0, 1);
+    photocoord = gl_MultiTexCoord0.xy;
+    noisecoord = gl_MultiTexCoord1.xy;
+}
+";
+
+        /// <summary>
+        /// <c>mix-blend-mode: overlay</c> at <c>opacity: .62</c>, per channel.
+        ///
+        /// Overlay is multiply where the backdrop is dark and screen where it
+        /// is light -- the same curve as hard-light with the two layers
+        /// swapped -- so mid grey in the field is the no-op and what reads is
+        /// how far each cell swings either side of it. Branchless, because
+        /// this runs once per pixel of the window and a step costs less than
+        /// a divergent branch would.
+        /// </summary>
+        public static string BackdropFragmentShader { get; } = @"
+#version 120
+
+uniform sampler2D photo;
+uniform sampler2D noise;
+uniform float strength;
+varying vec2 photocoord;
+varying vec2 noisecoord;
+
+void main()
+{
+    vec3 b = texture2D(photo, photocoord).rgb;
+    vec3 s = texture2D(noise, noisecoord).rgb;
+    vec3 lo = 2.0 * b * s;
+    vec3 hi = 1.0 - 2.0 * (1.0 - b) * (1.0 - s);
+    vec3 over = mix(lo, hi, step(vec3(0.5), b));
+    gl_FragColor = vec4(mix(b, over, strength), 1.0);
+}
+";
+
         public static string RttVertexShader { get; } = @"
 #version 120
 

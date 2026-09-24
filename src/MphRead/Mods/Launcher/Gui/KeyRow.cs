@@ -1,9 +1,12 @@
 using System;
 using System.Reflection;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.VisualTree;
+using MphRead.Mods.Input;
 using MphRead.Entities;
 using MphRead.Mods;
 using GlfwKeys = OpenTK.Windowing.GraphicsLibraryFramework.Keys;
@@ -24,6 +27,8 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal sealed class KeyRow : Control
     {
+        static KeyRow() => AffectsRender<KeyRow>(IsFocusedProperty, IsEnabledProperty);
+
         private readonly PropertyInfo? _property;
         private readonly double _labelWidth;
 
@@ -40,7 +45,12 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Func<GlfwKeys>? _get;
         private readonly Action<GlfwKeys>? _set;
         private bool _listening;
+        private readonly GamepadEdges _padEdges = new();
+        private string? _controllerHint;
+        internal bool Listening => _listening;
+        internal string? BindingName => _property?.Name ?? _label;
         private bool _hot;
+        private readonly Tap _tap = new();
 
         public event EventHandler? Rebound;
 
@@ -73,10 +83,12 @@ namespace MphRead.Mods.Launcher.Gui
             PointerPointProperties properties = e.GetCurrentPoint(this).Properties;
             if (!_listening)
             {
+                // Listening begins on the release, not here: a press that
+                // starts a scroll down the Controls page would otherwise put
+                // every row it passed over into "press a key". See Tap.
                 if (Box.Contains(e.GetPosition(this)))
                 {
-                    _listening = true;
-                    InvalidateVisual();
+                    _tap.Press(e, this);
                 }
                 e.Handled = true;
                 base.OnPointerPressed(e);
@@ -99,6 +111,28 @@ namespace MphRead.Mods.Launcher.Gui
             }
             e.Handled = true;
             base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            if (!_listening && _tap.Release(e, this) && Box.Contains(e.GetPosition(this)))
+            {
+                SetListening(true);
+                InvalidateVisual();
+            }
+            base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
@@ -134,7 +168,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 if (e.Key == Key.Enter || e.Key == Key.Space)
                 {
-                    _listening = true;
+                    SetListening(true);
                     InvalidateVisual();
                     e.Handled = true;
                 }
@@ -173,21 +207,82 @@ namespace MphRead.Mods.Launcher.Gui
             InputSettings.Rebind(_property!, ButtonType.Key, key, GlfwMouse.Left);
         }
 
+        /// <summary>
+        /// Whether any row anywhere is waiting for a key.
+        ///
+        /// The window's own keys -- F11, Alt+Enter -- are handled before the
+        /// screens get a look in, because they are gestures at the window
+        /// rather than input to a menu. That is right everywhere except here:
+        /// a row asking "press a key" has to be able to be told F11, or F11 is
+        /// the one key in the game nobody can bind.
+        /// </summary>
+        public static bool AnyListening { get; private set; }
+
+        /// <summary>The one place the flag moves, so it cannot be left set.</summary>
+        private void SetListening(bool value)
+        {
+            if (_listening == value)
+            {
+                return;
+            }
+            _listening = value;
+            AnyListening = value;
+            if (value)
+            {
+                _controllerHint = null;
+                _padEdges.Update(GamepadManager.Snapshot);
+            }
+        }
+
+        internal GamepadButtons ControllerPress(GamepadSnapshot snapshot) => _padEdges.Update(snapshot);
+
+        // Controller presses bind game actions, never synthetic keyboard Enter/arrow keys.
+        internal void OpenControllerBinding(GamepadButtons pressed = 0)
+        {
+            PadAction? action = BindingName switch
+            {
+                "Shoot" or "AltAttack" => PadAction.Shoot, "Jump" or "Boost" => PadAction.Jump,
+                "Zoom" => PadAction.Zoom, "Morph" => PadAction.Morph, "Scan" => PadAction.Scan,
+                "ScanVisor" => PadAction.ScanVisor, "WeaponMenu" => PadAction.WeaponWheel,
+                "Pause" => PadAction.Scoreboard, "NextWeapon" => PadAction.NextWeapon,
+                "PrevWeapon" => PadAction.PrevWeapon, "Missile" => PadAction.Missile,
+                "PowerBeam" => PadAction.PowerBeam, "Chat" => PadAction.Chat,
+                "VoltDriver" => PadAction.VoltDriver, "Battlehammer" => PadAction.Battlehammer,
+                "Imperialist" => PadAction.Imperialist, "Judicator" => PadAction.Judicator,
+                "Magmaul" => PadAction.Magmaul, "ShockCoil" => PadAction.ShockCoil,
+                "OmegaCannon" => PadAction.OmegaCannon, "AffinitySlot" => PadAction.AffinitySlot, _ => null
+            };
+            var settings = this.GetVisualAncestors().OfType<SettingsView>().FirstOrDefault();
+            SetListening(false);
+            if (action.HasValue && settings != null)
+            {
+                settings.ShowSection("Controls", 1);
+                TopLevel.GetTopLevel(settings)?.UpdateLayout();
+                var row = settings.GetVisualDescendants().OfType<PadRow>().First(r => r.Action == action.Value);
+                FocusNavigator.Focus(row);
+                row.Capture(pressed);
+                return;
+            }
+            _controllerHint = "Keyboard only; configure sticks under Gamepad";
+            InvalidateVisual();
+        }
+
         private void Done()
         {
-            _listening = false;
+            SetListening(false);
             InvalidateVisual();
             Rebound?.Invoke(this, EventArgs.Empty);
         }
 
-        protected override void OnLostFocus(Avalonia.Interactivity.RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
-            _listening = false;
+            SetListening(false);
+            _controllerHint = null;
             InvalidateVisual();
             base.OnLostFocus(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnGotFocus(e);
@@ -254,7 +349,18 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
-            // See MenuEntry.Render: hit testing follows the drawing.
+            // A row on a sub-page that is not showing is attached to the tree
+            // and rendered once all the same, and a control that has never
+            // been arranged has zero Bounds -- which makes Box four points
+            // *negative* and MaxTextHeight below throw. That exception comes
+            // out of the compositor's own pass, so nothing here catches it and
+            // the process goes down the moment Controls is opened. There is
+            // nothing to draw at this size anyway.
+            if (Bounds.Width <= 0 || Bounds.Height <= 0)
+            {
+                return;
+            }
+            // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
             FormattedText label = TrackedText.Make(
@@ -270,9 +376,9 @@ namespace MphRead.Mods.Launcher.Gui
 
             string text = _listening
                 ? (_get != null ? "press a key" : "press a key, a mouse button or the wheel")
-                : _get != null
+                : _controllerHint ?? (_get != null
                     ? (_get() == GlfwKeys.Unknown ? "none" : InputSettings.KeyName(_get()))
-                    : InputSettings.Describe(InputSettings.Bind(_property!));
+                    : InputSettings.Describe(InputSettings.Bind(_property!)));
             FormattedText value = TrackedText.Make(text, 12, bold: true,
                 new SolidColorBrush(_listening ? GuiTheme.Warm : GuiTheme.Text));
             // Never wider than the box: a binding nobody has heard of should

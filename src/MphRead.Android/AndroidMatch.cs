@@ -50,6 +50,7 @@ namespace MphRead.Droid
             var scene = new Scene(size, input.Keyboard, input.Mouse, _ => { }, close);
             if (NetSession.Active)
             {
+                NetLaunch.DisableCheatsForMatch();
                 BuildNetworkedMatch(scene, plan);
             }
             else
@@ -200,7 +201,7 @@ namespace MphRead.Droid
                 var hunter = (Hunter)(((int)plan.Hunter + i) % 7);
                 scene.AddPlayer(hunter, recolor: 0, team: teamPlay ? i % 2 : -1);
             }
-            int level = Math.Clamp(plan.BotLevel, 0, 2);
+            int level = Math.Clamp(plan.BotLevel, 0, 3);
             for (int i = 0; i < PlayerEntity.Players.Count; i++)
             {
                 PlayerEntity player = PlayerEntity.Players[i];

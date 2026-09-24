@@ -790,6 +790,7 @@ namespace MphRead
             }
             catch (Exception ex)
             {
+                Mods.Diagnostics.PlatformDiagnostics.Report("libminiaudio.dylib", ex);
                 Console.WriteLine($"[sound] no audio device ({ex.Message}); continuing without sound");
                 _audioEngine = null!;
                 _playbackDevice = null!;

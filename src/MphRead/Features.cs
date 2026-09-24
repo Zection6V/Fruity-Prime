@@ -250,6 +250,21 @@ namespace MphRead
                 Mods.Render.Crosshair.Size = Mods.Render.Crosshair.ParseSize(value,
                     Mods.Render.Crosshair.Size);
             }
+            // The motion tracker: on/off, and the guides/background around it.
+            // Persists for the same reason the crosshair does -- a player
+            // picks a look once and does not want to answer for it again.
+            if (values.TryGetValue("RadarEnabled", out value) && Boolean.TryParse(value, out boolean))
+            {
+                Mods.Render.Radar.Enabled = boolean;
+            }
+            if (values.TryGetValue("RadarShowBackground", out value) && Boolean.TryParse(value, out boolean))
+            {
+                Mods.Render.Radar.ShowBackground = boolean;
+            }
+            if (values.TryGetValue("RadarShowOutlines", out value) && Boolean.TryParse(value, out boolean))
+            {
+                Mods.Render.Radar.ShowOutlines = boolean;
+            }
         }
 
         /// <summary>
@@ -271,7 +286,10 @@ namespace MphRead
                 new(nameof(ProHud), ProHud.ToString().ToLower()),
                 new(nameof(ProHudFixedWeapon), ProHudFixedWeapon.ToString().ToLower()),
                 new("CrosshairStyle", Mods.Render.Crosshair.Style.ToString()),
-                new("CrosshairSize", Mods.Render.Crosshair.Size.ToString())
+                new("CrosshairSize", Mods.Render.Crosshair.Size.ToString()),
+                new("RadarEnabled", Mods.Render.Radar.Enabled.ToString().ToLower()),
+                new("RadarShowBackground", Mods.Render.Radar.ShowBackground.ToString().ToLower()),
+                new("RadarShowOutlines", Mods.Render.Radar.ShowOutlines.ToString().ToLower())
             ]);
         }
     }

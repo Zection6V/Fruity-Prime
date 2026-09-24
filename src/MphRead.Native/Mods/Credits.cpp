@@ -97,9 +97,9 @@ namespace MphRead
             return result;
         }
 
-        const std::array<Credits::Entry, 12>& Credits::Entries()
+        const std::array<Credits::Entry, 13>& Credits::Entries()
         {
-            static std::array<Entry, 12> entries
+            static std::array<Entry, 13> entries
             {{
                 Entry(
                     "NoneGiven",
@@ -112,7 +112,7 @@ namespace MphRead
                     "other projects are built",
                     ""),
                 Entry(
-                    "Chemical",
+                    "chmcl95",
                     "documentation of the model format",
                     "https://gitlab.com/ch-mcl/metroid-prime-hunters-file-document"),
                 Entry(
@@ -155,7 +155,14 @@ namespace MphRead
                 Entry(
                     "OpenAL Soft and SoundFlow",
                     "audio",
-                    "https://github.com/LSXPrime/SoundFlow")
+                    "https://github.com/LSXPrime/SoundFlow"),
+                // CC BY 4.0 asks for this by name, so it is an entry rather
+                // than a line in a file beside the data.
+                Entry(
+                    "DB-IP",
+                    "IP geolocation, for the flags in the server "
+                    "browser (DB-IP Lite, CC BY 4.0)",
+                    "https://db-ip.com")
             }};
             return entries;
         }

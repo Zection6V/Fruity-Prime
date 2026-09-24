@@ -40,7 +40,7 @@ namespace MphRead
             [[nodiscard]] static std::string Summary();
             [[nodiscard]] static std::string Compact();
             [[nodiscard]] static std::string Names();
-            [[nodiscard]] static const std::array<Entry, 12>& Entries();
+            [[nodiscard]] static const std::array<Entry, 13>& Entries();
             static void Print();
 
             Credits() = delete;

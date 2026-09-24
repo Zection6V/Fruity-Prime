@@ -139,6 +139,13 @@ namespace MphRead.Mods.Update
             }
             try
             {
+                // The platform's own, where there is one: a phone has no
+                // browser to start as a process and no display variable to
+                // answer the question below with.
+                if (Mods.Platform.WebLink.Current is Mods.Platform.IWebLink link)
+                {
+                    return link.Open(url);
+                }
                 if (OperatingSystem.IsWindows())
                 {
                     // UseShellExecute is what hands the address to whatever the

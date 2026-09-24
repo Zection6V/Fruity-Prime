@@ -6,8 +6,12 @@ Basics
 
 `MphRead -launcher` opens a front screen, not a settings dialog: a map picture
 on the left, the things you can do on the right. Everything that is not a
-per-session choice lives in the settings window, which is one of the entries and
+per-session choice lives in the settings page, which is one of the entries and
 is also what the pause menu opens mid-match.
+
+The front screen is **drawn inside the game window** -- one window for the
+whole program, matches loaded into it and unloaded again. See
+`LAUNCHER-WINDOW.md` for how, and for the traps.
 
 | Entry | What it does |
 |---|---|
@@ -43,10 +47,12 @@ Windows, and the loop
   where a program is normally started by double-clicking it. On Linux it still
   opens upstream's console menu, which is the screen people there are already
   using; `-launcher` is how they ask for the window.
-- The toolkit is set up **once per process, on the game's own thread**, and each
-  visit to the launcher is a nested dispatcher loop
-  (`GuiLauncher.EnsureSetup`/`Ask`). One launcher, then a match, then the
-  launcher again; "Quit" and closing the window are what end the program.
+- The toolkit is set up **once per process, on the game's own thread**
+  (`GuiLauncher.EnsureSetup`), on Avalonia's headless backend: the screens are
+  rendered into a buffer and composited into the game window. `Shell.Run` is
+  the loop -- one front screen, then a match built into the same window, then
+  the front screen again; "Quit" is what ends the program, and closing the
+  window is the same thing because there is only one.
 
 First-run behaviour and progress
 
@@ -56,13 +62,12 @@ First-run behaviour and progress
 
 macOS and Android
 
-- **macOS** publishes like any other desktop target (`osx-x64`/`osx-arm64`,
-  cross-compiled on the Linux runner), and OpenAL ships with it
-  (`libopenal.1.dylib`, keyed on RID rather than a Windows/Linux special
-  case). **Nobody has started one.** Both packages are cross-compiled and
-  unrun; the thing to watch is GLFW and AppKit sharing a process and a main
-  thread, which the one-thread launcher arrangement is designed for and no
-  Mac has confirmed.
+- **macOS** publishes and runs `-smoketest` on matching Apple Silicon and
+  Intel runners. Releases are ad-hoc signed `.app` bundles in `.tar.gz` files.
+  Native dependencies stay beside the executable inside Contents/MacOS, maps
+  live in Contents/Resources, and writable state goes to Application Support. See `../build-deploy/MACOS.md`.
+  The smoke test checks headless startup; it does not prove a visible GLFW
+  window, OpenGL gameplay, or Gatekeeper acceptance of an Internet download.
 - **Android** is `src/MphRead.Android/`, a head project compiling the same
   sources with `ANDROID` defined. It now builds a front screen **and a
   match**: the engine's desktop GL is redirected to OpenGL ES 3.0 by a single

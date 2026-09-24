@@ -64,7 +64,7 @@ namespace MphRead.Mods.Network
             {
                 string safe = string.Concat(clientName.Select(c =>
                     char.IsLetterOrDigit(c) ? c : '_'));
-                string path = Path.Combine(AppContext.BaseDirectory, $"netlog-{safe}.txt");
+                string path = Path.Combine(Platform.AppPaths.UserDataDirectory, $"netlog-{safe}.txt");
                 _writer = new StreamWriter(path, append: false) { AutoFlush = true };
                 Enabled = true;
                 Line($"=== MphRead net log for \"{clientName}\" ===");
@@ -142,6 +142,7 @@ namespace MphRead.Mods.Network
                 sb.Append($"serverPeers={match.Value.PlayerCount} ");
             }
             Line(sb.ToString());
+            HitReg();
 
             for (int slot = 0; slot < PlayerEntity.MaxPlayers; slot++)
             {
@@ -178,6 +179,13 @@ namespace MphRead.Mods.Network
                 // what makes an otherwise healthy remote player invisible.
                 line.Append($"form={p.ModFormState(),-24} ");
                 line.Append($"nodeRef={DescribeNodeRef(p)} ");
+                var health = NetHudHealth.Sample(p);
+                line.Append($"health slot={p.SlotIndex} generation={NetPlayerLifecycle.Generation(p.SlotIndex)} life={NetPlayerLifecycle.Get(p.SlotIndex)} authorityHP={(health.Authoritative ? health.Health.ToString() : "unknown")} entityHP={p.Health} hpFrame={health.SnapshotFrame} snapshotAge={NetSession.SnapshotAge} {NetHitPrediction.HealthDetails(p.SlotIndex)} ");
+                if (NetSession.RemoteStateValid[p.SlotIndex])
+                {
+                    var state = NetSession.RemoteStates[p.SlotIndex];
+                    line.Append($"lastDamageEvent={state.DamageEventId} lastAttacker={state.AttackerSlot} ");
+                }
                 // Whether the engine will call Process on this player at all.
                 // A slot can be occupied, active and flagged correctly and
                 // still be absent from the scene's entity list, in which case
@@ -188,6 +196,74 @@ namespace MphRead.Mods.Network
                 line.Append($"intentValid={(NetSession.RemoteIntentValid[slot] ? "y" : "n")}");
                 Line(line.ToString());
             }
+        }
+
+        /// <summary>
+        /// The three questions "my shot went through him" is actually asking,
+        /// on one line, so that a run can be told which of them it is.
+        ///
+        /// They are genuinely separate and nothing else in this log separates
+        /// them. A shot that did not register is either (a) aimed at a world
+        /// the shooter was never shown, which is the playout clock -- how far
+        /// behind it is reading and how much of that is buffer; (b) resolved
+        /// against a frame the authority could not go back to, which is the
+        /// rewind and its ceiling; or (c) resolved correctly by the shooter
+        /// and found by nobody, which is what a hit claim is and what its
+        /// verdict says. On a jump pad, where a target crosses 0.3 units a
+        /// frame against a headshot band 0.3 units tall, all three are live at
+        /// once and guessing between them is hopeless.
+        /// </summary>
+        private static void HitReg()
+        {
+            var line = new StringBuilder();
+            line.Append("           hitreg ");
+            if (NetSmoothing.AckPoint(out uint readFrame, out byte readSub))
+            {
+                line.Append($"read={readFrame}+{readSub / 256.0:0.00} ");
+                line.Append($"buffer={NetSmoothing.Delay}f ");
+                line.Append($"newestSnap={NetSession.LastSnapshotFrame} ");
+                line.Append($"starved={NetSmoothing.Starved} snaps={NetSmoothing.Snaps} ");
+            }
+            else
+            {
+                line.Append($"read=off ack={NetSession.AppliedSnapshotFrame} ");
+            }
+            if (NetUnlagged.ShotsCompensated > 0)
+            {
+                line.Append($"rewound={NetUnlagged.ShotsCompensated} ");
+                line.Append($"meanRewind={(double)NetUnlagged.FramesRewound / NetUnlagged.ShotsCompensated:0.0}f ");
+                line.Append($"worst={NetUnlagged.WorstRewind}f ");
+                line.Append($"ceiling={NetUnlagged.MaxRewindFrames}f ");
+                line.Append($"clamped={NetUnlagged.ShotsClamped} ");
+                line.Append($"historyMiss={NetUnlagged.HistoryMisses} ");
+            }
+            if (NetHitClaims.Declared > 0)
+            {
+                line.Append($"claims={NetHitClaims.Declared} applied={NetHitClaims.Applied} ");
+                line.Append($"dup={NetHitClaims.Duplicate} ");
+                line.Append($"voidShooter={NetHitClaims.RefusedDeadShooter} ");
+                line.Append($"voidVictim={NetHitClaims.RefusedDeadVictim} ");
+                line.Append($"refused={NetHitClaims.RefusedOther} ");
+                line.Append($"unanswered={NetHitClaims.Unanswered} ");
+            }
+            if (NetHitClaims.Received > 0)
+            {
+                line.Append($"claimsIn={NetHitClaims.Received} ");
+                line.Append($"rescued={NetHitClaims.AppliedHere} ");
+                line.Append($"({NetHitClaims.RescuedKills}k {NetHitClaims.RescuedHeadshots}hs) ");
+                line.Append($"dupIn={NetHitClaims.DuplicateHere} ");
+                line.Append($"voidShooterIn={NetHitClaims.VoidedDeadShooter} ");
+                line.Append($"refusedIn={NetHitClaims.RefusedHere} ");
+            }
+            line.Append($"predicted={NetHitPrediction.Predicted} ");
+            line.Append($"confirmed={NetHitPrediction.Confirmed} ");
+            line.Append($"denied={NetHitPrediction.Denied} ");
+            line.Append($"unpredicted={NetHitPrediction.Unpredicted}");
+            line.Append($" unpredMoving={NetHitPrediction.UnpredictedMoving}");
+            line.Append($" unpredStill={NetHitPrediction.UnpredictedStill}");
+            line.Append($" firedMoving={NetDamage.FiredMoving}");
+            line.Append($" firedStill={NetDamage.FiredStill}");
+            Line(line.ToString());
         }
 
         private static bool InScene(Scene? scene, PlayerEntity player)

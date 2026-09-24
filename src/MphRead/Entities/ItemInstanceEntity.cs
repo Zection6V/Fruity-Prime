@@ -158,10 +158,10 @@ namespace MphRead.Entities
             return base.Process();
         }
 
-        public void OnPickedUp()
+        public void OnPickedUp(PlayerEntity? picker = null)
         {
             DespawnTimer = 0;
-            Owner?.OnItemPickedUp();
+            Owner?.OnItemPickedUp(picker);
             if (GameState.SinglePlayer)
             {
                 int scanId = GetScanId();

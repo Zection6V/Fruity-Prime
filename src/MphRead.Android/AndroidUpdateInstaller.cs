@@ -9,23 +9,20 @@ namespace MphRead.Droid
     /// in <see cref="ApkInstaller"/>, and this is the shape the front screen
     /// asks for it in.
     ///
-    /// Installed in <c>MainActivity.CustomizeAppBuilder</c>, before the front
-    /// screen is built, because the screen reads whether it exists while it is
-    /// laying its update entry out.
+    /// Installed in <c>MainApplication.CustomizeAppBuilder</c>, before the
+    /// front screen is built, because the screen reads whether it exists while
+    /// it is laying its update entry out -- but that runs before any activity
+    /// exists, so <see cref="Activity"/> is looked up each time rather than
+    /// captured at construction.
     /// </summary>
     internal sealed class AndroidUpdateInstaller : IUpdateInstaller
     {
-        private readonly Activity _activity;
+        private static Activity Activity => MainActivity.Instance!;
         private string _staged = "";
 
-        public AndroidUpdateInstaller(Activity activity)
-        {
-            _activity = activity;
-        }
+        public bool Allowed => ApkInstaller.Allowed(Activity);
 
-        public bool Allowed => ApkInstaller.Allowed(_activity);
-
-        public bool RequestPermission() => ApkInstaller.RequestPermission(_activity);
+        public bool RequestPermission() => ApkInstaller.RequestPermission(Activity);
 
         /// <summary>
         /// False: the system kills this app as it replaces it. Quitting on our
@@ -42,7 +39,7 @@ namespace MphRead.Droid
 
         public bool Prepare(UpdateInfo update, Action<float>? progress, out string error)
         {
-            _staged = ApkInstaller.StagingPath(_activity);
+            _staged = ApkInstaller.StagingPath(Activity);
             if (!UpdateDownload.Fetch(update.AssetUrl, _staged, update.AssetSize, progress))
             {
                 error = UpdateDownload.LastError ?? "the download failed";
@@ -50,7 +47,7 @@ namespace MphRead.Droid
             }
             // Before the dialog rather than after it, because Android's own
             // refusal for this is the bare words "App not installed".
-            if (!ApkInstaller.SameSigner(_activity, _staged, out string? mismatch))
+            if (!ApkInstaller.SameSigner(Activity, _staged, out string? mismatch))
             {
                 error = mismatch ?? "that package cannot be installed over this one";
                 return false;
@@ -60,6 +57,6 @@ namespace MphRead.Droid
         }
 
         public bool Install(out string error) =>
-            ApkInstaller.Commit(_activity, _staged, out error);
+            ApkInstaller.Commit(Activity, _staged, out error);
     }
 }

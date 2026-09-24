@@ -1,3 +1,4 @@
+using MphRead.Mods.Multiplayer;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -14,6 +15,23 @@ namespace MphRead.Entities
     public class BeamProjectileEntity : EntityBase
     {
         public BeamFlags Flags { get; set; }
+        /// <summary>
+        /// The authority frame the shooter's world was at when this shot was
+        /// launched -- the one thing that identifies a shot across two
+        /// machines. Stamped by Mods.Network.NetUnlagged on every machine that
+        /// spawns it, and read back when it damages somebody so a hit claim
+        /// and the authority's own resolution of the *same* shot can be paired
+        /// without guessing at a time window. Zero for anything nobody aimed.
+        /// </summary>
+        public uint ModLaunchFrame { get; set; }
+        public ShotKey ModLaunchKey { get; internal set; }
+        // Spawn's firing phase must survive until a Shock Coil beam tests an enemy.
+        public ulong ModContinuousPhase { get; set; }
+        public bool ModHasSharedContinuousPhase { get; set; }
+        public ushort ModLaunchMatch { get; set; }
+        public ulong ModLaunchAuthority { get; set; }
+        public ushort ModLaunchGeneration { get; set; }
+        public ushort ModLaunchLife { get; set; }
         public BeamType Beam { get; set; }
         public BeamType BeamKind { get; set; }
 
@@ -601,7 +619,8 @@ namespace MphRead.Entities
                             if (Flags.TestFlag(BeamFlags.LifeDrain) && Owner.Type == EntityType.Player)
                             {
                                 var ownerPlayer = (PlayerEntity)Owner;
-                                if (!ownerPlayer.IsPrimeHunter && ownerPlayer.TeamIndex != player.TeamIndex)
+                                if (ownerPlayer != player && !ownerPlayer.IsPrimeHunter
+                                    && !TeamRules.AreAllies(ownerPlayer.TeamIndex, player.TeamIndex))
                                 {
                                     int before = ownerPlayer.Health;
                                     // GainHealth checks if the player is alive
@@ -652,7 +671,8 @@ namespace MphRead.Entities
                                 float pct = Vector3.Distance(Position, SpawnPosition) / MaxDistance;
                                 damage = GetInterpolatedValue(DamageInterpolation, Damage, 0, pct);
                             }
-                            if (damage > 0 && (Beam != BeamType.ShockCoil || _scene.FrameCount % 2 == 0)) // todo: FPS stuff
+                            if (damage > 0 && (Beam != BeamType.ShockCoil
+                                || (ModHasSharedContinuousPhase ? ModContinuousPhase : _scene.FrameCount) % 2 == 0)) // todo: FPS stuff
                             {
                                 enemy.TakeDamage((uint)damage, this);
                                 SpawnCollisionEffect(anyRes, noSplat: true);
@@ -945,7 +965,7 @@ namespace MphRead.Entities
                     {
                         flags |= BeamSpawnFlags.Charged;
                     }
-                    Spawn(Owner, _ricochetEquip, colRes.Position, spawnDir, flags, NodeRef, _scene);
+                    Spawn(Owner, _ricochetEquip, colRes.Position, spawnDir, flags, NodeRef, _scene, parent: this);
                 }
             }
             if (!Flags.TestFlag(BeamFlags.Continuous))
@@ -1390,8 +1410,10 @@ namespace MphRead.Entities
         }
 
         public static BeamResultFlags Spawn(EntityBase owner, EquipInfo equip, Vector3 position, Vector3 direction,
-            BeamSpawnFlags spawnFlags, NodeRef nodeRef, Scene scene)
+            BeamSpawnFlags spawnFlags, NodeRef nodeRef, Scene scene, BeamProjectileEntity? parent = null)
         {
+            if (NetSession.Active && parent != null && !NetPlayerLifecycle.CurrentProjectile(parent))
+                return BeamResultFlags.NoSpawn;
             BeamResultFlags result = BeamResultFlags.Spawned;
             WeaponInfo weapon = equip.Weapon;
             bool charged = false;
@@ -1419,6 +1441,24 @@ namespace MphRead.Entities
                 return chargePct <= 0 ? unchargedAmt : minChargeAmt + ((fullChargeAmt - minChargeAmt) * chargePct);
             }
             int cost = (int)GetAmount(weapon.AmmoCost, weapon.MinChargeCost, weapon.ChargeCost);
+            ulong phase = scene.FrameCount;
+            bool sharedPhase = false;
+            if (weapon.Flags.TestFlag(WeaponFlags.Continuous) && owner is PlayerEntity firingPlayer)
+            {
+                int slot = firingPlayer.SlotIndex;
+                bool remoteSlot = slot >= 0 && slot < NetSession.RemoteIntents.Length;
+                // NetFrame advances before input and Spawn. The owner's intent is
+                // captured on that same step; a remote intent supplies its own
+                // frame plus the number of local steps since it arrived.
+                phase = NetSession.ContinuousPhase.Resolve(slot, scene.FrameCount,
+                    NetSession.Active && !firingPlayer.IsBot,
+                    NetSession.LocalSlot >= 0 && slot == NetSession.LocalSlot,
+                    NetSession.NetFrame,
+                    remoteSlot && NetSession.RemoteIntentValid[slot],
+                    remoteSlot ? NetSession.RemoteIntents[slot].Frame : 0,
+                    remoteSlot ? NetSession.RemoteIntentAge(slot) : uint.MaxValue,
+                    out sharedPhase);
+            }
             if (weapon.Flags.TestFlag(WeaponFlags.Continuous))
             {
                 // todo?: figure out what the intent behind this actually is
@@ -1427,19 +1467,7 @@ namespace MphRead.Entities
                 // game's cycle for green beam (15): 0 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 0
                 //    our cycle for green beam (15): 0 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0
                 //                                   0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 0 0
-                if (scene.FrameCount % 2 == 0)
-                {
-                    ulong bits = (ulong)(cost & 31);
-                    cost /= 32;
-                    if (scene.FrameCount % 2 == 0 && bits != 0 && ((bits * (scene.FrameCount / 2)) & 31) > 32 - bits) // todo: FPS stuff
-                    {
-                        cost++;
-                    }
-                }
-                else
-                {
-                    cost = 0;
-                }
+                cost = ContinuousWeaponPhase.Amount(cost, phase, damage: false);
             }
             int ammo = equip.Ammo;
             if (ammo >= 0 && cost > ammo)
@@ -1567,19 +1595,7 @@ namespace MphRead.Entities
                 // note: previously the frame count partiy check was part of the condition below, but that assumed the base value
                 // was zero after the division by 32, which is true for Shock Coil but not e.g. platform green energy beams,
                 // so we need those to hit every other frame to match the DPS from the game
-                if (scene.FrameCount % 2 == 0)
-                {
-                    ulong bits = (ulong)(damage & 31);
-                    damage /= 32;
-                    if (bits != 0 && ((bits * (scene.FrameCount / 2)) & 31) >= 32 - bits) // todo: FPS stuff
-                    {
-                        damage++;
-                    }
-                }
-                else
-                {
-                    damage = 0;
-                }
+                damage = ContinuousWeaponPhase.Amount(damage, phase, damage: true);
             }
             if (Cheats.QuadrupleDamage)
             {
@@ -1645,8 +1661,12 @@ namespace MphRead.Entities
                     }
                 }
                 beam.Owner = owner;
+                beam.ModContinuousPhase = phase;
+                beam.ModHasSharedContinuousPhase = sharedPhase;
+                NetPlayerLifecycle.StampProjectile(beam, parent);
                 beam.Beam = weapon.Beam;
                 beam.BeamKind = weapon.BeamKind;
+                if (NetLog.Enabled) NetShotDiagnostics.Trace("spawn", beam.ModLaunchKey, beam.Beam);
                 beam.Flags = flags;
                 beam.NodeRef = nodeRef;
                 beam.Age = 0;
@@ -1713,6 +1733,16 @@ namespace MphRead.Entities
                 }
                 beam.Velocity = velocity;
                 beam.Acceleration = acceleration;
+                // A beam comes off a free list and keeps whatever transform the
+                // last one left on it until the draw pass computes a new one.
+                // Only draw functions 3 and 17 set one here, so every other
+                // weapon draws its first frame at its predecessor's position --
+                // and across a death that predecessor belongs to the previous
+                // life, which is the "phantom shots from where I died".
+                // Harmless for 17, which overwrites this with the same thing.
+                Matrix4 spawnTransform = GetTransformMatrix(beam.Direction, beam.Up);
+                spawnTransform.Row3.Xyz = position;
+                beam.Transform = spawnTransform;
                 if (beam.DrawFuncId == 3)
                 {
                     beam.Flags |= BeamFlags.HasModel;
@@ -1758,7 +1788,7 @@ namespace MphRead.Entities
                     {
                         var ownerPlayer = (PlayerEntity)owner;
                         if ((GameState.Multiplayer || !ownerPlayer.IsBot) && ownerPlayer.ShockCoilTarget == beam.Target
-                            && scene.FrameCount % 2 == 0) // todo: FPS stuff
+                            && phase % 2 == 0) // todo: FPS stuff
                         {
                             // todo: FPS stuff
                             ushort timer = ownerPlayer.ShockCoilTimer;
@@ -1789,6 +1819,8 @@ namespace MphRead.Entities
                         NetDamage.ShockCoilAcquired++;
                     }
                 }
+                if (NetSession.Active && weapon.Flags.TestFlag(WeaponFlags.Continuous))
+                    NetShotDiagnostics.Continuous(beam, cost);
                 beam._soundSource.Update(beam.Position, rangeIndex: 0);
                 scene.AddEntity(beam);
             }
@@ -1836,7 +1868,7 @@ namespace MphRead.Entities
                         else
                         {
                             var ownerPlayer = (PlayerEntity)beam.Owner;
-                            tryTarget = player.TeamIndex != ownerPlayer.TeamIndex;
+                            tryTarget = !TeamRules.AreAllies(player.TeamIndex, ownerPlayer.TeamIndex);
                         }
                     }
                     else if (type == EntityType.Halfturret)
@@ -1849,7 +1881,8 @@ namespace MphRead.Entities
                         else
                         {
                             var ownerPlayer = (PlayerEntity)beam.Owner;
-                            tryTarget = halfturret.Owner.TeamIndex != ownerPlayer.TeamIndex;
+                            tryTarget = halfturret.Owner != ownerPlayer
+                                && !TeamRules.AreAllies(halfturret.Owner.TeamIndex, ownerPlayer.TeamIndex);
                         }
                     }
                     else if (type == EntityType.EnemyInstance)

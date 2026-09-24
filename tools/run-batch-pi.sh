@@ -36,7 +36,7 @@ MAPS=("MP1 SANCTORUS" "MP2 HARVESTER" "MP3 PROVING GROUND" "MP4 HIGHGROUND" "MP6
       "MP9 CRYOCHASM" "MP11 BREAKTHROUGH" "MP12 SIC TRANSIT" "MP13 ACCELERATOR" "MP14 OUTER REACH")
 EXTRAS=(0 0 30 60 100 "$MAX_EXTRA")
 
-BUILD=~/MphRead-dev/src/MphRead/bin/Release/net9.0
+BUILD=~/MphRead-dev/src/MphRead/bin/Release/net10.0
 cp "$BUILD"/FruityPrime.dll "$BUILD"/FruityPrime.deps.json "$BUILD"/FruityPrime.runtimeconfig.json bin/ || exit 1
 GAME=bin/FruityPrime.dll
 

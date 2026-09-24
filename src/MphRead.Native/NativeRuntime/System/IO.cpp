@@ -2,9 +2,13 @@
 #include "Exceptions.hpp"
 #include "IO.hpp"
 
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <string>
+#include <system_error>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -20,6 +24,9 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <filesystem>
+#include <fstream>
+#include <vector>
+#include <system_error>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -36,6 +43,13 @@ namespace MphRead::NativeRuntime
             return value == '/';
 #endif
         }
+
+        // Path.DirectorySeparatorChar.
+#if defined(_WIN32)
+        constexpr char PreferredSeparator = '\\';
+#else
+        constexpr char PreferredSeparator = '/';
+#endif
 
         [[noreturn]] void ThrowFileTooLong(const std::string& fullPath)
         {
@@ -833,4 +847,205 @@ namespace MphRead::NativeRuntime
         return name;
     }
 
+    namespace
+    {
+        // Path.IsPathRooted(path).
+        [[nodiscard]] bool IsPathRooted(std::string_view path) noexcept
+        {
+            return PathRootLength(path) > 0;
+        }
+
+        // Path.JoinInternal: one separator between the parts, and only where
+        // the left part does not already end in one.
+        void AppendJoined(std::string& result, std::string_view part)
+        {
+            if (!result.empty() && !IsDirectorySeparator(result.back())
+                && !(!part.empty() && IsDirectorySeparator(part.front())))
+            {
+                result.push_back(PreferredSeparator);
+            }
+            result.append(part);
+        }
+    }
+
+    std::string PathCombine(std::string_view path1, std::string_view path2,
+        std::string_view path3, std::string_view path4)
+    {
+        if (path1.empty())
+        {
+            return PathCombine(path2, path3, path4);
+        }
+        if (path2.empty())
+        {
+            return PathCombine(path1, path3, path4);
+        }
+        if (path3.empty())
+        {
+            return PathCombine(path1, path2, path4);
+        }
+        if (path4.empty())
+        {
+            return PathCombine(path1, path2, path3);
+        }
+        if (IsPathRooted(path4))
+        {
+            return std::string(path4);
+        }
+        if (IsPathRooted(path3))
+        {
+            return PathCombine(path3, path4);
+        }
+        if (IsPathRooted(path2))
+        {
+            return PathCombine(path2, path3, path4);
+        }
+        std::string result(path1);
+        AppendJoined(result, path2);
+        AppendJoined(result, path3);
+        AppendJoined(result, path4);
+        return result;
+    }
+
+    std::string PathGetExtension(std::string_view path)
+    {
+        for (std::size_t i = path.size(); i > 0; --i)
+        {
+            const char value = path[i - 1];
+            if (value == '.')
+            {
+                // ".ext" only when something follows the dot.
+                return i == path.size() ? std::string() : std::string(path.substr(i - 1));
+            }
+            if (IsDirectorySeparator(value))
+            {
+                break;
+            }
+        }
+        return std::string();
+    }
+
+    std::string PathGetDirectoryName(std::string_view path)
+    {
+        const std::size_t root = PathRootLength(path);
+        std::size_t end = path.size();
+        while (end > root && !IsDirectorySeparator(path[end - 1]))
+        {
+            --end;
+        }
+        while (end > root && IsDirectorySeparator(path[end - 1]))
+        {
+            --end;
+        }
+        return end <= root ? std::string(path.substr(0, root)) : std::string(path.substr(0, end));
+    }
+
+    std::string PathGetTempPath()
+    {
+#if defined(_WIN32)
+        std::vector<wchar_t> buffer(MAX_PATH + 1);
+        for (;;)
+        {
+            const DWORD length = ::GetTempPathW(
+                static_cast<DWORD>(buffer.size()), buffer.data());
+            if (length == 0)
+            {
+                return std::string();
+            }
+            if (length < buffer.size())
+            {
+                return Narrow(std::wstring(buffer.data(), length));
+            }
+            buffer.resize(length + 1);
+        }
+#else
+        // Path.GetTempPath on Unix: TMPDIR, then /tmp.
+        const char* value = std::getenv("TMPDIR");
+        std::string result = value == nullptr || *value == ' ' ? std::string("/tmp") : std::string(value);
+        if (result.empty() || !IsDirectorySeparator(result.back()))
+        {
+            result.push_back('/');
+        }
+        return result;
+#endif
+    }
+
+    void FileAppendAllText(const std::string& path, std::string_view contents)
+    {
+        std::ofstream file(std::filesystem::path(std::u8string(path.begin(), path.end())),
+            std::ios::binary | std::ios::app);
+        if (!file)
+        {
+            throw System::IO::IOException("Could not open '" + path + "' for append.");
+        }
+        file.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+        if (!file)
+        {
+            throw System::IO::IOException("Could not write to '" + path + "'.");
+        }
+    }
+
+    void FileDelete(const std::string& path)
+    {
+        std::error_code error;
+        // File.Delete does not fail when the file is not there.
+        (void)std::filesystem::remove(
+            std::filesystem::path(std::u8string(path.begin(), path.end())), error);
+    }
+
+    DirectoryInfo::DirectoryInfo(std::string_view path)
+    {
+        _fullName = PathGetFullPath(std::string(path));
+        // GetFullPath keeps a trailing separator; .NET's DirectoryInfo.Name
+        // and Parent both look past one, so it is dropped here -- except where
+        // the whole path is the root, which has nothing else in it.
+        const std::size_t root = PathRootLength(_fullName);
+        while (_fullName.size() > root && IsDirectorySeparator(_fullName.back()))
+        {
+            _fullName.pop_back();
+        }
+        std::size_t start = _fullName.size();
+        while (start > root && !IsDirectorySeparator(_fullName[start - 1]))
+        {
+            --start;
+        }
+        _name = _fullName.substr(start);
+    }
+
+    const std::string& DirectoryInfo::Name() const noexcept
+    {
+        return _name;
+    }
+
+    const std::string& DirectoryInfo::FullName() const noexcept
+    {
+        return _fullName;
+    }
+
+    std::string DirectoryInfo::Extension() const
+    {
+        return PathGetExtension(_name);
+    }
+
+    std::shared_ptr<DirectoryInfo> DirectoryInfo::Parent() const
+    {
+        const std::size_t root = PathRootLength(_fullName);
+        if (_fullName.size() <= root)
+        {
+            return nullptr;
+        }
+        std::size_t end = _fullName.size();
+        while (end > root && !IsDirectorySeparator(_fullName[end - 1]))
+        {
+            --end;
+        }
+        while (end > root && IsDirectorySeparator(_fullName[end - 1]))
+        {
+            --end;
+        }
+        if (end == 0)
+        {
+            return nullptr;
+        }
+        return std::make_shared<DirectoryInfo>(_fullName.substr(0, end == root ? root : end));
+    }
 }

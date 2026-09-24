@@ -15,6 +15,27 @@ namespace MphRead
 
         private static void Main(string[] args)
         {
+            // First, before anything that can throw. A Windows game build is a
+            // GUI binary with no console, so without this a fault anywhere in
+            // startup is a process that exits with no window, no message and
+            // no file: "I double-click it and nothing happens".
+            Mods.CrashReport.Install();
+            try
+            {
+                Run(args);
+            }
+            catch (Exception ex)
+            {
+                // The main thread's own. UnhandledException is raised for it
+                // too, but only after the runtime has already printed to a
+                // stderr that a GUI build does not have.
+                Mods.CrashReport.Report(ex, "startup");
+                Environment.ExitCode = 1;
+            }
+        }
+
+        private static void Run(string[] args)
+        {
             ConsoleSetup.Run();
             // A console only if this run is going to use one: the Windows
             // build is a GUI binary, so double-clicking it opens the launcher
@@ -175,11 +196,24 @@ namespace MphRead
                     "then perform setup again.");
                 Console.WriteLine();
                 Console.WriteLine("Press any key to exit...");
-                Console.ReadKey();
+                ConsoleSetup.PauseIfInteractive();
                 return true;
             }
             if (args.Length == 1 && !args[0].StartsWith('-') && File.Exists(args[0]))
             {
+                // Same MD5 whitelist the launcher's file picker checks, so
+                // dragging a ROM onto the executable can't skip it.
+                if (!Mods.Launcher.RomWhitelist.TryIdentify(args[0], out string? label))
+                {
+                    Console.WriteLine("This .nds file doesn't match a known Metroid Prime Hunters "
+                        + "dump (checked by MD5).");
+                    Console.WriteLine("Nothing was extracted.");
+                    Console.WriteLine();
+                    Console.WriteLine("Press any key to exit...");
+                    ConsoleSetup.PauseIfInteractive();
+                    return true;
+                }
+                Console.WriteLine($"Recognised: Metroid Prime Hunters, {label}");
                 Extract.Setup(args[0]);
                 return true;
             }
@@ -189,7 +223,7 @@ namespace MphRead
                 Console.WriteLine($"You may need to perform first-time setup by dragging a ROM onto the {Mods.Branding.Executable} executable.");
                 Console.WriteLine();
                 Console.WriteLine("Press any key to exit...");
-                Console.ReadKey();
+                ConsoleSetup.PauseIfInteractive();
                 return true;
             }
             Paths.UpdatePaths();

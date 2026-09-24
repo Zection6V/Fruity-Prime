@@ -95,7 +95,8 @@ check_list() {
 
 if [ "$#" -eq 0 ]; then
   echo "== checking what git is tracking =="
-  mapfile -t tracked < <(git ls-files)
+  tracked=()
+  while IFS= read -r -d '' path; do tracked+=("$path"); done < <(git ls-files -z)
   check_list "tracked by git" "${tracked[@]}"
   if ! grep -q '^thumbnails/$' .gitignore; then
     report ".gitignore" "no longer ignores thumbnails/, so previews can be committed"
@@ -108,7 +109,8 @@ else
       report "$dir" "not a directory"
       continue
     fi
-    mapfile -t found < <(find "$dir" -type f | sed 's|^\./||')
+    found=()
+    while IFS= read -r -d '' path; do found+=("${path#./}"); done < <(find "$dir" -type f -print0)
     check_list "in $dir" "${found[@]}"
   done
 fi

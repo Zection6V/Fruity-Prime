@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading;
+using System.Reflection;
 
 namespace MphRead.Mods
 {
@@ -38,12 +39,16 @@ namespace MphRead.Mods
                 // a log came back with no sign of a feature that had been
                 // added, and there was no way to tell a missing feature from
                 // an older executable except by its absence.
+                Assembly assembly = Assembly.GetEntryAssembly() ?? typeof(ThumbnailLog).Assembly;
+                string build = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion ?? "unknown";
                 File.WriteAllText(Path,
                     $"=== {Branding.Name} preview generation, {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==="
                     + Environment.NewLine
                     + $"build {Update.BuildVersion.Display}, assembly "
                     + $"{System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "?"}, "
-                    + $"file {File.GetLastWriteTime(AppContext.BaseDirectory)::yyyy-MM-dd HH:mm}"
+                    + $"file {File.GetLastWriteTime(AppContext.BaseDirectory):yyyy-MM-dd HH:mm}"
+                    + Environment.NewLine + $"source {build}; executable {Environment.ProcessPath}"
                     + Environment.NewLine + $"{rooms} room(s) to render" + Environment.NewLine);
                 _failed = false;
             }

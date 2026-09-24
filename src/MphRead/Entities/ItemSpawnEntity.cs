@@ -10,6 +10,7 @@ namespace MphRead.Entities
         private bool _playKeySfx = false;
         private ushort _spawnCount = 0;
         private ushort _spawnCooldown = 0;
+        private sbyte _lastPickerSlot = -1;
         private bool _linkDone = false;
         private EntityBase? _parent = null;
         private Vector3 _invPos;
@@ -61,8 +62,12 @@ namespace MphRead.Entities
         public override void Initialize()
         {
             base.Initialize();
+            Mods.Network.NetHealthSync.Register(this);
             _scene.TryGetEntity(_data.NotifyEntityId, out _pickupNotifyEntity);
         }
+
+        public Mods.Network.HealthSpawnState ModHealthState => new(
+            Item != null && Item.DespawnTimer != 0, Active, _spawnCooldown, _spawnCount, _lastPickerSlot);
 
         public override bool Process()
         {
@@ -82,6 +87,31 @@ namespace MphRead.Entities
             {
                 Position = Matrix.Vec3MultMtx4(_invPos, _parent.CollisionTransform);
             }
+            if (Mods.Network.NetHealthSync.IsReplica && Mods.Multiplayer.MapResourceRules.IsHealth(_data.ItemType))
+            {
+                if (Mods.Network.NetHealthSync.TryGet((short)Id, out var state))
+                {
+                    Active = state.Active;
+                    _spawnCooldown = state.Cooldown;
+                    _spawnCount = state.SpawnCount;
+                    if (!state.Available && Item != null)
+                    {
+                        int localSlot = Mods.Network.NetSession.LocalSlot;
+                        if (Item.DespawnTimer != 0 && state.PickerSlot == localSlot
+                            && localSlot >= 0 && localSlot < PlayerEntity.Players.Count)
+                        {
+                            PlayerEntity.Players[localSlot].PlayHealthPickupSfx(Item.ItemType);
+                        }
+                        Item.DespawnTimer = 0;
+                    }
+                    else if (state.Available && Item == null)
+                    {
+                        Item = SpawnItem(_data.ItemType, Position.AddY(0.65f), NodeRef, _scene);
+                        if (Item != null) { Item.Owner = this; Item.ParentId = _data.ParentId; }
+                    }
+                }
+                return base.Process();
+            }
             if (!Active)
             {
                 return true;
@@ -97,6 +127,10 @@ namespace MphRead.Entities
                 {
                     _spawnCooldown = (ushort)(_data.SpawnInterval * 2); // todo: FPS stuff
                     _spawnCount++;
+                    if (Mods.Multiplayer.MapResourceRules.IsHealth(_data.ItemType))
+                    {
+                        _lastPickerSlot = -1;
+                    }
                     Item.Owner = this;
                     Item.ParentId = _data.ParentId;
                     if (_data.ItemType != ItemType.ArtifactKey)
@@ -115,8 +149,12 @@ namespace MphRead.Entities
             return base.Process();
         }
 
-        public void OnItemPickedUp()
+        public void OnItemPickedUp(PlayerEntity? picker = null)
         {
+            if (Mods.Multiplayer.MapResourceRules.IsHealth(_data.ItemType))
+            {
+                _lastPickerSlot = picker == null ? (sbyte)-1 : (sbyte)picker.SlotIndex;
+            }
             if (_data.CollectedMessage != Message.None)
             {
                 _scene.SendMessage(_data.CollectedMessage, this, _pickupNotifyEntity, _data.CollectedMsgParam1, _data.CollectedMsgParam2);

@@ -21,6 +21,8 @@ namespace MphRead::Entities
     class NodeDefenseEntity : public EntityBase
     {
     public:
+        inline static constexpr std::int32_t NoTeam = -1;
+
         NodeDefenseEntity(NodeDefenseEntityData data, Scene* scene);
 
         NodeDefenseEntity(const NodeDefenseEntity&) = delete;
@@ -60,8 +62,8 @@ namespace MphRead::Entities
         CollisionVolume _volume{};
         bool _defender = false;
 
-        std::int32_t _currentTeam = 4;
-        std::int32_t _occupyingTeam = 4;
+        std::int32_t _currentTeam = NoTeam;
+        std::int32_t _occupyingTeam = NoTeam;
         std::shared_ptr<std::vector<bool>> _occupiedBy;
         float _blinkTimer = 0.0F;
         std::shared_ptr<PlayerEntity> _capturedPlayer{};

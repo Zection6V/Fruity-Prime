@@ -1,6 +1,7 @@
 #include "DebugLog.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "NativeRuntime/System/Heartbeat.hpp"
+#include "NativeRuntime/System/Runtime.hpp"
 
 #include "../Program.hpp"
 #include "Branding.hpp"
@@ -776,93 +777,16 @@ namespace
         return std::to_string(raw);
     }
 
+    // System.Runtime.InteropServices.RuntimeInformation, reproduced once in
+    // NativeRuntime/System/Runtime.
     [[nodiscard]] std::string ProcessArchitecture()
     {
-#if defined(__x86_64__) || defined(_M_X64)
-        return "X64";
-#elif defined(__i386__) || defined(_M_IX86)
-        return "X86";
-#elif defined(__aarch64__) || defined(_M_ARM64)
-        return "Arm64";
-#elif defined(__arm__) || defined(_M_ARM)
-#if defined(__ARM_ARCH_6__)
-        return "Armv6";
-#else
-        return "Arm";
-#endif
-#elif defined(__wasm__)
-        return "Wasm";
-#elif defined(__s390x__)
-        return "S390x";
-#elif defined(__loongarch64)
-        return "LoongArch64";
-#elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__)
-        return "Ppc64le";
-#else
-        return "Unknown";
-#endif
+        return ::MphRead::NativeRuntime::RuntimeInformationProcessArchitecture();
     }
 
     [[nodiscard]] std::string OsArchitecture()
     {
-#if defined(_WIN32)
-        SYSTEM_INFO info{};
-        GetNativeSystemInfo(&info);
-        switch (info.wProcessorArchitecture)
-        {
-        case PROCESSOR_ARCHITECTURE_AMD64:
-            return "X64";
-        case PROCESSOR_ARCHITECTURE_INTEL:
-            return "X86";
-        case PROCESSOR_ARCHITECTURE_ARM:
-            return "Arm";
-        case PROCESSOR_ARCHITECTURE_ARM64:
-            return "Arm64";
-        default:
-            return ProcessArchitecture();
-        }
-#else
-        struct utsname info{};
-        if (::uname(&info) != 0)
-        {
-            return ProcessArchitecture();
-        }
-        const std::string machine(info.machine);
-        if (machine == "x86_64" || machine == "amd64")
-        {
-            return "X64";
-        }
-        if (machine == "i386" || machine == "i486"
-            || machine == "i586" || machine == "i686")
-        {
-            return "X86";
-        }
-        if (machine == "aarch64" || machine == "arm64")
-        {
-            return "Arm64";
-        }
-        if (machine.rfind("armv6", 0) == 0)
-        {
-            return "Armv6";
-        }
-        if (machine.rfind("arm", 0) == 0)
-        {
-            return "Arm";
-        }
-        if (machine == "s390x")
-        {
-            return "S390x";
-        }
-        if (machine == "loongarch64")
-        {
-            return "LoongArch64";
-        }
-        if (machine == "ppc64le")
-        {
-            return "Ppc64le";
-        }
-        return ProcessArchitecture();
-#endif
+        return ::MphRead::NativeRuntime::RuntimeInformationOSArchitecture();
     }
 
     [[nodiscard]] std::string RuntimeArchitecture()
@@ -2067,8 +1991,14 @@ namespace MphRead::Mods
                 Launcher::LauncherPrefs::Directory(), "logs");
             std::filesystem::create_directories(PathFromManagedString(directory));
             Prune(directory);
+            // The process id is not decoration: a thumbnail batch starts
+            // several workers inside one second, and a name good only to
+            // the second had all of them truncating and writing over one
+            // file at once -- which reads as a corrupted log rather than
+            // as several.
             const std::string name = ReplaceSpaces(Branding::Name) + "-"
-                + FileTimestamp() + ".log";
+                + FileTimestamp() + "-"
+                + std::to_string(::MphRead::NativeRuntime::EnvironmentProcessId()) + ".log";
             const std::string path = PathCombine(directory, name);
             state.Path.store(std::make_shared<const std::string>(path));
             state.Writer.store(std::make_shared<Utf8Writer>(path));

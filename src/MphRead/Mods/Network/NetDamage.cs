@@ -25,17 +25,26 @@ namespace MphRead.Mods.Network
     {
         private const int Slots = PlayerEntity.SlotCapacity;
 
-        private static readonly byte[] _sequence = new byte[Slots];
+        private static readonly ushort[] _sequence = new ushort[Slots];
+        private static readonly DamageEvent[,] _history = new DamageEvent[Slots, PlayerState.DamageHistory];
         private static readonly byte[] _attacker = new byte[Slots];
         private static readonly byte[] _beam = new byte[Slots];
         private static readonly byte[] _flags = new byte[Slots];
         private static readonly Vector3[] _direction = new Vector3[Slots];
 
-        private static readonly byte[] _lastSeen = new byte[Slots];
+        private static readonly ushort[] _lastLife = new ushort[Slots];
+        private static readonly ushort[] _lastGeneration = new ushort[Slots];
+        private static readonly ushort[] _lastSeen = new ushort[Slots];
         private static readonly bool[] _everSeen = new bool[Slots];
 
         public const byte NoSlot = 0xFF;
         public const byte NoBeam = 0xFF;
+
+        static NetDamage()
+        {
+            Array.Fill(_attacker, NoSlot);
+            Array.Fill(_beam, NoBeam);
+        }
 
         /// <summary>
         /// Flags worth sending. The rest either describe how the damage was
@@ -82,6 +91,13 @@ namespace MphRead.Mods.Network
         /// means it is firing into the wrong place.
         /// </summary>
         public static readonly int[] Fired = new int[Slots];
+
+        /// <summary>
+        /// This machine's own shots, split by whether it was moving. The
+        /// denominator for NetHitPrediction.UnpredictedMoving.
+        /// </summary>
+        public static long FiredMoving;
+        public static long FiredStill;
         public static readonly int[] PlayerChecks = new int[Slots];
         public static readonly int[] PlayerOverlaps = new int[Slots];
         public static readonly int[] PlayerAccepted = new int[Slots];
@@ -160,6 +176,53 @@ namespace MphRead.Mods.Network
                 return;
             }
             Fired[slot]++;
+            if (slot == NetHooks.LocalSlot)
+            {
+                if (shooter.Speed.LengthSquared > 0.0004f)
+                {
+                    FiredMoving++;
+                }
+                else
+                {
+                    FiredStill++;
+                }
+            }
+            if (NetLog.Enabled)
+            {
+                // A beam is born at the muzzle, and the muzzle is derived from
+                // CameraInfo rather than from Position -- so a respawn that
+                // leaves the camera behind fires from wherever the player used
+                // to be standing. Reported as "phantom shots from my position
+                // before I died". Three units is far more than the offset can
+                // legitimately be.
+                Vector3 muzzle = shooter.ModMuzzlePos;
+                float gap = (muzzle - shooter.Position).Length;
+                if (gap > 3f)
+                {
+                    NetLog.Event($"[muzzle] slot {slot} fired from "
+                        + $"({muzzle.X:F2},{muzzle.Y:F2},{muzzle.Z:F2}) while standing at "
+                        + $"({shooter.Position.X:F2},{shooter.Position.Y:F2},{shooter.Position.Z:F2})"
+                        + $" -- {gap:F1} units apart");
+                }
+                // And every shot in the first second of a life, with where it
+                // left from. A beam leaving the spot this player died on is the
+                // previous life still holding the trigger; one leaving the spawn
+                // point is the game working as designed.
+                uint spawned = NetPlayerBridge.SpawnFrame[slot];
+                if (spawned != 0 && NetSession.NetFrame - spawned < 60)
+                {
+                    NetLog.Event($"[spawnfire] slot {slot} fired "
+                        + $"{NetSession.NetFrame - spawned} frame(s) after spawning, from "
+                        + $"({shooter.Position.X:F2},{shooter.Position.Y:F2},"
+                        + $"{shooter.Position.Z:F2}) hp={shooter.Health}"
+                        // The direction is the last unmeasured quantity: a shot
+                        // that lands 23 units away seven frames after a spawn
+                        // is either aimed there or carrying the aim of the life
+                        // that just ended.
+                        + $" shot=({shotVec.X:F2},{shotVec.Y:F2},{shotVec.Z:F2})"
+                        + $" aim=({aimVec.X:F2},{aimVec.Y:F2},{aimVec.Z:F2})");
+                }
+            }
             if (shotVec.LengthSquared > 0.0001f && aimVec.LengthSquared > 0.0001f)
             {
                 float dot = Math.Clamp(Vector3.Dot(shotVec.Normalized(), aimVec.Normalized()), -1f, 1f);
@@ -181,13 +244,6 @@ namespace MphRead.Mods.Network
                 PlayerOverlapsByShooter[shooter.SlotIndex, target.SlotIndex]++;
             }
         }
-
-        /// <summary>
-        /// The most hits one snapshot may report as new. Generous next to
-        /// anything a real fight produces between two frames, and far below
-        /// the wrap that a regressed counter looks like.
-        /// </summary>
-        private const byte MaxCatchUp = 32;
 
         /// <summary>
         /// Everything except the counter and the baseline, for a room change.
@@ -212,6 +268,8 @@ namespace MphRead.Mods.Network
             Array.Clear(Resolved);
             Array.Clear(Replayed);
             Array.Clear(Fired);
+            NetShotDiagnostics.Reset();
+            NetTimingDiagnostics.Reset();
             Array.Clear(PlayerChecks);
             Array.Clear(PlayerOverlaps);
             Array.Clear(PlayerAccepted);
@@ -254,9 +312,10 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            for (int i = 0; i < PlayerState.DamageHistory; i++) _history[slot, i] = default;
             _sequence[slot] = 0;
-            _attacker[slot] = 0;
-            _beam[slot] = 0;
+            _attacker[slot] = NoSlot;
+            _beam[slot] = NoBeam;
             _flags[slot] = 0;
             _direction[slot] = Vector3.Zero;
             _lastSeen[slot] = 0;
@@ -265,11 +324,36 @@ namespace MphRead.Mods.Network
             Replayed[slot] = 0;
         }
 
+        /// <summary>
+        /// A new life starts here: take the authority's counter as the baseline
+        /// instead of replaying the difference.
+        ///
+        /// A hit that landed in the last moments of the previous life reaches
+        /// this machine a round trip after the respawn has already been
+        /// applied, so the difference is non-zero while the health in the same
+        /// snapshot is the fresh 99. <see cref="Replay"/> then floors the
+        /// amount at one point -- and adds NoDmgInvuln, so spawn
+        /// invulnerability does not stop it. That is the single point of
+        /// damage a player takes a second after coming back, with nothing
+        /// having hit them. The counter is per slot and survives the death; a
+        /// life that is over owes the new one nothing.
+        /// </summary>
+        public static void NoteRespawn(int slot, ushort sequence)
+        {
+            if (slot < 0 || slot >= Slots)
+            {
+                return;
+            }
+            _everSeen[slot] = true;
+            _lastSeen[slot] = sequence;
+        }
+
         public static void Reset()
         {
+            Array.Clear(_history);
             Array.Clear(_sequence);
-            Array.Clear(_attacker);
-            Array.Clear(_beam);
+            Array.Fill(_attacker, NoSlot);
+            Array.Fill(_beam, NoBeam);
             Array.Clear(_flags);
             Array.Clear(_direction);
             Array.Clear(_lastSeen);
@@ -277,6 +361,8 @@ namespace MphRead.Mods.Network
             Array.Clear(Resolved);
             Array.Clear(Replayed);
             Array.Clear(Fired);
+            NetShotDiagnostics.Reset();
+            NetTimingDiagnostics.Reset();
             Array.Clear(PlayerChecks);
             Array.Clear(PlayerOverlaps);
             Array.Clear(PlayerAccepted);
@@ -318,20 +404,103 @@ namespace MphRead.Mods.Network
             {
                 return false;
             }
+            if (source is BeamProjectileEntity projectile && !NetPlayerLifecycle.CurrentProjectile(projectile))
+                return true;
             if (NetSession.IsHost || NetSession.IsAuthority)
             {
+                // Except its own copy of a shot a hit claim has already made
+                // real. For anything that travels, the authority's projectile
+                // can still be in the air when the claim for it is applied,
+                // and this is the only point early enough to refuse the second
+                // helping. NetHitClaims.AlreadyRescued.
+                if (source is BeamProjectileEntity rescued && rescued.ModLaunchFrame != 0)
+                {
+                    PlayerEntity? owner = rescued.Owner as PlayerEntity
+                        ?? (rescued.Owner as HalfturretEntity)?.Owner;
+                    if (owner != null && NetHitClaims.AlreadyRescued(
+                        owner.SlotIndex, victim.SlotIndex, rescued.ModLaunchFrame, rescued.ModLaunchKey))
+                    {
+                        return true;
+                    }
+                }
                 return false;
             }
             // Except for this machine's own shots on somebody else, which are
             // resolved here and now and reconciled against the authority's
             // answer when it arrives. NetHitPrediction.
+            // Old-life flights remain authoritative. Clients must not re-declare one
+            // under their new life; the claim protocol deliberately requires current life.
+            if (source is BeamProjectileEntity flight && flight.ModLaunchKey.ShooterSlot >= 0
+                && !NetPlayerLifecycle.Matches(flight.ModLaunchKey.ShooterSlot,
+                    flight.ModLaunchKey.Generation, flight.ModLaunchKey.LifeId)) return true;
             return !NetHitPrediction.Predicts(victim, source, flags);
+        }
+
+        /// <summary>
+        /// The beam a rescued hit claim was fired with.
+        ///
+        /// A claim is applied on the authority with the shooter as the source
+        /// rather than a beam, because the beam only ever existed on the
+        /// machine that fired it -- so <c>TakeDamage</c> hands
+        /// <see cref="Note"/> <see cref="BeamType.None"/> and the victim's own
+        /// machine would replay a nameless hit with the wrong effect, the
+        /// wrong sound and no weapon on the kill feed. Set for the length of
+        /// one <c>TakeDamage</c> call and cleared straight after.
+        /// <see cref="NetHitClaims"/>.
+        /// </summary>
+        private static BeamType _claimedBeam = BeamType.None;
+
+        public static void SetClaimedBeam(BeamType beam) => _claimedBeam = beam;
+
+        /// <summary>
+        /// True for the length of the one <c>TakeDamage</c> call that applies a
+        /// rescued hit claim.
+        ///
+        /// <b>It stops the damage being multiplied twice.</b> A claim carries
+        /// the number the shooter's own machine arrived at, with every
+        /// multiplier that machine knows about already in it -- the beam's
+        /// effectiveness against that hunter, the double-damage powerup, the
+        /// match's damage level. <c>TakeDamage</c> would then apply the two it
+        /// can see all over again: 4x for a shooter holding double damage, and
+        /// 1.25x on a server set to high. The effectiveness multiplier is not
+        /// among them, because that branch only runs for a beam and a claim
+        /// has none.
+        ///
+        /// Read by <c>PlayerEntity.TakeDamage</c> in exactly two places, both
+        /// of which are the word "again". <see cref="NetHitClaims"/>.
+        /// </summary>
+        public static bool ApplyingClaim { get; private set; }
+
+        /// <summary>
+        /// Wrap the one call that applies a claim. A struct rather than a
+        /// pair of calls so that an exception inside <c>TakeDamage</c> cannot
+        /// leave every subsequent hit in the match unmultiplied.
+        /// </summary>
+        public readonly struct ClaimScope : IDisposable
+        {
+            public ClaimScope(BeamType beam)
+            {
+                _claimedBeam = beam;
+                ApplyingClaim = true;
+            }
+
+            public void Dispose()
+            {
+                _claimedBeam = BeamType.None;
+                ApplyingClaim = false;
+            }
         }
 
         /// <summary>Called by the authority for every hit it resolves.</summary>
         public static void Note(PlayerEntity victim, PlayerEntity? attacker, BeamType beam,
-            DamageFlags flags, Vector3? direction, uint amount = 0, bool fromBomb = false)
+            DamageFlags flags, Vector3? direction, uint amount = 0, bool fromBomb = false,
+            uint launchFrame = 0, ShotKey? launchKey = null)
         {
+            if (beam == BeamType.None && _claimedBeam != BeamType.None)
+            {
+                beam = _claimedBeam;
+            }
+            if (ApplyingClaim) launchFrame = NetHitClaims.CurrentClaimLaunch;
             if (!NetSession.Active || Replaying || NetHitPrediction.Predicting)
             {
                 // A predicted hit is not a resolution. Letting it through here
@@ -358,8 +527,43 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            _sequence[slot]++;
+            int weapon = NetShotDiagnostics.Bucket(beam);
+            NetShotDiagnostics.AuthorityHits[weapon]++;
+            NetShotDiagnostics.AuthorityDamage[weapon] += amount;
+            if (flags.TestFlag(DamageFlags.Headshot)) NetShotDiagnostics.AuthorityHeadshots[weapon]++;
+            if (attacker != null && NetLog.Enabled) NetShotDiagnostics.Trace("authority-hit",
+                launchKey ?? ShotKey.For(attacker.SlotIndex, launchFrame), beam, $"victim={slot} damage={amount}");
+            _sequence[slot] = NetLifecycleTracker.Next(_sequence[slot]);
+            if (NetLog.Enabled) NetLog.Event($"[damage-publish] epoch={NetSession.AuthorityEpoch} match={NetSession.CurrentMatchId} victim={slot}/{NetPlayerLifecycle.Generation(slot)}/{NetPlayerLifecycle.Get(slot)} event={_sequence[slot]} shooter={attacker?.SlotIndex} launch={launchFrame}");
             Resolved[slot]++;
+            if (NetLog.Enabled)
+            {
+                // Every hit the machine running the match resolves, with the
+                // stamp that identifies the shot. The only way to line a
+                // client's claims up against what the authority actually did
+                // with the same shots -- a client's own report can say it hit
+                // and the authority's silence cannot be read from outside.
+                NetLog.Event($"[resolve] slot {(attacker != null ? attacker.SlotIndex : -1)} "
+                    + $"hit slot {slot} for {amount} with {beam} (launch {launchFrame}), "
+                    + $"health {victim.Health} -> {Math.Max(0, victim.Health - (int)amount)}"
+                    // Where both of them were standing when the authority
+                    // resolved it. A shooter that just respawned and is still
+                    // reported at the spot it died on is a stale intent
+                    // undoing the spawn, and nothing else in this log can tell
+                    // that from a legitimate hit.
+                    + (attacker != null
+                        ? $" | shooter ({attacker.Position.X:F2},{attacker.Position.Y:F2},"
+                            + $"{attacker.Position.Z:F2}) hp={attacker.Health}"
+                        : "")
+                    + $" | victim ({victim.Position.X:F2},{victim.Position.Y:F2},"
+                    + $"{victim.Position.Z:F2})");
+            }
+            // The world-frame this hit was aimed at, for the kill
+            // arbitration: two players who killed each other are separated by
+            // which of them pulled the trigger in the earlier world, and this
+            // is where that stamp is taken. NetHitClaims.
+            NetHitClaims.NoteAuthorityHit(
+                attacker != null ? attacker.SlotIndex : -1, slot, launchFrame, (int)amount);
             _attacker[slot] = attacker != null && attacker.SlotIndex >= 0 && attacker.SlotIndex < Slots
                 ? (byte)attacker.SlotIndex
                 : NoSlot;
@@ -385,6 +589,15 @@ namespace MphRead.Mods.Network
             // to the attacker's position for the damage indicator -- for the
             // indicator only, exactly as it does for a local hit.
             _direction[slot] = ClampImpulse(direction ?? Vector3.Zero);
+            for (int i = 0; i < PlayerState.DamageHistory - 1; i++) _history[slot, i] = _history[slot, i + 1];
+            _history[slot, PlayerState.DamageHistory - 1] = new DamageEvent
+            {
+                EventId = _sequence[slot],
+                AttackerSlot = _attacker[slot],
+                AttackerGeneration = launchKey?.Generation ?? (attacker != null ? NetPlayerLifecycle.Generation(attacker.SlotIndex) : (ushort)0),
+                Damage = (ushort)Math.Min(amount, ushort.MaxValue), Beam = _beam[slot],
+                Flags = _flags[slot], Direction = _direction[slot]
+            };
         }
 
         /// <summary>
@@ -443,6 +656,30 @@ namespace MphRead.Mods.Network
         /// runs on the victim and moves the *attacker's* row. Here the
         /// ordering does not matter.
         /// </summary>
+        private static int _predictionScoreDepth;
+        public readonly struct PredictionScoreScope : IDisposable
+        {
+            private readonly bool _active;
+            public PredictionScoreScope(bool active)
+            {
+                _active = active;
+                if (active && _predictionScoreDepth++ == 0) SaveScores();
+            }
+            public void Dispose()
+            {
+                if (_active && --_predictionScoreDepth == 0) RestoreScores();
+            }
+        }
+
+        public static void ReplayDeath(PlayerEntity player)
+        {
+            bool wasReplaying = Replaying;
+            Replaying = true;
+            SaveScores();
+            try { player.TakeDamage(1, DamageFlags.Death | DamageFlags.NoDmgInvuln, null, null); }
+            finally { RestoreScores(); Replaying = wasReplaying; }
+        }
+
         private static void SaveScores()
         {
             Array.Copy(GameState.Points, _savedPoints, Slots);
@@ -464,7 +701,11 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            state.DamageSeq = _sequence[slot];
+            state.DamageEventId = _sequence[slot];
+            state.Damage0 = _history[slot, 0];
+            state.Damage1 = _history[slot, 1];
+            state.Damage2 = _history[slot, 2];
+            state.Damage3 = _history[slot, 3];
             state.AttackerSlot = _attacker[slot];
             state.DamageBeam = _beam[slot];
             state.DamageFlags = _flags[slot];
@@ -479,6 +720,14 @@ namespace MphRead.Mods.Network
         /// stands: a client joining a match in progress would otherwise open
         /// with a burst of damage for every hit landed before it arrived.
         /// </summary>
+        public static void BeginLife(int slot, in PlayerState state)
+        {
+            _lastLife[slot] = state.LifeId;
+            _lastGeneration[slot] = state.SlotGeneration;
+            _everSeen[slot] = true;
+            _lastSeen[slot] = state.DamageEventId;
+        }
+
         public static void Replay(PlayerEntity player, in PlayerState state)
         {
             int slot = player.SlotIndex;
@@ -486,42 +735,47 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            if (!_everSeen[slot])
+            if (!NetPlayerLifecycle.Matches(slot, state.SlotGeneration, state.LifeId))
             {
-                _everSeen[slot] = true;
-                _lastSeen[slot] = state.DamageSeq;
+                NetPlayerLifecycle.OldLifeDamage++;
                 return;
             }
-            // How many hits happened since this client last looked, not
-            // whether any did. Treating the counter as a change flag meant
-            // two hits landing between two received snapshots showed as one,
-            // and under fire or packet loss a sixth of them vanished --
-            // "my shots are not registering", from the shooter's side.
-            byte landed = (byte)(state.DamageSeq - _lastSeen[slot]);
-            if (landed == 0)
+            if (!_everSeen[slot] || _lastLife[slot] != state.LifeId || _lastGeneration[slot] != state.SlotGeneration)
             {
+                BeginLife(slot, state);
                 return;
             }
-            _lastSeen[slot] = state.DamageSeq;
-            if (landed > MaxCatchUp)
+            for (int i = 0; i < PlayerState.DamageHistory; i++)
             {
-                // Not a burst of fire: the counter is a byte, so a sequence
-                // that has gone *backwards* reads as almost a full wrap
-                // forwards. Nothing lands two hundred hits between two
-                // snapshots, so this is a straggler or a counter that was
-                // reset underneath us. Take the new value as the truth and
-                // show nothing -- replaying it would flinch the player, shove
-                // them, and, if the stale snapshot happened to say zero
-                // health, kill them for a hit that had already been shown.
-                NetLog.Event($"slot {slot} damage sequence jumped {landed}; resynced");
-                return;
+                DamageEvent hit = state.EventAt(i);
+                if (hit.EventId == 0 || (_lastSeen[slot] != 0 && !NetLifecycleTracker.Newer(hit.EventId, _lastSeen[slot]))) continue;
+                // Victim slot/life are implicit in the enclosing PlayerState.
+                // The state itself was lifecycle-validated above, and damage
+                // history is cleared at every life/occupant boundary.
+                // Redundant history carries the actual metadata for each hit,
+                // rather than replaying the last attacker's hit N times.
+                _lastSeen[slot] = hit.EventId;
+                PlayerState feedback = state;
+                // An authority event can legitimately name an earlier firing life.
+                // Keep its attribution only while the same occupant still owns the slot.
+                feedback.AttackerSlot = hit.AttackerGeneration != 0
+                    && NetPlayerLifecycle.Generation(hit.AttackerSlot) == hit.AttackerGeneration
+                    ? hit.AttackerSlot : NoSlot;
+                feedback.DamageBeam = hit.Beam;
+                feedback.DamageFlags = hit.Flags;
+                feedback.HitDirection = hit.Direction;
+                feedback.Health = hit.EventId == state.DamageEventId ? state.Health
+                    : (ushort)Math.Max(1, player.Health - hit.Damage);
+                if (NetLog.Enabled) NetLog.Event($"[damage-replay] epoch={NetSession.AuthorityEpoch} match={NetSession.CurrentMatchId} victim={slot}/{state.SlotGeneration}/{state.LifeId} event={hit.EventId} shooter={hit.AttackerSlot}/{hit.AttackerGeneration}");
+                ReplayEvent(player, feedback);
             }
-            // The feedback runs once even for several hits: the engine's
-            // damage path applies knockback and an indicator, and stacking
-            // those in a single frame would look worse than the hit it is
-            // reporting. The health that ends up on screen is the
-            // authority's, which already accounts for every one of them.
-            Replayed[slot] += landed;
+        }
+
+        private static void ReplayEvent(PlayerEntity player, in PlayerState state)
+        {
+            int slot = player.SlotIndex;
+            const int landed = 1;
+            Replayed[slot]++;
             bool lethal = state.Health == 0;
             // Consumed before the "already down" return below, not after it.
             //
@@ -541,7 +795,13 @@ namespace MphRead.Mods.Network
             // health twice. Damage from anybody else still names another
             // attacker and is replayed exactly as before.
             bool mine = state.AttackerSlot == NetHooks.LocalSlot;
-            bool predicted = mine && NetHitPrediction.Confirm(slot, landed);
+            // The authority's own verdict on where the shot landed, forwarded
+            // so a client can tell "you hit them" from "you hit them in the
+            // head" -- the two are the same confirmation to everything else
+            // here, and on the Imperialist they are a kill and half a kill.
+            bool authorityHeadshot = ((DamageFlags)state.DamageFlags).TestFlag(DamageFlags.Headshot);
+            bool predicted = mine && NetHitPrediction.Confirm(slot, landed, authorityHeadshot);
+
             if (player.Health <= 0)
             {
                 return; // already down here; the respawn is what matters next
@@ -577,7 +837,7 @@ namespace MphRead.Mods.Network
             int amount = Math.Max(1, player.Health - state.Health);
             if (!lethal)
             {
-                amount = Math.Min(amount, Math.Max(1, player.Health - 1));
+                amount = Math.Min(amount, Math.Max(0, player.Health - 1));
             }
             DamageFlags flags = (DamageFlags)state.DamageFlags | DamageFlags.NoDmgInvuln;
             if (lethal)

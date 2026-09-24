@@ -2,12 +2,24 @@
 
 Build and release workflow summary.
 
+Release versions use canonical `vMAJOR.MINOR.PATCH` tags with each component
+between 0 and 999, and a nonzero Android versionCode. Validation happens before
+a bump creates its tag. Oversized or zero-padded numbers are refused before
+Bash arithmetic. Local desktop and Android builds have an explicit `local`
+informational stamp; release builds override it, so `v1.0.0` is also a usable
+release. Prerelease suffixes remain outside the automatic update channel.
+
+Offline regressions: `tools/check-release-version.ps1` runs the real workflow
+tag step with a mocked `gh`, and `dotnet run --project tools/updatecheck` checks
+the updater against synthetic metadata. Run the latter again with
+`-p:InformationalVersion=1.0.0 -- 1.0.0` to check a stamped assembly.
+
 Workflows
 
 | Workflow | When | What |
 |---|---|---|
-| `.github/workflows/build.yml` | every push and PR | publishes `win-x64`, `linux-x64`, `linux-x64-server`, `linux-arm64`, `osx-x64` and `osx-arm64` on one Ubuntu runner (every target is `net9.0`, so none needs a runner of its own), plus a Windows-runner job that builds and starts the Windows dedicated server |
-| `.github/workflows/release.yml` | a `v*` tag, or by hand -- naming a tag or picking a bump that creates one | those six plus the Windows server: seven packages attached to a GitHub release |
+| `.github/workflows/build.yml` | every push and PR | publishes Windows/Linux targets on Ubuntu and signed macOS application archives on matching ARM64/Intel Mac runners, plus a Windows-runner job that builds and starts the Windows dedicated server |
+| `.github/workflows/release.yml` | a `v*` tag, or by hand -- naming a tag or picking a bump that creates one | resolves one tag, builds desktop/Android and macOS packages in parallel, then attaches all validated archives to a draft release |
 
 Tagging
 
@@ -280,3 +292,9 @@ then only publish a package that will not install anywhere.
 Either way, **everybody already running a debug-signed APK has to reinstall by
 hand once.** There is no migration from one certificate to another.
 
+
+## macOS packaging
+
+See [MACOS.md](MACOS.md) for signing, bundle layout, native smoke tests and
+user-data paths. macOS uses whole-app replacement via the release page; the
+file-copy updater is disabled there to preserve the bundle signature.

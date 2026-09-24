@@ -51,6 +51,30 @@ namespace MphRead.Mods
         }
 
         /// <summary>
+        /// Whether the deck panel is drawn over the results, so the HUD's own
+        /// picker knows to leave the right-hand side alone.
+        ///
+        /// Set by whichever head is showing it -- the desktop shell through
+        /// its surface, Android through its own -- because the two put the
+        /// same panel on the screen by different routes and the engine must
+        /// not have to know which. The scoreboard beside it is untouched
+        /// either way: that is the engine's screen and a scoreboard is not a
+        /// place to put a theme.
+        /// </summary>
+        public static bool PanelUp
+        {
+            // A field, because it is written on the toolkit's thread and read
+            // inside the render loop: an auto-property there is one the JIT
+            // may hoist out of the loop, and a results HUD that goes on
+            // drawing its own picker under an opaque panel publishes a preview
+            // slot the panel's own model is then painted into.
+            get => _panelUp;
+            set => _panelUp = value;
+        }
+
+        private static volatile bool _panelUp;
+
+        /// <summary>
         /// Whether this player has said they are ready for the next match.
         ///
         /// Read straight off the results screen by the intent packet each
@@ -186,6 +210,52 @@ namespace MphRead.Mods
             PointerY = y;
         }
 
+        private static bool _wasUp;
+        private static double _resentAt;
+
+        /// <summary>
+        /// The screen coming up and going away again, which two other things
+        /// hang off: the map ballot (<see cref="MapPick"/>) and the previews
+        /// drawn on it, whose textures belong to the room that is about to be
+        /// unloaded.
+        ///
+        /// Called once a frame by the window, beside
+        /// <see cref="NotePointer"/>, because this is the only code that runs
+        /// every frame of a results screen whether or not anybody is drawing
+        /// one -- a spectator, a demo and a player all reach it.
+        /// </summary>
+        public static void Tick(string roomKey, double time)
+        {
+            bool up = Available;
+            if (up == _wasUp)
+            {
+                if (up && time - _resentAt >= 1)
+                {
+                    _resentAt = time;
+                    MapPick.Resend();
+                }
+                return;
+            }
+            _wasUp = up;
+            _resentAt = time;
+            // The previews are textures in the scene's own counted names, and
+            // the counter restarts with every room: nothing may survive a map
+            // change. Cleared on both edges rather than only on the way in, so
+            // a match that ends some other way (a disconnect, a leave) does not
+            // leave four bindings behind for the next room to overwrite.
+            Render.MapThumbnail.Clear();
+            if (!up)
+            {
+                MapPick.Reset();
+                return;
+            }
+            // The room list, read once. Open straight away offline, where this
+            // machine is the whole room; online it waits for the server to say
+            // the ballot is open, since a server built before this exists
+            // never will and the screen should then look exactly as it did.
+            MapPick.Begin(roomKey, open: !Network.NetSession.Active);
+        }
+
         public static void NoteLayout(Hit previous, Hit next, Hit[] suits, Hit ready = default)
         {
             _hitPrev = previous;
@@ -256,7 +326,9 @@ namespace MphRead.Mods
                     return true;
                 }
             }
-            return false;
+            // The ballot under the picker. Last only because it is the
+            // cheapest test to reach; the two layouts do not overlap.
+            return MapPick.HandleClick();
         }
 
         /// <summary>
@@ -283,11 +355,18 @@ namespace MphRead.Mods
                     Step(1, 0);
                     return true;
                 case Keys.Up:
-                    Step(0, -1);
+                    StepList(-1);
                     return true;
                 case Keys.Down:
-                    Step(0, 1);
+                    StepList(1);
                     return true;
+                case Keys.Space:
+                    if (MapPick.Available)
+                    {
+                        MapPick.ChooseCursor();
+                        return true;
+                    }
+                    return false;
                 case Keys.Enter:
                 case Keys.KeyPadEnter:
                     ToggleReady();
@@ -300,33 +379,30 @@ namespace MphRead.Mods
         /// The same from a pad's d-pad, taken once a frame rather than from an
         /// event: GLFW reports a pad by polling, so there is no press to hook.
         /// </summary>
+        private static readonly Input.GamepadUiRouter ResultPad = CreateResultPad();
+        private static Input.GamepadUiRouter CreateResultPad()
+        {
+            var router = new Input.GamepadUiRouter();
+            router.Action += action =>
+            {
+                switch (action)
+                {
+                    case Input.UiAction.Left: Step(-1, 0); break;
+                    case Input.UiAction.Right: Step(1, 0); break;
+                    case Input.UiAction.Up: StepList(-1); break;
+                    case Input.UiAction.Down: StepList(1); break;
+                    case Input.UiAction.Accept: ToggleReady(); break;
+                    case Input.UiAction.NextTab: if (MapPick.Available) MapPick.ChooseCursor(); break;
+                }
+            };
+            return router;
+        }
         public static void PollGamepad()
         {
-            if (!Available)
-            {
-                return;
-            }
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.DpadLeft))
-            {
-                Step(-1, 0);
-            }
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.DpadRight))
-            {
-                Step(1, 0);
-            }
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.DpadUp))
-            {
-                Step(0, -1);
-            }
-            // A is the results screen's confirm, which is what Ready is.
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.A))
-            {
-                ToggleReady();
-            }
-            if (Input.GamepadInput.TakePress(Input.GamepadButtons.DpadDown))
-            {
-                Step(0, 1);
-            }
+            ResultPad.Update(Input.GamepadManager.Snapshot, Available && Input.GamepadContexts.Focused
+                && Input.GamepadContexts.Current == Input.GamepadContext.Results
+                ? Input.GamepadContext.Results : Input.GamepadContext.Gameplay,
+                Environment.TickCount64);
         }
 
         /// <summary>
@@ -339,6 +415,26 @@ namespace MphRead.Mods
         /// ten-second screen, which is nothing next to what the match itself
         /// was doing a second ago.
         /// </summary>
+        /// <summary>
+        /// Up and down: the map ballot while there is one, and the suit
+        /// otherwise.
+        ///
+        /// The ballot wins the arrows because a list is what they are for and
+        /// because the suit already has a better answer -- all four swatches
+        /// are on screen and are clicked directly, which is why they were laid
+        /// out that way rather than stepped through. The arrows were a bonus
+        /// there and are the only way to move a list.
+        /// </summary>
+        private static void StepList(int by)
+        {
+            if (MapPick.Available)
+            {
+                MapPick.Step(by);
+                return;
+            }
+            Step(0, by);
+        }
+
         private static void Step(int hunterBy, int suitBy)
         {
             int hunter = (int)Launcher.Hunters.Resolve(Hunter);
@@ -355,6 +451,17 @@ namespace MphRead.Mods
             }
             Choose((Hunter)hunter, suit);
         }
+
+        /// <summary>
+        /// Set both, from a screen that offers them as rows rather than as
+        /// arrows and swatches.
+        ///
+        /// The deck panel over the results asks the question with a stepper
+        /// and a turntable, which is the same question this screen has always
+        /// asked; what it does not have is the HUD's own hit rectangles, so it
+        /// needs a way in that is not "pretend the player clicked a swatch".
+        /// </summary>
+        public static void Pick(Hunter hunter, int suit) => Choose(hunter, suit);
 
         private static void Choose(Hunter hunter, int suit)
         {

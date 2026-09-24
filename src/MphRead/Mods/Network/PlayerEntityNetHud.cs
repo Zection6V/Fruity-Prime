@@ -1,21 +1,27 @@
+using System;
+using MphRead.Mods;
 using MphRead.Mods.Network;
 using MphRead.Hud;
 
 namespace MphRead.Entities
 {
     /// <summary>
-    /// The scoreboard's ping column.
+    /// Network-specific HUD helpers.
     ///
-    /// A partial of PlayerEntity for the same reason the aim injection is:
-    /// the HUD's text drawing is private, and reaching it from here costs
-    /// upstream two call sites instead of opening up the whole HUD.
-    ///
-    /// The numbers come from the server, which is the only party that can
-    /// measure them for everybody -- clients never exchange packets with each
-    /// other -- and travel in the roster it already sends every second.
+    /// Kept on a PlayerEntity partial because the stock HUD drawing methods
+    /// are private. This keeps network presentation policy out of the core
+    /// player simulation while still letting the HUD consume authoritative
+    /// state where prediction would otherwise be misleading.
     /// </summary>
     public partial class PlayerEntity
     {
+        /// <summary>
+        /// Server-owned match rule. Null/offline sessions preserve the stock
+        /// behaviour and show opponent health.
+        /// </summary>
+        private static bool ModHideOpponentHealth =>
+            NetSession.ActiveMatchDefinition?.HideOpponentHealth == true;
+
         /// <summary>
         /// Column centres in the HUD's 256-wide space. The stock two sit at
         /// 160 and 215, which leaves no room for a third: "deaths" is six
@@ -23,15 +29,79 @@ namespace MphRead.Entities
         /// match the two of them move left to make room, and offline nothing
         /// moves at all.
         /// </summary>
-        internal float ModScoreColumn1 => NetSession.Active ? 145 : 160;
+        private static int ModOpponentHudHealth(PlayerEntity opponent) => NetHudHealth.Sample(opponent).Health;
+        private bool ModHudHealthVisible => NetHudHealth.Visible(SlotIndex);
+        private int ModHudHealth => !NetSession.Active || SlotIndex == NetSession.LocalSlot
+            ? Health : ModOpponentHudHealth(this);
 
-        internal float ModScoreColumn2 => NetSession.Active ? 193 : 215;
+        private const float _scoreColumn1Net = 145;
+        private const float _scoreColumn2Net = 193;
+        private const float _scoreColumn1Solo = 160;
+        private const float _scoreColumn2Solo = 215;
+
+        /// <summary>
+        /// How far left the scoreboard moves while the results screen's
+        /// pickers are up.
+        ///
+        /// The scoreboard is drawn across the whole frame and the pickers --
+        /// the hunter, and the map ballot under it -- own the right-hand
+        /// column of it, so the two were drawn through each other: the ping
+        /// column sat entirely behind the panel and "deaths" ran half under
+        /// its edge. Worked out from where the panel actually is rather than
+        /// stated, because that edge moves with the window's shape (the panel
+        /// is measured in height units, see <c>EndPanelWidth</c>) and a number
+        /// written down here would be right on one monitor.
+        ///
+        /// Clamped, because there is a shape where this cannot be solved: a
+        /// 4:3 window has 180 units to the left of the panel and a three
+        /// column scoreboard with names in it wants more than that. The clamp
+        /// keeps the common shapes exact and lets the extreme one overlap a
+        /// little rather than pushing the portraits off the left edge.
+        /// </summary>
+        internal float ModScoreSqueeze
+        {
+            get
+            {
+                if (!EndScreen.Available)
+                {
+                    return 0;
+                }
+                float panelLeft = 254 - EndPanelWidth * HudAspectFix;
+                float rightmost = (NetSession.Active ? _scoreColumn2Net : _scoreColumn2Solo) + 24;
+                return Math.Clamp(rightmost - (panelLeft - 3), 0, 64);
+            }
+        }
+
+        internal float ModScoreColumn1 =>
+            (NetSession.Active ? _scoreColumn1Net : _scoreColumn1Solo) - ModScoreSqueeze;
+
+        internal float ModScoreColumn2 =>
+            (NetSession.Active ? _scoreColumn2Net : _scoreColumn2Solo) - ModScoreSqueeze;
+
+        /// <summary>
+        /// Where the portrait, the stars and the nickname sit. Half the
+        /// columns' shift: the names are already close to the first column and
+        /// moving both by the same amount would keep them that way while the
+        /// portraits walked off the left edge of the screen.
+        /// </summary>
+        internal float ModScoreNameColumn => 60 - ModScoreSqueeze / 2;
 
         private const float _pingColumnX = 236;
 
+        /// <summary>
+        /// Whether the ping column is drawn at all.
+        ///
+        /// Not on the results screen: it is the one column of the three that
+        /// answers a question about *now* -- am I warping, is it me or the
+        /// server -- and nobody is playing. It has been on Tab for the whole
+        /// match, and dropping it is what buys the other two the room to get
+        /// out from under the picker.
+        /// </summary>
+        private bool ModPingColumnDrawn => NetSession.Active && !EndScreen.Available;
+
         internal void ModDrawPingHeader(float posY)
         {
-            if (!NetSession.Active)
+            if (!ModPingColumnDrawn)
             {
                 return;
             }
@@ -41,7 +111,7 @@ namespace MphRead.Entities
 
         internal void ModDrawPingRow(float posY, ColorRgba rowColor, int slot)
         {
-            if (!NetSession.Active || slot < 0 || slot >= NetSession.SlotPing.Length)
+            if (!ModPingColumnDrawn || slot < 0 || slot >= NetSession.SlotPing.Length)
             {
                 return;
             }

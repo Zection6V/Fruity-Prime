@@ -16,6 +16,9 @@ namespace MphRead::Mods
 
         static void Start(bool watchSomeone = false);
         static void CycleNext();
+
+        // Move to the previous active player when driven by a controller.
+        static void CyclePrevious();
         static void ToggleView();
 
         [[nodiscard]] static bool ShowScoreboard() noexcept;
@@ -28,6 +31,7 @@ namespace MphRead::Mods
 
     private:
         static void Switch(std::int32_t slot);
+        [[nodiscard]] static std::int32_t FindPreviousActiveSlot(std::int32_t fromSlot);
         [[nodiscard]] static std::int32_t FindNextActiveSlot(std::int32_t fromSlot);
 
         static bool _isSpectating;

@@ -30,6 +30,14 @@ namespace MphRead::NativeRuntime
     // Console.Out.Flush().
     void ConsoleFlush();
 
+    // Console.ReadKey(intercept) waits for one key, echoing it unless
+    // intercept is true. Throws System::InvalidOperationException where there
+    // is no console to read from, as .NET does.
+    void ConsoleReadKey();
+    void ConsoleReadKeyIntercept();
+    // Console.IsInputRedirected.
+    [[nodiscard]] bool ConsoleIsInputRedirected();
+
     // Environment.GetEnvironmentVariable(name): null when it is not set.
     [[nodiscard]] std::optional<std::string> EnvironmentGetVariable(const std::string& name);
     // Environment.MachineName.

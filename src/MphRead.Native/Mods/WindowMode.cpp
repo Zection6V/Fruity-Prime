@@ -1,5 +1,7 @@
 #include "WindowMode.hpp"
 
+#include "WindowGeometry.hpp"
+
 #include "../Renderer.hpp"
 
 #include "Chat/ChatBox.hpp"
@@ -28,6 +30,7 @@ namespace
     constexpr std::int32_t F11Key = 300;
 
     WindowStartMode startupState = WindowStartMode::Windowed;
+    bool startupForcedState = false;
     bool fullscreenState = false;
     std::int32_t savedBorderState = ResizableWindowBorder;
     OpenTK::Mathematics::Vector2i savedLocationState{};
@@ -238,9 +241,30 @@ namespace MphRead::Mods
         startupState = value;
     }
 
+    bool WindowMode::StartupForced() noexcept
+    {
+        return startupForcedState;
+    }
+
+    void WindowMode::ForceStartup(WindowStartMode mode) noexcept
+    {
+        startupState = mode;
+        startupForcedState = true;
+    }
+
     bool WindowMode::IsFullscreen() noexcept
     {
         return fullscreenState;
+    }
+
+    OpenTK::Mathematics::Vector2i WindowMode::WindowedSize() noexcept
+    {
+        return savedState ? savedSizeState : OpenTK::Mathematics::Vector2i();
+    }
+
+    OpenTK::Mathematics::Vector2i WindowMode::WindowedLocation() noexcept
+    {
+        return savedLocationState;
     }
 
     void WindowMode::ApplyStartup(MphRead::RenderWindow& window)
@@ -291,8 +315,21 @@ namespace MphRead::Mods
             savedState = true;
         }
 
+        // Before the window is touched, not after the geometry is set --
+        // and after the monitor lookup, which is the one line above that
+        // can fail and leave this method without a fullscreen window to
+        // describe.
+        //
+        // Windows dispatches WM_SIZE from inside SetWindowPos, so the
+        // resize callback for the lines below runs *during* them, and
+        // WindowGeometry::Capture reads this flag to decide whether the
+        // rectangle it is being handed is the player's window or the
+        // monitor. Set at the end instead, the one callback that matters
+        // arrived while it still said "windowed", and the monitor's
+        // rectangle went into the remembered window size.
         const RendererPlatform::MonitorArea monitor
             = window.CurrentMonitorClientArea();
+        fullscreenState = true;
 
         window.WindowStateNormal();
         window.WindowBorder(HiddenWindowBorder);
@@ -303,8 +340,11 @@ namespace MphRead::Mods
                 monitor.Size.X,
                 SubtractOneUnchecked(monitor.Size.Y)});
 
-        fullscreenState = true;
         SetTopmost(window, true);
+        // And written down, so the next session opens this way. See
+        // WindowGeometry::NoteMode: F11 used to be a decision the program
+        // forgot on exit.
+        WindowGeometry::NoteMode();
     }
 
     void WindowMode::Leave(MphRead::RenderWindow& window)
@@ -326,7 +366,14 @@ namespace MphRead::Mods
         }
 
         fullscreenState = false;
+        // Forget it, so the *next* Enter captures where the window is then.
+        // Without this the saved rectangle is whatever the window was the
+        // first time fullscreen was ever used: go fullscreen, come back, drag
+        // the window somewhere else, go fullscreen again, and leaving put it
+        // back at the first size rather than the one it was just at.
+        savedState = false;
         SetTopmost(window, false);
+        WindowGeometry::NoteMode();
     }
 
     bool WindowMode::IsTopmost() noexcept
@@ -354,11 +401,13 @@ namespace MphRead::Mods
 
     void WindowMode::SyncTopmost(MphRead::RenderWindow& window)
     {
-        SetTopmost(
-            window,
-            fullscreenState
-                && !Detail::WindowModePauseMenuOpen()
-                && window.IsFocused());
+        // Not "unless the pause menu is up" any more. That exception was for
+        // a menu that was its *own* window and had to be allowed above this
+        // one; the menu is drawn inside this window now, so dropping out of
+        // the band while it is open only lets the taskbar cover the bottom of
+        // our own screen -- which is where Save and Cancel are, and they
+        // became unclickable the moment Escape was pressed in fullscreen.
+        SetTopmost(window, fullscreenState && window.IsFocused());
     }
 
     WindowStartMode WindowMode::Parse(

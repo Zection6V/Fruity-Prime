@@ -55,6 +55,9 @@ namespace MphRead.Mods.Render
             Matrix4.CreateRotationY(MathHelper.DegreesToRadians(180));
 
         private Hunter _hunter = Hunter.Random;
+
+        /// <summary>The hunter whose model is not on this machine. See SetUp.</summary>
+        private Hunter _missing = Hunter.Random;
         private int _recolor = -1;
         private ModelInstance? _model;
 
@@ -65,6 +68,17 @@ namespace MphRead.Mods.Render
         public bool Ready => _model != null;
 
         /// <summary>
+        /// The hunter and suit the model actually loaded is, which is not
+        /// always the one last asked for: a hunter whose model is missing,
+        /// or one asked for again before the disk answered, leaves the one
+        /// before it standing there. Whoever draws the panel around this has
+        /// to know, or it leaves a hole for the wrong character.
+        /// </summary>
+        public Hunter Shown => _model == null ? Hunter.Random : _hunter;
+
+        public int ShownSuit => _recolor;
+
+        /// <summary>
         /// Point it at a hunter and a suit. Cheap to call every frame: only a
         /// change loads anything, and <c>Read</c> caches models globally, so a
         /// hunter somebody is already playing costs nothing at all.
@@ -73,6 +87,16 @@ namespace MphRead.Mods.Render
         {
             if (_model != null && hunter == _hunter && recolor == _recolor)
             {
+                return;
+            }
+            if (_missing == hunter)
+            {
+                // Already tried and it is not there. Asking again is asking
+                // the disk the same question sixty times a second: on the
+                // results screen that was ten seconds of it, and on the
+                // launcher -- where this screen can sit open for as long as
+                // somebody likes -- it is a log growing by two lines a frame
+                // for ever, which is what a player's first report of it was.
                 return;
             }
             if (hunter != _hunter || _model == null)
@@ -105,7 +129,9 @@ namespace MphRead.Mods.Render
                 {
                     // A preview is not worth a match. The panel falls back to
                     // the portrait sprite when this never becomes ready.
+                    // Once per hunter, not once per frame. See the guard above.
                     Console.WriteLine($"[endscreen] no model for {hunter}: {ex.Message}");
+                    _missing = hunter;
                     _model = null;
                     return;
                 }

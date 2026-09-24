@@ -81,9 +81,8 @@ namespace MphRead.Droid
                 // which app is about to be given the file.
                 intent.AddFlags(ActivityFlags.GrantReadUriPermission);
                 Intent chooser = Intent.CreateChooser(intent, "Share logs")!;
-                // The context here is the activity, but a chooser started from
-                // a non-activity context needs this and it is harmless when it
-                // is one.
+                // The context here is the application, not an activity, and a
+                // chooser started from a non-activity context needs this.
                 chooser.AddFlags(ActivityFlags.NewTask);
                 _context.StartActivity(chooser);
                 return true;

@@ -18,6 +18,16 @@ why the asset guard refuses one.
 - `dust2/dust2.json` — de_dust2, by way of the DeFRaG level `df_dust2`, which
   ships beside it. A map keeps its level in a folder of its own like this; it
   is looked for beside the map file first.
+- `arena/arena.json` — **TEST ARENA**, the network harness's own room. Forty
+  units square, eight spawns on a ring looking inward, line of sight from
+  anywhere to anywhere. It borrows its textures from a shipped room like every
+  other map here, so it needs no level of its own.
+- `pads/pads.json` — **TEST PADS**, the same room with four jump pads throwing
+  hunters across the middle and a ceiling raised for the arc. Built for the one
+  case hit registration is hardest in: a target crossing fast and vertically,
+  against a headshot band 0.30 units tall. TEST ARENA is its control — they
+  differ by the pads and the ceiling and by nothing else.
+  `.claude/testing/HITRIG.md`.
 
 A map's level travels with it, so a downloaded release has its custom maps
 ready and the first launch builds them. The `.tex` does not: it is baked from

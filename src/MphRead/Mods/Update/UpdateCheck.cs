@@ -78,6 +78,23 @@ namespace MphRead.Mods.Update
                 LastReason = "this is a local build, so it is left alone";
                 return null;
             }
+            string? json = FetchLatest(cancel);
+            return json == null ? null : Parse(json);
+        }
+
+        /// <summary>
+        /// The latest release as GitHub describes it, or null with
+        /// <see cref="LastReason"/> saying why.
+        ///
+        /// Separate from <see cref="Latest"/> because there is a second
+        /// question to ask of a release that has nothing to do with updating:
+        /// whether it carries a *server* package for this platform, which a
+        /// player wanting to run one needs whether or not their own build is
+        /// current -- and needs from a local build too, where updating stands
+        /// down on purpose. See <see cref="ServerAsset(CancellationToken)"/>.
+        /// </summary>
+        public static string? FetchLatest(CancellationToken cancel = default)
+        {
             string json;
             try
             {
@@ -123,8 +140,118 @@ namespace MphRead.Mods.Update
                 LastReason = $"could not reach GitHub ({ex.GetType().Name})";
                 return null;
             }
-            return Parse(json);
+            return json;
         }
+
+        /// <summary>
+        /// The dedicated-server package for this machine, out of the latest
+        /// release, or null.
+        ///
+        /// Nothing here compares versions: a player who has never had a server
+        /// package needs the one that exists, and a build that is a release,
+        /// ahead of one, or not a release at all is the same question. The
+        /// three that are published are win-x64, linux-x64 and linux-arm64 --
+        /// macOS has no server package, and saying so is the honest answer to
+        /// "install the files for me" on a Mac.
+        /// </summary>
+        public static UpdateInfo? ServerAsset(CancellationToken cancel = default)
+        {
+            LastReason = null;
+            string? json = FetchLatest(cancel);
+            if (json == null)
+            {
+                return null;
+            }
+            return ServerAsset(json);
+        }
+
+        /// <summary>Split out so it can be tested against a saved response.</summary>
+        public static UpdateInfo? ServerAsset(string json)
+        {
+            string tag;
+            string page;
+            var assets = new List<(string Name, string Url, long Size)>();
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(json);
+                JsonElement root = document.RootElement;
+                tag = root.TryGetProperty("tag_name", out JsonElement t)
+                    ? t.GetString() ?? "" : "";
+                page = root.TryGetProperty("html_url", out JsonElement h)
+                    ? h.GetString() ?? "" : "";
+                if (root.TryGetProperty("assets", out JsonElement list))
+                {
+                    foreach (JsonElement asset in list.EnumerateArray())
+                    {
+                        string name = asset.TryGetProperty("name", out JsonElement n)
+                            ? n.GetString() ?? "" : "";
+                        string url = asset.TryGetProperty("browser_download_url",
+                            out JsonElement u) ? u.GetString() ?? "" : "";
+                        long size = asset.TryGetProperty("size", out JsonElement z)
+                            && z.TryGetInt64(out long parsedSize) ? parsedSize : 0;
+                        if (name.Length > 0)
+                        {
+                            assets.Add((name, url, size));
+                        }
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                LastReason = "GitHub's answer could not be read";
+                return null;
+            }
+            (string Name, string Url, long Size)? package =
+                PickAsset(assets, ServerRid(), server: true);
+            if (package == null)
+            {
+                LastReason = ServerRid().Length == 0
+                    ? "there is no dedicated-server package for macOS"
+                    : $"the latest release ({tag}) has no server package for {ServerRid()}";
+                return null;
+            }
+            return new UpdateInfo
+            {
+                Tag = tag,
+                Version = BuildVersion.Parse(tag) ?? new Version(0, 0, 0, 0),
+                AssetName = package.Value.Name,
+                AssetUrl = package.Value.Url,
+                AssetSize = package.Value.Size,
+                PageUrl = page.Length > 0 ? page : ReleasesPage,
+                Notes = ""
+            };
+        }
+
+        /// <summary>
+        /// Which server package this machine would run, or "" where none is
+        /// published.
+        ///
+        /// An ARM64 Linux box takes the arm64 package; everything else that is
+        /// not Windows or macOS takes linux-x64, which is what the x64 build
+        /// covers. macOS gets "" -- release.yml publishes no server for it, and
+        /// a screen offering one would be offering a download that 404s.
+        /// </summary>
+        public static string ServerRid()
+        {
+            if (OperatingSystem.IsAndroid() || OperatingSystem.IsMacOS())
+            {
+                return "";
+            }
+            bool arm = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
+            if (OperatingSystem.IsWindows())
+            {
+                return arm ? "" : "win-x64";
+            }
+            return arm ? "linux-arm64" : "linux-x64";
+        }
+
+        /// <summary>
+        /// The binary inside a server package for this machine. Only the
+        /// Windows one is renamed; see <see cref="BinaryName"/>.
+        /// </summary>
+        public static string ServerBinaryName() => OperatingSystem.IsWindows()
+            ? Mods.Branding.FileName + "Server.exe"
+            : Mods.Branding.FileName;
 
         /// <summary>
         /// Split out so it can be tested against a saved response.
@@ -227,7 +354,16 @@ namespace MphRead.Mods.Update
         private static (string Name, string Url, long Size)? PickAsset(
             List<(string Name, string Url, long Size)> assets)
         {
-            string rid = Rid();
+            return PickAsset(assets, Rid(), IsServerBuild);
+        }
+
+        private static (string Name, string Url, long Size)? PickAsset(
+            List<(string Name, string Url, long Size)> assets, string rid, bool server)
+        {
+            if (rid.Length == 0)
+            {
+                return null;
+            }
             foreach ((string Name, string Url, long Size) asset in assets)
             {
                 string name = asset.Name.ToLowerInvariant();
@@ -238,7 +374,7 @@ namespace MphRead.Mods.Update
                 // "server" appears in the server packages' names and in no
                 // others, so it tells the two builds for one platform apart --
                 // which matters on Windows, where both exist for win-x64.
-                if (name.Contains("-server-") != IsServerBuild)
+                if (name.Contains("-server-") != server)
                 {
                     continue;
                 }

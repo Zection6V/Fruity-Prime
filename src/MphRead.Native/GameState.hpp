@@ -179,12 +179,36 @@ namespace MphRead
 
         [[nodiscard]] static bool Teams() noexcept;
         static void Teams(bool value) noexcept;
+        [[nodiscard]] static std::int32_t TeamCount() noexcept;
+        static void TeamCount(std::int32_t value) noexcept;
         [[nodiscard]] static bool FriendlyFire() noexcept;
         static void FriendlyFire(bool value) noexcept;
         [[nodiscard]] static std::int32_t PointGoal() noexcept;
         static void PointGoal(std::int32_t value) noexcept;
         [[nodiscard]] static float TimeGoal() noexcept;
         static void TimeGoal(float value) noexcept;
+        // The multiplier every hit is scaled by inside TakeDamage: index into
+        // Metadata::DamageLevels, 0.75 / 1 / 1.25.
+        //
+        // **Pinned to medium, which is x1, and nothing sets it.** It was a
+        // per-machine setting read out of each player's own settings file, and
+        // it multiplies the damage of *every* weapon -- so two machines that
+        // disagreed about it disagreed about every shot in the match by up to
+        // a third, in the one direction nothing corrects: a client resolves
+        // its own hits the instant it fires them (NetHitPrediction) and the
+        // authority resolves them again a round trip later, so a client
+        // scaling higher runs a victim's health down faster than the machine
+        // keeping score and eventually predicts a kill on somebody who is
+        // standing up.
+        //
+        // Nobody was asking for the other two answers and the cartridge's own
+        // default is the middle one, so there is one answer. **The setter
+        // accepts and discards**: upstream's console menu still has a Damage
+        // Level row and still assigns this, and the point is that the
+        // assignment does nothing rather than that the row is edited out of a
+        // file every pull from upstream has to fast-forward through.
+        // GameSettings::ApplyMatchRules -- which is this project's own -- does
+        // not assign it at all.
         [[nodiscard]] static std::int32_t DamageLevel() noexcept;
         static void DamageLevel(std::int32_t value) noexcept;
         [[nodiscard]] static bool OctolithReset() noexcept;
@@ -245,6 +269,13 @@ namespace MphRead
         static void ModeStateAdventure(Scene* scene);
         static void ModeStateBattle(Scene* scene);
         static void ModeStateSurvival(Scene* scene);
+        static void UpdateSurvival(float frameTime);
+
+        // GameStateTeams.cpp: the C# partial's half of this class.
+        [[nodiscard]] static bool IsResultTie();
+        // ResultSlots groups tied teams deterministically; Standings preserves
+        // the tie.
+        static void UpdateStandings();
         static void ModeStateCapture(Scene* scene);
         static void ModeStateBounty(Scene* scene);
         static void ModeStateDefender(Scene* scene);
@@ -327,10 +358,10 @@ namespace MphRead
         static std::int32_t _primeHunter;
 
         static bool _teams;
+        static std::int32_t _teamCount;
         static bool _friendlyFire;
         static std::int32_t _pointGoal;
         static float _timeGoal;
-        static std::int32_t _damageLevel;
         static bool _octolithReset;
         static bool _radarPlayers;
         static bool _affinityWeapons;

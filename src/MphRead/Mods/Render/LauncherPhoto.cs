@@ -61,14 +61,9 @@ namespace MphRead.Mods.Render
         /// </summary>
         public static bool Enabled { get; set; }
 
-        /// <summary>
-        /// The texture name, chosen rather than asked for, and one above
-        /// <see cref="UiOverlay"/>'s. Scene/model textures now use the backend
-        /// allocator, so this fixed high launcher name is kept only as a
-        /// reserved, easily identifiable UI resource.
-        /// </summary>
-        private const int Name = 1_000_001;
-
+        // Allocated from the same backend namespace as every scene/model/UI
+        // texture. This avoids relying on magic numeric ranges when launcher
+        // and match resources coexist in one graphics context.
         private static int _texture;
         private static int _width;
         private static int _height;
@@ -369,7 +364,7 @@ namespace MphRead.Mods.Render
                     return false;
                 }
                 GL.ActiveTexture(TextureUnit.Texture0);
-                _texture = Name;
+                _texture = GL.GenTexture();
                 GL.BindTexture(TextureTarget.Texture2D, _texture);
                 // Every piece of unpack state, said out loud, and not just
                 // the alignment. These are context-wide and whatever ran last

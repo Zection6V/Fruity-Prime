@@ -33,67 +33,11 @@ namespace MphRead::NativeRuntime::Avalonia
         return color;
     }
 
-    std::string Utf8(std::u16string_view text)
-    {
-        std::string result;
-        result.reserve(text.size());
-        for (std::size_t i = 0; i < text.size(); ++i)
-        {
-            char32_t code = text[i];
-            if (code >= 0xD800 && code <= 0xDBFF && i + 1 < text.size()
-                && text[i + 1] >= 0xDC00 && text[i + 1] <= 0xDFFF)
-            {
-                code = 0x10000 + ((code - 0xD800) << 10) + (text[i + 1] - 0xDC00);
-                ++i;
-            }
-            if (code < 0x80)
-            {
-                result.push_back(static_cast<char>(code));
-            }
-            else if (code < 0x800)
-            {
-                result.push_back(static_cast<char>(0xC0 | (code >> 6)));
-                result.push_back(static_cast<char>(0x80 | (code & 0x3F)));
-            }
-            else if (code < 0x10000)
-            {
-                result.push_back(static_cast<char>(0xE0 | (code >> 12)));
-                result.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
-                result.push_back(static_cast<char>(0x80 | (code & 0x3F)));
-            }
-            else
-            {
-                result.push_back(static_cast<char>(0xF0 | (code >> 18)));
-                result.push_back(static_cast<char>(0x80 | ((code >> 12) & 0x3F)));
-                result.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
-                result.push_back(static_cast<char>(0x80 | (code & 0x3F)));
-            }
-        }
-        return result;
-    }
-
-    std::u16string Utf16(std::string_view text)
-    {
-        std::u16string result;
-        for (const char32_t code : Toolkit::Decode(text))
-        {
-            if (code < 0x10000)
-            {
-                result.push_back(static_cast<char16_t>(code));
-                continue;
-            }
-            const char32_t value = code - 0x10000;
-            result.push_back(static_cast<char16_t>(0xD800 + (value >> 10)));
-            result.push_back(static_cast<char16_t>(0xDC00 + (value & 0x3FF)));
-        }
-        return result;
-    }
-
     Launcher::TrackedTextFormattedText MakeFormattedText(std::u16string_view text,
         bool bold, double fontSize, Launcher::GuiColor color)
     {
         FormattedRun& run = Runs().emplace_back();
-        run.Text = Utf8(text);
+        run.Text = Utf16ToUtf8(text);
         run.FontSize = fontSize;
         run.Bold = bold;
         run.Color = color;

@@ -1,6 +1,7 @@
 #include "Console.hpp"
 
 #include "Exceptions.hpp"
+#include "Encoding.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -28,6 +29,8 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::Utf8ToWide;
+
 namespace MphRead::NativeRuntime
 {
     namespace
@@ -51,25 +54,6 @@ namespace MphRead::NativeRuntime
             }
             DWORD mode = 0;
             return GetConsoleMode(handle, &mode) != FALSE;
-        }
-
-        [[nodiscard]] std::wstring Utf8ToWide(std::string_view value)
-        {
-            if (value.empty())
-            {
-                return std::wstring();
-            }
-            const int length = MultiByteToWideChar(
-                CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
-            if (length <= 0)
-            {
-                return std::wstring();
-            }
-            std::wstring result(static_cast<std::size_t>(length), L'\0');
-            MultiByteToWideChar(
-                CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                result.data(), length);
-            return result;
         }
 
         void WriteToHandle(DWORD which, std::string_view value)

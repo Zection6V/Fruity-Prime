@@ -780,7 +780,7 @@ namespace MphRead::NativeRuntime::Avalonia
             std::optional<std::u16string_view> text) override
         {
             El(textBlock)->Text = text.has_value()
-                ? std::optional<std::string>(Utf8(*text))
+                ? std::optional<std::string>(Utf16ToUtf8(*text))
                 : std::nullopt;
         }
 
@@ -812,7 +812,7 @@ namespace MphRead::NativeRuntime::Avalonia
             ElementHandle grid, std::u16string_view definitions) override
         {
             El(grid)->ColumnDefinitions
-                = Toolkit::ParseGridDefinitions(Utf8(definitions));
+                = Toolkit::ParseGridDefinitions(Utf16ToUtf8(definitions));
         }
 
         void SetGridColumn(ElementHandle child, std::int32_t column) override
@@ -1077,7 +1077,7 @@ namespace MphRead::NativeRuntime::Avalonia
             std::string title, std::string subtitle, double titleSize) override
         {
             return MenuEntryHost::Create(
-                Utf16(title), Utf16(subtitle), titleSize);
+                Utf8ToUtf16(title), Utf8ToUtf16(subtitle), titleSize);
         }
 
         void SetMenuEntryAccent(

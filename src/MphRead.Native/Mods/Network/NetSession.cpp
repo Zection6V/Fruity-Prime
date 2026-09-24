@@ -21,6 +21,7 @@
 #include "NetUnlagged.hpp"
 #include "PlayerColors.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -60,12 +61,13 @@
 #include <unistd.h>
 #endif
 
-using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
-using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::Utf8Scalar;
+using ::MphRead::NativeRuntime::WideToUtf8;
 
 namespace
 {
@@ -100,29 +102,6 @@ namespace
     }
 
 #if defined(_WIN32)
-    [[nodiscard]] std::string WideToUtf8(const wchar_t* value)
-    {
-        if (value == nullptr || *value == L'\0')
-        {
-            return {};
-        }
-        const int required = WideCharToMultiByte(
-            CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
-        if (required <= 1)
-        {
-            return {};
-        }
-        std::string result(static_cast<std::size_t>(required), '\0');
-        const int written = WideCharToMultiByte(
-            CP_UTF8, 0, value, -1, result.data(), required, nullptr, nullptr);
-        if (written <= 1)
-        {
-            return {};
-        }
-        result.resize(static_cast<std::size_t>(written - 1));
-        return result;
-    }
-
     [[nodiscard]] std::string LocaleString(LCTYPE type, std::string fallback)
     {
         wchar_t buffer[128]{};
@@ -456,65 +435,6 @@ namespace
         return Int32Text(static_cast<std::int32_t>(role));
     }
 
-    struct Utf8Unit
-    {
-        char32_t CodePoint = 0;
-        std::size_t Length = 1;
-        bool Valid = false;
-    };
-
-    [[nodiscard]] Utf8Unit DecodeUtf8(std::string_view text, std::size_t index) noexcept
-    {
-        const auto first = static_cast<unsigned char>(text[index]);
-        if (first < 0x80U)
-        {
-            return {first, 1, true};
-        }
-        std::size_t length = 0;
-        char32_t codePoint = 0;
-        char32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            length = 2;
-            codePoint = first & 0x1FU;
-            minimum = 0x80U;
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            length = 3;
-            codePoint = first & 0x0FU;
-            minimum = 0x800U;
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            length = 4;
-            codePoint = first & 0x07U;
-            minimum = 0x10000U;
-        }
-        else
-        {
-            return {first, 1, false};
-        }
-        if (index + length > text.size())
-        {
-            return {first, 1, false};
-        }
-        for (std::size_t offset = 1; offset < length; ++offset)
-        {
-            const auto unit = static_cast<unsigned char>(text[index + offset]);
-            if ((unit & 0xC0U) != 0x80U)
-            {
-                return {first, 1, false};
-            }
-            codePoint = (codePoint << 6U) | (unit & 0x3FU);
-        }
-        if (codePoint < minimum || codePoint > 0x10FFFFU
-            || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
-        {
-            return {first, 1, false};
-        }
-        return {codePoint, length, true};
-    }
 
     [[nodiscard]] std::vector<std::uint8_t> AsciiBytes(std::string_view text)
     {
@@ -522,15 +442,15 @@ namespace
         result.reserve(text.size());
         for (std::size_t index = 0; index < text.size();)
         {
-            const Utf8Unit unit = DecodeUtf8(text, index);
-            if (!unit.Valid)
+            const Utf8Scalar unit = DecodeUtf8Scalar(text, index);
+            if (!unit.Valid())
             {
                 result.push_back(static_cast<std::uint8_t>('?'));
                 index += unit.Length;
                 continue;
             }
-            result.push_back(unit.CodePoint <= 0x7FU
-                ? static_cast<std::uint8_t>(unit.CodePoint)
+            result.push_back(unit.Value <= 0x7FU
+                ? static_cast<std::uint8_t>(unit.Value)
                 : static_cast<std::uint8_t>('?'));
             index += unit.Length;
         }

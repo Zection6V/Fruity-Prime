@@ -7,6 +7,7 @@
 #include "../../Formats/Types.hpp"
 #include "../Launcher/Portable/GameFiles.hpp"
 #include "../../Program.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 
@@ -30,11 +31,15 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::AppendUtf8;
+using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::FileReadAllText;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace System::Text::Json
 {
@@ -61,130 +66,6 @@ namespace
         return *value;
     }
 
-    void AppendUtf8(std::string& output, std::uint32_t scalar)
-    {
-        if (scalar <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(scalar));
-        }
-        else if (scalar <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (scalar >> 6)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else if (scalar <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (scalar >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (scalar >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-    }
-
-    void AppendReplacement(std::string& output)
-    {
-        AppendUtf8(output, 0xFFFDU);
-    }
-
-    [[nodiscard]] bool IsContinuation(std::uint8_t value) noexcept
-    {
-        return (value & 0xC0U) == 0x80U;
-    }
-
-    [[nodiscard]] std::string DecodeUtf8(const std::uint8_t* data, std::size_t size)
-    {
-        std::string output;
-        output.reserve(size);
-        for (std::size_t i = 0; i < size;)
-        {
-            const std::uint8_t first = data[i];
-            if (first <= 0x7FU)
-            {
-                output.push_back(static_cast<char>(first));
-                ++i;
-                continue;
-            }
-
-            std::size_t length = 0;
-            std::uint8_t secondLow = 0x80U;
-            std::uint8_t secondHigh = 0xBFU;
-            if (first >= 0xC2U && first <= 0xDFU)
-            {
-                length = 2;
-            }
-            else if (first >= 0xE0U && first <= 0xEFU)
-            {
-                length = 3;
-                if (first == 0xE0U)
-                {
-                    secondLow = 0xA0U;
-                }
-                else if (first == 0xEDU)
-                {
-                    secondHigh = 0x9FU;
-                }
-            }
-            else if (first >= 0xF0U && first <= 0xF4U)
-            {
-                length = 4;
-                if (first == 0xF0U)
-                {
-                    secondLow = 0x90U;
-                }
-                else if (first == 0xF4U)
-                {
-                    secondHigh = 0x8FU;
-                }
-            }
-            else
-            {
-                AppendReplacement(output);
-                ++i;
-                continue;
-            }
-
-            if (i + 1 >= size)
-            {
-                AppendReplacement(output);
-                ++i;
-                continue;
-            }
-            const std::uint8_t second = data[i + 1];
-            if (second < secondLow || second > secondHigh)
-            {
-                AppendReplacement(output);
-                ++i;
-                continue;
-            }
-            std::size_t validPrefix = 2;
-            bool valid = true;
-            for (std::size_t part = 2; part < length; ++part)
-            {
-                if (i + part >= size || !IsContinuation(data[i + part]))
-                {
-                    valid = false;
-                    break;
-                }
-                ++validPrefix;
-            }
-            if (!valid)
-            {
-                AppendReplacement(output);
-                i += validPrefix;
-                continue;
-            }
-            output.append(reinterpret_cast<const char*>(data + i), length);
-            i += length;
-        }
-        return output;
-    }
-
     [[nodiscard]] std::uint16_t Read16(const std::uint8_t* bytes, bool little) noexcept
     {
         if (little)
@@ -209,107 +90,6 @@ namespace
             | (static_cast<std::uint32_t>(bytes[1]) << 16)
             | (static_cast<std::uint32_t>(bytes[2]) << 8)
             | static_cast<std::uint32_t>(bytes[3]);
-    }
-
-    [[nodiscard]] std::string DecodeUtf16(
-        const std::uint8_t* data, std::size_t size, bool little)
-    {
-        std::string output;
-        for (std::size_t i = 0; i + 1 < size; i += 2)
-        {
-            const std::uint16_t first = Read16(data + i, little);
-            if (first >= 0xD800U && first <= 0xDBFFU)
-            {
-                if (i + 3 < size)
-                {
-                    const std::uint16_t second = Read16(data + i + 2, little);
-                    if (second >= 0xDC00U && second <= 0xDFFFU)
-                    {
-                        const std::uint32_t scalar = 0x10000U
-                            + ((static_cast<std::uint32_t>(first) - 0xD800U) << 10)
-                            + (static_cast<std::uint32_t>(second) - 0xDC00U);
-                        AppendUtf8(output, scalar);
-                        i += 2;
-                        continue;
-                    }
-                }
-                AppendReplacement(output);
-                continue;
-            }
-            if (first >= 0xDC00U && first <= 0xDFFFU)
-            {
-                AppendReplacement(output);
-                continue;
-            }
-            AppendUtf8(output, first);
-        }
-        if ((size & 1U) != 0U)
-        {
-            AppendReplacement(output);
-        }
-        return output;
-    }
-
-    [[nodiscard]] std::string DecodeUtf32(
-        const std::uint8_t* data, std::size_t size, bool little)
-    {
-        std::string output;
-        for (std::size_t i = 0; i + 3 < size; i += 4)
-        {
-            const std::uint32_t scalar = Read32(data + i, little);
-            if (scalar > 0x10FFFFU || (scalar >= 0xD800U && scalar <= 0xDFFFU))
-            {
-                AppendReplacement(output);
-            }
-            else
-            {
-                AppendUtf8(output, scalar);
-            }
-        }
-        if ((size & 3U) != 0U)
-        {
-            AppendReplacement(output);
-        }
-        return output;
-    }
-
-    [[nodiscard]] std::string ReadAllText(const std::string& path)
-    {
-        std::ifstream stream(PathFromUtf8(path), std::ios::binary);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file for reading: " + path);
-        }
-        std::vector<std::uint8_t> bytes(
-            (std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
-        if (stream.bad())
-        {
-            throw std::ios_base::failure("I/O error while reading file: " + path);
-        }
-
-        if (bytes.size() >= 4 && bytes[0] == 0xFFU && bytes[1] == 0xFEU
-            && bytes[2] == 0x00U && bytes[3] == 0x00U)
-        {
-            return DecodeUtf32(bytes.data() + 4, bytes.size() - 4, true);
-        }
-        if (bytes.size() >= 4 && bytes[0] == 0x00U && bytes[1] == 0x00U
-            && bytes[2] == 0xFEU && bytes[3] == 0xFFU)
-        {
-            return DecodeUtf32(bytes.data() + 4, bytes.size() - 4, false);
-        }
-        if (bytes.size() >= 3 && bytes[0] == 0xEFU && bytes[1] == 0xBBU && bytes[2] == 0xBFU)
-        {
-            return DecodeUtf8(bytes.data() + 3, bytes.size() - 3);
-        }
-        if (bytes.size() >= 2 && bytes[0] == 0xFFU && bytes[1] == 0xFEU)
-        {
-            return DecodeUtf16(bytes.data() + 2, bytes.size() - 2, true);
-        }
-        if (bytes.size() >= 2 && bytes[0] == 0xFEU && bytes[1] == 0xFFU)
-        {
-            return DecodeUtf16(bytes.data() + 2, bytes.size() - 2, false);
-        }
-        return DecodeUtf8(bytes.data(), bytes.size());
     }
 
     void WriteAllText(const std::string& path, const std::string& text)
@@ -1010,71 +790,14 @@ namespace
         output.push_back(HexDigits[value & 0xFU]);
     }
 
-    [[nodiscard]] bool DecodeOneUtf8(
-        std::string_view text, std::size_t& position, std::uint32_t& scalar) noexcept
-    {
-        const std::uint8_t first = static_cast<std::uint8_t>(text[position]);
-        if (first <= 0x7FU)
-        {
-            scalar = first;
-            ++position;
-            return true;
-        }
-        std::size_t length = 0;
-        std::uint32_t value = 0;
-        std::uint32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            length = 2; value = first & 0x1FU; minimum = 0x80U;
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            length = 3; value = first & 0x0FU; minimum = 0x800U;
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            length = 4; value = first & 0x07U; minimum = 0x10000U;
-        }
-        else
-        {
-            ++position;
-            scalar = 0xFFFDU;
-            return false;
-        }
-        if (position + length > text.size())
-        {
-            ++position;
-            scalar = 0xFFFDU;
-            return false;
-        }
-        for (std::size_t i = 1; i < length; ++i)
-        {
-            const std::uint8_t next = static_cast<std::uint8_t>(text[position + i]);
-            if (!IsContinuation(next))
-            {
-                ++position;
-                scalar = 0xFFFDU;
-                return false;
-            }
-            value = (value << 6) | (next & 0x3FU);
-        }
-        position += length;
-        if (value < minimum || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
-        {
-            scalar = 0xFFFDU;
-            return false;
-        }
-        scalar = value;
-        return true;
-    }
-
     void WriteJsonString(std::string& output, std::string_view value)
     {
         output.push_back('"');
         for (std::size_t position = 0; position < value.size();)
         {
-            std::uint32_t scalar = 0;
-            (void)DecodeOneUtf8(value, position, scalar);
+            const Utf8Scalar decoded = DecodeUtf8Scalar(value, position);
+            const std::uint32_t scalar = decoded.Value;
+            position += decoded.Length;
             switch (scalar)
             {
             case '\\': output += "\\\\"; continue;
@@ -1981,7 +1704,7 @@ namespace MphRead::Mods::MapGen
         }
         else
         {
-            text = ReadAllText(path);
+            text = FileReadAllText(path);
         }
 
         std::shared_ptr<MapDefinition> result = MapDefinitionJson::Deserialize(text);

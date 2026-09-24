@@ -1,4 +1,5 @@
 #include "Text.hpp"
+#include "../System/Encoding.hpp"
 
 #include "Backend.hpp"
 
@@ -294,28 +295,6 @@ namespace MphRead::NativeRuntime::Gui
         };
     }
 
-    std::vector<char32_t> Decode(std::string_view text)
-    {
-        std::vector<char32_t> result;
-        std::size_t index = 0;
-        while (index < text.size())
-        {
-            const unsigned char lead = static_cast<unsigned char>(text[index]);
-            char32_t code = lead;
-            std::size_t extra = 0;
-            if (lead >= 0xF0) { code = lead & 0x07U; extra = 3; }
-            else if (lead >= 0xE0) { code = lead & 0x0FU; extra = 2; }
-            else if (lead >= 0xC0) { code = lead & 0x1FU; extra = 1; }
-            ++index;
-            for (std::size_t i = 0; i < extra && index < text.size(); ++i, ++index)
-            {
-                code = (code << 6) | (static_cast<unsigned char>(text[index]) & 0x3FU);
-            }
-            result.push_back(code);
-        }
-        return result;
-    }
-
     const Glyph* GetGlyph(char32_t code, double fontSize, FontWeight weight)
     {
         return FontAtlas::Instance().Get(code, fontSize, weight);
@@ -368,7 +347,7 @@ namespace MphRead::NativeRuntime::Gui
             wordWidth = 0.0;
         };
 
-        for (const char32_t code : Decode(text))
+        for (const char32_t code : Utf8ToUtf32(text))
         {
             if (code == U'\n')
             {
@@ -424,7 +403,7 @@ namespace MphRead::NativeRuntime::Gui
         for (const std::string& line : lines)
         {
             double width = 0.0;
-            for (const char32_t code : Decode(line))
+            for (const char32_t code : Utf8ToUtf32(line))
             {
                 const Glyph* const glyph = GetGlyph(code, fontSize, weight);
                 width += glyph != nullptr ? glyph->Advance : fontSize * 0.5;

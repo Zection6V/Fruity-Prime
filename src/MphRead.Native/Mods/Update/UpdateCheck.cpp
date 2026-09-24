@@ -2,6 +2,7 @@
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "../Branding.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 
 #include <curl/curl.h>
 
@@ -21,6 +22,10 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::AppendUtf8;
+using ::MphRead::NativeRuntime::RuneDecodeFromUtf8;
+using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace MphRead::Mods::Update
 {
@@ -103,89 +108,16 @@ namespace MphRead::Mods::Update
             return value == ' ' || value == '\t' || value == '\r' || value == '\n';
         }
 
-        [[nodiscard]] bool IsUtf8Continuation(unsigned char value) noexcept
-        {
-            return (value & 0xC0U) == 0x80U;
-        }
-
+        // Utf8JsonReader refuses ill-formed UTF-8 in a string outright.
         [[nodiscard]] std::size_t Utf8SequenceLength(std::string_view input,
             std::size_t offset)
         {
-            const auto first = static_cast<unsigned char>(input[offset]);
-            if (first <= 0x7FU)
+            const Utf8Scalar scalar = RuneDecodeFromUtf8(input.substr(offset));
+            if (!scalar.Valid())
             {
-                return 1;
+                ThrowJsonException("Invalid UTF-8 in JSON string.");
             }
-            if (first >= 0xC2U && first <= 0xDFU)
-            {
-                if (offset + 1 >= input.size()
-                    || !IsUtf8Continuation(static_cast<unsigned char>(input[offset + 1])))
-                {
-                    ThrowJsonException("Invalid UTF-8 in JSON string.");
-                }
-                return 2;
-            }
-            if (first >= 0xE0U && first <= 0xEFU)
-            {
-                if (offset + 2 >= input.size())
-                {
-                    ThrowJsonException("Invalid UTF-8 in JSON string.");
-                }
-                const auto second = static_cast<unsigned char>(input[offset + 1]);
-                const auto third = static_cast<unsigned char>(input[offset + 2]);
-                if (!IsUtf8Continuation(second) || !IsUtf8Continuation(third)
-                    || (first == 0xE0U && second < 0xA0U)
-                    || (first == 0xEDU && second >= 0xA0U))
-                {
-                    ThrowJsonException("Invalid UTF-8 in JSON string.");
-                }
-                return 3;
-            }
-            if (first >= 0xF0U && first <= 0xF4U)
-            {
-                if (offset + 3 >= input.size())
-                {
-                    ThrowJsonException("Invalid UTF-8 in JSON string.");
-                }
-                const auto second = static_cast<unsigned char>(input[offset + 1]);
-                const auto third = static_cast<unsigned char>(input[offset + 2]);
-                const auto fourth = static_cast<unsigned char>(input[offset + 3]);
-                if (!IsUtf8Continuation(second) || !IsUtf8Continuation(third)
-                    || !IsUtf8Continuation(fourth)
-                    || (first == 0xF0U && second < 0x90U)
-                    || (first == 0xF4U && second > 0x8FU))
-                {
-                    ThrowJsonException("Invalid UTF-8 in JSON string.");
-                }
-                return 4;
-            }
-            ThrowJsonException("Invalid UTF-8 in JSON string.");
-        }
-
-        void AppendUtf8(std::string& output, char32_t value)
-        {
-            if (value <= 0x7FU)
-            {
-                output.push_back(static_cast<char>(value));
-            }
-            else if (value <= 0x7FFU)
-            {
-                output.push_back(static_cast<char>(0xC0U | (value >> 6)));
-                output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-            }
-            else if (value <= 0xFFFFU)
-            {
-                output.push_back(static_cast<char>(0xE0U | (value >> 12)));
-                output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-                output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-            }
-            else
-            {
-                output.push_back(static_cast<char>(0xF0U | (value >> 18)));
-                output.push_back(static_cast<char>(0x80U | ((value >> 12) & 0x3FU)));
-                output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-                output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-            }
+            return scalar.Length;
         }
 
         [[nodiscard]] int HexDigit(char value) noexcept

@@ -199,7 +199,7 @@ namespace MphRead::NativeRuntime::Avalonia
             void SettingsViewShowSection(const Launcher::UiCaptureControlHandle& view,
                 std::string_view section) override
             {
-                const std::u16string name = Utf16(section);
+                const std::u16string name = Utf8ToUtf16(section);
                 static_cast<SettingsHost*>(Ptr(view)->Tag.get())
                     ->View()
                     .ShowSection(std::u16string_view(name));
@@ -268,7 +268,7 @@ namespace MphRead::NativeRuntime::Avalonia
             [[nodiscard]] Launcher::UiCaptureControlHandle ConstructServerRow(
                 std::string_view name, std::string_view endpoint) override
             {
-                return ServerRowHost::Create(Utf16(name), Utf16(endpoint));
+                return ServerRowHost::Create(Utf8ToUtf16(name), Utf8ToUtf16(endpoint));
             }
 
             void SetServerRowStatus(const Launcher::UiCaptureControlHandle& row,
@@ -481,17 +481,17 @@ namespace MphRead::Mods::Launcher::Gui::Detail
     {
         std::error_code error;
         const std::filesystem::path path = std::filesystem::temp_directory_path(error);
-        return ::MphRead::NativeRuntime::Avalonia::Utf16(
+        return ::MphRead::NativeRuntime::Utf8ToUtf16(
             error ? std::string() : path.string());
     }
 
     std::u16string UiCapturePathCombine(
         std::u16string_view left, std::u16string_view right)
     {
-        return ::MphRead::NativeRuntime::Avalonia::Utf16(
-            (std::filesystem::path(::MphRead::NativeRuntime::Avalonia::Utf8(left))
+        return ::MphRead::NativeRuntime::Utf8ToUtf16(
+            (std::filesystem::path(::MphRead::NativeRuntime::Utf16ToUtf8(left))
                 / std::filesystem::path(
-                    ::MphRead::NativeRuntime::Avalonia::Utf8(right)))
+                    ::MphRead::NativeRuntime::Utf16ToUtf8(right)))
                 .string());
     }
 }

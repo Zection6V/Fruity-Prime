@@ -5,6 +5,7 @@
 #include "Q3Import.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../Program.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -43,11 +44,15 @@
 #include <sys/types.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::StreamReaderDecode;
 using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::Utf8GetString;
+using ::MphRead::NativeRuntime::Utf8ToUtf32;
 
 namespace MphRead::Mods::MapGen
 {
@@ -94,142 +99,6 @@ namespace
         return fileName.substr(dot);
     }
 
-    void AppendUtf8(std::string& output, std::uint32_t scalar)
-    {
-        if (scalar <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(scalar));
-        }
-        else if (scalar <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (scalar >> 6)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else if (scalar <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (scalar >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (scalar >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-    }
-
-    enum class Utf8Status
-    {
-        Done,
-        NeedMore,
-        Invalid
-    };
-
-    [[nodiscard]] Utf8Status DecodeUtf8Scalar(
-        const std::uint8_t* data, std::size_t size, std::size_t& position,
-        std::uint32_t& scalar) noexcept
-    {
-        const std::size_t start = position;
-        if (start >= size)
-        {
-            scalar = 0xFFFDU;
-            return Utf8Status::NeedMore;
-        }
-        const std::uint32_t first = data[start];
-        if (first <= 0x7FU)
-        {
-            scalar = first;
-            position = start + 1;
-            return Utf8Status::Done;
-        }
-        if (first < 0xC2U || first > 0xF4U)
-        {
-            scalar = 0xFFFDU;
-            position = start + 1;
-            return Utf8Status::Invalid;
-        }
-        if (start + 1 >= size)
-        {
-            scalar = 0xFFFDU;
-            position = size;
-            return Utf8Status::NeedMore;
-        }
-        const std::uint32_t second = data[start + 1];
-        if ((second & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            position = start + 1;
-            return Utf8Status::Invalid;
-        }
-        if (first <= 0xDFU)
-        {
-            scalar = ((first & 0x1FU) << 6) | (second & 0x3FU);
-            position = start + 2;
-            return Utf8Status::Done;
-        }
-        if ((first == 0xE0U && second < 0xA0U)
-            || (first == 0xEDU && second >= 0xA0U)
-            || (first == 0xF0U && second < 0x90U)
-            || (first == 0xF4U && second >= 0x90U))
-        {
-            scalar = 0xFFFDU;
-            position = start + 1;
-            return Utf8Status::Invalid;
-        }
-        if (start + 2 >= size)
-        {
-            scalar = 0xFFFDU;
-            position = size;
-            return Utf8Status::NeedMore;
-        }
-        const std::uint32_t third = data[start + 2];
-        if ((third & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            position = start + 2;
-            return Utf8Status::Invalid;
-        }
-        if (first <= 0xEFU)
-        {
-            scalar = ((first & 0x0FU) << 12) | ((second & 0x3FU) << 6) | (third & 0x3FU);
-            position = start + 3;
-            return Utf8Status::Done;
-        }
-        if (start + 3 >= size)
-        {
-            scalar = 0xFFFDU;
-            position = size;
-            return Utf8Status::NeedMore;
-        }
-        const std::uint32_t fourth = data[start + 3];
-        if ((fourth & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            position = start + 3;
-            return Utf8Status::Invalid;
-        }
-        scalar = ((first & 0x07U) << 18) | ((second & 0x3FU) << 12)
-            | ((third & 0x3FU) << 6) | (fourth & 0x3FU);
-        position = start + 4;
-        return Utf8Status::Done;
-    }
-
-    [[nodiscard]] std::vector<std::uint32_t> DecodeUtf8(const std::string& value)
-    {
-        std::vector<std::uint32_t> result;
-        result.reserve(value.size());
-        std::size_t position = 0;
-        while (position < value.size())
-        {
-            std::uint32_t scalar = 0;
-            (void)DecodeUtf8Scalar(
-                reinterpret_cast<const std::uint8_t*>(value.data()), value.size(), position, scalar);
-            result.push_back(scalar);
-        }
-        return result;
-    }
 
 #if !defined(_WIN32)
     [[nodiscard]] void* FindVersionedIcuSymbol(void* library, const char* base) noexcept
@@ -339,7 +208,8 @@ namespace
 
     [[nodiscard]] std::vector<std::uint32_t> FoldOrdinalIgnoreCase(const std::string& value)
     {
-        std::vector<std::uint32_t> result = DecodeUtf8(value);
+        const std::u32string decoded = Utf8ToUtf32(value);
+        std::vector<std::uint32_t> result(decoded.begin(), decoded.end());
         for (std::uint32_t& scalar : result)
         {
             scalar = InvariantUpper(scalar);
@@ -381,20 +251,6 @@ namespace
         }
     }
 
-    [[nodiscard]] std::string DecodeZipName(
-        const std::uint8_t* data, std::size_t size)
-    {
-        std::string result;
-        std::size_t position = 0;
-        while (position < size)
-        {
-            std::uint32_t scalar = 0;
-            (void)DecodeUtf8Scalar(data, size, position, scalar);
-            AppendUtf8(result, scalar);
-        }
-        return result;
-    }
-
     struct EncodedZipName final
     {
         std::string Bytes;
@@ -410,7 +266,7 @@ namespace
 
         EncodedZipName result;
         result.Bytes.reserve(value.size());
-        for (std::uint32_t scalar : DecodeUtf8(value))
+        for (const char32_t scalar : Utf8ToUtf32(value))
         {
             if (scalar < 0x20U || scalar > 0x7EU)
             {
@@ -1444,7 +1300,7 @@ namespace
                 throw std::runtime_error("Central Directory corrupt.");
             }
 
-            entry.Name = DecodeZipName(archive.data() + cursor + 46, nameLength);
+            entry.Name = Utf8GetString(std::span<const std::uint8_t>(archive.data() + cursor + 46, nameLength));
             entry.CompressedSize = compressed32;
             entry.UncompressedSize = uncompressed32;
             entry.LocalOffset = offset32;
@@ -1529,135 +1385,6 @@ namespace
                 compressed, static_cast<std::size_t>(entry.UncompressedSize));
         }
         throw std::runtime_error("The ZIP entry uses an unsupported compression method.");
-    }
-
-    [[nodiscard]] std::string DecodeUtf16(
-        const ByteVector& bytes, std::size_t offset, bool littleEndian)
-    {
-        std::string result;
-        for (std::size_t position = offset; position + 1 < bytes.size(); position += 2)
-        {
-            const std::uint16_t first = littleEndian
-                ? static_cast<std::uint16_t>(bytes[position]
-                    | (static_cast<std::uint16_t>(bytes[position + 1]) << 8))
-                : static_cast<std::uint16_t>(
-                    (static_cast<std::uint16_t>(bytes[position]) << 8)
-                    | bytes[position + 1]);
-            if (first >= 0xD800U && first <= 0xDBFFU)
-            {
-                if (position + 3 < bytes.size())
-                {
-                    const std::uint16_t second = littleEndian
-                        ? static_cast<std::uint16_t>(bytes[position + 2]
-                            | (static_cast<std::uint16_t>(bytes[position + 3]) << 8))
-                        : static_cast<std::uint16_t>(
-                            (static_cast<std::uint16_t>(bytes[position + 2]) << 8)
-                            | bytes[position + 3]);
-                    if (second >= 0xDC00U && second <= 0xDFFFU)
-                    {
-                        AppendUtf8(result, 0x10000U
-                            + ((static_cast<std::uint32_t>(first) - 0xD800U) << 10)
-                            + (static_cast<std::uint32_t>(second) - 0xDC00U));
-                        position += 2;
-                        continue;
-                    }
-                }
-                AppendUtf8(result, 0xFFFDU);
-            }
-            else if (first >= 0xDC00U && first <= 0xDFFFU)
-            {
-                AppendUtf8(result, 0xFFFDU);
-            }
-            else
-            {
-                AppendUtf8(result, first);
-            }
-        }
-        if (((bytes.size() - offset) & 1U) != 0)
-        {
-            AppendUtf8(result, 0xFFFDU);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string DecodeUtf32(
-        const ByteVector& bytes, std::size_t offset, bool littleEndian)
-    {
-        std::string result;
-        std::size_t position = offset;
-        while (position + 3 < bytes.size())
-        {
-            const std::uint32_t scalar = littleEndian
-                ? static_cast<std::uint32_t>(bytes[position])
-                    | (static_cast<std::uint32_t>(bytes[position + 1]) << 8)
-                    | (static_cast<std::uint32_t>(bytes[position + 2]) << 16)
-                    | (static_cast<std::uint32_t>(bytes[position + 3]) << 24)
-                : (static_cast<std::uint32_t>(bytes[position]) << 24)
-                    | (static_cast<std::uint32_t>(bytes[position + 1]) << 16)
-                    | (static_cast<std::uint32_t>(bytes[position + 2]) << 8)
-                    | static_cast<std::uint32_t>(bytes[position + 3]);
-            if (scalar > 0x10FFFFU || (scalar >= 0xD800U && scalar <= 0xDFFFU))
-            {
-                AppendUtf8(result, 0xFFFDU);
-            }
-            else
-            {
-                AppendUtf8(result, scalar);
-            }
-            position += 4;
-        }
-        if (position != bytes.size())
-        {
-            AppendUtf8(result, 0xFFFDU);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string DecodeStreamReaderText(const ByteVector& bytes)
-    {
-        if (bytes.size() >= 4
-            && bytes[0] == 0xFFU && bytes[1] == 0xFEU
-            && bytes[2] == 0x00U && bytes[3] == 0x00U)
-        {
-            return DecodeUtf32(bytes, 4, true);
-        }
-        if (bytes.size() >= 4
-            && bytes[0] == 0x00U && bytes[1] == 0x00U
-            && bytes[2] == 0xFEU && bytes[3] == 0xFFU)
-        {
-            return DecodeUtf32(bytes, 4, false);
-        }
-        if (bytes.size() >= 3
-            && bytes[0] == 0xEFU && bytes[1] == 0xBBU && bytes[2] == 0xBFU)
-        {
-            std::string result;
-            std::size_t position = 3;
-            while (position < bytes.size())
-            {
-                std::uint32_t scalar = 0;
-                (void)DecodeUtf8Scalar(bytes.data(), bytes.size(), position, scalar);
-                AppendUtf8(result, scalar);
-            }
-            return result;
-        }
-        if (bytes.size() >= 2 && bytes[0] == 0xFFU && bytes[1] == 0xFEU)
-        {
-            return DecodeUtf16(bytes, 2, true);
-        }
-        if (bytes.size() >= 2 && bytes[0] == 0xFEU && bytes[1] == 0xFFU)
-        {
-            return DecodeUtf16(bytes, 2, false);
-        }
-
-        std::string result;
-        std::size_t position = 0;
-        while (position < bytes.size())
-        {
-            std::uint32_t scalar = 0;
-            (void)DecodeUtf8Scalar(bytes.data(), bytes.size(), position, scalar);
-            AppendUtf8(result, scalar);
-        }
-        return result;
     }
 
     struct DosTimestamp
@@ -2145,7 +1872,7 @@ namespace MphRead::Mods::MapGen
         {
             return std::nullopt;
         }
-        return DecodeStreamReaderText(ReadZipEntry(archive, *found));
+        return StreamReaderDecode(ReadZipEntry(archive, *found));
     }
 
     std::optional<std::vector<std::uint8_t>> MapBundle::ReadEntry(

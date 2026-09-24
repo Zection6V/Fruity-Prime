@@ -823,7 +823,7 @@ namespace MphRead::NativeRuntime::Avalonia
         const Launcher::HomeViewElement& badge, std::optional<std::string> subtitle)
     {
         HostOf<UpdateBadgeHost>(P(badge))->Badge().Show(
-            subtitle.has_value() ? std::optional<std::u16string>(Utf16(*subtitle))
+            subtitle.has_value() ? std::optional<std::u16string>(Utf8ToUtf16(*subtitle))
                                  : std::nullopt);
     }
 
@@ -831,7 +831,7 @@ namespace MphRead::NativeRuntime::Avalonia
         const Launcher::HomeViewElement& badge, std::optional<std::string> subtitle)
     {
         HostOf<UpdateBadgeHost>(P(badge))->Badge().Say(
-            subtitle.has_value() ? std::optional<std::u16string>(Utf16(*subtitle))
+            subtitle.has_value() ? std::optional<std::u16string>(Utf8ToUtf16(*subtitle))
                                  : std::nullopt);
     }
 
@@ -846,9 +846,9 @@ namespace MphRead::NativeRuntime::Avalonia
         double titleSize)
     {
         return Wrap(MenuEntryHost::Create(
-            title.has_value() ? std::optional<std::u16string>(Utf16(*title))
+            title.has_value() ? std::optional<std::u16string>(Utf8ToUtf16(*title))
                               : std::nullopt,
-            subtitle.has_value() ? std::optional<std::u16string>(Utf16(*subtitle))
+            subtitle.has_value() ? std::optional<std::u16string>(Utf8ToUtf16(*subtitle))
                                  : std::nullopt,
             titleSize));
     }
@@ -863,7 +863,7 @@ namespace MphRead::NativeRuntime::Avalonia
         const Launcher::HomeViewElement& entry, std::optional<std::string> title)
     {
         HostOf<MenuEntryHost>(P(entry))->Entry().Title(
-            title.has_value() ? std::optional<std::u16string>(Utf16(*title))
+            title.has_value() ? std::optional<std::u16string>(Utf8ToUtf16(*title))
                               : std::nullopt);
     }
 
@@ -871,7 +871,7 @@ namespace MphRead::NativeRuntime::Avalonia
         const Launcher::HomeViewElement& entry, std::optional<std::string> subtitle)
     {
         HostOf<MenuEntryHost>(P(entry))->Entry().Subtitle(
-            subtitle.has_value() ? std::optional<std::u16string>(Utf16(*subtitle))
+            subtitle.has_value() ? std::optional<std::u16string>(Utf8ToUtf16(*subtitle))
                                  : std::nullopt);
     }
 
@@ -912,13 +912,13 @@ namespace MphRead::NativeRuntime::Avalonia
 
     Launcher::HomeViewElement HomeViewHost::CreateCaption(std::string text)
     {
-        return Wrap(CaptionHost::Create(Utf16(text)));
+        return Wrap(CaptionHost::Create(Utf8ToUtf16(text)));
     }
 
     Launcher::HomeViewElement HomeViewHost::CreateNote(
         std::string text, std::optional<Launcher::GuiColor> color)
     {
-        return Wrap(NoteHost::Create(Utf16(text), color));
+        return Wrap(NoteHost::Create(Utf8ToUtf16(text), color));
     }
 
     std::optional<std::string> HomeViewHost::NoteText(
@@ -926,7 +926,7 @@ namespace MphRead::NativeRuntime::Avalonia
     {
         const std::optional<std::u16string> text
             = HostOf<NoteHost>(P(note))->Note().Text();
-        return text.has_value() ? std::optional<std::string>(Utf8(*text))
+        return text.has_value() ? std::optional<std::string>(Utf16ToUtf8(*text))
                                 : std::nullopt;
     }
 
@@ -938,7 +938,7 @@ namespace MphRead::NativeRuntime::Avalonia
             HostOf<NoteHost>(P(note))->Note().Text(std::nullopt);
             return;
         }
-        const std::u16string value = Utf16(*text);
+        const std::u16string value = Utf8ToUtf16(*text);
         HostOf<NoteHost>(P(note))->Note().Text(value);
     }
 
@@ -959,7 +959,7 @@ namespace MphRead::NativeRuntime::Avalonia
     Launcher::HomeViewElement HomeViewHost::CreateChoiceRow(std::string label,
         const std::vector<std::string>& items, std::int32_t index)
     {
-        return Wrap(ChoiceRowHost::Create(Utf16(label), items, index));
+        return Wrap(ChoiceRowHost::Create(Utf8ToUtf16(label), items, index));
     }
 
     std::int32_t HomeViewHost::ChoiceIndex(const Launcher::HomeViewElement& row) const
@@ -977,7 +977,7 @@ namespace MphRead::NativeRuntime::Avalonia
     {
         const std::optional<std::u16string> value
             = HostOf<ChoiceRowHost>(P(row))->Row().Value();
-        return value.has_value() ? Utf8(*value) : std::string();
+        return value.has_value() ? Utf16ToUtf8(*value) : std::string();
     }
 
     void HomeViewHost::ChoiceSetItems(const Launcher::HomeViewElement& row,
@@ -987,7 +987,7 @@ namespace MphRead::NativeRuntime::Avalonia
         values.reserve(items.size());
         for (const std::string& item : items)
         {
-            values.push_back(Utf16(item));
+            values.push_back(Utf8ToUtf16(item));
         }
         HostOf<ChoiceRowHost>(P(row))->Row().SetItems(
             MakeStringList(std::move(values)), index);
@@ -1001,7 +1001,7 @@ namespace MphRead::NativeRuntime::Avalonia
 
     Launcher::HomeViewElement HomeViewHost::CreateToggleRow(std::string label, bool on)
     {
-        return Wrap(ToggleRowHost::Create(Utf16(label), on));
+        return Wrap(ToggleRowHost::Create(Utf8ToUtf16(label), on));
     }
 
     bool HomeViewHost::ToggleOn(const Launcher::HomeViewElement& row) const
@@ -1023,18 +1023,18 @@ namespace MphRead::NativeRuntime::Avalonia
     Launcher::HomeViewElement HomeViewHost::CreateFieldRow(
         std::string label, std::string value, double boxWidth)
     {
-        return Wrap(FieldRowHost::Create(Utf16(label), Utf16(value), boxWidth));
+        return Wrap(FieldRowHost::Create(Utf8ToUtf16(label), Utf8ToUtf16(value), boxWidth));
     }
 
     std::string HomeViewHost::FieldValue(const Launcher::HomeViewElement& row) const
     {
-        return Utf8(HostOf<FieldRowHost>(P(row))->Row().Value());
+        return Utf16ToUtf8(HostOf<FieldRowHost>(P(row))->Row().Value());
     }
 
     void HomeViewHost::FieldValue(
         const Launcher::HomeViewElement& row, std::string value)
     {
-        const std::u16string text = Utf16(value);
+        const std::u16string text = Utf8ToUtf16(value);
         HostOf<FieldRowHost>(P(row))->Row().Value(text);
     }
 
@@ -1052,7 +1052,7 @@ namespace MphRead::NativeRuntime::Avalonia
     Launcher::HomeViewElement HomeViewHost::CreateServerRow(
         std::string name, std::string endpoint)
     {
-        return Wrap(ServerRowHost::Create(Utf16(name), Utf16(endpoint)));
+        return Wrap(ServerRowHost::Create(Utf8ToUtf16(name), Utf8ToUtf16(endpoint)));
     }
 
     void HomeViewHost::AddServerRowClicked(
@@ -1336,12 +1336,12 @@ namespace MphRead::NativeRuntime::Avalonia
 
     std::string HomeViewHost::FromUtf16(std::u16string_view text) const
     {
-        return Utf8(text);
+        return Utf16ToUtf8(text);
     }
 
     std::u16string HomeViewHost::ToUtf16(std::string_view text) const
     {
-        return Utf16(text);
+        return Utf8ToUtf16(text);
     }
 
     // --- networking -------------------------------------------------------

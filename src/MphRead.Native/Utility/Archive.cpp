@@ -1,6 +1,7 @@
 #include "Archive.hpp"
 
 #include "../Read.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -26,12 +27,15 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::Utf16Length;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace
 {
@@ -91,106 +95,6 @@ namespace
         stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     }
 
-    void AppendUtf8(std::string& output, std::uint32_t codePoint)
-    {
-        if (codePoint > 0x10FFFFU || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
-        {
-            codePoint = 0xFFFDU;
-        }
-        if (codePoint <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(codePoint));
-        }
-        else if (codePoint <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (codePoint >> 6)));
-            output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else if (codePoint <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (codePoint >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (codePoint >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((codePoint >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-    }
-
-    [[nodiscard]] std::vector<char16_t> DecodeUtf8ToUtf16(std::string_view value)
-    {
-        std::vector<char16_t> result;
-        result.reserve(value.size());
-        for (std::size_t index = 0; index < value.size();)
-        {
-            const std::uint8_t first = static_cast<std::uint8_t>(value[index]);
-            std::uint32_t codePoint = 0xFFFDU;
-            std::size_t length = 1;
-            if (first <= 0x7FU)
-            {
-                codePoint = first;
-            }
-            else
-            {
-                std::uint32_t minimum = 0;
-                if ((first & 0xE0U) == 0xC0U)
-                {
-                    codePoint = first & 0x1FU;
-                    length = 2;
-                    minimum = 0x80U;
-                }
-                else if ((first & 0xF0U) == 0xE0U)
-                {
-                    codePoint = first & 0x0FU;
-                    length = 3;
-                    minimum = 0x800U;
-                }
-                else if ((first & 0xF8U) == 0xF0U)
-                {
-                    codePoint = first & 0x07U;
-                    length = 4;
-                    minimum = 0x10000U;
-                }
-                bool valid = minimum != 0 && index + length <= value.size();
-                if (valid)
-                {
-                    for (std::size_t offset = 1; offset < length; ++offset)
-                    {
-                        const std::uint8_t next = static_cast<std::uint8_t>(value[index + offset]);
-                        if ((next & 0xC0U) != 0x80U)
-                        {
-                            valid = false;
-                            break;
-                        }
-                        codePoint = (codePoint << 6) | (next & 0x3FU);
-                    }
-                }
-                if (!valid || codePoint < minimum || codePoint > 0x10FFFFU
-                    || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
-                {
-                    codePoint = 0xFFFDU;
-                    length = 1;
-                }
-            }
-            if (codePoint <= 0xFFFFU)
-            {
-                result.push_back(static_cast<char16_t>(codePoint));
-            }
-            else
-            {
-                codePoint -= 0x10000U;
-                result.push_back(static_cast<char16_t>(0xD800U + (codePoint >> 10)));
-                result.push_back(static_cast<char16_t>(0xDC00U + (codePoint & 0x3FFU)));
-            }
-            index += length;
-        }
-        return result;
-    }
-
     [[nodiscard]] std::string EncodeUtf16(
         const std::shared_ptr<MphRead::ManagedArray<char16_t>>& value, bool stopAtNull)
     {
@@ -221,11 +125,6 @@ namespace
             AppendUtf8(output, codePoint);
         }
         return output;
-    }
-
-    [[nodiscard]] std::size_t Utf16Length(std::string_view value)
-    {
-        return DecodeUtf8ToUtf16(value).size();
     }
 
 }
@@ -380,7 +279,7 @@ namespace MphRead::Archive::ArchiveDetail
     template <std::size_t N>
     ByValCharArray<N>::ByValCharArray(const std::string& value)
     {
-        std::vector<char16_t> chars = DecodeUtf8ToUtf16(value);
+        std::u16string chars = Utf8ToUtf16(value);
         if (chars.size() < N)
         {
             chars.resize(N, u'\0');

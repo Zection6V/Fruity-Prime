@@ -11,6 +11,7 @@
 #include "Network/NetProtocol.hpp"
 #include "RenderOptions.hpp"
 #include "Update/BuildVersion.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
@@ -82,6 +83,8 @@
 #endif
 
 using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::WideToUtf8;
+using ::MphRead::NativeRuntime::Wtf8ToWide;
 
 namespace
 {
@@ -102,71 +105,10 @@ namespace
 #endif
     }
 
-#if defined(_WIN32)
-    [[nodiscard]] std::wstring WideFromUtf8(std::string_view text)
-    {
-        if (text.find('\0') != std::string_view::npos)
-        {
-            throw std::invalid_argument("Path contains a null character.");
-        }
-        if (text.empty())
-        {
-            return {};
-        }
-        if (text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-        {
-            throw std::length_error("String is too long.");
-        }
-        const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-            text.data(), static_cast<int>(text.size()), nullptr, 0);
-        if (length <= 0)
-        {
-            throw std::system_error(static_cast<int>(GetLastError()),
-                std::system_category());
-        }
-        std::wstring result(static_cast<std::size_t>(length), L'\0');
-        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-            static_cast<int>(text.size()), result.data(), length) <= 0)
-        {
-            throw std::system_error(static_cast<int>(GetLastError()),
-                std::system_category());
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string Utf8FromWide(std::wstring_view text)
-    {
-        if (text.empty())
-        {
-            return {};
-        }
-        if (text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-        {
-            throw std::length_error("String is too long.");
-        }
-        const int length = WideCharToMultiByte(CP_UTF8, 0, text.data(),
-            static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-        if (length <= 0)
-        {
-            throw std::system_error(static_cast<int>(GetLastError()),
-                std::system_category());
-        }
-        std::string result(static_cast<std::size_t>(length), '\0');
-        if (WideCharToMultiByte(CP_UTF8, 0, text.data(),
-            static_cast<int>(text.size()), result.data(), length,
-            nullptr, nullptr) <= 0)
-        {
-            throw std::system_error(static_cast<int>(GetLastError()),
-                std::system_category());
-        }
-        return result;
-    }
-#endif
-
     [[nodiscard]] std::filesystem::path PathFromManagedString(std::string_view path)
     {
 #if defined(_WIN32)
-        return std::filesystem::path(WideFromUtf8(path));
+        return std::filesystem::path(Wtf8ToWide(path));
 #else
         if (path.find('\0') != std::string_view::npos)
         {
@@ -182,7 +124,7 @@ namespace
         explicit FileSink(std::string_view path)
         {
 #if defined(_WIN32)
-            const std::wstring wide = WideFromUtf8(path);
+            const std::wstring wide = Wtf8ToWide(path);
             _handle = CreateFileW(wide.c_str(), GENERIC_WRITE,
                 FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS,
                 FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -670,7 +612,7 @@ namespace
                 continue;
             }
 #if defined(_WIN32)
-            const std::string name = Utf8FromWide(entry.path().filename().native());
+            const std::string name = WideToUtf8(entry.path().filename().native());
 #else
             const std::string name = entry.path().filename().string();
 #endif
@@ -886,7 +828,7 @@ namespace
             static_cast<int>(name.size()));
         if (length > 1)
         {
-            return Utf8FromWide(std::wstring_view(name.data(),
+            return WideToUtf8(std::wstring_view(name.data(),
                 static_cast<std::size_t>(length - 1)));
         }
         return {};
@@ -938,7 +880,7 @@ namespace
             }
             if (length < buffer.size())
             {
-                return Utf8FromWide(std::wstring_view(buffer.data(), length));
+                return WideToUtf8(std::wstring_view(buffer.data(), length));
             }
             if (buffer.size() > static_cast<std::size_t>(MAXDWORD) / 2U)
             {
@@ -996,7 +938,7 @@ namespace
         }
         std::filesystem::path current = std::filesystem::current_path();
 #if defined(_WIN32)
-        std::string result = Utf8FromWide(current.native());
+        std::string result = WideToUtf8(current.native());
         if (result.empty() || !IsDirectorySeparator(result.back()))
         {
             result.push_back('\\');
@@ -1030,7 +972,7 @@ namespace
                     result.reserve(static_cast<std::size_t>(count));
                     for (int index = 0; index < count; ++index)
                     {
-                        result.push_back(Utf8FromWide(values[index]));
+                        result.push_back(WideToUtf8(values[index]));
                     }
                     LocalFree(values);
                     FreeLibrary(shell);

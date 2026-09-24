@@ -6,6 +6,7 @@
 #include "../../Formats/Types.hpp"
 #include "../../Metadata/Rooms.hpp"
 #include "../../Read.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -46,6 +47,8 @@ using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::Utf16ToUtf8;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace
 {
@@ -809,139 +812,6 @@ namespace
             }
         }
         return first;
-    }
-
-    std::u16string Utf8ToUtf16(std::string_view value)
-    {
-        std::u16string result;
-        result.reserve(value.size());
-
-        std::size_t index = 0;
-        while (index < value.size())
-        {
-            const unsigned char first = static_cast<unsigned char>(value[index]);
-            std::uint32_t codePoint = 0;
-            std::size_t count = 0;
-
-            if (first <= 0x7F)
-            {
-                codePoint = first;
-                count = 1;
-            }
-            else if ((first & 0xE0) == 0xC0)
-            {
-                codePoint = first & 0x1F;
-                count = 2;
-                if (codePoint == 0)
-                {
-                    throw std::invalid_argument("Invalid UTF-8 sequence.");
-                }
-            }
-            else if ((first & 0xF0) == 0xE0)
-            {
-                codePoint = first & 0x0F;
-                count = 3;
-            }
-            else if ((first & 0xF8) == 0xF0)
-            {
-                codePoint = first & 0x07;
-                count = 4;
-            }
-            else
-            {
-                throw std::invalid_argument("Invalid UTF-8 sequence.");
-            }
-
-            if (index + count > value.size())
-            {
-                throw std::invalid_argument("Invalid UTF-8 sequence.");
-            }
-
-            for (std::size_t offset = 1; offset < count; ++offset)
-            {
-                const unsigned char continuation =
-                    static_cast<unsigned char>(value[index + offset]);
-                if ((continuation & 0xC0) != 0x80)
-                {
-                    throw std::invalid_argument("Invalid UTF-8 sequence.");
-                }
-                codePoint = (codePoint << 6) | (continuation & 0x3F);
-            }
-
-            if ((count == 2 && codePoint < 0x80)
-                || (count == 3 && codePoint < 0x800)
-                || (count == 4 && codePoint < 0x10000)
-                || codePoint > 0x10FFFF
-                || (codePoint >= 0xD800 && codePoint <= 0xDFFF))
-            {
-                throw std::invalid_argument("Invalid UTF-8 sequence.");
-            }
-
-            if (codePoint <= 0xFFFF)
-            {
-                result.push_back(static_cast<char16_t>(codePoint));
-            }
-            else
-            {
-                codePoint -= 0x10000;
-                result.push_back(static_cast<char16_t>(0xD800 + (codePoint >> 10)));
-                result.push_back(static_cast<char16_t>(0xDC00 + (codePoint & 0x3FF)));
-            }
-            index += count;
-        }
-        return result;
-    }
-
-    std::string Utf16ToUtf8(std::u16string_view value)
-    {
-        std::string result;
-        result.reserve(value.size());
-
-        for (std::size_t index = 0; index < value.size(); ++index)
-        {
-            std::uint32_t codePoint = value[index];
-            if (codePoint >= 0xD800 && codePoint <= 0xDBFF)
-            {
-                if (index + 1 >= value.size())
-                {
-                    throw std::invalid_argument("Invalid UTF-16 sequence.");
-                }
-                const std::uint32_t low = value[++index];
-                if (low < 0xDC00 || low > 0xDFFF)
-                {
-                    throw std::invalid_argument("Invalid UTF-16 sequence.");
-                }
-                codePoint = 0x10000 + ((codePoint - 0xD800) << 10) + (low - 0xDC00);
-            }
-            else if (codePoint >= 0xDC00 && codePoint <= 0xDFFF)
-            {
-                throw std::invalid_argument("Invalid UTF-16 sequence.");
-            }
-
-            if (codePoint <= 0x7F)
-            {
-                result.push_back(static_cast<char>(codePoint));
-            }
-            else if (codePoint <= 0x7FF)
-            {
-                result.push_back(static_cast<char>(0xC0 | (codePoint >> 6)));
-                result.push_back(static_cast<char>(0x80 | (codePoint & 0x3F)));
-            }
-            else if (codePoint <= 0xFFFF)
-            {
-                result.push_back(static_cast<char>(0xE0 | (codePoint >> 12)));
-                result.push_back(static_cast<char>(0x80 | ((codePoint >> 6) & 0x3F)));
-                result.push_back(static_cast<char>(0x80 | (codePoint & 0x3F)));
-            }
-            else
-            {
-                result.push_back(static_cast<char>(0xF0 | (codePoint >> 18)));
-                result.push_back(static_cast<char>(0x80 | ((codePoint >> 12) & 0x3F)));
-                result.push_back(static_cast<char>(0x80 | ((codePoint >> 6) & 0x3F)));
-                result.push_back(static_cast<char>(0x80 | (codePoint & 0x3F)));
-            }
-        }
-        return result;
     }
 
     void AppendUtf16Scalar(std::u16string& output, std::uint32_t value)

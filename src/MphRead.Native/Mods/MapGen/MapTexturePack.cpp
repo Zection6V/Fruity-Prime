@@ -1,6 +1,7 @@
 #include "MapTexturePack.hpp"
 
 #include "../../Program.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::Utf8GetString;
 
 namespace
 {
@@ -34,110 +36,6 @@ namespace
     [[nodiscard]] bool IsContinuation(std::uint8_t value) noexcept
     {
         return (value & 0xC0U) == 0x80U;
-    }
-
-    // Encoding.UTF8 uses replacement fallback rather than throwing. Preserve
-    // valid UTF-8 byte-for-byte and replace each maximal invalid subpart with
-    // U+FFFD, including a truncated valid prefix at the end of the name.
-    [[nodiscard]] std::string DecodeUtf8(const std::vector<std::uint8_t>& bytes)
-    {
-        std::string output;
-        output.reserve(bytes.size());
-
-        for (std::size_t i = 0; i < bytes.size();)
-        {
-            const std::uint8_t first = bytes[i];
-            if (first <= 0x7FU)
-            {
-                output.push_back(static_cast<char>(first));
-                ++i;
-                continue;
-            }
-
-            std::size_t length = 0;
-            std::uint8_t secondLow = 0x80U;
-            std::uint8_t secondHigh = 0xBFU;
-            if (first >= 0xC2U && first <= 0xDFU)
-            {
-                length = 2;
-            }
-            else if (first >= 0xE0U && first <= 0xEFU)
-            {
-                length = 3;
-                if (first == 0xE0U)
-                {
-                    secondLow = 0xA0U;
-                }
-                else if (first == 0xEDU)
-                {
-                    secondHigh = 0x9FU;
-                }
-            }
-            else if (first >= 0xF0U && first <= 0xF4U)
-            {
-                length = 4;
-                if (first == 0xF0U)
-                {
-                    secondLow = 0x90U;
-                }
-                else if (first == 0xF4U)
-                {
-                    secondHigh = 0x8FU;
-                }
-            }
-            else
-            {
-                AppendReplacement(output);
-                ++i;
-                continue;
-            }
-
-            if (i + 1 >= bytes.size())
-            {
-                AppendReplacement(output);
-                ++i;
-                continue;
-            }
-
-            const std::uint8_t second = bytes[i + 1];
-            if (second < secondLow || second > secondHigh)
-            {
-                AppendReplacement(output);
-                ++i;
-                continue;
-            }
-
-            std::size_t validPrefix = 2;
-            bool valid = true;
-            for (std::size_t part = 2; part < length; ++part)
-            {
-                if (i + part >= bytes.size())
-                {
-                    valid = false;
-                    break;
-                }
-                if (!IsContinuation(bytes[i + part]))
-                {
-                    valid = false;
-                    break;
-                }
-                ++validPrefix;
-            }
-
-            if (!valid)
-            {
-                AppendReplacement(output);
-                i += validPrefix;
-                continue;
-            }
-
-            for (std::size_t part = 0; part < length; ++part)
-            {
-                output.push_back(static_cast<char>(bytes[i + part]));
-            }
-            i += length;
-        }
-        return output;
     }
 
     class BinaryReader final
@@ -409,7 +307,7 @@ namespace MphRead::Mods::MapGen
             const std::uint16_t height = reader.ReadUInt16();
             const std::int32_t paletteLength = reader.ReadUInt16();
             const std::int32_t nameLength = reader.ReadUInt16();
-            const std::string name = DecodeUtf8(reader.ReadBytes(nameLength));
+            const std::string name = Utf8GetString(reader.ReadBytes(nameLength));
 
             std::vector<std::uint16_t> palette(static_cast<std::size_t>(paletteLength));
             for (std::int32_t p = 0; p < paletteLength; ++p)

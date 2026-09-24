@@ -166,7 +166,7 @@ namespace MphRead::NativeRuntime::Avalonia
                 (void)culture;
                 (void)flowDirection;
                 const Launcher::TrackedTextFormattedText made = MakeFormattedText(
-                    Utf16(text), face == Launcher::ProgressRowFace::FaceTrue, fontSize,
+                    Utf8ToUtf16(text), face == Launcher::ProgressRowFace::FaceTrue, fontSize,
                     ColorOf(brush));
                 return Launcher::ProgressRowFormattedText{
                     made.Native, made.Width, made.Height};

@@ -55,6 +55,7 @@
 #include "Update/UpdateInstall.hpp"
 #include "Update/Updater.hpp"
 #include "WindowMode.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 
@@ -101,6 +102,7 @@ using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::WideToWtf8;
 
 // Environment.ExitCode is process state, not an immediate exit. The executable
 // wrapper is the Native equivalent of the CLR host and owns the eventual return
@@ -488,30 +490,6 @@ namespace
         return TryParseEnum(*text, BeamNames, -128, 127, value);
     }
 
-#if defined(_WIN32)
-    [[nodiscard]] std::string Utf8FromWide(std::wstring_view text)
-    {
-        if (text.empty())
-        {
-            return {};
-        }
-        const int count = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-            text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-        if (count <= 0)
-        {
-            throw std::runtime_error("WideCharToMultiByte failed");
-        }
-        std::string result(static_cast<std::size_t>(count), '\0');
-        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-            text.data(), static_cast<int>(text.size()), result.data(), count,
-            nullptr, nullptr) != count)
-        {
-            throw std::runtime_error("WideCharToMultiByte failed");
-        }
-        return result;
-    }
-#endif
-
     [[nodiscard]] std::vector<std::string> GetCommandLineArguments()
     {
 #if defined(_WIN32)
@@ -541,7 +519,7 @@ namespace
         {
             for (int i = 0; i < argc; ++i)
             {
-                result.push_back(Utf8FromWide(argv[i]));
+                result.push_back(WideToWtf8(argv[i]));
             }
         }
         catch (...)
@@ -602,7 +580,7 @@ namespace
             }
             if (length < buffer.size() - 1)
             {
-                return Utf8FromWide(std::wstring_view(buffer.data(), length));
+                return WideToWtf8(std::wstring_view(buffer.data(), length));
             }
             buffer.resize(buffer.size() * 2);
         }
@@ -669,7 +647,7 @@ namespace
             DWORD actual = size;
             if (GetComputerNameW(buffer.data(), &actual) != FALSE)
             {
-                return Utf8FromWide(std::wstring_view(buffer.data(), actual));
+                return WideToWtf8(std::wstring_view(buffer.data(), actual));
             }
             if (GetLastError() != ERROR_BUFFER_OVERFLOW)
             {

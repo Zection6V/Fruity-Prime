@@ -5,7 +5,9 @@
 #include "Program.hpp"
 #include "Scene.hpp"
 #include "Formats/Types.hpp"
+#include "NativeRuntime/System/Encoding.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
+#include "NativeRuntime/System/IO.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -49,8 +51,12 @@
 #endif
 #endif
 
+using ::MphRead::NativeRuntime::FileReadAllLines;
+using ::MphRead::NativeRuntime::FileWriteAllLines;
+using ::MphRead::NativeRuntime::FileWriteAllText;
 using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::StringReplace;
@@ -329,252 +335,6 @@ namespace
         }
         value = std::bit_cast<std::int64_t>(bits);
         return true;
-    }
-
-    void AppendUtf8(std::string& result, char32_t codePoint)
-    {
-        if (codePoint <= 0x7FU)
-        {
-            result.push_back(static_cast<char>(codePoint));
-        }
-        else if (codePoint <= 0x7FFU)
-        {
-            result.push_back(static_cast<char>(0xC0U | (codePoint >> 6U)));
-            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else if (codePoint <= 0xFFFFU)
-        {
-            result.push_back(static_cast<char>(0xE0U | (codePoint >> 12U)));
-            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
-            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else
-        {
-            result.push_back(static_cast<char>(0xF0U | (codePoint >> 18U)));
-            result.push_back(static_cast<char>(0x80U | ((codePoint >> 12U) & 0x3FU)));
-            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
-            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-    }
-
-    [[nodiscard]] std::string DecodeTextFile(std::string_view bytes)
-    {
-        enum class Encoding
-        {
-            Utf8,
-            Utf16Le,
-            Utf16Be,
-            Utf32Le,
-            Utf32Be
-        };
-
-        Encoding encoding = Encoding::Utf8;
-        std::size_t offset = 0;
-        if (bytes.size() >= 4
-            && static_cast<unsigned char>(bytes[0]) == 0x00
-            && static_cast<unsigned char>(bytes[1]) == 0x00
-            && static_cast<unsigned char>(bytes[2]) == 0xFE
-            && static_cast<unsigned char>(bytes[3]) == 0xFF)
-        {
-            encoding = Encoding::Utf32Be;
-            offset = 4;
-        }
-        else if (bytes.size() >= 4
-            && static_cast<unsigned char>(bytes[0]) == 0xFF
-            && static_cast<unsigned char>(bytes[1]) == 0xFE
-            && static_cast<unsigned char>(bytes[2]) == 0x00
-            && static_cast<unsigned char>(bytes[3]) == 0x00)
-        {
-            encoding = Encoding::Utf32Le;
-            offset = 4;
-        }
-        else if (bytes.size() >= 3
-            && static_cast<unsigned char>(bytes[0]) == 0xEF
-            && static_cast<unsigned char>(bytes[1]) == 0xBB
-            && static_cast<unsigned char>(bytes[2]) == 0xBF)
-        {
-            offset = 3;
-        }
-        else if (bytes.size() >= 2
-            && static_cast<unsigned char>(bytes[0]) == 0xFF
-            && static_cast<unsigned char>(bytes[1]) == 0xFE)
-        {
-            encoding = Encoding::Utf16Le;
-            offset = 2;
-        }
-        else if (bytes.size() >= 2
-            && static_cast<unsigned char>(bytes[0]) == 0xFE
-            && static_cast<unsigned char>(bytes[1]) == 0xFF)
-        {
-            encoding = Encoding::Utf16Be;
-            offset = 2;
-        }
-
-        if (encoding == Encoding::Utf8)
-        {
-            return std::string(bytes.substr(offset));
-        }
-
-        std::string result;
-        auto read16 = [&](std::size_t index) -> std::uint16_t
-        {
-            const auto a = static_cast<unsigned char>(bytes[index]);
-            const auto b = static_cast<unsigned char>(bytes[index + 1]);
-            if (encoding == Encoding::Utf16Le)
-            {
-                return static_cast<std::uint16_t>(a | (static_cast<std::uint16_t>(b) << 8U));
-            }
-            return static_cast<std::uint16_t>(
-                (static_cast<std::uint16_t>(a) << 8U) | b);
-        };
-        auto read32 = [&](std::size_t index) -> std::uint32_t
-        {
-            const auto a = static_cast<unsigned char>(bytes[index]);
-            const auto b = static_cast<unsigned char>(bytes[index + 1]);
-            const auto c = static_cast<unsigned char>(bytes[index + 2]);
-            const auto d = static_cast<unsigned char>(bytes[index + 3]);
-            if (encoding == Encoding::Utf32Le)
-            {
-                return static_cast<std::uint32_t>(a)
-                    | (static_cast<std::uint32_t>(b) << 8U)
-                    | (static_cast<std::uint32_t>(c) << 16U)
-                    | (static_cast<std::uint32_t>(d) << 24U);
-            }
-            return (static_cast<std::uint32_t>(a) << 24U)
-                | (static_cast<std::uint32_t>(b) << 16U)
-                | (static_cast<std::uint32_t>(c) << 8U)
-                | static_cast<std::uint32_t>(d);
-        };
-
-        if (encoding == Encoding::Utf16Le || encoding == Encoding::Utf16Be)
-        {
-            while (offset + 1 < bytes.size())
-            {
-                const std::uint16_t first = read16(offset);
-                offset += 2;
-                char32_t codePoint = first;
-                if (first >= 0xD800U && first <= 0xDBFFU)
-                {
-                    if (offset + 1 < bytes.size())
-                    {
-                        const std::uint16_t second = read16(offset);
-                        if (second >= 0xDC00U && second <= 0xDFFFU)
-                        {
-                            offset += 2;
-                            codePoint = 0x10000U
-                                + ((static_cast<char32_t>(first) - 0xD800U) << 10U)
-                                + (static_cast<char32_t>(second) - 0xDC00U);
-                        }
-                        else
-                        {
-                            codePoint = 0xFFFDU;
-                        }
-                    }
-                    else
-                    {
-                        codePoint = 0xFFFDU;
-                    }
-                }
-                else if (first >= 0xDC00U && first <= 0xDFFFU)
-                {
-                    codePoint = 0xFFFDU;
-                }
-                AppendUtf8(result, codePoint);
-            }
-            if (offset < bytes.size())
-            {
-                AppendUtf8(result, 0xFFFDU);
-            }
-            return result;
-        }
-
-        while (offset + 3 < bytes.size())
-        {
-            std::uint32_t scalar = read32(offset);
-            offset += 4;
-            if (scalar > 0x10FFFFU || (scalar >= 0xD800U && scalar <= 0xDFFFU))
-            {
-                scalar = 0xFFFDU;
-            }
-            AppendUtf8(result, static_cast<char32_t>(scalar));
-        }
-        if (offset < bytes.size())
-        {
-            AppendUtf8(result, 0xFFFDU);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::vector<std::string> ReadAllLines(const std::filesystem::path& path)
-    {
-        std::ifstream stream(path, std::ios::binary);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file for reading.");
-        }
-        std::string bytes{
-            std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
-        if (stream.bad())
-        {
-            throw std::ios_base::failure("Failed while reading file.");
-        }
-
-        const std::string text = DecodeTextFile(bytes);
-        std::vector<std::string> result;
-        std::size_t lineStart = 0;
-        for (std::size_t i = 0; i < text.size(); ++i)
-        {
-            if (text[i] == '\r' || text[i] == '\n')
-            {
-                result.emplace_back(text.substr(lineStart, i - lineStart));
-                if (text[i] == '\r' && i + 1 < text.size() && text[i + 1] == '\n')
-                {
-                    ++i;
-                }
-                lineStart = i + 1;
-            }
-        }
-        if (lineStart < text.size())
-        {
-            result.emplace_back(text.substr(lineStart));
-        }
-        return result;
-    }
-
-    void WriteAllText(const std::filesystem::path& path, std::string_view text)
-    {
-        std::ofstream stream(path, std::ios::trunc);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file for writing.");
-        }
-        stream.write(text.data(), static_cast<std::streamsize>(text.size()));
-        if (!stream)
-        {
-            throw std::ios_base::failure("Failed while writing file.");
-        }
-    }
-
-    void WriteAllLines(
-        const std::filesystem::path& path, const std::array<std::string, 2>& lines)
-    {
-        std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file for writing.");
-        }
-        for (const std::string& line : lines)
-        {
-#ifdef _WIN32
-            stream << line << "\r\n";
-#else
-            stream << line << '\n';
-#endif
-        }
-        if (!stream)
-        {
-            throw std::ios_base::failure("Failed while writing file.");
-        }
     }
 
     [[nodiscard]] std::string FormatPointerHex(std::intptr_t value)
@@ -1432,11 +1192,11 @@ namespace MphRead::Memory
         const bool exists = std::filesystem::is_regular_file(path, existsError);
         if (!exists || existsError)
         {
-            WriteAllText(path, "");
+            FileWriteAllText(PathToUtf8(path), "");
         }
 
         const std::int64_t startTime = _processStartTimeMilliseconds;
-        const std::vector<std::string> lines = ReadAllLines(path);
+        const std::vector<std::string> lines = FileReadAllLines(PathToUtf8(path));
         std::int64_t timestamp = 0;
         std::int64_t saved = 0;
         if (lines.size() >= 2
@@ -1518,7 +1278,7 @@ namespace MphRead::Memory
                                 memoryInfo.BaseAddress,
                                 static_cast<std::int64_t>(zeroIndex));
                             _baseAddress = Int64ToIntPtr(found);
-                            WriteAllLines(path, {
+                            FileWriteAllLines(PathToUtf8(path), {
                                 std::to_string(startTime),
                                 FormatPointerHex(_baseAddress)
                             });

@@ -7,6 +7,7 @@
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
 #include <array>
@@ -48,7 +49,10 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::HasFlag;
+using ::MphRead::NativeRuntime::Utf16Length;
+using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace
 {
@@ -285,77 +289,6 @@ namespace
         return result;
     }
 
-    struct Utf8Unit final
-    {
-        char32_t CodePoint = 0;
-        std::size_t Length = 1;
-        bool Valid = false;
-    };
-
-    [[nodiscard]] Utf8Unit DecodeUtf8(std::string_view text, std::size_t index) noexcept
-    {
-        const auto first = static_cast<unsigned char>(text[index]);
-        if (first < 0x80U)
-        {
-            return {first, 1, true};
-        }
-        std::size_t length = 0;
-        char32_t codePoint = 0;
-        char32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            length = 2;
-            codePoint = first & 0x1FU;
-            minimum = 0x80U;
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            length = 3;
-            codePoint = first & 0x0FU;
-            minimum = 0x800U;
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            length = 4;
-            codePoint = first & 0x07U;
-            minimum = 0x10000U;
-        }
-        else
-        {
-            return {first, 1, false};
-        }
-        if (index + length > text.size())
-        {
-            return {first, 1, false};
-        }
-        for (std::size_t offset = 1; offset < length; offset++)
-        {
-            const auto byte = static_cast<unsigned char>(text[index + offset]);
-            if ((byte & 0xC0U) != 0x80U)
-            {
-                return {first, 1, false};
-            }
-            codePoint = (codePoint << 6U) | (byte & 0x3FU);
-        }
-        if (codePoint < minimum || codePoint > 0x10FFFFU
-            || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
-        {
-            return {first, 1, false};
-        }
-        return {codePoint, length, true};
-    }
-
-    [[nodiscard]] std::size_t Utf16Length(std::string_view text) noexcept
-    {
-        std::size_t length = 0;
-        for (std::size_t index = 0; index < text.size();)
-        {
-            const Utf8Unit unit = DecodeUtf8(text, index);
-            length += unit.Valid && unit.CodePoint > 0xFFFFU ? 2U : 1U;
-            index += unit.Length;
-        }
-        return length;
-    }
 
     [[nodiscard]] std::string AlignLeft(std::string text, std::size_t width)
     {
@@ -402,16 +335,16 @@ namespace
         std::string safe;
         for (std::size_t index = 0; index < clientName.size();)
         {
-            const Utf8Unit unit = DecodeUtf8(clientName, index);
-            if (!unit.Valid)
+            const Utf8Scalar unit = DecodeUtf8Scalar(clientName, index);
+            if (!unit.Valid())
             {
                 safe.push_back('_');
             }
-            else if (unit.CodePoint > 0xFFFFU)
+            else if (unit.Value > 0xFFFFU)
             {
                 safe += "__";
             }
-            else if (IsLetterOrDigit(unit.CodePoint))
+            else if (IsLetterOrDigit(unit.Value))
             {
                 safe.append(clientName.substr(index, unit.Length));
             }

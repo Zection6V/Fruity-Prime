@@ -6,6 +6,7 @@
 #include "../Formats/Sound.hpp"
 #include "../GameState.hpp"
 #include "../Formats/Formats.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -19,40 +20,10 @@
 #include <thread>
 
 using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace
 {
-    // The UTF-16 path NCSFPlayerStream takes, from the UTF-8 one held here.
-    [[nodiscard]] std::u16string Utf8ToUtf16(const std::string& value)
-    {
-        std::u16string result;
-        std::size_t index = 0;
-        while (index < value.size())
-        {
-            const unsigned char lead = static_cast<unsigned char>(value[index]);
-            char32_t code = lead;
-            std::size_t extra = 0;
-            if (lead >= 0xF0) { code = lead & 0x07U; extra = 3; }
-            else if (lead >= 0xE0) { code = lead & 0x0FU; extra = 2; }
-            else if (lead >= 0xC0) { code = lead & 0x1FU; extra = 1; }
-            ++index;
-            for (std::size_t i = 0; i < extra && index < value.size(); ++i, ++index)
-            {
-                code = (code << 6) | (static_cast<unsigned char>(value[index]) & 0x3FU);
-            }
-            if (code > 0xFFFFU)
-            {
-                code -= 0x10000U;
-                result.push_back(static_cast<char16_t>(0xD800U + (code >> 10)));
-                result.push_back(static_cast<char16_t>(0xDC00U + (code & 0x3FFU)));
-            }
-            else
-            {
-                result.push_back(static_cast<char16_t>(code));
-            }
-        }
-        return result;
-    }
 }
 
 namespace NCSFPlayer

@@ -2,6 +2,7 @@
 
 #include "../../Branding.hpp"
 #include "../../ThumbnailGenerator.hpp"
+#include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 
@@ -22,104 +23,12 @@ using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
-using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace
 {
     constexpr std::string_view BrandUri
         = "avares://FruityPrime/Assets/fruity-prime-logo.png";
-
-    [[nodiscard]] std::u16string Utf8ToUtf16(std::string_view text)
-    {
-        std::u16string result;
-        result.reserve(text.size());
-
-        std::size_t index = 0;
-        while (index < text.size())
-        {
-            const auto first = static_cast<unsigned char>(text[index]);
-            char32_t value = 0;
-            std::size_t consumed = 1;
-
-            if (first <= 0x7FU)
-            {
-                value = first;
-            }
-            else if (first >= 0xC2U && first <= 0xDFU
-                && index + 1 < text.size())
-            {
-                const auto second = static_cast<unsigned char>(text[index + 1]);
-                if ((second & 0xC0U) == 0x80U)
-                {
-                    value = static_cast<char32_t>(((first & 0x1FU) << 6)
-                        | (second & 0x3FU));
-                    consumed = 2;
-                }
-                else
-                {
-                    value = 0xFFFDU;
-                }
-            }
-            else if (first >= 0xE0U && first <= 0xEFU
-                && index + 2 < text.size())
-            {
-                const auto second = static_cast<unsigned char>(text[index + 1]);
-                const auto third = static_cast<unsigned char>(text[index + 2]);
-                const bool secondOk = (second & 0xC0U) == 0x80U
-                    && !(first == 0xE0U && second < 0xA0U)
-                    && !(first == 0xEDU && second >= 0xA0U);
-                if (secondOk && (third & 0xC0U) == 0x80U)
-                {
-                    value = static_cast<char32_t>(((first & 0x0FU) << 12)
-                        | ((second & 0x3FU) << 6) | (third & 0x3FU));
-                    consumed = 3;
-                }
-                else
-                {
-                    value = 0xFFFDU;
-                }
-            }
-            else if (first >= 0xF0U && first <= 0xF4U
-                && index + 3 < text.size())
-            {
-                const auto second = static_cast<unsigned char>(text[index + 1]);
-                const auto third = static_cast<unsigned char>(text[index + 2]);
-                const auto fourth = static_cast<unsigned char>(text[index + 3]);
-                const bool secondOk = (second & 0xC0U) == 0x80U
-                    && !(first == 0xF0U && second < 0x90U)
-                    && !(first == 0xF4U && second > 0x8FU);
-                if (secondOk && (third & 0xC0U) == 0x80U
-                    && (fourth & 0xC0U) == 0x80U)
-                {
-                    value = static_cast<char32_t>(((first & 0x07U) << 18)
-                        | ((second & 0x3FU) << 12)
-                        | ((third & 0x3FU) << 6) | (fourth & 0x3FU));
-                    consumed = 4;
-                }
-                else
-                {
-                    value = 0xFFFDU;
-                }
-            }
-            else
-            {
-                value = 0xFFFDU;
-            }
-
-            if (value <= 0xFFFFU)
-            {
-                result.push_back(static_cast<char16_t>(value));
-            }
-            else
-            {
-                value -= 0x10000U;
-                result.push_back(static_cast<char16_t>(0xD800U + (value >> 10)));
-                result.push_back(static_cast<char16_t>(0xDC00U + (value & 0x3FFU)));
-            }
-            index += consumed;
-        }
-        return result;
-    }
 
     class BrandLazy final
     {

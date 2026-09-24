@@ -350,7 +350,7 @@ namespace MphRead::NativeRuntime::Avalonia
             values.reserve(items.size());
             for (const std::string& item : items)
             {
-                values.push_back(Utf16(item));
+                values.push_back(Utf8ToUtf16(item));
             }
             return values;
         }
@@ -426,7 +426,7 @@ namespace MphRead::NativeRuntime::Avalonia
         {
             return;
         }
-        const std::u16string piece = Utf16(Utf8(std::u16string(1,
+        const std::u16string piece = Utf8ToUtf16(Utf16ToUtf8(std::u16string(1,
             static_cast<char16_t>(code < 0x10000 ? code : u'?'))));
         _text.insert(std::min(_caret, _text.size()), piece);
         _caret = std::min(_caret + piece.size(), _text.size());
@@ -507,7 +507,7 @@ namespace MphRead::NativeRuntime::Avalonia
                                       : Launcher::GuiTheme::Edge));
 
         const bool empty = _text.empty();
-        const std::string shown = empty ? Utf8(_watermark) : Utf8(_text);
+        const std::string shown = empty ? Utf16ToUtf8(_watermark) : Utf16ToUtf8(_text);
         const double x = bounds.X + Padding.Left;
         const double y = bounds.Y + (bounds.Height
             - Toolkit::FontLineHeight(FontSize, Toolkit::FontWeight::Normal)) / 2.0;
@@ -516,7 +516,7 @@ namespace MphRead::NativeRuntime::Avalonia
 
         if (element.IsFocused)
         {
-            const std::string before = Utf8(
+            const std::string before = Utf16ToUtf8(
                 std::u16string_view(_text).substr(0, std::min(_caret, _text.size())));
             const double offset = Toolkit::MeasureText(
                 before, FontSize, Toolkit::FontWeight::Normal, 0.0).Width;
@@ -586,7 +586,7 @@ namespace MphRead::NativeRuntime::Avalonia
         (void)culture;
         (void)flowDirection;
         auto run = std::make_shared<RowsRun>();
-        run->Text = text.has_value() ? Utf8(*text) : std::string();
+        run->Text = text.has_value() ? Utf16ToUtf8(*text) : std::string();
         run->FontSize = fontSize;
         run->Bold = typeface.Weight >= Launcher::GuiFontWeight::SemiBold;
         run->Color = ColorOf(brush);
@@ -894,7 +894,7 @@ namespace MphRead::NativeRuntime::Avalonia
         ElementHandle textBlock, std::optional<std::u16string_view> text)
     {
         auto* const element = static_cast<Toolkit::Element*>(textBlock);
-        element->Text = text.has_value() ? std::optional<std::string>(Utf8(*text))
+        element->Text = text.has_value() ? std::optional<std::string>(Utf16ToUtf8(*text))
                                          : std::nullopt;
     }
 
@@ -1096,14 +1096,14 @@ namespace MphRead::NativeRuntime::Avalonia
 
     void NoteHost::SetText(std::optional<std::u16string_view> text)
     {
-        _visual->Text = text.has_value() ? std::optional<std::string>(Utf8(*text))
+        _visual->Text = text.has_value() ? std::optional<std::string>(Utf16ToUtf8(*text))
                                          : std::nullopt;
     }
 
     std::optional<std::u16string> NoteHost::GetText() const
     {
         return _visual->Text.has_value()
-            ? std::optional<std::u16string>(Utf16(*_visual->Text))
+            ? std::optional<std::u16string>(Utf8ToUtf16(*_visual->Text))
             : std::nullopt;
     }
 
@@ -1242,7 +1242,7 @@ namespace MphRead::NativeRuntime::Avalonia
 
     std::u16string ServerRowHost::FormatCurrentInt32(std::int32_t value) const
     {
-        return Utf16(std::to_string(value));
+        return Utf8ToUtf16(std::to_string(value));
     }
 
     void ServerRowHost::InvalidateVisual()

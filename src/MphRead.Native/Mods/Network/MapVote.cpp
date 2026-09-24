@@ -3,6 +3,7 @@
 #include "../../Formats/Types.hpp"
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <climits>
@@ -30,8 +31,10 @@
 #include <wctype.h>
 #endif
 
-using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::AppendUtf8;
+using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
+using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace
 {
@@ -44,120 +47,6 @@ namespace
             MphRead::Mods::EndScreen::Hit(source);
     }
 
-    struct Utf8Unit final
-    {
-        std::uint32_t Scalar = 0xFFFDU;
-        std::size_t Length = 1;
-        bool Valid = false;
-    };
-
-    [[nodiscard]] Utf8Unit DecodeUtf8(std::string_view text, std::size_t index) noexcept
-    {
-        if (index >= text.size())
-        {
-            return {0xFFFDU, 0, false};
-        }
-
-        const auto* data = reinterpret_cast<const unsigned char*>(text.data());
-        const std::uint32_t first = data[index];
-        if (first <= 0x7FU)
-        {
-            return {first, 1, true};
-        }
-        if (first < 0xC2U || first > 0xF4U)
-        {
-            return {0xFFFDU, 1, false};
-        }
-        if (index + 1 >= text.size())
-        {
-            return {0xFFFDU, text.size() - index, false};
-        }
-
-        const std::uint32_t second = data[index + 1];
-        if ((second & 0xC0U) != 0x80U)
-        {
-            return {0xFFFDU, 1, false};
-        }
-        if (first <= 0xDFU)
-        {
-            return {
-                ((first & 0x1FU) << 6) | (second & 0x3FU),
-                2,
-                true
-            };
-        }
-        if ((first == 0xE0U && second < 0xA0U)
-            || (first == 0xEDU && second >= 0xA0U)
-            || (first == 0xF0U && second < 0x90U)
-            || (first == 0xF4U && second >= 0x90U))
-        {
-            return {0xFFFDU, 1, false};
-        }
-        if (index + 2 >= text.size())
-        {
-            return {0xFFFDU, text.size() - index, false};
-        }
-
-        const std::uint32_t third = data[index + 2];
-        if ((third & 0xC0U) != 0x80U)
-        {
-            return {0xFFFDU, 2, false};
-        }
-        if (first <= 0xEFU)
-        {
-            return {
-                ((first & 0x0FU) << 12)
-                    | ((second & 0x3FU) << 6)
-                    | (third & 0x3FU),
-                3,
-                true
-            };
-        }
-        if (index + 3 >= text.size())
-        {
-            return {0xFFFDU, text.size() - index, false};
-        }
-
-        const std::uint32_t fourth = data[index + 3];
-        if ((fourth & 0xC0U) != 0x80U)
-        {
-            return {0xFFFDU, 3, false};
-        }
-        return {
-            ((first & 0x07U) << 18)
-                | ((second & 0x3FU) << 12)
-                | ((third & 0x3FU) << 6)
-                | (fourth & 0x3FU),
-            4,
-            true
-        };
-    }
-
-    void AppendUtf8(std::string& output, std::uint32_t scalar)
-    {
-        if (scalar <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(scalar));
-        }
-        else if (scalar <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (scalar >> 6)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else if (scalar <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (scalar >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (scalar >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-    }
 
 #if !defined(_WIN32)
     [[nodiscard]] void* FindVersionedIcuSymbol(
@@ -329,9 +218,9 @@ namespace
         result.reserve(value.size());
         for (std::size_t index = 0; index < value.size();)
         {
-            const Utf8Unit unit = DecodeUtf8(value, index);
+            const Utf8Scalar unit = DecodeUtf8Scalar(value, index);
             index += unit.Length;
-            AppendUtf8(result, InvariantUpperScalar(unit.Scalar));
+            AppendUtf8(result, InvariantUpperScalar(unit.Value));
         }
         return result;
     }

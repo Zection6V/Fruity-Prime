@@ -14,7 +14,9 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -46,6 +48,8 @@ using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::Utf16Length;
+using ::MphRead::NativeRuntime::WideToUtf8;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Length;
 
@@ -97,64 +101,6 @@ namespace
     {
         ConsoleWrite(value);
         ConsoleWrite(ManagedNewLine());
-    }
-
-    [[nodiscard]] std::size_t Utf16Length(std::string_view value) noexcept
-    {
-        std::size_t length = 0;
-        for (std::size_t index = 0; index < value.size();)
-        {
-            const unsigned char lead = static_cast<unsigned char>(value[index]);
-            std::uint32_t codePoint = 0;
-            std::size_t count = 1;
-            if ((lead & 0x80U) == 0)
-            {
-                codePoint = lead;
-            }
-            else if ((lead & 0xE0U) == 0xC0U && index + 1 < value.size())
-            {
-                codePoint = lead & 0x1FU;
-                count = 2;
-            }
-            else if ((lead & 0xF0U) == 0xE0U && index + 2 < value.size())
-            {
-                codePoint = lead & 0x0FU;
-                count = 3;
-            }
-            else if ((lead & 0xF8U) == 0xF0U && index + 3 < value.size())
-            {
-                codePoint = lead & 0x07U;
-                count = 4;
-            }
-            else
-            {
-                ++length;
-                ++index;
-                continue;
-            }
-
-            bool valid = true;
-            for (std::size_t offset = 1; offset < count; ++offset)
-            {
-                const unsigned char next
-                    = static_cast<unsigned char>(value[index + offset]);
-                if ((next & 0xC0U) != 0x80U)
-                {
-                    valid = false;
-                    break;
-                }
-                codePoint = (codePoint << 6U) | (next & 0x3FU);
-            }
-            if (!valid)
-            {
-                ++length;
-                ++index;
-                continue;
-            }
-            length += codePoint > 0xFFFFU ? 2U : 1U;
-            index += count;
-        }
-        return length;
     }
 
     [[nodiscard]] std::string PadLeftManaged(std::string value, std::size_t width)
@@ -209,29 +155,6 @@ namespace
     }
 
 #if defined(_WIN32)
-    [[nodiscard]] std::string WideToUtf8(const wchar_t* value)
-    {
-        if (value == nullptr || *value == L'\0')
-        {
-            return {};
-        }
-        const int required = WideCharToMultiByte(
-            CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
-        if (required <= 1)
-        {
-            return {};
-        }
-        std::string result(static_cast<std::size_t>(required), '\0');
-        const int written = WideCharToMultiByte(
-            CP_UTF8, 0, value, -1, result.data(), required, nullptr, nullptr);
-        if (written <= 1)
-        {
-            return {};
-        }
-        result.resize(static_cast<std::size_t>(written - 1));
-        return result;
-    }
-
     [[nodiscard]] std::string LocaleString(LCTYPE type, std::string fallback)
     {
         wchar_t buffer[128]{};

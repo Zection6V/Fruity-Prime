@@ -1,4 +1,5 @@
 #include "ServerRow.hpp"
+#include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -13,6 +14,7 @@
 
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace
 {
@@ -31,111 +33,6 @@ namespace
                 static_cast<unsigned char>(*current)));
         }
         return text;
-    }
-
-    [[nodiscard]] std::u16string Utf8ToUtf16(std::string_view text)
-    {
-        std::u16string result;
-        result.reserve(text.size());
-
-        std::size_t index = 0;
-        while (index < text.size())
-        {
-            const auto first = static_cast<unsigned char>(text[index]);
-            std::uint32_t scalar = 0;
-            std::size_t consumed = 1;
-            bool valid = true;
-
-            if (first < 0x80U)
-            {
-                scalar = first;
-            }
-            else if (first >= 0xC2U && first <= 0xDFU
-                && index + 1 < text.size())
-            {
-                const auto b1 = static_cast<unsigned char>(text[index + 1]);
-                if ((b1 & 0xC0U) != 0x80U)
-                {
-                    valid = false;
-                }
-                else
-                {
-                    scalar = (static_cast<std::uint32_t>(first & 0x1FU) << 6)
-                        | static_cast<std::uint32_t>(b1 & 0x3FU);
-                    consumed = 2;
-                }
-            }
-            else if (first >= 0xE0U && first <= 0xEFU
-                && index + 2 < text.size())
-            {
-                const auto b1 = static_cast<unsigned char>(text[index + 1]);
-                const auto b2 = static_cast<unsigned char>(text[index + 2]);
-                const bool continuation = (b1 & 0xC0U) == 0x80U
-                    && (b2 & 0xC0U) == 0x80U;
-                const bool notOverlong = first != 0xE0U || b1 >= 0xA0U;
-                const bool notSurrogate = first != 0xEDU || b1 <= 0x9FU;
-                if (!continuation || !notOverlong || !notSurrogate)
-                {
-                    valid = false;
-                }
-                else
-                {
-                    scalar = (static_cast<std::uint32_t>(first & 0x0FU) << 12)
-                        | (static_cast<std::uint32_t>(b1 & 0x3FU) << 6)
-                        | static_cast<std::uint32_t>(b2 & 0x3FU);
-                    consumed = 3;
-                }
-            }
-            else if (first >= 0xF0U && first <= 0xF4U
-                && index + 3 < text.size())
-            {
-                const auto b1 = static_cast<unsigned char>(text[index + 1]);
-                const auto b2 = static_cast<unsigned char>(text[index + 2]);
-                const auto b3 = static_cast<unsigned char>(text[index + 3]);
-                const bool continuation = (b1 & 0xC0U) == 0x80U
-                    && (b2 & 0xC0U) == 0x80U
-                    && (b3 & 0xC0U) == 0x80U;
-                const bool notOverlong = first != 0xF0U || b1 >= 0x90U;
-                const bool inRange = first != 0xF4U || b1 <= 0x8FU;
-                if (!continuation || !notOverlong || !inRange)
-                {
-                    valid = false;
-                }
-                else
-                {
-                    scalar = (static_cast<std::uint32_t>(first & 0x07U) << 18)
-                        | (static_cast<std::uint32_t>(b1 & 0x3FU) << 12)
-                        | (static_cast<std::uint32_t>(b2 & 0x3FU) << 6)
-                        | static_cast<std::uint32_t>(b3 & 0x3FU);
-                    consumed = 4;
-                }
-            }
-            else
-            {
-                valid = false;
-            }
-
-            if (!valid)
-            {
-                result.push_back(static_cast<char16_t>(0xFFFDU));
-                ++index;
-                continue;
-            }
-
-            if (scalar <= 0xFFFFU)
-            {
-                result.push_back(static_cast<char16_t>(scalar));
-            }
-            else
-            {
-                scalar -= 0x10000U;
-                result.push_back(static_cast<char16_t>(0xD800U + (scalar >> 10)));
-                result.push_back(static_cast<char16_t>(0xDC00U + (scalar & 0x3FFU)));
-            }
-            index += consumed;
-        }
-
-        return result;
     }
 
     [[nodiscard]] std::optional<std::u16string_view> ViewOf(

@@ -2,6 +2,7 @@
 
 #include "../../Formats/Types.hpp"
 #include "../../Program.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -33,161 +34,24 @@
 #include <dlfcn.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::OperationStatus;
+using ::MphRead::NativeRuntime::RuneDecodeFromUtf8;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::Utf16ToUtf8;
+using ::MphRead::NativeRuntime::Utf8GetString;
+using ::MphRead::NativeRuntime::Utf8Scalar;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
+using ::MphRead::NativeRuntime::Utf8ToUtf32;
+using ::MphRead::NativeRuntime::Utf8ToWide;
+using ::MphRead::NativeRuntime::WideToUtf8;
 
 namespace
 {
     using ByteVector = std::vector<std::uint8_t>;
 
-    enum class Utf8DecodeStatus
-    {
-        Done,
-        NeedMoreData,
-        InvalidData
-    };
-
-    [[nodiscard]] Utf8DecodeStatus DecodeUtf8Scalar(
-        const std::uint8_t* data, std::size_t size, std::size_t& index, std::uint32_t& scalar) noexcept
-    {
-        const std::size_t start = index;
-        if (start >= size)
-        {
-            scalar = 0xFFFDU;
-            return Utf8DecodeStatus::NeedMoreData;
-        }
-
-        const std::uint32_t first = data[start];
-        if (first <= 0x7FU)
-        {
-            scalar = first;
-            index = start + 1;
-            return Utf8DecodeStatus::Done;
-        }
-
-        // Match Rune.DecodeFromUtf8's maximal-subpart rules, which are also
-        // what UTF8Encoding's replacement fallback uses on .NET 9.
-        if (first < 0xC2U || first > 0xF4U)
-        {
-            scalar = 0xFFFDU;
-            index = start + 1;
-            return Utf8DecodeStatus::InvalidData;
-        }
-        if (start + 1 >= size)
-        {
-            scalar = 0xFFFDU;
-            index = size;
-            return Utf8DecodeStatus::NeedMoreData;
-        }
-
-        const std::uint32_t second = data[start + 1];
-        if ((second & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            index = start + 1;
-            return Utf8DecodeStatus::InvalidData;
-        }
-
-        if (first <= 0xDFU)
-        {
-            scalar = ((first & 0x1FU) << 6) | (second & 0x3FU);
-            index = start + 2;
-            return Utf8DecodeStatus::Done;
-        }
-
-        // The second byte can already prove a 3/4-byte sequence invalid. In
-        // that case the maximal invalid subpart is only the leading byte.
-        if ((first == 0xE0U && second < 0xA0U)
-            || (first == 0xEDU && second >= 0xA0U)
-            || (first == 0xF0U && second < 0x90U)
-            || (first == 0xF4U && second >= 0x90U))
-        {
-            scalar = 0xFFFDU;
-            index = start + 1;
-            return Utf8DecodeStatus::InvalidData;
-        }
-
-        if (start + 2 >= size)
-        {
-            scalar = 0xFFFDU;
-            index = size;
-            return Utf8DecodeStatus::NeedMoreData;
-        }
-
-        const std::uint32_t third = data[start + 2];
-        if ((third & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            index = start + 2;
-            return Utf8DecodeStatus::InvalidData;
-        }
-
-        if (first <= 0xEFU)
-        {
-            scalar = ((first & 0x0FU) << 12) | ((second & 0x3FU) << 6) | (third & 0x3FU);
-            index = start + 3;
-            return Utf8DecodeStatus::Done;
-        }
-
-        if (start + 3 >= size)
-        {
-            scalar = 0xFFFDU;
-            index = size;
-            return Utf8DecodeStatus::NeedMoreData;
-        }
-
-        const std::uint32_t fourth = data[start + 3];
-        if ((fourth & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            index = start + 3;
-            return Utf8DecodeStatus::InvalidData;
-        }
-
-        scalar = ((first & 0x07U) << 18) | ((second & 0x3FU) << 12)
-            | ((third & 0x3FU) << 6) | (fourth & 0x3FU);
-        index = start + 4;
-        return Utf8DecodeStatus::Done;
-    }
-
-    void AppendUtf8(std::string& output, std::uint32_t scalar)
-    {
-        if (scalar <= 0x7FU) output.push_back(static_cast<char>(scalar));
-        else if (scalar <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (scalar >> 6)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else if (scalar <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (scalar >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (scalar >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-    }
-
-    [[nodiscard]] std::vector<std::uint32_t> DecodeUtf8(const std::string& value)
-    {
-        std::vector<std::uint32_t> result;
-        result.reserve(value.size());
-        std::size_t index = 0;
-        while (index < value.size())
-        {
-            std::uint32_t scalar = 0;
-            (void)DecodeUtf8Scalar(reinterpret_cast<const std::uint8_t*>(value.data()),
-                value.size(), index, scalar);
-            result.push_back(scalar);
-        }
-        return result;
-    }
 
 #if !defined(_WIN32)
     [[nodiscard]] void* FindVersionedIcuSymbol(void* library, const char* base) noexcept
@@ -265,7 +129,8 @@ namespace
 
     [[nodiscard]] std::vector<std::uint32_t> FoldOrdinalIgnoreCase(const std::string& value)
     {
-        std::vector<std::uint32_t> result = DecodeUtf8(value);
+        const std::u32string decoded = Utf8ToUtf32(value);
+        std::vector<std::uint32_t> result(decoded.begin(), decoded.end());
         for (std::uint32_t& scalar : result) scalar = InvariantUpper(scalar);
         return result;
     }
@@ -296,41 +161,6 @@ namespace
         {
             return false;
         }
-    }
-
-    [[nodiscard]] std::string DecodeZipName(const std::uint8_t* data, std::size_t size)
-    {
-        // ZipArchive on .NET Core uses UTF-8 when no entry-name encoding is supplied;
-        // in .NET 9 the language-encoding flag is still honored, and the unset fallback is UTF-8.
-        std::string result;
-        std::size_t index = 0;
-        while (index < size)
-        {
-            std::uint32_t scalar = 0;
-            (void)DecodeUtf8Scalar(data, size, index, scalar);
-            AppendUtf8(result, scalar);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::wstring Utf8ToWide(const std::string& value)
-    {
-        std::wstring result;
-        for (std::uint32_t scalar : DecodeUtf8(value))
-        {
-#if WCHAR_MAX <= 0xFFFF
-            if (scalar <= 0xFFFFU) result.push_back(static_cast<wchar_t>(scalar));
-            else
-            {
-                scalar -= 0x10000U;
-                result.push_back(static_cast<wchar_t>(0xD800U + (scalar >> 10)));
-                result.push_back(static_cast<wchar_t>(0xDC00U + (scalar & 0x3FFU)));
-            }
-#else
-            result.push_back(static_cast<wchar_t>(scalar));
-#endif
-        }
-        return result;
     }
 
     [[nodiscard]] std::uint16_t ReadU16(const ByteVector& bytes, std::size_t position)
@@ -468,16 +298,16 @@ namespace
             std::size_t charCount = 0;
             while (charCount < count && _position < _bytes.size())
             {
-                std::size_t position = static_cast<std::size_t>(_position);
-                std::uint32_t scalar = 0;
-                const Utf8DecodeStatus status = DecodeUtf8Scalar(
-                    _bytes.data(), _bytes.size(), position, scalar);
+                const std::size_t position = static_cast<std::size_t>(_position);
+                const Utf8Scalar decoded = RuneDecodeFromUtf8(std::string_view(
+                    reinterpret_cast<const char*>(_bytes.data()) + position, _bytes.size() - position));
+                const char32_t scalar = decoded.Value;
 
                 // BinaryReader's UTF-8 Decoder is invoked with flush:false. An
                 // incomplete terminal sequence is consumed into decoder state but
                 // emits no replacement character before end-of-stream is observed.
-                _position = position;
-                if (status == Utf8DecodeStatus::NeedMoreData)
+                _position += decoded.Length;
+                if (decoded.Status == OperationStatus::NeedMoreData)
                 {
                     break;
                 }
@@ -1026,7 +856,7 @@ namespace
                 throw System::IO::InvalidDataException("Central Directory corrupt.");
             }
 
-            entry.name = DecodeZipName(archive.data() + cursor + 46, nameLength);
+            entry.name = Utf8GetString(std::span<const std::uint8_t>(archive.data() + cursor + 46, nameLength));
             entry.compressedSize = compressed32;
             entry.uncompressedSize = uncompressed32;
             entry.localOffset = offset32;
@@ -1173,7 +1003,7 @@ namespace
         }
         catch (const std::runtime_error&)
         {
-            return DecodeUtf8(left) < DecodeUtf8(right);
+            return Utf8ToUtf32(left) < Utf8ToUtf32(right);
         }
     }
 
@@ -1235,18 +1065,9 @@ namespace MphRead::Mods::MapGen::Q3RecordRuntime
             try
             {
                 std::uint32_t hash = ProcessSeed() ^ 0x6D2B79F5U;
-                for (std::uint32_t scalar : DecodeUtf8(value))
+                for (const char16_t unit : Utf8ToUtf16(value))
                 {
-                    if (scalar <= 0xFFFFU)
-                    {
-                        hash = Mix(hash, scalar);
-                    }
-                    else
-                    {
-                        scalar -= 0x10000U;
-                        hash = Mix(hash, 0xD800U + (scalar >> 10));
-                        hash = Mix(hash, 0xDC00U + (scalar & 0x3FFU));
-                    }
+                    hash = Mix(hash, unit);
                 }
                 return hash;
             }
@@ -1266,26 +1087,6 @@ namespace MphRead::Mods::MapGen::Q3RecordRuntime
             std::string negativeInfinity = "-Infinity";
         };
 
-        [[nodiscard]] std::string Utf16ToUtf8(const std::uint16_t* data, std::size_t length)
-        {
-            std::string result;
-            for (std::size_t i = 0; i < length; ++i)
-            {
-                std::uint32_t scalar = data[i];
-                if (scalar >= 0xD800U && scalar <= 0xDBFFU
-                    && i + 1 < length && data[i + 1] >= 0xDC00U && data[i + 1] <= 0xDFFFU)
-                {
-                    scalar = 0x10000U + ((scalar - 0xD800U) << 10) + (data[++i] - 0xDC00U);
-                }
-                else if (scalar >= 0xD800U && scalar <= 0xDFFFU)
-                {
-                    scalar = 0xFFFDU;
-                }
-                AppendUtf8(result, scalar);
-            }
-            return result;
-        }
-
 #if defined(_WIN32)
         [[nodiscard]] std::string WindowsLocaleString(LCTYPE type, const std::string& fallback)
         {
@@ -1293,13 +1094,7 @@ namespace MphRead::Mods::MapGen::Q3RecordRuntime
             const int count = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type,
                 buffer, static_cast<int>(std::size(buffer)));
             if (count <= 1) return fallback;
-            std::vector<std::uint16_t> utf16;
-            utf16.reserve(static_cast<std::size_t>(count - 1));
-            for (int i = 0; i < count - 1; ++i)
-            {
-                utf16.push_back(static_cast<std::uint16_t>(buffer[i]));
-            }
-            return Utf16ToUtf8(utf16.data(), utf16.size());
+            return WideToUtf8(std::wstring_view(buffer, static_cast<std::size_t>(count - 1)));
         }
 #endif
 
@@ -1371,7 +1166,7 @@ namespace MphRead::Mods::MapGen::Q3RecordRuntime
                             {
                                 return fallback;
                             }
-                            return Utf16ToUtf8(buffer, static_cast<std::size_t>(length));
+                            return Utf16ToUtf8(std::u16string_view(reinterpret_cast<const char16_t*>(buffer), static_cast<std::size_t>(length)));
                         };
                         // UNumberFormatSymbol values from ICU: decimal=0, minus=6,
                         // plus=7, infinity=14, NaN=15.

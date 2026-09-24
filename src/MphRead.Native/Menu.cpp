@@ -21,6 +21,7 @@
 #include "Sound/Sfx.hpp"
 #include "Strings.hpp"
 #include "Utility/Rng.hpp"
+#include "NativeRuntime/System/Encoding.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
@@ -62,11 +63,16 @@
 #endif
 
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
 using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::StringTrim;
+using ::MphRead::NativeRuntime::Utf16ToUtf8;
+using ::MphRead::NativeRuntime::Utf8Scalar;
+using ::MphRead::NativeRuntime::Utf8ToWide;
+using ::MphRead::NativeRuntime::WideToUtf8;
 
 namespace
 {
@@ -139,48 +145,14 @@ namespace
     constexpr std::string_view AMFE0 = "AMFE0";
     constexpr std::string_view AMFP0 = "AMFP0";
 
-    struct Utf8Character
-    {
-        char32_t Value = 0;
-        std::size_t Length = 1;
-        bool Valid = false;
-    };
-
-    [[nodiscard]] Utf8Character DecodeUtf8(std::string_view text, std::size_t offset) noexcept
-    {
-        const auto first = static_cast<unsigned char>(text[offset]);
-        if (first <= 0x7FU) return {first, 1, true};
-
-        std::size_t length = 0;
-        char32_t value = 0;
-        char32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U) { length = 2; value = first & 0x1FU; minimum = 0x80; }
-        else if ((first & 0xF0U) == 0xE0U) { length = 3; value = first & 0x0FU; minimum = 0x800; }
-        else if ((first & 0xF8U) == 0xF0U) { length = 4; value = first & 0x07U; minimum = 0x10000; }
-        else return {first, 1, false};
-
-        if (offset + length > text.size()) return {first, 1, false};
-        for (std::size_t i = 1; i < length; ++i)
-        {
-            const auto continuation = static_cast<unsigned char>(text[offset + i]);
-            if ((continuation & 0xC0U) != 0x80U) return {first, 1, false};
-            value = (value << 6) | (continuation & 0x3FU);
-        }
-        if (value < minimum || value > 0x10FFFF
-            || (value >= 0xD800 && value <= 0xDFFF))
-        {
-            return {first, 1, false};
-        }
-        return {value, length, true};
-    }
 
     [[nodiscard]] std::string DotNetTrimStart(std::string_view text)
     {
         std::size_t first = 0;
         while (first < text.size())
         {
-            const Utf8Character character = DecodeUtf8(text, first);
-            if (!character.Valid || !CharIsWhiteSpace(character.Value)) break;
+            const Utf8Scalar character = DecodeUtf8Scalar(text, first);
+            if (!character.Valid() || !CharIsWhiteSpace(character.Value)) break;
             first += character.Length;
         }
         return std::string(text.substr(first));
@@ -249,26 +221,6 @@ namespace
     }
 #endif
 
-    [[nodiscard]] std::wstring Utf8ToWide(std::string_view text)
-    {
-#if WCHAR_MAX <= 0xFFFF
-        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t> converter;
-#else
-        std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
-#endif
-        return converter.from_bytes(text.data(), text.data() + text.size());
-    }
-
-    [[nodiscard]] std::string WideToUtf8(std::wstring_view text)
-    {
-#if WCHAR_MAX <= 0xFFFF
-        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t> converter;
-#else
-        std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
-#endif
-        return converter.to_bytes(text.data(), text.data() + text.size());
-    }
-
     [[nodiscard]] std::string DotNetCaseMap(std::string_view text, bool upper)
     {
         try
@@ -331,12 +283,6 @@ namespace
     };
 
 #if !defined(_WIN32)
-    [[nodiscard]] std::string Utf16ToUtf8(const char16_t* value, std::size_t length)
-    {
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-        return converter.to_bytes(value, value + length);
-    }
-
     template <typename T>
     [[nodiscard]] T ResolveIcuNumberSymbol(void* library, std::string_view name) noexcept
     {
@@ -418,7 +364,7 @@ namespace
             {
                 return std::nullopt;
             }
-            return Utf16ToUtf8(buffer.data(), static_cast<std::size_t>(length));
+            return Utf16ToUtf8(std::u16string_view(buffer.data(), static_cast<std::size_t>(length)));
         };
 
         // ICU UNumberFormatSymbol: MINUS_SIGN = 6, PLUS_SIGN = 7.
@@ -1210,8 +1156,8 @@ namespace
     {
         if (value.size() >= 2)
         {
-            const Utf8Character first = DecodeUtf8(value, 0);
-            const std::size_t firstLength = first.Valid ? first.Length : 1;
+            const Utf8Scalar first = DecodeUtf8Scalar(value, 0);
+            const std::size_t firstLength = first.Valid() ? first.Length : 1;
             value = ToUpper(value.substr(0, firstLength)) + ToLower(value.substr(firstLength));
             SaveWhen numeric{};
             if (TryParseEnumNumeric(value, numeric)) return numeric;
@@ -2045,8 +1991,8 @@ namespace MphRead
             std::string name = split.at(0);
             if (!name.empty())
             {
-                const Utf8Character first = DecodeUtf8(name, 0);
-                const std::size_t firstLength = first.Valid ? first.Length : 1;
+                const Utf8Scalar first = DecodeUtf8Scalar(name, 0);
+                const std::size_t firstLength = first.Valid() ? first.Length : 1;
                 name = ToUpper(name.substr(0, firstLength)) + name.substr(firstLength);
                 Hunter hunter{};
                 if (TryParseHunter(name, hunter) && IsDefinedHunter(hunter) && hunter != Hunter::Random)

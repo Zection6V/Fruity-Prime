@@ -11,6 +11,7 @@
 #include "../GameState.hpp"
 #include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <array>
@@ -37,6 +38,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace OpenTK::Graphics::OpenGL::GL
 {
@@ -471,87 +473,6 @@ namespace
                 }
             }
             return first;
-        }
-
-    std::u16string Utf8ToUtf16(std::string_view value)
-        {
-            std::u16string result;
-            result.reserve(value.size());
-    
-            std::size_t index = 0;
-            while (index < value.size())
-            {
-                const unsigned char first = static_cast<unsigned char>(value[index]);
-                std::uint32_t codePoint = 0;
-                std::size_t count = 0;
-    
-                if (first <= 0x7F)
-                {
-                    codePoint = first;
-                    count = 1;
-                }
-                else if ((first & 0xE0) == 0xC0)
-                {
-                    codePoint = first & 0x1F;
-                    count = 2;
-                    if (codePoint == 0)
-                    {
-                        throw std::invalid_argument("Invalid UTF-8 sequence.");
-                    }
-                }
-                else if ((first & 0xF0) == 0xE0)
-                {
-                    codePoint = first & 0x0F;
-                    count = 3;
-                }
-                else if ((first & 0xF8) == 0xF0)
-                {
-                    codePoint = first & 0x07;
-                    count = 4;
-                }
-                else
-                {
-                    throw std::invalid_argument("Invalid UTF-8 sequence.");
-                }
-    
-                if (index + count > value.size())
-                {
-                    throw std::invalid_argument("Invalid UTF-8 sequence.");
-                }
-    
-                for (std::size_t offset = 1; offset < count; ++offset)
-                {
-                    const unsigned char continuation =
-                        static_cast<unsigned char>(value[index + offset]);
-                    if ((continuation & 0xC0) != 0x80)
-                    {
-                        throw std::invalid_argument("Invalid UTF-8 sequence.");
-                    }
-                    codePoint = (codePoint << 6) | (continuation & 0x3F);
-                }
-    
-                if ((count == 2 && codePoint < 0x80)
-                    || (count == 3 && codePoint < 0x800)
-                    || (count == 4 && codePoint < 0x10000)
-                    || codePoint > 0x10FFFF
-                    || (codePoint >= 0xD800 && codePoint <= 0xDFFF))
-                {
-                    throw std::invalid_argument("Invalid UTF-8 sequence.");
-                }
-    
-                if (codePoint <= 0xFFFF)
-                {
-                    result.push_back(static_cast<char16_t>(codePoint));
-                }
-                else
-                {
-                    codePoint -= 0x10000;
-                    result.push_back(static_cast<char16_t>(0xD800 + (codePoint >> 10)));
-                    result.push_back(static_cast<char16_t>(0xDC00 + (codePoint & 0x3FF)));
-                }
-                index += count;
-            }
-            return result;
         }
 
     int CompareOrdinalIgnoreCase(std::string_view left, std::string_view right)

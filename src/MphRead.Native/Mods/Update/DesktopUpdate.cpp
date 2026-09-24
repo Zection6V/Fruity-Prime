@@ -3,6 +3,7 @@
 
 #include "BuildVersion.hpp"
 #include "UpdateDownload.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 
@@ -64,6 +65,8 @@ using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::Utf8ToWide;
+using ::MphRead::NativeRuntime::WideToUtf8;
 
 namespace MphRead::Mods::Update
 {
@@ -100,56 +103,6 @@ namespace MphRead::Mods::Update
             {
             }
         };
-
-#if defined(_WIN32)
-        [[nodiscard]] std::wstring Utf8ToWide(std::string_view value)
-        {
-            if (value.empty())
-            {
-                return {};
-            }
-            const int count = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                value.data(), static_cast<int>(value.size()), nullptr, 0);
-            if (count <= 0)
-            {
-                throw std::system_error(
-                    static_cast<int>(::GetLastError()), std::system_category());
-            }
-            std::wstring result(static_cast<std::size_t>(count), L'\0');
-            if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                value.data(), static_cast<int>(value.size()), result.data(), count) != count)
-            {
-                throw std::system_error(
-                    static_cast<int>(::GetLastError()), std::system_category());
-            }
-            return result;
-        }
-
-        [[nodiscard]] std::string WideToUtf8(std::wstring_view value)
-        {
-            if (value.empty())
-            {
-                return {};
-            }
-            const int count = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-                value.data(), static_cast<int>(value.size()), nullptr, 0,
-                nullptr, nullptr);
-            if (count <= 0)
-            {
-                throw std::system_error(
-                    static_cast<int>(::GetLastError()), std::system_category());
-            }
-            std::string result(static_cast<std::size_t>(count), '\0');
-            if (::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-                value.data(), static_cast<int>(value.size()), result.data(), count,
-                nullptr, nullptr) != count)
-            {
-                throw std::system_error(
-                    static_cast<int>(::GetLastError()), std::system_category());
-            }
-            return result;
-        }
-#endif
 
         [[nodiscard]] std::string CurrentExecutablePath()
         {

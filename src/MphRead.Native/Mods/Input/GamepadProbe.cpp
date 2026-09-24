@@ -5,6 +5,7 @@
 #include "GamepadMappings.hpp"
 #include "PadBindings.hpp"
 #include "../InputSettings.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -37,6 +38,8 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::Utf8GetString;
 
 namespace
 {
@@ -218,100 +221,6 @@ namespace
         return function;
     }
 
-    void AppendUtf8(std::string& output, std::uint32_t value)
-    {
-        if (value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
-        {
-            value = 0xFFFDU;
-        }
-        if (value <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(value));
-        }
-        else if (value <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (value >> 6)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-        else if (value <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (value >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (value >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-    }
-
-    [[nodiscard]] std::string DecodeUtf8(std::string_view input)
-    {
-        std::string output;
-        output.reserve(input.size());
-        for (std::size_t index = 0; index < input.size();)
-        {
-            const auto first = static_cast<unsigned char>(input[index]);
-            if (first <= 0x7FU)
-            {
-                output.push_back(static_cast<char>(first));
-                ++index;
-                continue;
-            }
-
-            std::size_t length = 0;
-            if (first >= 0xC2U && first <= 0xDFU)
-            {
-                length = 2;
-            }
-            else if (first >= 0xE0U && first <= 0xEFU)
-            {
-                length = 3;
-            }
-            else if (first >= 0xF0U && first <= 0xF4U)
-            {
-                length = 4;
-            }
-            else
-            {
-                AppendUtf8(output, 0xFFFDU);
-                ++index;
-                continue;
-            }
-
-            std::size_t available = 1;
-            while (available < length && index + available < input.size()
-                && (static_cast<unsigned char>(input[index + available]) & 0xC0U) == 0x80U)
-            {
-                ++available;
-            }
-            if (available < length)
-            {
-                AppendUtf8(output, 0xFFFDU);
-                index += available;
-                continue;
-            }
-
-            const auto second = static_cast<unsigned char>(input[index + 1]);
-            if ((first == 0xE0U && second < 0xA0U)
-                || (first == 0xEDU && second >= 0xA0U)
-                || (first == 0xF0U && second < 0x90U)
-                || (first == 0xF4U && second > 0x8FU))
-            {
-                AppendUtf8(output, 0xFFFDU);
-                ++index;
-                continue;
-            }
-
-            output.append(input.substr(index, length));
-            index += length;
-        }
-        return output;
-    }
-
     [[nodiscard]] bool GlfwInit()
     {
         return Require(InitApi(), "glfwInit")() == 1;
@@ -338,7 +247,7 @@ namespace
             JoystickNameApi(), "glfwGetJoystickName")(slot);
         return value == nullptr
             ? std::nullopt
-            : std::optional<std::string>{DecodeUtf8(value)};
+            : std::optional<std::string>{Utf8GetString(value)};
     }
 
     [[nodiscard]] bool JoystickIsGamepad(std::int32_t slot)

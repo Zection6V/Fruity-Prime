@@ -1,4 +1,5 @@
 #include "ConsoleWindow.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <cstddef>
@@ -25,7 +26,11 @@
 #include <windows.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::HasFlag;
+using ::MphRead::NativeRuntime::OperationStatus;
+using ::MphRead::NativeRuntime::RuneDecodeFromUtf8;
+using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace
 {
@@ -258,37 +263,6 @@ namespace
         ::SetLastError(ERROR_SUCCESS);
         const bool isPipe = ::GetFileType(handle) == FILE_TYPE_PIPE;
         return StandardFile{handle, false, useFileApis, isPipe};
-    }
-
-    void AppendUtf8(std::string& output, std::uint32_t codePoint)
-    {
-        if (codePoint <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(codePoint));
-        }
-        else if (codePoint <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (codePoint >> 6)));
-            output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else if (codePoint <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (codePoint >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (codePoint >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((codePoint >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-    }
-
-    void AppendReplacement(std::string& output)
-    {
-        AppendUtf8(output, 0xFFFDU);
     }
 
     class DotNetStreamWriterBuffer final : public std::streambuf
@@ -732,86 +706,15 @@ namespace
             std::size_t index = 0;
             while (index < _decoderPending.size())
             {
-                const auto first = static_cast<unsigned char>(_decoderPending[index]);
-                if (first <= 0x7FU)
+                const Utf8Scalar scalar = RuneDecodeFromUtf8(
+                    std::string_view(_decoderPending).substr(index));
+                if (scalar.Status == OperationStatus::NeedMoreData && !flush)
                 {
-                    _decoded.push_back(static_cast<char>(first));
-                    ++index;
-                    continue;
-                }
-
-                std::size_t length = 0;
-                std::uint32_t value = 0;
-                std::uint32_t minimum = 0;
-                if (first >= 0xC2U && first <= 0xDFU)
-                {
-                    length = 2;
-                    value = first & 0x1FU;
-                    minimum = 0x80U;
-                }
-                else if (first >= 0xE0U && first <= 0xEFU)
-                {
-                    length = 3;
-                    value = first & 0x0FU;
-                    minimum = 0x800U;
-                }
-                else if (first >= 0xF0U && first <= 0xF4U)
-                {
-                    length = 4;
-                    value = first & 0x07U;
-                    minimum = 0x10000U;
-                }
-                else
-                {
-                    AppendReplacement(_decoded);
-                    ++index;
-                    continue;
-                }
-
-                if (_decoderPending.size() - index < length)
-                {
-                    if (!flush)
-                    {
-                        break;
-                    }
-                    AppendReplacement(_decoded);
-                    index = _decoderPending.size();
+                    // The rest of the sequence may still be on its way.
                     break;
                 }
-
-                std::size_t validPrefix = 1;
-                bool invalid = false;
-                for (std::size_t offset = 1; offset < length; ++offset)
-                {
-                    const auto next = static_cast<unsigned char>(_decoderPending[index + offset]);
-                    if ((next & 0xC0U) != 0x80U)
-                    {
-                        invalid = true;
-                        break;
-                    }
-                    if (offset == 1
-                        && ((first == 0xE0U && next < 0xA0U)
-                            || (first == 0xEDU && next >= 0xA0U)
-                            || (first == 0xF0U && next < 0x90U)
-                            || (first == 0xF4U && next > 0x8FU)))
-                    {
-                        invalid = true;
-                        break;
-                    }
-                    value = (value << 6) | (next & 0x3FU);
-                    ++validPrefix;
-                }
-
-                if (invalid || value < minimum || value > 0x10FFFFU
-                    || (value >= 0xD800U && value <= 0xDFFFU))
-                {
-                    AppendReplacement(_decoded);
-                    index += validPrefix;
-                    continue;
-                }
-
-                AppendUtf8(_decoded, value);
-                index += length;
+                AppendUtf8(_decoded, scalar.Value);
+                index += scalar.Length;
             }
             _decoderPending.erase(0, index);
         }
@@ -834,11 +737,11 @@ namespace
                 {
                     if (flush)
                     {
-                        AppendReplacement(_decoded);
+                        AppendUtf8(_decoded, 0xFFFDU);
                         _pendingHighSurrogate.reset();
                         if (!_decoderPending.empty())
                         {
-                            AppendReplacement(_decoded);
+                            AppendUtf8(_decoded, 0xFFFDU);
                             _decoderPending.clear();
                         }
                     }
@@ -856,7 +759,7 @@ namespace
                 }
                 else
                 {
-                    AppendReplacement(_decoded);
+                    AppendUtf8(_decoded, 0xFFFDU);
                 }
                 _pendingHighSurrogate.reset();
             }
@@ -871,7 +774,7 @@ namespace
                     {
                         if (flush)
                         {
-                            AppendReplacement(_decoded);
+                            AppendUtf8(_decoded, 0xFFFDU);
                         }
                         else
                         {
@@ -891,12 +794,12 @@ namespace
                     }
                     else
                     {
-                        AppendReplacement(_decoded);
+                        AppendUtf8(_decoded, 0xFFFDU);
                     }
                 }
                 else if (first >= 0xDC00U && first <= 0xDFFFU)
                 {
-                    AppendReplacement(_decoded);
+                    AppendUtf8(_decoded, 0xFFFDU);
                 }
                 else
                 {
@@ -907,7 +810,7 @@ namespace
             _decoderPending.erase(0, index);
             if (flush && !_decoderPending.empty())
             {
-                AppendReplacement(_decoded);
+                AppendUtf8(_decoded, 0xFFFDU);
                 _decoderPending.clear();
             }
         }
@@ -935,7 +838,7 @@ namespace
 
                 if (value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
                 {
-                    AppendReplacement(_decoded);
+                    AppendUtf8(_decoded, 0xFFFDU);
                 }
                 else
                 {
@@ -946,7 +849,7 @@ namespace
             _decoderPending.erase(0, index);
             if (flush && !_decoderPending.empty())
             {
-                AppendReplacement(_decoded);
+                AppendUtf8(_decoded, 0xFFFDU);
                 _decoderPending.clear();
             }
         }

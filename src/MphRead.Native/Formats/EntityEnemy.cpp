@@ -1,4 +1,5 @@
 #include "EntityEnemy.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 
 #include <array>
 #include <cstddef>
@@ -9,6 +10,8 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+
+using ::MphRead::NativeRuntime::AppendUtf8;
 
 namespace
 {
@@ -21,32 +24,6 @@ namespace
             ::new (static_cast<void*>(std::addressof(self))) T(other);
         }
         return self;
-    }
-
-    void AppendUtf8(std::string& result, char32_t codePoint)
-    {
-        if (codePoint < 0x80U)
-        {
-            result.push_back(static_cast<char>(codePoint));
-        }
-        else if (codePoint < 0x800U)
-        {
-            result.push_back(static_cast<char>(0xC0U | (codePoint >> 6)));
-            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else if (codePoint < 0x10000U)
-        {
-            result.push_back(static_cast<char>(0xE0U | (codePoint >> 12)));
-            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
-            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else
-        {
-            result.push_back(static_cast<char>(0xF0U | (codePoint >> 18)));
-            result.push_back(static_cast<char>(0x80U | ((codePoint >> 12) & 0x3FU)));
-            result.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
-            result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
     }
 
     // Editor string references hold the managed string as UTF-8; unpaired

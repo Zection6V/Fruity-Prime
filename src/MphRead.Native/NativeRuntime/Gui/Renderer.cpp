@@ -1,4 +1,5 @@
 #include "Renderer.hpp"
+#include "../System/Encoding.hpp"
 
 #include "Backend.hpp"
 
@@ -153,7 +154,7 @@ namespace MphRead::NativeRuntime::Gui
         for (const std::string& line : lines)
         {
             double width = 0.0;
-            for (const char32_t code : Decode(line))
+            for (const char32_t code : Utf8ToUtf32(line))
             {
                 const Glyph* const glyph = GetGlyph(code, fontSize, weight);
                 width += glyph != nullptr ? glyph->Advance : fontSize * 0.5;
@@ -169,7 +170,7 @@ namespace MphRead::NativeRuntime::Gui
             }
 
             const double atlasSize = std::max(1, AtlasSize());
-            for (const char32_t code : Decode(line))
+            for (const char32_t code : Utf8ToUtf32(line))
             {
                 const Glyph* const glyph = GetGlyph(code, fontSize, weight);
                 if (glyph == nullptr)

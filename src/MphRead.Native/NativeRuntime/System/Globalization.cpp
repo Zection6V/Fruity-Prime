@@ -1,6 +1,7 @@
 #include "Globalization.hpp"
 #include "NativeRuntime/System/Charconv.hpp"
 
+#include "Encoding.hpp"
 #include "Exceptions.hpp"
 
 #include <algorithm>
@@ -45,61 +46,6 @@ namespace MphRead::NativeRuntime
             return ::MphRead::NativeRuntime::CharIsWhiteSpace(value);
         }
 
-        [[nodiscard]] std::pair<char32_t, std::size_t> DecodeUtf8At(
-            std::string_view value, std::size_t offset) noexcept
-        {
-            const auto byte = static_cast<unsigned char>(value[offset]);
-            if (byte < 0x80)
-            {
-                return {byte, offset + 1};
-            }
-            auto continuation = [&](std::size_t index) -> std::optional<unsigned char>
-            {
-                if (index >= value.size())
-                {
-                    return std::nullopt;
-                }
-                const auto next = static_cast<unsigned char>(value[index]);
-                if ((next & 0xC0U) != 0x80U)
-                {
-                    return std::nullopt;
-                }
-                return next;
-            };
-            if (byte >= 0xC2U && byte <= 0xDFU)
-            {
-                if (auto b1 = continuation(offset + 1))
-                {
-                    return {static_cast<char32_t>(((byte & 0x1FU) << 6U) | (*b1 & 0x3FU)), offset + 2};
-                }
-            }
-            else if (byte >= 0xE0U && byte <= 0xEFU)
-            {
-                auto b1 = continuation(offset + 1);
-                auto b2 = continuation(offset + 2);
-                if (b1 && b2 && !(byte == 0xE0U && *b1 < 0xA0U)
-                    && !(byte == 0xEDU && *b1 >= 0xA0U))
-                {
-                    return {static_cast<char32_t>(((byte & 0x0FU) << 12U)
-                        | ((*b1 & 0x3FU) << 6U) | (*b2 & 0x3FU)), offset + 3};
-                }
-            }
-            else if (byte >= 0xF0U && byte <= 0xF4U)
-            {
-                auto b1 = continuation(offset + 1);
-                auto b2 = continuation(offset + 2);
-                auto b3 = continuation(offset + 3);
-                if (b1 && b2 && b3 && !(byte == 0xF0U && *b1 < 0x90U)
-                    && !(byte == 0xF4U && *b1 >= 0x90U))
-                {
-                    return {static_cast<char32_t>(((byte & 0x07U) << 18U)
-                        | ((*b1 & 0x3FU) << 12U) | ((*b2 & 0x3FU) << 6U)
-                        | (*b3 & 0x3FU)), offset + 4};
-                }
-            }
-            return {byte, offset + 1};
-        }
-
         [[nodiscard]] std::string TrimManagedWhiteSpace(std::string value)
         {
             std::size_t first = std::string::npos;
@@ -107,7 +53,9 @@ namespace MphRead::NativeRuntime
             for (std::size_t offset = 0; offset < value.size();)
             {
                 const std::size_t start = offset;
-                auto [codePoint, next] = DecodeUtf8At(value, offset);
+                const Utf8Scalar codePointScalar = DecodeUtf8Scalar(value, offset);
+                const char32_t codePoint = codePointScalar.Value;
+                const std::size_t next = offset + codePointScalar.Length;
                 offset = next;
                 if (!IsManagedWhiteSpace(codePoint))
                 {
@@ -135,56 +83,6 @@ namespace MphRead::NativeRuntime
             {
                 return std::locale::classic();
             }
-        }
-
-        void AppendUtf8(std::string& result, char32_t codePoint)
-        {
-            if (codePoint <= 0x7FU)
-            {
-                result.push_back(static_cast<char>(codePoint));
-            }
-            else if (codePoint <= 0x7FFU)
-            {
-                result.push_back(static_cast<char>(0xC0U | (codePoint >> 6U)));
-                result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-            }
-            else if (codePoint <= 0xFFFFU)
-            {
-                result.push_back(static_cast<char>(0xE0U | (codePoint >> 12U)));
-                result.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
-                result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-            }
-            else if (codePoint <= 0x10FFFFU)
-            {
-                result.push_back(static_cast<char>(0xF0U | (codePoint >> 18U)));
-                result.push_back(static_cast<char>(0x80U | ((codePoint >> 12U) & 0x3FU)));
-                result.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
-                result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-            }
-        }
-
-        [[nodiscard]] std::string WideToUtf8(std::wstring_view value)
-        {
-            std::string result;
-            result.reserve(value.size());
-            for (std::size_t i = 0; i < value.size(); ++i)
-            {
-                char32_t codePoint = static_cast<char32_t>(value[i]);
-                if constexpr (sizeof(wchar_t) == 2)
-                {
-                    if (codePoint >= 0xD800U && codePoint <= 0xDBFFU && i + 1 < value.size())
-                    {
-                        const char32_t low = static_cast<char32_t>(value[i + 1]);
-                        if (low >= 0xDC00U && low <= 0xDFFFU)
-                        {
-                            codePoint = 0x10000U + ((codePoint - 0xD800U) << 10U) + (low - 0xDC00U);
-                            ++i;
-                        }
-                    }
-                }
-                AppendUtf8(result, codePoint);
-            }
-            return result;
         }
 
         [[nodiscard]] bool EqualsAsciiIgnoreCase(std::string_view left, std::string_view right) noexcept
@@ -229,7 +127,9 @@ namespace MphRead::NativeRuntime
             {
                 return false;
             }
-            const auto [codePoint, next] = DecodeUtf8At(negativeSign, 0);
+            const Utf8Scalar codePointScalar = DecodeUtf8Scalar(negativeSign, 0);
+            const char32_t codePoint = codePointScalar.Value;
+            const std::size_t next = 0 + codePointScalar.Length;
             if (next != negativeSign.size())
             {
                 return false;
@@ -247,49 +147,6 @@ namespace MphRead::NativeRuntime
             default:
                 return false;
             }
-        }
-
-        [[nodiscard]] std::u16string Utf8ToUtf16(std::string_view value)
-        {
-            std::u16string result;
-            result.reserve(value.size());
-            for (std::size_t offset = 0; offset < value.size();)
-            {
-                const auto [codePoint, next] = DecodeUtf8At(value, offset);
-                offset = next;
-                if (codePoint <= 0xFFFFU)
-                {
-                    result.push_back(static_cast<char16_t>(codePoint));
-                }
-                else if (codePoint <= 0x10FFFFU)
-                {
-                    const char32_t scalar = codePoint - 0x10000U;
-                    result.push_back(static_cast<char16_t>(0xD800U + (scalar >> 10U)));
-                    result.push_back(static_cast<char16_t>(0xDC00U + (scalar & 0x3FFU)));
-                }
-            }
-            return result;
-        }
-
-        [[nodiscard]] std::string Utf16ToUtf8(std::u16string_view value)
-        {
-            std::string result;
-            result.reserve(value.size());
-            for (std::size_t i = 0; i < value.size(); ++i)
-            {
-                char32_t codePoint = static_cast<char32_t>(value[i]);
-                if (codePoint >= 0xD800U && codePoint <= 0xDBFFU && i + 1 < value.size())
-                {
-                    const char32_t low = static_cast<char32_t>(value[i + 1]);
-                    if (low >= 0xDC00U && low <= 0xDFFFU)
-                    {
-                        codePoint = 0x10000U + ((codePoint - 0xD800U) << 10U) + (low - 0xDC00U);
-                        ++i;
-                    }
-                }
-                AppendUtf8(result, codePoint);
-            }
-            return result;
         }
 
         [[nodiscard]] bool EnvironmentFlagEnabled(const char* name, bool defaultValue = false) noexcept
@@ -1022,8 +879,12 @@ namespace MphRead::NativeRuntime
                 {
                     return 0;
                 }
-                const auto [expected, nextToken] = DecodeUtf8At(token, tokenIndex);
-                const auto [actual, nextText] = DecodeUtf8At(text, textIndex);
+                const Utf8Scalar expectedScalar = DecodeUtf8Scalar(token, tokenIndex);
+                const char32_t expected = expectedScalar.Value;
+                const std::size_t nextToken = tokenIndex + expectedScalar.Length;
+                const Utf8Scalar actualScalar = DecodeUtf8Scalar(text, textIndex);
+                const char32_t actual = actualScalar.Value;
+                const std::size_t nextText = textIndex + actualScalar.Length;
                 if (actual != expected
                     && !(actual == U'\u0020' && IsManagedSpaceReplacingChar(expected)))
                 {
@@ -1050,7 +911,9 @@ namespace MphRead::NativeRuntime
             std::size_t textIndex = index;
             while (textIndex < text.size() && actual.size() < expected.size())
             {
-                const auto [codePoint, nextText] = DecodeUtf8At(text, textIndex);
+                const Utf8Scalar codePointScalar = DecodeUtf8Scalar(text, textIndex);
+                const char32_t codePoint = codePointScalar.Value;
+                const std::size_t nextText = textIndex + codePointScalar.Length;
                 if (codePoint <= 0xFFFFU)
                 {
                     actual.push_back(static_cast<char16_t>(codePoint));
@@ -1080,8 +943,12 @@ namespace MphRead::NativeRuntime
                 {
                     return 0;
                 }
-                const auto [expected, nextToken] = DecodeUtf8At(token, tokenIndex);
-                const auto [actual, nextText] = DecodeUtf8At(text, textIndex);
+                const Utf8Scalar expectedScalar = DecodeUtf8Scalar(token, tokenIndex);
+                const char32_t expected = expectedScalar.Value;
+                const std::size_t nextToken = tokenIndex + expectedScalar.Length;
+                const Utf8Scalar actualScalar = DecodeUtf8Scalar(text, textIndex);
+                const char32_t actual = actualScalar.Value;
+                const std::size_t nextText = textIndex + actualScalar.Length;
                 if (FoldManagedOrdinalCodePoint(actual) != FoldManagedOrdinalCodePoint(expected))
                 {
                     return 0;
@@ -1513,7 +1380,9 @@ namespace MphRead::NativeRuntime
         // byte is not a character, and U+3000 alone is white space.
         for (std::size_t offset = 0; offset < value.size();)
         {
-            const auto [codePoint, next] = DecodeUtf8At(value, offset);
+            const Utf8Scalar codePointScalar = DecodeUtf8Scalar(value, offset);
+            const char32_t codePoint = codePointScalar.Value;
+            const std::size_t next = offset + codePointScalar.Length;
             if (!IsManagedWhiteSpace(codePoint))
             {
                 return false;
@@ -1545,7 +1414,9 @@ namespace MphRead::NativeRuntime
         for (std::size_t offset = 0; offset < value.size();)
         {
             const std::size_t start = offset;
-            const auto [codePoint, next] = DecodeUtf8At(value, offset);
+            const Utf8Scalar codePointScalar = DecodeUtf8Scalar(value, offset);
+            const char32_t codePoint = codePointScalar.Value;
+            const std::size_t next = offset + codePointScalar.Length;
             offset = next;
             if (!IsManagedWhiteSpace(codePoint))
             {
@@ -2446,20 +2317,6 @@ namespace MphRead::NativeRuntime
                 }
             }
             return true;
-        }
-
-        [[nodiscard]] std::u32string Utf8ToUtf32(std::string_view value)
-        {
-            std::u32string result;
-            result.reserve(value.size());
-            std::size_t index = 0;
-            while (index < value.size())
-            {
-                const auto [code, length] = DecodeUtf8At(value, index);
-                index += length;
-                result.push_back(code);
-            }
-            return result;
         }
 
         // Number.IsDigit.

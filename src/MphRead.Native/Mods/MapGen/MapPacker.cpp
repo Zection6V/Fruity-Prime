@@ -13,6 +13,7 @@
 #include "Q3Import.hpp"
 #include "RawStructs.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -51,13 +52,15 @@
 #include <wchar.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
-using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
+using ::MphRead::NativeRuntime::Utf8ToUtf32;
 
 namespace MphRead::Utility
 {
@@ -308,172 +311,6 @@ namespace
         return reinterpret_cast<MphRead::Interop::ManagedArray<Vector2>*>(texcoords);
     }
 
-    void AppendUtf8(std::string& output, std::uint32_t scalar)
-    {
-        if (scalar <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(scalar));
-        }
-        else if (scalar <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (scalar >> 6)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else if (scalar <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (scalar >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (scalar >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-    }
-
-    enum class Utf8Status
-    {
-        Done,
-        NeedMore,
-        Invalid
-    };
-
-    [[nodiscard]] Utf8Status DecodeUtf8Scalar(
-        const std::uint8_t* data,
-        std::size_t size,
-        std::size_t& position,
-        std::uint32_t& scalar) noexcept
-    {
-        const std::size_t start = position;
-        if (start >= size)
-        {
-            scalar = 0xFFFDU;
-            return Utf8Status::NeedMore;
-        }
-        const std::uint32_t first = data[start];
-        if (first <= 0x7FU)
-        {
-            scalar = first;
-            position = start + 1;
-            return Utf8Status::Done;
-        }
-        if (first < 0xC2U || first > 0xF4U)
-        {
-            scalar = 0xFFFDU;
-            position = start + 1;
-            return Utf8Status::Invalid;
-        }
-        if (start + 1 >= size)
-        {
-            scalar = 0xFFFDU;
-            position = size;
-            return Utf8Status::NeedMore;
-        }
-        const std::uint32_t second = data[start + 1];
-        if ((second & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            position = start + 1;
-            return Utf8Status::Invalid;
-        }
-        if (first <= 0xDFU)
-        {
-            scalar = ((first & 0x1FU) << 6) | (second & 0x3FU);
-            position = start + 2;
-            return Utf8Status::Done;
-        }
-        if ((first == 0xE0U && second < 0xA0U)
-            || (first == 0xEDU && second >= 0xA0U)
-            || (first == 0xF0U && second < 0x90U)
-            || (first == 0xF4U && second >= 0x90U))
-        {
-            scalar = 0xFFFDU;
-            position = start + 1;
-            return Utf8Status::Invalid;
-        }
-        if (start + 2 >= size)
-        {
-            scalar = 0xFFFDU;
-            position = size;
-            return Utf8Status::NeedMore;
-        }
-        const std::uint32_t third = data[start + 2];
-        if ((third & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            position = start + 2;
-            return Utf8Status::Invalid;
-        }
-        if (first <= 0xEFU)
-        {
-            scalar = ((first & 0x0FU) << 12)
-                | ((second & 0x3FU) << 6)
-                | (third & 0x3FU);
-            position = start + 3;
-            return Utf8Status::Done;
-        }
-        if (start + 3 >= size)
-        {
-            scalar = 0xFFFDU;
-            position = size;
-            return Utf8Status::NeedMore;
-        }
-        const std::uint32_t fourth = data[start + 3];
-        if ((fourth & 0xC0U) != 0x80U)
-        {
-            scalar = 0xFFFDU;
-            position = start + 3;
-            return Utf8Status::Invalid;
-        }
-        scalar = ((first & 0x07U) << 18)
-            | ((second & 0x3FU) << 12)
-            | ((third & 0x3FU) << 6)
-            | (fourth & 0x3FU);
-        position = start + 4;
-        return Utf8Status::Done;
-    }
-
-    [[nodiscard]] std::vector<std::uint32_t> DecodeUtf8(const std::string& value)
-    {
-        std::vector<std::uint32_t> result;
-        result.reserve(value.size());
-        std::size_t position = 0;
-        while (position < value.size())
-        {
-            std::uint32_t scalar = 0;
-            (void)DecodeUtf8Scalar(
-                reinterpret_cast<const std::uint8_t*>(value.data()),
-                value.size(),
-                position,
-                scalar);
-            result.push_back(scalar);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::u16string Utf8ToUtf16(const std::string& value)
-    {
-        std::u16string result;
-        const std::vector<std::uint32_t> scalars = DecodeUtf8(value);
-        result.reserve(scalars.size());
-        for (std::uint32_t scalar : scalars)
-        {
-            if (scalar <= 0xFFFFU)
-            {
-                result.push_back(static_cast<char16_t>(scalar));
-            }
-            else
-            {
-                scalar -= 0x10000U;
-                result.push_back(static_cast<char16_t>(0xD800U + (scalar >> 10)));
-                result.push_back(static_cast<char16_t>(0xDC00U + (scalar & 0x3FFU)));
-            }
-        }
-        return result;
-    }
 
     struct LowerInvariantEntry final
     {
@@ -867,7 +704,7 @@ namespace
     {
         std::string result;
         result.reserve(value.size());
-        for (std::uint32_t scalar : DecodeUtf8(value))
+        for (const char32_t scalar : Utf8ToUtf32(value))
         {
             AppendUtf8(result, InvariantLower(scalar));
         }

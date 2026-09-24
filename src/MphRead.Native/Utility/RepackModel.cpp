@@ -7,6 +7,7 @@
 #include "../SceneSetup.hpp"
 #include "../Formats/Model.hpp"
 #include "../Formats/Types.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
@@ -49,6 +50,7 @@ using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace
 {
@@ -145,78 +147,6 @@ namespace
     {
         const float scaled = static_cast<float>(alpha) * maximum / 255.0F;
         return ManagedByteFromRounded(static_cast<double>(scaled));
-    }
-
-    [[nodiscard]] std::vector<std::uint16_t> Utf16Units(std::string_view value)
-    {
-        std::vector<std::uint16_t> units;
-        for (std::size_t i = 0; i < value.size();)
-        {
-            const std::uint8_t first = static_cast<std::uint8_t>(value[i]);
-            std::uint32_t codePoint = 0;
-            std::size_t width = 0;
-            if (first < 0x80)
-            {
-                codePoint = first;
-                width = 1;
-            }
-            else if ((first & 0xE0U) == 0xC0U)
-            {
-                codePoint = first & 0x1FU;
-                width = 2;
-            }
-            else if ((first & 0xF0U) == 0xE0U)
-            {
-                codePoint = first & 0x0FU;
-                width = 3;
-            }
-            else if ((first & 0xF8U) == 0xF0U)
-            {
-                codePoint = first & 0x07U;
-                width = 4;
-            }
-            else
-            {
-                codePoint = 0xFFFDU;
-                width = 1;
-            }
-            if (i + width > value.size())
-            {
-                codePoint = 0xFFFDU;
-                width = 1;
-            }
-            else if (width > 1)
-            {
-                bool valid = true;
-                for (std::size_t j = 1; j < width; ++j)
-                {
-                    const std::uint8_t next = static_cast<std::uint8_t>(value[i + j]);
-                    if ((next & 0xC0U) != 0x80U)
-                    {
-                        valid = false;
-                        break;
-                    }
-                    codePoint = (codePoint << 6) | (next & 0x3FU);
-                }
-                if (!valid)
-                {
-                    codePoint = 0xFFFDU;
-                    width = 1;
-                }
-            }
-            i += width;
-            if (codePoint <= 0xFFFFU)
-            {
-                units.push_back(static_cast<std::uint16_t>(codePoint));
-            }
-            else
-            {
-                codePoint -= 0x10000U;
-                units.push_back(static_cast<std::uint16_t>(0xD800U + (codePoint >> 10)));
-                units.push_back(static_cast<std::uint16_t>(0xDC00U + (codePoint & 0x3FFU)));
-            }
-        }
-        return units;
     }
 
     [[nodiscard]] Vector3i FixedVector(Vector3 vector) noexcept
@@ -386,11 +316,11 @@ namespace MphRead::Utility
 
     void Repack::WriteString(BinaryWriter& writer, const std::string& value, std::int32_t length)
     {
-        const std::vector<std::uint16_t> units = Utf16Units(value);
+        const std::u16string units = Utf8ToUtf16(value);
         REPACK_MODEL_DEBUG_ASSERT(
             length >= 0 && units.size() <= static_cast<std::size_t>(length));
         std::int32_t i = 0;
-        for (std::uint16_t unit : units)
+        for (const char16_t unit : units)
         {
             writer.Write(static_cast<std::uint8_t>(unit));
             i = UncheckedAdd(i, 1);

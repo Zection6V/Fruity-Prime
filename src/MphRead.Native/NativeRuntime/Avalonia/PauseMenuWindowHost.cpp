@@ -245,7 +245,7 @@ namespace MphRead::NativeRuntime::Avalonia
             // --- the map picker dialog
             void SetTitle(std::u16string_view title) override
             {
-                _window.Title(Utf8(title));
+                _window.Title(Utf16ToUtf8(title));
             }
 
             void SetRequestedThemeVariant(

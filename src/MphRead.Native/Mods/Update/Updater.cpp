@@ -1,5 +1,6 @@
 #include "Updater.hpp"
 #include "BuildVersion.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 
 #include <atomic>
 #include <cerrno>
@@ -26,6 +27,8 @@
 #include <unistd.h>
 extern char** environ;
 #endif
+
+using ::MphRead::NativeRuntime::Utf8ToWide;
 
 namespace MphRead::Mods::Update
 {
@@ -158,28 +161,6 @@ namespace MphRead::Mods::Update
             return SUCCEEDED(result) && (apartmentType == 0 || apartmentType == 3);
         }
 
-        [[nodiscard]] std::optional<std::wstring> Utf8ToWide(std::string_view text)
-        {
-            if (text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-            {
-                return std::nullopt;
-            }
-            const int byteCount = static_cast<int>(text.size());
-            const int length = ::MultiByteToWideChar(
-                CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), byteCount, nullptr, 0);
-            if (length <= 0)
-            {
-                return std::nullopt;
-            }
-            std::wstring result(static_cast<std::size_t>(length), L'\0');
-            if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                    text.data(), byteCount, result.data(), length) != length)
-            {
-                return std::nullopt;
-            }
-            return result;
-        }
-
         [[nodiscard]] bool InvokeShellExecute(SHELLEXECUTEINFOW& info)
         {
             ShellExecuteExWFunction shellExecute = ShellExecuteExWApi();
@@ -188,11 +169,7 @@ namespace MphRead::Mods::Update
 
         [[nodiscard]] bool StartWindowsUrl(std::string_view url)
         {
-            std::optional<std::wstring> wide = Utf8ToWide(url);
-            if (!wide.has_value())
-            {
-                return false;
-            }
+            const std::wstring wide = Utf8ToWide(url);
 
             SHELLEXECUTEINFOW info{};
             info.cbSize = sizeof(info);
@@ -200,7 +177,7 @@ namespace MphRead::Mods::Update
                 | SEE_MASK_FLAG_DDEWAIT
                 | SEE_MASK_FLAG_NO_UI;
             info.lpVerb = nullptr;
-            info.lpFile = wide->c_str();
+            info.lpFile = wide.c_str();
             info.lpParameters = nullptr;
             info.lpDirectory = nullptr;
             info.nShow = SW_SHOWNORMAL;

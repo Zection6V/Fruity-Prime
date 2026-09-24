@@ -1,10 +1,10 @@
 #include "LogShare.hpp"
 
-#include "../NativeRuntime/System/Encoding.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "Branding.hpp"
 #include "Launcher/Portable/LauncherPrefs.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 
 #include <algorithm>
 #include <array>
@@ -42,6 +42,9 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::Utf16ToUtf8;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
+
 namespace
 {
     using TickDuration = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
@@ -56,18 +59,6 @@ namespace
     public:
         explicit DotNetArgumentException(const char* message) : std::runtime_error(message) {}
     };
-
-    // Encoding.UTF8 / Encoding.Unicode, reproduced once in
-    // NativeRuntime/System/Encoding.
-    [[nodiscard]] std::string Utf16ToUtf8(std::u16string_view value)
-    {
-        return ::MphRead::NativeRuntime::Utf16ToUtf8(value);
-    }
-
-    [[nodiscard]] std::u16string Utf8ToUtf16(std::string_view value)
-    {
-        return ::MphRead::NativeRuntime::Utf8ToUtf16(value);
-    }
 
     [[nodiscard]] std::filesystem::path NativePath(std::u16string_view value)
     {

@@ -48,62 +48,14 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::FileReadAllText;
 using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
-using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringTrimView;
 
 namespace
 {
-    struct Utf8CodePoint final
-    {
-        std::uint32_t Value;
-        std::size_t Length;
-    };
-    [[nodiscard]] std::optional<Utf8CodePoint> DecodeUtf8Forward(std::string_view text, std::size_t position) noexcept
-    {
-        if (position >= text.size())
-            return std::nullopt;
-        const auto first = static_cast<unsigned char>(text[position]);
-        if (first <= 0x7F)
-            return Utf8CodePoint{first, 1};
-        std::uint32_t value = 0;
-        std::size_t length = 0;
-        std::uint32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            value = first & 0x1FU;
-            length = 2;
-            minimum = 0x80;
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            value = first & 0x0FU;
-            length = 3;
-            minimum = 0x800;
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            value = first & 0x07U;
-            length = 4;
-            minimum = 0x10000;
-        }
-        else
-            return std::nullopt;
-        if (position + length > text.size())
-            return std::nullopt;
-        for (std::size_t i = 1; i < length; ++i)
-        {
-            const auto next = static_cast<unsigned char>(text[position + i]);
-            if ((next & 0xC0U) != 0x80U)
-                return std::nullopt;
-            value = (value << 6) | (next & 0x3FU);
-        }
-        if (value < minimum || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
-            return std::nullopt;
-        return Utf8CodePoint{value, length};
-    }
     [[nodiscard]] bool StartsWithDash(std::string_view text) noexcept
     {
         return !text.empty() && text.front() == '-';
@@ -115,132 +67,6 @@ namespace
             if (ch >= 'A' && ch <= 'Z')
                 ch = static_cast<char>(ch - 'A' + 'a');
         return result;
-    }
-    void AppendUtf8(std::string &output, std::uint32_t codePoint)
-    {
-        if (codePoint > 0x10FFFFU || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
-            codePoint = 0xFFFDU;
-        if (codePoint <= 0x7FU)
-            output.push_back(static_cast<char>(codePoint));
-        else if (codePoint <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (codePoint >> 6)));
-            output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else if (codePoint <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (codePoint >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (codePoint >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((codePoint >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((codePoint >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-        }
-    }
-    [[nodiscard]] std::string DecodeUtf8Text(std::string_view bytes)
-    {
-        std::string output;
-        output.reserve(bytes.size());
-        for (std::size_t index = 0; index < bytes.size();)
-        {
-            const auto decoded = DecodeUtf8Forward(bytes, index);
-            if (decoded.has_value())
-            {
-                output.append(bytes.substr(index, decoded->Length));
-                index += decoded->Length;
-            }
-            else
-            {
-                AppendUtf8(output, 0xFFFDU);
-                ++index;
-            }
-        }
-        return output;
-    }
-    [[nodiscard]] std::string DecodeUtf16Text(std::string_view bytes, bool bigEndian)
-    {
-        std::string output;
-        output.reserve(bytes.size());
-        auto readUnit = [&](std::size_t index) -> std::uint16_t
-        {
-            const auto first = static_cast<unsigned char>(bytes[index]);
-            const auto second = static_cast<unsigned char>(bytes[index + 1]);
-            return bigEndian ? static_cast<std::uint16_t>((first << 8) | second) : static_cast<std::uint16_t>(first | (second << 8));
-        };
-        std::size_t index = 0;
-        while (index + 1 < bytes.size())
-        {
-            const std::uint16_t first = readUnit(index);
-            index += 2;
-            if (first >= 0xD800U && first <= 0xDBFFU)
-            {
-                if (index + 1 < bytes.size())
-                {
-                    const std::uint16_t second = readUnit(index);
-                    if (second >= 0xDC00U && second <= 0xDFFFU)
-                    {
-                        index += 2;
-                        const std::uint32_t codePoint = 0x10000U + ((static_cast<std::uint32_t>(first) - 0xD800U) << 10) + (static_cast<std::uint32_t>(second) - 0xDC00U);
-                        AppendUtf8(output, codePoint);
-                        continue;
-                    }
-                }
-                AppendUtf8(output, 0xFFFDU);
-            }
-            else if (first >= 0xDC00U && first <= 0xDFFFU)
-                AppendUtf8(output, 0xFFFDU);
-            else
-                AppendUtf8(output, first);
-        }
-        if (index < bytes.size())
-            AppendUtf8(output, 0xFFFDU);
-        return output;
-    }
-    [[nodiscard]] std::string DecodeUtf32Text(std::string_view bytes, bool bigEndian)
-    {
-        std::string output;
-        output.reserve(bytes.size());
-        std::size_t index = 0;
-        while (index + 3 < bytes.size())
-        {
-            const auto b0 = static_cast<unsigned char>(bytes[index]);
-            const auto b1 = static_cast<unsigned char>(bytes[index + 1]);
-            const auto b2 = static_cast<unsigned char>(bytes[index + 2]);
-            const auto b3 = static_cast<unsigned char>(bytes[index + 3]);
-            index += 4;
-            const std::uint32_t codePoint = bigEndian
-                                                ? (static_cast<std::uint32_t>(b0) << 24) | (static_cast<std::uint32_t>(b1) << 16) | (static_cast<std::uint32_t>(b2) << 8) | static_cast<std::uint32_t>(b3)
-                                                : static_cast<std::uint32_t>(b0) | (static_cast<std::uint32_t>(b1) << 8) | (static_cast<std::uint32_t>(b2) << 16) | (static_cast<std::uint32_t>(b3) << 24);
-            AppendUtf8(output, codePoint);
-        }
-        if (index < bytes.size())
-            AppendUtf8(output, 0xFFFDU);
-        return output;
-    }
-    [[nodiscard]] std::string ReadAllText(std::string_view path)
-    {
-        std::ifstream stream(PathFromUtf8(path), std::ios::in | std::ios::binary);
-        if (!stream.is_open())
-            throw std::ios_base::failure("Could not open file for reading: " + std::string(path));
-        stream.exceptions(std::ios::badbit);
-        const std::string bytes{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
-        auto byteAt = [&](std::size_t index) -> unsigned char
-        { return static_cast<unsigned char>(bytes[index]); };
-        if (bytes.size() >= 4 && byteAt(0) == 0xFF && byteAt(1) == 0xFE && byteAt(2) == 0x00 && byteAt(3) == 0x00)
-            return DecodeUtf32Text(std::string_view(bytes).substr(4), false);
-        if (bytes.size() >= 4 && byteAt(0) == 0x00 && byteAt(1) == 0x00 && byteAt(2) == 0xFE && byteAt(3) == 0xFF)
-            return DecodeUtf32Text(std::string_view(bytes).substr(4), true);
-        if (bytes.size() >= 3 && byteAt(0) == 0xEF && byteAt(1) == 0xBB && byteAt(2) == 0xBF)
-            return DecodeUtf8Text(std::string_view(bytes).substr(3));
-        if (bytes.size() >= 2 && byteAt(0) == 0xFF && byteAt(1) == 0xFE)
-            return DecodeUtf16Text(std::string_view(bytes).substr(2), false);
-        if (bytes.size() >= 2 && byteAt(0) == 0xFE && byteAt(1) == 0xFF)
-            return DecodeUtf16Text(std::string_view(bytes).substr(2), true);
-        return DecodeUtf8Text(bytes);
     }
     [[nodiscard]] std::string GetFileNameWithoutExtension(std::string_view path)
     {
@@ -688,7 +514,7 @@ namespace MphRead
 
     bool Program::CheckVersion()
     {
-        std::string text = ReadAllText("paths.txt");
+        std::string text = FileReadAllText("paths.txt");
         const std::size_t newline = text.find('\n');
         if (newline != std::string::npos)
         {

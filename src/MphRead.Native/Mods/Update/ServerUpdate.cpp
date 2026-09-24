@@ -2,7 +2,9 @@
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "BuildVersion.hpp"
 #include "DesktopUpdate.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <atomic>
 #include <cerrno>
@@ -47,6 +49,10 @@
 #endif
 
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::Utf8ToWide;
+using ::MphRead::NativeRuntime::WideToUtf8;
 
 namespace MphRead::Mods::Update::Detail
 {
@@ -92,75 +98,6 @@ namespace MphRead::Mods::Update
             // equivalent alive until the OS tears the process down as well.
             static State* state = new State();
             return *state;
-        }
-
-#ifdef _WIN32
-        std::wstring Utf8ToWide(std::string_view value)
-        {
-            if (value.empty())
-            {
-                return {};
-            }
-            const int needed = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                value.data(), static_cast<int>(value.size()), nullptr, 0);
-            if (needed == 0)
-            {
-                throw std::system_error(static_cast<int>(::GetLastError()),
-                    std::system_category());
-            }
-            std::wstring result(static_cast<std::size_t>(needed), L'\0');
-            if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                value.data(), static_cast<int>(value.size()), result.data(), needed) == 0)
-            {
-                throw std::system_error(static_cast<int>(::GetLastError()),
-                    std::system_category());
-            }
-            return result;
-        }
-
-        std::string WideToUtf8(std::wstring_view value)
-        {
-            if (value.empty())
-            {
-                return {};
-            }
-            const int needed = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-                value.data(), static_cast<int>(value.size()), nullptr, 0,
-                nullptr, nullptr);
-            if (needed == 0)
-            {
-                throw std::system_error(static_cast<int>(::GetLastError()),
-                    std::system_category());
-            }
-            std::string result(static_cast<std::size_t>(needed), '\0');
-            if (::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-                value.data(), static_cast<int>(value.size()), result.data(), needed,
-                nullptr, nullptr) == 0)
-            {
-                throw std::system_error(static_cast<int>(::GetLastError()),
-                    std::system_category());
-            }
-            return result;
-        }
-
-        FileSystemPath PathFromUtf8(std::string_view value)
-        {
-            return FileSystemPath(Utf8ToWide(value));
-        }
-#else
-        FileSystemPath PathFromUtf8(std::string_view value)
-        {
-            return FileSystemPath(std::string(value));
-        }
-#endif
-
-        std::string PathToUtf8(const FileSystemPath& path)
-        {
-#ifdef _WIN32
-            return WideToUtf8(path.native());
-#else
-            return path.native();
-#endif
         }
 
         FileSystemPath ReadProcessPath()

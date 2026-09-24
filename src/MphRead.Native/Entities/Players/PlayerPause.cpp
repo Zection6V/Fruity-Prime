@@ -13,6 +13,7 @@
 #include "PlayerEntity.hpp"
 #include "PlayerHud.hpp"
 #include "PlayerInput.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
@@ -37,10 +38,12 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::UncheckedIncrement;
+using ::MphRead::NativeRuntime::Utf8Scalar;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::IdentityMatrix;
@@ -162,63 +165,6 @@ namespace
         return true;
     }
 
-    struct Utf8Character final
-    {
-        char32_t Value;
-        std::size_t Length;
-    };
-
-    [[nodiscard]] Utf8Character DecodeUtf8(std::string_view text, std::size_t offset) noexcept
-    {
-        const auto byte = static_cast<unsigned char>(text[offset]);
-        if (byte < 0x80)
-        {
-            return {byte, 1};
-        }
-        std::size_t length = 0;
-        char32_t value = 0;
-        char32_t minimum = 0;
-        if ((byte & 0xE0) == 0xC0)
-        {
-            length = 2;
-            value = byte & 0x1F;
-            minimum = 0x80;
-        }
-        else if ((byte & 0xF0) == 0xE0)
-        {
-            length = 3;
-            value = byte & 0x0F;
-            minimum = 0x800;
-        }
-        else if ((byte & 0xF8) == 0xF0)
-        {
-            length = 4;
-            value = byte & 0x07;
-            minimum = 0x10000;
-        }
-        else
-        {
-            return {0xFFFD, 1};
-        }
-        if (offset + length > text.size())
-        {
-            return {0xFFFD, 1};
-        }
-        for (std::size_t i = 1; i < length; ++i)
-        {
-            const auto continuation = static_cast<unsigned char>(text[offset + i]);
-            if ((continuation & 0xC0) != 0x80)
-            {
-                return {0xFFFD, 1};
-            }
-            value = (value << 6) | (continuation & 0x3F);
-        }
-        if (value < minimum || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF))
-        {
-            return {0xFFFD, 1};
-        }
-        return {value, length};
-    }
 
     [[nodiscard]] std::int32_t ManagedStringLength(const std::string& text) noexcept
     {
@@ -226,7 +172,7 @@ namespace
         std::size_t offset = 0;
         while (offset < text.size())
         {
-            const Utf8Character character = DecodeUtf8(text, offset);
+            const Utf8Scalar character = DecodeUtf8Scalar(text, offset);
             length = UncheckedIncrement(length);
             if (character.Value > 0xFFFF)
             {

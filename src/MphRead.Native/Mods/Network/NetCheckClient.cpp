@@ -19,7 +19,9 @@
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -39,6 +41,7 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::Utf16Length;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Length;
 
@@ -130,63 +133,6 @@ namespace
             case TestPhase::Duel: return "Duel";
         }
         return std::to_string(static_cast<std::int32_t>(phase));
-    }
-
-    [[nodiscard]] std::size_t Utf16Length(std::string_view value) noexcept
-    {
-        std::size_t length = 0;
-        for (std::size_t index = 0; index < value.size();)
-        {
-            const unsigned char lead = static_cast<unsigned char>(value[index]);
-            std::uint32_t codePoint = 0;
-            std::size_t count = 1;
-            if ((lead & 0x80U) == 0)
-            {
-                codePoint = lead;
-            }
-            else if ((lead & 0xE0U) == 0xC0U && index + 1 < value.size())
-            {
-                codePoint = lead & 0x1FU;
-                count = 2;
-            }
-            else if ((lead & 0xF0U) == 0xE0U && index + 2 < value.size())
-            {
-                codePoint = lead & 0x0FU;
-                count = 3;
-            }
-            else if ((lead & 0xF8U) == 0xF0U && index + 3 < value.size())
-            {
-                codePoint = lead & 0x07U;
-                count = 4;
-            }
-            else
-            {
-                ++length;
-                ++index;
-                continue;
-            }
-
-            bool valid = true;
-            for (std::size_t offset = 1; offset < count; ++offset)
-            {
-                const unsigned char next = static_cast<unsigned char>(value[index + offset]);
-                if ((next & 0xC0U) != 0x80U)
-                {
-                    valid = false;
-                    break;
-                }
-                codePoint = (codePoint << 6U) | (next & 0x3FU);
-            }
-            if (!valid)
-            {
-                ++length;
-                ++index;
-                continue;
-            }
-            length += codePoint > 0xFFFFU ? 2U : 1U;
-            index += count;
-        }
-        return length;
     }
 
     [[nodiscard]] std::string PadRightManaged(std::string value, std::size_t width)

@@ -3,6 +3,7 @@
 #include "../../../Program.hpp"
 #include "../../../Formats/Formats.hpp"
 #include "../../../Utility/Extract.hpp"
+#include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
 
@@ -95,105 +96,20 @@
 #include <unistd.h>
 #endif
 
-using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::DirectoryExists;
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::FileReadAllText;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::StringTrimView;
+using ::MphRead::NativeRuntime::Utf8GetString;
+using ::MphRead::NativeRuntime::WideToWtf8;
+using ::MphRead::NativeRuntime::Wtf8ToWide;
 
 namespace
 {
     using Report = std::function<void(const std::string&)>;
 
-    struct Utf8CodePoint final
-    {
-        std::uint32_t Value;
-        std::size_t Length;
-    };
-
-    [[nodiscard]] std::optional<Utf8CodePoint> DecodeUtf8Forward(
-        std::string_view text, std::size_t position) noexcept
-    {
-        if (position >= text.size())
-        {
-            return std::nullopt;
-        }
-
-        const auto first = static_cast<unsigned char>(text[position]);
-        if (first <= 0x7FU)
-        {
-            return Utf8CodePoint{first, 1};
-        }
-
-        std::uint32_t value = 0;
-        std::size_t length = 0;
-        std::uint32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            value = first & 0x1FU;
-            length = 2;
-            minimum = 0x80U;
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            value = first & 0x0FU;
-            length = 3;
-            minimum = 0x800U;
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            value = first & 0x07U;
-            length = 4;
-            minimum = 0x10000U;
-        }
-        else
-        {
-            return std::nullopt;
-        }
-
-        if (position + length > text.size())
-        {
-            return std::nullopt;
-        }
-        for (std::size_t index = 1; index < length; ++index)
-        {
-            const auto next = static_cast<unsigned char>(text[position + index]);
-            if ((next & 0xC0U) != 0x80U)
-            {
-                return std::nullopt;
-            }
-            value = (value << 6) | (next & 0x3FU);
-        }
-        if (value < minimum || value > 0x10FFFFU
-            || (value >= 0xD800U && value <= 0xDFFFU))
-        {
-            return std::nullopt;
-        }
-        return Utf8CodePoint{value, length};
-    }
-
-    [[nodiscard]] std::optional<std::pair<Utf8CodePoint, std::size_t>>
-        DecodeUtf8Backward(std::string_view text, std::size_t end) noexcept
-    {
-        if (end == 0 || end > text.size())
-        {
-            return std::nullopt;
-        }
-
-        std::size_t start = end - 1;
-        while (start > 0
-            && (static_cast<unsigned char>(text[start]) & 0xC0U) == 0x80U)
-        {
-            --start;
-        }
-        const std::optional<Utf8CodePoint> decoded = DecodeUtf8Forward(text, start);
-        if (!decoded.has_value() || start + decoded->Length != end)
-        {
-            return std::nullopt;
-        }
-        return std::make_pair(*decoded, start);
-    }
 
     [[nodiscard]] constexpr bool IsVersionIntegerWhitespace(
         unsigned char value) noexcept
@@ -317,269 +233,6 @@ namespace
         }
     }
 
-    void AppendUtf8(std::string& output, std::uint32_t value)
-    {
-        if (value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
-        {
-            value = 0xFFFDU;
-        }
-        if (value <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(value));
-        }
-        else if (value <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (value >> 6)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-        else if (value <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (value >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (value >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-    }
-
-    [[nodiscard]] std::string DecodeUtf8Text(std::string_view bytes)
-    {
-        std::string output;
-        output.reserve(bytes.size());
-        for (std::size_t index = 0; index < bytes.size();)
-        {
-            const auto decoded = DecodeUtf8Forward(bytes, index);
-            if (decoded.has_value())
-            {
-                output.append(bytes.substr(index, decoded->Length));
-                index += decoded->Length;
-            }
-            else
-            {
-                AppendUtf8(output, 0xFFFDU);
-                ++index;
-            }
-        }
-        return output;
-    }
-
-    [[nodiscard]] std::string DecodeUtf16Text(
-        std::string_view bytes, bool bigEndian)
-    {
-        std::string output;
-        output.reserve(bytes.size());
-        const auto readUnit = [&](std::size_t index) -> std::uint16_t
-        {
-            const auto first = static_cast<unsigned char>(bytes[index]);
-            const auto second = static_cast<unsigned char>(bytes[index + 1]);
-            return bigEndian
-                ? static_cast<std::uint16_t>((first << 8) | second)
-                : static_cast<std::uint16_t>(first | (second << 8));
-        };
-
-        std::size_t index = 0;
-        while (index + 1 < bytes.size())
-        {
-            const std::uint16_t first = readUnit(index);
-            index += 2;
-            if (first >= 0xD800U && first <= 0xDBFFU)
-            {
-                if (index + 1 < bytes.size())
-                {
-                    const std::uint16_t second = readUnit(index);
-                    if (second >= 0xDC00U && second <= 0xDFFFU)
-                    {
-                        index += 2;
-                        AppendUtf8(output, 0x10000U
-                            + ((static_cast<std::uint32_t>(first) - 0xD800U) << 10)
-                            + (static_cast<std::uint32_t>(second) - 0xDC00U));
-                        continue;
-                    }
-                }
-                AppendUtf8(output, 0xFFFDU);
-            }
-            else if (first >= 0xDC00U && first <= 0xDFFFU)
-            {
-                AppendUtf8(output, 0xFFFDU);
-            }
-            else
-            {
-                AppendUtf8(output, first);
-            }
-        }
-        if (index < bytes.size())
-        {
-            AppendUtf8(output, 0xFFFDU);
-        }
-        return output;
-    }
-
-    [[nodiscard]] std::string DecodeUtf32Text(
-        std::string_view bytes, bool bigEndian)
-    {
-        std::string output;
-        output.reserve(bytes.size());
-        std::size_t index = 0;
-        while (index + 3 < bytes.size())
-        {
-            const auto b0 = static_cast<unsigned char>(bytes[index]);
-            const auto b1 = static_cast<unsigned char>(bytes[index + 1]);
-            const auto b2 = static_cast<unsigned char>(bytes[index + 2]);
-            const auto b3 = static_cast<unsigned char>(bytes[index + 3]);
-            index += 4;
-            const std::uint32_t value = bigEndian
-                ? (static_cast<std::uint32_t>(b0) << 24)
-                    | (static_cast<std::uint32_t>(b1) << 16)
-                    | (static_cast<std::uint32_t>(b2) << 8)
-                    | static_cast<std::uint32_t>(b3)
-                : static_cast<std::uint32_t>(b0)
-                    | (static_cast<std::uint32_t>(b1) << 8)
-                    | (static_cast<std::uint32_t>(b2) << 16)
-                    | (static_cast<std::uint32_t>(b3) << 24);
-            AppendUtf8(output, value);
-        }
-        if (index < bytes.size())
-        {
-            AppendUtf8(output, 0xFFFDU);
-        }
-        return output;
-    }
-
-#if defined(_WIN32)
-    void AppendWtf8(std::string& output, std::uint32_t value)
-    {
-        if (value <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(value));
-        }
-        else if (value <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (value >> 6)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-        else if (value <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (value >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (value >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-    }
-
-    [[nodiscard]] std::string Utf8FromWide(const wchar_t* value, std::size_t length)
-    {
-        static_assert(sizeof(wchar_t) == sizeof(std::uint16_t));
-        std::string result;
-        result.reserve(length);
-        for (std::size_t index = 0; index < length; ++index)
-        {
-            const std::uint32_t first = static_cast<std::uint16_t>(value[index]);
-            if (first >= 0xD800U && first <= 0xDBFFU && index + 1 < length)
-            {
-                const std::uint32_t second = static_cast<std::uint16_t>(value[index + 1]);
-                if (second >= 0xDC00U && second <= 0xDFFFU)
-                {
-                    AppendWtf8(result, 0x10000U
-                        + ((first - 0xD800U) << 10) + (second - 0xDC00U));
-                    ++index;
-                    continue;
-                }
-            }
-            AppendWtf8(result, first);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::wstring WideFromWtf8(std::string_view value)
-    {
-        std::wstring result;
-        result.reserve(value.size());
-        for (std::size_t index = 0; index < value.size();)
-        {
-            const unsigned char first = static_cast<unsigned char>(value[index]);
-            if (first <= 0x7FU)
-            {
-                result.push_back(static_cast<wchar_t>(first));
-                ++index;
-                continue;
-            }
-
-            std::uint32_t codePoint = 0xFFFDU;
-            std::size_t length = 1;
-            if (first >= 0xC2U && first <= 0xDFU && index + 1 < value.size())
-            {
-                const unsigned char b1 = static_cast<unsigned char>(value[index + 1]);
-                if ((b1 & 0xC0U) == 0x80U)
-                {
-                    codePoint = ((first & 0x1FU) << 6) | (b1 & 0x3FU);
-                    length = 2;
-                }
-            }
-            else if (first >= 0xE0U && first <= 0xEFU && index + 2 < value.size())
-            {
-                const unsigned char b1 = static_cast<unsigned char>(value[index + 1]);
-                const unsigned char b2 = static_cast<unsigned char>(value[index + 2]);
-                if ((b1 & 0xC0U) == 0x80U && (b2 & 0xC0U) == 0x80U
-                    && !(first == 0xE0U && b1 < 0xA0U))
-                {
-                    codePoint = ((first & 0x0FU) << 12)
-                        | ((b1 & 0x3FU) << 6) | (b2 & 0x3FU);
-                    length = 3;
-                }
-            }
-            else if (first >= 0xF0U && first <= 0xF4U && index + 3 < value.size())
-            {
-                const unsigned char b1 = static_cast<unsigned char>(value[index + 1]);
-                const unsigned char b2 = static_cast<unsigned char>(value[index + 2]);
-                const unsigned char b3 = static_cast<unsigned char>(value[index + 3]);
-                if ((b1 & 0xC0U) == 0x80U && (b2 & 0xC0U) == 0x80U
-                    && (b3 & 0xC0U) == 0x80U
-                    && !(first == 0xF0U && b1 < 0x90U)
-                    && !(first == 0xF4U && b1 > 0x8FU))
-                {
-                    codePoint = ((first & 0x07U) << 18)
-                        | ((b1 & 0x3FU) << 12)
-                        | ((b2 & 0x3FU) << 6) | (b3 & 0x3FU);
-                    length = 4;
-                }
-            }
-
-            index += length;
-            if (codePoint <= 0xFFFFU)
-            {
-                result.push_back(static_cast<wchar_t>(codePoint));
-            }
-            else
-            {
-                codePoint -= 0x10000U;
-                result.push_back(static_cast<wchar_t>(0xD800U + (codePoint >> 10)));
-                result.push_back(static_cast<wchar_t>(0xDC00U + (codePoint & 0x3FFU)));
-            }
-        }
-        return result;
-    }
-#endif
-
-    [[nodiscard]] std::filesystem::path PathFromManagedString(std::string_view value)
-    {
-#if defined(_WIN32)
-        return std::filesystem::path(WideFromWtf8(value));
-#else
-        return std::filesystem::path(value);
-#endif
-    }
-
 #if defined(__APPLE__) || defined(__OpenBSD__) || defined(__sun) \
     || defined(__linux__) || defined(__ANDROID__) \
     || (defined(__unix__) && !defined(__EMSCRIPTEN__) && !defined(__wasi__))
@@ -591,7 +244,7 @@ namespace
         {
             return std::nullopt;
         }
-        return DecodeUtf8Text(resolved.get());
+        return Utf8GetString(resolved.get());
     }
 #endif
 
@@ -609,7 +262,7 @@ namespace
             }
             if (length < buffer.size())
             {
-                return Utf8FromWide(buffer.data(), length);
+                return WideToWtf8(std::wstring_view(buffer.data(), length));
             }
             if (buffer.size() > static_cast<std::size_t>(
                     std::numeric_limits<DWORD>::max()) / 2U)
@@ -639,7 +292,7 @@ namespace
         {
             return std::nullopt;
         }
-        return DecodeUtf8Text(std::string_view(
+        return Utf8GetString(std::string_view(
             path, path[length - 1] == '\0' ? length - 1 : length));
 #elif defined(__OpenBSD__)
         return RealPath("/proc/curproc/exe");
@@ -674,13 +327,13 @@ namespace
     {
         const std::filesystem::path current = std::filesystem::current_path();
 #if defined(_WIN32)
-        std::string result = Utf8FromWide(current.native().data(), current.native().size());
+        std::string result = WideToWtf8(current.native());
         if (result.empty() || (result.back() != '\\' && result.back() != '/'))
         {
             result.push_back('\\');
         }
 #else
-        std::string result = DecodeUtf8Text(current.native());
+        std::string result = Utf8GetString(current.native());
         if (result.empty() || result.back() != '/')
         {
             result.push_back('/');
@@ -731,123 +384,6 @@ namespace
 #endif
         throw std::ios_base::failure(
             "Could not read file: " + std::string(path));
-    }
-
-    [[nodiscard]] std::string ReadAllBytesForText(std::string_view path)
-    {
-        const std::filesystem::path nativePath = PathFromManagedString(path);
-        std::string bytes;
-        std::array<char, 4096> buffer{};
-#if defined(_WIN32)
-        HANDLE handle = CreateFileW(
-            nativePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-        if (handle == INVALID_HANDLE_VALUE)
-        {
-            ThrowReadFailure(path, static_cast<int>(GetLastError()));
-        }
-        try
-        {
-            for (;;)
-            {
-                DWORD count = 0;
-                if (!ReadFile(handle, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr))
-                {
-                    ThrowReadFailure(path, static_cast<int>(GetLastError()));
-                }
-                if (count == 0)
-                {
-                    break;
-                }
-                bytes.append(buffer.data(), static_cast<std::size_t>(count));
-            }
-        }
-        catch (...)
-        {
-            CloseHandle(handle);
-            throw;
-        }
-        CloseHandle(handle);
-#else
-        const int fd = ::open(nativePath.c_str(), O_RDONLY);
-        if (fd < 0)
-        {
-            ThrowReadFailure(path, errno);
-        }
-        try
-        {
-            struct stat info{};
-            if (::fstat(fd, &info) != 0)
-            {
-                ThrowReadFailure(path, errno);
-            }
-            if (S_ISDIR(info.st_mode))
-            {
-                ThrowReadFailure(path, EACCES);
-            }
-            for (;;)
-            {
-                const ssize_t count = ::read(fd, buffer.data(), buffer.size());
-                if (count > 0)
-                {
-                    bytes.append(buffer.data(), static_cast<std::size_t>(count));
-                    continue;
-                }
-                if (count == 0)
-                {
-                    break;
-                }
-                if (errno == EINTR)
-                {
-                    continue;
-                }
-                ThrowReadFailure(path, errno);
-            }
-        }
-        catch (...)
-        {
-            (void)::close(fd);
-            throw;
-        }
-        (void)::close(fd);
-#endif
-        return bytes;
-    }
-
-    [[nodiscard]] std::string ReadAllText(std::string_view path)
-    {
-        const std::string bytes = ReadAllBytesForText(path);
-
-        const auto byteAt = [&](std::size_t index) -> unsigned char
-        {
-            return static_cast<unsigned char>(bytes[index]);
-        };
-        if (bytes.size() >= 4
-            && byteAt(0) == 0xFFU && byteAt(1) == 0xFEU
-            && byteAt(2) == 0x00U && byteAt(3) == 0x00U)
-        {
-            return DecodeUtf32Text(std::string_view(bytes).substr(4), false);
-        }
-        if (bytes.size() >= 4
-            && byteAt(0) == 0x00U && byteAt(1) == 0x00U
-            && byteAt(2) == 0xFEU && byteAt(3) == 0xFFU)
-        {
-            return DecodeUtf32Text(std::string_view(bytes).substr(4), true);
-        }
-        if (bytes.size() >= 3
-            && byteAt(0) == 0xEFU && byteAt(1) == 0xBBU && byteAt(2) == 0xBFU)
-        {
-            return DecodeUtf8Text(std::string_view(bytes).substr(3));
-        }
-        if (bytes.size() >= 2 && byteAt(0) == 0xFFU && byteAt(1) == 0xFEU)
-        {
-            return DecodeUtf16Text(std::string_view(bytes).substr(2), false);
-        }
-        if (bytes.size() >= 2 && byteAt(0) == 0xFEU && byteAt(1) == 0xFFU)
-        {
-            return DecodeUtf16Text(std::string_view(bytes).substr(2), true);
-        }
-        return DecodeUtf8Text(bytes);
     }
 
     struct AsyncReportAbort final
@@ -908,14 +444,14 @@ namespace
                 ++index;
             }
             ReportAsyncLine(report,
-                DecodeUtf8Text(std::string_view(pending).substr(start, end - start)));
+                Utf8GetString(std::string_view(pending).substr(start, end - start)));
             start = index;
         }
 
         if (endOfStream && start < pending.size())
         {
             ReportAsyncLine(report,
-                DecodeUtf8Text(std::string_view(pending).substr(start)));
+                Utf8GetString(std::string_view(pending).substr(start)));
             start = pending.size();
         }
         if (start != 0)
@@ -941,7 +477,7 @@ namespace
         {
             wide.remove_suffix(1);
         }
-        std::string result = Utf8FromWide(wide.data(), wide.size());
+        std::string result = WideToWtf8(wide);
         LocalFree(buffer);
         return result;
     }
@@ -1066,13 +602,13 @@ namespace
             throw std::runtime_error(Win32Message(GetLastError()));
         }
 
-        const std::wstring executableWide = WideFromWtf8(executable);
-        const std::wstring romWide = WideFromWtf8(romPath);
+        const std::wstring executableWide = Wtf8ToWide(executable);
+        const std::wstring romWide = Wtf8ToWide(romPath);
         std::wstring commandLine = QuoteWindowsArgument(executableWide)
             + L" " + QuoteWindowsArgument(romWide);
         std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
         mutableCommand.push_back(L'\0');
-        const std::wstring directoryWide = WideFromWtf8(workingDirectory);
+        const std::wstring directoryWide = Wtf8ToWide(workingDirectory);
 
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
@@ -1732,7 +1268,7 @@ namespace MphRead::Mods::Launcher
 
         try
         {
-            std::string text = ReadAllText(pathsFile);
+            std::string text = FileReadAllText(pathsFile);
             const std::size_t newline = text.find('\n');
             if (newline != std::string::npos)
             {
@@ -1746,7 +1282,7 @@ namespace MphRead::Mods::Launcher
                 return "The extracted files are from an older version -- set up again";
             }
         }
-        catch (const std::ios_base::failure&)
+        catch (const System::IO::IOException&)
         {
             return "paths.txt could not be read";
         }

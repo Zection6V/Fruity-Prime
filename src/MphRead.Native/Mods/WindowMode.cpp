@@ -15,7 +15,6 @@
 #include <string_view>
 #include <utility>
 
-using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::StringTrimView;
 using ::MphRead::NativeRuntime::UncheckedDecrement;
@@ -45,96 +44,6 @@ namespace
     bool savedState = false;
     bool topmostState = false;
 
-    struct Utf8CodePoint final
-    {
-        std::uint32_t Value;
-        std::size_t Length;
-    };
-
-    [[nodiscard]] std::optional<Utf8CodePoint> DecodeUtf8Forward(
-        std::string_view text, std::size_t position) noexcept
-    {
-        if (position >= text.size())
-        {
-            return std::nullopt;
-        }
-
-        const auto first = static_cast<unsigned char>(text[position]);
-        if (first <= 0x7FU)
-        {
-            return Utf8CodePoint{first, 1};
-        }
-
-        std::uint32_t value = 0;
-        std::size_t length = 0;
-        std::uint32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            value = first & 0x1FU;
-            length = 2;
-            minimum = 0x80U;
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            value = first & 0x0FU;
-            length = 3;
-            minimum = 0x800U;
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            value = first & 0x07U;
-            length = 4;
-            minimum = 0x10000U;
-        }
-        else
-        {
-            return std::nullopt;
-        }
-
-        if (position + length > text.size())
-        {
-            return std::nullopt;
-        }
-        for (std::size_t index = 1; index < length; ++index)
-        {
-            const auto next = static_cast<unsigned char>(text[position + index]);
-            if ((next & 0xC0U) != 0x80U)
-            {
-                return std::nullopt;
-            }
-            value = (value << 6) | (next & 0x3FU);
-        }
-
-        if (value < minimum || value > 0x10FFFFU
-            || (value >= 0xD800U && value <= 0xDFFFU))
-        {
-            return std::nullopt;
-        }
-        return Utf8CodePoint{value, length};
-    }
-
-    [[nodiscard]] std::optional<std::pair<Utf8CodePoint, std::size_t>>
-        DecodeUtf8Backward(std::string_view text, std::size_t end) noexcept
-    {
-        if (end == 0 || end > text.size())
-        {
-            return std::nullopt;
-        }
-
-        std::size_t start = end - 1;
-        while (start > 0
-            && (static_cast<unsigned char>(text[start]) & 0xC0U) == 0x80U)
-        {
-            --start;
-        }
-
-        const std::optional<Utf8CodePoint> decoded = DecodeUtf8Forward(text, start);
-        if (!decoded.has_value() || start + decoded->Length != end)
-        {
-            return std::nullopt;
-        }
-        return std::make_pair(*decoded, start);
-    }
 
 }
 

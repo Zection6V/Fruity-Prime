@@ -1,5 +1,7 @@
 #include "Branding.hpp"
 #include "Update/BuildVersion.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -44,65 +46,12 @@
 #include <stdlib.h>
 #endif
 
+using ::MphRead::NativeRuntime::Utf8GetString;
+using ::MphRead::NativeRuntime::WideToWtf8;
+
 namespace
 {
 #if defined(_WIN32)
-    void AppendWtf8(std::string& output, std::uint32_t value)
-    {
-        if (value <= 0x7FU)
-        {
-            output.push_back(static_cast<char>(value));
-        }
-        else if (value <= 0x7FFU)
-        {
-            output.push_back(static_cast<char>(0xC0U | (value >> 6)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-        else if (value <= 0xFFFFU)
-        {
-            output.push_back(static_cast<char>(0xE0U | (value >> 12)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-        else
-        {
-            output.push_back(static_cast<char>(0xF0U | (value >> 18)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 12) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-            output.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-        }
-    }
-
-    [[nodiscard]] std::string Utf8FromWide(const wchar_t* value, std::size_t length)
-    {
-        static_assert(sizeof(wchar_t) == sizeof(std::uint16_t));
-
-        std::string result;
-        result.reserve(length);
-        for (std::size_t index = 0; index < length; ++index)
-        {
-            const std::uint32_t first = static_cast<std::uint16_t>(value[index]);
-            if (first >= 0xD800U && first <= 0xDBFFU && index + 1 < length)
-            {
-                const std::uint32_t second = static_cast<std::uint16_t>(value[index + 1]);
-                if (second >= 0xDC00U && second <= 0xDFFFU)
-                {
-                    const std::uint32_t codePoint
-                        = 0x10000U + ((first - 0xD800U) << 10) + (second - 0xDC00U);
-                    AppendWtf8(result, codePoint);
-                    ++index;
-                    continue;
-                }
-            }
-
-            // Preserve lone UTF-16 surrogate code units losslessly as WTF-8.
-            // C# strings can contain them; treating them as a conversion error
-            // would add an exception that Environment.ProcessPath does not add.
-            AppendWtf8(result, first);
-        }
-        return result;
-    }
-
     [[nodiscard]] bool IsWindowsDirectorySeparator(char value) noexcept
     {
         return value == '\\' || value == '/';
@@ -208,111 +157,11 @@ namespace
 #endif
 
 #if !defined(_WIN32)
-    void AppendUtf8Replacement(std::string& output)
-    {
-        output.append("\xEF\xBF\xBD", 3);
-    }
-
     [[nodiscard]] bool IsUtf8Continuation(unsigned char value) noexcept
     {
         return (value & 0xC0U) == 0x80U;
     }
 
-    [[nodiscard]] std::string DecodeUtf8LikeDotNet(std::string_view input)
-    {
-        std::string output;
-        output.reserve(input.size());
-
-        std::size_t index = 0;
-        while (index < input.size())
-        {
-            const unsigned char first = static_cast<unsigned char>(input[index]);
-            if (first <= 0x7FU)
-            {
-                output.push_back(static_cast<char>(first));
-                ++index;
-                continue;
-            }
-
-            if (first < 0xC2U || first > 0xF4U)
-            {
-                AppendUtf8Replacement(output);
-                ++index;
-                continue;
-            }
-
-            if (index + 1 >= input.size())
-            {
-                AppendUtf8Replacement(output);
-                break;
-            }
-
-            const unsigned char second = static_cast<unsigned char>(input[index + 1]);
-            if (!IsUtf8Continuation(second))
-            {
-                AppendUtf8Replacement(output);
-                ++index;
-                continue;
-            }
-
-            if ((first == 0xE0U && second < 0xA0U)
-                || (first == 0xEDU && second >= 0xA0U)
-                || (first == 0xF0U && second < 0x90U)
-                || (first == 0xF4U && second > 0x8FU))
-            {
-                AppendUtf8Replacement(output);
-                ++index;
-                continue;
-            }
-
-            if (first <= 0xDFU)
-            {
-                output.append(input.substr(index, 2));
-                index += 2;
-                continue;
-            }
-
-            if (index + 2 >= input.size())
-            {
-                AppendUtf8Replacement(output);
-                break;
-            }
-
-            const unsigned char third = static_cast<unsigned char>(input[index + 2]);
-            if (!IsUtf8Continuation(third))
-            {
-                AppendUtf8Replacement(output);
-                index += 2;
-                continue;
-            }
-
-            if (first <= 0xEFU)
-            {
-                output.append(input.substr(index, 3));
-                index += 3;
-                continue;
-            }
-
-            if (index + 3 >= input.size())
-            {
-                AppendUtf8Replacement(output);
-                break;
-            }
-
-            const unsigned char fourth = static_cast<unsigned char>(input[index + 3]);
-            if (!IsUtf8Continuation(fourth))
-            {
-                AppendUtf8Replacement(output);
-                index += 3;
-                continue;
-            }
-
-            output.append(input.substr(index, 4));
-            index += 4;
-        }
-
-        return output;
-    }
 #endif
 
 #if defined(__APPLE__) || defined(__OpenBSD__) || defined(__sun) || defined(__linux__) \
@@ -342,7 +191,7 @@ namespace
             }
             if (length < buffer.size())
             {
-                return Utf8FromWide(buffer.data(), static_cast<std::size_t>(length));
+                return WideToWtf8(std::wstring_view(buffer.data(), static_cast<std::size_t>(length)));
             }
             if (buffer.size() > static_cast<std::size_t>(std::numeric_limits<DWORD>::max()) / 2U)
             {
@@ -404,7 +253,7 @@ namespace
 #if !defined(_WIN32)
             if (path.has_value())
             {
-                *path = DecodeUtf8LikeDotNet(*path);
+                *path = Utf8GetString(*path);
             }
 #endif
             if (path.has_value() && path->empty())

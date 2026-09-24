@@ -9,7 +9,9 @@
 #include "Branding.hpp"
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "Launcher/Portable/LauncherPrefs.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -28,8 +30,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::FileReadAllLines;
 using ::MphRead::NativeRuntime::Int32TryParseInvariant;
 using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::StringTrimView;
 
@@ -661,207 +665,6 @@ namespace MphRead::Mods
             return value >= '0' && value <= '9';
         }
 
-        void AppendUtf8(std::string& text, std::uint32_t codePoint)
-        {
-            if (codePoint <= 0x7F)
-            {
-                text.push_back(static_cast<char>(codePoint));
-            }
-            else if (codePoint <= 0x7FF)
-            {
-                text.push_back(static_cast<char>(0xC0 | (codePoint >> 6)));
-                text.push_back(static_cast<char>(0x80 | (codePoint & 0x3F)));
-            }
-            else if (codePoint <= 0xFFFF)
-            {
-                text.push_back(static_cast<char>(0xE0 | (codePoint >> 12)));
-                text.push_back(static_cast<char>(
-                    0x80 | ((codePoint >> 6) & 0x3F)));
-                text.push_back(static_cast<char>(0x80 | (codePoint & 0x3F)));
-            }
-            else
-            {
-                text.push_back(static_cast<char>(0xF0 | (codePoint >> 18)));
-                text.push_back(static_cast<char>(
-                    0x80 | ((codePoint >> 12) & 0x3F)));
-                text.push_back(static_cast<char>(
-                    0x80 | ((codePoint >> 6) & 0x3F)));
-                text.push_back(static_cast<char>(0x80 | (codePoint & 0x3F)));
-            }
-        }
-
-        std::string DecodeUtf16(std::string_view bytes, bool bigEndian)
-        {
-            constexpr std::uint32_t Replacement = 0xFFFD;
-            const auto unitAt = [&](std::size_t offset)
-            {
-                const std::uint16_t first =
-                    static_cast<unsigned char>(bytes[offset]);
-                const std::uint16_t second =
-                    static_cast<unsigned char>(bytes[offset + 1]);
-                return static_cast<std::uint16_t>(bigEndian
-                    ? (first << 8) | second
-                    : first | (second << 8));
-            };
-
-            std::string text;
-            text.reserve(bytes.size());
-            std::size_t offset = 0;
-            while (offset + 1 < bytes.size())
-            {
-                const std::uint16_t first = unitAt(offset);
-                offset += 2;
-                if (first >= 0xD800 && first <= 0xDBFF)
-                {
-                    if (offset + 1 < bytes.size())
-                    {
-                        const std::uint16_t second = unitAt(offset);
-                        if (second >= 0xDC00 && second <= 0xDFFF)
-                        {
-                            offset += 2;
-                            const std::uint32_t codePoint = 0x10000
-                                + ((static_cast<std::uint32_t>(first) - 0xD800)
-                                    << 10)
-                                + (static_cast<std::uint32_t>(second) - 0xDC00);
-                            AppendUtf8(text, codePoint);
-                            continue;
-                        }
-                    }
-                    AppendUtf8(text, Replacement);
-                }
-                else if (first >= 0xDC00 && first <= 0xDFFF)
-                {
-                    AppendUtf8(text, Replacement);
-                }
-                else
-                {
-                    AppendUtf8(text, first);
-                }
-            }
-            if (offset < bytes.size())
-            {
-                AppendUtf8(text, Replacement);
-            }
-            return text;
-        }
-
-        std::string DecodeUtf32(std::string_view bytes, bool bigEndian)
-        {
-            constexpr std::uint32_t Replacement = 0xFFFD;
-            std::string text;
-            text.reserve(bytes.size());
-            std::size_t offset = 0;
-            while (offset + 3 < bytes.size())
-            {
-                const std::uint32_t b0 =
-                    static_cast<unsigned char>(bytes[offset]);
-                const std::uint32_t b1 =
-                    static_cast<unsigned char>(bytes[offset + 1]);
-                const std::uint32_t b2 =
-                    static_cast<unsigned char>(bytes[offset + 2]);
-                const std::uint32_t b3 =
-                    static_cast<unsigned char>(bytes[offset + 3]);
-                const std::uint32_t codePoint = bigEndian
-                    ? (b0 << 24) | (b1 << 16) | (b2 << 8) | b3
-                    : b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
-                offset += 4;
-                if (codePoint > 0x10FFFF
-                    || (codePoint >= 0xD800 && codePoint <= 0xDFFF))
-                {
-                    AppendUtf8(text, Replacement);
-                }
-                else
-                {
-                    AppendUtf8(text, codePoint);
-                }
-            }
-            if (offset < bytes.size())
-            {
-                AppendUtf8(text, Replacement);
-            }
-            return text;
-        }
-
-        std::string DecodeControlsText(std::string_view bytes)
-        {
-            const auto byteAt = [&](std::size_t index)
-            {
-                return static_cast<unsigned char>(bytes[index]);
-            };
-
-            if (bytes.size() >= 4
-                && byteAt(0) == 0xFF && byteAt(1) == 0xFE
-                && byteAt(2) == 0x00 && byteAt(3) == 0x00)
-            {
-                return DecodeUtf32(bytes.substr(4), false);
-            }
-            if (bytes.size() >= 4
-                && byteAt(0) == 0x00 && byteAt(1) == 0x00
-                && byteAt(2) == 0xFE && byteAt(3) == 0xFF)
-            {
-                return DecodeUtf32(bytes.substr(4), true);
-            }
-            if (bytes.size() >= 2
-                && byteAt(0) == 0xFF && byteAt(1) == 0xFE)
-            {
-                return DecodeUtf16(bytes.substr(2), false);
-            }
-            if (bytes.size() >= 2
-                && byteAt(0) == 0xFE && byteAt(1) == 0xFF)
-            {
-                return DecodeUtf16(bytes.substr(2), true);
-            }
-            if (bytes.size() >= 3
-                && byteAt(0) == 0xEF && byteAt(1) == 0xBB
-                && byteAt(2) == 0xBF)
-            {
-                bytes.remove_prefix(3);
-            }
-            return std::string(bytes);
-        }
-
-        std::vector<std::string> ReadAllLines(const std::filesystem::path& path)
-        {
-            std::ifstream stream(path, std::ios::binary);
-            if (!stream)
-            {
-                throw std::runtime_error("Could not open controls file.");
-            }
-
-            const auto bytesBegin = std::istreambuf_iterator<char>(stream);
-            const auto bytesEnd = std::istreambuf_iterator<char>();
-            const std::string bytes(bytesBegin, bytesEnd);
-            if (stream.bad())
-            {
-                throw std::runtime_error("Could not read controls file.");
-            }
-
-            const std::string text = DecodeControlsText(bytes);
-            std::vector<std::string> lines;
-            std::size_t start = 0;
-            while (start < text.size())
-            {
-                const std::size_t end = text.find_first_of("\r\n", start);
-                if (end == std::string::npos)
-                {
-                    lines.push_back(text.substr(start));
-                    break;
-                }
-
-                lines.push_back(text.substr(start, end - start));
-                if (text[end] == '\r'
-                    && end + 1 < text.size() && text[end + 1] == '\n')
-                {
-                    start = end + 2;
-                }
-                else
-                {
-                    start = end + 1;
-                }
-            }
-            return lines;
-        }
-
         void WriteAllLines(const std::filesystem::path& path,
             const std::vector<std::string>& lines)
         {
@@ -1267,7 +1070,7 @@ namespace MphRead::Mods
 
         try
         {
-            const std::vector<std::string> lines = ReadAllLines(path);
+            const std::vector<std::string> lines = FileReadAllLines(PathToUtf8(path));
             for (const std::string& raw : lines)
             {
                 const std::string line = TrimCopy(raw);

@@ -7,6 +7,7 @@
 // A control's Render is written in its own coordinates, with the origin at its
 // top left, so a surface carries the offset of the control it belongs to.
 
+#include "../System/Encoding.hpp"
 #include "../Gui/Renderer.hpp"
 #include "../../Mods/Launcher/Gui/GuiTheme.hpp"
 #include "../../Mods/Launcher/Gui/TrackedText.hpp"
@@ -25,8 +26,6 @@ namespace MphRead::NativeRuntime::Avalonia
     [[nodiscard]] Toolkit::Color ToColor(Launcher::GuiColor color) noexcept;
     [[nodiscard]] Toolkit::Color ToColor(const Launcher::GuiBrush& brush) noexcept;
 
-    [[nodiscard]] std::string Utf8(std::u16string_view text);
-    [[nodiscard]] std::u16string Utf16(std::string_view text);
 
     // One measured run, kept for as long as the process runs: a FormattedText
     // is an opaque handle on the managed side and the controls hold them only

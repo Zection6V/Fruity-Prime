@@ -20,6 +20,8 @@ namespace MphRead::NativeRuntime
     // std::filesystem::path(std::string) and path::string() use the ANSI code
     // page on Windows, so a path with any non-ASCII character in it -- a
     // Japanese user name is enough -- names a different file or throws.
+    // On Windows the string is WTF-8 (see Encoding.hpp), so a file name with
+    // a lone surrogate in it, which a C# string holds, survives the trip.
     [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value);
     [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& value);
     // Path.IsPathRooted(path).
@@ -46,12 +48,14 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] bool FileExists(std::string_view path) noexcept;
     // Directory.Exists(path).
     [[nodiscard]] bool DirectoryExists(std::string_view path) noexcept;
-    // File.ReadAllLines(path): UTF-8, with CR, LF and CRLF all ending a line
-    // and the byte-order mark stripped.
+    // File.ReadAllLines(path): decoded as StreamReaderDecode does, with CR, LF
+    // and CRLF all ending a line.
     [[nodiscard]] std::vector<std::string> FileReadAllLines(const std::string& path);
     // File.WriteAllLines(path, lines): every line followed by Environment.NewLine.
     void FileWriteAllLines(const std::string& path, const std::vector<std::string>& lines);
-    // File.ReadAllText(path): UTF-8, byte-order mark stripped.
+    // File.ReadAllText(path): decoded as StreamReaderDecode does -- a byte-order
+    // mark picks UTF-32, UTF-8 or UTF-16 and is dropped, and anything else is
+    // UTF-8, with ill-formed bytes as U+FFFD.
     [[nodiscard]] std::string FileReadAllText(const std::string& path);
     // File.WriteAllText(path, text).
     void FileWriteAllText(const std::string& path, std::string_view text);

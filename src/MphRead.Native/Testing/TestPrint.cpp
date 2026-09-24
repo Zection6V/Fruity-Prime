@@ -4,6 +4,7 @@
 #include "../Formats/Model.hpp"
 #include "../Formats/Types.hpp"
 #include "../NativeRuntime/System/Console.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -30,6 +31,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::EnvironmentNewLine;
 using ::MphRead::NativeRuntime::Int32ToUInt32;
 using ::MphRead::NativeRuntime::ManagedAt;
@@ -40,6 +42,7 @@ using ::MphRead::NativeRuntime::StringTrim;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace
 {
@@ -78,74 +81,6 @@ namespace
         return value ? *value : empty;
     }
 
-    struct Utf8CodePoint final
-    {
-        char32_t Value;
-        std::size_t Length;
-    };
-
-    [[nodiscard]] Utf8CodePoint DecodeUtf8(
-        std::string_view value, std::size_t offset) noexcept
-    {
-        const auto first = static_cast<unsigned char>(value[offset]);
-        if (first < 0x80U)
-        {
-            return {first, 1};
-        }
-
-        auto continuation = [&](std::size_t index) noexcept -> int
-        {
-            if (index >= value.size())
-            {
-                return -1;
-            }
-            const auto byte = static_cast<unsigned char>(value[index]);
-            return (byte & 0xC0U) == 0x80U ? static_cast<int>(byte & 0x3FU) : -1;
-        };
-
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            const int c1 = continuation(offset + 1);
-            if (c1 >= 0)
-            {
-                const char32_t cp = static_cast<char32_t>(((first & 0x1FU) << 6) | c1);
-                if (cp >= 0x80)
-                {
-                    return {cp, 2};
-                }
-            }
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            const int c1 = continuation(offset + 1);
-            const int c2 = continuation(offset + 2);
-            if (c1 >= 0 && c2 >= 0)
-            {
-                const char32_t cp = static_cast<char32_t>(
-                    ((first & 0x0FU) << 12) | (c1 << 6) | c2);
-                if (cp >= 0x800 && !(cp >= 0xD800 && cp <= 0xDFFF))
-                {
-                    return {cp, 3};
-                }
-            }
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            const int c1 = continuation(offset + 1);
-            const int c2 = continuation(offset + 2);
-            const int c3 = continuation(offset + 3);
-            if (c1 >= 0 && c2 >= 0 && c3 >= 0)
-            {
-                const char32_t cp = static_cast<char32_t>(
-                    ((first & 0x07U) << 18) | (c1 << 12) | (c2 << 6) | c3);
-                if (cp >= 0x10000 && cp <= 0x10FFFF)
-                {
-                    return {cp, 4};
-                }
-            }
-        }
-        return {first, 1};
-    }
 
     [[nodiscard]] std::vector<std::string> SplitChar(std::string_view value, char separator)
     {
@@ -224,7 +159,7 @@ namespace
         std::size_t first = 0;
         while (first < value.size())
         {
-            const Utf8CodePoint cp = DecodeUtf8(value, first);
+            const Utf8Scalar cp = DecodeUtf8Scalar(value, first);
             if (!CharIsWhiteSpace(cp.Value))
             {
                 break;
@@ -267,7 +202,7 @@ namespace
 
         while (first < value.size())
         {
-            const Utf8CodePoint cp = DecodeUtf8(value, first);
+            const Utf8Scalar cp = DecodeUtf8Scalar(value, first);
             if (!CharIsWhiteSpace(cp.Value))
             {
                 throw System::FormatException();
@@ -1533,7 +1468,7 @@ namespace
             throw ManagedIndexOutOfRangeException();
         }
 
-        const Utf8CodePoint first = DecodeUtf8(part, 0);
+        const Utf8Scalar first = DecodeUtf8Scalar(part, 0);
         const unsigned char firstByte = static_cast<unsigned char>(part[0]);
         if (first.Length == 1 && firstByte >= 0x80U)
         {

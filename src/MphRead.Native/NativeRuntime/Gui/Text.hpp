@@ -49,5 +49,4 @@ namespace MphRead::NativeRuntime::Gui
     [[nodiscard]] double FontLineHeight(double fontSize, FontWeight weight);
 
     // UTF-8 to code points.
-    [[nodiscard]] std::vector<char32_t> Decode(std::string_view text);
 }

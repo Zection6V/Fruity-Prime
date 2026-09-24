@@ -1,4 +1,5 @@
 
+#include "Encoding.hpp"
 #include "Exceptions.hpp"
 #include "IO.hpp"
 
@@ -59,34 +60,6 @@ namespace MphRead::NativeRuntime
         }
 
 #if defined(_WIN32)
-        [[nodiscard]] std::wstring Widen(const std::string& value)
-        {
-            if (value.empty())
-            {
-                return {};
-            }
-            const int length = ::MultiByteToWideChar(CP_UTF8, 0, value.data(),
-                static_cast<int>(value.size()), nullptr, 0);
-            std::wstring result(static_cast<std::size_t>(length), L'\0');
-            ::MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                result.data(), length);
-            return result;
-        }
-
-        [[nodiscard]] std::string Narrow(const std::wstring& value)
-        {
-            if (value.empty())
-            {
-                return {};
-            }
-            const int length = ::WideCharToMultiByte(CP_UTF8, 0, value.data(),
-                static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
-            std::string result(static_cast<std::size_t>(length), '\0');
-            ::WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                result.data(), length, nullptr, nullptr);
-            return result;
-        }
-
         [[nodiscard]] std::string SystemMessage(DWORD error)
         {
             wchar_t* buffer = nullptr;
@@ -102,7 +75,7 @@ namespace MphRead::NativeRuntime
             {
                 text.pop_back();
             }
-            return Narrow(text);
+            return WideToWtf8(text);
         }
 
         // Win32Marshal.GetExceptionForWin32Error.
@@ -231,19 +204,20 @@ namespace MphRead::NativeRuntime
 
     std::filesystem::path PathFromUtf8(std::string_view value)
     {
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (const unsigned char byte : value)
-        {
-            converted.push_back(static_cast<char8_t>(byte));
-        }
-        return std::filesystem::path(converted);
+#if defined(_WIN32)
+        return std::filesystem::path(Wtf8ToWide(value));
+#else
+        return std::filesystem::path(std::string(value));
+#endif
     }
 
     std::string PathToUtf8(const std::filesystem::path& value)
     {
-        const std::u8string converted = value.u8string();
-        return std::string(reinterpret_cast<const char*>(converted.data()), converted.size());
+#if defined(_WIN32)
+        return WideToWtf8(value.native());
+#else
+        return value.native();
+#endif
     }
 
     bool PathIsPathRooted(std::string_view path) noexcept
@@ -320,7 +294,7 @@ namespace MphRead::NativeRuntime
             throw System::ArgumentException("The value cannot be an empty string. (Parameter 'path')");
         }
 #if defined(_WIN32)
-        const std::wstring wide = Widen(path);
+        const std::wstring wide = Wtf8ToWide(path);
         const DWORD length = ::GetFullPathNameW(wide.c_str(), 0, nullptr, nullptr);
         if (length == 0)
         {
@@ -329,7 +303,7 @@ namespace MphRead::NativeRuntime
         std::wstring result(length, L'\0');
         const DWORD written = ::GetFullPathNameW(wide.c_str(), length, result.data(), nullptr);
         result.resize(written);
-        return Narrow(result);
+        return WideToWtf8(result);
 #else
         std::filesystem::path full = std::filesystem::absolute(std::filesystem::path(path)).lexically_normal();
         std::string text = full.string();
@@ -349,7 +323,7 @@ namespace MphRead::NativeRuntime
         }
         const std::string fullPath = PathGetFullPath(path);
 #if defined(_WIN32)
-        HANDLE file = ::CreateFileW(Widen(fullPath).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+        HANDLE file = ::CreateFileW(Wtf8ToWide(fullPath).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (file == INVALID_HANDLE_VALUE)
         {
@@ -463,7 +437,7 @@ namespace MphRead::NativeRuntime
         };
 #if defined(_WIN32)
         WIN32_FIND_DATAW data{};
-        HANDLE find = ::FindFirstFileExW(Widen(fullPath + "\\*").c_str(), FindExInfoBasic, &data,
+        HANDLE find = ::FindFirstFileExW(Wtf8ToWide(fullPath + "\\*").c_str(), FindExInfoBasic, &data,
             FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
         if (find == INVALID_HANDLE_VALUE)
         {
@@ -480,7 +454,7 @@ namespace MphRead::NativeRuntime
         {
             if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
             {
-                names.push_back(Narrow(data.cFileName));
+                names.push_back(WideToWtf8(data.cFileName));
             }
         }
         while (::FindNextFileW(find, &data));
@@ -540,7 +514,7 @@ namespace MphRead::NativeRuntime
         {
             const std::string value(path);
 #if defined(_WIN32)
-            const std::wstring wide = Widen(value);
+            const std::wstring wide = Wtf8ToWide(value);
             const DWORD attributes = GetFileAttributesW(wide.c_str());
             return attributes != INVALID_FILE_ATTRIBUTES
                 && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
@@ -569,7 +543,7 @@ namespace MphRead::NativeRuntime
         {
             const std::string value(path);
 #if defined(_WIN32)
-            const std::wstring wide = Widen(value);
+            const std::wstring wide = Wtf8ToWide(value);
             const DWORD attributes = GetFileAttributesW(wide.c_str());
             return attributes != INVALID_FILE_ATTRIBUTES
                 && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -611,24 +585,17 @@ namespace MphRead::NativeRuntime
 
     std::vector<std::string> FileReadAllLines(const std::string& path)
     {
-        // StreamReader's default encoding is UTF-8 with BOM detection; the
-        // bytes are handed back unchanged either way, so only the mark is
-        // dropped here.
-        const std::vector<std::uint8_t> bytes = FileReadAllBytes(path);
+        const std::string text = StreamReaderDecode(FileReadAllBytes(path));
         std::size_t index = 0;
-        if (bytes.size() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
-        {
-            index = 3;
-        }
         std::vector<std::string> lines;
         std::string current;
-        while (index < bytes.size())
+        while (index < text.size())
         {
-            const char value = static_cast<char>(bytes[index]);
+            const char value = text[index];
             if (value == '\r')
             {
                 // CR, LF and CRLF each end exactly one line.
-                if (index + 1 < bytes.size() && bytes[index + 1] == '\n')
+                if (index + 1 < text.size() && text[index + 1] == '\n')
                 {
                     ++index;
                 }
@@ -661,7 +628,7 @@ namespace MphRead::NativeRuntime
         {
             const std::string fullPath = PathGetFullPath(path);
 #if defined(_WIN32)
-            HANDLE file = ::CreateFileW(Widen(fullPath).c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+            HANDLE file = ::CreateFileW(Wtf8ToWide(fullPath).c_str(), GENERIC_WRITE, FILE_SHARE_READ,
                 nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
             if (file == INVALID_HANDLE_VALUE)
             {
@@ -725,14 +692,7 @@ namespace MphRead::NativeRuntime
 
     std::string FileReadAllText(const std::string& path)
     {
-        const std::vector<std::uint8_t> bytes = FileReadAllBytes(path);
-        std::size_t index = 0;
-        if (bytes.size() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
-        {
-            index = 3;
-        }
-        return std::string(
-            reinterpret_cast<const char*>(bytes.data()) + index, bytes.size() - index);
+        return StreamReaderDecode(FileReadAllBytes(path));
     }
 
     void FileWriteAllText(const std::string& path, std::string_view text)
@@ -772,7 +732,7 @@ namespace MphRead::NativeRuntime
         for (std::size_t i = pending.size(); i-- > 0;)
         {
 #if defined(_WIN32)
-            if (::CreateDirectoryW(Widen(pending[i]).c_str(), nullptr) == FALSE)
+            if (::CreateDirectoryW(Wtf8ToWide(pending[i]).c_str(), nullptr) == FALSE)
             {
                 const DWORD error = ::GetLastError();
                 if (error != ERROR_ALREADY_EXISTS)
@@ -797,7 +757,7 @@ namespace MphRead::NativeRuntime
 #if defined(_WIN32)
         WIN32_FILE_ATTRIBUTE_DATA data{};
         if (GetFileAttributesExW(
-                Widen(fullPath).c_str(), GetFileExInfoStandard, &data) != FALSE)
+                Wtf8ToWide(fullPath).c_str(), GetFileExInfoStandard, &data) != FALSE)
         {
             info.Length = (static_cast<std::int64_t>(data.nFileSizeHigh) << 32)
                 | static_cast<std::int64_t>(data.nFileSizeLow);
@@ -953,7 +913,7 @@ namespace MphRead::NativeRuntime
             }
             if (length < buffer.size())
             {
-                return Narrow(std::wstring(buffer.data(), length));
+                return WideToWtf8(std::wstring(buffer.data(), length));
             }
             buffer.resize(length + 1);
         }

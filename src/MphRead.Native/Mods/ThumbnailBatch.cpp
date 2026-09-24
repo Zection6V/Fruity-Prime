@@ -3,6 +3,7 @@
 #include "ThumbnailCapture.hpp"
 #include "ThumbnailGenerator.hpp"
 #include "ThumbnailLog.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 
@@ -57,6 +58,9 @@
 
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
+using ::MphRead::NativeRuntime::Utf8ToWide;
+using ::MphRead::NativeRuntime::WideToUtf8;
 
 namespace
 {
@@ -488,87 +492,6 @@ namespace
             return first;
         }
 
-    std::u16string Utf8ToUtf16(std::string_view value)
-        {
-            std::u16string result;
-            result.reserve(value.size());
-    
-            std::size_t index = 0;
-            while (index < value.size())
-            {
-                const unsigned char first = static_cast<unsigned char>(value[index]);
-                std::uint32_t codePoint = 0;
-                std::size_t count = 0;
-    
-                if (first <= 0x7F)
-                {
-                    codePoint = first;
-                    count = 1;
-                }
-                else if ((first & 0xE0) == 0xC0)
-                {
-                    codePoint = first & 0x1F;
-                    count = 2;
-                    if (codePoint == 0)
-                    {
-                        throw std::invalid_argument("Invalid UTF-8 sequence.");
-                    }
-                }
-                else if ((first & 0xF0) == 0xE0)
-                {
-                    codePoint = first & 0x0F;
-                    count = 3;
-                }
-                else if ((first & 0xF8) == 0xF0)
-                {
-                    codePoint = first & 0x07;
-                    count = 4;
-                }
-                else
-                {
-                    throw std::invalid_argument("Invalid UTF-8 sequence.");
-                }
-    
-                if (index + count > value.size())
-                {
-                    throw std::invalid_argument("Invalid UTF-8 sequence.");
-                }
-    
-                for (std::size_t offset = 1; offset < count; ++offset)
-                {
-                    const unsigned char continuation =
-                        static_cast<unsigned char>(value[index + offset]);
-                    if ((continuation & 0xC0) != 0x80)
-                    {
-                        throw std::invalid_argument("Invalid UTF-8 sequence.");
-                    }
-                    codePoint = (codePoint << 6) | (continuation & 0x3F);
-                }
-    
-                if ((count == 2 && codePoint < 0x80)
-                    || (count == 3 && codePoint < 0x800)
-                    || (count == 4 && codePoint < 0x10000)
-                    || codePoint > 0x10FFFF
-                    || (codePoint >= 0xD800 && codePoint <= 0xDFFF))
-                {
-                    throw std::invalid_argument("Invalid UTF-8 sequence.");
-                }
-    
-                if (codePoint <= 0xFFFF)
-                {
-                    result.push_back(static_cast<char16_t>(codePoint));
-                }
-                else
-                {
-                    codePoint -= 0x10000;
-                    result.push_back(static_cast<char16_t>(0xD800 + (codePoint >> 10)));
-                    result.push_back(static_cast<char16_t>(0xDC00 + (codePoint & 0x3FF)));
-                }
-                index += count;
-            }
-            return result;
-        }
-
     int CompareOrdinalIgnoreCase(std::string_view left, std::string_view right)
         {
             const std::u16string left16 = Utf8ToUtf16(left);
@@ -645,51 +568,6 @@ namespace
     };
 
 #ifdef _WIN32
-    std::wstring Utf8ToWide(std::string_view value)
-    {
-        if (value.empty())
-        {
-            return {};
-        }
-        const int needed = ::MultiByteToWideChar(
-            CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), nullptr, 0);
-        if (needed == 0)
-        {
-            throw std::system_error(static_cast<int>(::GetLastError()), std::system_category());
-        }
-        std::wstring result(static_cast<std::size_t>(needed), L'\0');
-        if (::MultiByteToWideChar(
-            CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
-            result.data(), needed) == 0)
-        {
-            throw std::system_error(static_cast<int>(::GetLastError()), std::system_category());
-        }
-        return result;
-    }
-
-    std::string WideToUtf8(std::wstring_view value)
-    {
-        if (value.empty())
-        {
-            return {};
-        }
-        const int needed = ::WideCharToMultiByte(
-            CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
-            nullptr, 0, nullptr, nullptr);
-        if (needed == 0)
-        {
-            throw std::system_error(static_cast<int>(::GetLastError()), std::system_category());
-        }
-        std::string result(static_cast<std::size_t>(needed), '\0');
-        if (::WideCharToMultiByte(
-            CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
-            result.data(), needed, nullptr, nullptr) == 0)
-        {
-            throw std::system_error(static_cast<int>(::GetLastError()), std::system_category());
-        }
-        return result;
-    }
-
     std::wstring QuoteWindowsArgument(std::wstring_view value)
     {
         bool simple = !value.empty();

@@ -37,6 +37,7 @@
 #include "../../Network/NetStatus.hpp"
 #include "../../Update/Updater.hpp"
 #include "../../WindowMode.hpp"
+#include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
 
@@ -81,8 +82,12 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::AppendUtf8;
+using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::StringTrim;
+using ::MphRead::NativeRuntime::Utf16Length;
+using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace MphRead::GameStateDetail
 {
@@ -154,68 +159,6 @@ namespace
     [[nodiscard]] GameMode DefenderTeams() { return GameMode::DefenderTeams; }
     [[nodiscard]] GameMode PrimeHunter() { return GameMode::PrimeHunter; }
 
-    struct Utf8Unit final
-    {
-        std::uint32_t Scalar = 0xFFFDU;
-        std::size_t Length = 1;
-    };
-
-    [[nodiscard]] Utf8Unit DecodeUtf8(std::string_view text, std::size_t position) noexcept
-    {
-        if (position >= text.size())
-        {
-            return {0, 0};
-        }
-        const auto byte = static_cast<unsigned char>(text[position]);
-        if (byte < 0x80U)
-        {
-            return {byte, 1};
-        }
-
-        std::size_t length = 0;
-        std::uint32_t scalar = 0;
-        std::uint32_t minimum = 0;
-        if ((byte & 0xE0U) == 0xC0U)
-        {
-            length = 2;
-            scalar = byte & 0x1FU;
-            minimum = 0x80U;
-        }
-        else if ((byte & 0xF0U) == 0xE0U)
-        {
-            length = 3;
-            scalar = byte & 0x0FU;
-            minimum = 0x800U;
-        }
-        else if ((byte & 0xF8U) == 0xF0U)
-        {
-            length = 4;
-            scalar = byte & 0x07U;
-            minimum = 0x10000U;
-        }
-        else
-        {
-            return {};
-        }
-        if (position + length > text.size())
-        {
-            return {};
-        }
-        for (std::size_t index = 1; index < length; ++index)
-        {
-            const auto next = static_cast<unsigned char>(text[position + index]);
-            if ((next & 0xC0U) != 0x80U)
-            {
-                return {};
-            }
-            scalar = (scalar << 6U) | (next & 0x3FU);
-        }
-        if (scalar < minimum || scalar > 0x10FFFFU)
-        {
-            return {};
-        }
-        return {scalar, length};
-    }
 
     [[nodiscard]] std::string TrimQuotes(std::string value)
     {
@@ -230,32 +173,6 @@ namespace
             --last;
         }
         return value.substr(first, last - first);
-    }
-
-    void AppendUtf8(std::string& target, std::uint32_t scalar)
-    {
-        if (scalar <= 0x7FU)
-        {
-            target.push_back(static_cast<char>(scalar));
-        }
-        else if (scalar <= 0x7FFU)
-        {
-            target.push_back(static_cast<char>(0xC0U | (scalar >> 6)));
-            target.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else if (scalar <= 0xFFFFU)
-        {
-            target.push_back(static_cast<char>(0xE0U | (scalar >> 12)));
-            target.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            target.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
-        else
-        {
-            target.push_back(static_cast<char>(0xF0U | (scalar >> 18)));
-            target.push_back(static_cast<char>(0x80U | ((scalar >> 12) & 0x3FU)));
-            target.push_back(static_cast<char>(0x80U | ((scalar >> 6) & 0x3FU)));
-            target.push_back(static_cast<char>(0x80U | (scalar & 0x3FU)));
-        }
     }
 
 #if !defined(_WIN32)
@@ -410,58 +327,22 @@ namespace
         return scalar;
     }
 
-#if defined(_WIN32)
-    [[nodiscard]] std::wstring WideFromWtf8(std::string_view value)
-    {
-        std::wstring result;
-        result.reserve(value.size());
-        for (std::size_t position = 0; position < value.size();)
-        {
-            const Utf8Unit unit = DecodeUtf8(value, position);
-            const std::size_t length = unit.Length == 0 ? 1 : unit.Length;
-            std::uint32_t scalar = unit.Scalar;
-            if (scalar <= 0xFFFFU)
-            {
-                result.push_back(static_cast<wchar_t>(scalar));
-            }
-            else
-            {
-                scalar -= 0x10000U;
-                result.push_back(static_cast<wchar_t>(0xD800U + (scalar >> 10)));
-                result.push_back(static_cast<wchar_t>(0xDC00U + (scalar & 0x3FFU)));
-            }
-            position += length;
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromManagedString(std::string_view value)
-    {
-        return std::filesystem::path(WideFromWtf8(value));
-    }
-#else
-    [[nodiscard]] std::filesystem::path PathFromManagedString(std::string_view value)
-    {
-        return std::filesystem::path(value);
-    }
-#endif
-
     [[nodiscard]] std::string LowerInvariantForCommand(const std::string& value)
     {
         std::string result;
         result.reserve(value.size());
         for (std::size_t position = 0; position < value.size();)
         {
-            const Utf8Unit unit = DecodeUtf8(value, position);
+            const Utf8Scalar unit = DecodeUtf8Scalar(value, position);
             const std::size_t length = unit.Length == 0 ? 1 : unit.Length;
-            if (unit.Scalar == 0xFFFDU && length == 1
+            if (unit.Value == 0xFFFDU && length == 1
                 && static_cast<unsigned char>(value[position]) >= 0x80U)
             {
                 result.push_back(value[position]);
             }
             else
             {
-                AppendUtf8(result, LowerInvariantScalar(unit.Scalar));
+                AppendUtf8(result, LowerInvariantScalar(unit.Value));
             }
             position += length;
         }
@@ -545,19 +426,6 @@ namespace
             value = static_cast<std::int32_t>(magnitude);
         }
         return true;
-    }
-
-    [[nodiscard]] std::size_t Utf16Length(std::string_view text) noexcept
-    {
-        std::size_t units = 0;
-        for (std::size_t position = 0; position < text.size();)
-        {
-            const Utf8Unit unit = DecodeUtf8(text, position);
-            const std::size_t length = unit.Length == 0 ? 1 : unit.Length;
-            units += unit.Scalar > 0xFFFFU ? 2U : 1U;
-            position += length;
-        }
-        return units;
     }
 
     [[nodiscard]] std::string PadRight(std::string value, std::size_t width)

@@ -108,12 +108,21 @@ namespace MphRead::NativeRuntime::Avalonia
 
         // The two dialogs the pause menu opens, in one window as the adapter
         // they share is one object.
+        //
+        // The screen a dialog shows is not built into this object: the pause
+        // menu builds it into the view adapter it asked the owner for first
+        // (CreateSettingsViewAdapter, CreateMapPickerViewAdapter), and that is
+        // the root this window has to show. The two bases here stay empty.
         class ChildWindowHost final : public Launcher::PauseMenuWindowChildAdapter,
                                       public SettingsHost,
                                       public MapPickerHost
         {
         public:
-            ChildWindowHost()
+            ChildWindowHost(std::shared_ptr<SettingsHost> settings,
+                std::shared_ptr<MapPickerHost> mapPicker, Toolkit::Window* owner)
+                : _settings(std::move(settings)),
+                  _mapPicker(std::move(mapPicker)),
+                  _owner(owner)
             {
                 // Both screens are built into this one window; whichever is
                 // shown first makes its own root.
@@ -211,7 +220,7 @@ namespace MphRead::NativeRuntime::Avalonia
             void SetContent(const std::shared_ptr<Launcher::SettingsView>& view) override
             {
                 (void)view;
-                _content = SettingsHost::Root();
+                _content = _settings != nullptr ? _settings->Root() : SettingsHost::Root();
             }
 
             void BaseOnOpened(Launcher::SettingsWindowOpenedEventArgs& e) override
@@ -241,7 +250,7 @@ namespace MphRead::NativeRuntime::Avalonia
             void SetContent(Launcher::MapPickerView& view) override
             {
                 (void)view;
-                _content = MapPickerHost::Root();
+                _content = _mapPicker != nullptr ? _mapPicker->Root() : MapPickerHost::Root();
             }
 
             // --- showing one
@@ -263,22 +272,61 @@ namespace MphRead::NativeRuntime::Avalonia
                 Run(std::move(completion));
             }
 
+            ~ChildWindowHost() override
+            {
+                *_alive = false;
+            }
+
         private:
+            // `await window.ShowDialog(this)`: the window opens and the caller
+            // goes back to its frame; what follows the await runs once the
+            // window has closed. The game's own frame keeps pumping this
+            // window through PauseMenu.Poll, as it pumps the menu -- a nested
+            // frame here would stop the match from being drawn at all, which
+            // is a black game window behind the dialog.
             void Run(Launcher::PauseMenuWindowDialogCompletion completion)
             {
                 _window.Open(_content);
-                // A modal dialog is a nested frame, as it is on the managed
-                // side: the call returns when the window closes.
-                bool open = true;
-                _window.Handle()->Closed([&open]() { open = false; });
-                Toolkit::Dispatcher::Instance().PushFrame(
-                    [&open]() { return open; });
-                completion.Invoke();
+                auto pending = std::make_shared<Launcher::PauseMenuWindowDialogCompletion>(
+                    std::move(completion));
+                _window.Handle()->Closed(
+                    [pending]()
+                    {
+                        // Posted, as an await continuation is: the window that
+                        // is closing, and the dialog object that closed it,
+                        // are still on the stack here and the continuation
+                        // releases both.
+                        Toolkit::Dispatcher::Instance().Post(
+                            [pending]()
+                            {
+                                const Launcher::PauseMenuWindowDialogCompletion done
+                                    = std::exchange(*pending, {});
+                                done.Invoke();
+                            });
+                    });
+                // A dialog is owned: it goes when the window it was opened
+                // over goes.
+                if (_owner != nullptr)
+                {
+                    const std::weak_ptr<bool> alive = _alive;
+                    _owner->Closed(
+                        [this, alive]()
+                        {
+                            if (!alive.expired())
+                            {
+                                _window.Close();
+                            }
+                        });
+                }
             }
 
             ScreenWindow _window;
             Toolkit::ElementPtr _content;
             Launcher::PauseMenuWindowPixelPoint _position{};
+            std::shared_ptr<SettingsHost> _settings;
+            std::shared_ptr<MapPickerHost> _mapPicker;
+            Toolkit::Window* _owner = nullptr;
+            std::shared_ptr<bool> _alive = std::make_shared<bool>(true);
         };
 
         // The window is the view's adapter on the managed side, where one
@@ -597,10 +645,16 @@ namespace MphRead::NativeRuntime::Avalonia
 
             [[nodiscard]] double RenderScaling() const override { return 1.0; }
 
+            // The dialog window shows the screen the view adapter made just
+            // before it was asked for: PauseMenuWindow builds the view first
+            // and opens the window over it second.
             std::shared_ptr<Launcher::PauseMenuWindowChildAdapter>
                 CreateChildWindowAdapter() override
             {
-                return std::make_shared<ChildWindowHost>();
+                return std::make_shared<ChildWindowHost>(
+                    std::exchange(_settingsHost, nullptr),
+                    std::exchange(_mapPickerHost, nullptr),
+                    _window.Handle());
             }
 
             std::shared_ptr<Launcher::SettingsViewAdapter>
@@ -608,6 +662,7 @@ namespace MphRead::NativeRuntime::Avalonia
             {
                 auto host = std::make_shared<SettingsHost>();
                 host->MakeRoot(host);
+                _settingsHost = host;
                 return std::shared_ptr<Launcher::SettingsViewAdapter>(host, host.get());
             }
 
@@ -616,6 +671,7 @@ namespace MphRead::NativeRuntime::Avalonia
             {
                 auto host = std::make_shared<MapPickerHost>();
                 host->MakeRoot(host);
+                _mapPickerHost = host;
                 return std::shared_ptr<Launcher::MapPickerViewAdapter>(host, host.get());
             }
 
@@ -652,6 +708,8 @@ namespace MphRead::NativeRuntime::Avalonia
             std::shared_ptr<Launcher::PauseMenuWindow> _owner;
             Launcher::PauseMenuWindowPixelPoint _position{};
             bool _topmost = false;
+            std::shared_ptr<SettingsHost> _settingsHost;
+            std::shared_ptr<MapPickerHost> _mapPickerHost;
         };
     }
 }

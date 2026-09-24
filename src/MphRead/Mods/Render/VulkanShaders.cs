@@ -400,6 +400,21 @@ void main()
     }
     out_color = vec4(base * (1.0 - ink), 1.0);
 }";
+        public static string ClearVertex { get; } = @"#version 450
+void main()
+{
+    float x = -1.0 + float((gl_VertexIndex & 1) << 2);
+    float y = -1.0 + float((gl_VertexIndex & 2) << 1);
+    gl_Position = vec4(x, y, 1.0, 1.0);
+}";
+
+        public static string ClearFragment { get; } = @"#version 450
+layout(location=0) out vec4 out_color;
+void main()
+{
+    out_color = vec4(0.0);
+}";
+
     }
 }
 #endif

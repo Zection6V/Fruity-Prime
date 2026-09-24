@@ -156,6 +156,7 @@ namespace MphRead.Mods.Render
         private static Shader[]? _shiftShaders;
         private static Shader[]? _celShaders;
         private static Shader[]? _backdropShaders;
+        private static Shader[]? _clearShaders;
         private static readonly Dictionary<string, Pipeline> _pipelines = new();
         private static readonly Dictionary<string, ResourceSet> _sets = new();
         private static readonly Dictionary<string, Sampler> _samplers = new();
@@ -303,6 +304,9 @@ namespace MphRead.Mods.Render
             _backdropShaders = _factory.CreateFromSpirv(
                 new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.ScreenVertex), "main"),
                 new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.BackdropFragment), "main"));
+            _clearShaders = _factory.CreateFromSpirv(
+                new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.ClearVertex), "main"),
+                new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.ClearFragment), "main"));
 
             _white = new TextureInfo();
             AllocateTexture(_white, 1, 1, depth: false);
@@ -351,6 +355,7 @@ namespace MphRead.Mods.Render
             if (_shiftShaders != null) foreach (Shader shader in _shiftShaders) shader.Dispose();
             if (_celShaders != null) foreach (Shader shader in _celShaders) shader.Dispose();
             if (_backdropShaders != null) foreach (Shader shader in _backdropShaders) shader.Dispose();
+            if (_clearShaders != null) foreach (Shader shader in _clearShaders) shader.Dispose();
             _vertexBuffer?.Dispose();
             _indexBuffer?.Dispose();
             _ubo?.Dispose();
@@ -749,6 +754,57 @@ namespace MphRead.Mods.Render
                 _commands.SetGraphicsResourceSet(0, set);
                 _commands.DrawIndexed((uint)lines.Length, 1, (uint)triangles.Length, 0, 0);
             }
+        }
+
+        private static Pipeline GetAspectClearPipeline(bool clearDepth, bool clearStencil,
+            Veldrid.Framebuffer fb)
+        {
+            string key = clearDepth
+                ? $"clear:depth:{fb.OutputDescription.GetHashCode()}"
+                : $"clear:stencil:{_clearStencil & 0xFF}:{_stencilWriteMask & 0xFF}:"
+                    + $"{fb.OutputDescription.GetHashCode()}";
+            if (_pipelines.TryGetValue(key, out Pipeline? pipeline))
+            {
+                return pipeline;
+            }
+
+            BlendAttachmentDescription attachment = BlendAttachmentDescription.Disabled;
+            attachment.ColorWriteMask = 0;
+            var blendState = new BlendStateDescription(RgbaFloat.White, attachment);
+
+            var depthState = new DepthStencilStateDescription(
+                depthTestEnabled: clearDepth,
+                depthWriteEnabled: clearDepth,
+                comparisonKind: ComparisonKind.Always);
+            if (clearStencil)
+            {
+                var behavior = new StencilBehaviorDescription(
+                    Veldrid.StencilOperation.Keep,
+                    Veldrid.StencilOperation.Replace,
+                    Veldrid.StencilOperation.Keep,
+                    ComparisonKind.Always);
+                depthState.StencilTestEnabled = true;
+                depthState.StencilFront = behavior;
+                depthState.StencilBack = behavior;
+                depthState.StencilReadMask = 0xFF;
+                depthState.StencilWriteMask = (byte)(_stencilWriteMask & 0xFF);
+                depthState.StencilReference = (uint)(_clearStencil & 0xFF);
+            }
+
+            var raster = new RasterizerStateDescription(
+                FaceCullMode.None, PolygonFillMode.Solid,
+                FrontFace.CounterClockwise, true, false);
+            var description = new GraphicsPipelineDescription(
+                blendState,
+                depthState,
+                raster,
+                PrimitiveTopology.TriangleList,
+                new ShaderSetDescription(Array.Empty<VertexLayoutDescription>(), _clearShaders!),
+                Array.Empty<ResourceLayout>(),
+                fb.OutputDescription);
+            pipeline = _factory!.CreateGraphicsPipeline(description);
+            _pipelines[key] = pipeline;
+            return pipeline;
         }
 
         private static Pipeline GetPipeline(PrimitiveTopology topology, Veldrid.Framebuffer fb)
@@ -1629,11 +1685,30 @@ namespace MphRead.Mods.Render
             {
                 _commands!.ClearColorTarget(0, new RgbaFloat(_clearColor.R, _clearColor.G, _clearColor.B, _clearColor.A));
             }
-            if ((mask & (ClearBufferMask.DepthBufferBit | ClearBufferMask.StencilBufferBit)) != 0
-                && CurrentFramebuffer(_drawFramebuffer).DepthTarget != null)
+
+            bool clearDepth = (mask & ClearBufferMask.DepthBufferBit) != 0;
+            bool clearStencil = (mask & ClearBufferMask.StencilBufferBit) != 0;
+            Veldrid.Framebuffer fb = CurrentFramebuffer(_drawFramebuffer);
+            if ((!clearDepth && !clearStencil) || fb.DepthTarget == null)
+            {
+                return;
+            }
+
+            if (clearDepth && clearStencil)
             {
                 _commands!.ClearDepthStencil(1f, (byte)_clearStencil);
+                return;
             }
+
+            // Veldrid 4.9 exposes only a combined depth-stencil clear for a D24S8
+            // attachment. OpenGL's glClear is aspect-selective, and Renderer pass 4
+            // depends on clearing depth while preserving the polygon IDs written to
+            // stencil in pass 3. Use a color-disabled fullscreen draw for the one-
+            // aspect cases so the untouched aspect remains bit-for-bit intact.
+            _commands!.SetViewport(0, new Veldrid.Viewport(0, 0, fb.Width, fb.Height, 0, 1));
+            _commands.SetScissorRect(0, 0, 0, fb.Width, fb.Height);
+            _commands.SetPipeline(GetAspectClearPipeline(clearDepth, clearStencil, fb));
+            _commands.Draw(3);
         }
 
         public static void ClearColor(Color4 color) => _clearColor = color;

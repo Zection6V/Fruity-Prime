@@ -86,6 +86,8 @@ namespace MphRead.Mods.Launcher.Gui
         private static LaunchPlan? _pending;
         private static bool _endMatch;
         private static bool _quit;
+        private static bool _rendererRestartRequested;
+        private static bool _rendererRestarting;
 
         /// <summary>
         /// Open the window and run until the player quits.
@@ -125,39 +127,62 @@ namespace MphRead.Mods.Launcher.Gui
                 Mods.WindowMode.Startup = LauncherPrefs.WindowMode;
             }
 
-            RenderWindow.LogCreatingWindow();
-            RenderWindow? window = null;
-            try
+            while (true)
             {
-                window = new RenderWindow(shell: true);
-                PublishNativeHandle(window);
-                _window = window;
-                Active = true;
-                ShowFrontScreen();
-                window.Run();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                // Renderer selection is fail-closed. In particular, a Vulkan
-                // selection must never retry as OpenGL: either Vulkan starts,
-                // or startup reports the Vulkan failure.
-                Console.WriteLine($"The window could not be opened: {ex}");
-                Mods.DebugLog.Exception("launcher", ex);
-                return false;
-            }
-            finally
-            {
-                Active = false;
-                _window = null;
-                _pending = null;
-                _endMatch = false;
-                _quit = false;
-                // Both own a worker thread and a bound socket; leaving the
-                // program must not leave either behind.
-                NetSession.Stop();
-                NetHostSession.Stop();
-                window?.Dispose();
+                _rendererRestarting = false;
+                RenderWindow.LogCreatingWindow();
+                RenderWindow? window = null;
+                bool recreate = false;
+                try
+                {
+                    window = new RenderWindow(shell: true);
+                    PublishNativeHandle(window);
+                    _window = window;
+                    Active = true;
+                    ShowFrontScreen();
+                    window.Run();
+                    recreate = _rendererRestarting;
+                    if (!recreate)
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Renderer selection is fail-closed. In particular, a
+                    // Vulkan selection must never retry as OpenGL: either the
+                    // selected Vulkan backend starts, or its failure is shown.
+                    Console.WriteLine($"The window could not be opened: {ex}");
+                    Mods.DebugLog.Exception("launcher", ex);
+                    return false;
+                }
+                finally
+                {
+                    Active = false;
+                    _window = null;
+                    _pending = null;
+                    _endMatch = false;
+                    _quit = false;
+                    _rendererRestartRequested = false;
+                    // Both own a worker thread and a bound socket; leaving a
+                    // window must not leave either behind. A renderer switch
+                    // has already ended any active match before reaching here.
+                    NetSession.Stop();
+                    NetHostSession.Stop();
+                    window?.Dispose();
+                    // Normally OnUnload releases this. Keep the call here too:
+                    // native-window construction can fail after Settings()
+                    // locked a backend but before a RenderWindow exists.
+                    RendererBackend.ReleaseWindow();
+                }
+
+                if (recreate)
+                {
+                    Mods.DebugLog.Line("render",
+                        $"recreating game window for renderer {RendererBackend.Requested}");
+                    _rendererRestarting = false;
+                    continue;
+                }
             }
         }
 
@@ -171,6 +196,28 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (!Active)
             {
+                return;
+            }
+            if (_rendererRestartRequested)
+            {
+                _rendererRestartRequested = false;
+                _rendererRestarting = true;
+
+                // OpenGL and Vulkan require different GLFW client APIs, so the
+                // native window is the boundary that must be rebuilt. Do all
+                // graphics cleanup while the old backend is still alive. An
+                // active match returns to the launcher rather than carrying
+                // API-specific object names into the new renderer.
+                if (window.HasScene)
+                {
+                    EndMatch(window);
+                }
+                else
+                {
+                    CloseMenu();
+                }
+                ReleaseRendererResources();
+                window.Close();
                 return;
             }
             if (_quit)
@@ -467,6 +514,31 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _endMatch = true;
+        }
+
+        /// <summary>
+        /// Apply a renderer choice without restarting the process.
+        ///
+        /// GLFW cannot turn an OpenGL-context window into a Vulkan NoAPI
+        /// window (or the reverse), so the current game window is closed and
+        /// recreated on the render thread. The requested backend is kept
+        /// exactly as selected; failure never falls back to OpenGL.
+        /// </summary>
+        internal static void RequestRendererRestart()
+        {
+            if (!Active || _window == null || !RendererBackend.RestartRequired)
+            {
+                return;
+            }
+            _rendererRestartRequested = true;
+        }
+
+        private static void ReleaseRendererResources()
+        {
+            LauncherHunter.Release();
+            LauncherPhoto.Release();
+            LauncherNoise.Release();
+            UiOverlay.Release();
         }
 
         /// <summary>Leave the program.</summary>

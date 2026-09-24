@@ -236,11 +236,21 @@ void main()
 
     if (!compat_alpha_pass(col.a)) discard;
 
+    // This shader implements GL_POLYGON_OFFSET_FILL by writing fragment
+    // depth because Veldrid 4.9 exposes no depth-bias fields on its public
+    // rasterizer state. Once a fragment shader statically writes
+    // gl_FragDepth, however, every execution path must provide a defined
+    // value. Leaving it unwritten on ordinary (non-decal) draws makes the
+    // depth result undefined on Vulkan drivers; software drivers happened to
+    // preserve gl_FragCoord.z, which hid the fault in CI while real hardware
+    // produced the dense world/weapon speckling seen in-game.
+    float compat_depth = gl_FragCoord.z;
     if (u.params2.z > 0.5) {
         float slope = max(abs(dFdx(gl_FragCoord.z)), abs(dFdy(gl_FragCoord.z)));
         float bias = u.params2.x * slope + u.params2.y * (1.0 / 16777216.0);
-        gl_FragDepth = clamp(gl_FragCoord.z + bias, 0.0, 1.0);
+        compat_depth = clamp(compat_depth + bias, 0.0, 1.0);
     }
+    gl_FragDepth = compat_depth;
     out_color = col;
 }";
 

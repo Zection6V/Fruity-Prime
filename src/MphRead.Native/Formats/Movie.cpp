@@ -1598,23 +1598,6 @@ namespace MphRead::Formats
             return WrapInt32Add(WrapInt32Add(a, b), c);
         }
 
-        void FillManagedStackallocUnspecified(std::span<std::int32_t> values) noexcept
-        {
-            // C# stackalloc without an initializer deliberately exposes unspecified
-            // existing stack contents. C++ may not read indeterminate int objects, so
-            // materialize arbitrary defined bit patterns instead of inventing zero-init.
-            static std::atomic<std::uint32_t> nonce{0xA341316CU};
-            std::uint32_t state = nonce.fetch_add(0x9E3779B9U, std::memory_order_relaxed)
-                ^ static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(values.data()));
-            for (std::int32_t& value : values)
-            {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                value = std::bit_cast<std::int32_t>(state);
-            }
-        }
-
         class FileStream final : public MovieNativeRuntime::Stream
         {
         public:
@@ -3329,7 +3312,7 @@ namespace MphRead::Formats
             return outTotalCoeff;
         }
 
-        std::array<std::int32_t, 16> level;
+        std::array<std::int32_t, 16> level{};
         std::int32_t levelPos = 0;
         std::int32_t zeroesRemaining;
         if (totalCoeff == 16)
@@ -3439,7 +3422,7 @@ namespace MphRead::Formats
         std::int32_t x, std::int32_t y, ByteArray2D& planeBuffer,
         std::int32_t step, std::span<const std::int32_t> level)
     {
-        std::array<std::int32_t, 16> dct;
+        std::array<std::int32_t, 16> dct{};
 
         for (std::size_t i = 0; i < _zigzagScanTable.size(); i = WrapInt32Add(i, 1))
         {
@@ -4285,8 +4268,10 @@ namespace MphRead::Formats
         const std::int32_t pulseDistance
             = _pulseDistances[static_cast<std::size_t>(pulsePackingMode)];
 
-        std::array<std::int32_t, 128> pulseBuffer;
-        FillManagedStackallocUnspecified(pulseBuffer);
+        // C# stackalloc memory is zeroed (the assembly does not opt out with
+        // SkipLocalsInit); the loop below leaves it untouched when
+        // prevFrameOffset >= 126, and those zeros are what the frame adds to.
+        std::array<std::int32_t, 128> pulseBuffer{};
         if (prevFrameOffset < 126)
         {
             for (std::int32_t i = 0; i < 128; i = WrapInt32Add(i, 1))

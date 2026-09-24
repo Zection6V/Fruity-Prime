@@ -519,7 +519,8 @@ namespace MphRead.Mods.Diagnostics
             int framebuffer, int size)
         {
             int program = CreateSceneProgram();
-            int list = GL.GenLists(1);
+            int list = GL.GenLists(2);
+            int stateList = list + 1;
             try
             {
                 GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
@@ -546,27 +547,39 @@ namespace MphRead.Mods.Diagnostics
                 GL.Uniform1(GL.GetUniformLocation(program, "mat_mode"), 0);
                 GL.Uniform1(GL.GetUniformLocation(program, "mat_alpha"), 1f);
 
-                // GL_COMPILE does not capture state that was already current
-                // when NewList started. With no Color command in this list,
-                // glCallList must use the green color current at execution
-                // time, not the red color that happened to be current while
-                // the vertex data was compiled.
+                // GL_COMPILE records commands but does not execute them. A
+                // Color command in this state-only list therefore must not
+                // leak blue into the immediate draw that follows EndList.
                 GL.Color4(1f, 0f, 0f, 1f);
-                GL.NewList(list, ListMode.Compile);
-                DrawTestQuad();
+                GL.NewList(stateList, ListMode.Compile);
+                GL.Color4(0f, 0f, 1f, 1f);
                 GL.EndList();
+                DrawTestQuad(-1f, -0.36f);
 
+                // A list with no Color command uses the color current when the
+                // list is executed, rather than the color that was current
+                // while its vertices were compiled.
+                GL.NewList(list, ListMode.Compile);
+                DrawTestQuad(-0.30f, 0.30f);
+                GL.EndList();
                 GL.Color4(0f, 1f, 0f, 1f);
                 GL.CallList(list);
+
+                // Conversely, a Color command that is in a list becomes the
+                // new current color after glCallList returns.
+                GL.CallList(stateList);
+                DrawTestQuad(0.36f, 1f);
 
                 byte[] pixels = new byte[size * size * 4];
                 GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
                 GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
                     PixelType.UnsignedByte, pixels);
-                if (!PixelIs(pixels, size, size / 2, size / 2, 0, 255, 0))
+                if (!PixelIs(pixels, size, size / 6, size / 2, 255, 0, 0)
+                    || !PixelIs(pixels, size, size / 2, size / 2, 0, 255, 0)
+                    || !PixelIs(pixels, size, size * 5 / 6, size / 2, 0, 0, 255))
                 {
                     throw new InvalidOperationException(
-                        "Vulkan display lists captured a pre-list current color instead of using glCallList-time state.");
+                        "Vulkan display-list current-color state diverged from OpenGL GL_COMPILE/glCallList semantics.");
                 }
                 Console.WriteLine(
                     "[windowcheck] Vulkan OpenGL display-list current-color semantics passed.");
@@ -574,7 +587,7 @@ namespace MphRead.Mods.Diagnostics
             finally
             {
                 GL.UseProgram(0);
-                GL.DeleteLists(list, 1);
+                GL.DeleteLists(list, 2);
                 GL.Enable(EnableCap.Texture2D);
                 GL.DepthMask(true);
             }

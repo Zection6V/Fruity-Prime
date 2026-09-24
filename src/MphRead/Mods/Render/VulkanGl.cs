@@ -424,17 +424,36 @@ namespace MphRead.Mods.Render
             {
                 return;
             }
+            SynchronizeResourceMutation();
+            if (_gd.SwapchainFramebuffer.Width != (uint)width || _gd.SwapchainFramebuffer.Height != (uint)height)
+            {
+                _gd.ResizeMainWindow((uint)width, (uint)height);
+                DisposePipelineCache();
+            }
+        }
+
+        // Veldrid's Vulkan resources are ref-counted, but once the last
+        // reference is released their Vk objects are destroyed immediately.
+        // Any cached framebuffer, descriptor set, image view, image, sampler,
+        // or pipeline must therefore outlive both submitted work and commands
+        // recorded but not submitted yet.
+        private static void SynchronizeResourceMutation()
+        {
+            if (_gd == null)
+            {
+                return;
+            }
             if (_commandsOpen)
             {
                 _commands!.End();
                 _gd.SubmitCommands(_commands);
                 _commandsOpen = false;
-                _gd.WaitForIdle();
             }
-            if (_gd.SwapchainFramebuffer.Width != (uint)width || _gd.SwapchainFramebuffer.Height != (uint)height)
+            _gd.WaitForIdle();
+            if (_frameInFlight)
             {
-                _gd.ResizeMainWindow((uint)width, (uint)height);
-                ClearPipelineCache();
+                _frameFence!.Reset();
+                _frameInFlight = false;
             }
         }
 
@@ -539,24 +558,28 @@ namespace MphRead.Mods.Render
 
         private static void InvalidateFramebuffers()
         {
-            if (_gd != null)
-            {
-                _gd.WaitForIdle();
-            }
+            SynchronizeResourceMutation();
             foreach (FramebufferInfo fb in _framebuffers.Values)
             {
                 fb.Dispose();
             }
-            ClearPipelineCache();
+            DisposePipelineCache();
         }
 
         private static void InvalidateSets()
         {
+            SynchronizeResourceMutation();
             foreach (ResourceSet set in _sets.Values) set.Dispose();
             _sets.Clear();
         }
 
         private static void ClearPipelineCache()
+        {
+            SynchronizeResourceMutation();
+            DisposePipelineCache();
+        }
+
+        private static void DisposePipelineCache()
         {
             foreach (Pipeline pipeline in _pipelines.Values) pipeline.Dispose();
             _pipelines.Clear();
@@ -1228,7 +1251,6 @@ namespace MphRead.Mods.Render
         {
             if (_textures.Remove(name, out TextureInfo? info))
             {
-                _gd?.WaitForIdle();
                 InvalidateSets();
                 info.Dispose();
                 InvalidateFramebuffers();
@@ -1498,11 +1520,12 @@ namespace MphRead.Mods.Render
         {
             int id = target == FramebufferTarget.ReadFramebuffer ? _readFramebuffer : _drawFramebuffer;
             if (id == 0 || !_framebuffers.TryGetValue(id, out FramebufferInfo? fb)) return;
+            SynchronizeResourceMutation();
             fb.Dispose();
             if (attachment == GLFramebufferAttachment.ColorAttachment0) fb.ColorTexture = texture;
             else if (attachment == GLFramebufferAttachment.DepthStencilAttachment
                 || attachment == GLFramebufferAttachment.DepthAttachment) fb.DepthTexture = texture;
-            ClearPipelineCache();
+            DisposePipelineCache();
         }
 
         public static int GenRenderbuffer()
@@ -1518,7 +1541,7 @@ namespace MphRead.Mods.Render
             OpenTK.Graphics.OpenGL.RenderbufferStorage internalFormat, int width, int height)
         {
             if (_boundRenderbuffer == 0 || !_renderbuffers.TryGetValue(_boundRenderbuffer, out RenderbufferInfo? rb)) return;
-            _gd!.WaitForIdle();
+            SynchronizeResourceMutation();
             rb.Dispose();
             rb.Width = (uint)Math.Max(width, 1);
             rb.Height = (uint)Math.Max(height, 1);
@@ -1532,10 +1555,11 @@ namespace MphRead.Mods.Render
         {
             int id = target == FramebufferTarget.ReadFramebuffer ? _readFramebuffer : _drawFramebuffer;
             if (id == 0 || !_framebuffers.TryGetValue(id, out FramebufferInfo? fb)) return;
+            SynchronizeResourceMutation();
             fb.Dispose();
             fb.DepthRenderbuffer = renderbuffer;
             fb.DepthTexture = 0;
-            ClearPipelineCache();
+            DisposePipelineCache();
         }
 
         public static FramebufferErrorCode CheckFramebufferStatus(FramebufferTarget target)
@@ -1587,9 +1611,9 @@ namespace MphRead.Mods.Render
         {
             if (_framebuffers.Remove(framebuffer, out FramebufferInfo? fb))
             {
-                _gd?.WaitForIdle();
+                SynchronizeResourceMutation();
                 fb.Dispose();
-                ClearPipelineCache();
+                DisposePipelineCache();
             }
         }
 
@@ -1597,7 +1621,7 @@ namespace MphRead.Mods.Render
         {
             if (_renderbuffers.Remove(renderbuffer, out RenderbufferInfo? rb))
             {
-                _gd?.WaitForIdle();
+                SynchronizeResourceMutation();
                 rb.Dispose();
                 InvalidateFramebuffers();
             }

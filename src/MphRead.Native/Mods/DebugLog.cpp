@@ -18,6 +18,7 @@
 #include <chrono>
 #include <climits>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -1555,6 +1556,102 @@ namespace
         return PreviousFaultFilter != nullptr ? PreviousFaultFilter(pointers) : EXCEPTION_CONTINUE_SEARCH;
     }
 
+    // The faults the unhandled-exception filter above never hears about.
+    //
+    // A heap the process has corrupted, a stack cookie that no longer
+    // matches, and a stack that has run out all end the process from inside
+    // ntdll, or are caught by a handler further up that is not ours, and the
+    // log simply stops. A vectored handler sees every exception first, before
+    // any frame-based handler has had a say, so these are written here as
+    // first-chance lines -- at most a few, since a driver may probe memory
+    // and handle the fault itself -- and the search then carries on unchanged.
+    std::atomic<int> FirstChanceFaultsLogged{0};
+    constexpr int FirstChanceFaultLimit = 16;
+
+    [[nodiscard]] bool IsFatalCode(DWORD code) noexcept
+    {
+        switch (code)
+        {
+        case EXCEPTION_ACCESS_VIOLATION:
+        case EXCEPTION_ILLEGAL_INSTRUCTION:
+        case EXCEPTION_INT_DIVIDE_BY_ZERO:
+        case EXCEPTION_PRIV_INSTRUCTION:
+        case EXCEPTION_STACK_OVERFLOW:
+        case EXCEPTION_IN_PAGE_ERROR:
+        case 0xC0000374U: // STATUS_HEAP_CORRUPTION
+        case 0xC0000409U: // STATUS_STACK_BUFFER_OVERRUN
+        case 0xC0000420U: // STATUS_ASSERTION_FAILURE
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    LONG CALLBACK FirstChanceFaultHandler(EXCEPTION_POINTERS* pointers)
+    {
+        const EXCEPTION_RECORD& record = *pointers->ExceptionRecord;
+        if (!IsFatalCode(record.ExceptionCode)
+            || FirstChanceFaultsLogged.fetch_add(1) >= FirstChanceFaultLimit)
+        {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+        // First a line that needs no heap, since the heap may be what broke.
+        // Standard error is the -native.txt file beside the log.
+        {
+            char line[160];
+            const auto executable = reinterpret_cast<std::uintptr_t>(::GetModuleHandleW(nullptr));
+            const auto address = reinterpret_cast<std::uintptr_t>(record.ExceptionAddress);
+            const int length = std::snprintf(line, sizeof(line),
+                "[crash] first chance 0x%08lX on thread %lu at 0x%llX (FruityPrime.exe+0x%llX)\r\n",
+                static_cast<unsigned long>(record.ExceptionCode),
+                static_cast<unsigned long>(::GetCurrentThreadId()),
+                static_cast<unsigned long long>(address),
+                static_cast<unsigned long long>(address - executable));
+            DWORD written = 0;
+            if (length > 0)
+            {
+                ::WriteFile(::GetStdHandle(STD_ERROR_HANDLE), line,
+                    static_cast<DWORD>(std::min<int>(length, static_cast<int>(sizeof(line) - 1))),
+                    &written, nullptr);
+            }
+        }
+        if (record.ExceptionCode == 0xC0000374U || record.ExceptionCode == EXCEPTION_STACK_OVERFLOW)
+        {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+        try
+        {
+            std::ostringstream head;
+            head.imbue(std::locale::classic());
+            head << "first chance 0x" << std::hex << std::uppercase
+                << static_cast<std::uint32_t>(record.ExceptionCode) << std::dec
+                << " on thread " << ::GetCurrentThreadId()
+                << " at " << DescribeAddress(record.ExceptionAddress);
+            if (record.ExceptionCode == EXCEPTION_ACCESS_VIOLATION && record.NumberParameters >= 2)
+            {
+                head << (record.ExceptionInformation[0] == 0 ? ", reading 0x"
+                    : record.ExceptionInformation[0] == 1 ? ", writing 0x" : ", executing 0x")
+                    << std::hex << std::uppercase << record.ExceptionInformation[1];
+            }
+            MphRead::Mods::DebugLog::Line("crash", head.str());
+            if (record.ExceptionCode != EXCEPTION_STACK_OVERFLOW)
+            {
+                std::array<void*, 32> frames{};
+                const USHORT count = ::CaptureStackBackTrace(0,
+                    static_cast<DWORD>(frames.size()), frames.data(), nullptr);
+                for (USHORT index = 0; index < count; ++index)
+                {
+                    MphRead::Mods::DebugLog::Line("crash", "   at " + DescribeAddress(frames[index]));
+                }
+            }
+            FlushWriterNoThrow();
+        }
+        catch (...)
+        {
+        }
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
     // Where the window thread is, while it is not coming back. The addresses
     // are collected with the thread suspended and described only after it
     // has been resumed: describing reads files and allocates, and the thread
@@ -1710,6 +1807,7 @@ namespace
             state.PreviousTerminate = std::set_terminate(&TerminateHandler);
 #if defined(_WIN32)
             PreviousFaultFilter = ::SetUnhandledExceptionFilter(&NativeFaultFilter);
+            ::AddVectoredExceptionHandler(1, &FirstChanceFaultHandler);
             std::thread(&RunFreezeWatchdog).detach();
 #endif
         });

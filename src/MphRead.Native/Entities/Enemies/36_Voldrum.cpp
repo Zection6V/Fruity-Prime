@@ -8,6 +8,7 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <array>
@@ -38,16 +39,6 @@ namespace MphRead::Entities::Enemies
     namespace
     {
         using OpenTK::Mathematics::Vector3;
-
-        [[nodiscard]] Enemy36Entity& RequireEnemy(Enemy36Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
 
         [[nodiscard]] std::uint16_t TimesTwo(std::uint16_t value) noexcept
         {
@@ -240,7 +231,7 @@ namespace MphRead::Entities::Enemies
     {
         _speed = Vector3::Zero;
         Vector3 facing = (
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
             - static_cast<Vector3>(Position)).Normalized();
         if (facing.Y > 0.5F)
         {
@@ -374,7 +365,7 @@ namespace MphRead::Entities::Enemies
         if (_state1 == 5)
         {
             _targetVec = WithY(
-                static_cast<Vector3>(MainPlayer().Position)
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                     - static_cast<Vector3>(Position),
                 0.0F).Normalized();
             const float angle = RadiansToDegrees(
@@ -391,7 +382,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy36Entity::Behavior04()
     {
-        const std::int32_t slotIndex = MainPlayer().SlotIndex();
+        const std::int32_t slotIndex = RequireReference(PlayerEntity::Main()).SlotIndex();
         if (slotIndex < 0
             || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
         {
@@ -403,21 +394,21 @@ namespace MphRead::Entities::Enemies
         }
 
         const Vector3 between
-            = MainPlayer().Volume().SpherePosition - static_cast<Vector3>(Position);
+            = RequireReference(PlayerEntity::Main()).Volume().SpherePosition - static_cast<Vector3>(Position);
         const float mag = Length(between) * 5.0F;
-        PlayerEntity& speedTarget = MainPlayer();
-        const float speedX = MainPlayer().Speed().X + between.X / mag;
-        const float speedY = MainPlayer().Speed().Y;
-        const float speedZ = MainPlayer().Speed().Z + between.Z / mag;
+        PlayerEntity& speedTarget = RequireReference(PlayerEntity::Main());
+        const float speedX = RequireReference(PlayerEntity::Main()).Speed().X + between.X / mag;
+        const float speedY = RequireReference(PlayerEntity::Main()).Speed().Y;
+        const float speedZ = RequireReference(PlayerEntity::Main()).Speed().Z + between.Z / mag;
         speedTarget.SetSpeed(Vector3(speedX, speedY, speedZ));
-        MainPlayer().TakeDamage(
+        RequireReference(PlayerEntity::Main()).TakeDamage(
             _values.ContactDamage, DamageFlags::NoDmgInvuln, std::nullopt, this);
 
         PickRoamTarget();
         if (_state1 == 5)
         {
             _targetVec = WithY(
-                static_cast<Vector3>(MainPlayer().Position)
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                     - static_cast<Vector3>(Position),
                 0.0F).Normalized();
             const float angle = RadiansToDegrees(
@@ -434,12 +425,12 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy36Entity::Behavior05()
     {
-        if (MainPlayer().Health() == 0)
+        if (RequireReference(PlayerEntity::Main()).Health() == 0)
         {
             return false;
         }
         const Vector3 between = (
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
             - static_cast<Vector3>(Position)).Normalized();
         if (Vector3::Dot(FacingVector(), between)
             <= Fixed::ToFloat(_values.RangeMaxCosine))
@@ -452,31 +443,31 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy36Entity::Behavior00(Enemy36Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy36Entity::Behavior01(Enemy36Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy36Entity::Behavior02(Enemy36Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy36Entity::Behavior03(Enemy36Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 
     bool Enemy36Entity::Behavior04(Enemy36Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior04();
+        return RequireReference(enemy).Behavior04();
     }
 
     bool Enemy36Entity::Behavior05(Enemy36Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior05();
+        return RequireReference(enemy).Behavior05();
     }
 }

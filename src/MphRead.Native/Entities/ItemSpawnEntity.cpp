@@ -29,27 +29,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
 
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw System::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-    }
-
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
 }
 
 namespace MphRead::Entities

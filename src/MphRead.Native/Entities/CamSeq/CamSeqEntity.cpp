@@ -43,27 +43,6 @@ namespace
             static_cast<Underlying>(value) & ~static_cast<Underlying>(flag));
     }
 
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::Memory::Detail::InvalidCastException();
-        }
-    }
-
     [[nodiscard]] std::size_t CheckedSequenceIndex(std::uint8_t sequenceId)
     {
         const std::size_t index = sequenceId;

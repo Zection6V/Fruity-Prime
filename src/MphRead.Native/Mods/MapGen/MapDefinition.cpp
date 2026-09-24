@@ -10,6 +10,7 @@
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -43,6 +44,7 @@ using ::MphRead::NativeRuntime::PathGetFileName;
 using ::MphRead::NativeRuntime::PathGetFullPath;
 using ::MphRead::NativeRuntime::PathIsPathRooted;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::Utf8Scalar;
 
@@ -61,15 +63,6 @@ namespace System::Text::Json
 namespace
 {
     using namespace MphRead::Mods::MapGen;
-
-    [[nodiscard]] const std::string& RequireString(const std::shared_ptr<std::string>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] std::uint16_t Read16(const std::uint8_t* bytes, bool little) noexcept
     {
@@ -1594,12 +1587,12 @@ namespace MphRead::Mods::MapGen
     {
     }
 
-    const std::string& MapDefinition::Name() const { return RequireString(_name); }
+    const std::string& MapDefinition::Name() const { return RequireReference(_name); }
     void MapDefinition::Name(std::string value) { _name = std::make_shared<std::string>(std::move(value)); }
     void MapDefinition::Name(std::nullptr_t) noexcept { _name.reset(); }
     const std::optional<std::string>& MapDefinition::InGameName() const noexcept { return _inGameName; }
     void MapDefinition::InGameName(std::optional<std::string> value) noexcept { _inGameName = std::move(value); }
-    const std::string& MapDefinition::TextureSource() const { return RequireString(_textureSource); }
+    const std::string& MapDefinition::TextureSource() const { return RequireReference(_textureSource); }
     void MapDefinition::TextureSource(std::string value) { _textureSource = std::make_shared<std::string>(std::move(value)); }
     void MapDefinition::TextureSource(std::nullptr_t) noexcept { _textureSource.reset(); }
     std::int32_t MapDefinition::ScaleFactor() const noexcept { return _scaleFactor; }
@@ -1774,7 +1767,7 @@ namespace MphRead::Mods::MapGen
           _shaderMaterials(std::make_shared<ShaderMaterialDictionary>())
     {
     }
-    const std::string& MapImport::Source() const { return RequireString(_source); }
+    const std::string& MapImport::Source() const { return RequireReference(_source); }
     void MapImport::Source(std::string value) { _source = std::make_shared<std::string>(std::move(value)); }
     void MapImport::Source(std::nullptr_t) noexcept { _source.reset(); }
     const std::optional<std::string>& MapImport::BundlePath() const noexcept { return _bundlePath; }
@@ -1825,7 +1818,7 @@ namespace MphRead::Mods::MapGen
 
     std::optional<std::string> MapImport::Resolve() const
     {
-        const std::string& source = RequireString(_source);
+        const std::string& source = RequireReference(_source);
         if (source.empty())
         {
             return std::nullopt;
@@ -1888,7 +1881,7 @@ namespace MphRead::Mods::MapGen
     void MapImport::KeepSpawns(bool value) noexcept { _keepSpawns = value; }
 
     MapMaterial::MapMaterial() : _name(std::make_shared<std::string>("mat")) {}
-    const std::string& MapMaterial::Name() const { return RequireString(_name); }
+    const std::string& MapMaterial::Name() const { return RequireReference(_name); }
     void MapMaterial::Name(std::string value) { _name = std::make_shared<std::string>(std::move(value)); }
     void MapMaterial::Name(std::nullptr_t) noexcept { _name.reset(); }
     std::int32_t MapMaterial::SourceMaterial() const noexcept { return _sourceMaterial; }
@@ -1960,7 +1953,7 @@ namespace MphRead::Mods::MapGen
     std::vector<float>* MapItem::Position() noexcept { return _position.get(); }
     const std::vector<float>* MapItem::Position() const noexcept { return _position.get(); }
     void MapItem::Position(std::shared_ptr<std::vector<float>> value) noexcept { _position = std::move(value); }
-    const std::string& MapItem::Type() const { return RequireString(_type); }
+    const std::string& MapItem::Type() const { return RequireReference(_type); }
     void MapItem::Type(std::string value) { _type = std::make_shared<std::string>(std::move(value)); }
     void MapItem::Type(std::nullptr_t) noexcept { _type.reset(); }
     bool MapItem::HasBase() const noexcept { return _hasBase; }

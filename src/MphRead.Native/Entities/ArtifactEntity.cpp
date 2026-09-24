@@ -14,6 +14,7 @@
 #include <sstream>
 #include "Players/PlayerEntity.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
 
 #include <any>
@@ -49,36 +50,6 @@ namespace
             throw MphRead::SceneDetail::IndexOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw MessageNullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MessageInvalidCastException();
-        }
-    }
-
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        if (MphRead::GameState::StorySave == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *MphRead::GameState::StorySave;
     }
 
     [[nodiscard]] std::int32_t RoomId(MphRead::Scene* scene)
@@ -133,18 +104,18 @@ namespace MphRead::Entities
             SetUpModel("ArtifactBase");
         }
         assert(GameState::Mode() == GameMode::SinglePlayer);
-        Active = RequireStorySave().InitRoomState(
+        Active = RequireReference(::MphRead::GameState::StorySave).InitRoomState(
             RoomId(_scene), Id, _data.Active != 0, 2) != 0;
         if (data.ModelId < 8)
         {
-            if (RequireStorySave().CheckFoundArtifact(data.ArtifactId, data.ModelId))
+            if (RequireReference(::MphRead::GameState::StorySave).CheckFoundArtifact(data.ArtifactId, data.ModelId))
             {
                 Active = false;
             }
         }
         else if (Id != -1)
         {
-            if (RequireStorySave().CheckFoundOctolith(data.ArtifactId))
+            if (RequireReference(::MphRead::GameState::StorySave).CheckFoundOctolith(data.ArtifactId))
             {
                 Active = false;
             }
@@ -295,7 +266,7 @@ namespace MphRead::Entities
 
             if (_data.ModelId >= 8)
             {
-                RequireStorySave().UpdateFoundOctolith(_data.ArtifactId);
+                RequireReference(::MphRead::GameState::StorySave).UpdateFoundOctolith(_data.ArtifactId);
                 if (Id == -1)
                 {
                     auto&& dialogMain = PlayerEntity::Main();
@@ -313,14 +284,14 @@ namespace MphRead::Entities
                         FadeType::FadeOutInWhite,
                         5.0F / 30.0F);
                     GameState::UpdateBossFlags(_scene->AreaId());
-                    const std::int32_t collected = RequireStorySave().CountFoundOctoliths();
+                    const std::int32_t collected = RequireReference(::MphRead::GameState::StorySave).CountFoundOctoliths();
                     GameState::QueuedOctolithMessageId(
                         GetChecked(_octolithMessageIds, collected - 1));
                 }
             }
             else
             {
-                const std::int32_t collected = RequireStorySave().CountFoundArtifacts(_data.ModelId);
+                const std::int32_t collected = RequireReference(::MphRead::GameState::StorySave).CountFoundArtifacts(_data.ModelId);
                 if (collected >= 2)
                 {
                     _soundSource.PlayFreeSfx(SfxId::ARTIFACT3);
@@ -334,13 +305,13 @@ namespace MphRead::Entities
                     _soundSource.PlayFreeSfx(SfxId::ARTIFACT1);
                 }
 
-                RequireStorySave().UpdateFoundArtifact(_data.ArtifactId, _data.ModelId);
+                RequireReference(::MphRead::GameState::StorySave).UpdateFoundArtifact(_data.ArtifactId, _data.ModelId);
                 {
                     std::ostringstream line;
                     line << "artifact " << static_cast<std::int32_t>(_data.ArtifactId) << " of set "
                         << static_cast<std::int32_t>(_data.ModelId) << " picked up in room "
                         << RoomId(_scene) << ": artifacts=0x" << std::hex << std::uppercase
-                        << RequireStorySave().Artifacts;
+                        << RequireReference(::MphRead::GameState::StorySave).Artifacts;
                     Mods::DebugLog::Line("save", line.str());
                 }
                 auto&& dialogMain = PlayerEntity::Main();
@@ -360,7 +331,7 @@ namespace MphRead::Entities
             }
 
             Active = false;
-            RequireStorySave().SetRoomState(RoomId(_scene), Id, 1);
+            RequireReference(::MphRead::GameState::StorySave).SetRoomState(RoomId(_scene), Id, 1);
             _soundSource.StopAllSfx(true);
         }
         else
@@ -384,19 +355,19 @@ namespace MphRead::Entities
         if (info.Message == Message::Activate)
         {
             Active = true;
-            RequireStorySave().SetRoomState(RoomId(_scene), Id, 3);
+            RequireReference(::MphRead::GameState::StorySave).SetRoomState(RoomId(_scene), Id, 3);
         }
         else if (info.Message == Message::SetActive)
         {
             if (UnboxInt32(info.Param1) != 0)
             {
                 Active = true;
-                RequireStorySave().SetRoomState(RoomId(_scene), Id, 3);
+                RequireReference(::MphRead::GameState::StorySave).SetRoomState(RoomId(_scene), Id, 3);
             }
             else
             {
                 Active = false;
-                RequireStorySave().SetRoomState(RoomId(_scene), Id, 1);
+                RequireReference(::MphRead::GameState::StorySave).SetRoomState(RoomId(_scene), Id, 1);
             }
         }
         else if (info.Message == Message::MoveItemSpawner && info.Sender != nullptr)

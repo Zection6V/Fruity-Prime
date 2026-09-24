@@ -41,6 +41,7 @@
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
@@ -187,16 +188,6 @@ namespace MphRead::Formats::Collision
             }
 
             return numerator / denominator;
-        }
-
-        MphRead::Scene& RequireScene(
-            MphRead::Scene* scene)
-        {
-            if (scene == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *scene;
         }
 
         struct CollisionCaches
@@ -632,7 +623,7 @@ namespace MphRead::Formats::Collision
         MphRead::Scene* scenePtr)
     {
         MphRead::Scene& scene
-            = RequireScene(scenePtr);
+            = RequireReference(scenePtr);
 
         const std::int32_t polygonId
             = scene.GetNextPolygonId();
@@ -889,7 +880,7 @@ namespace MphRead::Formats::Collision
             = EntryIndexFromPoint(point);
 
         MphRead::Scene& scene
-            = RequireScene(scenePtr);
+            = RequireReference(scenePtr);
 
         std::int32_t polygonId
             = scene.GetNextPolygonId();
@@ -1160,7 +1151,7 @@ namespace MphRead::Formats::Collision
         static_cast<void>(entityType);
 
         MphRead::Scene& scene
-            = RequireScene(scenePtr);
+            = RequireReference(scenePtr);
 
         OpenTK::Mathematics::Vector4 color(
             OpenTK::Mathematics::Vector3(
@@ -1224,7 +1215,7 @@ namespace MphRead::Formats::Collision
         MphRead::Scene* scenePtr) const
     {
         MphRead::Scene& scene
-            = RequireScene(scenePtr);
+            = RequireReference(scenePtr);
 
         const std::int32_t entryIndex
             = static_cast<std::int32_t>(

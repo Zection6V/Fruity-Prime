@@ -7,6 +7,7 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <cassert>
@@ -18,6 +19,7 @@
 #include <optional>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::CreateRotationY;
 using ::OpenTK::Mathematics::Equal;
@@ -35,30 +37,14 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
 
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] Enemy35Entity& RequireEnemy(Enemy35Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main().get());
-        }
-
     }
 
     Enemy35Entity::Enemy35Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(7);
         (*processes)[0] = [this]() { State0(); };
         (*processes)[1] = [this]() { State1(); };
@@ -325,7 +311,7 @@ namespace MphRead::Entities::Enemies
     void Enemy35Entity::State2()
     {
         const Vector3 facing = WithY(
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position),
             0.0F).Normalized();
         SetTransform(facing, Vector3(0.0F, 1.0F, 0.0F), Position);
@@ -349,7 +335,7 @@ namespace MphRead::Entities::Enemies
     {
         if (_handledRamCol && _ramDamageNeeded)
         {
-            MainPlayer().TakeDamage(
+            RequireReference(PlayerEntity::Main()).TakeDamage(
                 15, DamageFlags::NoDmgInvuln, std::nullopt, this);
             _ramDamageNeeded = false;
         }
@@ -423,13 +409,13 @@ namespace MphRead::Entities::Enemies
             return false;
         }
         const Vector3 facing = WithY(
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position),
             0.0F).Normalized();
         SetTransform(facing, Vector3(0.0F, 1.0F, 0.0F), Position);
         _timeInAir = 0;
         _airborne = false;
-        _moveTarget = WithY(MainPlayer().Position, Position.Y);
+        _moveTarget = WithY(RequireReference(PlayerEntity::Main()).Position, Position.Y);
         _targetVec = _moveTarget - static_cast<Vector3>(Position);
         _moveDistSqr = LengthSquared(_targetVec);
         _moveDistSqrHalf = _moveDistSqr / 2.0F;
@@ -446,7 +432,7 @@ namespace MphRead::Entities::Enemies
         const bool collided = HandleCollision();
         if (!_handledRamCol)
         {
-            const std::int32_t slotIndex = MainPlayer().SlotIndex();
+            const std::int32_t slotIndex = RequireReference(PlayerEntity::Main()).SlotIndex();
             if (slotIndex < 0
                 || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
             {
@@ -454,7 +440,7 @@ namespace MphRead::Entities::Enemies
             }
             if (HitPlayers[static_cast<std::size_t>(slotIndex)])
             {
-                MainPlayer().TakeDamage(
+                RequireReference(PlayerEntity::Main()).TakeDamage(
                     15, DamageFlags::NoDmgInvuln, std::nullopt, this);
                 _handledRamCol = true;
                 _ramDamageNeeded = false;
@@ -493,15 +479,15 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy35Entity::Behavior06()
     {
-        if (MainPlayer().Health() == 0)
+        if (RequireReference(PlayerEntity::Main()).Health() == 0)
         {
             return false;
         }
         const Vector3 between = (
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position)).Normalized();
         if (Vector3::Dot(FacingVector(), between) <= -1.0F
-            || !_homeVolume.TestPoint(MainPlayer().Position))
+            || !_homeVolume.TestPoint(RequireReference(PlayerEntity::Main()).Position))
         {
             return false;
         }
@@ -512,36 +498,36 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy35Entity::Behavior00(Enemy35Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy35Entity::Behavior01(Enemy35Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy35Entity::Behavior02(Enemy35Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy35Entity::Behavior03(Enemy35Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 
     bool Enemy35Entity::Behavior04(Enemy35Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior04();
+        return RequireReference(enemy).Behavior04();
     }
 
     bool Enemy35Entity::Behavior05(Enemy35Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior05();
+        return RequireReference(enemy).Behavior05();
     }
 
     bool Enemy35Entity::Behavior06(Enemy35Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior06();
+        return RequireReference(enemy).Behavior06();
     }
 }

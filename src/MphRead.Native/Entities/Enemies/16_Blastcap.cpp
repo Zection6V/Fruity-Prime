@@ -4,8 +4,9 @@
 #include "../../Scene.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <cassert>
 #include <cstddef>
@@ -15,6 +16,7 @@
 #include <optional>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::LengthSquared;
 
@@ -24,30 +26,14 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Vector3;
 
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] Enemy16Entity& RequireEnemy(Enemy16Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
-
     }
 
     Enemy16Entity::Enemy16Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(4);
         (*processes)[0] = [this]() { State0(); };
         (*processes)[1] = [this]() { State1(); };
@@ -103,15 +89,15 @@ namespace MphRead::Entities::Enemies
             if (!_initialCloudHit)
             {
                 const float radii
-                    = MainPlayer().Volume().SphereRadius + _cloudRadius;
+                    = RequireReference(PlayerEntity::Main()).Volume().SphereRadius + _cloudRadius;
                 const Vector3 position = static_cast<Vector3>(Position);
                 const Vector3 spherePosition
-                    = MainPlayer().Volume().SpherePosition;
+                    = RequireReference(PlayerEntity::Main()).Volume().SpherePosition;
                 const Vector3 between = position - spherePosition;
                 if (LengthSquared(between) < radii * radii)
                 {
                     _initialCloudHit = true;
-                    MainPlayer().TakeDamage(
+                    RequireReference(PlayerEntity::Main()).TakeDamage(
                         2, DamageFlags::NoDmgInvuln, std::nullopt, this);
                 }
             }
@@ -147,14 +133,14 @@ namespace MphRead::Entities::Enemies
         {
             return false;
         }
-        const float radii = MainPlayer().Volume().SphereRadius + _cloudRadius;
+        const float radii = RequireReference(PlayerEntity::Main()).Volume().SphereRadius + _cloudRadius;
         const Vector3 position = static_cast<Vector3>(Position);
-        const Vector3 spherePosition = MainPlayer().Volume().SpherePosition;
+        const Vector3 spherePosition = RequireReference(PlayerEntity::Main()).Volume().SpherePosition;
         const Vector3 between = position - spherePosition;
         if (LengthSquared(between) < radii * radii)
         {
             _initialCloudHit = true;
-            MainPlayer().TakeDamage(2, DamageFlags::None, std::nullopt, this);
+            RequireReference(PlayerEntity::Main()).TakeDamage(2, DamageFlags::None, std::nullopt, this);
             return true;
         }
         return false;
@@ -175,9 +161,9 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy16Entity::Behavior02()
     {
-        const float radii = MainPlayer().Volume().SphereRadius + _nearRadius;
+        const float radii = RequireReference(PlayerEntity::Main()).Volume().SphereRadius + _nearRadius;
         const Vector3 position = static_cast<Vector3>(Position);
-        const Vector3 spherePosition = MainPlayer().Volume().SpherePosition;
+        const Vector3 spherePosition = RequireReference(PlayerEntity::Main()).Volume().SpherePosition;
         const Vector3 between = position - spherePosition;
         if (LengthSquared(between) < radii * radii)
         {
@@ -189,7 +175,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy16Entity::Behavior03()
     {
-        const std::int32_t slotIndex = MainPlayer().SlotIndex();
+        const std::int32_t slotIndex = RequireReference(PlayerEntity::Main()).SlotIndex();
         if (slotIndex < 0 || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
         {
             throw SceneDetail::IndexOutOfRangeException();
@@ -199,7 +185,7 @@ namespace MphRead::Entities::Enemies
             return false;
         }
         _initialCloudHit = true;
-        MainPlayer().TakeDamage(2, DamageFlags::None, std::nullopt, this);
+        RequireReference(PlayerEntity::Main()).TakeDamage(2, DamageFlags::None, std::nullopt, this);
         TakeDamage(100, nullptr);
         return true;
     }
@@ -225,9 +211,9 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy16Entity::Behavior05()
     {
-        const float radii = MainPlayer().Volume().SphereRadius + _nearRadius;
+        const float radii = RequireReference(PlayerEntity::Main()).Volume().SphereRadius + _nearRadius;
         const Vector3 position = static_cast<Vector3>(Position);
-        const Vector3 spherePosition = MainPlayer().Volume().SpherePosition;
+        const Vector3 spherePosition = RequireReference(PlayerEntity::Main()).Volume().SpherePosition;
         const Vector3 between = position - spherePosition;
         if (LengthSquared(between) < radii * radii)
         {
@@ -252,36 +238,36 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy16Entity::Behavior00(Enemy16Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy16Entity::Behavior01(Enemy16Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy16Entity::Behavior02(Enemy16Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy16Entity::Behavior03(Enemy16Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 
     bool Enemy16Entity::Behavior04(Enemy16Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior04();
+        return RequireReference(enemy).Behavior04();
     }
 
     bool Enemy16Entity::Behavior05(Enemy16Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior05();
+        return RequireReference(enemy).Behavior05();
     }
 
     bool Enemy16Entity::Behavior06(Enemy16Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior06();
+        return RequireReference(enemy).Behavior06();
     }
 }

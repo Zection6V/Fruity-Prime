@@ -8,6 +8,7 @@
 #include "../ItemInstanceEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -40,11 +41,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        [[nodiscard]] Enemy33Entity& RequireEnemy(Enemy33Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
 
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
         {
@@ -467,21 +463,21 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy33Entity::Behavior00(Enemy33Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy33Entity::Behavior01(Enemy33Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy33Entity::Behavior02(Enemy33Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy33Entity::Behavior03(Enemy33Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 }

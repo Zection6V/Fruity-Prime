@@ -102,11 +102,6 @@ namespace MphRead::Entities
             }
         }
 
-        [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
-        {
-            return std::make_shared<const std::any>(value);
-        }
-
         template <typename TPlayer>
         [[nodiscard]] decltype(auto) SyluxBombArray(TPlayer& owner)
         {

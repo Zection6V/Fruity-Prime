@@ -11,6 +11,7 @@
 #include "../Players/PlayerEntity.hpp"
 #include "../TriggerVolumeEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -26,6 +27,7 @@
 #include <optional>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
@@ -45,13 +47,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
 
-        [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
         template <typename T>
         [[nodiscard]] T& CastReference(EntityBase* value)
         {
@@ -61,16 +56,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::InvalidCastException();
             }
             return *cast;
-        }
-
-        [[nodiscard]] Enemy31Entity& RequireEnemy(Enemy31Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
         }
 
         [[nodiscard]] std::int32_t GetFlagValue(
@@ -101,7 +86,7 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] bool HitMainPlayer(Enemy31Entity& enemy)
         {
-            const std::int32_t slotIndex = MainPlayer().SlotIndex();
+            const std::int32_t slotIndex = RequireReference(PlayerEntity::Main()).SlotIndex();
             if (slotIndex < 0
                 || static_cast<std::size_t>(slotIndex) >= enemy.HitPlayers.size())
             {
@@ -138,7 +123,7 @@ namespace MphRead::Entities::Enemies
     Enemy31Entity::Enemy31Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : GoreaEnemyEntityBase(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner)),
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner)),
           _spawnerField28(RequireReference(_spawner)
               .Data.Fields.S12().Field28.ToFloatVector()),
           _spawnerField34(RequireReference(_spawner)
@@ -146,6 +131,7 @@ namespace MphRead::Entities::Enemies
           _spawnerField38(RequireReference(_spawner)
               .Data.Fields.S12().Field38.FloatValue())
     {
+        assert(_spawner != nullptr);
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(19);
         (*processes)[0] = [this]() { State00(); };
         (*processes)[1] = [this]() { State01(); };
@@ -246,7 +232,7 @@ namespace MphRead::Entities::Enemies
             }
         }
 
-        if (CheckFacingAngle(-1.0F, MainPlayer().Position))
+        if (CheckFacingAngle(-1.0F, RequireReference(PlayerEntity::Main()).Position))
         {
             RequireReference(_sealSphere).UpdateVisibility();
         }
@@ -270,13 +256,13 @@ namespace MphRead::Entities::Enemies
         }
 
         const Vector3 between
-            = static_cast<Vector3>(MainPlayer().Position)
+            = static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
             - static_cast<Vector3>(Position);
-        PlayerEntity& player = MainPlayer();
+        PlayerEntity& player = RequireReference(PlayerEntity::Main());
         const Vector3 speed = player.Speed();
         player.SetSpeed(
             speed + DivideVector(DivideVector(between, 4.0F), 2.0F));
-        MainPlayer().TakeDamage(
+        RequireReference(PlayerEntity::Main()).TakeDamage(
             10, DamageFlags::None, std::nullopt, this);
     }
 
@@ -443,10 +429,10 @@ namespace MphRead::Entities::Enemies
         UpdateAnimFrames(RequireReference(_laserModel));
 
         Vector3 posToPlayer
-            = static_cast<Vector3>(MainPlayer().Position) - _laserTargetPos;
+            = static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position) - _laserTargetPos;
         if (Length(posToPlayer) <= 0.125F)
         {
-            _laserTargetPos = MainPlayer().Position;
+            _laserTargetPos = RequireReference(PlayerEntity::Main()).Position;
             GoreaFlags |= Gorea2Flags::LaserOnTarget;
         }
         else
@@ -496,7 +482,7 @@ namespace MphRead::Entities::Enemies
                 laserHit = true;
             }
             else if (Formats::CollisionDetection::CheckCylinderOverlapVolume(
-                &MainPlayer().Volume(), spherePos, _laserTargetPos,
+                &RequireReference(PlayerEntity::Main()).Volume(), spherePos, _laserTargetPos,
                 0.5F, discard))
             {
                 laserHit = true;
@@ -507,13 +493,13 @@ namespace MphRead::Entities::Enemies
         {
             std::optional<Vector3> direction{};
             Vector3 between = Func204D518(
-                _laserTargetPos - spherePos, MainPlayer().UpVector());
+                _laserTargetPos - spherePos, RequireReference(PlayerEntity::Main()).UpVector());
             if (LengthSquared(between) > 1.0F / 128.0F)
             {
                 between = between.Normalized();
                 direction = ScaleVector(between, 1.0F / 30.0F);
             }
-            MainPlayer().TakeDamage(
+            RequireReference(PlayerEntity::Main()).TakeDamage(
                 55, DamageFlags::None, direction, this);
         }
     }
@@ -652,7 +638,7 @@ namespace MphRead::Entities::Enemies
             _field20C = _teleportDestination;
 
             Vector3 facing = WithY(
-                static_cast<Vector3>(MainPlayer().Position) - _field20C,
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position) - _field20C,
                 0.0F);
             if (LengthSquared(facing) > 1.0F / 128.0F)
             {
@@ -1094,7 +1080,7 @@ namespace MphRead::Entities::Enemies
             const Vector3 triggerPos
                 = trigger.Data().Header.Position.ToFloatVector();
             const Vector3 between
-                = static_cast<Vector3>(MainPlayer().Position) - triggerPos;
+                = static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position) - triggerPos;
             const float lengthSquared = LengthSquared(between);
             const bool randomChance
                 = (Rng::GetRandomInt2(255) & 1U) != 0;
@@ -1140,7 +1126,7 @@ namespace MphRead::Entities::Enemies
             Formats::CollisionResult discard{};
             if (checkCollision
                 && Formats::CollisionDetection::CheckBetweenPoints(
-                    chosenPos, MainPlayer().Position,
+                    chosenPos, RequireReference(PlayerEntity::Main()).Position,
                     Formats::TestFlags::None, _scene, discard))
             {
                 return nullptr;
@@ -1332,7 +1318,7 @@ namespace MphRead::Entities::Enemies
 
         Vector3 toPlayer
             = static_cast<Vector3>(Position)
-            - static_cast<Vector3>(MainPlayer().Position);
+            - static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position);
         if (LengthSquared(toPlayer) > 1.0F / 128.0F)
         {
             toPlayer = toPlayer.Normalized();
@@ -1383,7 +1369,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy31Entity::Func213D974(Vector3 toPlayer)
     {
-        if (!MainPlayer().Field6D0())
+        if (!RequireReference(PlayerEntity::Main()).Field6D0())
         {
             toPlayer = Vector3(
                 -toPlayer.X, -toPlayer.Y, -toPlayer.Z);
@@ -1402,7 +1388,7 @@ namespace MphRead::Entities::Enemies
     Vector3 Enemy31Entity::Func21405FC()
     {
         Vector3 toPos
-            = static_cast<Vector3>(MainPlayer().Position)
+            = static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
             - _spawnerField28;
         if (LengthSquared(toPos) <= 1.0F / 128.0F)
         {
@@ -1671,7 +1657,7 @@ namespace MphRead::Entities::Enemies
         if (value != 0
             && TestFlag(GoreaFlags, Gorea2Flags::Bit9))
         {
-            return MainPlayer().CurrentWeapon()
+            return RequireReference(PlayerEntity::Main()).CurrentWeapon()
                 == BeamType::OmegaCannon;
         }
         return false;
@@ -1707,9 +1693,9 @@ namespace MphRead::Entities::Enemies
         if (_field230 == 0)
         {
             const float dist = Length(
-                static_cast<Vector3>(MainPlayer().Position)
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position));
-            if (dist < (MainPlayer().Field6D0()
+            if (dist < (RequireReference(PlayerEntity::Main()).Field6D0()
                 ? 130.0F
                 : 50.0F))
             {
@@ -1849,96 +1835,96 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy31Entity::BehaviorXX(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).BehaviorXX();
+        return RequireReference(enemy).BehaviorXX();
     }
 
     bool Enemy31Entity::Behavior00(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy31Entity::Behavior01(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy31Entity::Behavior02(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy31Entity::Behavior03(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 
     bool Enemy31Entity::Behavior04(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior04();
+        return RequireReference(enemy).Behavior04();
     }
 
     bool Enemy31Entity::Behavior05(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior05();
+        return RequireReference(enemy).Behavior05();
     }
 
     bool Enemy31Entity::Behavior06(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior06();
+        return RequireReference(enemy).Behavior06();
     }
 
     bool Enemy31Entity::Behavior07(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior07();
+        return RequireReference(enemy).Behavior07();
     }
 
     bool Enemy31Entity::Behavior08(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior08();
+        return RequireReference(enemy).Behavior08();
     }
 
     bool Enemy31Entity::Behavior09(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior09();
+        return RequireReference(enemy).Behavior09();
     }
 
     bool Enemy31Entity::Behavior10(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior10();
+        return RequireReference(enemy).Behavior10();
     }
 
     bool Enemy31Entity::Behavior11(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior11();
+        return RequireReference(enemy).Behavior11();
     }
 
     bool Enemy31Entity::Behavior12(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior12();
+        return RequireReference(enemy).Behavior12();
     }
 
     bool Enemy31Entity::Behavior13(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior13();
+        return RequireReference(enemy).Behavior13();
     }
 
     bool Enemy31Entity::Behavior14(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior14();
+        return RequireReference(enemy).Behavior14();
     }
 
     bool Enemy31Entity::Behavior15(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior15();
+        return RequireReference(enemy).Behavior15();
     }
 
     bool Enemy31Entity::Behavior16(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior16();
+        return RequireReference(enemy).Behavior16();
     }
 
     bool Enemy31Entity::Behavior17(Enemy31Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior17();
+        return RequireReference(enemy).Behavior17();
     }
 }

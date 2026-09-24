@@ -11,6 +11,7 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <array>
@@ -25,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
@@ -45,18 +47,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] Enemy18Entity& RequireEnemy(Enemy18Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
 
         [[nodiscard]] std::uint16_t TwiceToUInt16(std::uint16_t value) noexcept
         {
@@ -118,8 +108,9 @@ namespace MphRead::Entities::Enemies
     Enemy18Entity::Enemy18Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(5);
         (*processes)[0] = [this]() { State0(); };
         (*processes)[1] = [this]() { State1(); };
@@ -489,31 +480,31 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy18Entity::Behavior00(Enemy18Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy18Entity::Behavior01(Enemy18Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy18Entity::Behavior02(Enemy18Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy18Entity::Behavior03(Enemy18Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 
     bool Enemy18Entity::Behavior04(Enemy18Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior04();
+        return RequireReference(enemy).Behavior04();
     }
 
     bool Enemy18Entity::Behavior05(Enemy18Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior05();
+        return RequireReference(enemy).Behavior05();
     }
 }

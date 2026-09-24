@@ -448,23 +448,6 @@ namespace
         return text;
     }
 
-    [[nodiscard]] std::string HunterName(Hunter hunter)
-    {
-        switch (hunter)
-        {
-        case Hunter::Samus: return "Samus";
-        case Hunter::Kanden: return "Kanden";
-        case Hunter::Trace: return "Trace";
-        case Hunter::Sylux: return "Sylux";
-        case Hunter::Noxus: return "Noxus";
-        case Hunter::Spire: return "Spire";
-        case Hunter::Weavel: return "Weavel";
-        case Hunter::Guardian: return "Guardian";
-        case Hunter::Random: return "Random";
-        default: return std::to_string(static_cast<unsigned int>(static_cast<std::uint8_t>(hunter)));
-        }
-    }
-
     [[nodiscard]] bool OutputRedirected() noexcept
     {
         return ConsoleIsOutputRedirected();
@@ -575,7 +558,7 @@ namespace
             {
                 std::cout << "  ";
             }
-            std::cout << '[' << index + 1 << "] " << HunterName(hunters[index]);
+            std::cout << '[' << index + 1 << "] " << ::MphRead::ToString(hunters[index]);
         }
         std::cout << '\n';
 
@@ -1124,7 +1107,7 @@ namespace
             std::cout << "  --------------------------------------------" << '\n';
             std::cout << "  Game files : " << MphRead::Mods::Launcher::GameFiles::Describe() << '\n';
             std::cout << "  Player     : " << LauncherPrefs::PlayerName()
-                << " as " << HunterName(LauncherPrefs::LastHunter()) << '\n';
+                << " as " << ::MphRead::ToString(LauncherPrefs::LastHunter()) << '\n';
             std::cout << '\n';
 
             if (problem.has_value())

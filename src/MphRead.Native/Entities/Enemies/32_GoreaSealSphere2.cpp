@@ -39,10 +39,6 @@ namespace MphRead::Entities::Enemies
             return *cast;
         }
 
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
     }
 
     Enemy32Entity::Enemy32Entity(EnemyInstanceEntityData data,
@@ -138,7 +134,7 @@ namespace MphRead::Entities::Enemies
     {
         Formats::CollisionResult discard{};
         _visible = !Formats::CollisionDetection::CheckBetweenPoints(
-            Position, RequireReference(MainPlayer().CameraInfo()).Position,
+            Position, RequireReference(RequireReference(PlayerEntity::Main()).CameraInfo()).Position,
             Formats::TestFlags::None, _scene, discard);
     }
 

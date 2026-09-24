@@ -16,8 +16,9 @@
 #include "../Players/HalfturretEntity.hpp"
 #include "../ItemInstanceEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
 #include <array>
@@ -37,6 +38,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -58,23 +60,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] Enemy24Entity& RequireEnemy(Enemy24Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
 
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
         {
@@ -324,7 +309,7 @@ namespace MphRead::Entities::Enemies
         if (Equal(target, Vector3::Zero))
         {
             Vector3 between = TypeExtensions::WithY(
-                static_cast<Vector3>(MainPlayer().Position) - static_cast<Vector3>(Position), 0.0F);
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position) - static_cast<Vector3>(Position), 0.0F);
             if (LengthSquared(between) > 1.0F / 128.0F)
             {
                 between = between.Normalized();
@@ -454,8 +439,9 @@ namespace MphRead::Entities::Enemies
     Enemy24Entity::Enemy24Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : GoreaEnemyEntityBase(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(15);
         (*processes)[0] = [this]() { State00(); };
         (*processes)[1] = [this]() { State01(); };
@@ -629,7 +615,7 @@ namespace MphRead::Entities::Enemies
             _weaponIndex = 0;
         }
         _colors = &ManagedAt(Metadata::Enemy24Colors, _weaponIndex);
-        if (MainPlayer().Health() > 0)
+        if (RequireReference(PlayerEntity::Main()).Health() > 0)
         {
             Music::PlayMusic(ManagedAt(_musicTracks, _weaponIndex));
         }
@@ -732,7 +718,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy24Entity::CheckPlayerCollision()
     {
-        PlayerEntity& player = MainPlayer();
+        PlayerEntity& player = RequireReference(PlayerEntity::Main());
         if (!ManagedAt(HitPlayers, player.SlotIndex()))
         {
             return;
@@ -843,7 +829,7 @@ namespace MphRead::Entities::Enemies
     bool Enemy24Entity::UpdateTargetFacing()
     {
         Vector3 between = TypeExtensions::WithY(
-            static_cast<Vector3>(MainPlayer().Position) - static_cast<Vector3>(Position), 0.0F);
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position) - static_cast<Vector3>(Position), 0.0F);
         if (LengthSquared(between) > 1.0F / 128.0F)
         {
             _targetFacing = between.Normalized();
@@ -989,7 +975,7 @@ namespace MphRead::Entities::Enemies
         _lastNodeTransformUpdate = prevUpdate;
         position = position + ScaleVector(direction, Fixed::ToFloat(8343));
         const Vector3 playerPosition = TypeExtensions::AddY(
-            static_cast<Vector3>(MainPlayer().Position), 0.5F);
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position), 0.5F);
         if (!HalfturretEntity::UpdateAim(
                 position, playerPosition, arm.EquipInfo(), direction))
         {
@@ -1095,8 +1081,8 @@ namespace MphRead::Entities::Enemies
                     between = between.Normalized();
                 }
                 between = TypeExtensions::AddY(ScaleVector(between, 1.5F), Fixed::ToFloat(682));
-                MainPlayer().TakeDamage(40, DamageFlags::None, between, this);
-                RequireReference(MainPlayer().CameraInfo()).SetShake(0.75F);
+                RequireReference(PlayerEntity::Main()).TakeDamage(40, DamageFlags::None, between, this);
+                RequireReference(RequireReference(PlayerEntity::Main()).CameraInfo()).SetShake(0.75F);
             }
             SpawnEffect(71, Position);
         }
@@ -1108,7 +1094,7 @@ namespace MphRead::Entities::Enemies
     {
         between = Vector3::Zero;
         distance = 0.0F;
-        PlayerEntity& player = MainPlayer();
+        PlayerEntity& player = RequireReference(PlayerEntity::Main());
         if (player.Health() > 0)
         {
             between = static_cast<Vector3>(player.Position) - static_cast<Vector3>(Position);
@@ -1152,8 +1138,8 @@ namespace MphRead::Entities::Enemies
                     between = between.Normalized();
                 }
                 between = TypeExtensions::AddY(ScaleVector(between, 1.5F), Fixed::ToFloat(682));
-                MainPlayer().TakeDamage(25, DamageFlags::None, between, this);
-                RequireReference(MainPlayer().CameraInfo()).SetShake(0.75F);
+                RequireReference(PlayerEntity::Main()).TakeDamage(25, DamageFlags::None, between, this);
+                RequireReference(RequireReference(PlayerEntity::Main()).CameraInfo()).SetShake(0.75F);
             }
         }
         (void)CallSubroutine<Enemy24Entity>(Metadata::Enemy24Subroutines, this);
@@ -1321,7 +1307,7 @@ namespace MphRead::Entities::Enemies
             goreaModel.SetAnimation(anim, 0, setFlags, AnimFlags::NoLoop);
             UpdateAnimFrames(goreaModel);
             (*goreaModel.AnimInfo->Frame)[0] = 5;
-            if (MainPlayer().Health() > 0)
+            if (RequireReference(PlayerEntity::Main()).Health() > 0)
             {
                 Music::PlayMusic(MusicId::SEQ_GOREA_1_M21);
             }
@@ -1506,7 +1492,7 @@ namespace MphRead::Entities::Enemies
     {
         Vector3 ignoredBetween;
         float ignoredDistance;
-        if (TypeExtensions::TestFlag(MainPlayer().Flags1(), PlayerFlags1::AltForm)
+        if (TypeExtensions::TestFlag(RequireReference(PlayerEntity::Main()).Flags1(), PlayerFlags1::AltForm)
             && GetHorizontalToPlayer(25.0F, ignoredBetween, ignoredDistance))
         {
             _speed = Vector3::Zero;
@@ -1523,7 +1509,7 @@ namespace MphRead::Entities::Enemies
     {
         Vector3 between;
         float distance;
-        if (!TypeExtensions::TestFlag(MainPlayer().Flags1(), PlayerFlags1::AltForm)
+        if (!TypeExtensions::TestFlag(RequireReference(PlayerEntity::Main()).Flags1(), PlayerFlags1::AltForm)
             && GetHorizontalToPlayer(37.5F, between, distance))
         {
             _speed = Vector3::Zero;
@@ -1567,7 +1553,7 @@ namespace MphRead::Entities::Enemies
     bool Enemy24Entity::Behavior11()
     {
         const Vector3 between
-            = static_cast<Vector3>(MainPlayer().Position) - static_cast<Vector3>(Position);
+            = static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position) - static_cast<Vector3>(Position);
         if (LengthSquared(between) > 19.0F * 19.0F)
         {
             if (_field244 > 0)
@@ -1677,7 +1663,7 @@ namespace MphRead::Entities::Enemies
     bool Enemy24Entity::Behavior18()
     {
         if (!Equal(_targetFacing, Vector3::Zero)
-            || !CheckFacingAngle(-1.0F, MainPlayer().Position))
+            || !CheckFacingAngle(-1.0F, RequireReference(PlayerEntity::Main()).Position))
         {
             return false;
         }
@@ -1863,27 +1849,27 @@ namespace MphRead::Entities::Enemies
         }
     }
 
-    bool Enemy24Entity::Behavior00(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior00(); }
-    bool Enemy24Entity::Behavior01(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior01(); }
-    bool Enemy24Entity::Behavior02(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior02(); }
-    bool Enemy24Entity::Behavior03(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior03(); }
-    bool Enemy24Entity::Behavior04(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior04(); }
-    bool Enemy24Entity::Behavior05(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior05(); }
-    bool Enemy24Entity::Behavior06(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior06(); }
-    bool Enemy24Entity::Behavior07(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior07(); }
-    bool Enemy24Entity::Behavior08(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior08(); }
-    bool Enemy24Entity::Behavior09(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior09(); }
-    bool Enemy24Entity::Behavior10(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior10(); }
-    bool Enemy24Entity::Behavior11(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior11(); }
-    bool Enemy24Entity::Behavior12(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior12(); }
-    bool Enemy24Entity::Behavior13(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior13(); }
-    bool Enemy24Entity::Behavior14(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior14(); }
-    bool Enemy24Entity::Behavior15(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior15(); }
-    bool Enemy24Entity::Behavior16(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior16(); }
-    bool Enemy24Entity::Behavior17(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior17(); }
-    bool Enemy24Entity::Behavior18(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior18(); }
-    bool Enemy24Entity::Behavior19(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior19(); }
-    bool Enemy24Entity::Behavior20(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior20(); }
-    bool Enemy24Entity::Behavior21(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior21(); }
-    bool Enemy24Entity::Behavior22(Enemy24Entity* enemy) { return RequireEnemy(enemy).Behavior22(); }
+    bool Enemy24Entity::Behavior00(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior00(); }
+    bool Enemy24Entity::Behavior01(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior01(); }
+    bool Enemy24Entity::Behavior02(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior02(); }
+    bool Enemy24Entity::Behavior03(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior03(); }
+    bool Enemy24Entity::Behavior04(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior04(); }
+    bool Enemy24Entity::Behavior05(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior05(); }
+    bool Enemy24Entity::Behavior06(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior06(); }
+    bool Enemy24Entity::Behavior07(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior07(); }
+    bool Enemy24Entity::Behavior08(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior08(); }
+    bool Enemy24Entity::Behavior09(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior09(); }
+    bool Enemy24Entity::Behavior10(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior10(); }
+    bool Enemy24Entity::Behavior11(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior11(); }
+    bool Enemy24Entity::Behavior12(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior12(); }
+    bool Enemy24Entity::Behavior13(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior13(); }
+    bool Enemy24Entity::Behavior14(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior14(); }
+    bool Enemy24Entity::Behavior15(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior15(); }
+    bool Enemy24Entity::Behavior16(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior16(); }
+    bool Enemy24Entity::Behavior17(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior17(); }
+    bool Enemy24Entity::Behavior18(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior18(); }
+    bool Enemy24Entity::Behavior19(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior19(); }
+    bool Enemy24Entity::Behavior20(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior20(); }
+    bool Enemy24Entity::Behavior21(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior21(); }
+    bool Enemy24Entity::Behavior22(Enemy24Entity* enemy) { return RequireReference(enemy).Behavior22(); }
 }

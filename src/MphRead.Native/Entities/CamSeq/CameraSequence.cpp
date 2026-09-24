@@ -81,11 +81,6 @@ namespace
             static_cast<Underlying>(value) & ~static_cast<Underlying>(flag));
     }
 
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
     [[nodiscard]] constexpr Vector3 Vec4MultMtx4x3(
         Vector4 vector, const Matrix4x3& matrix) noexcept
     {

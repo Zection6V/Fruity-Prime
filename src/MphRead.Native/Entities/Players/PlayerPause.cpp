@@ -70,11 +70,6 @@ namespace
         throw System::NullReferenceException();
     }
 
-    [[nodiscard]] Model& RequireModel(ModelInstance& instance)
-    {
-        return RequireReference(instance.Model());
-    }
-
     [[nodiscard]] std::vector<float> CopyManagedArray(const MphRead::ManagedArray<float>& values)
     {
         std::vector<float> result;
@@ -183,14 +178,6 @@ namespace
         return length;
     }
 
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        if (MphRead::GameState::StorySave == nullptr)
-        {
-            ThrowNullReference();
-        }
-        return *MphRead::GameState::StorySave;
-    }
 }
 
 namespace MphRead::Entities
@@ -294,7 +281,7 @@ namespace MphRead::Entities
                         continue;
                     }
                     ModelInstance& instance = *modelValue;
-                    Model& model = RequireModel(instance);
+                    Model& model = RequireReference((instance).Model());
                     const auto& nodes = RequireReference(model.Nodes);
                     std::shared_ptr<Node> roomNode{};
                     for (std::int32_t j = 0; j < static_cast<std::int32_t>(nodes.size()); ++j)
@@ -395,7 +382,7 @@ namespace MphRead::Entities
             {
                 continue;
             }
-            Model& model = RequireModel(*modelValue);
+            Model& model = RequireReference((*modelValue).Model());
             const auto& nodes = RequireReference(model.Nodes);
             for (std::int32_t j = 0; j < static_cast<std::int32_t>(nodes.size()); ++j)
             {
@@ -408,7 +395,7 @@ namespace MphRead::Entities
                 {
                     const auto roomSymbolsValue = navMapRoomSymbols[k];
                     const NavMapRoomSymbols& roomSymbols = RequireReference(roomSymbolsValue);
-                    if (!RequireStorySave().CheckVisitedRoom(roomSymbols.Id)
+                    if (!RequireReference(::MphRead::GameState::StorySave).CheckVisitedRoom(roomSymbols.Id)
                         || !StringEqualsOrdinalIgnoreCase(roomSymbols.Name, roomNode.Name))
                     {
                         continue;
@@ -480,11 +467,11 @@ namespace MphRead::Entities
             for (std::int32_t i = 0; i < 8; ++i)
             {
                 const auto [posX, posY] = ManagedAt(_mapIconPositions, i);
-                if ((RequireStorySave().Areas & (1U << (i / 2 * 2))) != 0)
+                if ((RequireReference(::MphRead::GameState::StorySave).Areas & (1U << (i / 2 * 2))) != 0)
                 {
-                    const bool hasOctolith = (RequireStorySave().CurrentOctoliths & (1U << i)) != 0;
+                    const bool hasOctolith = (RequireReference(::MphRead::GameState::StorySave).CurrentOctoliths & (1U << i)) != 0;
                     const std::uint32_t lostHunter
-                        = (RequireStorySave().LostOctoliths >> (i * 4)) & 15U;
+                        = (RequireReference(::MphRead::GameState::StorySave).LostOctoliths >> (i * 4)) & 15U;
                     if (hasOctolith || lostHunter < 8U)
                     {
                         std::shared_ptr<Hud::HudObjectInstance> octoInst = ManagedAt(_mapOctolithInsts, i);
@@ -514,13 +501,13 @@ namespace MphRead::Entities
                         teleporter.PositionY
                             = (static_cast<float>(posY) - teleporter.Height / 2.0F) / 192.0F;
                         const std::int32_t teleporterIndex
-                            = ((RequireStorySave().Artifacts & (7U << artifactIndex)) >> artifactIndex) == 7U ? 1 : 0;
+                            = ((RequireReference(::MphRead::GameState::StorySave).Artifacts & (7U << artifactIndex)) >> artifactIndex) == 7U ? 1 : 0;
                         teleporter.SetIndex(teleporterIndex, scene);
                         scene.DrawHudObject(_mapTeleporterInst);
                         std::shared_ptr<Hud::HudObjectInstance> dotInst = ManagedAt(_mapArtifactDotInsts, i);
                         for (std::int32_t j = 0; j < 3; ++j)
                         {
-                            if ((RequireStorySave().Artifacts & (1U << (artifactIndex + j))) != 0)
+                            if ((RequireReference(::MphRead::GameState::StorySave).Artifacts & (1U << (artifactIndex + j))) != 0)
                             {
                                 const auto [offsetX, offsetY] = ManagedAt(_mapDotOffsets, j);
                                 Hud::HudObjectInstance& dot = RequireReference(dotInst);
@@ -855,7 +842,7 @@ namespace MphRead::Entities
                     {
                         continue;
                     }
-                    Model& model = RequireModel(*modelValue);
+                    Model& model = RequireReference((*modelValue).Model());
                     const auto& nodes = RequireReference(model.Nodes);
                     for (std::int32_t j = 0; j < static_cast<std::int32_t>(nodes.size()); ++j)
                     {
@@ -959,7 +946,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateMapModelTransforms(ModelInstance& inst, std::int32_t area)
     {
-        Model& model = RequireModel(inst);
+        Model& model = RequireReference((inst).Model());
         Matrix4 transform = CreateScale(model.Scale.X);
         const Vector3 offset = ManagedAt(_navMapNodeOffsets, area);
         transform.M41 += offset.X;
@@ -975,7 +962,7 @@ namespace MphRead::Entities
             std::int32_t id = 0;
             if (TryParseConnectorId(std::string_view(node.Name).substr(3, 2), id) && id >= 1)
             {
-                return RequireStorySave().CheckVisitedConnector(id - 1, RequireReference(_scene).AreaId());
+                return RequireReference(::MphRead::GameState::StorySave).CheckVisitedConnector(id - 1, RequireReference(_scene).AreaId());
             }
         }
         for (std::int32_t i = 27; i <= 92; ++i)
@@ -983,7 +970,7 @@ namespace MphRead::Entities
             const RoomMetadata& meta = RequireReference(Metadata::GetRoomById(i));
             if (StringEqualsOrdinalIgnoreCase(node.Name, meta.Name))
             {
-                return RequireStorySave().CheckVisitedRoom(i);
+                return RequireReference(::MphRead::GameState::StorySave).CheckVisitedRoom(i);
             }
         }
         return false;
@@ -1068,7 +1055,7 @@ namespace MphRead::Entities
                     bool locked = entitySymbol.Locked;
                     if (entitySymbol.Id != -1)
                     {
-                        locked = RequireStorySave().GetRoomState(roomSymbols.Id, entitySymbol.Id) != 0;
+                        locked = RequireReference(::MphRead::GameState::StorySave).GetRoomState(roomSymbols.Id, entitySymbol.Id) != 0;
                     }
                     std::int32_t palette = 0;
                     if (locked)
@@ -1084,7 +1071,7 @@ namespace MphRead::Entities
                         = GetTransformMatrix(entitySymbol.FacingVector, entitySymbol.UpVector, doorPos);
                     ModelInstance& doorModel = RequireReference(_navDoorModel);
                     UpdateTransforms(doorModel, doorTransform, 0);
-                    Model& model = RequireModel(doorModel);
+                    Model& model = RequireReference((doorModel).Model());
                     Material& material = RequireReference(ManagedAt(RequireReference(model.Materials), 0));
                     material.CurrentDiffuse = ManagedAt(_navDoorColors, palette);
                     EntityBase::GetDrawItems(doorModel, 0, lightInfo);
@@ -1097,7 +1084,7 @@ namespace MphRead::Entities
     {
         Scene& scene = RequireReference(_scene);
         const std::int32_t polygonId = scene.GetNextPolygonId();
-        Model& model = RequireModel(inst);
+        Model& model = RequireReference((inst).Model());
         const auto& nodes = RequireReference(model.Nodes);
         Node& root = RequireReference(ManagedAt(nodes, 0));
 

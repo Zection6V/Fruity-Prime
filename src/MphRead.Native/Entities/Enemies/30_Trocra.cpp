@@ -7,8 +7,9 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../ItemInstanceEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -18,6 +19,7 @@
 #include <memory>
 #include <optional>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Length;
@@ -30,18 +32,6 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Vector3;
 
-        [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
-
         [[nodiscard]] bool Visible(const Enemy30Entity& enemy) noexcept
         {
             return TypeExtensions::TestFlag(
@@ -50,7 +40,7 @@ namespace MphRead::Entities::Enemies
 
         [[nodiscard]] bool HitMainPlayer(Enemy30Entity& enemy)
         {
-            const std::int32_t slotIndex = MainPlayer().SlotIndex();
+            const std::int32_t slotIndex = RequireReference(PlayerEntity::Main()).SlotIndex();
             if (slotIndex < 0
                 || static_cast<std::size_t>(slotIndex) >= enemy.HitPlayers.size())
             {
@@ -96,8 +86,9 @@ namespace MphRead::Entities::Enemies
     Enemy30Entity::Enemy30Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : GoreaEnemyEntityBase(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
     }
 
     void Enemy30Entity::EnemyInitialize()
@@ -138,7 +129,7 @@ namespace MphRead::Entities::Enemies
     {
         SpawnEffect(effectId, Position);
 
-        const Vector3 playerPosition = MainPlayer().Position;
+        const Vector3 playerPosition = RequireReference(PlayerEntity::Main()).Position;
         const Vector3 entityPosition = Position;
         Vector3 between = playerPosition - entityPosition;
         const float distance = Length(between);
@@ -172,7 +163,7 @@ namespace MphRead::Entities::Enemies
                 {
                     between = ScaleVector(Vector3(0.0F, 1.0F, 0.0F), force);
                 }
-                MainPlayer().TakeDamage(
+                RequireReference(PlayerEntity::Main()).TakeDamage(
                     damage, DamageFlags::NoDmgInvuln, between, this);
             }
         }

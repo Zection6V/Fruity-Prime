@@ -105,14 +105,6 @@ namespace
         return std::make_shared<const std::vector<T>>(values.begin(), values.end());
     }
 
-    [[nodiscard]] const std::string& RequireString(const std::optional<std::string>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 }
 
 namespace MphRead::Entities
@@ -166,7 +158,7 @@ namespace MphRead::Entities
             std::u16string name;
             if (!system)
             {
-                const std::string& lineName = RequireString(line.Name);
+                const std::string& lineName = RequireReference(line.Name);
                 if (!lineName.empty())
                 {
                     name = ToChatChars(lineName);

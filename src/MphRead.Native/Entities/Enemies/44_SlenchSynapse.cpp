@@ -59,10 +59,6 @@ namespace MphRead::Entities::Enemies
             return dividend / divisor;
         }
 
-        [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
-        {
-            return std::make_shared<const std::any>(value);
-        }
     }
 
     Enemy44Entity::Enemy44Entity(EnemyInstanceEntityData data,

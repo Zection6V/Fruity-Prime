@@ -65,6 +65,7 @@ using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::Utf8Scalar;
 using ::MphRead::NativeRuntime::WideToUtf8;
@@ -455,16 +456,6 @@ namespace
             index += unit.Length;
         }
         return result;
-    }
-
-    [[nodiscard]] const std::string& RequireString(
-        const std::optional<std::string>& value)
-    {
-        if (!value.has_value())
-        {
-            throw System::NullReferenceException();
-        }
-        return value.value();
     }
 
     template <typename T>
@@ -1073,7 +1064,7 @@ namespace MphRead::Mods::Network
             return;
         }
         ChatPacket chat = ChatPacket::Read(payload);
-        if (RequireString(chat.Text).empty())
+        if (RequireReference(chat.Text).empty())
         {
             return;
         }

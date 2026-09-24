@@ -80,11 +80,6 @@ namespace
         return result;
     }
 
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
     [[nodiscard]] MphRead::MessageObject BoxEntity(EntityBase* value)
     {
         return std::make_shared<const std::any>(value);

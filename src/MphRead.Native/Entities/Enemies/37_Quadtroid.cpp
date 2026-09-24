@@ -9,6 +9,7 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <bit>
@@ -22,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -52,32 +54,15 @@ namespace MphRead::Entities::Enemies
             return *cast;
         }
 
-        [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
-
         [[nodiscard]] AnimationInfo& RequireAnimInfo(ModelInstance& model)
         {
             return RequireReference(model.AnimInfo);
         }
 
-        [[nodiscard]] Model& RequireModel(ModelInstance& model)
-        {
-            return RequireReference(model.Model());
-        }
-
         [[nodiscard]] const std::vector<std::shared_ptr<Material>>& RequireMaterials(
             ModelInstance& model)
         {
-            return RequireReference(RequireModel(model).Materials);
+            return RequireReference(RequireReference((model).Model()).Materials);
         }
 
         [[nodiscard]] std::int32_t RandomTimer(std::int32_t limit,
@@ -91,8 +76,9 @@ namespace MphRead::Entities::Enemies
     Enemy37Entity::Enemy37Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
     }
 
     void Enemy37Entity::EnemyInitialize()
@@ -140,19 +126,19 @@ namespace MphRead::Entities::Enemies
             {
                 Func214E668(Fixed::ToFloat(218));
                 Func214DC90();
-                PlayerEntity& player1 = MainPlayer();
+                PlayerEntity& player1 = RequireReference(PlayerEntity::Main());
                 if (Func214D6E0(&player1))
                 {
-                    PlayerEntity& player2 = MainPlayer();
+                    PlayerEntity& player2 = RequireReference(PlayerEntity::Main());
                     if (player2.AttachedEnemy() == nullptr)
                     {
-                        PlayerEntity& player3 = MainPlayer();
+                        PlayerEntity& player3 = RequireReference(PlayerEntity::Main());
                         if (Func214D690(&player3))
                         {
-                            PlayerEntity& player4 = MainPlayer();
+                            PlayerEntity& player4 = RequireReference(PlayerEntity::Main());
                             if (Func214D828(&player4))
                             {
-                                _target = &MainPlayer();
+                                _target = &RequireReference(PlayerEntity::Main());
                                 Func214E1C0(_target);
                                 Func214EC08();
                             }
@@ -430,7 +416,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy37Entity::Func214DCB8()
     {
-        PlayerEntity& player = MainPlayer();
+        PlayerEntity& player = RequireReference(PlayerEntity::Main());
         const std::int32_t slotIndex = player.SlotIndex();
         if (slotIndex < 0 || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
         {
@@ -1066,7 +1052,7 @@ namespace MphRead::Entities::Enemies
             else if (source->Type == EntityType::Bomb || source->Type == EntityType::Player)
             {
                 _hitByBomb = true;
-                Func214E1C0(&MainPlayer());
+                Func214E1C0(&RequireReference(PlayerEntity::Main()));
                 if (source->Type == EntityType::Player)
                 {
                     hitByNonSamusBomb = true;

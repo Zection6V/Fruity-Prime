@@ -13,6 +13,7 @@
 
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace
 {
@@ -35,14 +36,6 @@ namespace
         return static_cast<std::int32_t>(value);
     }
 
-    MphRead::Scene& RequireScene(MphRead::Scene* scene)
-    {
-        if (scene == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *scene;
-    }
 }
 
 namespace MphRead::Entities
@@ -73,10 +66,10 @@ namespace MphRead::Entities
         OpenTK::Mathematics::Vector4 edge(_stylusInk.Xyz(), alpha);
         OpenTK::Mathematics::Vector4 fill(_stylusFill.Xyz(), alpha * 0.5F);
         float line = MathMax(0.5F, height / 96.0F);
-        RequireScene(_scene).DrawHudFlatBox(left, top, left + width, top + line, edge);
-        RequireScene(_scene).DrawHudFlatBox(left, top + height - line, left + width, top + height, edge);
-        RequireScene(_scene).DrawHudFlatBox(left, top, left + line, top + height, edge);
-        RequireScene(_scene).DrawHudFlatBox(left + width - line, top, left + width, top + height, edge);
+        RequireReference(_scene).DrawHudFlatBox(left, top, left + width, top + line, edge);
+        RequireReference(_scene).DrawHudFlatBox(left, top + height - line, left + width, top + height, edge);
+        RequireReference(_scene).DrawHudFlatBox(left, top, left + line, top + height, edge);
+        RequireReference(_scene).DrawHudFlatBox(left + width - line, top, left + width, top + height, edge);
 
         float scaleX = width / StylusZone::DsWidth;
         float scaleY = height / StylusZone::DsHeight;
@@ -113,7 +106,7 @@ namespace MphRead::Entities
                 continue;
             }
 
-            RequireScene(_scene).DrawHudFlatBox(centreX - half, centreY + y,
+            RequireReference(_scene).DrawHudFlatBox(centreX - half, centreY + y,
                 centreX + half, centreY + y + step, colour);
         }
     }

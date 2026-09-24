@@ -60,8 +60,9 @@
 #include "Mods/Network/MapVote.hpp"
 #include "Mods/PauseMenu.hpp"
 #include "Mods/WindowMode.hpp"
-#include "NativeRuntime/System/Managed.hpp"
 #include "Formats/Types.hpp"
+#include "NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
 #include <unordered_set>
@@ -84,6 +85,7 @@
 #include <type_traits>
 
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateRotationY;
 using ::OpenTK::Mathematics::CreateRotationZ;
@@ -569,15 +571,6 @@ namespace MphRead
         return std::to_string(static_cast<std::int32_t>(mode));
     }
 
-    [[nodiscard]] StorySave& RequireStorySave()
-    {
-        if (!GameState::StorySave)
-        {
-            throw System::NullReferenceException();
-        }
-        return *GameState::StorySave;
-    }
-
     using Effects::EffectEntry;
     using Effects::EffectElementEntry;
     using Effects::EffectParticle;
@@ -702,9 +695,9 @@ namespace MphRead
         const auto& entities = Deref(entitiesRef);
         Mods::DebugLog::Line("room", "\"" + name + "\" read: " + std::to_string(entities.size())
             + " entit(ies), id=" + std::to_string(RoomId()) + ", area=" + std::to_string(AreaId()));
-        RequireStorySave().SetVisitedRoom(_roomId);
-        RequireStorySave().Areas = static_cast<std::uint16_t>(
-            RequireStorySave().Areas | static_cast<std::uint16_t>(1U << _areaId));
+        RequireReference(::MphRead::GameState::StorySave).SetVisitedRoom(_roomId);
+        RequireReference(::MphRead::GameState::StorySave).Areas = static_cast<std::uint16_t>(
+            RequireReference(::MphRead::GameState::StorySave).Areas | static_cast<std::uint16_t>(1U << _areaId));
         if (GameState::Mode() == GameMode::None)
         {
             GameState::Mode(meta.Multiplayer ? GameMode::Battle : GameMode::SinglePlayer);
@@ -3717,9 +3710,9 @@ namespace MphRead
             Menu::NeededSave = enteringShip ? Menu::SaveFromShip : Menu::SaveFromExit;
             if (enteringShip)
             {
-                RequireStorySave().Health = RequireStorySave().HealthMax;
-                ManagedAt(RequireStorySave().Ammo, 0) = ManagedAt(RequireStorySave().AmmoMax, 0);
-                ManagedAt(RequireStorySave().Ammo, 1) = ManagedAt(RequireStorySave().AmmoMax, 1);
+                RequireReference(::MphRead::GameState::StorySave).Health = RequireReference(::MphRead::GameState::StorySave).HealthMax;
+                ManagedAt(RequireReference(::MphRead::GameState::StorySave).Ammo, 0) = ManagedAt(RequireReference(::MphRead::GameState::StorySave).AmmoMax, 0);
+                ManagedAt(RequireReference(::MphRead::GameState::StorySave).Ammo, 1) = ManagedAt(RequireReference(::MphRead::GameState::StorySave).AmmoMax, 1);
             }
         }
         _close();

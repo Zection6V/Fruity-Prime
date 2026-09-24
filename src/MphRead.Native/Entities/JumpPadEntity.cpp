@@ -8,8 +8,9 @@
 #include "../Scene.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "TriggerVolumeEntity.hpp"
-#include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <any>
 #include <bit>
@@ -37,31 +38,6 @@ namespace
 
     constexpr Vector3 UnitX(1.0F, 0.0F, 0.0F);
     constexpr Vector3 UnitY(0.0F, 1.0F, 0.0F);
-
-    [[nodiscard]] std::int32_t GetRoomId(MphRead::Scene* scene)
-    {
-        if (scene == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return scene->RoomId();
-    }
-
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw System::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-    }
 
     [[nodiscard]] const std::string& GetJumpPadName(std::uint32_t modelId)
     {
@@ -104,7 +80,7 @@ namespace MphRead::Entities
         if (GameState::Mode() == GameMode::SinglePlayer)
         {
             const std::shared_ptr<StorySave> storySave = GameState::StorySave;
-            const std::int32_t roomId = GetRoomId(_scene);
+            const std::int32_t roomId = RequireReference(_scene).RoomId();
             const std::int32_t entityId = Id;
             const bool active = data.Active != 0;
             Active = RequireReference(storySave).InitRoomState(
@@ -230,7 +206,7 @@ namespace MphRead::Entities
             if (GameState::Mode() == GameMode::SinglePlayer)
             {
                 const std::shared_ptr<StorySave> storySave = GameState::StorySave;
-                const std::int32_t roomId = GetRoomId(_scene);
+                const std::int32_t roomId = RequireReference(_scene).RoomId();
                 const std::int32_t entityId = Id;
                 RequireReference(storySave).SetRoomState(roomId, entityId, 3);
             }
@@ -243,7 +219,7 @@ namespace MphRead::Entities
                 if (GameState::Mode() == GameMode::SinglePlayer)
                 {
                     const std::shared_ptr<StorySave> storySave = GameState::StorySave;
-                    const std::int32_t roomId = GetRoomId(_scene);
+                    const std::int32_t roomId = RequireReference(_scene).RoomId();
                     const std::int32_t entityId = Id;
                     RequireReference(storySave).SetRoomState(roomId, entityId, 3);
                 }
@@ -254,7 +230,7 @@ namespace MphRead::Entities
                 if (GameState::Mode() == GameMode::SinglePlayer)
                 {
                     const std::shared_ptr<StorySave> storySave = GameState::StorySave;
-                    const std::int32_t roomId = GetRoomId(_scene);
+                    const std::int32_t roomId = RequireReference(_scene).RoomId();
                     const std::int32_t entityId = Id;
                     RequireReference(storySave).SetRoomState(roomId, entityId, 1);
                 }

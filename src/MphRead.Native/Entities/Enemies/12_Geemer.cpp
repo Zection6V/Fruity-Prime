@@ -8,6 +8,7 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <bit>
@@ -19,6 +20,7 @@
 #include <memory>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -36,13 +38,6 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Vector3;
 
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
         template <typename T>
         [[nodiscard]] T* ManagedCast(EntityBase* value)
         {
@@ -56,16 +51,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::InvalidCastException();
             }
             return result;
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            const std::shared_ptr<PlayerEntity> player = PlayerEntity::Main();
-            if (!player)
-            {
-                throw System::NullReferenceException();
-            }
-            return *player;
         }
 
         [[nodiscard]] std::int32_t ShiftRightInt32(std::int32_t value, std::uint32_t count) noexcept
@@ -113,8 +98,9 @@ namespace MphRead::Entities::Enemies
     Enemy12Entity::Enemy12Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
     }
 
     void Enemy12Entity::EnemyInitialize()
@@ -167,9 +153,9 @@ namespace MphRead::Entities::Enemies
         const GeemerAnim anim = static_cast<GeemerAnim>((*model.AnimInfo->Index)[0]);
         if (anim == GeemerAnim::WiggleRetracted)
         {
-            const float radii = MainPlayer().Volume().SphereRadius + 1.5F;
+            const float radii = RequireReference(PlayerEntity::Main()).Volume().SphereRadius + 1.5F;
             const Vector3 between = static_cast<Vector3>(Position)
-                - MainPlayer().Volume().SpherePosition;
+                - RequireReference(PlayerEntity::Main()).Volume().SpherePosition;
             if (LengthSquared(between) < radii * radii)
             {
                 _soundSource.PlaySfx(SfxId::GEEMER_EXTEND);
@@ -181,9 +167,9 @@ namespace MphRead::Entities::Enemies
         }
         else if (anim == GeemerAnim::WiggleExtended)
         {
-            const float radii = MainPlayer().Volume().SphereRadius + 1.5F;
+            const float radii = RequireReference(PlayerEntity::Main()).Volume().SphereRadius + 1.5F;
             const Vector3 between = static_cast<Vector3>(Position)
-                - MainPlayer().Volume().SpherePosition;
+                - RequireReference(PlayerEntity::Main()).Volume().SpherePosition;
             if (LengthSquared(between) >= radii * radii)
             {
                 _soundSource.PlaySfx(SfxId::GEEMER_RETRACT);

@@ -14,6 +14,7 @@
 #include "ItemSpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
 
 #include <algorithm>
@@ -55,36 +56,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        if (MphRead::GameState::StorySave == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *MphRead::GameState::StorySave;
-    }
-
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::Memory::Detail::InvalidCastException();
-        }
-    }
 
     [[nodiscard]] MphRead::Formats::CollisionResult UnboxCollisionResult(
         const MphRead::MessageObject& value)
@@ -346,7 +317,7 @@ namespace MphRead::Entities
         if (TestFlag(_flags, PlatformFlags::UseRoomState)
             && !TestFlag(_flags, PlatformFlags::PersistRoomState))
         {
-            const std::int32_t state = RequireStorySave().GetRoomState(
+            const std::int32_t state = RequireReference(::MphRead::GameState::StorySave).GetRoomState(
                 RequireReference(scene).RoomId(), Id);
             if (state == 1)
             {
@@ -363,7 +334,7 @@ namespace MphRead::Entities
         {
             SleepWake(true, true);
             _currentAnimState = -2;
-            if (RequireStorySave().CheckVisitedRoom(RequireReference(scene).RoomId()))
+            if (RequireReference(::MphRead::GameState::StorySave).CheckVisitedRoom(RequireReference(scene).RoomId()))
             {
                 SetPlatAnimation(PlatAnimId::InstantWake, AnimFlags::None);
             }
@@ -390,7 +361,7 @@ namespace MphRead::Entities
 
             if (TestFlag(_flags, PlatformFlags::PersistRoomState))
             {
-                if (RequireStorySave().InitRoomState(
+                if (RequireReference(::MphRead::GameState::StorySave).InitRoomState(
                     RequireReference(_scene).RoomId(), Id, _data.Active != 0) != 0)
                 {
                     _animFlags |= PlatAnimFlags::Active;
@@ -628,7 +599,7 @@ namespace MphRead::Entities
     {
         if (_data.ScanMessage != Message::None
             && _scanMessageTarget != nullptr
-            && !RequireStorySave().CheckLogbook(GetScanId()))
+            && !RequireReference(::MphRead::GameState::StorySave).CheckLogbook(GetScanId()))
         {
             RequireReference(_scene).SendMessage(
                 _data.ScanMessage, this, _scanMessageTarget.get(),
@@ -706,7 +677,7 @@ namespace MphRead::Entities
                 {
                     _soundSource.StopAllSfx();
                 }
-                RequireStorySave().SetRoomState(
+                RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                     RequireReference(_scene).RoomId(), Id, 3);
             }
         }
@@ -718,7 +689,7 @@ namespace MphRead::Entities
         if (TestFlag(_flags, PlatformFlags::UseRoomState)
             && TestFlag(_flags, PlatformFlags::PersistRoomState))
         {
-            RequireStorySave().SetRoomState(
+            RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                 RequireReference(_scene).RoomId(), Id, 3);
         }
 
@@ -767,7 +738,7 @@ namespace MphRead::Entities
             if (TestFlag(_flags, PlatformFlags::UseRoomState)
                 && TestFlag(_flags, PlatformFlags::PersistRoomState))
             {
-                RequireStorySave().SetRoomState(
+                RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                     RequireReference(_scene).RoomId(), Id, 1);
             }
             if (TestFlag(_flags, PlatformFlags::DripMoat))
@@ -1392,13 +1363,13 @@ namespace MphRead::Entities
                 {
                     if (_fromIndex == 0)
                     {
-                        RequireStorySave().SetRoomState(
+                        RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                             RequireReference(_scene).RoomId(), Id, 1);
                     }
                     else if (_fromIndex
                         == static_cast<std::int32_t>(_data.PositionCount) - 1)
                     {
-                        RequireStorySave().SetRoomState(
+                        RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                             RequireReference(_scene).RoomId(), Id, 2);
                     }
                 }

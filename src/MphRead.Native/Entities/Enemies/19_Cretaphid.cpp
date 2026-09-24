@@ -13,6 +13,7 @@
 #include "20_CretaphidEye.hpp"
 #include "21_CretaphidCrystal.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <any>
@@ -28,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
@@ -48,44 +50,11 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
 
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] Enemy19Entity& RequireEnemy(Enemy19Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
-
         void SetRow3Xyz(Matrix4& matrix, Vector3 value) noexcept
         {
             matrix.M41 = value.X;
             matrix.M42 = value.Y;
             matrix.M43 = value.Z;
-        }
-
-        [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)
-        {
-            if (!value || !value->has_value())
-            {
-                throw Memory::Detail::NullReferenceException();
-            }
-            try
-            {
-                return std::any_cast<std::int32_t>(*value);
-            }
-            catch (const std::bad_any_cast&)
-            {
-                throw Memory::Detail::InvalidCastException();
-            }
         }
 
         [[nodiscard]] bool AnimationEnded(ModelInstance& model)
@@ -127,7 +96,8 @@ namespace MphRead::Entities::Enemies
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene)
     {
-        EnemySpawnEntity* spawner = CastSpawner(data.Spawner);
+        EnemySpawnEntity* spawner = ManagedAs<EnemySpawnEntity>(data.Spawner);
+        assert(spawner != nullptr);
         _spawner = spawner;
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(27);
         for (std::size_t i = 0; i < 27; ++i)
@@ -171,9 +141,9 @@ namespace MphRead::Entities::Enemies
     {
         const Vector3 position = RequireReference(_data.Spawner).Position;
         Vector3 facing(0.0F, 0.0F, 1.0F);
-        if (!Equal(position, MainPlayer().Position))
+        if (!Equal(position, RequireReference(PlayerEntity::Main()).Position))
         {
-            facing = WithY(MainPlayer().Position - position, 0.0F).Normalized();
+            facing = WithY(RequireReference(PlayerEntity::Main()).Position - position, 0.0F).Normalized();
         }
         Matrix4 transform = GetTransformMatrix(facing, Vector3(0.0F, 1.0F, 0.0F));
         SetRow3Xyz(transform, position);
@@ -478,14 +448,14 @@ namespace MphRead::Entities::Enemies
             _eyeBurnUpdateTimer = 1.0F / 30.0F;
         }
 
-        const std::int32_t slotIndex = MainPlayer().SlotIndex();
+        const std::int32_t slotIndex = RequireReference(PlayerEntity::Main()).SlotIndex();
         if (slotIndex < 0 || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
         {
             throw SceneDetail::IndexOutOfRangeException();
         }
         if (HitPlayers[static_cast<std::size_t>(slotIndex)])
         {
-            MainPlayer().TakeDamage(10, DamageFlags::None, FacingVector(), this);
+            RequireReference(PlayerEntity::Main()).TakeDamage(10, DamageFlags::None, FacingVector(), this);
         }
 
         CallStateProcess();
@@ -674,7 +644,7 @@ namespace MphRead::Entities::Enemies
                 _soundSource.PlaySfx(SfxId::CYLINDER_BOSS_DIE);
                 _soundSource.PlaySfx(SfxId::CYLINDER_BOSS_CRYSTAL_SCR);
             }
-            if (MainPlayer().Health() > 0 && GameState::SinglePlayer())
+            if (RequireReference(PlayerEntity::Main()).Health() > 0 && GameState::SinglePlayer())
             {
                 if (_subtype < 0
                     || static_cast<std::size_t>(_subtype) >= _deathMovieIds.size())
@@ -817,7 +787,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy19Entity::Behavior05()
     {
-        return DistanceSquared(MainPlayer().Position, Position)
+        return DistanceSquared(RequireReference(PlayerEntity::Main()).Position, Position)
             < Fixed::ToFloat(610352);
     }
 
@@ -1019,66 +989,66 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy19Entity::Behavior00(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy19Entity::Behavior01(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy19Entity::Behavior02(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy19Entity::Behavior03(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 
     bool Enemy19Entity::Behavior04(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior04();
+        return RequireReference(enemy).Behavior04();
     }
 
     bool Enemy19Entity::Behavior05(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior05();
+        return RequireReference(enemy).Behavior05();
     }
 
     bool Enemy19Entity::Behavior06(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior06();
+        return RequireReference(enemy).Behavior06();
     }
 
     bool Enemy19Entity::Behavior07(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior07();
+        return RequireReference(enemy).Behavior07();
     }
 
     bool Enemy19Entity::Behavior08(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior08();
+        return RequireReference(enemy).Behavior08();
     }
 
     bool Enemy19Entity::Behavior09(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior09();
+        return RequireReference(enemy).Behavior09();
     }
 
     bool Enemy19Entity::Behavior10(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior10();
+        return RequireReference(enemy).Behavior10();
     }
 
     bool Enemy19Entity::Behavior11(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior11();
+        return RequireReference(enemy).Behavior11();
     }
 
     bool Enemy19Entity::Behavior12(Enemy19Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior12();
+        return RequireReference(enemy).Behavior12();
     }
 }

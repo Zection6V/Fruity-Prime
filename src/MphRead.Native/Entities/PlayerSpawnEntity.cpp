@@ -5,38 +5,17 @@
 #include "../Messaging.hpp"
 #include "../MemoryArrays.hpp"
 #include "../Scene.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <any>
 #include <cstdint>
 #include <memory>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::Memory::Detail::InvalidCastException();
-        }
-    }
-
-    [[nodiscard]] std::int32_t GetRoomId(MphRead::Scene* scene)
-    {
-        if (scene == nullptr)
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        return scene->RoomId();
-    }
 }
 
 namespace MphRead::Entities
@@ -97,7 +76,7 @@ namespace MphRead::Entities
                 = Cheats::SkipPlanetIntros() ? true : (_data.Active != 0);
 
             std::shared_ptr<StorySave> storySave = GameState::StorySave;
-            const std::int32_t roomId = GetRoomId(_scene);
+            const std::int32_t roomId = RequireReference(_scene).RoomId();
             const std::int32_t id = Id;
 
             if (storySave == nullptr)
@@ -134,7 +113,7 @@ namespace MphRead::Entities
             if (GameState::Mode() == GameMode::SinglePlayer)
             {
                 std::shared_ptr<StorySave> storySave = GameState::StorySave;
-                const std::int32_t roomId = GetRoomId(_scene);
+                const std::int32_t roomId = RequireReference(_scene).RoomId();
                 const std::int32_t id = Id;
 
                 if (storySave == nullptr)
@@ -153,7 +132,7 @@ namespace MphRead::Entities
             if (GameState::Mode() == GameMode::SinglePlayer)
             {
                 std::shared_ptr<StorySave> storySave = GameState::StorySave;
-                const std::int32_t roomId = GetRoomId(_scene);
+                const std::int32_t roomId = RequireReference(_scene).RoomId();
                 const std::int32_t id = Id;
 
                 if (storySave == nullptr)

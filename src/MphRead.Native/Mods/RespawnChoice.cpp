@@ -10,23 +10,17 @@
 #include "Network/DemoClip.hpp"
 #include "Network/NetSession.hpp"
 #include "Network/PlayerColors.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
-    [[nodiscard]] MphRead::Entities::PlayerEntity& RequirePlayer(
-        const std::shared_ptr<MphRead::Entities::PlayerEntity>& player)
-    {
-        if (player == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *player;
-    }
 }
 
 namespace MphRead::Mods
@@ -59,10 +53,10 @@ namespace MphRead::Mods
         if (firstMain != nullptr)
         {
             std::shared_ptr<Entities::PlayerEntity> secondMain = Entities::PlayerEntity::Main();
-            if (RequirePlayer(secondMain).SlotIndex() >= 0)
+            if (RequireReference(secondMain).SlotIndex() >= 0)
             {
                 std::shared_ptr<Entities::PlayerEntity> thirdMain = Entities::PlayerEntity::Main();
-                const std::int32_t slot = RequirePlayer(thirdMain).SlotIndex();
+                const std::int32_t slot = RequireReference(thirdMain).SlotIndex();
                 return Network::PlayerColors::Choice.at(static_cast<std::size_t>(slot));
             }
         }
@@ -105,7 +99,7 @@ namespace MphRead::Mods
         }
         else
         {
-            hunter = RequirePlayer(player).Hunter();
+            hunter = RequireReference(player).Hunter();
         }
 
         std::int32_t color;
@@ -121,16 +115,16 @@ namespace MphRead::Mods
         _hunter.reset();
         _color.reset();
 
-        if (hunter != RequirePlayer(player).Hunter())
+        if (hunter != RequireReference(player).Hunter())
         {
-            RequirePlayer(player).ModSetHunter(hunter);
-            RequirePlayer(player).Initialize();
+            RequireReference(player).ModSetHunter(hunter);
+            RequireReference(player).Initialize();
         }
-        if (RequirePlayer(player).SlotIndex() >= 0
-            && RequirePlayer(player).SlotIndex()
+        if (RequireReference(player).SlotIndex() >= 0
+            && RequireReference(player).SlotIndex()
                 < static_cast<std::int32_t>(Network::PlayerColors::Choice.size()))
         {
-            const std::int32_t slot = RequirePlayer(player).SlotIndex();
+            const std::int32_t slot = RequireReference(player).SlotIndex();
             Network::PlayerColors::Choice.at(static_cast<std::size_t>(slot)) = color;
         }
         if (Network::NetSession::Active())

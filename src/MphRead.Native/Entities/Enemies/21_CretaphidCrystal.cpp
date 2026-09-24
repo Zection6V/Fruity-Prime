@@ -36,15 +36,6 @@ namespace MphRead::Entities::Enemies
             return owner;
         }
 
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
-
-        [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
-        {
-            return std::make_shared<const std::any>(value);
-        }
     }
 
     Enemy21Entity::Enemy21Entity(EnemyInstanceEntityData data,
@@ -110,7 +101,7 @@ namespace MphRead::Entities::Enemies
         equipInfo.HeadshotDamage(damage);
 
         const Vector3 spawnDir
-            = (AddY(MainPlayer().Position, 0.5F) - Position).Normalized();
+            = (AddY(RequireReference(PlayerEntity::Main()).Position, 0.5F) - Position).Normalized();
         const std::shared_ptr<EntityBase> owner = SharedFrom<EntityBase>(this);
         const Formats::Culling::NodeRef nodeRef
             = RequireReference(_cretaphid).NodeRef;

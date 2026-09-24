@@ -19,32 +19,12 @@
 #include <memory>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::MphRead::TestFlag;
 
 namespace
 {
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::Memory::Detail::InvalidCastException();
-        }
-    }
-
     // C# masks Int32 shift counts to five bits. The unsigned shift plus bit_cast
     // preserves the Int32 bit pattern without invoking C++ signed-shift UB.
     [[nodiscard]] constexpr std::int32_t ShiftOneInt32(std::int32_t count) noexcept
@@ -65,43 +45,15 @@ namespace
         return static_cast<std::int64_t>(left) == static_cast<std::int64_t>(right);
     }
 
-    [[nodiscard]] std::int32_t GetRoomId(MphRead::Scene* scene)
-    {
-        if (scene == nullptr)
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        return scene->RoomId();
-    }
-
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        if (MphRead::GameState::StorySave == nullptr)
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        return *MphRead::GameState::StorySave;
-    }
-
     void SetRoomState(MphRead::Scene* scene, std::int32_t id, std::int32_t state)
     {
         MphRead::StorySave* storySave = MphRead::GameState::StorySave.get();
-        const std::int32_t roomId = GetRoomId(scene);
+        const std::int32_t roomId = RequireReference(scene).RoomId();
         if (storySave == nullptr)
         {
             throw MphRead::Memory::Detail::NullReferenceException();
         }
         storySave->SetRoomState(roomId, id, state);
-    }
-
-    [[nodiscard]] MphRead::Entities::PlayerEntity* RequirePlayer(
-        const std::shared_ptr<MphRead::Entities::PlayerEntity>& entity)
-    {
-        if (!entity)
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        return entity.get();
     }
 
     [[nodiscard]] MphRead::Entities::BeamProjectileEntity* RequireBeam(
@@ -141,7 +93,7 @@ namespace MphRead::Entities
 
         assert(GameState::Mode() == GameMode::SinglePlayer);
         StorySave* storySave = GameState::StorySave.get();
-        const std::int32_t roomId = GetRoomId(_scene);
+        const std::int32_t roomId = RequireReference(_scene).RoomId();
         if (storySave == nullptr)
         {
             throw Memory::Detail::NullReferenceException();
@@ -293,7 +245,7 @@ namespace MphRead::Entities
             auto enumerator = _scene->GetPlayerEntities().GetEnumerator();
             while (enumerator.MoveNext())
             {
-                PlayerEntity* player = RequirePlayer(enumerator.Current());
+                PlayerEntity* player = &RequireReference(enumerator.Current());
 
                 for (std::int32_t i = 0; i < RequireBeams(player->EquipInfo()).Length(); ++i)
                 {
@@ -352,7 +304,7 @@ namespace MphRead::Entities
         else if (_data.Subtype == TriggerType::StateBits)
         {
             const std::int32_t index = static_cast<std::int32_t>(_data.RequiredStateBit);
-            const auto& triggerStateRef = RequireStorySave().TriggerState;
+            const auto& triggerStateRef = RequireReference(::MphRead::GameState::StorySave).TriggerState;
             if (!triggerStateRef)
             {
                 throw Memory::Detail::NullReferenceException();
@@ -377,7 +329,7 @@ namespace MphRead::Entities
     {
         Active = false;
         StorySave* storySave = GameState::StorySave.get();
-        const std::int32_t roomId = GetRoomId(_scene);
+        const std::int32_t roomId = RequireReference(_scene).RoomId();
         if (storySave == nullptr)
         {
             throw Memory::Detail::NullReferenceException();

@@ -115,23 +115,6 @@ namespace MphRead::Mods::Network
             return std::to_string(static_cast<std::int32_t>(value));
         }
 
-        [[nodiscard]] std::string HunterName(Hunter value)
-        {
-            switch (value)
-            {
-                case Hunter::Samus: return "Samus";
-                case Hunter::Kanden: return "Kanden";
-                case Hunter::Trace: return "Trace";
-                case Hunter::Sylux: return "Sylux";
-                case Hunter::Noxus: return "Noxus";
-                case Hunter::Spire: return "Spire";
-                case Hunter::Weavel: return "Weavel";
-                case Hunter::Guardian: return "Guardian";
-                case Hunter::Random: return "Random";
-            }
-            return std::to_string(static_cast<std::uint32_t>(value));
-        }
-
         [[nodiscard]] std::string AfflictionName(Affliction value)
         {
             if (value == Affliction::None)
@@ -720,7 +703,7 @@ namespace MphRead::Mods::Network
                     << "PROBE "
                     << _afflictions[static_cast<std::size_t>(_afflictIndex)].second
                     << ": shooter slot " << _afflictShooter << ' '
-                    << HunterName(shooter->Hunter()) << ' '
+                    << ::MphRead::ToString(shooter->Hunter()) << ' '
                     << shooter->ModWeaponState()
                     << ", maxcharge=" << _afflictMaxCharge
                     << ", shots carried " << AfflictionName(_afflictShotAfflictions)
@@ -1591,7 +1574,7 @@ namespace MphRead::Mods::Network
                     const std::shared_ptr<Entities::PlayerEntity> player
                         = Entities::PlayerEntity::Players()[index];
                     missing
-                        << "slot " << i << " (" << HunterName(player->Hunter())
+                        << "slot " << i << " (" << ::MphRead::ToString(player->Hunter())
                         << ", hp " << player->Health()
                         << ", respawn " << player->RespawnTimer() << ')';
                 }
@@ -1630,7 +1613,7 @@ namespace MphRead::Mods::Network
             if (_everSpawned[index] && !player->ModCanBeHurt())
             {
                 problems.push_back(
-                    "slot " + std::to_string(i) + " (" + HunterName(player->Hunter())
+                    "slot " + std::to_string(i) + " (" + ::MphRead::ToString(player->Hunter())
                     + ") cannot be hurt by any beam");
             }
         }

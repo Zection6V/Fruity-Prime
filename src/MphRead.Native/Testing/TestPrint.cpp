@@ -36,6 +36,7 @@ using ::MphRead::NativeRuntime::EnvironmentNewLine;
 using ::MphRead::NativeRuntime::Int32ToUInt32;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::StringTrim;
@@ -57,15 +58,6 @@ namespace
 
     template <typename T>
     [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    [[nodiscard]] const std::string& RequireString(const std::optional<std::string>& value)
     {
         if (!value)
         {
@@ -1809,7 +1801,7 @@ namespace MphRead::Testing
         MPH_TESTPRINT_DEBUG_WRITE_LINE("    {");
 
         std::vector<std::string> news;
-        for (const std::string& line : SplitString(RequireString(data), EnvironmentNewLine()))
+        for (const std::string& line : SplitString(RequireReference(data), EnvironmentNewLine()))
         {
             std::string normalized = StringTrim(line);
             normalized = StringReplace(std::move(normalized), "signed ", "signed");

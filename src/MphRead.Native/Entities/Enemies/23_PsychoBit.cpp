@@ -9,6 +9,7 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <array>
@@ -22,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
@@ -40,23 +42,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] Enemy23Entity& RequireEnemy(Enemy23Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
 
         [[nodiscard]] std::uint16_t TimesTwo(std::uint16_t value) noexcept
         {
@@ -84,8 +69,9 @@ namespace MphRead::Entities::Enemies
     Enemy23Entity::Enemy23Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(11);
         (*processes)[0] = [this]() { State00(); };
         (*processes)[1] = [this]() { State01(); };
@@ -207,7 +193,7 @@ namespace MphRead::Entities::Enemies
         }
         _increaseSpeed = true;
         _shotCount = GetShotCount(_values);
-        _aimVec = (static_cast<Vector3>(MainPlayer().Position)
+        _aimVec = (static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
             - static_cast<Vector3>(Position)).Normalized();
         _subId = _state1;
     }
@@ -255,7 +241,7 @@ namespace MphRead::Entities::Enemies
                 _delayTimer = TimesTwo(_values.DelayTime);
                 _shotTimer = TimesTwo(_values.ShotTime);
                 _shotCount = GetShotCount(_values);
-                _aimVec = (static_cast<Vector3>(MainPlayer().Position)
+                _aimVec = (static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                     - static_cast<Vector3>(Position)).Normalized();
                 _models[0].SetAnimation(0, AnimFlags::NoLoop);
                 SetTransform(
@@ -384,7 +370,7 @@ namespace MphRead::Entities::Enemies
     void Enemy23Entity::UpdateFacing()
     {
         const Vector3 between = (
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
             - static_cast<Vector3>(Position)).Normalized();
         if (Vector3::Dot(_curFacing, between)
             > Fixed::ToFloat(_values.RangeMaxCosine))
@@ -410,7 +396,7 @@ namespace MphRead::Entities::Enemies
         else
         {
             const Vector3 targetPos = AddY(
-                static_cast<Vector3>(MainPlayer().Position), 0.5F);
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position), 0.5F);
             _aimVec = (targetPos - static_cast<Vector3>(Position)).Normalized();
             const Vector3 spawnPos
                 = static_cast<Vector3>(Position) + ScaleVector(_aimVec, 0.5F);
@@ -602,7 +588,7 @@ namespace MphRead::Entities::Enemies
             _reachTargetHackTimer = 1;
             const Vector3 facing = FacingVector();
             _targetVec = (
-                static_cast<Vector3>(MainPlayer().Position)
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position)).Normalized();
             const float angle = RadiansToDegrees(
                 std::acos(Vector3::Dot(facing, _targetVec)));
@@ -635,14 +621,14 @@ namespace MphRead::Entities::Enemies
             --_camSeqDelayTimer;
             return false;
         }
-        if (MainPlayer().Health() > 0)
+        if (RequireReference(PlayerEntity::Main()).Health() > 0)
         {
             const Vector3 between = (
-                static_cast<Vector3>(MainPlayer().Position)
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position)).Normalized();
             if (Vector3::Dot(_curFacing, between)
                     > Fixed::ToFloat(_values.RangeMaxCosine)
-                && _rangeVolume.TestPoint(MainPlayer().Position))
+                && _rangeVolume.TestPoint(RequireReference(PlayerEntity::Main()).Position))
             {
                 _speed = Vector3::Zero;
                 _models[0].SetAnimation(1);
@@ -666,7 +652,7 @@ namespace MphRead::Entities::Enemies
         _soundSource.StopSfx(SfxId::PSYCHOBIT_CHARGE);
         _models[0].SetAnimation(0, AnimFlags::NoLoop);
         _aimVec = (
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
             + static_cast<Vector3>(Position)).Normalized();
         return true;
     }
@@ -691,7 +677,7 @@ namespace MphRead::Entities::Enemies
     bool Enemy23Entity::Behavior09()
     {
         const Vector3 between = (
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
             - static_cast<Vector3>(Position)).Normalized();
         if (Vector3::Dot(_curFacing, between)
             >= Fixed::ToFloat(_values.RangeMaxCosine))
@@ -704,7 +690,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy23Entity::Behavior10()
     {
-        if (!_nearVolume.TestPoint(MainPlayer().Position))
+        if (!_nearVolume.TestPoint(RequireReference(PlayerEntity::Main()).Position))
         {
             return false;
         }
@@ -761,66 +747,66 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy23Entity::Behavior00(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy23Entity::Behavior01(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy23Entity::Behavior02(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy23Entity::Behavior03(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 
     bool Enemy23Entity::Behavior04(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior04();
+        return RequireReference(enemy).Behavior04();
     }
 
     bool Enemy23Entity::Behavior05(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior05();
+        return RequireReference(enemy).Behavior05();
     }
 
     bool Enemy23Entity::Behavior06(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior06();
+        return RequireReference(enemy).Behavior06();
     }
 
     bool Enemy23Entity::Behavior07(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior07();
+        return RequireReference(enemy).Behavior07();
     }
 
     bool Enemy23Entity::Behavior08(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior08();
+        return RequireReference(enemy).Behavior08();
     }
 
     bool Enemy23Entity::Behavior09(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior09();
+        return RequireReference(enemy).Behavior09();
     }
 
     bool Enemy23Entity::Behavior10(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior10();
+        return RequireReference(enemy).Behavior10();
     }
 
     bool Enemy23Entity::Behavior11(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior11();
+        return RequireReference(enemy).Behavior11();
     }
 
     bool Enemy23Entity::Behavior12(Enemy23Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior12();
+        return RequireReference(enemy).Behavior12();
     }
 }

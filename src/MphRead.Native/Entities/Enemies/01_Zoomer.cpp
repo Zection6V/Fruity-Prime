@@ -5,6 +5,7 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <bit>
@@ -15,6 +16,7 @@
 #include <limits>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -29,13 +31,6 @@ namespace MphRead::Entities::Enemies
     namespace
     {
         using OpenTK::Mathematics::Vector3;
-
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
 
         [[nodiscard]] std::int32_t ShiftRightInt32(std::int32_t value, std::uint32_t count) noexcept
         {
@@ -82,8 +77,9 @@ namespace MphRead::Entities::Enemies
     Enemy01Entity::Enemy01Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
     }
 
     void Enemy01Entity::EnemyInitialize()

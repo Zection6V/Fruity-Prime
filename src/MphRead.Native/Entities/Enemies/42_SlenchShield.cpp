@@ -1,12 +1,14 @@
 #include "42_SlenchShield.hpp"
 
 #include "41_Slench.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <cassert>
 #include <cstdint>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::ScaleVector;
 
@@ -16,20 +18,14 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Vector3;
 
-        [[nodiscard]] Enemy41Entity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            Enemy41Entity* typedSpawner = dynamic_cast<Enemy41Entity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
     }
 
     Enemy42Entity::Enemy42Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _slench(CastSpawner(data.Spawner))
+          _slench(ManagedAs<Enemy41Entity>(data.Spawner))
     {
+        assert(_slench != nullptr);
     }
 
     Enemy41Entity* Enemy42Entity::Slench() const noexcept

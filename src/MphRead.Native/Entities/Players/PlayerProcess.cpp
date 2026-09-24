@@ -94,27 +94,6 @@ namespace
     constexpr Vector3 UnitY(0.0F, 1.0F, 0.0F);
     constexpr Vector3 UnitZ(0.0F, 0.0F, 1.0F);
 
-    [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw System::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-    }
-
-    [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
     [[nodiscard]] std::shared_ptr<EntityBase> TryUnboxEntity(const MessageObject& value)
     {
         if (!value || !value->has_value())

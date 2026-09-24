@@ -31,6 +31,7 @@
 #include "EnemySpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
 
 #include <algorithm>
@@ -85,11 +86,6 @@ namespace
     [[noreturn]] void ThrowNullReference()
     {
         throw System::NullReferenceException();
-    }
-
-    [[nodiscard]] MphRead::Model& RequireModel(MphRead::ModelInstance& instance)
-    {
-        return RequireReference(instance.Model());
     }
 
     [[nodiscard]] Vector3& PointAt14(Vector3* values, std::int32_t index)
@@ -160,14 +156,6 @@ namespace
         return static_cast<TEnum>(static_cast<U>(value) & ~static_cast<U>(flag));
     }
 
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        if (MphRead::GameState::StorySave == nullptr)
-        {
-            ThrowNullReference();
-        }
-        return *MphRead::GameState::StorySave;
-    }
 }
 
 namespace MphRead::Entities
@@ -246,7 +234,7 @@ namespace MphRead::Entities
     const std::vector<std::shared_ptr<Node>>& RoomEntity::Nodes() const
     {
         ModelInstance& inst = RequireReference(ManagedListAt(_models.Items(), 0));
-        return RequireReference(RequireModel(inst).Nodes);
+        return RequireReference(RequireReference((inst).Model()).Nodes);
     }
 
     bool RoomEntity::UseNodeTransform() const
@@ -290,7 +278,7 @@ namespace MphRead::Entities
         }
 
         ModelInstance& inst = RequireReference(instValue);
-        RequireModel(inst).FilterNodes(layerMask);
+        RequireReference((inst).Model()).FilterNodes(layerMask);
         const RoomMetadata& meta = RequireReference(metaValue);
 
         if (meta.Name == "UNIT2_C6")
@@ -526,7 +514,7 @@ namespace MphRead::Entities
         std::int32_t roomPartId = -1;
         std::int32_t roomNodeIndex = -1;
         ModelInstance& roomInst = RequireReference(ManagedListAt(_models.Items(), 0));
-        const auto& roomNodes = RequireReference(RequireModel(roomInst).Nodes);
+        const auto& roomNodes = RequireReference(RequireReference((roomInst).Model()).Nodes);
         for (const std::shared_ptr<Node>& nodeValue : roomNodes)
         {
             Node& node = RequireReference(nodeValue);
@@ -546,7 +534,7 @@ namespace MphRead::Entities
         assert(meta != nullptr);
         std::shared_ptr<ModelInstance> conInstValue = Read::GetRoomModelInstance(RequireReference(meta).Name);
         ModelInstance& conInst = RequireReference(conInstValue);
-        const auto& conNodes = RequireReference(RequireModel(conInst).Nodes);
+        const auto& conNodes = RequireReference(RequireReference((conInst).Model()).Nodes);
         const std::string connectorName = MarshalString(door.Data().RoomName);
         for (const std::shared_ptr<Node>& nodeValue : conNodes)
         {
@@ -615,7 +603,7 @@ namespace MphRead::Entities
         const DoorEntityData data(
             header, std::nullopt, currentDoorData.PaletteId, currentDoorData.DoorType,
             255, 0, 0, 255, currentDoorData.OutLoaderId, std::nullopt, std::nullopt);
-        const auto& nodes = RequireReference(RequireModel(conInst).Nodes);
+        const auto& nodes = RequireReference(RequireReference((conInst).Model()).Nodes);
         std::string nodeName = "rmMain";
         for (const std::shared_ptr<Node>& nodeValue : nodes)
         {
@@ -727,7 +715,7 @@ namespace MphRead::Entities
         Music::TryPlayRoomMusic(
             scene.RoomId(),
             GameState::SinglePlayer()
-                && ((static_cast<std::int32_t>(RequireStorySave().BossFlags) >> (2 * scene.AreaId())) & 3) != 0
+                && ((static_cast<std::int32_t>(RequireReference(::MphRead::GameState::StorySave).BossFlags) >> (2 * scene.AreaId())) & 3) != 0
                 ? 1 : 0);
         if (!resume)
         {
@@ -1101,7 +1089,7 @@ namespace MphRead::Entities
                 {
                     continue;
                 }
-                if (RequireStorySave().GetRoomState(scene.RoomId(), spawner.Id) != 0)
+                if (RequireReference(::MphRead::GameState::StorySave).GetRoomState(scene.RoomId(), spawner.Id) != 0)
                 {
                     Movie movieId;
                     if (spawner.Data.EnemyType == EnemyType::Cretaphid)
@@ -1161,7 +1149,7 @@ namespace MphRead::Entities
                 }
             }
         }
-        RequireStorySave().SetVisitedRoom(_roomId);
+        RequireReference(::MphRead::GameState::StorySave).SetVisitedRoom(_roomId);
         if (_unloadModel != nullptr)
         {
             scene.UnloadModel(_unloadModel);
@@ -1242,7 +1230,7 @@ namespace MphRead::Entities
             partInstValue = ManagedListAt(_connectorModels, nodeRef.ModelIndex - 1);
         }
         ModelInstance& partInst = RequireReference(partInstValue);
-        Model& partModel = RequireModel(partInst);
+        Model& partModel = RequireReference((partInst).Model());
         const auto& partNodes = RequireReference(partModel.Nodes);
         if (nodeRef.NodeIndex >= static_cast<std::int32_t>(partNodes.size()))
         {
@@ -1617,7 +1605,7 @@ namespace MphRead::Entities
 
     void RoomEntity::AddPartBounds(ModelInstance& inst, Vector3 offset)
     {
-        const auto& nodes = RequireReference(RequireModel(inst).Nodes);
+        const auto& nodes = RequireReference(RequireReference((inst).Model()).Nodes);
         for (const std::shared_ptr<Node>& pnodeValue : nodes)
         {
             Node& pnode = RequireReference(pnodeValue);
@@ -1749,7 +1737,7 @@ namespace MphRead::Entities
                 scene.UpdateMaterials(conInst.Model(), 0);
                 if (GameState::InRoomTransition() || _partVisInfoHead == nullptr || scene.ShowAllNodes())
                 {
-                    Model& conModel = RequireModel(conInst);
+                    Model& conModel = RequireReference((conInst).Model());
                     Matrix4 transform = CreateScale(conModel.Scale);
                     const Vector3 translation
                         = RequireReference(ManagedListAt(_roomCollision, static_cast<std::int32_t>(i + 1))).Translation;
@@ -1807,7 +1795,7 @@ namespace MphRead::Entities
                         if (_drawnNodeData.find(&str3) == _drawnNodeData.end())
                         {
                             ModelInstance& nodeInst = RequireReference(nodeInstValue);
-                            Model& model = RequireModel(nodeInst);
+                            Model& model = RequireReference((nodeInst).Model());
                             Node& node = RequireReference(ManagedListAt(RequireReference(model.Nodes), 3));
                             if (node.Enabled)
                             {
@@ -1902,7 +1890,7 @@ namespace MphRead::Entities
                 partInstValue = ManagedListAt(_connectorModels, modelIndex - 1);
                 offset = RequireReference(ManagedListAt(_roomCollision, modelIndex)).Translation;
                 ModelInstance& partInst = RequireReference(partInstValue);
-                transform = CreateScale(RequireModel(partInst).Scale);
+                transform = CreateScale(RequireReference((partInst).Model()).Scale);
                 transform.M41 = offset.X;
                 transform.M42 = offset.Y;
                 transform.M43 = offset.Z;
@@ -1913,7 +1901,7 @@ namespace MphRead::Entities
                 roomPart = part.Next;
                 continue;
             }
-            const auto& nodes = RequireReference(RequireModel(partInst).Nodes);
+            const auto& nodes = RequireReference(RequireReference((partInst).Model()).Nodes);
             while (nodeIndex != -1)
             {
                 Node& node = RequireReference(ManagedListAt(nodes, nodeIndex));
@@ -1965,7 +1953,7 @@ namespace MphRead::Entities
     void RoomEntity::DrawAllNodes(ModelInstance& inst, bool connector)
     {
         _excludedNodes.clear();
-        const auto& nodes = RequireReference(RequireModel(inst).Nodes);
+        const auto& nodes = RequireReference(RequireReference((inst).Model()).Nodes);
         for (const std::shared_ptr<Node>& pnodeValue : nodes)
         {
             Node& pnode = RequireReference(pnodeValue);

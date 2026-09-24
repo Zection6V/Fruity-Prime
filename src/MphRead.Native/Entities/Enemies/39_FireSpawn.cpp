@@ -10,6 +10,7 @@
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <array>
@@ -24,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::RoundToEven;
@@ -44,23 +46,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] Enemy39Entity& RequireEnemy(Enemy39Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
 
         void SetTranslation(Matrix4& transform, Vector3 position) noexcept
         {
@@ -115,8 +100,9 @@ namespace MphRead::Entities::Enemies
     Enemy39Entity::Enemy39Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(6);
         (*processes)[0] = [this]() { State0(); };
         (*processes)[1] = [this]() { State1(); };
@@ -147,7 +133,7 @@ namespace MphRead::Entities::Enemies
 
         const Vector3 position = RequireReference(_data.Spawner).Position;
         Matrix4 transform = GetTransformMatrix(
-            (static_cast<Vector3>(MainPlayer().Position) - position).Normalized(),
+            (static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position) - position).Normalized(),
             Vector3(0.0F, 1.0F, 0.0F));
         SetTranslation(transform, position);
         Transform = transform;
@@ -281,7 +267,7 @@ namespace MphRead::Entities::Enemies
     void Enemy39Entity::State0()
     {
         const Vector3 facing = WithY(
-            (static_cast<Vector3>(MainPlayer().Position)
+            (static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position)).Normalized(),
             0.0F);
         Matrix4 transform = GetTransformMatrix(
@@ -369,7 +355,7 @@ namespace MphRead::Entities::Enemies
                     = static_cast<std::int32_t>(_values.AttackDelay) * 2;
 
                 Vector3 dir = AddY(
-                    static_cast<Vector3>(MainPlayer().Position), 0.5F)
+                    static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position), 0.5F)
                     - ManagedAt(_wristPos, _wristId);
                 dir = dir.Normalized();
 
@@ -454,7 +440,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy39Entity::Behavior0()
     {
-        if (!_activeVolume.TestPoint(MainPlayer().Position))
+        if (!_activeVolume.TestPoint(RequireReference(PlayerEntity::Main()).Position))
         {
             return false;
         }
@@ -601,7 +587,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy39Entity::Behavior6()
     {
-        if (_activeVolume.TestPoint(MainPlayer().Position))
+        if (_activeVolume.TestPoint(RequireReference(PlayerEntity::Main()).Position))
         {
             return false;
         }
@@ -639,36 +625,36 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy39Entity::Behavior0(Enemy39Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior0();
+        return RequireReference(enemy).Behavior0();
     }
 
     bool Enemy39Entity::Behavior1(Enemy39Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior1();
+        return RequireReference(enemy).Behavior1();
     }
 
     bool Enemy39Entity::Behavior2(Enemy39Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior2();
+        return RequireReference(enemy).Behavior2();
     }
 
     bool Enemy39Entity::Behavior3(Enemy39Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior3();
+        return RequireReference(enemy).Behavior3();
     }
 
     bool Enemy39Entity::Behavior4(Enemy39Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior4();
+        return RequireReference(enemy).Behavior4();
     }
 
     bool Enemy39Entity::Behavior5(Enemy39Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior5();
+        return RequireReference(enemy).Behavior5();
     }
 
     bool Enemy39Entity::Behavior6(Enemy39Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior6();
+        return RequireReference(enemy).Behavior6();
     }
 }

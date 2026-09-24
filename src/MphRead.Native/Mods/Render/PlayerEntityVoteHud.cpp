@@ -16,6 +16,7 @@
 #include <string_view>
 
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace
 {
@@ -23,14 +24,6 @@ namespace
 
 namespace
 {
-    MphRead::Scene& RequireScene(MphRead::Scene* scene)
-    {
-        if (scene == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *scene;
-    }
 }
 
 namespace MphRead::Entities
@@ -105,7 +98,7 @@ namespace MphRead::Entities
         float panelLeft = VoteLeft();
         float panelTop = VoteTop();
         float panelBottomTop = VoteTop();
-        RequireScene(_scene).DrawHudFlatBox(
+        RequireReference(_scene).DrawHudFlatBox(
             panelLeft, panelTop, right, panelBottomTop + height, _votePanel);
 
         float promptXLeft = VoteLeft();
@@ -140,9 +133,9 @@ namespace MphRead::Entities
         float denyPointerY = Mods::EndScreen::PointerY();
         bool overDeny = deny.Contains(denyPointerX, denyPointerY);
 
-        RequireScene(_scene).DrawHudFlatBox(
+        RequireReference(_scene).DrawHudFlatBox(
             acceptLeft, buttonTop, acceptRight, bottom, overAccept ? _voteAcceptLit : _voteAccept);
-        RequireScene(_scene).DrawHudFlatBox(
+        RequireReference(_scene).DrawHudFlatBox(
             denyLeft, buttonTop, denyRight, bottom, overDeny ? _voteDenyLit : _voteDeny);
 
         float labelY = buttonTop

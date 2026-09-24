@@ -11,6 +11,7 @@
 #include "NetPlayerBridge.hpp"
 #include "NetScoreboard.hpp"
 #include "NetSession.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -21,19 +22,11 @@
 #include <string_view>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 
 namespace
 {
-    [[nodiscard]] MphRead::Entities::PlayerEntity& RequirePlayer(
-        const std::shared_ptr<MphRead::Entities::PlayerEntity>& player)
-    {
-        if (!player)
-        {
-            throw ::System::NullReferenceException();
-        }
-        return *player;
-    }
 }
 
 namespace MphRead::Mods::Network
@@ -200,7 +193,7 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        Deactivate(RequirePlayer(
+        Deactivate(RequireReference(
             Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot))), slot);
     }
 
@@ -215,7 +208,7 @@ namespace MphRead::Mods::Network
             {
                 continue;
             }
-            if (RequirePlayer(
+            if (RequireReference(
                 Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i))).TeamIndex()
                 == teamIndex)
             {

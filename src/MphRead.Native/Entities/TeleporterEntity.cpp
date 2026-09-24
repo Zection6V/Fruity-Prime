@@ -12,6 +12,7 @@
 #include "Players/PlayerEntity.hpp"
 #include "RoomEntity.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
 
 #include <any>
@@ -46,31 +47,6 @@ namespace
     using OpenTK::Mathematics::Vector4;
 
     constexpr Vector3 UnitX(1.0F, 0.0F, 0.0F);
-
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        if (MphRead::GameState::StorySave == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *MphRead::GameState::StorySave;
-    }
-
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::Memory::Detail::InvalidCastException();
-        }
-    }
 
     [[nodiscard]] std::size_t CheckedSlotIndex(std::int32_t index, std::size_t size)
     {
@@ -195,7 +171,7 @@ namespace MphRead::Entities
 
         if (GameState::Mode() == GameMode::SinglePlayer)
         {
-            const std::int32_t state = RequireStorySave().InitRoomState(
+            const std::int32_t state = RequireReference(::MphRead::GameState::StorySave).InitRoomState(
                 RequireReference(_scene).RoomId(),
                 Id,
                 data.Active != 0);
@@ -246,19 +222,19 @@ namespace MphRead::Entities
             {
                 assert(GameState::Mode() == GameMode::SinglePlayer);
                 const bool active
-                    = RequireStorySave().CountFoundArtifacts(data.ArtifactId) > 2;
+                    = RequireReference(::MphRead::GameState::StorySave).CountFoundArtifacts(data.ArtifactId) > 2;
                 if (active
                     && (GameState::EscapeTimer() == -1
                         || GameState::EscapeState() != EscapeState::Escape))
                 {
                     Active = true;
-                    RequireStorySave().SetRoomState(
+                    RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                         RequireReference(scene).RoomId(), Id, 3);
                 }
                 else
                 {
                     Active = false;
-                    RequireStorySave().SetRoomState(
+                    RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                         RequireReference(scene).RoomId(), Id, 1);
                 }
             }
@@ -315,7 +291,7 @@ namespace MphRead::Entities
             else if (_big && !Active)
             {
                 const bool active
-                    = RequireStorySave().CountFoundArtifacts(_data.ArtifactId) > 2;
+                    = RequireReference(::MphRead::GameState::StorySave).CountFoundArtifacts(_data.ArtifactId) > 2;
                 if (active
                     && RequireReference(PlayerEntity::Main()).Health() > 0
                     && (GameState::EscapeTimer() == -1
@@ -487,7 +463,7 @@ namespace MphRead::Entities
                 _bool4 = true;
                 if (GameState::Mode() == GameMode::SinglePlayer)
                 {
-                    RequireStorySave().SetRoomState(
+                    RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                         RequireReference(_scene).RoomId(), Id, 1);
                 }
             }
@@ -617,7 +593,7 @@ namespace MphRead::Entities
     {
         if (_models.Size() == 4)
         {
-            StorySave& save = RequireStorySave();
+            StorySave& save = RequireReference(::MphRead::GameState::StorySave);
             _models[1].Active = save.CheckFoundArtifact(0, _data.ArtifactId);
             _models[2].Active = save.CheckFoundArtifact(1, _data.ArtifactId);
             _models[3].Active = save.CheckFoundArtifact(2, _data.ArtifactId);

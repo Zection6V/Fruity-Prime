@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Formats/Enums.hpp"
+#include "NativeRuntime/System/Exceptions.hpp"
 
 #include <any>
 #include <array>
@@ -19,6 +20,27 @@ namespace MphRead
     class Scene;
 
     using MessageObject = std::shared_ptr<const std::any>;
+
+    // (object)value: an int boxed as a message parameter.
+    [[nodiscard]] inline MessageObject BoxInt32(std::int32_t value)
+    {
+        return std::make_shared<const std::any>(value);
+    }
+
+    // (int)param: NullReferenceException for null, InvalidCastException for
+    // anything that is not a boxed int.
+    [[nodiscard]] inline std::int32_t UnboxInt32(const MessageObject& value)
+    {
+        if (!value || !value->has_value())
+        {
+            throw System::NullReferenceException();
+        }
+        if (const std::int32_t* unboxed = std::any_cast<std::int32_t>(value.get()))
+        {
+            return *unboxed;
+        }
+        throw System::InvalidCastException();
+    }
 
     struct MessageInfo
     {

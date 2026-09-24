@@ -75,23 +75,6 @@ namespace
         return value ? "True" : "False";
     }
 
-    [[nodiscard]] std::string HunterName(Hunter hunter)
-    {
-        switch (hunter)
-        {
-            case Hunter::Samus: return "Samus";
-            case Hunter::Kanden: return "Kanden";
-            case Hunter::Trace: return "Trace";
-            case Hunter::Sylux: return "Sylux";
-            case Hunter::Noxus: return "Noxus";
-            case Hunter::Spire: return "Spire";
-            case Hunter::Weavel: return "Weavel";
-            case Hunter::Guardian: return "Guardian";
-            case Hunter::Random: return "Random";
-        }
-        return std::to_string(static_cast<std::uint32_t>(hunter));
-    }
-
     [[nodiscard]] std::string GameModeName(GameMode mode)
     {
         switch (mode)
@@ -838,7 +821,7 @@ namespace MphRead::Mods::Network
             std::cout
                 << "  slot " << slot << ' '
                 << PadRightManaged(nickname, 10) << ' '
-                << PadRightManaged(HunterName(player->Hunter()), 8) << ' '
+                << PadRightManaged(::MphRead::ToString(player->Hunter()), 8) << ' '
                 << "active=" << (active ? "y" : "n") << ' '
                 << "spawned="
                 << (TestFlag(player->LoadFlags(), LoadFlags::Spawned) ? "y" : "n") << ' '
@@ -851,7 +834,7 @@ namespace MphRead::Mods::Network
         std::cout << "  my player: ";
         if (static_cast<std::size_t>(local) < Entities::PlayerEntity::Players().size())
         {
-            std::cout << HunterName(
+            std::cout << ::MphRead::ToString(
                 Entities::PlayerEntity::Players().at(static_cast<std::size_t>(local))->Hunter());
         }
         else
@@ -878,7 +861,7 @@ namespace MphRead::Mods::Network
             }
             std::cout
                 << "  slot " << slot << " (" << GameState::Nicknames().at(slot)
-                << ") as I saw them: " << HunterName(view.Hunter)
+                << ") as I saw them: " << ::MphRead::ToString(view.Hunter)
                 << ", active " << view.FramesActive << " frame(s), spawned "
                 << view.FramesSpawned << ", first on frame " << view.FirstSpawnFrame
                 << ", in alt form for " << view.AltFormFrames

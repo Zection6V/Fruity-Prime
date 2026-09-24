@@ -47,6 +47,7 @@
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::Utf16Length;
 using ::MphRead::NativeRuntime::WideToUtf8;
@@ -474,23 +475,6 @@ namespace
         return NumberTextCore(value, minDecimals, maxDecimals, 7);
     }
 
-    [[nodiscard]] std::string HunterName(Hunter hunter)
-    {
-        switch (hunter)
-        {
-            case Hunter::Samus: return "Samus";
-            case Hunter::Kanden: return "Kanden";
-            case Hunter::Trace: return "Trace";
-            case Hunter::Sylux: return "Sylux";
-            case Hunter::Noxus: return "Noxus";
-            case Hunter::Spire: return "Spire";
-            case Hunter::Weavel: return "Weavel";
-            case Hunter::Guardian: return "Guardian";
-            case Hunter::Random: return "Random";
-        }
-        return Int32Text(static_cast<std::uint8_t>(hunter));
-    }
-
     [[nodiscard]] std::string TestPhaseName(TestPhase phase)
     {
         switch (phase)
@@ -523,16 +507,6 @@ namespace
     [[nodiscard]] bool IsUnmorphSamplePhase(TestPhase phase) noexcept
     {
         return phase == TestPhase::Zoom || phase == TestPhase::Duel;
-    }
-
-    [[nodiscard]] MphRead::Entities::PlayerEntity& RequirePlayer(
-        const std::shared_ptr<MphRead::Entities::PlayerEntity>& player)
-    {
-        if (!player)
-        {
-            throw System::NullReferenceException();
-        }
-        return *player;
     }
 
     [[nodiscard]] std::string Join(const std::vector<std::string>& values)
@@ -803,7 +777,7 @@ namespace MphRead::Mods::Network
             {
                 continue;
             }
-            Entities::PlayerEntity& player = RequirePlayer(
+            Entities::PlayerEntity& player = RequireReference(
                 Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot)));
             if (!TestFlag(player.LoadFlags(), LoadFlags::Active))
             {
@@ -1086,7 +1060,7 @@ namespace MphRead::Mods::Network
             heading += " (slot ";
             heading += Int32Text(slot);
             heading += ", ";
-            heading += HunterName(other.Hunter);
+            heading += ::MphRead::ToString(other.Hunter);
             heading += ") ---";
             ConsoleWriteLine(heading);
             for (const Feature& feature : _features)
@@ -1159,7 +1133,7 @@ namespace MphRead::Mods::Network
 
         if (_localSlot < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size()))
         {
-            Entities::PlayerEntity& player = RequirePlayer(
+            Entities::PlayerEntity& player = RequireReference(
                 Entities::PlayerEntity::Players().at(static_cast<std::size_t>(_localSlot)));
             const auto [rows, height] = player.ModScoreboardSize();
             const bool fits = height <= 192.0F;

@@ -23,22 +23,6 @@ namespace MphRead
             return value;
         }
 
-        [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)
-        {
-            if (!value || !value->has_value())
-            {
-                throw Memory::Detail::NullReferenceException();
-            }
-            try
-            {
-                return std::any_cast<std::int32_t>(*value);
-            }
-            catch (const std::bad_any_cast&)
-            {
-                throw Memory::Detail::InvalidCastException();
-            }
-        }
-
         [[nodiscard]] std::uint8_t GetTriggerBit(std::int32_t index) noexcept
         {
             const std::int32_t remainder = index % 8;

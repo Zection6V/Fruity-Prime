@@ -12,6 +12,7 @@
 #include "../ItemSpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <cassert>
@@ -47,11 +48,6 @@ namespace MphRead::Entities::Enemies
             Enemy19Entity* owner = dynamic_cast<Enemy19Entity*>(spawner);
             assert(owner != nullptr);
             return owner;
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
         }
 
         [[nodiscard]] bool AnimationEnded(ModelInstance& model)
@@ -409,7 +405,7 @@ namespace MphRead::Entities::Enemies
         equip.HeadshotDamage(damage);
 
         const Vector3 facing = FacingVector();
-        PlayerEntity& player = MainPlayer();
+        PlayerEntity& player = RequireReference(PlayerEntity::Main());
         const Vector3 spawnDirInitial
             = (AddY(static_cast<Vector3>(player.Position), 0.5F)
                 - static_cast<Vector3>(Position)).Normalized();
@@ -429,7 +425,7 @@ namespace MphRead::Entities::Enemies
         {
             return;
         }
-        PlayerEntity& player = MainPlayer();
+        PlayerEntity& player = RequireReference(PlayerEntity::Main());
         const Vector3 beamCylTop
             = static_cast<Vector3>(Position) + _beamTransform.Row2().Xyz();
         const float radii = player.Volume().SphereRadius

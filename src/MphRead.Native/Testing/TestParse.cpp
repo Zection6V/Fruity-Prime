@@ -1,6 +1,7 @@
 #include "TestParse.hpp"
 #include "../Formats/Types.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <bit>
@@ -14,6 +15,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
 
@@ -115,20 +117,10 @@ namespace
         return std::bit_cast<std::int32_t>(parsed);
     }
 
-    [[nodiscard]] const std::string& RequireString(
-        const std::optional<std::string>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] std::shared_ptr<StringArray> Split(
         const std::optional<std::string>& value, char separator)
     {
-        const std::string& source = RequireString(value);
+        const std::string& source = RequireReference(value);
         auto result = std::make_shared<StringArray>();
 
         std::size_t start = 0;

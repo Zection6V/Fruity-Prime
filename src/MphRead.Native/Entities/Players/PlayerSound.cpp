@@ -34,22 +34,6 @@ using ::MphRead::TestFlag;
 
 namespace
 {
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw System::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-    }
-
     [[nodiscard]] std::int32_t SoundTableValue(
         const std::shared_ptr<std::vector<std::vector<std::int32_t>>>& values,
         std::int32_t row, std::int32_t column)

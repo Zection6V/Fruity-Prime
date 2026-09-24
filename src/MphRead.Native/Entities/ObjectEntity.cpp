@@ -9,6 +9,7 @@
 #include "../Utility/Rng.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
 
 #include <any>
@@ -21,6 +22,7 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedDecrement;
 using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::MphRead::TestFlag;
@@ -37,36 +39,6 @@ namespace
     using MphRead::Entities::ObjectFlags;
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::Memory::Detail::InvalidCastException();
-        }
-    }
-
-    [[nodiscard]] std::int32_t GetRoomId(MphRead::Scene* scene)
-    {
-        if (scene == nullptr)
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        return scene->RoomId();
-    }
 
     [[nodiscard]] std::shared_ptr<MphRead::Entities::PlayerEntity> RequireMainPlayer()
     {
@@ -183,7 +155,7 @@ namespace MphRead::Entities
         _state = static_cast<std::int32_t>(data.Flags & ObjectFlags::State);
         assert(GameState::Mode() == GameMode::SinglePlayer);
         std::shared_ptr<StorySave> storySave = GameState::StorySave;
-        const std::int32_t roomId = GetRoomId(scene);
+        const std::int32_t roomId = RequireReference(scene).RoomId();
         const std::int32_t id = Id;
         if (storySave == nullptr)
         {
@@ -193,7 +165,7 @@ namespace MphRead::Entities
         {
             assert(_state >= 0 && _state <= 2);
             std::shared_ptr<StorySave> setStorySave = GameState::StorySave;
-            const std::int32_t setRoomId = GetRoomId(scene);
+            const std::int32_t setRoomId = RequireReference(scene).RoomId();
             const std::int32_t setId = Id;
             const std::int32_t roomState = UncheckedIncrement(_state);
             if (setStorySave == nullptr)
@@ -203,7 +175,7 @@ namespace MphRead::Entities
             setStorySave->SetRoomState(setRoomId, setId, roomState);
         }
         std::shared_ptr<StorySave> getStorySave = GameState::StorySave;
-        const std::int32_t getRoomId = GetRoomId(scene);
+        const std::int32_t getRoomId = RequireReference(scene).RoomId();
         const std::int32_t getId = Id;
         if (getStorySave == nullptr)
         {
@@ -522,7 +494,7 @@ namespace MphRead::Entities
         _effectIntervalIndex = 15;
         assert(_state >= 0 && _state <= 2);
         std::shared_ptr<StorySave> storySave = GameState::StorySave;
-        const std::int32_t roomId = GetRoomId(_scene);
+        const std::int32_t roomId = RequireReference(_scene).RoomId();
         const std::int32_t id = Id;
         const std::int32_t roomState = UncheckedIncrement(_state);
         if (storySave == nullptr)

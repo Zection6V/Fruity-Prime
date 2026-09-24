@@ -44,23 +44,6 @@ namespace
 {
     using OpenTK::Mathematics::Vector3;
 
-    [[nodiscard]] std::string HunterName(MphRead::Hunter value)
-    {
-        switch (value)
-        {
-        case MphRead::Hunter::Samus: return "Samus";
-        case MphRead::Hunter::Kanden: return "Kanden";
-        case MphRead::Hunter::Trace: return "Trace";
-        case MphRead::Hunter::Sylux: return "Sylux";
-        case MphRead::Hunter::Noxus: return "Noxus";
-        case MphRead::Hunter::Spire: return "Spire";
-        case MphRead::Hunter::Weavel: return "Weavel";
-        case MphRead::Hunter::Guardian: return "Guardian";
-        case MphRead::Hunter::Random: return "Random";
-        }
-        return std::to_string(static_cast<std::uint32_t>(value));
-    }
-
     [[nodiscard]] std::string BeamName(MphRead::BeamType value)
     {
         switch (value)
@@ -449,7 +432,7 @@ namespace MphRead::Mods::Network
         if (!_placed || _firingFrames == 0)
         {
             NativeRuntime::ConsoleWriteLine(("DPSFAIL " + _room + " | "
-                + HunterName(_hunter) + " " + BeamName(_beam)
+                + ::MphRead::ToString(_hunter) + " " + BeamName(_beam)
                 + " | never got set up"));
             return 1;
         }
@@ -471,7 +454,7 @@ namespace MphRead::Mods::Network
             : "holding " + BeamName(_beam);
 
         NativeRuntime::ConsoleWriteLine(("DPS " + _room
-            + " | " + HunterName(_hunter) + " " + action
+            + " | " + ::MphRead::ToString(_hunter) + " " + action
             + " at "
             + NativeRuntime::DoubleToStringFixed(
                 static_cast<double>(_bombs ? 0.6F : _distance), 1)

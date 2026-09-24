@@ -3,8 +3,9 @@
 #include "../../MemoryArrays.hpp"
 #include "../../Scene.hpp"
 #include "../Players/PlayerEntity.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <array>
 #include <cstddef>
@@ -27,10 +28,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
 
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
     }
 
     Enemy27Entity::Enemy27Entity(EnemyInstanceEntityData data,
@@ -117,25 +114,25 @@ namespace MphRead::Entities::Enemies
 
     void Enemy27Entity::CheckPlayerCollision(float factor, std::int32_t damage)
     {
-        if (!ManagedAt(HitPlayers, MainPlayer().SlotIndex()))
+        if (!ManagedAt(HitPlayers, RequireReference(PlayerEntity::Main()).SlotIndex()))
         {
             return;
         }
 
         Vector3 between = TypeExtensions::WithY(
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position),
             0.0F);
         between = LengthSquared(between) > 1.0F / 128.0F
             ? between.Normalized()
             : FacingVector();
 
-        PlayerEntity& speedPlayer = MainPlayer();
+        PlayerEntity& speedPlayer = RequireReference(PlayerEntity::Main());
         const Vector3 speed = speedPlayer.Speed();
         const Vector3 speedDelta = ScaleVector(between, factor);
         speedPlayer.SetSpeed(speed + speedDelta);
 
-        MainPlayer().TakeDamage(
+        RequireReference(PlayerEntity::Main()).TakeDamage(
             damage, DamageFlags::None, std::nullopt, this);
     }
 

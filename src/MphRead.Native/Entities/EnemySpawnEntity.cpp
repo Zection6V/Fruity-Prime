@@ -48,6 +48,7 @@
 #include "Players/PlayerEntity.hpp"
 #include "../Formats/Collision.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
 
 #include <any>
@@ -75,36 +76,6 @@ namespace MphRead::Entities
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        [[nodiscard]] StorySave& RequireStorySave()
-        {
-            if (GameState::StorySave == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *GameState::StorySave;
-        }
-
-        [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)
-        {
-            if (!value || !value->has_value())
-            {
-                throw System::NullReferenceException();
-            }
-            try
-            {
-                return std::any_cast<std::int32_t>(*value);
-            }
-            catch (const std::bad_any_cast&)
-            {
-                throw SceneDetail::InvalidCastException();
-            }
-        }
-
-        [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
-        {
-            return std::make_shared<const std::any>(value);
-        }
 
         [[nodiscard]] std::string MarshalString(
             const std::shared_ptr<ManagedArray<char16_t>>& value)
@@ -170,7 +141,7 @@ namespace MphRead::Entities
         _cooldownTimer = static_cast<std::int32_t>(_data.InitialCooldown) * 2;
         assert(GameState::Mode() == GameMode::SinglePlayer);
         bool active = false;
-        const std::int32_t state = RequireStorySave().InitRoomState(
+        const std::int32_t state = RequireReference(::MphRead::GameState::StorySave).InitRoomState(
             RequireReference(_scene).RoomId(), Id, data.Active != 0);
         if (data.AlwaysActive != 0)
         {
@@ -379,7 +350,7 @@ namespace MphRead::Entities
         bool updateSave = false;
         Flags &= ~SpawnerFlags::Active;
         Scene& scene = RequireReference(_scene);
-        RequireStorySave().SetRoomState(scene.RoomId(), Id, 1);
+        RequireReference(::MphRead::GameState::StorySave).SetRoomState(scene.RoomId(), Id, 1);
 
         if ((_data.EnemyType != MphRead::EnemyType::Hunter
                 || _data.Fields.S09().EncounterType == 1)
@@ -388,7 +359,7 @@ namespace MphRead::Entities
             const std::int32_t type = static_cast<std::int32_t>(_data.EnemyType);
             if (type >= 0 && (type >> 3) < 8)
             {
-                StorySave& storySave = RequireStorySave();
+                StorySave& storySave = RequireReference(::MphRead::GameState::StorySave);
                 const std::int32_t areaId = scene.AreaId();
                 StorySave::ByteArray& encounterRow
                     = ManagedAt(storySave.EnemyEncounters, areaId);
@@ -399,13 +370,13 @@ namespace MphRead::Entities
 
         if (_data.EnemyType == MphRead::EnemyType::Cretaphid)
         {
-            RequireStorySave().Areas |= 3;
+            RequireReference(::MphRead::GameState::StorySave).Areas |= 3;
             GameState::UpdateBossFlags(scene.AreaId());
             updateSave = true;
         }
         else if (_data.EnemyType == MphRead::EnemyType::Slench)
         {
-            RequireStorySave().Areas |= 0xF0;
+            RequireReference(::MphRead::GameState::StorySave).Areas |= 0xF0;
             GameState::UpdateBossFlags(scene.AreaId());
             updateSave = true;
         }
@@ -465,7 +436,7 @@ namespace MphRead::Entities
                     if (enemy->EnemyType() == MphRead::EnemyType::Spawner)
                     {
                         Flags &= ~SpawnerFlags::Active;
-                        RequireStorySave().SetRoomState(
+                        RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                             RequireReference(_scene).RoomId(), Id, 1);
                     }
                     else
@@ -490,7 +461,7 @@ namespace MphRead::Entities
         else if (info.Message == Message::Activate)
         {
             Flags |= SpawnerFlags::Active;
-            RequireStorySave().SetRoomState(
+            RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                 RequireReference(_scene).RoomId(), Id, 3);
         }
         else if (info.Message == Message::SetActive)
@@ -498,13 +469,13 @@ namespace MphRead::Entities
             if (UnboxInt32(info.Param1) != 0)
             {
                 Flags |= SpawnerFlags::Active;
-                RequireStorySave().SetRoomState(
+                RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                     RequireReference(_scene).RoomId(), Id, 3);
             }
             else
             {
                 Flags &= ~SpawnerFlags::Active;
-                RequireStorySave().SetRoomState(
+                RequireReference(::MphRead::GameState::StorySave).SetRoomState(
                     RequireReference(_scene).RoomId(), Id, 1);
             }
         }

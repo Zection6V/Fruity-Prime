@@ -171,27 +171,6 @@ namespace
         return player;
     }
 
-    [[nodiscard]] MphRead::MessageObject BoxInt(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] std::int32_t UnboxInt(const MphRead::MessageObject& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-    }
-
     struct TimeSpanParts
     {
         double TotalMinutes;
@@ -1209,7 +1188,7 @@ namespace MphRead
                         && MainPlayer()->Health() > 0)
                     {
                         scene->SendMessage(Message::Death, nullptr, MainPlayer(),
-                            BoxInt(0), BoxInt(0));
+                            BoxInt32(0), BoxInt32(0));
                     }
                     _escapeTimer = -1.0F;
                 }
@@ -1411,7 +1390,7 @@ namespace MphRead
                         {
                             const auto entity = enumerator.Current();
                             scene->SendMessage(Message::Activate, nullptr,
-                                RequireShared(entity).get(), BoxInt(0), BoxInt(0));
+                                RequireShared(entity).get(), BoxInt32(0), BoxInt32(0));
                             break;
                         }
                     }
@@ -1431,7 +1410,7 @@ namespace MphRead
                 {
                     assert((scene->Room() != nullptr));
                     scene->SendMessage(Message::SetActive, nullptr,
-                        message.Sender, BoxInt(0), BoxInt(0));
+                        message.Sender, BoxInt32(0), BoxInt32(0));
                     save->CheckpointEntityId = Require(message.Sender)->Id;
                     save->CheckpointRoomId = scene->RoomId();
                     UpdateCleanSave(false);
@@ -1784,8 +1763,8 @@ namespace MphRead
                         && message.ExecuteFrame == scene->FrameCount())
                     {
                         UpdateEscapeState(
-                            UncheckedMultiply(UnboxInt(message.Param1), 30),
-                            UnboxInt(message.Param2));
+                            UncheckedMultiply(UnboxInt32(message.Param1), 30),
+                            UnboxInt32(message.Param2));
                     }
                 }
 
@@ -1796,7 +1775,7 @@ namespace MphRead
                         && message.ExecuteFrame == scene->FrameCount())
                     {
                         UpdateEscapeState(
-                            UnboxInt(message.Param1), UnboxInt(message.Param2));
+                            UnboxInt32(message.Param1), UnboxInt32(message.Param2));
                     }
                 }
 
@@ -1806,16 +1785,16 @@ namespace MphRead
                     if (message.Message == Message::ShowPrompt
                         && message.ExecuteFrame == scene->FrameCount())
                     {
-                        const std::int32_t promptType = UnboxInt(message.Param2);
+                        const std::int32_t promptType = UnboxInt32(message.Param2);
                         if (promptType == 0)
                         {
                             MainPlayer()->ShowDialog(
-                                Entities::DialogType::Okay, UnboxInt(message.Param1));
+                                Entities::DialogType::Okay, UnboxInt32(message.Param1));
                         }
                         else if (promptType == 1)
                         {
                             MainPlayer()->ShowDialog(
-                                Entities::DialogType::YesNo, UnboxInt(message.Param1));
+                                Entities::DialogType::YesNo, UnboxInt32(message.Param1));
                         }
                     }
                 }
@@ -1827,8 +1806,8 @@ namespace MphRead
                 if (message.Message == Message::ShowWarning
                     && message.ExecuteFrame == scene->FrameCount())
                 {
-                    const std::int32_t messageId = UnboxInt(message.Param1);
-                    std::int32_t duration = UnboxInt(message.Param2);
+                    const std::int32_t messageId = UnboxInt32(message.Param1);
+                    std::int32_t duration = UnboxInt32(message.Param2);
                     if (duration == 0)
                     {
                         duration = 15;
@@ -1844,8 +1823,8 @@ namespace MphRead
                 if (message.Message == Message::ShowOverlay
                     && message.ExecuteFrame == scene->FrameCount())
                 {
-                    const std::int32_t messageId = UnboxInt(message.Param1);
-                    const std::int32_t duration = UnboxInt(message.Param2);
+                    const std::int32_t messageId = UnboxInt32(message.Param1);
+                    const std::int32_t duration = UnboxInt32(message.Param2);
                     MainPlayer()->ShowDialog(
                         Entities::DialogType::Overlay, messageId, duration, 0);
                 }
@@ -1859,7 +1838,7 @@ namespace MphRead
             MainPlayer()->ShowDialog(Entities::DialogType::Event, 7,
                 static_cast<std::int32_t>(Entities::EventType::Octolith));
             scene->SendMessage(Message::ShowPrompt, MainPlayer(), nullptr,
-                BoxInt(_queuedOctolithMessageId), BoxInt(0), 1);
+                BoxInt32(_queuedOctolithMessageId), BoxInt32(0), 1);
             _queuedOctolithMessageId = -1;
         }
 

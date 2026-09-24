@@ -17,6 +17,7 @@
 #include "../SpectatorMode.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <cstddef>
@@ -24,19 +25,11 @@
 #include <memory>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 
 namespace
 {
-    [[nodiscard]] MphRead::Entities::PlayerEntity& RequirePlayer(
-        const std::shared_ptr<MphRead::Entities::PlayerEntity>& player)
-    {
-        if (!player)
-        {
-            throw System::NullReferenceException();
-        }
-        return *player;
-    }
 }
 
 namespace MphRead::Mods::Network
@@ -231,7 +224,7 @@ namespace MphRead::Mods::Network
             i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
             ++i)
         {
-            Entities::PlayerEntity& player = RequirePlayer(
+            Entities::PlayerEntity& player = RequireReference(
                 Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i)));
             if (TestFlag(player.LoadFlags(), Entities::LoadFlags::Active))
             {
@@ -260,7 +253,7 @@ namespace MphRead::Mods::Network
             {
                 continue;
             }
-            Entities::PlayerEntity& player = RequirePlayer(
+            Entities::PlayerEntity& player = RequireReference(
                 Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i)));
             if (TestFlag(player.LoadFlags(), Entities::LoadFlags::Active))
             {

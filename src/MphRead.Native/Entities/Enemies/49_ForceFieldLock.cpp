@@ -6,8 +6,9 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../ForceFieldEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <any>
 #include <bit>
@@ -18,6 +19,7 @@
 #include <memory>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
@@ -28,18 +30,6 @@ namespace MphRead::Entities::Enemies
     namespace
     {
         using OpenTK::Mathematics::Vector3;
-
-        [[nodiscard]] ForceFieldEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            ForceFieldEntity* typedSpawner = dynamic_cast<ForceFieldEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
 
         [[nodiscard]] float Dot(Vector3 left, Vector3 right) noexcept
         {
@@ -64,11 +54,6 @@ namespace MphRead::Entities::Enemies
             return ManagedAt(animInfo.Frame, 0);
         }
 
-        [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
-        {
-            return std::make_shared<const std::any>(value);
-        }
-
         [[nodiscard]] BeamProjectileEntity* CastBeam(EntityBase* source)
         {
             if (source == nullptr)
@@ -88,8 +73,9 @@ namespace MphRead::Entities::Enemies
     Enemy49Entity::Enemy49Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _forceField(CastSpawner(data.Spawner))
+          _forceField(ManagedAs<ForceFieldEntity>(data.Spawner))
     {
+        assert(_forceField != nullptr);
     }
 
     void Enemy49Entity::EnemyInitialize()
@@ -191,7 +177,7 @@ namespace MphRead::Entities::Enemies
             }
         }
 
-        const Vector3 cameraPosition = RequireReference(MainPlayer().CameraInfo()).Position;
+        const Vector3 cameraPosition = RequireReference(RequireReference(PlayerEntity::Main()).CameraInfo()).Position;
         if (Dot(cameraPosition - _fieldPosition, _vec2) < 0.0F)
         {
             _vec2 = ScaleVector(_vec2, -1.0F);

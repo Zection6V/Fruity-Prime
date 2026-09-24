@@ -16,6 +16,7 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <array>
@@ -32,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -57,18 +59,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
 
         [[nodiscard]] Vector3 Vec3MultMtx3(Vector3 value, Matrix4 matrix) noexcept
         {
@@ -127,8 +117,9 @@ namespace MphRead::Entities::Enemies
     Enemy41Entity::Enemy41Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
     }
 
     Enemies::SlenchFlags Enemy41Entity::SlenchFlags() const noexcept
@@ -497,7 +488,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 facing = FacingVector();
         const Vector3 up = UpVector();
         Vector3 playerTarget = AddY(
-            MainPlayer().Volume().SpherePosition, 0.5F);
+            RequireReference(PlayerEntity::Main()).Volume().SpherePosition, 0.5F);
 
         if (TestFlag(_slenchFlags, Enemies::SlenchFlags::Wobbling))
         {
@@ -546,7 +537,7 @@ namespace MphRead::Entities::Enemies
             }
         }
 
-        const std::int32_t slotIndex = MainPlayer().SlotIndex();
+        const std::int32_t slotIndex = RequireReference(PlayerEntity::Main()).SlotIndex();
         if (slotIndex < 0
             || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
         {
@@ -554,7 +545,7 @@ namespace MphRead::Entities::Enemies
         }
         if (HitPlayers[static_cast<std::size_t>(slotIndex)])
         {
-            MainPlayer().TakeDamage(35, DamageFlags::None, facing, this);
+            RequireReference(PlayerEntity::Main()).TakeDamage(35, DamageFlags::None, facing, this);
         }
 
         if (State() == SlenchState::Roam)
@@ -1669,7 +1660,7 @@ namespace MphRead::Entities::Enemies
                     std::numeric_limits<float>::max(),
                     true);
             }
-            if (MainPlayer().Health() > 0
+            if (RequireReference(PlayerEntity::Main()).Health() > 0
                 && GameState::SinglePlayer())
             {
                 RequireReference(_scene).StartMovie(

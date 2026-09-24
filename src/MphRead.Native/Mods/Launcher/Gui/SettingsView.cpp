@@ -482,23 +482,6 @@ namespace
         return *value;
     }
 
-    [[nodiscard]] std::string HunterName(Hunter hunter)
-    {
-        switch (hunter)
-        {
-        case Hunter::Samus: return "Samus";
-        case Hunter::Kanden: return "Kanden";
-        case Hunter::Trace: return "Trace";
-        case Hunter::Sylux: return "Sylux";
-        case Hunter::Noxus: return "Noxus";
-        case Hunter::Spire: return "Spire";
-        case Hunter::Weavel: return "Weavel";
-        case Hunter::Guardian: return "Guardian";
-        case Hunter::Random: return "Random";
-        }
-        return std::to_string(static_cast<std::int32_t>(hunter));
-    }
-
     [[nodiscard]] Hunter ParseHunter(std::u16string_view value)
     {
         if (value == u"Samus") return Hunter::Samus;
@@ -1597,10 +1580,10 @@ namespace MphRead::Mods::Launcher::Gui
         hunters.reserve(8);
         for (std::int32_t i = 0; i < 7; ++i)
         {
-            hunters.push_back(ToUtf16(HunterName(static_cast<Hunter>(i))));
+            hunters.push_back(ToUtf16(::MphRead::ToString(static_cast<Hunter>(i))));
         }
-        hunters.push_back(ToUtf16(HunterName(Hunter::Random)));
-        const std::u16string lastHunter = ToUtf16(HunterName(LauncherPrefs::LastHunter()));
+        hunters.push_back(ToUtf16(::MphRead::ToString(Hunter::Random)));
+        const std::u16string lastHunter = ToUtf16(::MphRead::ToString(LauncherPrefs::LastHunter()));
         _state->HunterRow = _adapter.ConstructChoiceRow(
             std::u16string(u"Hunter"), Strings(hunters),
             std::max<std::int32_t>(0, IndexOf(hunters, lastHunter)));

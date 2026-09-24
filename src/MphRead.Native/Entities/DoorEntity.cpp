@@ -11,6 +11,7 @@
 #include "Players/PlayerEntity.hpp"
 #include "RoomEntity.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
 
 #include <array>
@@ -45,15 +46,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        if (MphRead::GameState::StorySave == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *MphRead::GameState::StorySave;
-    }
 
     template <std::size_t Size>
     [[nodiscard]] std::string MarshalString(const char (&value)[Size])
@@ -211,7 +203,7 @@ namespace MphRead::Entities
         _lock = &SetUpModel(meta.LockName);
         _lockTransform = CreateTranslation(0.0F, meta.LockOffset, 0.0F);
         assert(GameState::Mode() == GameMode::SinglePlayer);
-        const std::int32_t state = RequireStorySave().InitRoomState(
+        const std::int32_t state = RequireReference(::MphRead::GameState::StorySave).InitRoomState(
             RequireReference(_scene).RoomId(), Id, _data.Locked != 0);
         if (state != 0 && !Cheats::UnlockAllDoors())
         {
@@ -476,7 +468,7 @@ namespace MphRead::Entities
             // every frame after a door is unlocked. in our case, that can cause room state issues during
             // room transitions, so we clear it. shouldn't cause any differences in behavior.
             _flags &= ~DoorFlags::Unlocked;
-            RequireStorySave().SetRoomState(_scene->RoomId(), Id, 1);
+            RequireReference(::MphRead::GameState::StorySave).SetRoomState(_scene->RoomId(), Id, 1);
         }
         UpdateScanId();
         if (Locked() && !Unlocked())
@@ -607,7 +599,7 @@ namespace MphRead::Entities
                 if (roomName[0] == 'C' && roomName[1] == 'o' && roomName[2] == 'n'
                     && TryParseInt32TwoChars(roomName + 3, id) && id >= 1)
                 {
-                    RequireStorySave().SetVisitedConnector(id - 1, _scene->AreaId());
+                    RequireReference(::MphRead::GameState::StorySave).SetVisitedConnector(id - 1, _scene->AreaId());
                 }
             }
             // todo: FPS stuff
@@ -750,7 +742,7 @@ namespace MphRead::Entities
         _flags |= DoorFlags::Locked;
         if (updateState)
         {
-            RequireStorySave().SetRoomState(_scene->RoomId(), Id, 3);
+            RequireReference(::MphRead::GameState::StorySave).SetRoomState(_scene->RoomId(), Id, 3);
         }
     }
 
@@ -783,7 +775,7 @@ namespace MphRead::Entities
         _scene->SpawnEffect(114, UpVector(), FacingVector(), LockPosition()); // lockDefeat
         if (updateState)
         {
-            RequireStorySave().SetRoomState(_scene->RoomId(), Id, 1);
+            RequireReference(::MphRead::GameState::StorySave).SetRoomState(_scene->RoomId(), Id, 1);
         }
     }
 

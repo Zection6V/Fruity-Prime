@@ -10,6 +10,7 @@
 #include "BeamProjectileEntity.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "TriggerVolumeEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
 
 #include <any>
@@ -20,31 +21,11 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 
 namespace
 {
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
-    {
-        if (!value || !value->has_value())
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        try
-        {
-            return std::any_cast<std::int32_t>(*value);
-        }
-        catch (const std::bad_any_cast&)
-        {
-            throw MphRead::Memory::Detail::InvalidCastException();
-        }
-    }
-
     // C# masks Int32 shift counts to five bits. Using an unsigned shift followed by
     // bit_cast also preserves the signed Int32 bit pattern without C++ signed-shift UB.
     [[nodiscard]] constexpr std::int32_t ShiftOneInt32(std::int32_t count) noexcept
@@ -53,27 +34,8 @@ namespace
         return std::bit_cast<std::int32_t>(std::uint32_t{1} << shift);
     }
 
-    [[nodiscard]] std::int32_t GetRoomId(MphRead::Scene* scene)
-    {
-        if (scene == nullptr)
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        return scene->RoomId();
-    }
-
     [[nodiscard]] MphRead::Entities::AreaVolumeEntity* RequireAreaVolume(
         const std::shared_ptr<MphRead::Entities::AreaVolumeEntity>& entity)
-    {
-        if (!entity)
-        {
-            throw MphRead::Memory::Detail::NullReferenceException();
-        }
-        return entity.get();
-    }
-
-    [[nodiscard]] MphRead::Entities::PlayerEntity* RequirePlayer(
-        const std::shared_ptr<MphRead::Entities::PlayerEntity>& entity)
     {
         if (!entity)
         {
@@ -139,7 +101,7 @@ namespace MphRead::Entities
         if (GameState::Mode() == GameMode::SinglePlayer)
         {
             const std::shared_ptr<StorySave>& storySave = GameState::StorySave;
-            const std::int32_t roomId = GetRoomId(_scene);
+            const std::int32_t roomId = RequireReference(_scene).RoomId();
             if (storySave == nullptr)
             {
                 throw Memory::Detail::NullReferenceException();
@@ -200,7 +162,7 @@ namespace MphRead::Entities
             if (GameState::Mode() == GameMode::SinglePlayer)
             {
                 const std::shared_ptr<StorySave>& storySave = GameState::StorySave;
-                const std::int32_t roomId = GetRoomId(_scene);
+                const std::int32_t roomId = RequireReference(_scene).RoomId();
                 if (storySave == nullptr)
                 {
                     throw Memory::Detail::NullReferenceException();
@@ -216,7 +178,7 @@ namespace MphRead::Entities
                 if (GameState::Mode() == GameMode::SinglePlayer)
                 {
                     const std::shared_ptr<StorySave>& storySave = GameState::StorySave;
-                    const std::int32_t roomId = GetRoomId(_scene);
+                    const std::int32_t roomId = RequireReference(_scene).RoomId();
                     if (storySave == nullptr)
                     {
                         throw Memory::Detail::NullReferenceException();
@@ -230,7 +192,7 @@ namespace MphRead::Entities
                 if (GameState::Mode() == GameMode::SinglePlayer)
                 {
                     const std::shared_ptr<StorySave>& storySave = GameState::StorySave;
-                    const std::int32_t roomId = GetRoomId(_scene);
+                    const std::int32_t roomId = RequireReference(_scene).RoomId();
                     if (storySave == nullptr)
                     {
                         throw Memory::Detail::NullReferenceException();
@@ -431,7 +393,7 @@ namespace MphRead::Entities
         auto enumerator = _scene->GetPlayerEntities().GetEnumerator();
         while (enumerator.MoveNext())
         {
-            PlayerEntity* player = RequirePlayer(enumerator.Current());
+            PlayerEntity* player = &RequireReference(enumerator.Current());
 
             if (GameState::Mode() == GameMode::SinglePlayer
                 && player != PlayerEntity::Main().get())

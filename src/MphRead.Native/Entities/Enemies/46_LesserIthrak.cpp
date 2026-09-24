@@ -9,6 +9,7 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <cassert>
@@ -19,6 +20,7 @@
 #include <memory>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateRotationY;
@@ -38,30 +40,14 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
 
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] Enemy46Entity& RequireEnemy(Enemy46Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            return RequireReference(PlayerEntity::Main());
-        }
-
     }
 
     Enemy46Entity::Enemy46Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(20);
         (*processes)[0] = [this]() { State00(); };
         (*processes)[1] = [this]() { State01(); };
@@ -205,7 +191,7 @@ namespace MphRead::Entities::Enemies
             || _state1 == 6 || _state1 == 8)
         {
             const Vector3 facing = WithY(
-                static_cast<Vector3>(MainPlayer().Position)
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                     - static_cast<Vector3>(Position),
                 0.0F).Normalized();
             SetTransform(
@@ -421,7 +407,7 @@ namespace MphRead::Entities::Enemies
         }
         else if (_delayTimer == 0)
         {
-            MainPlayer().TakeDamage(
+            RequireReference(PlayerEntity::Main()).TakeDamage(
                 10,
                 DamageFlags::NoDmgInvuln,
                 ScaleVector(_speed, 2.0F),
@@ -533,7 +519,7 @@ namespace MphRead::Entities::Enemies
         }
         SetNodeAnim(13);
         const Vector3 facing = WithY(
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position),
             0.0F).Normalized();
         SetTransform(
@@ -546,7 +532,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy46Entity::Behavior02()
     {
-        if (!_warnVolume.TestPoint(MainPlayer().Position))
+        if (!_warnVolume.TestPoint(RequireReference(PlayerEntity::Main()).Position))
         {
             return false;
         }
@@ -635,7 +621,7 @@ namespace MphRead::Entities::Enemies
         }
         SetNodeAnim(16);
         _targetVec = WithY(
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position),
             0.0F).Normalized();
         const float angle = RadiansToDegrees(
@@ -702,7 +688,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy46Entity::Behavior11()
     {
-        PlayerEntity& mainPlayer = MainPlayer();
+        PlayerEntity& mainPlayer = RequireReference(PlayerEntity::Main());
         CollisionVolume playerCol = mainPlayer.Volume();
         assert(playerCol.Type == VolumeType::Sphere);
         playerCol.SpherePosition.Y += Fixed::ToFloat(1000);
@@ -738,7 +724,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy46Entity::Behavior13()
     {
-        const Vector3 playerPos = MainPlayer().Position;
+        const Vector3 playerPos = RequireReference(PlayerEntity::Main()).Position;
         if (!_rangeVolume.TestPoint(playerPos)
             || !_rangeVolume.TestPoint(Position))
         {
@@ -758,7 +744,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy46Entity::Behavior14()
     {
-        if (_warnVolume.TestPoint(MainPlayer().Position))
+        if (_warnVolume.TestPoint(RequireReference(PlayerEntity::Main()).Position))
         {
             return false;
         }
@@ -768,7 +754,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy46Entity::Behavior15()
     {
-        if (!_rangeVolume.TestPoint(MainPlayer().Position))
+        if (!_rangeVolume.TestPoint(RequireReference(PlayerEntity::Main()).Position))
         {
             return false;
         }
@@ -806,7 +792,7 @@ namespace MphRead::Entities::Enemies
     {
         if (LengthSquared(
                 static_cast<Vector3>(Position)
-                    - static_cast<Vector3>(MainPlayer().Position))
+                    - static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position))
             >= 1.5F * 1.5F)
         {
             return false;
@@ -848,7 +834,7 @@ namespace MphRead::Entities::Enemies
     {
         const Vector3 between
             = static_cast<Vector3>(Position)
-            - static_cast<Vector3>(MainPlayer().Position);
+            - static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position);
         const float distSqr = LengthSquared(between);
         if (distSqr <= 1.5F * 1.5F || distSqr >= 2.0F * 2.0F)
         {
@@ -901,7 +887,7 @@ namespace MphRead::Entities::Enemies
         _soundSource.StopSfx(SfxId::HANGING_TERROR_WALK);
         _speed = Vector3::Zero;
         _targetVec = WithY(
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position),
             0.0F).Normalized();
         const float angle = RadiansToDegrees(
@@ -917,14 +903,14 @@ namespace MphRead::Entities::Enemies
         if (_delayTimer > 0
             || LengthSquared(
                 static_cast<Vector3>(Position)
-                    - static_cast<Vector3>(MainPlayer().Position))
+                    - static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position))
                 <= 2.0F * 2.0F)
         {
             return false;
         }
         SetNodeAnim(13);
         const Vector3 facing = WithY(
-            static_cast<Vector3>(MainPlayer().Position)
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position),
             0.0F).Normalized();
         SetTransform(
@@ -963,7 +949,7 @@ namespace MphRead::Entities::Enemies
     {
         const Vector3 between
             = static_cast<Vector3>(Position)
-            - static_cast<Vector3>(MainPlayer().Position);
+            - static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position);
         const float distSqr = LengthSquared(between);
         if (distSqr <= 3.5F * 3.5F || distSqr >= 5.0F * 5.0F)
         {
@@ -980,7 +966,7 @@ namespace MphRead::Entities::Enemies
     bool Enemy46Entity::Behavior25()
     {
         if (_rangeVolume.TestPoint(Position)
-            && _rangeVolume.TestPoint(MainPlayer().Position))
+            && _rangeVolume.TestPoint(RequireReference(PlayerEntity::Main()).Position))
         {
             return false;
         }
@@ -1004,131 +990,131 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy46Entity::Behavior00(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy46Entity::Behavior01(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy46Entity::Behavior02(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy46Entity::Behavior03(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 
     bool Enemy46Entity::Behavior04(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior04();
+        return RequireReference(enemy).Behavior04();
     }
 
     bool Enemy46Entity::Behavior05(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior05();
+        return RequireReference(enemy).Behavior05();
     }
 
     bool Enemy46Entity::Behavior06(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior06();
+        return RequireReference(enemy).Behavior06();
     }
 
     bool Enemy46Entity::Behavior07(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior07();
+        return RequireReference(enemy).Behavior07();
     }
 
     bool Enemy46Entity::Behavior08(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior08();
+        return RequireReference(enemy).Behavior08();
     }
 
     bool Enemy46Entity::Behavior09(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior09();
+        return RequireReference(enemy).Behavior09();
     }
 
     bool Enemy46Entity::Behavior10(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior10();
+        return RequireReference(enemy).Behavior10();
     }
 
     bool Enemy46Entity::Behavior11(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior11();
+        return RequireReference(enemy).Behavior11();
     }
 
     bool Enemy46Entity::Behavior12(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior12();
+        return RequireReference(enemy).Behavior12();
     }
 
     bool Enemy46Entity::Behavior13(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior13();
+        return RequireReference(enemy).Behavior13();
     }
 
     bool Enemy46Entity::Behavior14(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior14();
+        return RequireReference(enemy).Behavior14();
     }
 
     bool Enemy46Entity::Behavior15(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior15();
+        return RequireReference(enemy).Behavior15();
     }
 
     bool Enemy46Entity::Behavior16(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior16();
+        return RequireReference(enemy).Behavior16();
     }
 
     bool Enemy46Entity::Behavior17(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior17();
+        return RequireReference(enemy).Behavior17();
     }
 
     bool Enemy46Entity::Behavior18(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior18();
+        return RequireReference(enemy).Behavior18();
     }
 
     bool Enemy46Entity::Behavior19(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior19();
+        return RequireReference(enemy).Behavior19();
     }
 
     bool Enemy46Entity::Behavior20(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior20();
+        return RequireReference(enemy).Behavior20();
     }
 
     bool Enemy46Entity::Behavior21(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior21();
+        return RequireReference(enemy).Behavior21();
     }
 
     bool Enemy46Entity::Behavior22(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior22();
+        return RequireReference(enemy).Behavior22();
     }
 
     bool Enemy46Entity::Behavior23(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior23();
+        return RequireReference(enemy).Behavior23();
     }
 
     bool Enemy46Entity::Behavior24(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior24();
+        return RequireReference(enemy).Behavior24();
     }
 
     bool Enemy46Entity::Behavior25(Enemy46Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior25();
+        return RequireReference(enemy).Behavior25();
     }
 }

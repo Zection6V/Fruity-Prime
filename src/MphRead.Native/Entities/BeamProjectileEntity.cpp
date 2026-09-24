@@ -61,6 +61,7 @@ using ::OpenTK::Mathematics::Scale;
 using ::OpenTK::Mathematics::SetRow3;
 using ::OpenTK::Mathematics::WithY;
 
+using ::MphRead::BoxInt32;
 namespace
 {
     using MphRead::Entities::EntityBase;
@@ -95,11 +96,6 @@ namespace
     void ScaleRow2(Matrix4& m, float s) noexcept
     {
         m.M31 *= s; m.M32 *= s; m.M33 *= s;
-    }
-
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
     }
 
     template <typename T>

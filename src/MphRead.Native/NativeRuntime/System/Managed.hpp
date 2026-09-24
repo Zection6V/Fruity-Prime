@@ -14,6 +14,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <type_traits>
@@ -29,6 +30,16 @@ namespace MphRead::NativeRuntime
 
         template <typename T>
         struct IsSharedPtr<std::shared_ptr<T>> : std::true_type
+        {
+        };
+
+        template <typename T>
+        struct IsOptional : std::false_type
+        {
+        };
+
+        template <typename T>
+        struct IsOptional<std::optional<T>> : std::true_type
         {
         };
     }
@@ -53,12 +64,41 @@ namespace MphRead::NativeRuntime
         return *value;
     }
 
+    // A nullable value type or a string? held in a std::optional.
+    template <typename T>
+    [[nodiscard]] const T& RequireReference(const std::optional<T>& value)
+    {
+        if (!value.has_value())
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    template <typename T>
+    [[nodiscard]] T& RequireReference(std::optional<T>& value)
+    {
+        if (!value.has_value())
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
     // Already a reference: nothing to check.
     template <typename T>
-    requires (!std::is_pointer_v<T> && !Detail::IsSharedPtr<std::remove_cv_t<T>>::value)
+    requires (!std::is_pointer_v<T> && !Detail::IsSharedPtr<std::remove_cv_t<T>>::value
+        && !Detail::IsOptional<std::remove_cv_t<T>>::value)
     [[nodiscard]] T& RequireReference(T& value) noexcept
     {
         return value;
+    }
+
+    // value as T: the object when it is a T, null when it is not.
+    template <typename T, typename U>
+    [[nodiscard]] T* ManagedAs(U* value) noexcept
+    {
+        return dynamic_cast<T*>(value);
     }
 
     // Math.Round(double) and MathF.Round(float): to the nearest integer, a

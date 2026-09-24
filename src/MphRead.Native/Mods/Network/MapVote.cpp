@@ -5,6 +5,7 @@
 #include "NetSession.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <climits>
 #include <cstddef>
@@ -33,6 +34,7 @@
 
 using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::Utf8Scalar;
 
@@ -225,16 +227,6 @@ namespace
         return result;
     }
 
-    [[nodiscard]] const std::string& RequireString(
-        const std::optional<std::string>& value)
-    {
-        if (!value.has_value())
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] const std::string& OrEmpty(
         const std::optional<std::string>& value) noexcept
     {
@@ -396,7 +388,7 @@ namespace MphRead::Mods::Network
             return "";
         }
         const std::string proposer = OrEmpty(_proposer);
-        return proposer + " PROPOSES " + ToUpperInvariant(RequireString(_roomKey));
+        return proposer + " PROPOSES " + ToUpperInvariant(RequireReference(_roomKey));
     }
 
     std::string MapVote::TallyLine()

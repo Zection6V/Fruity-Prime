@@ -5,8 +5,9 @@
 #include "../../Scene.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <bit>
 #include <cassert>
@@ -19,6 +20,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -33,28 +35,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
 
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
-
-        [[nodiscard]] Enemy11Entity& RequireEnemy(Enemy11Entity* enemy)
-        {
-            return RequireReference(enemy);
-        }
-
-        [[nodiscard]] PlayerEntity& MainPlayer()
-        {
-            const std::shared_ptr<PlayerEntity> player = PlayerEntity::Main();
-            if (!player)
-            {
-                throw System::NullReferenceException();
-            }
-            return *player;
-        }
-
     }
 }
 
@@ -63,8 +43,9 @@ namespace MphRead::Entities::Enemies
     Enemy11Entity::Enemy11Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
         auto processes = std::make_shared<ManagedArray<std::function<void()>>>(5);
         (*processes)[0] = [this]() { State0(); };
         (*processes)[1] = [this]() { State1(); };
@@ -83,7 +64,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 position
             = RequireReference(_spawner).Data.Header.Position.ToFloatVector();
         SetTransform(
-            (static_cast<Vector3>(MainPlayer().Position) - position).Normalized(),
+            (static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position) - position).Normalized(),
             Vector3(0.0F, 1.0F, 0.0F),
             position);
         _boundingRadius = 1.0F;
@@ -114,7 +95,7 @@ namespace MphRead::Entities::Enemies
     void Enemy11Entity::EnemyProcess()
     {
         const Vector3 facing
-            = (static_cast<Vector3>(MainPlayer().Position)
+            = (static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
                 - static_cast<Vector3>(Position)).Normalized();
         SetTransform(facing, Vector3(0.0F, 1.0F, 0.0F), Position);
         if (_effect)
@@ -172,13 +153,13 @@ namespace MphRead::Entities::Enemies
             return false;
         }
 
-        const Vector3 playerFacing = MainPlayer().FacingVector();
-        const Vector3 playerPosition = static_cast<Vector3>(MainPlayer().Position);
+        const Vector3 playerFacing = RequireReference(PlayerEntity::Main()).FacingVector();
+        const Vector3 playerPosition = static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position);
         Vector3 target(
             -playerFacing.X + playerPosition.X,
             -playerFacing.Y + playerPosition.Y,
             -playerFacing.Z + playerPosition.Z);
-        target.Y = static_cast<Vector3>(MainPlayer().Position).Y + 0.5F;
+        target.Y = static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position).Y + 0.5F;
         _speed = target - static_cast<Vector3>(Position);
         const float mag = Length(_speed);
         _moveTimer = UncheckedAdd(ConvertToInt32Net9(mag / 0.6F), 1);
@@ -207,7 +188,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy11Entity::Behavior03()
     {
-        if (!_activeVolume.TestPoint(static_cast<Vector3>(MainPlayer().Position)))
+        if (!_activeVolume.TestPoint(static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)))
         {
             return false;
         }
@@ -235,7 +216,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy11Entity::Behavior04()
     {
-        if (!_rangeVolume.TestPoint(static_cast<Vector3>(MainPlayer().Position)))
+        if (!_rangeVolume.TestPoint(static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)))
         {
             return false;
         }
@@ -255,26 +236,26 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy11Entity::Behavior00(Enemy11Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior00();
+        return RequireReference(enemy).Behavior00();
     }
 
     bool Enemy11Entity::Behavior01(Enemy11Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior01();
+        return RequireReference(enemy).Behavior01();
     }
 
     bool Enemy11Entity::Behavior02(Enemy11Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior02();
+        return RequireReference(enemy).Behavior02();
     }
 
     bool Enemy11Entity::Behavior03(Enemy11Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior03();
+        return RequireReference(enemy).Behavior03();
     }
 
     bool Enemy11Entity::Behavior04(Enemy11Entity* enemy)
     {
-        return RequireEnemy(enemy).Behavior04();
+        return RequireReference(enemy).Behavior04();
     }
 }

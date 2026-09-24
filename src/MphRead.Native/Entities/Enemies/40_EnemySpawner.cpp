@@ -4,6 +4,7 @@
 #include "../../Scene.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <cassert>
@@ -13,6 +14,7 @@
 #include <string>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::ManagedAs;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Multiply;
@@ -24,13 +26,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
-        {
-            EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
-            assert(typedSpawner != nullptr);
-            return typedSpawner;
-        }
 
         [[nodiscard]] AnimFlags AnimationFlagsAt(ModelInstance& model, std::int32_t index)
         {
@@ -58,8 +53,9 @@ namespace MphRead::Entities::Enemies
     Enemy40Entity::Enemy40Entity(EnemyInstanceEntityData data,
         Formats::Culling::NodeRef nodeRef, Scene* scene)
         : EnemyInstanceEntity(data, nodeRef, scene),
-          _spawner(CastSpawner(data.Spawner))
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
     {
+        assert(_spawner != nullptr);
     }
 
     Enemy40Entity::SpawnerModelType Enemy40Entity::ModelType() const noexcept

@@ -29,6 +29,7 @@
 #include "../../Mods/RespawnChoice.hpp"
 #include "../../Sound/Music.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -75,11 +76,6 @@ namespace
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
 
-    [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
-    {
-        return std::make_shared<const std::any>(value);
-    }
-
     [[nodiscard]] MphRead::MessageObject BoxEntity(MphRead::Entities::EntityBase* value)
     {
         return std::make_shared<const std::any>(value);
@@ -117,11 +113,6 @@ namespace
             throw System::ArgumentOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] MphRead::StorySave& RequireStorySave()
-    {
-        return RequireReference(MphRead::GameState::StorySave);
     }
 
     [[nodiscard]] std::shared_ptr<MphRead::WeaponInfo> CurrentWeaponPtrAt(std::int32_t index)
@@ -551,7 +542,7 @@ namespace MphRead::Entities
         }
         else
         {
-            StorySave& save = RequireStorySave();
+            StorySave& save = RequireReference(::MphRead::GameState::StorySave);
             _healthMax = save.HealthMax;
             _ammoMax[UA] = ManagedAt(save.AmmoMax, UA);
             _ammoMax[Missiles] = ManagedAt(save.AmmoMax, Missiles);
@@ -660,7 +651,7 @@ namespace MphRead::Entities
         else if (RequireReference(_scene).Room() == nullptr
             || RequireReference(RequireReference(_scene).Room()).LoadEntityId == -1)
         {
-            const std::int32_t checkpointId = RequireStorySave().CheckpointEntityId;
+            const std::int32_t checkpointId = RequireReference(::MphRead::GameState::StorySave).CheckpointEntityId;
             std::shared_ptr<EntityBase> checkpoint{};
             if (IsMainPlayer() && GameState::Mode() == GameMode::SinglePlayer && checkpointId != -1
                 && RequireReference(_scene).TryGetEntity(checkpointId, checkpoint))
@@ -741,8 +732,8 @@ namespace MphRead::Entities
         }
         else if (IsMainPlayer())
         {
-            _healthMax = RequireStorySave().HealthMax;
-            _health = RequireStorySave().Health;
+            _healthMax = RequireReference(::MphRead::GameState::StorySave).HealthMax;
+            _health = RequireReference(::MphRead::GameState::StorySave).Health;
         }
         else
         {
@@ -1020,7 +1011,7 @@ namespace MphRead::Entities
         {
             return;
         }
-        StorySave& save = RequireStorySave();
+        StorySave& save = RequireReference(::MphRead::GameState::StorySave);
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(_weaponSlots.size()); ++i)
         {
             ManagedAt(save.WeaponSlots, i)
@@ -1284,9 +1275,9 @@ namespace MphRead::Entities
         _availableCharges.ClearAll();
         if (GameState::SinglePlayer() && IsMainPlayer())
         {
-            _availableWeapons.Set(RequireStorySave().Weapons);
+            _availableWeapons.Set(RequireReference(::MphRead::GameState::StorySave).Weapons);
             _availableCharges.CopyFrom(_availableWeapons);
-            StorySave& save = RequireStorySave();
+            StorySave& save = RequireReference(::MphRead::GameState::StorySave);
             for (std::int32_t i = 0; i < static_cast<std::int32_t>(_weaponSlots.size()); ++i)
             {
                 ManagedAt(_weaponSlots, i)
@@ -2089,7 +2080,7 @@ namespace MphRead::Entities
                                 value.SetFlags(value.Flags() & ~DoorFlags::ShowLock);
                             }
                             if (value.Id == -1
-                                || RequireStorySave().GetRoomState(RequireReference(_scene).RoomId(), value.Id) == 0)
+                                || RequireReference(::MphRead::GameState::StorySave).GetRoomState(RequireReference(_scene).RoomId(), value.Id) == 0)
                             {
                                 value.Unlock(false, false);
                             }
@@ -2098,15 +2089,15 @@ namespace MphRead::Entities
                 }
                 if (IsMainPlayer())
                 {
-                    if (RequireReference(RequireStorySave().Stats).Deaths != std::numeric_limits<std::uint32_t>::max())
+                    if (RequireReference(RequireReference(::MphRead::GameState::StorySave).Stats).Deaths != std::numeric_limits<std::uint32_t>::max())
                     {
-                        RequireReference(RequireStorySave().Stats).Deaths++;
+                        RequireReference(RequireReference(::MphRead::GameState::StorySave).Stats).Deaths++;
                     }
                     if (attacker != nullptr && !attacker->IsMainPlayer()
                         && attacker->_hunter != MphRead::Hunter::Guardian
-                        && RequireReference(RequireStorySave().Stats).EnemyHunterDeaths != std::numeric_limits<std::uint32_t>::max())
+                        && RequireReference(RequireReference(::MphRead::GameState::StorySave).Stats).EnemyHunterDeaths != std::numeric_limits<std::uint32_t>::max())
                     {
-                        RequireReference(RequireStorySave().Stats).EnemyHunterDeaths++;
+                        RequireReference(RequireReference(::MphRead::GameState::StorySave).Stats).EnemyHunterDeaths++;
                     }
                     GameState::PausePrevented(true);
                     _deathCountdown = 150.0F / 30.0F;
@@ -2116,7 +2107,7 @@ namespace MphRead::Entities
                     _respawnTimer = std::numeric_limits<std::uint16_t>::max();
                     RequireReference(_cameraInfo).SetShake(0.25F);
                     _lostOctolithEnemyIndex = -1;
-                    if (RequireStorySave().CurrentOctoliths != 0 && _playerCount > 1
+                    if (RequireReference(::MphRead::GameState::StorySave).CurrentOctoliths != 0 && _playerCount > 1
                         && (GameState::EscapeTimer() != 0 || GameState::EscapeState() != EscapeState::Escape))
                     {
                         float minDistance = 0.0F;
@@ -2148,17 +2139,17 @@ namespace MphRead::Entities
                 {
                     const std::uint32_t hunterBit = ManagedShiftLeftInt32(
                         1, static_cast<std::int32_t>(_hunter));
-                    RequireStorySave().DefeatedHunters |= static_cast<std::uint8_t>(hunterBit);
-                    ManagedAt(RequireStorySave().AreaHunters, RequireReference(_scene).AreaId() / 2)
+                    RequireReference(::MphRead::GameState::StorySave).DefeatedHunters |= static_cast<std::uint8_t>(hunterBit);
+                    ManagedAt(RequireReference(::MphRead::GameState::StorySave).AreaHunters, RequireReference(_scene).AreaId() / 2)
                         &= static_cast<std::uint8_t>(~hunterBit);
-                    if (RequireReference(RequireStorySave().Stats).HunterKills != std::numeric_limits<std::uint32_t>::max())
+                    if (RequireReference(RequireReference(::MphRead::GameState::StorySave).Stats).HunterKills != std::numeric_limits<std::uint32_t>::max())
                     {
-                        RequireReference(RequireStorySave().Stats).HunterKills++;
+                        RequireReference(RequireReference(::MphRead::GameState::StorySave).Stats).HunterKills++;
                     }
                     if (_hunter == MphRead::Hunter::Guardian
-                        && RequireReference(RequireStorySave().Stats).EnemyKills != std::numeric_limits<std::uint32_t>::max())
+                        && RequireReference(RequireReference(::MphRead::GameState::StorySave).Stats).EnemyKills != std::numeric_limits<std::uint32_t>::max())
                     {
-                        RequireReference(RequireStorySave().Stats).EnemyKills++;
+                        RequireReference(RequireReference(::MphRead::GameState::StorySave).Stats).EnemyKills++;
                     }
 
                     const auto restoreOctolith = [](std::int32_t dropId)
@@ -2166,14 +2157,14 @@ namespace MphRead::Entities
                         const std::uint32_t shift = static_cast<std::uint32_t>(4 * dropId);
                         const std::uint32_t lostMask
                             = ~(std::uint32_t{15} << shift) | (std::uint32_t{8} << shift);
-                        RequireStorySave().LostOctoliths
-                            = RequireStorySave().LostOctoliths & lostMask;
-                        RequireStorySave().CurrentOctoliths
+                        RequireReference(::MphRead::GameState::StorySave).LostOctoliths
+                            = RequireReference(::MphRead::GameState::StorySave).LostOctoliths & lostMask;
+                        RequireReference(::MphRead::GameState::StorySave).CurrentOctoliths
                             |= static_cast<std::uint16_t>(std::uint32_t{1} << dropId);
                     };
 
                     std::int32_t dropId
-                        = RequireStorySave().GetEnemyOctolithDrop(static_cast<std::int32_t>(_hunter));
+                        = RequireReference(::MphRead::GameState::StorySave).GetEnemyOctolithDrop(static_cast<std::int32_t>(_hunter));
                     if (dropId < 8)
                     {
                         restoreOctolith(dropId);
@@ -2197,7 +2188,7 @@ namespace MphRead::Entities
                     }
                     while (true)
                     {
-                        dropId = RequireStorySave().GetEnemyOctolithDrop(static_cast<std::int32_t>(_hunter));
+                        dropId = RequireReference(::MphRead::GameState::StorySave).GetEnemyOctolithDrop(static_cast<std::int32_t>(_hunter));
                         if (dropId >= 8)
                         {
                             break;

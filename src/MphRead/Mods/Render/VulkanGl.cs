@@ -255,6 +255,7 @@ namespace MphRead.Mods.Render
         private static ResourceLayout? _layout;
         private static ResourceLayout? _clearLayout;
         private static Shader[]? _sceneShaders;
+        private static Shader[]? _sceneOffsetShaders;
         private static Shader[]? _screenShaders;
         private static Shader[]? _rttShaders;
         private static Shader[]? _shiftShaders;
@@ -419,6 +420,9 @@ namespace MphRead.Mods.Render
             _sceneShaders = _factory.CreateFromSpirv(
                 new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.SceneVertex), "main"),
                 new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.SceneFragment), "main"));
+            _sceneOffsetShaders = _factory.CreateFromSpirv(
+                new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.SceneVertex), "main"),
+                new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.SceneOffsetFragment), "main"));
             _screenShaders = _factory.CreateFromSpirv(
                 new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.ScreenVertex), "main"),
                 new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.ScreenFragment), "main"));
@@ -545,6 +549,7 @@ namespace MphRead.Mods.Render
             foreach (RenderbufferInfo renderbuffer in _renderbuffers.Values) renderbuffer.Dispose();
             _white?.Dispose();
             if (_sceneShaders != null) foreach (Shader shader in _sceneShaders) shader.Dispose();
+            if (_sceneOffsetShaders != null) foreach (Shader shader in _sceneOffsetShaders) shader.Dispose();
             if (_screenShaders != null) foreach (Shader shader in _screenShaders) shader.Dispose();
             if (_rttShaders != null) foreach (Shader shader in _rttShaders) shader.Dispose();
             if (_shiftShaders != null) foreach (Shader shader in _shiftShaders) shader.Dispose();
@@ -1155,6 +1160,7 @@ namespace MphRead.Mods.Render
         {
             ProgramInfo program = CurrentProgramInfo();
             string key = $"{program.Kind}:{topology}:{_depthTest}:{_depthWrite}:{_depthFunction}:"
+                + $"{_polygonOffsetFill}:"
                 + $"{_stencilTest}:{_stencilFunction}:{_stencilReference}:{_stencilReadMask}:{_stencilWriteMask}:"
                 + $"{_stencilFail}:{_stencilDepthFail}:{_stencilPass}:{_blend}:{_blendSrc}:{_blendDst}:"
                 + $"{_cull}:{_cullFace}:{_polygonMode}:{_scissor}:{_maskR}{_maskG}{_maskB}{_maskA}:"
@@ -1216,7 +1222,7 @@ namespace MphRead.Mods.Render
                 new VertexElementDescription("a_attr_mask", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1) { Offset = 60 });
             Shader[] shaders = program.Kind switch
             {
-                ProgramKind.Scene => _sceneShaders!,
+                ProgramKind.Scene => _polygonOffsetFill ? _sceneOffsetShaders! : _sceneShaders!,
                 ProgramKind.Rtt => _rttShaders!,
                 ProgramKind.Shift => _shiftShaders!,
                 ProgramKind.Cel => _celShaders!,

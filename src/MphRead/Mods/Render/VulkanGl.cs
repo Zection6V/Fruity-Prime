@@ -1494,22 +1494,24 @@ namespace MphRead.Mods.Render
                 copyY = Math.Max((int)source.Height - copyY - height, 0);
             }
 
-            if (_commandsOpen)
-            {
-                _commands.End();
-                _gd.SubmitCommands(_commands);
-                _commandsOpen = false;
-            }
-            _gd.WaitForIdle();
-
             using Veldrid.Texture staging = _factory.CreateTexture(TextureDescription.Texture2D(
                 (uint)width, (uint)height, 1, 1, source.Format, TextureUsage.Staging));
-            _commands.Begin();
-            _commands.CopyTexture(source, (uint)copyX, (uint)copyY, 0, 0, 0,
+
+            // Keep the readback copy in the same ordered command stream as the
+            // draws it reads. A synchronous CPU readback still has to wait for
+            // that copy, but it does not require a device-wide idle: submit the
+            // current list with the reusable frame fence, wait only that
+            // submission, then map the staging texture.
+            EnsureFrame();
+            _commands!.CopyTexture(source, (uint)copyX, (uint)copyY, 0, 0, 0,
                 staging, 0, 0, 0, 0, 0, (uint)width, (uint)height, 1, 1);
             _commands.End();
-            _gd.SubmitCommands(_commands);
-            _gd.WaitForIdle();
+            _gd.SubmitCommands(_commands, _frameFence!);
+            _commandsOpen = false;
+            _frameInFlight = true;
+            _gd.WaitForFence(_frameFence!);
+            _frameFence!.Reset();
+            _frameInFlight = false;
 
             int outputBpp = format == GLPixelFormat.Rgb ? 3 : 4;
             byte[] output = new byte[width * height * outputBpp];

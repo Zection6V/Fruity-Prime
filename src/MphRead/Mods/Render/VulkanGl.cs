@@ -341,6 +341,10 @@ namespace MphRead.Mods.Render
                 return;
             }
 
+            // A Vulkan device represents a fresh OpenGL-compatible context.
+            // Do not carry emulated state across a live backend/window switch.
+            ResetCompatibilityState();
+
             Vector2i size = window.FramebufferSize;
             SwapchainSource source;
             if (OperatingSystem.IsWindows())
@@ -414,10 +418,73 @@ namespace MphRead.Mods.Render
                 new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.ClearFragment), "main"));
 
             _white = new TextureInfo();
-            AllocateTexture(_white, 1, 1, depth: false);
+            AllocateTexture(_white, 1, 1, depth: false, forceOpaqueAlpha: false);
             byte[] white = { 255, 255, 255, 255 };
             _gd.UpdateTexture(_white.Texture!, white, 0, 0, 0, 1, 1, 1, 0, 0);
             DebugLog.Line("render", $"Vulkan device: {_gd.DeviceName} ({_gd.VendorName}), API {_gd.ApiVersion}");
+        }
+
+        private static void ResetCompatibilityState()
+        {
+            _nextTexture = 1;
+            _nextFramebuffer = 1;
+            _nextRenderbuffer = 1;
+            _nextList = 1;
+            _nextShader = 1;
+            _nextProgram = 1;
+            _nextLocation = 1;
+            _recording = false;
+            _recordList = 0;
+            _primitiveStart = 0;
+
+            _currentColor = Vector4.One;
+            _currentNormal = Vector3.UnitZ;
+            _currentTex0 = Vector3.Zero;
+            _currentTex1 = Vector2.Zero;
+            _vertexColorSet = false;
+            _activeTextureUnit = 0;
+            Array.Clear(_boundTextures, 0, _boundTextures.Length);
+            Array.Clear(_texture2DEnabled, 0, _texture2DEnabled.Length);
+            for (int i = 0; i < _textureEnvModes.Length; i++)
+            {
+                _textureEnvModes[i] = TextureEnvMode.Modulate;
+            }
+
+            _currentProgram = 0;
+            _drawFramebuffer = 0;
+            _readFramebuffer = 0;
+            _boundRenderbuffer = 0;
+
+            _depthTest = false;
+            _depthWrite = true;
+            _depthFunction = DepthFunction.Less;
+            _blend = false;
+            _blendSrc = BlendingFactor.One;
+            _blendDst = BlendingFactor.Zero;
+            _cull = false;
+            _cullFace = TriangleFace.Back;
+            _scissor = false;
+            _alphaTest = false;
+            _alphaFunction = AlphaFunction.Always;
+            _polygonOffsetFill = false;
+            _polygonOffsetFactor = 0f;
+            _polygonOffsetUnits = 0f;
+            _stencilTest = false;
+            _stencilFunction = StencilFunction.Always;
+            _stencilReference = 0;
+            _stencilReadMask = 0xFF;
+            _stencilWriteMask = 0xFF;
+            _stencilFail = GLStencilOp.Keep;
+            _stencilDepthFail = GLStencilOp.Keep;
+            _stencilPass = GLStencilOp.Keep;
+            _polygonMode = OpenTK.Graphics.OpenGL.PolygonMode.Fill;
+            _maskR = _maskG = _maskB = _maskA = true;
+            _clearColor = new Color4(0f, 0f, 0f, 0f);
+            _clearStencil = 0;
+            _viewX = _viewY = 0;
+            _viewW = _viewH = 1;
+            _scissorX = _scissorY = 0;
+            _scissorW = _scissorH = 1;
         }
 
         private static bool IsWayland()

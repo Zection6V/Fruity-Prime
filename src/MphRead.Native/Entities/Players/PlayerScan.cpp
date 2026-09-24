@@ -25,6 +25,7 @@
 #include <string>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 
@@ -107,24 +108,6 @@ namespace
         const std::uint32_t value
             = static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right);
         return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
-    {
-        if (value != value)
-        {
-            return 0;
-        }
-        const double wide = static_cast<double>(value);
-        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        return static_cast<std::int32_t>(wide);
     }
 
     [[nodiscard]] constexpr float ClampFloat(float value, float minimum, float maximum) noexcept

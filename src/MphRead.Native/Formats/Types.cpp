@@ -2,6 +2,7 @@
 #include "../NativeRuntime/System/ThreadStatic.hpp"
 
 #include "../NativeRuntime/System/Globalization.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <charconv>
@@ -11,6 +12,8 @@
 #include <new>
 #include <random>
 #include <stdexcept>
+
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 
 namespace
 {
@@ -216,25 +219,6 @@ namespace
             result.erase(position, 2);
         }
         return result;
-    }
-
-    [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
-    {
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-
-        const double wide = static_cast<double>(value);
-        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        return static_cast<std::int32_t>(std::trunc(wide));
     }
 
     [[nodiscard]] std::uint8_t RoundByteToEven(float value) noexcept

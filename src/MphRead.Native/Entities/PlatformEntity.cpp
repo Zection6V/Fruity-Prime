@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
@@ -118,24 +119,6 @@ namespace
             = static_cast<std::uint32_t>(left)
             - static_cast<std::uint32_t>(right);
         return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
-    {
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        const double wide = static_cast<double>(value);
-        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        return static_cast<std::int32_t>(std::trunc(wide));
     }
 
     [[nodiscard]] std::uint16_t IncrementUInt16(std::uint16_t value) noexcept

@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::ScaleVector;
@@ -70,16 +71,6 @@ namespace MphRead::Entities::Enemies
                 static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
         }
 
-        [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
-        {
-            if (!std::isfinite(value)
-                || value >= 2147483648.0F
-                || value < -2147483648.0F)
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(value);
-        }
     }
 }
 
@@ -206,7 +197,7 @@ namespace MphRead::Entities::Enemies
         target.Y = static_cast<Vector3>(MainPlayer().Position).Y + 0.5F;
         _speed = target - static_cast<Vector3>(Position);
         const float mag = Length(_speed);
-        _moveTimer = AddInt32(FloatToInt32(mag / 0.6F), 1);
+        _moveTimer = AddInt32(ConvertToInt32Net9(mag / 0.6F), 1);
         _moveTimer = MultiplyInt32(_moveTimer, 2);
         _speed = ScaleVector(_speed, 0.6F / mag);
         _speed.X /= 2.0F;
@@ -247,7 +238,7 @@ namespace MphRead::Entities::Enemies
         }
         _speed = _targetPos - static_cast<Vector3>(Position);
         const float mag = Length(_speed);
-        _moveTimer = AddInt32(FloatToInt32(mag / 0.3F), 1);
+        _moveTimer = AddInt32(ConvertToInt32Net9(mag / 0.3F), 1);
         _moveTimer = MultiplyInt32(_moveTimer, 2);
         _speed = ScaleVector(_speed, 0.3F / mag);
         _speed.X /= 2.0F;

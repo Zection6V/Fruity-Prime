@@ -26,6 +26,7 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
@@ -142,24 +143,6 @@ namespace
             return !std::signbit(x) || !std::signbit(y) ? 0.0F : -0.0F;
         }
         return x > y ? x : y;
-    }
-
-    [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
-    {
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        const double wide = static_cast<double>(value);
-        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        return static_cast<std::int32_t>(std::trunc(wide));
     }
 
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)

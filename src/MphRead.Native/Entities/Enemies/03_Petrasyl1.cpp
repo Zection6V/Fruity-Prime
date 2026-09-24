@@ -5,6 +5,7 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <bit>
@@ -18,6 +19,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
@@ -73,16 +75,6 @@ namespace MphRead::Entities::Enemies
             return WrapInt32(static_cast<std::uint32_t>(value) - 1U);
         }
 
-        [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
-        {
-            if (!std::isfinite(value)
-                || value >= 2147483648.0F
-                || value < -2147483648.0F)
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(value);
-        }
     }
 }
 
@@ -167,7 +159,7 @@ namespace MphRead::Entities::Enemies
                 0, 0, SetFlags::Texture | SetFlags::Material | SetFlags::Node);
             Flags &= ~EnemyFlags::NoHomingNc;
             Flags &= ~EnemyFlags::Invincible;
-            _field18C = MultiplyInt32(FloatToInt32(_idleRangeZ / 0.7F), 2);
+            _field18C = MultiplyInt32(ConvertToInt32Net9(_idleRangeZ / 0.7F), 2);
             _speed = WithY(ScaleVector(_field194, 0.7F), 0.0F);
             _speed.X /= 2.0F;
             _speed.Y /= 2.0F;

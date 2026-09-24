@@ -19,6 +19,7 @@
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
@@ -97,28 +98,9 @@ namespace
             Vector4(-Vector3::Dot(x, eye), -Vector3::Dot(y, eye), -Vector3::Dot(z, eye), 1.0F));
     }
 
-    [[nodiscard]] std::int32_t FloatToInt32Unchecked(float value) noexcept
-    {
-        constexpr float Int32UpperExclusive = 2147483648.0F;
-        constexpr float Int32LowerInclusive = -2147483648.0F;
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        if (value >= Int32UpperExclusive)
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        if (value < Int32LowerInclusive)
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        return static_cast<std::int32_t>(value);
-    }
-
     [[nodiscard]] std::int32_t RoundPixel(float value) noexcept
     {
-        return FloatToInt32Unchecked(RoundToEven(value));
+        return ConvertToInt32Net9(RoundToEven(value));
     }
 
     class PreviewCollectFinally final

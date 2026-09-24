@@ -12,6 +12,7 @@
 #include "MapTexturePack.hpp"
 #include "Q3Bsp.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -34,6 +35,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
@@ -217,24 +219,6 @@ namespace
         a.Y = a.Y > b.Y ? a.Y : b.Y;
         a.Z = a.Z > b.Z ? a.Z : b.Z;
         return a;
-    }
-
-    [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
-    {
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        const double wide = static_cast<double>(value);
-        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        return static_cast<std::int32_t>(std::trunc(wide));
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept

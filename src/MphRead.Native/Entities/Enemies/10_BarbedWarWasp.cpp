@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::Equal;
@@ -71,17 +72,6 @@ namespace MphRead::Entities::Enemies
         {
             return WrapInt32(
                 static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
-        {
-            if (!std::isfinite(value)
-                || value >= 2147483648.0F
-                || value < -2147483648.0F)
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept
@@ -249,7 +239,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 travel = target - static_cast<Vector3>(Position);
         _stepDistance = step;
         const float distance = Length(travel);
-        _stepCount = AddInt32(FloatToInt32(distance / _stepDistance), 1);
+        _stepCount = AddInt32(ConvertToInt32Net9(distance / _stepDistance), 1);
         if (distance == 0.0F)
         {
             _speed = Vector3::Zero;

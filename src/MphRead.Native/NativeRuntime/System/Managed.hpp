@@ -7,6 +7,8 @@
 #include "Exceptions.hpp"
 
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <type_traits>
 
@@ -66,5 +68,27 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] inline double RoundToEven(double value) noexcept
     {
         return std::nearbyint(value);
+    }
+
+    // (int)value for a float, as .NET 9 does it: toward zero, NaN is 0, and
+    // anything out of range saturates. Before .NET 9 the x64 JIT gave
+    // int.MinValue for all three, which is what four of the per-file copies
+    // this replaces still did.
+    [[nodiscard]] inline std::int32_t ConvertToInt32Net9(float value) noexcept
+    {
+        if (std::isnan(value))
+        {
+            return 0;
+        }
+        const double wide = static_cast<double>(value);
+        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
+        {
+            return std::numeric_limits<std::int32_t>::min();
+        }
+        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
+        {
+            return std::numeric_limits<std::int32_t>::max();
+        }
+        return static_cast<std::int32_t>(std::trunc(wide));
     }
 }

@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -83,17 +84,6 @@ namespace MphRead::Entities::Enemies
             const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
                 + std::bit_cast<std::uint32_t>(right);
             return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
-        {
-            if (!std::isfinite(value)
-                || value >= 2147483648.0F
-                || value < -2147483648.0F)
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] bool HitPlayerAt(
@@ -401,11 +391,11 @@ namespace MphRead::Entities::Enemies
         {
             const float factor
                 = std::clamp(distance / _field1A0, 0.0F, 1.0F);
-            damage = FloatToInt32(
+            damage = ConvertToInt32Net9(
                 static_cast<float>(damage)
                 - static_cast<float>(damage) * factor);
             dirMag = static_cast<float>(
-                FloatToInt32(dirMag - dirMag * factor));
+                ConvertToInt32Net9(dirMag - dirMag * factor));
         }
         if (distance > 1.0F / 128.0F)
         {

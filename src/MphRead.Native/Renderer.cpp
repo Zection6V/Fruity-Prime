@@ -1,6 +1,7 @@
 #include "Renderer.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
+#include "NativeRuntime/System/SceneGate.hpp"
 #include "Scene.hpp"
 #include "SceneSetup.hpp"
 #include "GameState.hpp"
@@ -1702,6 +1703,7 @@ namespace MphRead
 
     void Scene::OnSimulationFrame()
     {
+        const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         ++_effectFrame;
         _frameTime = 1.0F / 60.0F;
         if (_breakNextFrame)
@@ -1808,6 +1810,7 @@ namespace MphRead
 
     void Scene::OnDrawFrame()
     {
+        const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
         Vector2i target = RenderSize();
         if (target != _targetSize)
@@ -2164,6 +2167,7 @@ namespace MphRead
 
     bool Scene::OnRenderFrame()
     {
+        const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         CountFrame();
         GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit | GL::ClearBufferMask::StencilBufferBit);
         GL::ClearStencil(0);

@@ -1,6 +1,7 @@
 #include "RoomEntity.hpp"
 
 #include "../NativeRuntime/System/Buffers.hpp"
+#include "../NativeRuntime/System/SceneGate.hpp"
 
 #include "../Formats/Collision.hpp"
 #include "../Formats/CollisionDetection.hpp"
@@ -1032,6 +1033,7 @@ namespace MphRead::Entities
                 {
                     return;
                 }
+                const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
                 self->ProcessTransition(token, self);
             });
             std::thread(std::move(task)).detach();
@@ -1107,7 +1109,17 @@ namespace MphRead::Entities
         {
             while (RequireReference(_scene).LoadedEntities().Count() != 0)
             {
+                // The worker (the only caller passing a token) holds the scene
+                // gate; the main thread cannot drain the queue until it lets go.
+                if (token != nullptr)
+                {
+                    NativeRuntime::SceneGate().unlock();
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                if (token != nullptr)
+                {
+                    NativeRuntime::SceneGate().lock();
+                }
                 if (token != nullptr && token->load())
                 {
                     return;

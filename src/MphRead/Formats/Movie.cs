@@ -138,8 +138,11 @@ namespace MphRead
             }
             if (_topMovieBinding == -1)
             {
-                _topMovieBinding = ++_textureCount;
-                _botMovieBinding = ++_textureCount;
+                // Movie textures share the same graphics object namespace as
+                // scene/model/launcher textures. Allocate real backend object
+                // names instead of reviving Scene's old per-instance counter.
+                _topMovieBinding = GL.GenTexture();
+                _botMovieBinding = GL.GenTexture();
             }
             GL.BindTexture(TextureTarget.Texture2D, _topMovieBinding);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, _frameWidth, _frameHeight, 0,

@@ -1629,6 +1629,38 @@ namespace
         }
     }
 
+    [[nodiscard]] bool ThrownByRethrowException(void* const* frames, USHORT count) noexcept
+    {
+#if defined(_M_X64) || defined(__x86_64__)
+        static const DWORD64 rethrowStart = []() -> DWORD64
+        {
+            void (*rethrow)(std::exception_ptr) = &std::rethrow_exception;
+            DWORD64 imageBase = 0;
+            const PRUNTIME_FUNCTION function = ::RtlLookupFunctionEntry(
+                reinterpret_cast<DWORD64>(rethrow), &imageBase, nullptr);
+            return function == nullptr ? 0 : imageBase + function->BeginAddress;
+        }();
+        if (rethrowStart == 0)
+        {
+            return false;
+        }
+        for (USHORT index = 0; index < count && index < 12; ++index)
+        {
+            DWORD64 imageBase = 0;
+            const PRUNTIME_FUNCTION function = ::RtlLookupFunctionEntry(
+                reinterpret_cast<DWORD64>(frames[index]), &imageBase, nullptr);
+            if (function != nullptr && imageBase + function->BeginAddress == rethrowStart)
+            {
+                return true;
+            }
+        }
+#else
+        (void)frames;
+        (void)count;
+#endif
+        return false;
+    }
+
     LONG CALLBACK FirstChanceFaultHandler(EXCEPTION_POINTERS* pointers)
     {
         const EXCEPTION_RECORD& record = *pointers->ExceptionRecord;
@@ -1640,9 +1672,19 @@ namespace
                 ? reinterpret_cast<const void*>(record.ExceptionInformation[objectIndex]) : nullptr;
             if (!ThrowRecordPinned && (object == nullptr || object != ThrowObject))
             {
-                ThrowObject = object;
-                ThrowFrameCount = ::CaptureStackBackTrace(1,
-                    static_cast<DWORD>(ThrowFrames.size()), ThrowFrames.data(), nullptr);
+                std::array<void*, 48> frames{};
+                const USHORT count = ::CaptureStackBackTrace(1,
+                    static_cast<DWORD>(frames.size()), frames.data(), nullptr);
+                // std::rethrow_exception is how a stored exception is read,
+                // by the log and by whatever turns it into a message: a new
+                // throw of an old exception, which must not replace where
+                // that exception came from.
+                if (!ThrownByRethrowException(frames.data(), count))
+                {
+                    ThrowObject = object;
+                    ThrowFrames = frames;
+                    ThrowFrameCount = count;
+                }
             }
             return EXCEPTION_CONTINUE_SEARCH;
         }

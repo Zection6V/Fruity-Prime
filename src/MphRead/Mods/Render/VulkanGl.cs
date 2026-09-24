@@ -100,6 +100,8 @@ namespace MphRead.Mods.Render
             public uint Height;
             public bool Depth;
             public bool Linear;
+            public SamplerAddressMode AddressU = SamplerAddressMode.Wrap;
+            public SamplerAddressMode AddressV = SamplerAddressMode.Wrap;
             public int Version;
 
             public void Dispose()
@@ -156,6 +158,7 @@ namespace MphRead.Mods.Render
         private static Shader[]? _backdropShaders;
         private static readonly Dictionary<string, Pipeline> _pipelines = new();
         private static readonly Dictionary<string, ResourceSet> _sets = new();
+        private static readonly Dictionary<string, Sampler> _samplers = new();
 
         private static readonly Dictionary<int, TextureInfo> _textures = new();
         private static readonly Dictionary<int, FramebufferInfo> _framebuffers = new();
@@ -337,6 +340,7 @@ namespace MphRead.Mods.Render
             _gd.WaitForIdle();
             foreach (Pipeline pipeline in _pipelines.Values) pipeline.Dispose();
             foreach (ResourceSet set in _sets.Values) set.Dispose();
+            foreach (Sampler sampler in _samplers.Values) sampler.Dispose();
             foreach (TextureInfo texture in _textures.Values) texture.Dispose();
             foreach (FramebufferInfo framebuffer in _framebuffers.Values) framebuffer.Dispose();
             foreach (RenderbufferInfo renderbuffer in _renderbuffers.Values) renderbuffer.Dispose();
@@ -357,6 +361,7 @@ namespace MphRead.Mods.Render
 
             _pipelines.Clear();
             _sets.Clear();
+            _samplers.Clear();
             _textures.Clear();
             _framebuffers.Clear();
             _renderbuffers.Clear();
@@ -902,17 +907,37 @@ namespace MphRead.Mods.Render
             TextureInfo t1 = _boundTextures[1] == 0 ? _white! : GetTexture(_boundTextures[1]);
             if (t0.View == null) t0 = _white!;
             if (t1.View == null) t1 = _white!;
-            string key = $"{_boundTextures[0]}:{t0.Version}:{t0.Linear}|{_boundTextures[1]}:{t1.Version}:{t1.Linear}";
+            string key = $"{_boundTextures[0]}:{t0.Version}:{t0.Linear}:{t0.AddressU}:{t0.AddressV}"
+                + $"|{_boundTextures[1]}:{t1.Version}:{t1.Linear}:{t1.AddressU}:{t1.AddressV}";
             if (_sets.TryGetValue(key, out ResourceSet? set))
             {
                 return set;
             }
-            Sampler s0 = t0.Linear ? _gd!.LinearSampler : _gd!.PointSampler;
-            Sampler s1 = t1.Linear ? _gd!.LinearSampler : _gd!.PointSampler;
+            Sampler s0 = GetSampler(t0);
+            Sampler s1 = GetSampler(t1);
             set = _factory!.CreateResourceSet(new ResourceSetDescription(
                 _layout!, _ubo!, t0.View!, s0, t1.View!, s1));
             _sets[key] = set;
             return set;
+        }
+
+        private static Sampler GetSampler(TextureInfo texture)
+        {
+            if (texture.AddressU == SamplerAddressMode.Wrap && texture.AddressV == SamplerAddressMode.Wrap)
+            {
+                return texture.Linear ? _gd!.LinearSampler : _gd!.PointSampler;
+            }
+            string key = $"{texture.Linear}:{texture.AddressU}:{texture.AddressV}";
+            if (_samplers.TryGetValue(key, out Sampler? sampler))
+            {
+                return sampler;
+            }
+            var description = texture.Linear ? SamplerDescription.Linear : SamplerDescription.Point;
+            description.AddressModeU = texture.AddressU;
+            description.AddressModeV = texture.AddressV;
+            sampler = _factory!.CreateSampler(description);
+            _samplers[key] = sampler;
+            return sampler;
         }
 
         private static ProgramInfo CurrentProgramInfo()
@@ -1144,6 +1169,26 @@ namespace MphRead.Mods.Render
                     info.Linear = linear;
                     InvalidateSets();
                 }
+                return;
+            }
+            if (pname == TextureParameterName.TextureWrapS || pname == TextureParameterName.TextureWrapT)
+            {
+                SamplerAddressMode address = param == (int)TextureWrapMode.MirroredRepeat
+                    ? SamplerAddressMode.Mirror
+                    : param == (int)TextureWrapMode.ClampToEdge || param == (int)TextureWrapMode.Clamp
+                        ? SamplerAddressMode.Clamp
+                        : SamplerAddressMode.Wrap;
+                if (pname == TextureParameterName.TextureWrapS)
+                {
+                    if (address == info.AddressU) return;
+                    info.AddressU = address;
+                }
+                else
+                {
+                    if (address == info.AddressV) return;
+                    info.AddressV = address;
+                }
+                InvalidateSets();
             }
         }
 

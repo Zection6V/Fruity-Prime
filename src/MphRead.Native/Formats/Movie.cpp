@@ -4915,8 +4915,8 @@ namespace MphRead
                             stereoBuffer[j * 2] = buffer1[j];
                             stereoBuffer[j * 2 + 1] = buffer2[j];
                         }
-                        AL::BufferData(queueBuffers[i], ALFormat::Stereo16, stereoBuffer,
-                            VxDecoder::Instance1().AudioSampleRate);
+                        AL::BufferData(queueBuffers[i], ALFormat::Stereo16,
+                            std::span<const std::int16_t>(stereoBuffer), VxDecoder::Instance1().AudioSampleRate);
                     }
                     else
                     {

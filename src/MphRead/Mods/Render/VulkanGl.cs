@@ -1573,7 +1573,12 @@ namespace MphRead.Mods.Render
             else if (attachment == GLFramebufferAttachment.DepthStencilAttachment
                 || attachment == GLFramebufferAttachment.DepthAttachment)
             {
+                // OpenGL has one object binding per attachment point. Attaching
+                // a texture replaces any renderbuffer previously bound there;
+                // otherwise detaching this texture later would incorrectly
+                // resurrect a stale renderbuffer.
                 fb.DepthTexture = texture;
+                fb.DepthRenderbuffer = 0;
             }
             DisposePipelineCache();
         }

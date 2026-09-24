@@ -5,6 +5,7 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cassert>
@@ -15,6 +16,9 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace MphRead::Entities::Enemies
 {
@@ -63,16 +67,6 @@ namespace MphRead::Entities::Enemies
         {
             value.Y = y;
             return value;
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] std::int32_t UncheckedSubtractInt32(

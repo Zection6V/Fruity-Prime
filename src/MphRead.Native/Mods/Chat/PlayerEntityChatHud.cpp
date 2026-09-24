@@ -5,6 +5,7 @@
 #include "../../Scene.hpp"
 #include "../Network/NetProtocol.hpp"
 #include "ChatFont.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -17,28 +18,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] std::u16string ToChatChars(std::string_view text)
     {
         std::u16string result;

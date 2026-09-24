@@ -9,6 +9,7 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <any>
 #include <bit>
@@ -19,6 +20,8 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace MphRead::Entities::Enemies
 {
@@ -31,26 +34,6 @@ namespace MphRead::Entities::Enemies
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] Enemy45Entity& RequireEnemy(Enemy45Entity* enemy)

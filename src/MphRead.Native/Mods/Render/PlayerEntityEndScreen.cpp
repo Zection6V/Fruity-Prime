@@ -6,6 +6,7 @@
 #include "../HunterSuits.hpp"
 #include "../Launcher/Portable/LaunchPlan.hpp"
 #include "../Network/PlayerColors.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -13,6 +14,8 @@
 #include <memory>
 #include <new>
 #include <string>
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace
 {
@@ -23,16 +26,6 @@ namespace
         target.~Hit();
         ::new (static_cast<void*>(std::addressof(target)))
             MphRead::Mods::EndScreen::Hit(source);
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
     }
 
     [[nodiscard]] std::string HunterUpperName(MphRead::Hunter hunter)

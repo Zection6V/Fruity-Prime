@@ -5,6 +5,8 @@
 #include "../../Scene.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cassert>
@@ -15,6 +17,9 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
 
 namespace MphRead::Entities::Enemies
 {
@@ -30,16 +35,6 @@ namespace MphRead::Entities::Enemies
             return typedSpawner;
         }
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy11Entity& RequireEnemy(Enemy11Entity* enemy)
         {
             return RequireReference(enemy);
@@ -53,12 +48,6 @@ namespace MphRead::Entities::Enemies
                 throw System::NullReferenceException();
             }
             return *player;
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(
-                value.X * value.X + value.Y * value.Y + value.Z * value.Z);
         }
 
         [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept

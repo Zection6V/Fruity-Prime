@@ -10,6 +10,8 @@
 #include "../Renderer.hpp"
 #include "../Scene.hpp"
 #include "../Selection.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -17,32 +19,15 @@
 #include <stdexcept>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix3;
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     template <typename T>
     [[nodiscard]] const T& ManagedReadOnlyListAt(
@@ -128,11 +113,6 @@ namespace
     [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
     {
         return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-    }
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
     }
 
     [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept

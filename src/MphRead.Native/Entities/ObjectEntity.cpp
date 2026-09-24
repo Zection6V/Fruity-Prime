@@ -8,6 +8,7 @@
 #include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../Formats/Types.hpp"
 
 #include <any>
 #include <bit>
@@ -18,6 +19,9 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
+
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
 
 namespace
 {
@@ -49,13 +53,6 @@ namespace
         {
             throw MphRead::Memory::Detail::InvalidCastException();
         }
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
     }
 
     [[nodiscard]] std::int32_t GetRoomId(MphRead::Scene* scene)
@@ -143,11 +140,6 @@ namespace
         result.M44 = left.M41 * right.M14 + left.M42 * right.M24
             + left.M43 * right.M34 + left.M44 * right.M44;
         return result;
-    }
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
     }
 
     [[nodiscard]] Matrix4 ClearScale(Matrix4 value) noexcept

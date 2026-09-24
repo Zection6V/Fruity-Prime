@@ -30,6 +30,8 @@
 #include "DoorEntity.hpp"
 #include "EnemySpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -52,6 +54,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
+
 namespace
 {
     using MphRead::Formats::Culling::FrustumInfo;
@@ -64,36 +70,6 @@ namespace
     [[noreturn]] void ThrowNullReference()
     {
         throw System::NullReferenceException();
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            ThrowNullReference();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            ThrowNullReference();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& RequireReference(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            ThrowNullReference();
-        }
-        return *value;
     }
 
     [[nodiscard]] MphRead::Model& RequireModel(MphRead::ModelInstance& instance)
@@ -278,11 +254,6 @@ namespace
         return Vector3(MathFMax(left.X, right.X), MathFMax(left.Y, right.Y), MathFMax(left.Z, right.Z));
     }
 
-    [[nodiscard]] float Length(Vector3 value)
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
-    }
-
     template <std::size_t Size>
     [[nodiscard]] std::string MarshalString(const char (&value)[Size])
     {
@@ -297,13 +268,6 @@ namespace
     [[nodiscard]] bool StartsWith(std::string_view value, std::string_view prefix) noexcept
     {
         return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) != 0;
     }
 
     template <typename TEnum>

@@ -3,10 +3,13 @@
 #include "39_FireSpawn.hpp"
 #include "../../MemoryArrays.hpp"
 #include "../../Messaging.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <any>
 #include <cassert>
 #include <cstdint>
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace MphRead::Entities::Enemies
 {
@@ -14,16 +17,6 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw Memory::Detail::NullReferenceException();
-            }
-            return *value;
-        }
 
         [[nodiscard]] EnemyInstanceEntity* CastOwner(EntityBase* spawner) noexcept
         {

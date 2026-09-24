@@ -8,6 +8,8 @@
 #include "../EnemyInstanceEntity.hpp"
 #include "PlayerEntity.hpp"
 #include "PlayerHud.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -23,6 +25,9 @@
 #include <string>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+
 namespace
 {
     using MphRead::Entities::EntityBase;
@@ -30,26 +35,6 @@ namespace
     using MphRead::Entities::EnemyInstanceEntity;
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     template <typename T>
     [[nodiscard]] T& RequireOptional(std::optional<T>& value)
@@ -106,13 +91,6 @@ namespace
             throw MphRead::SceneDetail::InvalidCastException();
         }
         return *cast;
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
     }
 
     [[nodiscard]] constexpr std::int32_t ManagedAdd(

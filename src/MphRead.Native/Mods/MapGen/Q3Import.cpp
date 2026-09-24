@@ -12,6 +12,7 @@
 #include "MapTexturePack.hpp"
 #include "Q3Bsp.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -36,6 +37,7 @@
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::OpenTK::Mathematics::LengthSquared;
 
 namespace
 {
@@ -246,11 +248,6 @@ namespace
     [[nodiscard]] constexpr Vector2 Multiply(Vector2 value, float scalar) noexcept
     {
         return Vector2(value.X * scalar, value.Y * scalar);
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
     }
 
     [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept

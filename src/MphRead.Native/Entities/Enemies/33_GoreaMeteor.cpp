@@ -7,6 +7,8 @@
 #include "../../Utility/Rng.hpp"
 #include "../ItemInstanceEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -21,6 +23,11 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -29,29 +36,9 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy33Entity& RequireEnemy(Enemy33Entity* enemy)
         {
             return RequireReference(enemy);
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value) noexcept
-        {
-            return std::sqrt(LengthSquared(value));
         }
 
         [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
@@ -68,11 +55,6 @@ namespace MphRead::Entities::Enemies
         {
             value.Y = y;
             return value;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept

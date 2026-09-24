@@ -10,6 +10,8 @@
 #include "../Sound/Sfx.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "RoomEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <array>
 #include <cassert>
@@ -23,6 +25,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::LengthSquared;
+
 namespace
 {
     using MphRead::AnimFlags;
@@ -34,33 +40,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] MphRead::StorySave& RequireStorySave()
     {
@@ -135,11 +114,6 @@ namespace
     [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
     {
         return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
     }
 
     template <std::size_t Size>

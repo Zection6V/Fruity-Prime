@@ -2,23 +2,16 @@
 
 #include "../../Metadata/Metadata.hpp"
 #include "../EnemySpawnEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <cassert>
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace MphRead::Entities::Enemies
 {
     namespace
     {
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
         {
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);

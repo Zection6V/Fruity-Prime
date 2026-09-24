@@ -10,6 +10,8 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -22,6 +24,11 @@
 #include <optional>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
 
 namespace MphRead::Entities::Enemies
 {
@@ -38,35 +45,9 @@ namespace MphRead::Entities::Enemies
             return typedSpawner;
         }
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy18Entity& RequireEnemy(Enemy18Entity* enemy)
         {
             return RequireReference(enemy);
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(
-                value.X * value.X + value.Y * value.Y + value.Z * value.Z);
         }
 
         [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
@@ -78,16 +59,6 @@ namespace MphRead::Entities::Enemies
         {
             value.Y += amount;
             return value;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
-        }
-
-        [[nodiscard]] float RadiansToDegrees(float radians) noexcept
-        {
-            return radians * (180.0F / 3.14159265358979323846F);
         }
 
         [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept

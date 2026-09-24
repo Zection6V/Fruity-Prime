@@ -5,6 +5,7 @@
 #include "MemoryClasses.hpp"
 #include "Program.hpp"
 #include "Scene.hpp"
+#include "NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -46,6 +47,8 @@
 #include <dirent.h>
 #endif
 #endif
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace
 {
@@ -1368,15 +1371,6 @@ namespace
     }
 #endif
 
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 }
 
 namespace MphRead::Memory

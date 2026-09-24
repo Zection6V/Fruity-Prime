@@ -28,6 +28,8 @@
 #include "../../Mods/Network/NetHitPrediction.hpp"
 #include "../../Mods/RespawnChoice.hpp"
 #include "../../Sound/Music.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -43,6 +45,11 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestAny;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::LengthSquared;
 
 namespace
 {
@@ -61,26 +68,6 @@ namespace
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
 
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
     {
         return std::make_shared<const std::any>(value);
@@ -91,28 +78,9 @@ namespace
         return std::make_shared<const std::any>(value);
     }
 
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestAny(TEnum value, TEnum flags) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flags)) != 0;
-    }
-
     [[nodiscard]] constexpr Vector3 Negate(Vector3 value) noexcept
     {
         return Vector3(-value.X, -value.Y, -value.Z);
-    }
-
-    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
     }
 
     [[nodiscard]] Matrix4 IdentityMatrix() noexcept

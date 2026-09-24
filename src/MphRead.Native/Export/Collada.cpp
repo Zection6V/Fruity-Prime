@@ -8,6 +8,7 @@
 #include "../Program.hpp"
 #include "../Read.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -26,6 +27,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
 
 namespace
 {
@@ -187,11 +189,6 @@ namespace
         return std::min(std::max(value, 0.0F), 1.0F);
     }
 
-    [[nodiscard]] float RadiansToDegrees(float radians) noexcept
-    {
-        constexpr float RadiansToDegreesFactor = 57.295779513082320876798154814105F;
-        return radians * RadiansToDegreesFactor;
-    }
 }
 
 namespace MphRead::Export

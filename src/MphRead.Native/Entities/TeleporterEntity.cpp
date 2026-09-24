@@ -11,6 +11,8 @@
 #include "../Scene.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "RoomEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <any>
 #include <bit>
@@ -26,6 +28,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
@@ -34,26 +40,6 @@ namespace
 
     constexpr Vector3 UnitX(1.0F, 0.0F, 0.0F);
 
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] MphRead::StorySave& RequireStorySave()
     {
         if (MphRead::GameState::StorySave == nullptr)
@@ -61,14 +47,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *MphRead::GameState::StorySave;
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag))
-            == static_cast<Underlying>(flag);
     }
 
     [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
@@ -225,11 +203,6 @@ namespace
             Vector4(-sine, cosine, 0.0F, 0.0F),
             Vector4(0.0F, 0.0F, 1.0F, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (3.14159265358979323846F / 180.0F);
     }
 
     void SetRow3(Matrix4& matrix, Vector3 value) noexcept

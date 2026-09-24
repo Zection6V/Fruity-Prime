@@ -4,6 +4,7 @@
 #include "../../MemoryArrays.hpp"
 #include "../../Metadata/Enemies.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -11,32 +12,14 @@
 #include <memory>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
     {
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         template <typename T>
         [[nodiscard]] const T& ManagedListAt(

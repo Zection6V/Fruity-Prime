@@ -1,8 +1,8 @@
 #include "MapNodePacker.hpp"
 
 #include "../../Formats/NodeData.hpp"
-#include "../../Formats/Types.hpp"
 #include "BuiltMap.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -17,6 +17,7 @@
 #include <unordered_set>
 #include <utility>
 
+using ::OpenTK::Mathematics::Length;
 
 namespace MphRead::Mods::MapGen
 {
@@ -114,11 +115,6 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] Vector3 Multiply(Vector3 value, float scalar) noexcept
         {
             return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-        }
-
-        [[nodiscard]] float Length(Vector3 value) noexcept
-        {
-            return std::sqrt((value.X * value.X) + (value.Y * value.Y) + (value.Z * value.Z));
         }
 
         [[nodiscard]] std::int32_t UncheckedInt32(float value) noexcept

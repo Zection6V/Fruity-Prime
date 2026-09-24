@@ -25,6 +25,8 @@
 #include "PlatformEntity.hpp"
 #include "Players/HalfturretEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -38,49 +40,19 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Normalize;
+
 namespace
 {
     using MphRead::Entities::EntityBase;
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) != 0;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 v) noexcept
-    {
-        return v.X * v.X + v.Y * v.Y + v.Z * v.Z;
-    }
-
-    [[nodiscard]] float Length(Vector3 v) noexcept
-    {
-        return std::sqrt(LengthSquared(v));
-    }
 
     [[nodiscard]] bool IsZero(Vector3 v) noexcept
     {
@@ -105,12 +77,6 @@ namespace
     [[nodiscard]] Vector3 ComponentMultiply(Vector3 a, Vector3 b) noexcept
     {
         return Vector3(a.X * b.X, a.Y * b.Y, a.Z * b.Z);
-    }
-
-    [[nodiscard]] Vector3 Normalize(Vector3 v)
-    {
-        const float length = Length(v);
-        return Vector3(v.X / length, v.Y / length, v.Z / length);
     }
 
     [[nodiscard]] Vector3 AddY(Vector3 v, float y) noexcept
@@ -321,10 +287,6 @@ namespace
         return container[static_cast<std::size_t>(index)];
     }
 
-    [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (3.14159265358979323846F / 180.0F);
-    }
 }
 
 namespace MphRead::Entities

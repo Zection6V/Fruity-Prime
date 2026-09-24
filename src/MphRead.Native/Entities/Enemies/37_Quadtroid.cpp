@@ -8,6 +8,8 @@
 #include "../BombEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cassert>
@@ -20,42 +22,15 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::LengthSquared;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
     {
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& RequireReference(const std::shared_ptr<const T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         template <typename T>
         [[nodiscard]] T& CastReference(EntityBase* value)
@@ -105,11 +80,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] constexpr bool Equal(Vector3 left, Vector3 right) noexcept
         {
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
         }
 
         [[nodiscard]] std::int32_t AddInt32Unchecked(

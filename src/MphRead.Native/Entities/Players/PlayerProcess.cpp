@@ -24,6 +24,8 @@
 #include "../../Mods/Network/NetHooks.hpp"
 #include "../../Sound/Sfx.hpp"
 #include "../../Utility/Rng.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -43,6 +45,14 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestAny;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Normalize;
+
 namespace
 {
     using MphRead::CollisionVolume;
@@ -57,40 +67,6 @@ namespace
     constexpr Vector3 UnitX(1.0F, 0.0F, 0.0F);
     constexpr Vector3 UnitY(0.0F, 1.0F, 0.0F);
     constexpr Vector3 UnitZ(0.0F, 0.0F, 1.0F);
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestAny(TEnum value, TEnum flags) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flags)) != 0;
-    }
 
     template <typename T>
     [[nodiscard]] T& ManagedAt(MphRead::ManagedArray<T>& values, std::int32_t index)
@@ -255,33 +231,9 @@ namespace
         return value;
     }
 
-    [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(LengthSquared(value));
-    }
-
-    [[nodiscard]] Vector3 Normalize(Vector3 value)
-    {
-        const float scale = 1.0F / Length(value);
-        value.X *= scale;
-        value.Y *= scale;
-        value.Z *= scale;
-        return value;
-    }
-
     [[nodiscard]] float DistanceSquared(Vector3 left, Vector3 right) noexcept
     {
         return LengthSquared(Subtract(left, right));
-    }
-
-    [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * 0.01745329251994329576923690768489F;
     }
 
     [[nodiscard]] float MathMin(float x, float y) noexcept

@@ -14,6 +14,7 @@
 #include "NetSession.hpp"
 #include "NetTestScript.hpp"
 #include "../../Scene.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +26,8 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+
+using ::OpenTK::Mathematics::LengthSquared;
 
 namespace
 {
@@ -43,11 +46,6 @@ namespace
     constexpr std::uint32_t WeaponFlagCanZoom = 0x800U;
 
     constexpr std::uint16_t AnimFlagEnded = 0x10U;
-
-    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
 
     [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scale) noexcept
     {
@@ -275,7 +273,7 @@ namespace MphRead::Entities
         const Vector3 gun = aim.Normalized();
         ((*this)._gunVec1 = gun);
         const float flat = std::sqrt(gun.X * gun.X + gun.Z * gun.Z);
-        constexpr float RadiansToDegrees = 57.2957795130823208768F;
+        constexpr float RadiansToDegrees = ::OpenTK::Mathematics::MathHelper::RadToDeg;
         const float aimY = std::clamp(
             std::atan2(gun.Y, flat) * RadiansToDegrees, -85.0F, 85.0F);
         ((*this)._aimY = aimY);
@@ -432,7 +430,7 @@ namespace MphRead::Entities
     bool PlayerEntity::ModInPlay() const
     {
         return (*this).Health() > 0
-            && !HasFlag(static_cast<std::uint32_t>((*this).Flags2()), PlayerFlagSpectating);
+            && !::HasFlag(static_cast<std::uint32_t>((*this).Flags2()), PlayerFlagSpectating);
     }
 
     bool PlayerEntity::ModIsInPlay() const
@@ -501,7 +499,7 @@ namespace MphRead::Entities
         const float tz = desired.Z / flatLength;
         const float ax = gun.X / aimFlat;
         const float az = gun.Z / aimFlat;
-        constexpr float RadiansToDegrees = 57.2957795130823208768F;
+        constexpr float RadiansToDegrees = ::OpenTK::Mathematics::MathHelper::RadToDeg;
         const float turn = -std::atan2(
             ax * tz - az * tx, ax * tx + az * tz) * RadiansToDegrees;
         const float targetPitch
@@ -712,7 +710,7 @@ namespace MphRead::Entities
         const MphRead::BeamType currentForCharge = (*this).CurrentWeapon();
         const bool chargeable = (*this)._availableCharges[currentForCharge];
         const MphRead::Affliction affliction = (*(*this).EquipInfo()->Weapon->Afflictions)[1];
-        const bool shooting = HasFlag(
+        const bool shooting = ::HasFlag(
             static_cast<std::uint32_t>((*this).Flags2()), PlayerFlagShooting);
 
         return BeamTypeText(currentForText)
@@ -1027,7 +1025,7 @@ namespace MphRead::Entities
             return;
         }
         const std::uint32_t flags1 = static_cast<std::uint32_t>((*this).Flags1());
-        if (HasFlag(flags1, PlayerFlagNoAimInput))
+        if (::HasFlag(flags1, PlayerFlagNoAimInput))
         {
             return;
         }

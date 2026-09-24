@@ -1,4 +1,5 @@
 #include "TestParse.hpp"
+#include "../Formats/Types.hpp"
 
 #include <bit>
 #include <cmath>
@@ -9,6 +10,9 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
 
 namespace
 {
@@ -217,12 +221,6 @@ namespace
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
-    [[nodiscard]] float Length(Vector3 value)
-    {
-        return std::sqrt(
-            (value.X * value.X) + (value.Y * value.Y) + (value.Z * value.Z));
-    }
-
     [[nodiscard]] Quaternion ExtractRotation(Matrix4 value)
     {
         Vector3 row0(value.M11, value.M12, value.M13);
@@ -349,12 +347,6 @@ namespace
                 sqw - sqx - sqy + sqz);
         }
         return eulerAngles;
-    }
-
-    [[nodiscard]] constexpr float RadiansToDegrees(float radians) noexcept
-    {
-        constexpr float radToDeg = 180.0F / 3.1415927F;
-        return radians * radToDeg;
     }
 
     [[nodiscard]] Vector3 ExtractTranslation(Matrix4 value) noexcept

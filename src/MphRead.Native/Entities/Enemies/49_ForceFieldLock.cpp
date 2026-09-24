@@ -6,6 +6,7 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../ForceFieldEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <any>
 #include <bit>
@@ -15,6 +16,8 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace MphRead::Entities::Enemies
 {
@@ -27,26 +30,6 @@ namespace MphRead::Entities::Enemies
             ForceFieldEntity* typedSpawner = dynamic_cast<ForceFieldEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] PlayerEntity& MainPlayer()

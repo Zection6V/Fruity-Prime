@@ -11,6 +11,8 @@
 #include "../EntityBase.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -46,20 +48,15 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
     using ::OpenTK::Mathematics::Matrix4x3;
     using ::OpenTK::Mathematics::Vector3;
     using ::OpenTK::Mathematics::Vector4;
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag))
-            == static_cast<Underlying>(flag);
-    }
 
     template <typename TEnum>
     [[nodiscard]] constexpr TEnum SetFlag(TEnum value, TEnum flag) noexcept
@@ -75,16 +72,6 @@ namespace
         using Underlying = std::underlying_type_t<TEnum>;
         return static_cast<TEnum>(
             static_cast<Underlying>(value) & ~static_cast<Underlying>(flag));
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
     }
 
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
@@ -128,11 +115,6 @@ namespace
     {
         return left.X * right.X + left.Y * right.Y
             + left.Z * right.Z + left.W * right.W;
-    }
-
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * 0.01745329251994329576923690768489F;
     }
 
     [[nodiscard]] std::string ReplaceAll(

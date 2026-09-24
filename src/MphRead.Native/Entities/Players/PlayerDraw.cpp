@@ -10,6 +10,8 @@
 #include "../../Scene.hpp"
 #include "../CamSeq/CameraSequence.hpp"
 #include "PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -25,19 +27,17 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace
 {
     using MphRead::ManagedArray;
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
 
     template <typename TEnum>
     [[nodiscard]] constexpr TEnum AddFlag(TEnum value, TEnum flag) noexcept
@@ -51,32 +51,6 @@ namespace
     {
         using U = std::underlying_type_t<TEnum>;
         return static_cast<TEnum>(static_cast<U>(value) & ~static_cast<U>(flag));
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T& value) noexcept
-    {
-        return value;
     }
 
     template <typename T>
@@ -166,11 +140,6 @@ namespace
         return Vector3(-value.X, -value.Y, -value.Z);
     }
 
-    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
     [[nodiscard]] Matrix4 IdentityMatrix() noexcept
     {
         return Matrix4(
@@ -240,11 +209,6 @@ namespace
             Vector4(0.0F, 1.0F, 0.0F, 0.0F),
             Vector4(s, 0.0F, c, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (3.14159265358979323846F / 180.0F);
     }
 
     [[nodiscard]] constexpr Vector3 MatrixRow3(const Matrix4& matrix) noexcept

@@ -7,6 +7,7 @@
 #include "../../Messaging.hpp"
 #include "../BeamProjectileEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <any>
 #include <cassert>
@@ -15,6 +16,8 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace MphRead::Entities::Enemies
 {
@@ -28,26 +31,6 @@ namespace MphRead::Entities::Enemies
             Enemy19Entity* owner = dynamic_cast<Enemy19Entity*>(spawner);
             assert(owner != nullptr);
             return owner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] PlayerEntity& MainPlayer()

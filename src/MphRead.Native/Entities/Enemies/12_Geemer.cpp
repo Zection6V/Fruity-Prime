@@ -7,6 +7,8 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cassert>
@@ -15,6 +17,10 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace MphRead::Entities::Enemies
 {
@@ -27,16 +33,6 @@ namespace MphRead::Entities::Enemies
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         template <typename T>
@@ -77,16 +73,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
         {
             return Vector3(value.X, y, value.Z);
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept

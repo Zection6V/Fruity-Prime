@@ -7,6 +7,8 @@
 #include "../../Messaging.hpp"
 #include "../../Scene.hpp"
 #include "../BeamProjectileEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <any>
 #include <bit>
@@ -19,6 +21,9 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace MphRead::Entities::Enemies
 {
@@ -33,26 +38,6 @@ namespace MphRead::Entities::Enemies
             Enemy41Entity* typedSpawner = dynamic_cast<Enemy41Entity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         template <typename T>
@@ -141,11 +126,6 @@ namespace MphRead::Entities::Enemies
                     cosine + z * z * oneMinus,
                     0.0F),
                 Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)

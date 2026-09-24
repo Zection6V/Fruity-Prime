@@ -2,6 +2,7 @@
 
 #include "../../HUD/HudInfo.hpp"
 #include "../../Strings.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -9,18 +10,10 @@
 #include <memory>
 #include <stdexcept>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     template <typename TContainer>
     [[nodiscard]] decltype(auto) ManagedAt(const TContainer& values, std::int32_t index)
     {

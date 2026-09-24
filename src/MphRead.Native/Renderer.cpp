@@ -60,6 +60,7 @@
 #include "Mods/Network/MapVote.hpp"
 #include "Mods/PauseMenu.hpp"
 #include "Mods/WindowMode.hpp"
+#include "Formats/Types.hpp"
 
 #include <algorithm>
 #include <unordered_set>
@@ -81,6 +82,8 @@
 #include <thread>
 #include <type_traits>
 
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 using OpenTK::Mathematics::Matrix4;
 using OpenTK::Mathematics::Vector2;
@@ -100,11 +103,6 @@ namespace
 {
     constexpr float Pi = 3.14159265358979323846F;
     constexpr float TwoPi = Pi * 2.0F;
-
-    [[nodiscard]] constexpr float DegreesToRadians(float value) noexcept
-    {
-        return value * (Pi / 180.0F);
-    }
 
     template <typename T>
     void RemoveFirst(std::vector<std::shared_ptr<T>>& values, const std::shared_ptr<T>& value)
@@ -134,11 +132,6 @@ namespace
     [[nodiscard]] Vector3 Negate(Vector3 v) noexcept
     {
         return Vector3(-v.X, -v.Y, -v.Z);
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 v) noexcept
-    {
-        return v.X * v.X + v.Y * v.Y + v.Z * v.Z;
     }
 
     [[nodiscard]] std::string BoolOnOff(bool v) { return v ? "on" : "off"; }
@@ -672,7 +665,6 @@ namespace MphRead
         Entities::PlayerEntity::Construct(this);
         Music::Init();
     }
-
 
     Vector2i Scene::Size() const noexcept { return _rendererSize; }
     void Scene::Size(Vector2i value) noexcept { _rendererSize = value; }
@@ -5022,7 +5014,6 @@ namespace MphRead
 #endif
     }
 
-
     void Scene::OutputStart()
     {
         _outputThread = RendererJThread([this](RendererStopToken token)
@@ -6126,7 +6117,6 @@ namespace MphRead
     {
         SetItem(GetKey(textureId, paletteId, recolorId), TextureMapValue{bindingId, onlyOpaque});
     }
-
 
 #undef MPHREAD_DEBUG_ASSERT
 

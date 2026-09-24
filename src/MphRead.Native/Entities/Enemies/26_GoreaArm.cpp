@@ -7,6 +7,8 @@
 #include "../../Metadata/Weapons.hpp"
 #include "../../Scene.hpp"
 #include "../BeamProjectileEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -16,32 +18,15 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::LengthSquared;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
     {
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         template <typename T>
         [[nodiscard]] const T& ManagedArrayAt(
@@ -71,11 +56,6 @@ namespace MphRead::Entities::Enemies
                 value.X * scale,
                 value.Y * scale,
                 value.Z * scale);
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
         }
 
         [[nodiscard]] std::int32_t ManagedAdd(

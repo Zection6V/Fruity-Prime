@@ -4,6 +4,7 @@
 #include "../../Metadata/Enemies.hpp"
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cassert>
@@ -11,6 +12,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace MphRead::Entities::Enemies
 {
@@ -38,11 +41,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
         {
             return Vector3(value.X, y, value.Z);
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept

@@ -4,6 +4,8 @@
 #include "../GameState.hpp"
 #include "../Scene.hpp"
 #include "Network/NetHooks.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -14,20 +16,13 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+
 namespace
 {
     using MphRead::Entities::LoadFlags;
     using MphRead::Entities::PlayerEntity;
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     template <typename TContainer>
     [[nodiscard]] decltype(auto) ManagedAt(TContainer&& values, std::int32_t index)
@@ -37,13 +32,6 @@ namespace
             throw MphRead::SceneDetail::IndexOutOfRangeException();
         }
         return std::forward<TContainer>(values)[static_cast<std::size_t>(index)];
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
     }
 
     [[nodiscard]] constexpr std::int32_t AddInt32Unchecked(

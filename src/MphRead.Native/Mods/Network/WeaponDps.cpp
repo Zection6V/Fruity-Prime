@@ -14,7 +14,8 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Culling.hpp"
 #include "../../Scene.hpp"
-
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -26,19 +27,14 @@
 #include <string>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Normalize;
+
 namespace
 {
     using OpenTK::Mathematics::Vector3;
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] std::int32_t AddInt32Unchecked(
         std::int32_t left, std::int32_t right) noexcept
@@ -57,17 +53,6 @@ namespace
     void IncrementInt32Unchecked(std::int32_t& value) noexcept
     {
         value = AddInt32Unchecked(value, 1);
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
-    [[nodiscard]] Vector3 Normalize(Vector3 value)
-    {
-        const float length = std::sqrt(LengthSquared(value));
-        return Vector3(value.X / length, value.Y / length, value.Z / length);
     }
 
     [[nodiscard]] Vector3 Add(Vector3 left, Vector3 right) noexcept
@@ -94,12 +79,6 @@ namespace
     {
         value.Y += y;
         return value;
-    }
-
-    [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-    {
-        constexpr float DegreesToRadiansFactor = 0.01745329251994329576923690768489F;
-        return degrees * DegreesToRadiansFactor;
     }
 
     [[nodiscard]] std::string HunterName(MphRead::Hunter value)

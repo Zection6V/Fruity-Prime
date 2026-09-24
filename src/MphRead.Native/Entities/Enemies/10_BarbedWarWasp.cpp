@@ -9,6 +9,8 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -22,6 +24,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -33,26 +39,6 @@ namespace MphRead::Entities::Enemies
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] Enemy10Entity& RequireEnemy(Enemy10Entity* enemy)
@@ -70,12 +56,6 @@ namespace MphRead::Entities::Enemies
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
         }
 
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(
-                value.X * value.X + value.Y * value.Y + value.Z * value.Z);
-        }
-
         [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
@@ -85,11 +65,6 @@ namespace MphRead::Entities::Enemies
         {
             value.Y += amount;
             return value;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept

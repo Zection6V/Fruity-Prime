@@ -7,6 +7,8 @@
 #include "../Scene.hpp"
 #include "ItemSpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <array>
 #include <cmath>
@@ -19,6 +21,10 @@
 #include <stdexcept>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
@@ -28,26 +34,6 @@ namespace
     constexpr Vector3 UnitY(0.0F, 1.0F, 0.0F);
     constexpr Vector3 UnitZ(0.0F, 0.0F, 1.0F);
     constexpr Vector3 One(1.0F, 1.0F, 1.0F);
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     template <typename T, std::size_t Size>
     [[nodiscard]] const T& GetListItem(
@@ -205,16 +191,6 @@ namespace
             value.X * scale,
             value.Y * scale,
             value.Z * scale);
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
-    [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (std::numbers::pi_v<float> / 180.0F);
     }
 
 }

@@ -5,6 +5,7 @@
 #include "../../Scene.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -14,6 +15,8 @@
 #include <optional>
 #include <utility>
 #include <vector>
+
+using ::OpenTK::Mathematics::Length;
 
 namespace MphRead::Entities::Enemies
 {
@@ -31,11 +34,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
         {
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt((value.X * value.X) + (value.Y * value.Y) + (value.Z * value.Z));
         }
 
         [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept

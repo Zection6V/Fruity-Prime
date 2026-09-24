@@ -7,6 +7,7 @@
 #include "../Renderer.hpp"
 #include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
+#include "Types.hpp"
 
 #include <bit>
 #include <cmath>
@@ -26,6 +27,10 @@
 #else
 #define MPH_EFFECTS_DEBUG_ASSERT(condition, ...) do { } while (false)
 #endif
+
+using ::MphRead::HasFlag;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
@@ -93,14 +98,6 @@ namespace
         return dictionary.at(key);
     }
 
-    [[nodiscard]] bool HasFlag(
-        MphRead::Effects::EffElemFlags value,
-        MphRead::Effects::EffElemFlags flag) noexcept
-    {
-        return (static_cast<std::uint32_t>(value)
-            & static_cast<std::uint32_t>(flag)) != 0U;
-    }
-
     [[nodiscard]] constexpr Vector3 UnitX() noexcept
     {
         return Vector3(1.0F, 0.0F, 0.0F);
@@ -124,11 +121,6 @@ namespace
     [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scalar) noexcept
     {
         return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-    }
-
-    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
     }
 
     [[nodiscard]] constexpr Matrix3 IdentityMatrix3() noexcept
@@ -245,11 +237,6 @@ namespace
             + left.M43 * right.M34 + left.M44 * right.M44;
 
         return result;
-    }
-
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (3.14159265358979323846F / 180.0F);
     }
 
     [[nodiscard]] constexpr std::int32_t WrapAddInt32(

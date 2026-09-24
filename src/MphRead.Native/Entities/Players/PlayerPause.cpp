@@ -13,6 +13,8 @@
 #include "PlayerEntity.hpp"
 #include "PlayerHud.hpp"
 #include "PlayerInput.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -33,6 +35,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+
 namespace
 {
     using MphRead::LightInfo;
@@ -48,36 +54,6 @@ namespace
     [[noreturn]] void ThrowNullReference()
     {
         throw System::NullReferenceException();
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            ThrowNullReference();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            ThrowNullReference();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& RequireReference(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            ThrowNullReference();
-        }
-        return *value;
     }
 
     [[nodiscard]] Model& RequireModel(ModelInstance& instance)
@@ -258,16 +234,6 @@ namespace
         matrix.M41 = translation.X;
         matrix.M42 = translation.Y;
         matrix.M43 = translation.Z;
-    }
-
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * 0.01745329251994329576923690768489F;
-    }
-
-    [[nodiscard]] constexpr float RadiansToDegrees(float radians) noexcept
-    {
-        return radians * 57.295779513082320876798154814105F;
     }
 
     [[nodiscard]] bool EqualsIgnoreCase(std::string_view left, std::string_view right) noexcept

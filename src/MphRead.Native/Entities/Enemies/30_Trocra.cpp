@@ -7,6 +7,8 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../ItemInstanceEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -16,31 +18,15 @@
 #include <memory>
 #include <optional>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
     {
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
         {
@@ -69,16 +55,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::IndexOutOfRangeException();
             }
             return enemy.HitPlayers[static_cast<std::size_t>(slotIndex)];
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value) noexcept
-        {
-            return std::sqrt(LengthSquared(value));
         }
 
         [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept

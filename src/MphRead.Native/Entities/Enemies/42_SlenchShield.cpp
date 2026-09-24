@@ -1,9 +1,12 @@
 #include "42_SlenchShield.hpp"
 
 #include "41_Slench.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <cassert>
 #include <cstdint>
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace MphRead::Entities::Enemies
 {
@@ -16,16 +19,6 @@ namespace MphRead::Entities::Enemies
             Enemy41Entity* typedSpawner = dynamic_cast<Enemy41Entity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept

@@ -17,21 +17,17 @@
 #include "../SpectatorMode.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Scene.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <type_traits>
 
+using ::MphRead::TestFlag;
+
 namespace
 {
-    template <typename TEnum>
-    [[nodiscard]] bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
-    }
-
     [[nodiscard]] MphRead::Entities::PlayerEntity& RequirePlayer(
         const std::shared_ptr<MphRead::Entities::PlayerEntity>& player)
     {

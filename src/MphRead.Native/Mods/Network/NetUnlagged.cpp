@@ -4,6 +4,8 @@
 #include "NetSession.hpp"
 #include "../../Entities/BeamProjectileEntity.hpp"
 #include "../../Metadata/Weapons.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -17,25 +19,11 @@
 #include <string>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+
 namespace
 {
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] std::int64_t UncheckedIncrement(std::int64_t value) noexcept
     {
         const std::uint64_t bits = std::bit_cast<std::uint64_t>(value) + 1ULL;

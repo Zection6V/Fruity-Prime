@@ -13,6 +13,8 @@
 #include "BeamProjectileEntity.hpp"
 #include "ItemSpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -28,6 +30,11 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::Normalize;
+
 namespace
 {
     using MphRead::Entities::EntityBase;
@@ -35,33 +42,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] MphRead::StorySave& RequireStorySave()
     {
@@ -162,12 +142,6 @@ namespace
         return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
     }
 
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(
-            value.X * value.X + value.Y * value.Y + value.Z * value.Z);
-    }
-
     [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scalar) noexcept
     {
         return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
@@ -183,16 +157,6 @@ namespace
     {
         return left.X * right.X + left.Y * right.Y
             + left.Z * right.Z + left.W * right.W;
-    }
-
-    [[nodiscard]] Vector4 Normalize(Vector4 value)
-    {
-        const float length = std::sqrt(Dot(value, value));
-        return Vector4(
-            value.X / length,
-            value.Y / length,
-            value.Z / length,
-            value.W / length);
     }
 
     [[nodiscard]] Vector3 Row3(Matrix4 value) noexcept

@@ -6,6 +6,8 @@
 #include "../../Scene.hpp"
 #include "../BeamProjectileEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -13,32 +15,15 @@
 #include <memory>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
     {
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         template <typename T>
         [[nodiscard]] T& CastReference(EntityBase* value)
@@ -76,11 +61,6 @@ namespace MphRead::Entities::Enemies
             const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
                 - std::bit_cast<std::uint32_t>(right);
             return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] bool TestFlag(Gorea2Flags value, Gorea2Flags flag) noexcept
-        {
-            return (value & flag) == flag;
         }
 
         [[nodiscard]] PlayerEntity& MainPlayer()

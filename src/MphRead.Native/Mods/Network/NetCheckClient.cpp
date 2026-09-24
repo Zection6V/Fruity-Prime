@@ -20,6 +20,7 @@
 #include "../../Metadata/Metadata.hpp"
 #include "../../Scene.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -38,6 +39,8 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
 
 namespace
 {
@@ -47,19 +50,6 @@ namespace
     using MphRead::Entities::PlayerFlags2;
     using MphRead::Mods::Network::TestPhase;
     using OpenTK::Mathematics::Vector3;
-
-    template <typename TEnum>
-    [[nodiscard]] bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
-    }
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(
-            value.X * value.X + value.Y * value.Y + value.Z * value.Z);
-    }
 
     [[nodiscard]] std::string FormatFixed(double value, std::int32_t digits)
     {

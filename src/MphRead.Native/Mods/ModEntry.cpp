@@ -1180,13 +1180,13 @@ namespace MphRead::Mods
     {
         InputSettings::Load();
         Launcher::LauncherPrefs::Load();
-        if (HasFlag(args, "debuglog"))
+        if (::HasFlag(args, "debuglog"))
         {
             DebugLog::Force();
         }
         DebugLog::Attach();
 
-        Update::Updater::Disabled(HasFlag(args, "noupdate"));
+        Update::Updater::Disabled(::HasFlag(args, "noupdate"));
         ApplyRenderOverrides(args);
 
         const int applyAt = IndexOfFlag(args, Update::DesktopUpdate::ApplyFlag);
@@ -1237,32 +1237,32 @@ namespace MphRead::Mods
             const std::optional<std::string> description = Network::NetLag::Describe();
             WriteLine("[net] simulating a bad line: " + description.value_or(""));
         }
-        if (HasFlag(args, "nounlagged"))
+        if (::HasFlag(args, "nounlagged"))
         {
             Network::NetUnlagged::SetEnabled(false);
             WriteLine("[net] lag compensation off: shots resolve against the present");
         }
-        if (HasFlag(args, "nohitprediction"))
+        if (::HasFlag(args, "nohitprediction"))
         {
             Network::NetHitPrediction::SetEnabled(false);
             WriteLine("[net] hit prediction off: a client's hits land when the authority says so");
         }
-        if (HasFlag(args, "nohitmarker"))
+        if (::HasFlag(args, "nohitmarker"))
         {
             Network::NetHitPrediction::SetMarkerEnabled(false);
             WriteLine("[hud] hit marker off");
         }
-        if (HasFlag(args, "deathprediction"))
+        if (::HasFlag(args, "deathprediction"))
         {
             Network::NetHitPrediction::SetDeathEnabled(true);
             WriteLine("[net] death prediction on: a client's kills land the frame it lands them");
         }
-        if (HasFlag(args, "nodeathprediction"))
+        if (::HasFlag(args, "nodeathprediction"))
         {
             Network::NetHitPrediction::SetDeathEnabled(false);
             WriteLine("[net] death prediction off: a client's kills land when the authority says so");
         }
-        if (HasFlag(args, "credits"))
+        if (::HasFlag(args, "credits"))
         {
             Credits::Print();
             return true;
@@ -1275,7 +1275,7 @@ namespace MphRead::Mods
                 FullPathCombine(ConsoleSetup::LaunchDirectory(), *mapDir));
         }
 
-        if (HasFlag(args, "mapbundle"))
+        if (::HasFlag(args, "mapbundle"))
         {
             const std::optional<std::string> which = ValueAfter(args, "mapbundle");
             const std::optional<std::string> outPath = ValueAfter(args, "out");
@@ -1313,7 +1313,7 @@ namespace MphRead::Mods
             return true;
         }
 
-        if (HasFlag(args, "update"))
+        if (::HasFlag(args, "update"))
         {
             Update::Updater::Disabled(false);
             const std::optional<Update::UpdateInfo> update = Update::Updater::Check();
@@ -1335,10 +1335,10 @@ namespace MphRead::Mods
 #if defined(MPHREAD_SERVER)
         doubleClicked = false;
 #endif
-        if ((HasFlag(args, "launcher") || doubleClicked) && !HasFlag(args, "menu"))
+        if ((::HasFlag(args, "launcher") || doubleClicked) && !::HasFlag(args, "menu"))
         {
 #if defined(MPHREAD_AVALONIA)
-            if (!HasFlag(args, "text") && Launcher::Gui::GuiLauncher::TryRun())
+            if (!::HasFlag(args, "text") && Launcher::Gui::GuiLauncher::TryRun())
             {
                 return true;
             }
@@ -1358,10 +1358,10 @@ namespace MphRead::Mods
         }
 #endif
 
-        if (HasFlag(args, "masterserver") || HasFlag(args, "server")
-            || HasFlag(args, "dedicated"))
+        if (::HasFlag(args, "masterserver") || ::HasFlag(args, "server")
+            || ::HasFlag(args, "dedicated"))
         {
-            Update::ServerUpdate::Enabled(!HasFlag(args, "noautoupdate"));
+            Update::ServerUpdate::Enabled(!::HasFlag(args, "noautoupdate"));
             std::vector<std::string> commandLine = GetCommandLineArguments();
             std::vector<std::string> typed;
             if (commandLine.size() > 1)
@@ -1374,7 +1374,7 @@ namespace MphRead::Mods
             }
         }
 
-        if (HasFlag(args, "masterserver"))
+        if (::HasFlag(args, "masterserver"))
         {
             int masterPort = Network::NetMasterConfig::DefaultPort;
             std::optional<std::string> masterPortValue = ValueAfter(args, "port");
@@ -1439,7 +1439,7 @@ namespace MphRead::Mods
             return true;
         }
 
-        if (HasFlag(args, "servers"))
+        if (::HasFlag(args, "servers"))
         {
             ListServers(ValueAfter(args, "master").value_or(
                 std::string(Network::NetMasterConfig::DefaultHost)),
@@ -1447,7 +1447,7 @@ namespace MphRead::Mods
             return true;
         }
 
-        if (!HasFlag(args, "server") && !HasFlag(args, "dedicated"))
+        if (!::HasFlag(args, "server") && !::HasFlag(args, "dedicated"))
         {
             return false;
         }
@@ -1491,13 +1491,13 @@ namespace MphRead::Mods
             serverName = MachineName();
         }
         server.ServerName(serverName);
-        server.FriendlyFire(HasFlag(args, "friendlyfire"));
-        server.ShadowFreeze(!HasFlag(args, "noshadowfreeze"));
-        server.AllowMapVotes(!HasFlag(args, "novote"));
+        server.FriendlyFire(::HasFlag(args, "friendlyfire"));
+        server.ShadowFreeze(!::HasFlag(args, "noshadowfreeze"));
+        server.AllowMapVotes(!::HasFlag(args, "novote"));
         server.AutoUpdate(true);
-        server.Simulate(HasFlag(args, "simulate") || HasFlag(args, "authority"));
+        server.Simulate(::HasFlag(args, "simulate") || ::HasFlag(args, "authority"));
 
-        if (!HasFlag(args, "nomaster") && !HasFlag(args, "unlisted"))
+        if (!::HasFlag(args, "nomaster") && !::HasFlag(args, "unlisted"))
         {
             const std::string masterHost = ValueAfter(args, "master").value_or(
                 std::string(Network::NetMasterConfig::DefaultHost));
@@ -1528,38 +1528,38 @@ namespace MphRead::Mods
     {
         const auto [width, height] = ParseSize(args);
 
-        if (!HasFlag(args, "mapgen"))
+        if (!::HasFlag(args, "mapgen"))
         {
             MapGen::CustomRooms::GenerateMissing();
         }
 
-        if (HasFlag(args, "fullscreen") || HasFlag(args, "borderless"))
+        if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
         {
             WindowMode::Startup(WindowStartMode::BorderlessFullscreen);
         }
-        else if (HasFlag(args, "windowed"))
+        else if (::HasFlag(args, "windowed"))
         {
             WindowMode::Startup(WindowStartMode::Windowed);
         }
 
-        if (HasFlag(args, "nohelmet"))
+        if (::HasFlag(args, "nohelmet"))
         {
             Features::HelmetOpacity(0);
             Features::VisorOpacity(0);
         }
-        if (HasFlag(args, "netdebug"))
+        if (::HasFlag(args, "netdebug"))
         {
             Network::NetDiagnostics::SetEnabled(true);
             Network::MapAudit::Diagnostic(true);
         }
 
-        if (HasFlag(args, "mechanics"))
+        if (::HasFlag(args, "mechanics"))
         {
             Network::MechanicsDump::Run();
             return true;
         }
 
-        if (HasFlag(args, "gamepad"))
+        if (::HasFlag(args, "gamepad"))
         {
             double seconds = 15;
             const std::optional<std::string> given = ValueAfter(args, "seconds");
@@ -1572,7 +1572,7 @@ namespace MphRead::Mods
             return true;
         }
 
-        if (HasFlag(args, "rooms"))
+        if (::HasFlag(args, "rooms"))
         {
             for (const std::string& room : ThumbnailGenerator::MultiplayerRooms())
             {
@@ -1601,14 +1601,14 @@ namespace MphRead::Mods
                 dpsDistance = parsedDistance;
             }
             SetExitCode(Network::WeaponDps::Run(*dpsTest, dpsHunter, dpsBeam,
-                dpsSeconds, dpsDistance, HasFlag(args, "bombs")));
+                dpsSeconds, dpsDistance, ::HasFlag(args, "bombs")));
             return true;
         }
 
-        if (HasFlag(args, "mapgen"))
+        if (::HasFlag(args, "mapgen"))
         {
             const std::optional<std::string> only = ValueAfter(args, "mapgen");
-            const bool force = HasFlag(args, "force");
+            const bool force = ::HasFlag(args, "force");
             (void)force;
             int count = 0;
             int failed = 0;
@@ -1683,7 +1683,7 @@ namespace MphRead::Mods
             {
                 SetExitCode(MapGen::Q3Convert::Run(*q3Convert,
                     ValueAfter(args, "map"), ValueAfter(args, "name"),
-                    ValueAfter(args, "out"), HasFlag(args, "noclip"), scale,
+                    ValueAfter(args, "out"), ::HasFlag(args, "noclip"), scale,
                     textureSize));
             }
             catch (const std::exception& ex)
@@ -1715,7 +1715,7 @@ namespace MphRead::Mods
             return true;
         }
 
-        if (HasFlag(args, "frametimingcheck"))
+        if (::HasFlag(args, "frametimingcheck"))
         {
             SetExitCode(Render::FrameTimingCheck::Run());
             return true;
@@ -1761,7 +1761,7 @@ namespace MphRead::Mods
             }
             GameMode mode = GameMode::Battle;
             (void)TryParseGameMode(ValueAfter(args, "mode"), mode);
-            Network::MapAudit::ShowWindow(HasFlag(args, "hudshots"));
+            Network::MapAudit::ShowWindow(::HasFlag(args, "hudshots"));
             if (ValueAfter(args, "hunter").has_value())
             {
                 Network::MapAudit::MainHunter(ParseHunter(args));
@@ -1801,9 +1801,9 @@ namespace MphRead::Mods
                 }
             }
             SetExitCode(Network::MapAudit::Run(*mapTest, players, seconds, mode,
-                HasFlag(args, "bots"), ValueAfter(args, "shots"),
-                HasFlag(args, "renderprobe"), HasFlag(args, "allnodes"),
-                HasFlag(args, "itemshots")));
+                ::HasFlag(args, "bots"), ValueAfter(args, "shots"),
+                ::HasFlag(args, "renderprobe"), ::HasFlag(args, "allnodes"),
+                ::HasFlag(args, "itemshots")));
             return true;
         }
 
@@ -1860,7 +1860,7 @@ namespace MphRead::Mods
             }
             double spectateAt = -1;
             double rejoinAt = -1;
-            if (HasFlag(args, "spectate"))
+            if (::HasFlag(args, "spectate"))
             {
                 spectateAt = 0;
                 double parsedSpectate = 0;
@@ -1879,14 +1879,14 @@ namespace MphRead::Mods
                 : -1;
             SetExitCode(Network::NetCheckClient::Run(*check, ParsePort(args),
                 ParseName(args), ParseHunter(args), seconds, shots, width, height,
-                HasFlag(args, "recorddemo"), spectateAt, rejoinAt, color));
+                ::HasFlag(args, "recorddemo"), spectateAt, rejoinAt, color));
             return true;
         }
 
         const std::optional<std::string> demoInfo = ValueAfter(args, "demoinfo");
         if (demoInfo.has_value())
         {
-            SetExitCode(Network::DemoInfo::Print(*demoInfo, HasFlag(args, "replay")));
+            SetExitCode(Network::DemoInfo::Print(*demoInfo, ::HasFlag(args, "replay")));
             return true;
         }
 
@@ -1899,7 +1899,7 @@ namespace MphRead::Mods
             return true;
         }
 
-        if (HasFlag(args, "thumbnails"))
+        if (::HasFlag(args, "thumbnails"))
         {
             GenerateThumbnails(args, width, height);
             return true;

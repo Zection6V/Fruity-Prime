@@ -7,6 +7,7 @@
 #include "../Scene.hpp"
 #include "../SceneSetup.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -36,6 +37,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::OpenTK::Mathematics::Length;
 
 namespace
 {
@@ -132,11 +134,6 @@ namespace
     [[nodiscard]] Vector3 Divide(Vector3 value, float divisor) noexcept
     {
         return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-    }
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
     }
 
     [[nodiscard]] float FloatMin(float left, float right) noexcept

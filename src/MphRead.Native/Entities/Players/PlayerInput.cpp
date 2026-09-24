@@ -24,6 +24,8 @@
 #include "../../Mods/Network/NetUnlagged.hpp"
 #include "../../Mods/SpectatorMode.hpp"
 #include "../../Utility/Rng.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -40,6 +42,13 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestAny;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+
 namespace
 {
     using MphRead::Fixed;
@@ -54,20 +63,6 @@ namespace
     using OpenTK::Windowing::GraphicsLibraryFramework::Keys;
     using OpenTK::Windowing::GraphicsLibraryFramework::MouseButton;
     using OpenTK::Windowing::GraphicsLibraryFramework::MouseState;
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestAny(TEnum value, TEnum flags) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flags)) != 0;
-    }
 
     [[nodiscard]] constexpr Vector3 Add(Vector3 a, Vector3 b) noexcept
     {
@@ -128,21 +123,6 @@ namespace
     [[nodiscard]] constexpr bool VectorEquals(Vector3 a, Vector3 b) noexcept
     {
         return a.X == b.X && a.Y == b.Y && a.Z == b.Z;
-    }
-
-    [[nodiscard]] float Length(Vector3 v) noexcept
-    {
-        return std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z);
-    }
-
-    [[nodiscard]] float DegreesToRadians(float value) noexcept
-    {
-        return value * 0.01745329251994329576923690768489F;
-    }
-
-    [[nodiscard]] float RadiansToDegrees(float value) noexcept
-    {
-        return value * 57.295779513082320876798154814105F;
     }
 
     [[nodiscard]] float DotNetRound(float value) noexcept
@@ -219,26 +199,6 @@ namespace
         hash = QueueRound(hash, static_cast<std::uint32_t>(value2));
         hash = QueueRound(hash, static_cast<std::uint32_t>(value3));
         return std::bit_cast<std::int32_t>(MixFinal(hash));
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
     }
 
     template <typename T, std::size_t Size>

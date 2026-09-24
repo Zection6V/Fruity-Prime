@@ -10,6 +10,8 @@
 #include "../Sound/Sfx.hpp"
 #include "../Strings.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -22,31 +24,14 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] std::size_t CheckedSlotIndex(std::int32_t index)
     {
@@ -157,11 +142,6 @@ namespace
         result.M44 = (leftM41 * rightM14) + (leftM42 * rightM24)
             + (leftM43 * rightM34) + (leftM44 * rightM44);
         return result;
-    }
-
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * 0.01745329251994329576923690768489F;
     }
 
     [[nodiscard]] std::shared_ptr<MphRead::Material> FirstMaterial(

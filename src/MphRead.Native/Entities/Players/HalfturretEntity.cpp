@@ -11,6 +11,7 @@
 #include "../../Scene.hpp"
 #include "../../Strings.hpp"
 #include "PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,6 +27,8 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
@@ -35,26 +38,6 @@ namespace
     constexpr Vector3 UnitX(1.0F, 0.0F, 0.0F);
     constexpr Vector3 UnitY(0.0F, 1.0F, 0.0F);
     constexpr Vector3 One(1.0F, 1.0F, 1.0F);
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] constexpr Matrix4 Identity() noexcept
     {

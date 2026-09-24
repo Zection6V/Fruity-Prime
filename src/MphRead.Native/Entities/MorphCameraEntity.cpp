@@ -3,22 +3,15 @@
 #include "../Formats/CollisionDetection.hpp"
 #include "../Scene.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <memory>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
 }
 
 namespace MphRead::Entities

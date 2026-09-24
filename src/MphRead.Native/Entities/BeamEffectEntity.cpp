@@ -2,6 +2,8 @@
 
 #include "../Program.hpp"
 #include "../Scene.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <bit>
 #include <cmath>
@@ -10,15 +12,13 @@
 #include <new>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
-    }
 
     [[nodiscard]] Vector3 ExtractScale(Matrix4 value) noexcept
     {
@@ -41,26 +41,6 @@ namespace
         value.M32 /= scale.Z;
         value.M33 /= scale.Z;
         return value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
     }
 
     [[nodiscard]] std::int32_t ManagedFrameLifespan(std::int32_t frameCount) noexcept

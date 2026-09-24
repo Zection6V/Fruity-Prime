@@ -1,4 +1,5 @@
 #include "SfxMixer.hpp"
+#include "../../Formats/Types.hpp"
 
 #if defined(__ANDROID__)
 #include "../../Sound/Music.hpp"
@@ -169,16 +170,6 @@ namespace MphRead::Mods::Sound
                 left.Y * right.Z - left.Z * right.Y,
                 left.Z * right.X - left.X * right.Z,
                 left.X * right.Y - left.Y * right.X);
-        }
-
-        float LengthSquared(const Vector3& value)
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        float Length(const Vector3& value)
-        {
-            return std::sqrt(LengthSquared(value));
         }
 
         Vector3 Normalized(const Vector3& value)
@@ -905,3 +896,7 @@ namespace MphRead::Mods::Sound
     }
 }
 #endif
+
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+

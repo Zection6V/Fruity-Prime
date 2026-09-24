@@ -8,6 +8,7 @@
 #include "../Scene.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "TriggerVolumeEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <any>
 #include <bit>
@@ -19,6 +20,8 @@
 #include <string>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
@@ -27,26 +30,6 @@ namespace
 
     constexpr Vector3 UnitX(1.0F, 0.0F, 0.0F);
     constexpr Vector3 UnitY(0.0F, 1.0F, 0.0F);
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] std::int32_t GetRoomId(MphRead::Scene* scene)
     {

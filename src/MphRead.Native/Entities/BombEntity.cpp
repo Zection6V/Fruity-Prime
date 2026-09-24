@@ -17,6 +17,8 @@
 #include "EnemyInstanceEntity.hpp"
 #include "Players/HalfturretEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -31,6 +33,11 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+
 namespace MphRead::Entities
 {
     namespace
@@ -38,34 +45,6 @@ namespace MphRead::Entities
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename TEnum>
-        [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-        {
-            using Underlying = std::underlying_type_t<TEnum>;
-            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag))
-                == static_cast<Underlying>(flag);
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         template <typename T>
         [[nodiscard]] T* RawPointer(T* value) noexcept
@@ -167,16 +146,6 @@ namespace MphRead::Entities
         [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
         {
             return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-        }
-
-        [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(LengthSquared(value));
         }
 
         [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float amount) noexcept

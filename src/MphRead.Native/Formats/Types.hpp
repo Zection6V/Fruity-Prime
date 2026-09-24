@@ -4,6 +4,7 @@
 #include "../NativeRuntime/System/Exceptions.hpp"
 
 #include <any>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -122,6 +123,71 @@ namespace OpenTK::Mathematics
 
         static const Vector4 Zero;
     };
+
+    // OpenTK 4.9.4's MathHelper and the Vector3/Vector4 members the port calls
+    // as free functions (Length(v), Normalize(v)), written once. Each file
+    // used to carry its own copy, and some computed a different answer:
+    // RadiansToDegrees from the literal 57.29577951F is one ULP above
+    // OpenTK's 180f / MathF.PI, and Normalize by dividing each component is
+    // not OpenTK's multiply by 1 / Length. Unqualified calls with a vector
+    // argument find these by argument-dependent lookup.
+    namespace MathHelper
+    {
+        inline constexpr float Pi = 3.1415927F;
+        inline constexpr float RadToDeg = 180.0F / Pi;
+        inline constexpr float DegToRad = Pi / 180.0F;
+
+        [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
+        {
+            return degrees * DegToRad;
+        }
+
+        [[nodiscard]] constexpr float RadiansToDegrees(float radians) noexcept
+        {
+            return radians * RadToDeg;
+        }
+    }
+
+    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
+    {
+        return value.LengthSquared();
+    }
+
+    [[nodiscard]] inline float Length(Vector3 value) noexcept
+    {
+        return std::sqrt(value.LengthSquared());
+    }
+
+    // Vector3.Normalize(vec).
+    [[nodiscard]] inline Vector3 Normalize(Vector3 value) noexcept
+    {
+        const float scale = 1.0F / Length(value);
+        value.X *= scale;
+        value.Y *= scale;
+        value.Z *= scale;
+        return value;
+    }
+
+    [[nodiscard]] constexpr float LengthSquared(Vector4 value) noexcept
+    {
+        return (value.X * value.X) + (value.Y * value.Y) + (value.Z * value.Z) + (value.W * value.W);
+    }
+
+    [[nodiscard]] inline float Length(Vector4 value) noexcept
+    {
+        return std::sqrt(LengthSquared(value));
+    }
+
+    // Vector4.Normalize(vec).
+    [[nodiscard]] inline Vector4 Normalize(Vector4 value) noexcept
+    {
+        const float scale = 1.0F / Length(value);
+        value.X *= scale;
+        value.Y *= scale;
+        value.Z *= scale;
+        value.W *= scale;
+        return value;
+    }
 
     struct Matrix3
     {
@@ -677,6 +743,33 @@ namespace MphRead
             return (valueBits & flagBits) != 0;
         }
     };
+
+    // The C# calls value.TestFlag(flags) and value.TestAny(flags) as
+    // extension methods, and value.HasFlag(flag) on the enum itself. These
+    // are the one spelling of each for code outside TypeExtensions: TestFlag
+    // and HasFlag are true when every bit of flags is set, TestAny when any
+    // is. Files used to carry their own TestFlag, and a third of them
+    // computed TestAny under that name.
+    template <typename T>
+    requires std::is_enum_v<T>
+    [[nodiscard]] constexpr bool TestFlag(T value, T flags) noexcept
+    {
+        return TypeExtensions::TestFlag(value, flags);
+    }
+
+    template <typename T>
+    requires std::is_enum_v<T>
+    [[nodiscard]] constexpr bool TestAny(T value, T flags) noexcept
+    {
+        return TypeExtensions::TestAny(value, flags);
+    }
+
+    template <typename T>
+    requires std::is_enum_v<T>
+    [[nodiscard]] constexpr bool HasFlag(T value, T flag) noexcept
+    {
+        return TypeExtensions::TestFlag(value, flag);
+    }
 
     class MarshalExtensions final
     {

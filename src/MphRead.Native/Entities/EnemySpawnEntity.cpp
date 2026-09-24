@@ -47,6 +47,8 @@
 #include "Enemies/51_CarnivorousPlant.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "../Formats/Collision.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <any>
 #include <bit>
@@ -58,6 +60,9 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+
 namespace MphRead::Entities
 {
     namespace
@@ -65,26 +70,6 @@ namespace MphRead::Entities
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         template <typename T>
         [[nodiscard]] T& ManagedAt(
@@ -105,13 +90,6 @@ namespace MphRead::Entities
                 throw System::NullReferenceException();
             }
             return *GameState::StorySave;
-        }
-
-        template <typename TEnum>
-        [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-        {
-            using Underlying = std::underlying_type_t<TEnum>;
-            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
         }
 
         [[nodiscard]] Matrix4 Multiply(Matrix4 first, Matrix4 second) noexcept

@@ -7,6 +7,7 @@
 #include "NetDamage.hpp"
 #include "NetHooks.hpp"
 #include "NetSession.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +29,8 @@
 #include <langinfo.h>
 #include <locale.h>
 #endif
+
+using ::MphRead::HasFlag;
 
 namespace
 {
@@ -58,13 +61,6 @@ namespace
     void UncheckedIncrement(std::int64_t& value) noexcept
     {
         value = UncheckedAddInt64(value, 1);
-    }
-
-    [[nodiscard]] bool HasFlag(
-        MphRead::Entities::DamageFlags value,
-        MphRead::Entities::DamageFlags flag) noexcept
-    {
-        return (value & flag) != MphRead::Entities::DamageFlags::None;
     }
 
     [[nodiscard]] std::string CurrentCultureDecimalSeparator()

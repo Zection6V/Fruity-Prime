@@ -6,6 +6,7 @@
 #include "../Program.hpp"
 #include "../Strings.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "Types.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -25,6 +26,7 @@
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::OpenTK::Mathematics::Length;
 
 namespace
 {
@@ -83,11 +85,6 @@ namespace
     [[nodiscard]] constexpr Vector3 Multiply(float scalar, Vector3 value) noexcept
     {
         return Multiply(value, scalar);
-    }
-
-    [[nodiscard]] float Length(Vector3 value)
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
     }
 
     [[nodiscard]] constexpr std::int32_t ManagedInt32(std::uint32_t value) noexcept

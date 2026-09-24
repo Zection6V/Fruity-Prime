@@ -4,6 +4,7 @@
 #include "NetSession.hpp"
 #include "ServerSim.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -38,6 +39,8 @@
 #include <sys/resource.h>
 #endif
 
+using ::MphRead::TestFlag;
+
 namespace
 {
     using MphRead::GameMode;
@@ -46,13 +49,6 @@ namespace
     using MphRead::Mods::Network::IntentButtons;
     using MphRead::Mods::Network::IntentPacket;
     using OpenTK::Mathematics::Vector3;
-
-    template <typename TEnum>
-    [[nodiscard]] bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
-    }
 
     template <typename T>
     [[nodiscard]] std::vector<T>& RequireVector(

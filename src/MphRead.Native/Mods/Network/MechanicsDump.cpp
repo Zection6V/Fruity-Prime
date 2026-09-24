@@ -2,10 +2,10 @@
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Enums.hpp"
-#include "../../Formats/Types.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Player.hpp"
 #include "../../Metadata/Weapons.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -18,6 +18,8 @@
 #include <string_view>
 #include <system_error>
 #include <type_traits>
+
+using ::MphRead::HasFlag;
 
 namespace MphRead::Mods::Network
 {
@@ -202,12 +204,6 @@ namespace MphRead::Mods::Network
                 add("Burn");
             }
             return result;
-        }
-
-        bool HasFlag(WeaponFlags value, WeaponFlags flag)
-        {
-            using Underlying = std::underlying_type_t<WeaponFlags>;
-            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
         }
 
         template <typename T>

@@ -9,6 +9,7 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../Formats/Types.hpp"
 #include <any>
 #include <array>
 #include <bit>
@@ -24,6 +25,11 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -97,8 +103,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Enemy28Entity &RequireEnemy(Enemy28Entity *enemy) { return RequireReference(enemy); }
         [[nodiscard]] PlayerEntity &MainPlayer() { return RequireReference(PlayerEntity::Main()); }
         [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept { return left.X == right.X && left.Y == right.Y && left.Z == right.Z; }
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept { return value.X * value.X + value.Y * value.Y + value.Z * value.Z; }
-        [[nodiscard]] float Length(Vector3 value) { return std::sqrt(LengthSquared(value)); }
         [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept { return Vector3(value.X * scale, value.Y * scale, value.Z * scale); }
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept { return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor); }
         [[nodiscard]] Matrix4 IdentityMatrix() noexcept { return Matrix4(Vector4(1.0F, 0.0F, 0.0F, 0.0F), Vector4(0.0F, 1.0F, 0.0F, 0.0F), Vector4(0.0F, 0.0F, 1.0F, 0.0F), Vector4(0.0F, 0.0F, 0.0F, 1.0F)); }
@@ -118,7 +122,6 @@ namespace MphRead::Entities::Enemies
             const float oneMinus = 1.0F - cosine;
             return Matrix4(Vector4(cosine + x * x * oneMinus, x * y * oneMinus + z * sine, x * z * oneMinus - y * sine, 0.0F), Vector4(y * x * oneMinus - z * sine, cosine + y * y * oneMinus, y * z * oneMinus + x * sine, 0.0F), Vector4(z * x * oneMinus + y * sine, z * y * oneMinus - x * sine, cosine + z * z * oneMinus, 0.0F), Vector4(0.0F, 0.0F, 0.0F, 1.0F));
         }
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept { return degrees * (3.14159265358979323846F / 180.0F); }
         [[nodiscard]] std::int32_t AddInt32Unchecked(std::int32_t left, std::int32_t right) noexcept
         {
             const std::uint32_t sum = std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right);

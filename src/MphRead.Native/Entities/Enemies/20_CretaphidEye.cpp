@@ -11,6 +11,8 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../ItemSpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -20,6 +22,9 @@
 #include <optional>
 #include <type_traits>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace MphRead::Entities::Enemies
 {
@@ -34,26 +39,6 @@ namespace MphRead::Entities::Enemies
             Enemy19Entity* owner = dynamic_cast<Enemy19Entity*>(spawner);
             assert(owner != nullptr);
             return owner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] PlayerEntity& MainPlayer()
@@ -174,11 +159,6 @@ namespace MphRead::Entities::Enemies
             result.M44 = left.M41 * right.M14 + left.M42 * right.M24
                 + left.M43 * right.M34 + left.M44 * right.M44;
             return result;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] bool AnimationEnded(ModelInstance& model)

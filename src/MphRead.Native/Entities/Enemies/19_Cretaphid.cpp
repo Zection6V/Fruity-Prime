@@ -12,6 +12,8 @@
 #include "../Players/PlayerEntity.hpp"
 #include "20_CretaphidEye.hpp"
 #include "21_CretaphidCrystal.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <any>
 #include <array>
@@ -26,6 +28,9 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -39,26 +44,6 @@ namespace MphRead::Entities::Enemies
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] Enemy19Entity& RequireEnemy(Enemy19Entity* enemy)
@@ -149,11 +134,6 @@ namespace MphRead::Entities::Enemies
             matrix.M41 = value.X;
             matrix.M42 = value.Y;
             matrix.M43 = value.Z;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float value) noexcept
-        {
-            return value * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept

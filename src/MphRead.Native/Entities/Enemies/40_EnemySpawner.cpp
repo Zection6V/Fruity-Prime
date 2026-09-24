@@ -3,6 +3,8 @@
 #include "../../Formats/Collision.hpp"
 #include "../../Scene.hpp"
 #include "../EnemySpawnEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cstddef>
@@ -10,6 +12,9 @@
 #include <memory>
 #include <string>
 #include <type_traits>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
 
 namespace MphRead::Entities::Enemies
 {
@@ -24,35 +29,6 @@ namespace MphRead::Entities::Enemies
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] bool TestFlag(T value, T flag) noexcept
-        {
-            using Underlying = std::underlying_type_t<T>;
-            const Underlying valueBits = static_cast<Underlying>(value);
-            const Underlying flagBits = static_cast<Underlying>(flag);
-            return (valueBits & flagBits) == flagBits;
         }
 
         [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept

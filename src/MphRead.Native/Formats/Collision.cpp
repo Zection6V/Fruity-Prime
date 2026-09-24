@@ -6,6 +6,7 @@
 
 #include "../Read.hpp"
 #include "../Scene.hpp"
+#include "Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -35,6 +36,8 @@
 #else
 #define MPHREAD_COLLISION_DEBUG_ASSERT(condition) ((void)0)
 #endif
+
+using ::MphRead::HasFlag;
 
 namespace
 {
@@ -102,16 +105,6 @@ namespace MphRead::Formats::Collision
                 throw System::NullReferenceException();
             }
             return values->size();
-        }
-
-        bool HasFlag(
-            CollisionFlags value,
-            CollisionFlags flag) noexcept
-        {
-            return (
-                static_cast<std::uint16_t>(value)
-                & static_cast<std::uint16_t>(flag)
-            ) != 0;
         }
 
         std::shared_ptr<

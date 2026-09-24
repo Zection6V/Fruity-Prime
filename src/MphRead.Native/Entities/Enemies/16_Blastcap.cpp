@@ -4,6 +4,8 @@
 #include "../../Scene.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cstddef>
@@ -12,6 +14,9 @@
 #include <memory>
 #include <optional>
 #include <utility>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::LengthSquared;
 
 namespace MphRead::Entities::Enemies
 {
@@ -26,26 +31,6 @@ namespace MphRead::Entities::Enemies
             return typedSpawner;
         }
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy16Entity& RequireEnemy(Enemy16Entity* enemy)
         {
             return RequireReference(enemy);
@@ -56,10 +41,6 @@ namespace MphRead::Entities::Enemies
             return RequireReference(PlayerEntity::Main());
         }
 
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
     }
 
     Enemy16Entity::Enemy16Entity(EnemyInstanceEntityData data,

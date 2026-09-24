@@ -8,6 +8,8 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -16,6 +18,12 @@
 #include <functional>
 #include <memory>
 #include <utility>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
 
 namespace MphRead::Entities::Enemies
 {
@@ -32,26 +40,6 @@ namespace MphRead::Entities::Enemies
             return typedSpawner;
         }
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy46Entity& RequireEnemy(Enemy46Entity* enemy)
         {
             return RequireReference(enemy);
@@ -60,16 +48,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(LengthSquared(value));
         }
 
         [[nodiscard]] Vector3 ScaleVector(Vector3 value, float factor) noexcept
@@ -94,16 +72,6 @@ namespace MphRead::Entities::Enemies
         {
             value.Y += amount;
             return value;
-        }
-
-        [[nodiscard]] float RadiansToDegrees(float radians) noexcept
-        {
-            return radians * (180.0F / 3.14159265358979323846F);
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] Matrix4 CreateRotationY(float angle) noexcept

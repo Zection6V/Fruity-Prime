@@ -10,6 +10,8 @@
 #include "../PlatformEntity.hpp"
 #include "HalfturretEntity.hpp"
 #include "PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -24,6 +26,12 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestAny;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace
 {
     using MphRead::Formats::CollisionCandidate;
@@ -33,40 +41,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestAny(TEnum value, TEnum flags) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flags)) != 0;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     template <typename TValue>
     [[nodiscard]] auto ObjectPointer(TValue&& value) noexcept
@@ -164,11 +138,6 @@ namespace
         return x > y ? x : y;
     }
 
-    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
     [[nodiscard]] constexpr bool IsZero(Vector3 value) noexcept
     {
         return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
@@ -235,10 +204,6 @@ namespace
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (3.14159265358979323846F / 180.0F);
-    }
 }
 
 namespace MphRead::Entities

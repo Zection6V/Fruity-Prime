@@ -14,6 +14,7 @@
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -32,6 +33,9 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
 
 namespace MphRead::Mods::Network
 {
@@ -41,16 +45,6 @@ namespace MphRead::Mods::Network
 
     namespace
     {
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(LengthSquared(value));
-        }
-
         [[nodiscard]] Vector3 AddY(Vector3 value, float y) noexcept
         {
             value.Y += y;
@@ -70,14 +64,6 @@ namespace MphRead::Mods::Network
         [[nodiscard]] bool IsZero(Vector3 value) noexcept
         {
             return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
-        }
-
-        template <typename TEnum>
-        [[nodiscard]] bool TestFlag(TEnum value, TEnum flag) noexcept
-        {
-            using Underlying = std::underlying_type_t<TEnum>;
-            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag))
-                == static_cast<Underlying>(flag);
         }
 
         template <typename TEnum>

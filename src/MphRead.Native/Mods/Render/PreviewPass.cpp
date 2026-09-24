@@ -9,12 +9,15 @@
 #include <cmath>
 #include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cstdint>
 #include <exception>
 #include <limits>
 #include <string>
 #include <memory>
+
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
@@ -58,11 +61,6 @@ namespace
     constexpr std::int32_t OneMinusSrcAlpha = 0x0303;
     constexpr std::int32_t FrontAndBack = 0x0408;
     constexpr std::int32_t Fill = 0x1B02;
-
-    [[nodiscard]] constexpr float DegreesToRadians(float value) noexcept
-    {
-        return value * (Pi / 180.0F);
-    }
 
     [[nodiscard]] Matrix4 CreatePerspectiveFieldOfView(
         float fov, float aspect, float nearClip, float farClip)

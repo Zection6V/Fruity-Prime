@@ -13,6 +13,7 @@
 
 #include <sstream>
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <any>
 #include <cassert>
@@ -23,6 +24,8 @@
 #include <memory>
 #include <stdexcept>
 #include <utility>
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace
 {
@@ -154,42 +157,6 @@ namespace
         {
             throw MessageInvalidCastException();
         }
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T& value) noexcept
-    {
-        return value;
     }
 
     [[nodiscard]] MphRead::StorySave& RequireStorySave()

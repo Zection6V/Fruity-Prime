@@ -8,6 +8,8 @@
 #include "../CamSeq/CameraSequence.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -19,6 +21,11 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
 
 namespace MphRead::Entities::Enemies
 {
@@ -33,26 +40,6 @@ namespace MphRead::Entities::Enemies
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] Enemy23Entity& RequireEnemy(Enemy23Entity* enemy)
@@ -70,11 +57,6 @@ namespace MphRead::Entities::Enemies
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
         }
 
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
         [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
         {
             return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
@@ -84,16 +66,6 @@ namespace MphRead::Entities::Enemies
         {
             value.Y += amount;
             return value;
-        }
-
-        [[nodiscard]] float RadiansToDegrees(float radians) noexcept
-        {
-            return radians * (180.0F / 3.14159265358979323846F);
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] Matrix4 CreateRotationY(float angle) noexcept

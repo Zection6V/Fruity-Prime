@@ -6,6 +6,7 @@
 #include "../../Program.hpp"
 #include "BuiltMap.hpp"
 #include "MapDefinition.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cmath>
@@ -19,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+using ::OpenTK::Mathematics::Length;
 
 namespace
 {
@@ -82,11 +84,6 @@ namespace
             return std::signbit(left) && std::signbit(right) ? -0.0F : 0.0F;
         }
         return left > right ? left : right;
-    }
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt((value.X * value.X) + (value.Y * value.Y) + (value.Z * value.Z));
     }
 
     [[nodiscard]] Vector3 Divide(Vector3 value, float scalar) noexcept

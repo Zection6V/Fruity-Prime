@@ -8,6 +8,8 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -21,6 +23,9 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -28,36 +33,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& RequireReference(const std::shared_ptr<const T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         template <typename T, std::size_t N>
         [[nodiscard]] T& ArrayAt(std::array<T, N>& values, std::int32_t index)
@@ -200,11 +175,6 @@ namespace MphRead::Entities::Enemies
                 Vector4(0.0F, 1.0F, 0.0F, 0.0F),
                 Vector4(sine, 0.0F, cosine, 0.0F),
                 Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] float RoundToEven(float value) noexcept

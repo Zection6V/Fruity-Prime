@@ -2686,6 +2686,14 @@ namespace MphRead
         }
         auto entry = _inactiveElements.front();
         _inactiveElements.pop();
+        if (Mods::DebugLog::Active()
+            && std::find(_activeElements.begin(), _activeElements.end(), entry) != _activeElements.end())
+        {
+            // Diagnostic only: the free pool handed out an element in use.
+            Mods::DebugLog::Stack("effects", "effect element handed out while still active: was effect "
+                + std::to_string(entry->EffectId) + " \"" + entry->EffectName + "/" + entry->ElementName
+                + "\", now effect " + std::to_string(effect->Id) + " \"" + effect->Name + "/" + element->Name + "\"");
+        }
         entry->EffectId = effect->Id;
         entry->EffectName = effect->Name;
         entry->ElementName = element->Name;
@@ -2723,6 +2731,15 @@ namespace MphRead
         // clear and hand back to the pool -- the pool then held one element
         // twice, and the second user of it found ParticleDefinitions empty.
         // C# passes the object, never the slot.
+        if (Mods::DebugLog::Active()
+            && std::find(_activeElements.begin(), _activeElements.end(), element) == _activeElements.end())
+        {
+            // Diagnostic only: a released element must be an active one, or the
+            // free pool ends up holding it twice.
+            Mods::DebugLog::Stack("effects", "effect element released while not active: effect "
+                + std::to_string(element->EffectId) + " \"" + element->EffectName + "/"
+                + element->ElementName + "\"");
+        }
         while (!element->Particles->empty())
         {
             auto particle = element->Particles->front();
@@ -2965,6 +2982,17 @@ namespace MphRead
                     particle->Owner = element;
                     particle->SetFuncIds();
                     particle->PortionTotal = portionTotal;
+                    if (element->ParticleDefinitions->empty() && Mods::DebugLog::Active())
+                    {
+                        // Diagnostic only; the at(0) below still throws as C#'s [0] would.
+                        const auto copies = std::count(_activeElements.begin(), _activeElements.end(), element);
+                        Mods::DebugLog::Line("effects", "effect element with no particle definitions spawns: effect "
+                            + std::to_string(element->EffectId) + " \"" + element->EffectName + "/" + element->ElementName
+                            + "\", definition particles "
+                            + (element->Definition ? std::to_string(element->Definition->Particles->size()) : std::string("none"))
+                            + ", owned by an entry " + (element->EffectEntry ? "yes" : "no")
+                            + ", in the active list " + std::to_string(copies) + " time(s)");
+                    }
                     particle->MaterialId = element->ParticleDefinitions->at(0)->MaterialId;
                     auto info = element->Actions()->find(FuncAction::SetNewParticlePosition);
                     if (info != element->Actions()->end())

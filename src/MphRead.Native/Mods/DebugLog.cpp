@@ -2157,6 +2157,37 @@ namespace MphRead::Mods
         }
     }
 
+    void DebugLog::Stack(std::string_view category, std::string_view message)
+    {
+        if (!Active())
+        {
+            return;
+        }
+        Line(category, message);
+#if defined(_WIN32)
+        std::array<void*, 32> frames{};
+        const USHORT count = ::CaptureStackBackTrace(1,
+            static_cast<DWORD>(frames.size()), frames.data(), nullptr);
+        for (USHORT index = 0; index < count; ++index)
+        {
+            Line(category, "   at " + DescribeAddress(frames[index]));
+        }
+#elif !defined(__ANDROID__)
+        std::array<void*, 32> frames{};
+        const int count = ::backtrace(frames.data(), static_cast<int>(frames.size()));
+        if (count > 1)
+        {
+            std::unique_ptr<char*, decltype(&std::free)> symbols(
+                ::backtrace_symbols(frames.data(), count), &std::free);
+            for (int index = 1; symbols && index < count; ++index)
+            {
+                Line(category, std::string("   at ") + (symbols.get()[index] ? symbols.get()[index] : "?"));
+            }
+        }
+#endif
+        FlushWriterNoThrow();
+    }
+
     void DebugLog::Exception(std::string_view category,
         const std::exception& exception)
     {

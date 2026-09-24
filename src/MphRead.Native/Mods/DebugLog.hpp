@@ -43,6 +43,9 @@ namespace MphRead::Mods
         static void Detach();
 
         static void Line(std::string_view category, std::string_view message);
+        // A line followed by the current call stack, for a state that should
+        // not happen and is not an exception (Windows: with function names).
+        static void Stack(std::string_view category, std::string_view message);
         static void Exception(std::string_view category, std::exception_ptr exception);
         static void Exception(std::string_view category, const std::exception& exception);
 

@@ -4,7 +4,11 @@
 
 #include <vector>
 
+#if defined(__APPLE__)
+#include <OpenAL/al.h>
+#else
 #include <AL/al.h>
+#endif
 
 namespace OpenTK::Audio::OpenAL::AL
 {

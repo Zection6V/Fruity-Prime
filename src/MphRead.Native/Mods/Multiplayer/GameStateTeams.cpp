@@ -6,6 +6,7 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <cstdint>
@@ -14,27 +15,13 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
 
 namespace
 {
     using MphRead::Entities::LoadFlags;
     using MphRead::Entities::PlayerEntity;
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    [[nodiscard]] bool TestFlag(LoadFlags value, LoadFlags flag) noexcept
-    {
-        using U = std::underlying_type_t<LoadFlags>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
 
     // int.CompareTo(int).
     [[nodiscard]] constexpr std::int32_t CompareTo(

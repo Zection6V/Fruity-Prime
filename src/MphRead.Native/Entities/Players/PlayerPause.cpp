@@ -37,6 +37,7 @@
 
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::IdentityMatrix;
@@ -77,11 +78,6 @@ namespace
             result.push_back(values[i]);
         }
         return result;
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedIncrement(std::int32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(std::bit_cast<std::uint32_t>(value) + 1U);
     }
 
     [[nodiscard]] constexpr Vector4 Transform(Vector4 value, Matrix4 matrix) noexcept

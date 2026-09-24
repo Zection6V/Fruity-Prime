@@ -20,6 +20,7 @@
 
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::OpenTK::Mathematics::ScaleVector;
 
 namespace MphRead::Entities::Enemies
@@ -82,10 +83,6 @@ namespace MphRead::Entities::Enemies
             return beam;
         }
 
-        [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
-        }
     }
 
     Enemy49Entity::Enemy49Entity(EnemyInstanceEntityData data,

@@ -18,13 +18,20 @@ SHARED = {
                                 'FileExists', 'DirectoryExists', 'FileReadAllBytes',
                                 'FileWriteAllBytes', 'ReadAllBytes', 'WriteAllBytes'],
     'NativeRuntime/System/Managed': ['RequireReference', 'RoundToEven', 'DotNetRound',
-                                     'ConvertToInt32Net9', 'FloatToInt32'],
-    'Formats/Types': ['TestFlag', 'TestAny', 'HasFlag', 'DegreesToRadians', 'RadiansToDegrees',
-                      'Length', 'LengthSquared', 'Normalize', 'Multiply', 'Divide', 'Add',
-                      'Subtract', 'Negate', 'Scale', 'ScaleVector', 'Equal', 'IsZero',
-                      'WithX', 'WithY', 'WithZ', 'AddX', 'AddY', 'AddZ', 'IdentityMatrix',
-                      'CreateScale', 'CreateTranslation', 'CreateRotationY', 'ClearScale',
-                      'SetRow3'],
+                                     'ConvertToInt32Net9', 'FloatToInt32', 'MathMax', 'MathMin',
+                                     'MathClamp', 'HasFlag', 'ManagedAt', 'ManagedListAt',
+                                     'UncheckedAdd', 'UncheckedSubtract', 'UncheckedMultiply',
+                                     'UncheckedNegate', 'UncheckedIncrement', 'UncheckedDecrement',
+                                     'UInt32ToInt32', 'Int32ToUInt32', 'ShiftLeft', 'ShiftRight'],
+    'Formats/Types': ['TestFlag', 'TestAny', 'WithX', 'WithY', 'WithZ', 'AddX', 'AddY', 'AddZ'],
+    'NativeRuntime/OpenTK/Mathematics': ['DegreesToRadians', 'RadiansToDegrees', 'Length',
+                                         'LengthSquared', 'Normalize', 'Multiply', 'Divide', 'Add',
+                                         'Subtract', 'Negate', 'Scale', 'ScaleVector', 'Equal',
+                                         'IsZero', 'IdentityMatrix', 'CreateScale',
+                                         'CreateTranslation', 'CreateRotationX', 'CreateRotationY',
+                                         'CreateRotationZ', 'CreateFromAxisAngle', 'ClearScale',
+                                         'SetRow3', 'Clamp', 'ComponentMin', 'ComponentMax',
+                                         'DistanceSquared', 'Determinant', 'Inverted'],
 }
 
 
@@ -53,7 +60,7 @@ for f in native_files():
     s = strip(open(f, errors='ignore').read())
     for home, names in SHARED.items():
         for m in re.finditer(r'(?m)^[ \t]*(?:\[\[\w+\]\][ \t]*)*(?:(?:static|inline|constexpr)[ \t]+)*'
-                             r'[\w:<>,\*& ]*[\w>\*&][ \t]+(' + '|'.join(names) + r')\s*\(', s):
+                             r'(?:[\w:<>,\*& ]*[\w>\*&]|decltype\(auto\))[ \t]+(' + '|'.join(names) + r')\s*\(', s):
             end = s.find(')', m.end())
             after = s[end + 1:end + 60] if end >= 0 else ''
             if not re.match(r'\s*(const\s*)?(noexcept\s*)?\{', after):

@@ -4,6 +4,7 @@
 #include "Formats/Model.hpp"
 #include "Mods/Chat/ChatBox.hpp"
 #include "Scene.hpp"
+#include "NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <chrono>
@@ -20,6 +21,8 @@
 #else
 #include <time.h>
 #endif
+
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead
 {
@@ -84,14 +87,6 @@ namespace MphRead
                 percentage = 1.0F - percentage;
             }
             return percentage;
-        }
-
-        [[nodiscard]] constexpr std::int32_t UncheckedAdd(
-            std::int32_t value, std::int32_t delta) noexcept
-        {
-            const std::uint32_t sum = static_cast<std::uint32_t>(value)
-                + static_cast<std::uint32_t>(delta);
-            return std::bit_cast<std::int32_t>(sum);
         }
 
         template <typename T>

@@ -20,23 +20,12 @@
 #include <type_traits>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::MphRead::TestFlag;
 
 namespace
 {
-    [[nodiscard]] std::int64_t UncheckedIncrement(std::int64_t value) noexcept
-    {
-        const std::uint64_t bits = std::bit_cast<std::uint64_t>(value) + 1ULL;
-        return std::bit_cast<std::int64_t>(bits);
-    }
-
-    [[nodiscard]] std::int64_t UncheckedAdd(std::int64_t left, std::int32_t right) noexcept
-    {
-        const std::uint64_t bits = std::bit_cast<std::uint64_t>(left)
-            + static_cast<std::uint64_t>(static_cast<std::int64_t>(right));
-        return std::bit_cast<std::int64_t>(bits);
-    }
-
     [[nodiscard]] std::string FixedText(double value, std::int32_t digits)
     {
         std::ostringstream stream;

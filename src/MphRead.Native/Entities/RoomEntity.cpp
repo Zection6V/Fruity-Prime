@@ -59,6 +59,7 @@ using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::ComponentMax;
@@ -115,11 +116,6 @@ namespace
             throw MphRead::SceneDetail::IndexOutOfRangeException();
         }
         return values[index];
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedIncrement(std::int32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(std::bit_cast<std::uint32_t>(value) + 1U);
     }
 
     [[nodiscard]] std::vector<float> CopyManagedArray(

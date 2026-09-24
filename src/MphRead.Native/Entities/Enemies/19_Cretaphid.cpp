@@ -30,6 +30,7 @@
 
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateTranslation;
 using ::OpenTK::Mathematics::DistanceSquared;
@@ -69,11 +70,6 @@ namespace MphRead::Entities::Enemies
             matrix.M41 = value.X;
             matrix.M42 = value.Y;
             matrix.M43 = value.Z;
-        }
-
-        [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)

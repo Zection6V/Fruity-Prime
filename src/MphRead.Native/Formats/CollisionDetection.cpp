@@ -26,6 +26,9 @@
 using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Equal;
@@ -74,32 +77,6 @@ namespace
             return 0.0F;
         }
         return value;
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedAdd(
-        std::int32_t left,
-        std::int32_t right) noexcept
-    {
-        const std::uint32_t result
-            = static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedMultiply(
-        std::int32_t left,
-        std::int32_t right) noexcept
-    {
-        const std::uint32_t result
-            = static_cast<std::uint32_t>(left)
-            * static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedIncrement(
-        std::int32_t value) noexcept
-    {
-        return UncheckedAdd(value, 1);
     }
 
     [[nodiscard]] constexpr std::int32_t UncheckedPostIncrement(

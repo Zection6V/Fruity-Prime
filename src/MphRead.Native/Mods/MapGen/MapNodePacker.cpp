@@ -22,6 +22,8 @@
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::ComponentMax;
 using ::OpenTK::Mathematics::ComponentMin;
@@ -78,18 +80,6 @@ namespace MphRead::Mods::MapGen
                 return std::numeric_limits<std::int32_t>::max();
             }
             return static_cast<std::int32_t>(std::trunc(wide));
-        }
-
-        [[nodiscard]] std::int32_t UncheckedAdd(std::int32_t left, std::int32_t right) noexcept
-        {
-            return std::bit_cast<std::int32_t>(
-                static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] std::int32_t UncheckedMultiply(std::int32_t left, std::int32_t right) noexcept
-        {
-            return std::bit_cast<std::int32_t>(
-                static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
         }
 
         void SwapFloats(std::vector<float>& values, std::int32_t left, std::int32_t right) noexcept

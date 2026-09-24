@@ -36,6 +36,8 @@
 
 using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 
@@ -67,26 +69,6 @@ namespace
         OpenTK::Mathematics::Vector3 right) noexcept
     {
         return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-    }
-
-    [[nodiscard]] std::int32_t UncheckedIncrement(std::int32_t value) noexcept
-    {
-        const std::uint32_t bits = static_cast<std::uint32_t>(value) + 1U;
-        return std::bit_cast<std::int32_t>(bits);
-    }
-
-    [[nodiscard]] std::int64_t UncheckedIncrement(std::int64_t value) noexcept
-    {
-        const std::uint64_t bits = static_cast<std::uint64_t>(value) + 1ULL;
-        return std::bit_cast<std::int64_t>(bits);
-    }
-
-    [[nodiscard]] std::int32_t UncheckedMultiply(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t bits = static_cast<std::uint32_t>(left)
-            * static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(bits);
     }
 
     [[nodiscard]] std::uint16_t ClampUInt16(std::int32_t value) noexcept

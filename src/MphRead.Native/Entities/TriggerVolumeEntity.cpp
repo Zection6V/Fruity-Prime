@@ -8,6 +8,7 @@
 #include "../SceneSetup.hpp"
 #include "BeamProjectileEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
 
 #include <any>
@@ -18,6 +19,7 @@
 #include <memory>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::MphRead::TestFlag;
 
 namespace
@@ -49,12 +51,6 @@ namespace
     {
         const std::uint32_t shift = static_cast<std::uint32_t>(count) & 0x1FU;
         return std::bit_cast<std::int32_t>(std::uint32_t{1} << shift);
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedIncrement(std::int32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(value) + std::uint32_t{1});
     }
 
     [[nodiscard]] constexpr bool Int32LessThanUInt32(

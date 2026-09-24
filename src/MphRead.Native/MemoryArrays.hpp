@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MemoryClasses.hpp"
+#include "NativeRuntime/System/Managed.hpp"
 
 #include <any>
 #include <bit>
@@ -127,21 +128,8 @@ namespace MphRead::Memory
             [[nodiscard]] virtual std::unique_ptr<IEnumerator> GetEnumerator() = 0;
         };
 
-        [[nodiscard]] constexpr std::int32_t UncheckedAdd(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t result = std::bit_cast<std::uint32_t>(left)
-                + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(result);
-        }
-
-        [[nodiscard]] constexpr std::int32_t UncheckedMultiply(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t result = std::bit_cast<std::uint32_t>(left)
-                * std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(result);
-        }
+        using ::MphRead::NativeRuntime::UncheckedAdd;
+        using ::MphRead::NativeRuntime::UncheckedMultiply;
 
         [[nodiscard]] inline std::int32_t IntPtrToInt32(IntPtrAddress value)
         {

@@ -21,6 +21,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
@@ -35,18 +37,6 @@ namespace
             throw OverflowException();
         }
         return std::vector<std::uint8_t>(static_cast<std::size_t>(length));
-    }
-
-    std::int32_t UncheckedAdd(std::int32_t left, std::int32_t right)
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    std::int32_t UncheckedSubtract(std::int32_t left, std::int32_t right)
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right));
     }
 
     std::int32_t ReadByte(std::istream& stream)

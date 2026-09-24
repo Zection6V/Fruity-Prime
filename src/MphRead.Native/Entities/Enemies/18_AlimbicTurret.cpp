@@ -27,6 +27,7 @@
 
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateRotationY;
@@ -55,11 +56,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Enemy18Entity& RequireEnemy(Enemy18Entity* enemy)
         {
             return RequireReference(enemy);
-        }
-
-        [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] std::uint16_t TwiceToUInt16(std::uint16_t value) noexcept

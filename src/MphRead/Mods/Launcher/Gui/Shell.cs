@@ -138,7 +138,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"The window could not be opened: {ex.Message}");
+                Console.WriteLine($"The window could not be opened: {ex}");
                 Mods.DebugLog.Exception("launcher", ex);
                 return false;
             }

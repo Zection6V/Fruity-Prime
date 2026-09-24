@@ -391,6 +391,7 @@ namespace MphRead.Mods.Diagnostics
                 CheckVulkanGeometryIsolation(framebuffer, size);
                 CheckVulkanAlphaTestReference(framebuffer, size);
                 CheckVulkanDisplayListCurrentColor(framebuffer, size);
+                CheckVulkanDisplayListCurrentTexcoord(framebuffer, size);
                 CheckVulkanRgbRenderTargetAlpha(framebuffer, size);
                 CheckVulkanSceneTextureUniformIsolation(framebuffer, size);
                 CheckVulkanFixedFunctionTextureState(framebuffer, size);
@@ -731,6 +732,96 @@ namespace MphRead.Mods.Diagnostics
                 GL.UseProgram(0);
                 GL.DeleteLists(list, 2);
                 GL.Enable(EnableCap.Texture2D);
+                GL.DepthMask(true);
+            }
+        }
+
+        private static void CheckVulkanDisplayListCurrentTexcoord(
+            int framebuffer, int size)
+        {
+            int texture = GL.GenTexture();
+            int lists = GL.GenLists(2);
+            int deferredList = lists;
+            int localList = lists + 1;
+            try
+            {
+                byte[] texels =
+                {
+                    255, 0, 0, 255,
+                    0, 255, 0, 255
+                };
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, texture);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba,
+                    2, 1, 0, PixelFormat.Rgba, PixelType.UnsignedByte, texels);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(0);
+                GL.Enable(EnableCap.Texture2D);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(false);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.TexEnv(TextureEnvTarget.TextureEnv,
+                    TextureEnvParameter.TextureEnvMode, (int)TextureEnvMode.Replace);
+                GL.Color4(1f, 1f, 1f, 1f);
+
+                // No TexCoord command is stored in this list. The vertices
+                // must therefore consume the texcoord current when CallList
+                // executes (green/right texel), not the red/left texcoord
+                // that happened to be current while GL_COMPILE ran.
+                GL.TexCoord2(0.25f, 0.5f);
+                GL.NewList(deferredList, ListMode.Compile);
+                DrawTestQuad(-1f, -0.05f);
+                GL.EndList();
+
+                // A list-local TexCoord command must do the opposite: it is
+                // replayed by CallList and overrides the caller's green state.
+                GL.NewList(localList, ListMode.Compile);
+                GL.TexCoord2(0.25f, 0.5f);
+                DrawTestQuad(0.05f, 1f);
+                GL.EndList();
+
+                GL.TexCoord2(0.75f, 0.5f);
+                GL.CallList(deferredList);
+                GL.CallList(localList);
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 4, size / 2, 0, 255, 0)
+                    || !PixelIs(pixels, size, size * 3 / 4, size / 2, 255, 0, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan display-list texcoord state diverged from OpenGL GL_COMPILE/glCallList semantics.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan OpenGL display-list texcoord semantics passed.");
+            }
+            finally
+            {
+                GL.TexEnv(TextureEnvTarget.TextureEnv,
+                    TextureEnvParameter.TextureEnvMode, (int)TextureEnvMode.Modulate);
+                GL.TexCoord2(0f, 0f);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.DeleteTexture(texture);
+                GL.DeleteLists(lists, 2);
                 GL.DepthMask(true);
             }
         }

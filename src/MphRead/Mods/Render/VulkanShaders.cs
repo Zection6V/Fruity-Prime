@@ -86,13 +86,17 @@ void main()
     bool show_colors = u.params0.z > 0.5;
     bool use_light = u.scene0.x > 0.5;
     bool use_texture = u.params0.y > 0.5;
-    vec4 vtx_color = show_colors ? a_color : vec4(1.0);
+    // OpenGL display lists capture Color calls that occur inside the list,
+    // but a vertex with no list-local Color uses the current color at
+    // glCallList time. a_color_set distinguishes those two cases.
+    vec4 effective_color = a_color_set > 0.5 ? a_color : u.imm_color;
+    vec4 vtx_color = show_colors ? effective_color : vec4(1.0);
     vec3 normal = normalize(mat3(model_mtx) * a_normal);
 
     if (use_light) {
         vec3 dif_current = u.diffuse.rgb;
         vec3 amb_current = u.ambient.rgb;
-        if (a_color.a == 0.0) {
+        if (effective_color.a == 0.0) {
             dif_current = vtx_color.rgb;
             amb_current = vec3(0.0);
         }
@@ -167,6 +171,9 @@ void main()
     vec4 col;
     if (use_texture) {
         vec4 sampled = texture(sampler2D(Tex0, Samp0), fs_tex);
+        // Veldrid stores OpenGL RGB textures in RGBA storage. RGB has no
+        // alpha component in OpenGL, so sampling it must return alpha 1.
+        if (u.params2.w > 0.5) sampled.a = 1.0;
         vec4 texcolor = use_pal_override
             ? vec4(u.pal_override_color.rgb, sampled.a)
             : sampled;
@@ -247,6 +254,7 @@ void main()
     vec4 c = fs_color;
     if (u.params0.y > 0.5) {
         vec4 sampled = texture(sampler2D(Tex0, Samp0), fs_tex);
+        if (u.params2.w > 0.5) sampled.a = 1.0;
         c = u.params1.w > 0.5 ? sampled : c * sampled;
     }
     if (u.fade_color.a > 0.0) c = u.fade_color;
@@ -272,6 +280,7 @@ void main()
         vec2 texUv = fs_tex;
         if (u.params1.y > 0.5) texUv.y = 1.0 - texUv.y;
         c = texture(sampler2D(Tex0, Samp0), texUv);
+        if (u.params2.w > 0.5) c.a = 1.0;
         if (u.rtt0.y > 0.5) {
             // Vulkan FragCoord has an upper-left origin. The original RTT
             // shader's mask math is defined in OpenGL window coordinates.
@@ -279,7 +288,9 @@ void main()
             float maskY = glY + (u.rtt0.z - u.rtt0.w) / 2.0;
             vec2 maskUv = vec2(gl_FragCoord.x / u.rtt0.z, 1.0 - maskY / u.rtt0.z);
             if (u.params1.z > 0.5) maskUv.y = 1.0 - maskUv.y;
-            if (texture(sampler2D(Tex1, Samp1), maskUv).a > 0.0) c.a = 0.0;
+            vec4 maskSample = texture(sampler2D(Tex1, Samp1), maskUv);
+            if (u.scene2.z > 0.5) maskSample.a = 1.0;
+            if (maskSample.a > 0.0) c.a = 0.0;
         }
         c.a *= u.rtt0.x;
     }
@@ -335,7 +346,10 @@ void main()
     if (u.params1.y > 0.5) sampleUv.y = 1.0 - sampleUv.y;
     vec4 c;
     if (shifted.x < 0.0 || shifted.x > 1.0) c = vec4(0.0, 0.0, 0.0, 1.0);
-    else c = texture(sampler2D(Tex0, Samp0), sampleUv);
+    else {
+        c = texture(sampler2D(Tex0, Samp0), sampleUv);
+        if (u.params2.w > 0.5) c.a = 1.0;
+    }
 
     float white_fac = u.shift0.w;
     if (white_fac != 0.0) {

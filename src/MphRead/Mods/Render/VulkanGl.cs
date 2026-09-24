@@ -325,6 +325,7 @@ namespace MphRead.Mods.Render
         private static bool _scissor;
         private static bool _alphaTest;
         private static AlphaFunction _alphaFunction = AlphaFunction.Always;
+        private static float _alphaReference;
         private static bool _polygonOffsetFill;
         private static float _polygonOffsetFactor;
         private static float _polygonOffsetUnits;
@@ -490,6 +491,7 @@ namespace MphRead.Mods.Render
             _scissor = false;
             _alphaTest = false;
             _alphaFunction = AlphaFunction.Always;
+            _alphaReference = 0f;
             _polygonOffsetFill = false;
             _polygonOffsetFactor = 0f;
             _polygonOffsetUnits = 0f;
@@ -1419,9 +1421,18 @@ namespace MphRead.Mods.Render
             float useOverride = GetFloat(p, "use_override", 0f);
             WriteVector4(data, Params0Offset, new Vector4(matAlpha, useTexture, showColors, useOverride));
 
-            int alphaMode = !_alphaTest ? 0
-                : _alphaFunction == AlphaFunction.Equal ? 1
-                : _alphaFunction == AlphaFunction.Less ? 2 : 0;
+            int alphaMode = !_alphaTest ? 0 : _alphaFunction switch
+            {
+                AlphaFunction.Never => 1,
+                AlphaFunction.Less => 2,
+                AlphaFunction.Equal => 3,
+                AlphaFunction.Lequal => 4,
+                AlphaFunction.Greater => 5,
+                AlphaFunction.Notequal => 6,
+                AlphaFunction.Gequal => 7,
+                AlphaFunction.Always => 8,
+                _ => 8
+            };
             float flipTex0 = BoundTextureNeedsOpenGlVFlip(0) ? 1f : 0f;
             float flipTex1 = BoundTextureNeedsOpenGlVFlip(1) ? 1f : 0f;
             float fixedReplace = _currentProgram == 0
@@ -1459,7 +1470,7 @@ namespace MphRead.Mods.Render
             WriteVector4(data, Scene2Offset, new Vector4(
                 GetFloat(p, "use_flat", 0f),
                 GetFloat(p, "strength", 0f),
-                forceOpaqueTex1, 0f));
+                forceOpaqueTex1, _alphaReference));
             WritePackedVec3Array(data, ToonTableOffset, GetFloatArray(p, "toon_table"), 32);
 
             WriteVector4(data, Rtt0Offset, new Vector4(
@@ -2301,7 +2312,11 @@ namespace MphRead.Mods.Render
             }
         }
 
-        public static void AlphaFunc(AlphaFunction func, float reference) => _alphaFunction = func;
+        public static void AlphaFunc(AlphaFunction func, float reference)
+        {
+            _alphaFunction = func;
+            _alphaReference = Math.Clamp(reference, 0f, 1f);
+        }
         public static void PolygonMode(TriangleFace face, OpenTK.Graphics.OpenGL.PolygonMode mode)
         {
             _polygonMode = mode;

@@ -6,6 +6,8 @@
 #include "HostTask.hpp"
 
 #include "../Stb/Image.hpp"
+#include "../System/IO.hpp"
+#include "../System/Runtime.hpp"
 
 #include "../../Mods/Launcher/Gui/GuiTheme.hpp"
 #include "../../Mods/ThumbnailBatch.hpp"
@@ -150,21 +152,12 @@ namespace MphRead::Mods::Launcher::Gui::Detail
         {
             name = name.substr(slash + 1);
         }
-        std::error_code error;
-        const std::filesystem::path directory
-            = std::filesystem::current_path(error);
-        if (error)
+        const std::string path = ::MphRead::NativeRuntime::AppContextBaseDirectory() + name;
+        if (!::MphRead::NativeRuntime::FileExists(path))
         {
             return std::nullopt;
         }
-        std::ifstream file(directory / name, std::ios::binary);
-        if (!file)
-        {
-            return std::nullopt;
-        }
-        const std::istreambuf_iterator<char> first(file);
-        const std::istreambuf_iterator<char> last;
-        const std::vector<std::uint8_t> bytes(first, last);
+        const std::vector<std::uint8_t> bytes = ::MphRead::NativeRuntime::FileReadAllBytes(path);
         const ::MphRead::NativeRuntime::Image image
             = ::MphRead::NativeRuntime::LoadPng(bytes, 4);
         if (image.Width <= 0 || image.Height <= 0)

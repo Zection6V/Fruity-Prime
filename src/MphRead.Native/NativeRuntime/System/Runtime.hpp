@@ -4,6 +4,7 @@
 // System.Environment and System.OperatingSystem: the members the game calls.
 
 #include <cstdint>
+#include <string>
 
 namespace MphRead::NativeRuntime
 {
@@ -22,6 +23,10 @@ namespace MphRead::NativeRuntime
 
     // OperatingSystem.IsAndroid().
     [[nodiscard]] bool IsAndroid();
+
+    // AppContext.BaseDirectory: the directory the executable is in, UTF-8,
+    // ending in a separator.
+    [[nodiscard]] std::string AppContextBaseDirectory();
 
     // Environment.ExitCode.
     [[nodiscard]] std::int32_t EnvironmentExitCode() noexcept;

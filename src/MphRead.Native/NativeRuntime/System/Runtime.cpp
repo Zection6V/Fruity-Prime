@@ -5,6 +5,10 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <string>
+#include <system_error>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -16,6 +20,10 @@
 #include <windows.h>
 #include <intrin.h>
 #else
+#if defined(__APPLE__)
+#include <climits>
+#include <mach-o/dyld.h>
+#endif
 #include <csignal>
 #include <fstream>
 #include <string>
@@ -26,6 +34,47 @@ namespace MphRead::NativeRuntime
     namespace
     {
         std::atomic<std::int32_t> ExitCode{0};
+    }
+
+    std::string AppContextBaseDirectory()
+    {
+        std::filesystem::path executable;
+#if defined(_WIN32)
+        std::vector<wchar_t> buffer(260);
+        for (;;)
+        {
+            const DWORD length = ::GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+            if (length == 0)
+            {
+                break;
+            }
+            if (length < buffer.size())
+            {
+                executable = std::filesystem::path(std::wstring(buffer.data(), length));
+                break;
+            }
+            buffer.resize(buffer.size() * 2U);
+        }
+#elif defined(__APPLE__)
+        char path[PATH_MAX];
+        std::uint32_t length = PATH_MAX;
+        if (::_NSGetExecutablePath(path, &length) == 0)
+        {
+            std::error_code error;
+            executable = std::filesystem::canonical(path, error);
+        }
+#else
+        std::error_code error;
+        executable = std::filesystem::read_symlink("/proc/self/exe", error);
+#endif
+        std::filesystem::path directory = executable.parent_path();
+        if (directory.empty())
+        {
+            std::error_code error;
+            directory = std::filesystem::current_path(error);
+        }
+        const std::u8string text = (directory / "").u8string();
+        return std::string(text.begin(), text.end());
     }
 
     void ForceFullGc()

@@ -150,6 +150,26 @@ if(NOT ANDROID)
     target_link_libraries(fruity_prime PRIVATE fruity_mphread_native)
     set_target_properties(fruity_prime PROPERTIES OUTPUT_NAME "FruityPrime")
 
+    # The launcher's window icon and front-screen logo. The C# build embeds
+    # them as Avalonia resources; here they are the files beside the binary
+    # that an avares: URI resolves to.
+    add_custom_command(TARGET fruity_prime POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${FRUITY_MPHREAD_ROOT}/Assets/fruity-prime-logo.png"
+            "${FRUITY_MPHREAD_ROOT}/Assets/fruity-prime-mark.png"
+            "$<TARGET_FILE_DIR:fruity_prime>"
+        VERBATIM)
+
+    if(WIN32)
+        # The executable's own icon, the csproj's ApplicationIcon.
+        enable_language(RC)
+        set(FRUITY_APP_ICON "${FRUITY_MPHREAD_ROOT}/Assets/fruity-prime.ico")
+        file(TO_CMAKE_PATH "${FRUITY_APP_ICON}" FRUITY_APP_ICON)
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FruityPrime.rc"
+            "1 ICON \"${FRUITY_APP_ICON}\"\n")
+        target_sources(fruity_prime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/FruityPrime.rc")
+    endif()
+
     if(MINGW)
         # The compiler's own runtime goes into the binary. Nobody running the
         # game has the toolchain installed, and these three DLLs are the ones

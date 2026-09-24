@@ -3,6 +3,8 @@
 #include "../Gui/Host.hpp"
 #include "../Gui/Text.hpp"
 #include "../Stb/Image.hpp"
+#include "../System/IO.hpp"
+#include "../System/Runtime.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -880,16 +882,18 @@ namespace MphRead::NativeRuntime::Avalonia
 
     std::string SplashViewHost::AppContextBaseDirectory() const
     {
-        std::error_code error;
-        const std::filesystem::path path
-            = std::filesystem::current_path(error);
-        return error ? std::string() : path.string();
+        return ::MphRead::NativeRuntime::AppContextBaseDirectory();
     }
 
     std::string SplashViewHost::PathCombine(
         std::string_view left, std::string_view right) const
     {
-        return (std::filesystem::path(left) / std::filesystem::path(right)).string();
+        const auto native = [](std::string_view text)
+        {
+            return std::filesystem::path(std::u8string(text.begin(), text.end()));
+        };
+        const std::u8string combined = (native(left) / native(right)).u8string();
+        return std::string(combined.begin(), combined.end());
     }
 
     std::shared_ptr<Launcher::SplashBitmap> SplashViewHost::CreateBitmapFromMemory(
@@ -909,15 +913,12 @@ namespace MphRead::NativeRuntime::Avalonia
         {
             path = path.substr(slash + 1);
         }
-        std::ifstream file(PathCombine(AppContextBaseDirectory(), path),
-            std::ios::binary);
-        if (!file)
+        const std::string full = PathCombine(AppContextBaseDirectory(), path);
+        if (!::MphRead::NativeRuntime::FileExists(full))
         {
             return nullptr;
         }
-        const std::istreambuf_iterator<char> first(file);
-        const std::istreambuf_iterator<char> last;
-        const std::vector<std::uint8_t> bytes(first, last);
+        const std::vector<std::uint8_t> bytes = ::MphRead::NativeRuntime::FileReadAllBytes(full);
         return DecodeBitmap(bytes);
     }
 

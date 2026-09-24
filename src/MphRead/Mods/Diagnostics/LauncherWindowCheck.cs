@@ -250,6 +250,46 @@ namespace MphRead.Mods.Diagnostics
                 }
                 GL.Disable(EnableCap.CullFace);
                 Console.WriteLine("[windowcheck] Vulkan OpenGL-compatible face winding passed.");
+
+                // Scene matrices in Fruity are OpenGL matrices. A vertex at
+                // clip z=-0.5 is valid there, but raw Vulkan would reject it
+                // because Vulkan's clip range begins at zero. The Vulkan scene
+                // vertex shader must remap [-w,+w] to [0,+w].
+                int sceneProgram = CreateSceneProgram();
+                try
+                {
+                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                    GL.ClearColor(0f, 0f, 0f, 1f);
+                    GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+                    GL.UseProgram(sceneProgram);
+                    GL.Disable(EnableCap.DepthTest);
+                    GL.Disable(EnableCap.CullFace);
+                    GL.Disable(EnableCap.StencilTest);
+                    GL.Disable(EnableCap.Blend);
+                    GL.Color4(0f, 0f, 1f, 1f);
+                    GL.TexCoord3(0f, 0f, 0f);
+                    GL.Begin(PrimitiveType.Triangles);
+                    GL.Vertex3(-0.75f, -0.75f, -0.5f);
+                    GL.Vertex3(0.75f, -0.75f, -0.5f);
+                    GL.Vertex3(0f, 0.75f, -0.5f);
+                    GL.End();
+
+                    Array.Clear(pixels, 0, pixels.Length);
+                    GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                    GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                        PixelType.UnsignedByte, pixels);
+                    if (!PixelIs(pixels, size, 8, 8, 0, 0, 255))
+                    {
+                        throw new InvalidOperationException(
+                            "Vulkan did not preserve the OpenGL clip-space depth range.");
+                    }
+                    Console.WriteLine("[windowcheck] Vulkan OpenGL clip-depth mapping passed.");
+                }
+                finally
+                {
+                    GL.UseProgram(0);
+                    GL.DeleteProgram(sceneProgram);
+                }
             }
             finally
             {
@@ -286,6 +326,47 @@ namespace MphRead.Mods.Diagnostics
             GL.Vertex3(1f, 1f, 0f);
             GL.Vertex3(-1f, 1f, 0f);
             GL.End();
+        }
+
+        private static int CreateSceneProgram()
+        {
+            int program = GL.CreateProgram();
+            try
+            {
+                foreach (var (type, source) in new[] {
+                    (ShaderType.VertexShader, Shaders.VertexShader),
+                    (ShaderType.FragmentShader, Shaders.FragmentShader) })
+                {
+                    int shader = GL.CreateShader(type);
+                    try
+                    {
+                        GL.ShaderSource(shader, source);
+                        GL.CompileShader(shader);
+                        GL.GetShader(shader, ShaderParameter.CompileStatus, out int compiled);
+                        if (compiled == 0)
+                        {
+                            throw new InvalidOperationException(GL.GetShaderInfoLog(shader));
+                        }
+                        GL.AttachShader(program, shader);
+                    }
+                    finally
+                    {
+                        GL.DeleteShader(shader);
+                    }
+                }
+                GL.LinkProgram(program);
+                GL.GetProgram(program, GetProgramParameterName.LinkStatus, out int linked);
+                if (linked == 0)
+                {
+                    throw new InvalidOperationException(GL.GetProgramInfoLog(program));
+                }
+                return program;
+            }
+            catch
+            {
+                GL.DeleteProgram(program);
+                throw;
+            }
         }
 
         private static void Link(string vertex, string fragment)

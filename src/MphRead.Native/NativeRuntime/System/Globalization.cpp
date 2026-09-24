@@ -2183,7 +2183,7 @@ namespace MphRead::NativeRuntime
             const std::string& cultureName = CurrentCultureName();
             const int wideLength = ::MultiByteToWideChar(CP_UTF8, 0, cultureName.data(),
                 static_cast<int>(cultureName.size()), nullptr, 0);
-            std::wstring locale(static_cast<std::size_t>(wideLength), L' ');
+            std::wstring locale(static_cast<std::size_t>(wideLength), L'\0');
             ::MultiByteToWideChar(CP_UTF8, 0, cultureName.data(), static_cast<int>(cultureName.size()),
                 locale.data(), wideLength);
             int sourceLength = static_cast<int>(source.size());

@@ -42,7 +42,7 @@ namespace MphRead::Mods
         static void Close();
 
         static std::atomic_bool _open;
-        static std::atomic_bool _leave;
+        static std::atomic_bool _leaveRequested;
         static std::atomic_bool _quit;
         static std::atomic_bool _toggleFullscreen;
         static std::atomic_bool _refocus;

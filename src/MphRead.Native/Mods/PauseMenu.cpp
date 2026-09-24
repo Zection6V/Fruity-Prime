@@ -14,7 +14,7 @@
 namespace MphRead::Mods
 {
     std::atomic_bool PauseMenu::_open{false};
-    std::atomic_bool PauseMenu::_leave{false};
+    std::atomic_bool PauseMenu::_leaveRequested{false};
     std::atomic_bool PauseMenu::_quit{false};
     std::atomic_bool PauseMenu::_toggleFullscreen{false};
     std::atomic_bool PauseMenu::_refocus{false};
@@ -147,9 +147,9 @@ namespace MphRead::Mods
             Close();
             window.Close();
         }
-        else if (_leave.load(std::memory_order_acquire))
+        else if (_leaveRequested.load(std::memory_order_acquire))
         {
-            _leave.store(false, std::memory_order_release);
+            _leaveRequested.store(false, std::memory_order_release);
             _leftMatch = true;
             Close();
             window.Close();
@@ -160,13 +160,13 @@ namespace MphRead::Mods
     {
         _leftMatch = false;
         _quitProgram = false;
-        _leave.store(false, std::memory_order_release);
+        _leaveRequested.store(false, std::memory_order_release);
         _quit.store(false, std::memory_order_release);
     }
 
     void PauseMenu::RequestLeave() noexcept
     {
-        _leave.store(true, std::memory_order_release);
+        _leaveRequested.store(true, std::memory_order_release);
     }
 
     void PauseMenu::RequestQuit() noexcept

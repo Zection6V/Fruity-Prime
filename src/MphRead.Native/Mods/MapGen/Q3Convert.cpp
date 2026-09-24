@@ -2,12 +2,12 @@
 #include "NativeRuntime/System/Charconv.hpp"
 
 #include "../../Formats/Enums.hpp"
-#include "../../Formats/Types.hpp"
 #include "CustomRooms.hpp"
 #include "MapBuilder.hpp"
 #include "MapDefinition.hpp"
 #include "MapTextureBake.hpp"
 #include "Q3Bsp.hpp"
+#include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -46,6 +46,8 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::PathCombine;
@@ -73,11 +75,6 @@ namespace
         throw System::NullReferenceException();
     }
 
-    [[noreturn]] void ArrayBounds()
-    {
-        throw System::IndexOutOfRangeException();
-    }
-
     template <typename T>
     [[nodiscard]] T* Require(const std::shared_ptr<T>& value)
     {
@@ -96,44 +93,6 @@ namespace
             NullReference();
         }
         return value.get();
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ListAt(const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw System::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ArrayAt(const std::vector<T>* values, std::size_t index)
-    {
-        if (values == nullptr)
-        {
-            NullReference();
-        }
-        if (index >= values->size())
-        {
-            ArrayBounds();
-        }
-        return (*values)[index];
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ArrayAt(std::vector<T>* values, std::size_t index)
-    {
-        if (values == nullptr)
-        {
-            NullReference();
-        }
-        if (index >= values->size())
-        {
-            ArrayBounds();
-        }
-        return (*values)[index];
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
@@ -1092,12 +1051,12 @@ namespace
         }
 
         double sum = static_cast<double>(
-            ArrayAt(Require(values.front()), axis));
+            ManagedAt(Require(values.front()), axis));
         std::int64_t count = 1;
         for (std::size_t i = 1; i < values.size(); ++i)
         {
             sum += static_cast<double>(
-                ArrayAt(Require(values[i]), axis));
+                ManagedAt(Require(values[i]), axis));
             count = std::bit_cast<std::int64_t>(
                 static_cast<std::uint64_t>(count) + 1U);
         }
@@ -1855,7 +1814,7 @@ namespace MphRead::Mods::MapGen
         std::shared_ptr<std::vector<float>> min;
         std::shared_ptr<std::vector<float>> max;
         Bounds(Require(bsp), min, max, false);
-        if (ArrayAt(min.get(), 0) > ArrayAt(max.get(), 0))
+        if (ManagedAt(min.get(), 0) > ManagedAt(max.get(), 0))
         {
             std::cout
                 << (selectedMapName.has_value()
@@ -1866,11 +1825,11 @@ namespace MphRead::Mods::MapGen
         }
 
         const float xExtent
-            = ArrayAt(max.get(), 0) - ArrayAt(min.get(), 0);
+            = ManagedAt(max.get(), 0) - ManagedAt(min.get(), 0);
         const float yExtent
-            = ArrayAt(max.get(), 1) - ArrayAt(min.get(), 1);
+            = ManagedAt(max.get(), 1) - ManagedAt(min.get(), 1);
         const float zExtent
-            = ArrayAt(max.get(), 2) - ArrayAt(min.get(), 2);
+            = ManagedAt(max.get(), 2) - ManagedAt(min.get(), 2);
         const float widest = MathMax(
             xExtent,
             MathMax(yExtent, zExtent));
@@ -1937,7 +1896,7 @@ namespace MphRead::Mods::MapGen
         definition->ScaleFactor(
             ScaleFactor(reachMin.get(), reachMax.get(), unit));
         definition->KillHeight(
-            RoundToEven(ArrayAt(min.get(), 2) / unit)
+            RoundToEven(ManagedAt(min.get(), 2) / unit)
             - 5.0F);
         definition->FarClip(
             RoundToEven(MathMin(
@@ -1960,7 +1919,7 @@ namespace MphRead::Mods::MapGen
         {
             Q3Brush* brush = Require(brushRef);
             Q3Texture* solidTexture = Require(
-                ListAt(
+                ManagedListAt(
                     Require(bsp)->Textures(),
                     brush->Texture()));
             if ((solidTexture->Contents()
@@ -1969,7 +1928,7 @@ namespace MphRead::Mods::MapGen
                 continue;
             }
             Q3Texture* clipTexture = Require(
-                ListAt(
+                ManagedListAt(
                     Require(bsp)->Textures(),
                     brush->Texture()));
             if ((clipTexture->Contents()
@@ -2007,16 +1966,16 @@ namespace MphRead::Mods::MapGen
             << " Quake units per unit"
             << " -> "
             << FormatZero(
-                (ArrayAt(max.get(), 0)
-                    - ArrayAt(min.get(), 0)) / unit)
+                (ManagedAt(max.get(), 0)
+                    - ManagedAt(min.get(), 0)) / unit)
             << " x "
             << FormatZero(
-                (ArrayAt(max.get(), 2)
-                    - ArrayAt(min.get(), 2)) / unit)
+                (ManagedAt(max.get(), 2)
+                    - ManagedAt(min.get(), 2)) / unit)
             << " x "
             << FormatZero(
-                (ArrayAt(max.get(), 1)
-                    - ArrayAt(min.get(), 1)) / unit)
+                (ManagedAt(max.get(), 1)
+                    - ManagedAt(min.get(), 1)) / unit)
             << " units\n";
         std::cout << "  wrote " << path << '\n';
 
@@ -2094,7 +2053,7 @@ namespace MphRead::Mods::MapGen
             }
 
             Q3Texture* texture = Require(
-                ListAt(bsp->Textures(), face->Texture()));
+                ManagedListAt(bsp->Textures(), face->Texture()));
             if ((texture->Flags()
                     & (Q3Bsp::SurfaceNoDraw
                         | Q3Bsp::SurfaceHint
@@ -2113,17 +2072,17 @@ namespace MphRead::Mods::MapGen
                 i = UncheckedAdd(i, 1))
             {
                 Q3Vertex* vertex = Require(
-                    ListAt(bsp->Vertices(), i));
+                    ManagedListAt(bsp->Vertices(), i));
                 const std::vector<float>* position
                     = Require(vertex->Position());
                 for (std::size_t axis = 0; axis < 3; ++axis)
                 {
-                    ArrayAt(min.get(), axis) = MathMin(
-                        ArrayAt(min.get(), axis),
-                        ArrayAt(position, axis));
-                    ArrayAt(max.get(), axis) = MathMax(
-                        ArrayAt(max.get(), axis),
-                        ArrayAt(position, axis));
+                    ManagedAt(min.get(), axis) = MathMin(
+                        ManagedAt(min.get(), axis),
+                        ManagedAt(position, axis));
+                    ManagedAt(max.get(), axis) = MathMax(
+                        ManagedAt(max.get(), axis),
+                        ManagedAt(position, axis));
                 }
             }
         }
@@ -2140,8 +2099,8 @@ namespace MphRead::Mods::MapGen
             reach = MathMax(
                 reach,
                 MathMax(
-                    std::fabs(ArrayAt(min, axis)),
-                    std::fabs(ArrayAt(max, axis)))
+                    std::fabs(ManagedAt(min, axis)),
+                    std::fabs(ManagedAt(max, axis)))
                     / unit);
         }
 
@@ -2272,13 +2231,13 @@ namespace MphRead::Mods::MapGen
         {
             const std::vector<float>* position
                 = Require(positionRef);
-            const float x = ArrayAt(position, 0) / unit;
-            const float y = ArrayAt(position, 2) / unit
+            const float x = ManagedAt(position, 0) / unit;
+            const float y = ManagedAt(position, 2) / unit
                 - 24.0F / unit;
-            const float z = -ArrayAt(position, 1) / unit;
+            const float z = -ManagedAt(position, 1) / unit;
             const float toCentre = std::atan2(
-                ArrayAt(centre.get(), 0) / unit - x,
-                -ArrayAt(centre.get(), 1) / unit - z);
+                ManagedAt(centre.get(), 0) / unit - x,
+                -ManagedAt(centre.get(), 1) / unit - z);
 
             auto spawn = std::make_shared<MapSpawn>();
             spawn->Position(
@@ -2352,7 +2311,7 @@ namespace MphRead::Mods::MapGen
             (void)TryParseSingleInvariant(
                 parts[i],
                 parsed);
-            ArrayAt(result.get(), i) = parsed;
+            ManagedAt(result.get(), i) = parsed;
         }
         return result;
     }

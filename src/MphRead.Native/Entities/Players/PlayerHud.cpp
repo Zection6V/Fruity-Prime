@@ -46,31 +46,12 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 
 namespace
 {
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range("Index was outside the bounds of the array.");
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(const TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range("Index was outside the bounds of the array.");
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
     [[nodiscard]] std::u16string ToManagedChars(std::string_view text)
     {
         std::u16string result;
@@ -228,6 +209,7 @@ namespace
         return time;
     }
 }
+
 
 namespace MphRead::Entities
 {

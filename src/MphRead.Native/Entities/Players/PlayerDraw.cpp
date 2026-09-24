@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::CreateRotationY;
@@ -114,25 +115,6 @@ namespace
         }
     }
 
-    template <typename T>
-    [[nodiscard]] decltype(auto) ManagedAt(T& values, std::int32_t index)
-    {
-        auto&& storage = Storage(values);
-        const std::int32_t length = ManagedLength(storage);
-        if (index < 0 || index >= length)
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        if constexpr (requires { storage.at(static_cast<std::size_t>(index)); })
-        {
-            return storage.at(static_cast<std::size_t>(index));
-        }
-        else
-        {
-            return storage[static_cast<std::size_t>(index)];
-        }
-    }
-
     [[nodiscard]] constexpr Vector3 MatrixRow3(const Matrix4& matrix) noexcept
     {
         return Vector3(matrix.M41, matrix.M42, matrix.M43);
@@ -192,6 +174,7 @@ namespace
         return signedValue >> 20;
     }
 }
+
 
 namespace MphRead::Entities
 {

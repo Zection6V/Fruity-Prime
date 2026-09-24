@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
@@ -69,18 +70,6 @@ namespace
         {
             throw MphRead::Memory::Detail::InvalidCastException();
         }
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedArrayAt(
-        const std::shared_ptr<MphRead::ManagedArray<T>>& values, std::int32_t index)
-    {
-        MphRead::ManagedArray<T>& array = RequireReference(values);
-        if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
-        {
-            throw MphRead::Memory::Detail::IndexOutOfRangeException();
-        }
-        return array[static_cast<std::size_t>(index)];
     }
 
     [[nodiscard]] std::size_t CheckedSlotIndex(std::int32_t index, std::size_t size)
@@ -176,8 +165,8 @@ namespace MphRead::Entities
             ModelInstance& inst = SetUpModel(modelName);
             inst.SetAnimation(2, AnimFlags::NoLoop | AnimFlags::Reverse);
             AnimationInfo& animInfo = RequireReference(inst.AnimInfo);
-            ManagedArrayAt(animInfo.Frame, 0) = 0;
-            ManagedArrayAt(animInfo.Flags, 0) |= AnimFlags::Ended;
+            ManagedAt(animInfo.Frame, 0) = 0;
+            ManagedAt(animInfo.Flags, 0) |= AnimFlags::Ended;
         }
 
         if (data.EntityFilename[0] != '\0')
@@ -317,9 +306,9 @@ namespace MphRead::Entities
             (void)EntityBase::Process();
             ModelInstance& model = _models[0];
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
-            if (ManagedArrayAt(animInfo.Index, 0) == 2
-                && !TestFlag(ManagedArrayAt(animInfo.Flags, 0), AnimFlags::Reverse)
-                && TestFlag(ManagedArrayAt(animInfo.Flags, 0), AnimFlags::Ended))
+            if (ManagedAt(animInfo.Index, 0) == 2
+                && !TestFlag(ManagedAt(animInfo.Flags, 0), AnimFlags::Reverse)
+                && TestFlag(ManagedAt(animInfo.Flags, 0), AnimFlags::Ended))
             {
                 model.SetAnimation(0);
             }
@@ -337,10 +326,10 @@ namespace MphRead::Entities
             }
 
             if (_bool4
-                && (ManagedArrayAt(animInfo.Index, 0) != 0
-                    || ManagedArrayAt(animInfo.Frame, 0)
+                && (ManagedAt(animInfo.Index, 0) != 0
+                    || ManagedAt(animInfo.Frame, 0)
                         == UncheckedSubtract(
-                            ManagedArrayAt(animInfo.FrameCount, 0), 1)))
+                            ManagedAt(animInfo.FrameCount, 0), 1)))
             {
                 InitiateAnimaton();
             }
@@ -524,22 +513,22 @@ namespace MphRead::Entities
             _soundSource.Update(static_cast<Vector3>(Position), 23);
 
             AnimationInfo& animInfo = RequireReference(_models[0].AnimInfo);
-            if (ManagedArrayAt(animInfo.Index, 0) == 2)
+            if (ManagedAt(animInfo.Index, 0) == 2)
             {
                 Scene& scene = RequireReference(_scene);
                 if (scene.FrameCount() > 1
                     && TestFlag(
-                        ManagedArrayAt(animInfo.Flags, 0), AnimFlags::Reverse)
-                    && ManagedArrayAt(animInfo.Frame, 0)
-                        < ManagedArrayAt(animInfo.FrameCount, 0) / 2
+                        ManagedAt(animInfo.Flags, 0), AnimFlags::Reverse)
+                    && ManagedAt(animInfo.Frame, 0)
+                        < ManagedAt(animInfo.FrameCount, 0) / 2
                     && scene.FrameCount() % 2 == 0)
                 {
                     _soundSource.PlaySfx(SfxId::TELEPORT_ACTIVATE);
                 }
 
-                ManagedArrayAt(animInfo.Flags, 0) |= AnimFlags::NoLoop;
-                ManagedArrayAt(animInfo.Flags, 0) &= ~AnimFlags::Ended;
-                ManagedArrayAt(animInfo.Flags, 0) &= ~AnimFlags::Reverse;
+                ManagedAt(animInfo.Flags, 0) |= AnimFlags::NoLoop;
+                ManagedAt(animInfo.Flags, 0) &= ~AnimFlags::Ended;
+                ManagedAt(animInfo.Flags, 0) &= ~AnimFlags::Reverse;
             }
         }
     }
@@ -552,13 +541,13 @@ namespace MphRead::Entities
             _bool4 = false;
             ModelInstance& model = _models[0];
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
-            if (ManagedArrayAt(animInfo.Index, 0) == 2)
+            if (ManagedAt(animInfo.Index, 0) == 2)
             {
-                ManagedArrayAt(animInfo.Flags, 0) |= AnimFlags::NoLoop;
-                ManagedArrayAt(animInfo.Flags, 0) |= AnimFlags::Reverse;
-                ManagedArrayAt(animInfo.Flags, 0) &= ~AnimFlags::Ended;
+                ManagedAt(animInfo.Flags, 0) |= AnimFlags::NoLoop;
+                ManagedAt(animInfo.Flags, 0) |= AnimFlags::Reverse;
+                ManagedAt(animInfo.Flags, 0) &= ~AnimFlags::Ended;
             }
-            else if (ManagedArrayAt(animInfo.Index, 0) == 0)
+            else if (ManagedAt(animInfo.Index, 0) == 0)
             {
                 model.SetAnimation(
                     2, AnimFlags::NoLoop | AnimFlags::Reverse);

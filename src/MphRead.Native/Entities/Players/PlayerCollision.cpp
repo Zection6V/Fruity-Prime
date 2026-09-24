@@ -27,6 +27,7 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RequireReference;
@@ -101,24 +102,13 @@ namespace
         }
     }
 
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
-    {
-        auto&& storage = ManagedStorage(values);
-        const std::int32_t length = ManagedLength(storage);
-        if (index < 0 || index >= length)
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return storage[static_cast<std::size_t>(index)];
-    }
-
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
     {
         return std::make_shared<const std::any>(value);
     }
 
 }
+
 
 namespace MphRead::Entities
 {

@@ -6,6 +6,7 @@
 #include "../Read.hpp"
 #include "../SceneSetup.hpp"
 #include "../Formats/Model.hpp"
+#include "../Formats/Types.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -41,6 +42,7 @@
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -71,28 +73,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedAt(std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedAt(const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
-        }
-        return values[static_cast<std::size_t>(index)];
     }
 
     [[nodiscard]] std::int32_t Sign16(std::uint32_t value) noexcept
@@ -509,13 +489,13 @@ namespace MphRead::Utility
 
         for (std::int32_t i = 0; i < count; ++i)
         {
-            const auto& nodeGroup = ManagedAt(nodeValues, i);
+            const auto& nodeGroup = ManagedListAt(nodeValues, i);
             nodeGroupOffsets.push_back(nodeGroup ? WriteNodeGroup(nodeGroup, fhPad, writer) : 0);
-            const auto& matGroup = ManagedAt(Require(matGroups), i);
+            const auto& matGroup = ManagedListAt(Require(matGroups), i);
             matGroupOffsets.push_back(matGroup ? WriteMatGroup(matGroup, fhPad, writer) : 0);
-            const auto& texGroup = ManagedAt(Require(texGroups), i);
+            const auto& texGroup = ManagedListAt(Require(texGroups), i);
             texGroupOffsets.push_back(texGroup ? WriteTexGroup(texGroup, fhPad, writer) : 0);
-            const auto& uvGroup = ManagedAt(Require(uvGroups), i);
+            const auto& uvGroup = ManagedListAt(Require(uvGroups), i);
             uvGroupOffsets.push_back(uvGroup ? WriteUvGroup(uvGroup, fhPad, writer) : 0);
             unusedGroupOffsets.push_back(0);
         }
@@ -856,10 +836,10 @@ namespace MphRead::Utility
             case InstructionCode::VTX_16:
             {
                 const auto& arguments = Require(instruction.Arguments);
-                const std::uint32_t xy = ManagedAt(arguments, 0);
+                const std::uint32_t xy = ManagedListAt(arguments, 0);
                 const std::int32_t x = Sign16(xy);
                 const std::int32_t y = Sign16(xy >> 16);
-                const std::int32_t z = Sign16(ManagedAt(arguments, 1));
+                const std::int32_t z = Sign16(ManagedListAt(arguments, 1));
                 vtxX = x;
                 vtxY = y;
                 vtxZ = z;
@@ -869,7 +849,7 @@ namespace MphRead::Utility
             case InstructionCode::VTX_10:
             {
                 const auto& arguments = Require(instruction.Arguments);
-                const std::uint32_t xyz = ManagedAt(arguments, 0);
+                const std::uint32_t xyz = ManagedListAt(arguments, 0);
                 const std::int32_t x = Sign10(xyz);
                 const std::int32_t y = Sign10(xyz >> 10);
                 const std::int32_t z = Sign10(xyz >> 20);
@@ -882,7 +862,7 @@ namespace MphRead::Utility
             case InstructionCode::VTX_XY:
             {
                 const auto& arguments = Require(instruction.Arguments);
-                const std::uint32_t xy = ManagedAt(arguments, 0);
+                const std::uint32_t xy = ManagedListAt(arguments, 0);
                 vtxX = Sign16(xy);
                 vtxY = Sign16(xy >> 16);
                 update();
@@ -891,7 +871,7 @@ namespace MphRead::Utility
             case InstructionCode::VTX_XZ:
             {
                 const auto& arguments = Require(instruction.Arguments);
-                const std::uint32_t xz = ManagedAt(arguments, 0);
+                const std::uint32_t xz = ManagedListAt(arguments, 0);
                 vtxX = Sign16(xz);
                 vtxZ = Sign16(xz >> 16);
                 update();
@@ -900,7 +880,7 @@ namespace MphRead::Utility
             case InstructionCode::VTX_YZ:
             {
                 const auto& arguments = Require(instruction.Arguments);
-                const std::uint32_t yz = ManagedAt(arguments, 0);
+                const std::uint32_t yz = ManagedListAt(arguments, 0);
                 vtxY = Sign16(yz);
                 vtxZ = Sign16(yz >> 16);
                 update();
@@ -909,7 +889,7 @@ namespace MphRead::Utility
             case InstructionCode::VTX_DIFF:
             {
                 const auto& arguments = Require(instruction.Arguments);
-                const std::uint32_t xyz = ManagedAt(arguments, 0);
+                const std::uint32_t xyz = ManagedListAt(arguments, 0);
                 vtxX = UncheckedAdd(vtxX, Sign10(xyz));
                 vtxY = UncheckedAdd(vtxY, Sign10(xyz >> 10));
                 vtxZ = UncheckedAdd(vtxZ, Sign10(xyz >> 20));
@@ -958,7 +938,7 @@ namespace MphRead::Utility
             case InstructionCode::BEGIN_VTXS:
                 REPACK_MODEL_DEBUG_ASSERT(vertexType == -1 && currentVertexCount == 0);
                 vertexType = static_cast<std::int32_t>(
-                    ManagedAt(Require(instruction.Arguments), 0));
+                    ManagedListAt(Require(instruction.Arguments), 0));
                 break;
             case InstructionCode::VTX_16:
             case InstructionCode::VTX_10:
@@ -1013,16 +993,16 @@ namespace MphRead::Utility
         Model& modelValue = Require(model);
         const std::int32_t recolor = 0;
         const auto& recolors = Require(modelValue.Recolors);
-        const auto& recolorValue = Require(ManagedAt(recolors, recolor));
+        const auto& recolorValue = Require(ManagedListAt(recolors, recolor));
 
         auto textureInfo = std::make_shared<std::vector<std::shared_ptr<TextureInfo>>>();
         const auto& textures = Require(recolorValue.Textures);
         textureInfo->reserve(textures.size());
         for (std::int32_t i = 0; i < ToIntCount(textures.size()); ++i)
         {
-            const Texture& texture = ManagedAt(textures, i);
+            const Texture& texture = ManagedListAt(textures, i);
             textureInfo->push_back(ConvertData(
-                texture, ManagedAt(Require(recolorValue.TextureData), i)));
+                texture, ManagedListAt(Require(recolorValue.TextureData), i)));
         }
 
         auto paletteInfo = std::make_shared<std::vector<std::shared_ptr<PaletteInfo>>>();
@@ -1174,9 +1154,9 @@ namespace MphRead::Utility
                     for (std::int32_t id : ids)
                     {
                         const std::int32_t dlistId
-                            = Require(ManagedAt(Require(meshes), id)).DlistId;
-                        const Vector3i meshMin = ManagedAt(allMin, dlistId);
-                        const Vector3i meshMax = ManagedAt(allMax, dlistId);
+                            = Require(ManagedListAt(Require(meshes), id)).DlistId;
+                        const Vector3i meshMin = ManagedListAt(allMin, dlistId);
+                        const Vector3i meshMax = ManagedListAt(allMax, dlistId);
                         minimum.X = std::min(minimum.X, meshMin.X);
                         minimum.Y = std::min(minimum.Y, meshMin.Y);
                         minimum.Z = std::min(minimum.Z, meshMin.Z);
@@ -1257,7 +1237,7 @@ namespace MphRead::Utility
             {
                 for (std::int32_t i = 0; i < ToIntCount(nodeValues.size()); ++i)
                 {
-                    if (Require(ManagedAt(nodeValues, i)).MeshCount > 0)
+                    if (Require(ManagedListAt(nodeValues, i)).MeshCount > 0)
                     {
                         writer.Write(i);
                     }
@@ -1304,8 +1284,8 @@ namespace MphRead::Utility
         for (std::int32_t i = 0; i < ToIntCount(textureValues.size()); ++i)
         {
             WriteTextureMeta(
-                ManagedAt(textureValues, i),
-                ManagedAt(textureDataOffsets, i),
+                ManagedListAt(textureValues, i),
+                ManagedListAt(textureDataOffsets, i),
                 writer);
         }
 
@@ -1326,8 +1306,8 @@ namespace MphRead::Utility
             ? 0 : ToIntCount(writer.Position());
         for (std::int32_t i = 0; i < ToIntCount(paletteValues.size()); ++i)
         {
-            const PaletteInfo& palette = Require(ManagedAt(paletteValues, i));
-            writer.Write(ManagedAt(paletteDataOffsets, i));
+            const PaletteInfo& palette = Require(ManagedListAt(paletteValues, i));
+            writer.Write(ManagedListAt(paletteDataOffsets, i));
             writer.Write(UncheckedMultiply(ToIntCount(Require(palette.Data).size()), 2));
             writer.Write(padInt);
             writer.Write(padInt);
@@ -1346,9 +1326,9 @@ namespace MphRead::Utility
         const auto& dlistValues = Require(dlists);
         for (std::int32_t i = 0; i < ToIntCount(dlistValues.size()); ++i)
         {
-            const Vector3i minimum = ManagedAt(dlistMin, i);
-            const Vector3i maximum = ManagedAt(dlistMax, i);
-            const auto result = ManagedAt(dlistResults, i);
+            const Vector3i minimum = ManagedListAt(dlistMin, i);
+            const Vector3i maximum = ManagedListAt(dlistMax, i);
+            const auto result = ManagedListAt(dlistResults, i);
             writer.Write(result.first);
             writer.Write(result.second);
             writer.Write(minimum.X);
@@ -1372,9 +1352,9 @@ namespace MphRead::Utility
         for (std::int32_t i = 0; i < ToIntCount(nodeValues.size()); ++i)
         {
             WriteNode(
-                ManagedAt(nodeValues, i),
-                ManagedAt(nodeMin, i),
-                ManagedAt(nodeMax, i),
+                ManagedListAt(nodeValues, i),
+                ManagedListAt(nodeMin, i),
+                ManagedListAt(nodeMax, i),
                 writer);
         }
 
@@ -1983,16 +1963,16 @@ namespace MphRead::Utility
             modelValue.Scale.X == ManagedInt32FromFloating(modelValue.Scale.X));
 
         const auto& recolors = Require(modelValue.Recolors);
-        const auto& recolor = Require(ManagedAt(recolors, 0));
+        const auto& recolor = Require(ManagedListAt(recolors, 0));
 
         auto textureInfo = std::make_shared<std::vector<std::shared_ptr<TextureInfo>>>();
         const auto& textureValues = Require(recolor.Textures);
         textureInfo->reserve(textureValues.size());
         for (std::int32_t i = 0; i < ToIntCount(textureValues.size()); ++i)
         {
-            const Texture& texture = ManagedAt(textureValues, i);
+            const Texture& texture = ManagedListAt(textureValues, i);
             textureInfo->push_back(ConvertData(
-                texture, ManagedAt(Require(recolor.TextureData), i)));
+                texture, ManagedListAt(Require(recolor.TextureData), i)));
         }
 
         auto paletteInfo = std::make_shared<std::vector<std::shared_ptr<PaletteInfo>>>();
@@ -2051,28 +2031,28 @@ namespace MphRead::Utility
         {
             node->push_back(offset == 0
                 ? nullptr
-                : ManagedAt(Require(animationGroups.Node), index++));
+                : ManagedListAt(Require(animationGroups.Node), index++));
         }
         index = 0;
         for (std::uint32_t offset : Require(offsets.Material))
         {
             mat->push_back(offset == 0
                 ? nullptr
-                : ManagedAt(Require(animationGroups.Material), index++));
+                : ManagedListAt(Require(animationGroups.Material), index++));
         }
         index = 0;
         for (std::uint32_t offset : Require(offsets.Texcoord))
         {
             uv->push_back(offset == 0
                 ? nullptr
-                : ManagedAt(Require(animationGroups.Texcoord), index++));
+                : ManagedListAt(Require(animationGroups.Texcoord), index++));
         }
         index = 0;
         for (std::uint32_t offset : Require(offsets.Texture))
         {
             tex->push_back(offset == 0
                 ? nullptr
-                : ManagedAt(Require(animationGroups.Texture), index++));
+                : ManagedListAt(Require(animationGroups.Texture), index++));
         }
 
         const bool fhPad = EndsWith(animPath, "testlevel_Anim.bin");
@@ -2114,16 +2094,16 @@ namespace MphRead::Utility
         Model& modelValue = Require(model);
 
         const auto& recolors = Require(modelValue.Recolors);
-        const auto& recolorValue = Require(ManagedAt(recolors, recolor));
+        const auto& recolorValue = Require(ManagedListAt(recolors, recolor));
 
         auto textureInfo = std::make_shared<std::vector<std::shared_ptr<TextureInfo>>>();
         const auto& textureValues = Require(recolorValue.Textures);
         textureInfo->reserve(textureValues.size());
         for (std::int32_t i = 0; i < ToIntCount(textureValues.size()); ++i)
         {
-            const Texture& texture = ManagedAt(textureValues, i);
+            const Texture& texture = ManagedListAt(textureValues, i);
             textureInfo->push_back(ConvertData(
-                texture, ManagedAt(Require(recolorValue.TextureData), i)));
+                texture, ManagedListAt(Require(recolorValue.TextureData), i)));
         }
 
         auto paletteInfo = std::make_shared<std::vector<std::shared_ptr<PaletteInfo>>>();
@@ -2310,7 +2290,7 @@ namespace MphRead::Utility
         const std::shared_ptr<Model> model
             = Require(Read::GetModelInstance(meta.Name, meta.FirstHunt)).Model();
 
-        const RecolorMetadata& recolorMeta = ManagedAt(meta.Recolors, recolor);
+        const RecolorMetadata& recolorMeta = ManagedListAt(meta.Recolors, recolor);
         TestModelRepack(
             model, recolor, meta.ModelPath,
             std::addressof(recolorMeta.TexturePath),
@@ -2431,8 +2411,8 @@ namespace MphRead::Utility
             second, other.TextureOffset, static_cast<std::int32_t>(other.TextureCount));
         for (std::int32_t i = 0; i < ToIntCount(Require(texes).size()); ++i)
         {
-            const Texture& tex = ManagedAt(Require(texes), i);
-            const Texture& otherTex = ManagedAt(Require(otherTexes), i);
+            const Texture& tex = ManagedListAt(Require(texes), i);
+            const Texture& otherTex = ManagedListAt(Require(otherTexes), i);
 #if defined(DEBUG)
             REPACK_MODEL_DEBUG_ASSERT(tex.Format == otherTex.Format);
             REPACK_MODEL_DEBUG_ASSERT(tex.Width == otherTex.Width);
@@ -2458,8 +2438,8 @@ namespace MphRead::Utility
             second, other.PaletteOffset, static_cast<std::int32_t>(other.PaletteCount));
         for (std::int32_t i = 0; i < ToIntCount(Require(pals).size()); ++i)
         {
-            const Palette& pal = ManagedAt(Require(pals), i);
-            const Palette& otherPal = ManagedAt(Require(otherPals), i);
+            const Palette& pal = ManagedListAt(Require(pals), i);
+            const Palette& otherPal = ManagedListAt(Require(otherPals), i);
 #if defined(DEBUG)
             REPACK_MODEL_DEBUG_ASSERT(pal.Offset == otherPal.Offset);
             REPACK_MODEL_DEBUG_ASSERT(pal.Size == otherPal.Size);
@@ -2481,8 +2461,8 @@ namespace MphRead::Utility
             second, other.MaterialOffset, static_cast<std::int32_t>(other.MaterialCount));
         for (std::int32_t i = 0; i < ToIntCount(Require(mats).size()); ++i)
         {
-            const RawMaterial& mat = ManagedAt(Require(mats), i);
-            const RawMaterial& otherMat = ManagedAt(Require(otherMats), i);
+            const RawMaterial& mat = ManagedListAt(Require(mats), i);
+            const RawMaterial& otherMat = ManagedListAt(Require(otherMats), i);
             REPACK_MODEL_DEBUG_ASSERT(mat.Name.WireBytes() == otherMat.Name.WireBytes());
             REPACK_MODEL_DEBUG_ASSERT(mat.Alpha == otherMat.Alpha);
             REPACK_MODEL_DEBUG_ASSERT(mat.Diffuse.Red == otherMat.Diffuse.Red);
@@ -2519,8 +2499,8 @@ namespace MphRead::Utility
             second, other.NodeOffset, static_cast<std::int32_t>(other.NodeCount));
         for (std::int32_t i = 0; i < ToIntCount(Require(rawNodes).size()); ++i)
         {
-            const RawNode& node = ManagedAt(Require(rawNodes), i);
-            const RawNode& otherNode = ManagedAt(Require(otherRawNodes), i);
+            const RawNode& node = ManagedListAt(Require(rawNodes), i);
+            const RawNode& otherNode = ManagedListAt(Require(otherRawNodes), i);
             REPACK_MODEL_DEBUG_ASSERT(node.Name.WireBytes() == otherNode.Name.WireBytes());
             REPACK_MODEL_DEBUG_ASSERT(node.AngleX == otherNode.AngleX);
             REPACK_MODEL_DEBUG_ASSERT(node.AngleY == otherNode.AngleY);
@@ -2553,8 +2533,8 @@ namespace MphRead::Utility
             second, other.MeshOffset, static_cast<std::int32_t>(other.MeshCount));
         for (std::int32_t i = 0; i < ToIntCount(Require(rawMeshes).size()); ++i)
         {
-            const RawMesh& mesh = ManagedAt(Require(rawMeshes), i);
-            const RawMesh& otherMesh = ManagedAt(Require(otherRawMeshes), i);
+            const RawMesh& mesh = ManagedListAt(Require(rawMeshes), i);
+            const RawMesh& otherMesh = ManagedListAt(Require(otherRawMeshes), i);
             REPACK_MODEL_DEBUG_ASSERT(mesh.MaterialId == otherMesh.MaterialId);
             REPACK_MODEL_DEBUG_ASSERT(mesh.DlistId == otherMesh.DlistId);
         }
@@ -2565,8 +2545,8 @@ namespace MphRead::Utility
             second, other.DlistOffset, static_cast<std::int32_t>(other.MeshCount));
         for (std::int32_t i = 0; i < ToIntCount(Require(dlists).size()); ++i)
         {
-            const DisplayList& dlist = ManagedAt(Require(dlists), i);
-            const DisplayList& otherDlist = ManagedAt(Require(otherDlists), i);
+            const DisplayList& dlist = ManagedListAt(Require(dlists), i);
+            const DisplayList& otherDlist = ManagedListAt(Require(otherDlists), i);
             REPACK_MODEL_DEBUG_ASSERT(dlist.Offset == otherDlist.Offset);
             REPACK_MODEL_DEBUG_ASSERT(dlist.Size == otherDlist.Size);
             REPACK_MODEL_DEBUG_ASSERT(dlist.MinBounds.X.Value == otherDlist.MinBounds.X.Value);
@@ -2629,8 +2609,8 @@ namespace MphRead::Utility
 
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(header.Count); ++i)
         {
-            const std::uint32_t node = ManagedAt(Require(nodes), i);
-            const std::uint32_t otherNode = ManagedAt(Require(otherNodes), i);
+            const std::uint32_t node = ManagedListAt(Require(nodes), i);
+            const std::uint32_t otherNode = ManagedListAt(Require(otherNodes), i);
             REPACK_MODEL_DEBUG_ASSERT(node == otherNode);
             if (node != 0)
             {
@@ -2682,8 +2662,8 @@ namespace MphRead::Utility
                         second, otherGroup.AnimationOffset, animCount);
                     for (std::int32_t j = 0; j < ToIntCount(Require(anims).size()); ++j)
                     {
-                        const NodeAnimation& anim = ManagedAt(Require(anims), j);
-                        const NodeAnimation& otherAnim = ManagedAt(Require(otherAnims), j);
+                        const NodeAnimation& anim = ManagedListAt(Require(anims), j);
+                        const NodeAnimation& otherAnim = ManagedListAt(Require(otherAnims), j);
                         REPACK_MODEL_DEBUG_ASSERT(anim.ScaleBlendX == otherAnim.ScaleBlendX);
                         REPACK_MODEL_DEBUG_ASSERT(anim.ScaleBlendY == otherAnim.ScaleBlendY);
                         REPACK_MODEL_DEBUG_ASSERT(anim.ScaleBlendZ == otherAnim.ScaleBlendZ);
@@ -2716,8 +2696,8 @@ namespace MphRead::Utility
                 }
             }
 
-            const std::uint32_t mat = ManagedAt(Require(mats), i);
-            const std::uint32_t otherMat = ManagedAt(Require(otherMats), i);
+            const std::uint32_t mat = ManagedListAt(Require(mats), i);
+            const std::uint32_t otherMat = ManagedListAt(Require(otherMats), i);
             REPACK_MODEL_DEBUG_ASSERT(mat == otherMat);
             if (mat != 0)
             {
@@ -2744,8 +2724,8 @@ namespace MphRead::Utility
                     second, otherGroup.AnimationOffset, otherGroup.AnimationCount);
                 for (std::int32_t j = 0; j < ToIntCount(Require(anims).size()); ++j)
                 {
-                    const MaterialAnimation& anim = ManagedAt(Require(anims), j);
-                    const MaterialAnimation& otherAnim = ManagedAt(Require(otherAnims), j);
+                    const MaterialAnimation& anim = ManagedListAt(Require(anims), j);
+                    const MaterialAnimation& otherAnim = ManagedListAt(Require(otherAnims), j);
                     REPACK_MODEL_DEBUG_ASSERT(anim.Name.WireBytes() == otherAnim.Name.WireBytes());
                     REPACK_MODEL_DEBUG_ASSERT(anim.Unused40 == otherAnim.Unused40);
                     REPACK_MODEL_DEBUG_ASSERT(anim.DiffuseBlendR == otherAnim.DiffuseBlendR);
@@ -2790,8 +2770,8 @@ namespace MphRead::Utility
                 }
             }
 
-            const std::uint32_t uv = ManagedAt(Require(uvs), i);
-            const std::uint32_t otherUv = ManagedAt(Require(otherUvs), i);
+            const std::uint32_t uv = ManagedListAt(Require(uvs), i);
+            const std::uint32_t otherUv = ManagedListAt(Require(otherUvs), i);
             REPACK_MODEL_DEBUG_ASSERT(uv == otherUv);
             if (uv != 0)
             {
@@ -2837,8 +2817,8 @@ namespace MphRead::Utility
                     second, otherGroup.AnimationOffset, otherGroup.AnimationCount);
                 for (std::int32_t j = 0; j < ToIntCount(Require(anims).size()); ++j)
                 {
-                    const TexcoordAnimation& anim = ManagedAt(Require(anims), j);
-                    const TexcoordAnimation& otherAnim = ManagedAt(Require(otherAnims), j);
+                    const TexcoordAnimation& anim = ManagedListAt(Require(anims), j);
+                    const TexcoordAnimation& otherAnim = ManagedListAt(Require(otherAnims), j);
                     REPACK_MODEL_DEBUG_ASSERT(anim.Name.WireBytes() == otherAnim.Name.WireBytes());
                     REPACK_MODEL_DEBUG_ASSERT(anim.ScaleBlendS == otherAnim.ScaleBlendS);
                     REPACK_MODEL_DEBUG_ASSERT(anim.ScaleBlendT == otherAnim.ScaleBlendT);
@@ -2859,8 +2839,8 @@ namespace MphRead::Utility
                 }
             }
 
-            const std::uint32_t tex = ManagedAt(Require(texes), i);
-            const std::uint32_t otherTex = ManagedAt(Require(otherTexes), i);
+            const std::uint32_t tex = ManagedListAt(Require(texes), i);
+            const std::uint32_t otherTex = ManagedListAt(Require(otherTexes), i);
             REPACK_MODEL_DEBUG_ASSERT(tex == otherTex);
             if (tex != 0)
             {
@@ -2901,8 +2881,8 @@ namespace MphRead::Utility
                     second, otherGroup.AnimationOffset, otherGroup.AnimationCount);
                 for (std::int32_t j = 0; j < ToIntCount(Require(anims).size()); ++j)
                 {
-                    const TextureAnimation& anim = ManagedAt(Require(anims), j);
-                    const TextureAnimation& otherAnim = ManagedAt(Require(otherAnims), j);
+                    const TextureAnimation& anim = ManagedListAt(Require(anims), j);
+                    const TextureAnimation& otherAnim = ManagedListAt(Require(otherAnims), j);
                     REPACK_MODEL_DEBUG_ASSERT(anim.Name.WireBytes() == otherAnim.Name.WireBytes());
                     REPACK_MODEL_DEBUG_ASSERT(anim.Count == otherAnim.Count);
                     REPACK_MODEL_DEBUG_ASSERT(anim.StartIndex == otherAnim.StartIndex);

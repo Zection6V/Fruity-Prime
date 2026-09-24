@@ -1,4 +1,5 @@
 #include "ConsoleWindow.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -23,6 +24,8 @@
 #include <vector>
 #include <windows.h>
 #endif
+
+using ::MphRead::NativeRuntime::HasFlag;
 
 namespace
 {
@@ -1093,6 +1096,7 @@ namespace
     }
 #endif
 }
+
 
 namespace MphRead
 {

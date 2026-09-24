@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -45,29 +46,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Enemy45Entity& RequireEnemy(Enemy45Entity* enemy)
         {
             return RequireReference(enemy);
-        }
-
-        template <typename T>
-        [[nodiscard]] T& ManagedArrayAt(
-            const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
-        {
-            ManagedArray<T>& array = RequireReference(values);
-            if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return array[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)
@@ -129,7 +107,7 @@ namespace MphRead::Entities::Enemies
 
         const std::int32_t subtype
             = UInt32ToInt32(spawner.Data.Fields.S10().EnemySubtype);
-        _values = VectorAt(Metadata::Enemy45Values, subtype);
+        _values = ManagedAt(Metadata::Enemy45Values, subtype);
         _healthMax = _values.Health;
         _health = _healthMax;
         Metadata::LoadEffectiveness(_values.Effectiveness, BeamEffectiveness);
@@ -140,7 +118,7 @@ namespace MphRead::Entities::Enemies
         const std::int32_t version
             = UInt32ToInt32(spawner.Data.Fields.S10().EnemyVersion);
         const std::shared_ptr<WeaponInfo> weapon
-            = VectorAt(RequireReference(Weapons::EnemyWeapons), version);
+            = ManagedAt(RequireReference(Weapons::EnemyWeapons), version);
         _equipInfo = std::make_shared<EquipInfo>();
         _equipInfo->SetWeapon(weapon);
         _equipInfo->SetBeams(_beams);
@@ -156,7 +134,7 @@ namespace MphRead::Entities::Enemies
 
         ModelInstance& model = RequireReference(_model);
         AnimationInfo& animInfo = RequireReference(model.AnimInfo);
-        const std::int32_t frameCount = ManagedArrayAt(animInfo.FrameCount, 0);
+        const std::int32_t frameCount = ManagedAt(animInfo.FrameCount, 0);
         _animFrameCount = UncheckedSubtract(frameCount, 1);
         _animDelayTimer = _animInterval;
     }
@@ -196,12 +174,12 @@ namespace MphRead::Entities::Enemies
 
         if (!_animReverse)
         {
-            const std::int32_t frame = ManagedArrayAt(animInfo.Frame, 0);
+            const std::int32_t frame = ManagedAt(animInfo.Frame, 0);
             if (frame >= _animFrameCount)
             {
                 if (frame > _animFrameCount)
                 {
-                    ManagedArrayAt(animInfo.Frame, 0) = _animFrameCount;
+                    ManagedAt(animInfo.Frame, 0) = _animFrameCount;
                 }
                 _animating = false;
             }
@@ -211,12 +189,12 @@ namespace MphRead::Entities::Enemies
             }
             else
             {
-                ManagedArrayAt(animInfo.Frame, 0)
+                ManagedAt(animInfo.Frame, 0)
                     = UncheckedAdd(frame, 1);
                 _animDelayTimer = _animInterval;
             }
         }
-        else if (ManagedArrayAt(animInfo.Frame, 0) != 0)
+        else if (ManagedAt(animInfo.Frame, 0) != 0)
         {
             if (_animDelayTimer != 0)
             {
@@ -224,7 +202,7 @@ namespace MphRead::Entities::Enemies
             }
             else
             {
-                std::int32_t& frame = ManagedArrayAt(animInfo.Frame, 0);
+                std::int32_t& frame = ManagedAt(animInfo.Frame, 0);
                 frame = UncheckedSubtract(frame, 1);
                 _animDelayTimer = _animInterval;
             }
@@ -239,7 +217,7 @@ namespace MphRead::Entities::Enemies
     {
         ModelInstance& model = RequireReference(_model);
         AnimationInfo& animInfo = RequireReference(model.AnimInfo);
-        const std::int32_t frameCount = ManagedArrayAt(animInfo.FrameCount, 0);
+        const std::int32_t frameCount = ManagedAt(animInfo.FrameCount, 0);
         return UncheckedSubtract(frameCount, 1);
     }
 
@@ -383,7 +361,7 @@ namespace MphRead::Entities::Enemies
             {
                 ModelInstance& model = RequireReference(_model);
                 AnimationInfo& animInfo = RequireReference(model.AnimInfo);
-                ManagedArrayAt(animInfo.Frame, 0) = _animFrameCount;
+                ManagedAt(animInfo.Frame, 0) = _animFrameCount;
             }
         }
         else if (info.Message == Message::IncreaseTurretLights)
@@ -391,7 +369,7 @@ namespace MphRead::Entities::Enemies
             ModelInstance& model = RequireReference(_model);
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
             const std::int32_t frameCount
-                = ManagedArrayAt(animInfo.FrameCount, 0);
+                = ManagedAt(animInfo.FrameCount, 0);
             const std::int32_t maxFrame
                 = UncheckedSubtract(frameCount, 1);
             if (_animFrameCount < maxFrame)
@@ -406,7 +384,7 @@ namespace MphRead::Entities::Enemies
             }
             if (!_animating)
             {
-                ManagedArrayAt(animInfo.Frame, 0) = _animFrameCount;
+                ManagedAt(animInfo.Frame, 0) = _animFrameCount;
             }
         }
     }

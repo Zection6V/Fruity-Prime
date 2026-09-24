@@ -40,6 +40,8 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UInt64ToInt32;
@@ -124,26 +126,6 @@ namespace
         return static_cast<std::size_t>(value);
     }
 
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(TContainer& container, std::size_t index)
-    {
-        if (index >= container.size())
-        {
-            throw MphRead::Memory::Detail::IndexOutOfRangeException();
-        }
-        return container[index];
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(const TContainer& container, std::size_t index)
-    {
-        if (index >= container.size())
-        {
-            throw MphRead::Memory::Detail::IndexOutOfRangeException();
-        }
-        return container[index];
-    }
-
     struct EntityBaseSoundAccess final : EntityBase
     {
         using EntityBase::_soundSource;
@@ -217,17 +199,9 @@ namespace
         return collision->Entity;
     }
 
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedListAt(const TContainer& container, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= container.size())
-        {
-            throw MphRead::Memory::Detail::ArgumentOutOfRangeException();
-        }
-        return container[static_cast<std::size_t>(index)];
-    }
-
 }
+
+
 
 namespace MphRead::Entities
 {

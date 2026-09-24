@@ -26,6 +26,7 @@
 #include <type_traits>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -60,28 +61,6 @@ namespace
         return *value;
     }
 
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(const TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
     template <typename TTarget, typename TSource>
     [[nodiscard]] TTarget& ManagedCast(const std::shared_ptr<TSource>& value)
     {
@@ -98,6 +77,7 @@ namespace
     }
 
 }
+
 
 namespace MphRead::Entities
 {

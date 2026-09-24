@@ -7,6 +7,7 @@
 #include "Formats.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 #include <unordered_set>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::OpenTK::Mathematics::CreateTranslation;
 using ::OpenTK::Mathematics::DistanceSquared;
 
@@ -62,16 +64,6 @@ namespace
         return ManagedInt32(static_cast<std::uint32_t>(value));
     }
 
-    template <typename T>
-    [[nodiscard]] const T& ManagedListAt(
-        const std::vector<T>& values, std::size_t index)
-    {
-        if (index >= values.size())
-        {
-            MphRead::NativeRuntime::ThrowListIndexOutOfRange();
-        }
-        return values[index];
-    }
 }
 
 namespace MphRead::Formats
@@ -142,7 +134,7 @@ namespace MphRead::Formats
           Index2(index2),
           Values(std::move(values)),
           Transform(CreateTranslation(Position)),
-          Color(ManagedListAt(_nodeDataColors, raw.NodeType))
+          Color(ManagedAt(_nodeDataColors, raw.NodeType))
     {
     }
 
@@ -157,7 +149,7 @@ namespace MphRead::Formats
           Index2(0),
           Values(std::make_shared<const std::vector<std::uint16_t>>()),
           Transform(CreateTranslation(Position)),
-          Color(ManagedListAt(_nodeDataColors, 0))
+          Color(ManagedAt(_nodeDataColors, 0))
     {
     }
 
@@ -317,8 +309,8 @@ namespace MphRead::Formats
         MphRead::NativeRuntime::DebugAssert(hasFirstList);
 #endif
 
-        const auto& middle = Require(ManagedListAt(outer, 0));
-        const auto& list = Require(ManagedListAt(middle, 0));
+        const auto& middle = Require(ManagedAt(outer, 0));
+        const auto& list = Require(ManagedAt(middle, 0));
 
         std::shared_ptr<NodeData3> result{};
         float minDist = std::numeric_limits<float>::max();

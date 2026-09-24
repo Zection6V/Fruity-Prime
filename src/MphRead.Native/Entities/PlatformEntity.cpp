@@ -31,6 +31,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -115,46 +117,6 @@ namespace
     [[nodiscard]] Vector3 Row3(Matrix4 value) noexcept
     {
         return Vector3(value.M41, value.M42, value.M43);
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ListAt(std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::Memory::Detail::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ListAt(const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::Memory::Detail::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T, std::size_t Size>
-    [[nodiscard]] T& ArrayAt(std::array<T, Size>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= Size)
-        {
-            throw MphRead::Memory::Detail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T, std::size_t Size>
-    [[nodiscard]] const T& ArrayAt(const std::array<T, Size>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= Size)
-        {
-            throw MphRead::Memory::Detail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
     }
 
     [[nodiscard]] std::int32_t PlatformSfxAt(std::uint32_t modelId, std::int32_t index)
@@ -354,7 +316,7 @@ namespace MphRead::Entities
             _ammo = 1000;
             assert(static_cast<std::size_t>(data.BeamId)
                 < RequireReference(Weapons::PlatformWeapons).size());
-            const auto weapon = ListAt(
+            const auto weapon = ManagedListAt(
                 RequireReference(Weapons::PlatformWeapons), data.BeamId);
             _equipInfo = std::make_shared<EquipInfo>(weapon, _beams);
             _equipInfo->SetGetAmmo([this]() { return _ammo; });
@@ -1028,7 +990,7 @@ namespace MphRead::Entities
                     SharedFrom<EntityBase>(this), _equipInfo,
                     spawnPos, spawnDir, spawnFlags, NodeRef, _scene);
 
-                const BeamSfxInfo& sfxInfo = ArrayAt(_beamSfx, _data.BeamId);
+                const BeamSfxInfo& sfxInfo = ManagedAt(_beamSfx, _data.BeamId);
                 if (sfxInfo.Data.Id != -1)
                 {
                     const Vector3 sfxPos = spawnPos + ScaleVector(spawnDir, sfxInfo.Offset);
@@ -1198,8 +1160,8 @@ namespace MphRead::Entities
     {
         if (_data.PositionCount > 0)
         {
-            _curPosition = ListAt(_posList, _fromIndex);
-            _curRotation = ListAt(_rotList, _fromIndex);
+            _curPosition = ManagedListAt(_posList, _fromIndex);
+            _curRotation = ManagedListAt(_rotList, _fromIndex);
             _fromRotation = _curRotation;
         }
     }
@@ -1208,7 +1170,7 @@ namespace MphRead::Entities
     {
         UpdatePosition();
         const Vector3 velocity
-            = ListAt(_posList, _toIndex) - ListAt(_posList, _fromIndex);
+            = ManagedListAt(_posList, _toIndex) - ManagedListAt(_posList, _fromIndex);
         const float speed = TestFlag(_stateFlags, PlatStateFlags::Reverse)
             ? _backwardSpeed
             : _forwardSpeed;
@@ -1236,7 +1198,7 @@ namespace MphRead::Entities
         }
 
         _velocity = ScaleVector(velocity, factor);
-        _toRotation = ListAt(_rotList, _toIndex);
+        _toRotation = ManagedListAt(_rotList, _toIndex);
         _movePercent = 0.0F;
         _moveIncrement = factor;
     }
@@ -1745,7 +1707,7 @@ namespace MphRead::Entities
                             const std::int32_t index
                                 = static_cast<std::int32_t>(beam.BeamKind());
                             if (index >= static_cast<std::int32_t>(_beamEffectiveness.size())
-                                || ArrayAt(_beamEffectiveness, index)
+                                || ManagedAt(_beamEffectiveness, index)
                                     == Effectiveness::Zero)
                             {
                                 effectId = _data.ResistEffectId;
@@ -1954,7 +1916,7 @@ namespace MphRead::Entities
             {
                 _state = MoveState::Wait;
                 _velocity = Vector3::Zero;
-                position = ListAt(_posList, _toIndex);
+                position = ManagedListAt(_posList, _toIndex);
                 if (_fromIndex == static_cast<std::int32_t>(_posList.size()) - 1)
                 {
                     _toIndex = UncheckedAdd(_fromIndex, -1);
@@ -1976,7 +1938,7 @@ namespace MphRead::Entities
             else if (_state == MoveState::MoveBackward)
             {
                 _velocity = Vector3::Zero;
-                position = ListAt(_posList, _toIndex);
+                position = ManagedListAt(_posList, _toIndex);
                 if (_toIndex > 0)
                 {
                     _state = MoveState::Wait;
@@ -2001,7 +1963,7 @@ namespace MphRead::Entities
     void FhPlatformEntity::UpdateMovement()
     {
         const Vector3 velocity
-            = ListAt(_posList, _toIndex) - ListAt(_posList, _fromIndex);
+            = ManagedListAt(_posList, _toIndex) - ManagedListAt(_posList, _fromIndex);
         const float distance = Length(velocity);
         _moveTimer = ConvertToInt32Net9(distance / _speed);
         const float factor = _speed / distance;

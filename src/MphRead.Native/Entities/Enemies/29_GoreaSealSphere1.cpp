@@ -4,6 +4,7 @@
 #include "../../MemoryArrays.hpp"
 #include "../../Metadata/Enemies.hpp"
 #include "../../Scene.hpp"
+#include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
@@ -12,6 +13,8 @@
 #include <memory>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
@@ -22,28 +25,6 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] const T& ManagedListAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw Memory::Detail::ArgumentOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& ManagedArrayAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
 
     }
 
@@ -103,7 +84,7 @@ namespace MphRead::Entities::Enemies
     {
         const std::int32_t index
             = static_cast<std::int32_t>(EnemyType());
-        _scanId = ManagedArrayAt(Metadata::EnemyScanIds, index);
+        _scanId = ManagedAt(Metadata::EnemyScanIds, index);
         Position = RequireReference(_gorea1B).Position;
         Flags &= ~EnemyFlags::Visible;
         Flags |= EnemyFlags::CollidePlayer;

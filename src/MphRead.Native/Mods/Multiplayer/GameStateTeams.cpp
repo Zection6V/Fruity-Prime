@@ -5,12 +5,15 @@
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <array>
 #include <cstdint>
 #include <memory>
 #include <type_traits>
 #include <utility>
+
+using ::MphRead::NativeRuntime::ManagedAt;
 
 namespace
 {
@@ -25,16 +28,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(TContainer&& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return std::forward<TContainer>(values)[static_cast<std::size_t>(index)];
     }
 
     [[nodiscard]] bool TestFlag(LoadFlags value, LoadFlags flag) noexcept
@@ -55,6 +48,7 @@ namespace
         return RequireReference(ManagedAt(PlayerEntity::Players(), slot));
     }
 }
+
 
 namespace MphRead
 {

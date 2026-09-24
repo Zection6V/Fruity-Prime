@@ -60,6 +60,7 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
@@ -74,18 +75,6 @@ namespace MphRead::Entities
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename T>
-        [[nodiscard]] T& ManagedAt(
-            const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
-        {
-            ManagedArray<T>& array = RequireReference(values);
-            if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return array[static_cast<std::size_t>(index)];
-        }
 
         [[nodiscard]] StorySave& RequireStorySave()
         {

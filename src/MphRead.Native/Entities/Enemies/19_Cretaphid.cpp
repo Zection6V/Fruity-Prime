@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateTranslation;
@@ -89,42 +90,6 @@ namespace MphRead::Entities::Enemies
             {
                 throw Memory::Detail::InvalidCastException();
             }
-        }
-
-        template <typename T>
-        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] T ArrayAt(
-            const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
-        {
-            if (!values)
-            {
-                throw System::NullReferenceException();
-            }
-            if (index < 0 || static_cast<std::size_t>(index) >= values->Length())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return (*values)[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] bool AnimationEnded(ModelInstance& model)
@@ -312,9 +277,9 @@ namespace MphRead::Entities::Enemies
         const Weapons::WeaponList& bossWeapons
             = RequireReference(Weapons::BossWeapons);
         const std::shared_ptr<WeaponInfo> laserWeapon
-            = VectorAt(bossWeapons, 1);
+            = ManagedAt(bossWeapons, 1);
         const std::shared_ptr<WeaponInfo> plasmaWeapon
-            = VectorAt(bossWeapons, 2);
+            = ManagedAt(bossWeapons, 2);
         EquipInfo[0] = std::make_shared<::MphRead::EquipInfo>(laserWeapon, _beams);
         EquipInfo[1] = std::make_shared<::MphRead::EquipInfo>(plasmaWeapon, _beams);
         EquipInfo[0]->GetAmmo = [this]() { return _ammo0; };
@@ -550,21 +515,21 @@ namespace MphRead::Entities::Enemies
             {
                 Enemy20Entity* eye = _eyes[static_cast<std::size_t>(i)].get();
                 assert(eye != nullptr);
-                RequireReference(eye).UpdateState(ArrayAt(Values().Phase0EyeState, i));
-                eye->BeamType = ArrayAt(Values().Phase0BeamType, i);
-                const std::uint8_t max = ArrayAt(Values().Phase0BeamSpawnMax, i);
+                RequireReference(eye).UpdateState(ManagedAt(Values().Phase0EyeState, i));
+                eye->BeamType = ManagedAt(Values().Phase0BeamType, i);
+                const std::uint8_t max = ManagedAt(Values().Phase0BeamSpawnMax, i);
                 const std::uint8_t minForRange
-                    = ArrayAt(Values().Phase0BeamSpawnMin, i);
+                    = ManagedAt(Values().Phase0BeamSpawnMin, i);
                 const std::uint32_t random = Rng::GetRandomInt2(
                     static_cast<std::int32_t>(max) + 1
                     - static_cast<std::int32_t>(minForRange));
                 const std::uint8_t minForCount
-                    = ArrayAt(Values().Phase0BeamSpawnMin, i);
+                    = ManagedAt(Values().Phase0BeamSpawnMin, i);
                 eye->BeamSpawnCount = static_cast<std::uint16_t>(
                     static_cast<std::uint32_t>(minForCount) + random);
                 eye->BeamSpawnCooldown
                     = static_cast<std::int32_t>(
-                        ArrayAt(Values().Phase0BeamCooldown, i)) * 2;
+                        ManagedAt(Values().Phase0BeamCooldown, i)) * 2;
                 eye->BeamSpawnTimer = eye->BeamSpawnCooldown;
             }
         }
@@ -574,21 +539,21 @@ namespace MphRead::Entities::Enemies
             {
                 Enemy20Entity* eye = _eyes[static_cast<std::size_t>(i)].get();
                 assert(eye != nullptr);
-                RequireReference(eye).UpdateState(ArrayAt(Values().Phase1EyeState, i));
-                eye->BeamType = ArrayAt(Values().Phase1BeamType, i);
-                const std::uint8_t max = ArrayAt(Values().Phase1BeamSpawnMax, i);
+                RequireReference(eye).UpdateState(ManagedAt(Values().Phase1EyeState, i));
+                eye->BeamType = ManagedAt(Values().Phase1BeamType, i);
+                const std::uint8_t max = ManagedAt(Values().Phase1BeamSpawnMax, i);
                 const std::uint8_t minForRange
-                    = ArrayAt(Values().Phase1BeamSpawnMin, i);
+                    = ManagedAt(Values().Phase1BeamSpawnMin, i);
                 const std::uint32_t random = Rng::GetRandomInt2(
                     static_cast<std::int32_t>(max) + 1
                     - static_cast<std::int32_t>(minForRange));
                 const std::uint8_t minForCount
-                    = ArrayAt(Values().Phase1BeamSpawnMin, i);
+                    = ManagedAt(Values().Phase1BeamSpawnMin, i);
                 eye->BeamSpawnCount = static_cast<std::uint16_t>(
                     static_cast<std::uint32_t>(minForCount) + random);
                 eye->BeamSpawnCooldown
                     = static_cast<std::int32_t>(
-                        ArrayAt(Values().Phase1BeamCooldown, i)) * 2;
+                        ManagedAt(Values().Phase1BeamCooldown, i)) * 2;
                 eye->BeamSpawnTimer = eye->BeamSpawnCooldown;
             }
         }
@@ -598,21 +563,21 @@ namespace MphRead::Entities::Enemies
             {
                 Enemy20Entity* eye = _eyes[static_cast<std::size_t>(i)].get();
                 assert(eye != nullptr);
-                RequireReference(eye).UpdateState(ArrayAt(Values().Phase2EyeState, i));
-                eye->BeamType = ArrayAt(Values().Phase2BeamType, i);
-                const std::uint8_t max = ArrayAt(Values().Phase2BeamSpawnMax, i);
+                RequireReference(eye).UpdateState(ManagedAt(Values().Phase2EyeState, i));
+                eye->BeamType = ManagedAt(Values().Phase2BeamType, i);
+                const std::uint8_t max = ManagedAt(Values().Phase2BeamSpawnMax, i);
                 const std::uint8_t minForRange
-                    = ArrayAt(Values().Phase2BeamSpawnMin, i);
+                    = ManagedAt(Values().Phase2BeamSpawnMin, i);
                 const std::uint32_t random = Rng::GetRandomInt2(
                     static_cast<std::int32_t>(max) + 1
                     - static_cast<std::int32_t>(minForRange));
                 const std::uint8_t minForCount
-                    = ArrayAt(Values().Phase2BeamSpawnMin, i);
+                    = ManagedAt(Values().Phase2BeamSpawnMin, i);
                 eye->BeamSpawnCount = static_cast<std::uint16_t>(
                     static_cast<std::uint32_t>(minForCount) + random);
                 eye->BeamSpawnCooldown
                     = static_cast<std::int32_t>(
-                        ArrayAt(Values().Phase2BeamCooldown, i)) * 2;
+                        ManagedAt(Values().Phase2BeamCooldown, i)) * 2;
                 eye->BeamSpawnTimer = eye->BeamSpawnCooldown;
             }
         }
@@ -624,40 +589,40 @@ namespace MphRead::Entities::Enemies
         const std::int32_t index = eyeRef.EyeIndex;
         if (_phaseIndex == 0)
         {
-            const std::uint8_t max = ArrayAt(Values().Phase0BeamSpawnMax, index);
+            const std::uint8_t max = ManagedAt(Values().Phase0BeamSpawnMax, index);
             const std::uint8_t minForRange
-                = ArrayAt(Values().Phase0BeamSpawnMin, index);
+                = ManagedAt(Values().Phase0BeamSpawnMin, index);
             const std::uint32_t random = Rng::GetRandomInt2(
                 static_cast<std::int32_t>(max) + 1
                 - static_cast<std::int32_t>(minForRange));
             const std::uint8_t minForCount
-                = ArrayAt(Values().Phase0BeamSpawnMin, index);
+                = ManagedAt(Values().Phase0BeamSpawnMin, index);
             eyeRef.BeamSpawnCount = static_cast<std::uint16_t>(
                 static_cast<std::uint32_t>(minForCount) + random);
         }
         else if (_phaseIndex == 1)
         {
-            const std::uint8_t max = ArrayAt(Values().Phase1BeamSpawnMax, index);
+            const std::uint8_t max = ManagedAt(Values().Phase1BeamSpawnMax, index);
             const std::uint8_t minForRange
-                = ArrayAt(Values().Phase1BeamSpawnMin, index);
+                = ManagedAt(Values().Phase1BeamSpawnMin, index);
             const std::uint32_t random = Rng::GetRandomInt2(
                 static_cast<std::int32_t>(max) + 1
                 - static_cast<std::int32_t>(minForRange));
             const std::uint8_t minForCount
-                = ArrayAt(Values().Phase1BeamSpawnMin, index);
+                = ManagedAt(Values().Phase1BeamSpawnMin, index);
             eyeRef.BeamSpawnCount = static_cast<std::uint16_t>(
                 static_cast<std::uint32_t>(minForCount) + random);
         }
         else if (_phaseIndex == 2)
         {
-            const std::uint8_t max = ArrayAt(Values().Phase2BeamSpawnMax, index);
+            const std::uint8_t max = ManagedAt(Values().Phase2BeamSpawnMax, index);
             const std::uint8_t minForRange
-                = ArrayAt(Values().Phase2BeamSpawnMin, index);
+                = ManagedAt(Values().Phase2BeamSpawnMin, index);
             const std::uint32_t random = Rng::GetRandomInt2(
                 static_cast<std::int32_t>(max) + 1
                 - static_cast<std::int32_t>(minForRange));
             const std::uint8_t minForCount
-                = ArrayAt(Values().Phase2BeamSpawnMin, index);
+                = ManagedAt(Values().Phase2BeamSpawnMin, index);
             eyeRef.BeamSpawnCount = static_cast<std::uint16_t>(
                 static_cast<std::uint32_t>(minForCount) + random);
         }
@@ -992,7 +957,7 @@ namespace MphRead::Entities::Enemies
             Vector3(1.0F, 0.0F, 0.0F),
             Vector3(0.0F, 1.0F, 0.0F),
             crystal.Position);
-        crystal.SpawnBeam(ArrayAt(Values().CrystalBeamDamage, _phaseIndex));
+        crystal.SpawnBeam(ManagedAt(Values().CrystalBeamDamage, _phaseIndex));
         _soundSource.PlaySfx(SfxId::CYLINDER_BOSS_ATTACK2);
         return true;
     }

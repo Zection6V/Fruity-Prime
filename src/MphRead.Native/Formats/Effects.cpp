@@ -7,6 +7,7 @@
 #include "../Renderer.hpp"
 #include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
 
 #include <bit>
@@ -28,7 +29,7 @@
 #define MPH_EFFECTS_DEBUG_ASSERT(condition, ...) do { } while (false)
 #endif
 
-using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::HasFlag;
 using ::OpenTK::Mathematics::CreateRotationZ;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::CreateTranslation;

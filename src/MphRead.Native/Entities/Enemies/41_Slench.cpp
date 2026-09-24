@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -67,48 +68,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        template <typename T>
-        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T, std::size_t N>
-        [[nodiscard]] T& ArrayAt(std::array<T, N>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= N)
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T, std::size_t N>
-        [[nodiscard]] const T& ArrayAt(
-            const std::array<T, N>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= N)
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] Vector3 Vec3MultMtx3(Vector3 value, Matrix4 matrix) noexcept
@@ -200,14 +159,14 @@ namespace MphRead::Entities::Enemies
     Enemy41Values Enemy41Entity::GetValues()
     {
         const std::int32_t index = UncheckedMultiply(_subtype, 3);
-        return VectorAt(Metadata::Enemy41Values, index);
+        return ManagedAt(Metadata::Enemy41Values, index);
     }
 
     Enemy41Values Enemy41Entity::GetPhaseValues()
     {
         const std::int32_t index = UncheckedAdd(
             UncheckedMultiply(_subtype, 3), _phase);
-        return VectorAt(Metadata::Enemy41Values, index);
+        return ManagedAt(Metadata::Enemy41Values, index);
     }
 
     SlenchState Enemy41Entity::State() const noexcept
@@ -251,7 +210,7 @@ namespace MphRead::Entities::Enemies
         Flags |= EnemyFlags::OnRadar;
         SetHealthbarMessageId(2);
         Metadata::LoadEffectiveness(
-            VectorAt(Metadata::SlenchEffectiveness, _subtype), BeamEffectiveness);
+            ManagedAt(Metadata::SlenchEffectiveness, _subtype), BeamEffectiveness);
 
         EnemySpawnEntity& spawner = RequireReference(_spawner);
         _hurtVolumeInit = CollisionVolume(spawner.Data.Fields.S00().Volume0);
@@ -262,7 +221,7 @@ namespace MphRead::Entities::Enemies
         _recoilTimer = 1000;
 
         const std::shared_ptr<WeaponInfo> slenchTear
-            = VectorAt(RequireReference(Weapons::BossWeapons), 3);
+            = ManagedAt(RequireReference(Weapons::BossWeapons), 3);
         _equipInfo = std::make_shared<EquipInfo>(slenchTear, _beams);
         _equipInfo->SetGetAmmo([this]() { return _ammo; });
         _equipInfo->SetSetAmmo(
@@ -314,7 +273,7 @@ namespace MphRead::Entities::Enemies
                 return;
             }
             scene.AddEntity(synapse);
-            ArrayAt(_synapses, i) = std::move(synapse);
+            ManagedAt(_synapses, i) = std::move(synapse);
         }
 
         UpdateScanId(values.ScanId1);
@@ -563,7 +522,7 @@ namespace MphRead::Entities::Enemies
             else
             {
                 EquipInfo& equip = RequireReference(_equipInfo);
-                equip.SetWeapon(VectorAt(
+                equip.SetWeapon(ManagedAt(
                     RequireReference(Weapons::BossWeapons),
                     UncheckedAdd(4, _subtype)));
                 const Vector3 spawnPos
@@ -639,7 +598,7 @@ namespace MphRead::Entities::Enemies
         {
             for (std::int32_t i = 0; i < _synapseCount; ++i)
             {
-                Enemy44Entity& synapse = RequireReference(ArrayAt(_synapses, i));
+                Enemy44Entity& synapse = RequireReference(ManagedAt(_synapses, i));
                 if (synapse.State() == SynapseState::Initial)
                 {
                     synapse.ChangeState(SynapseState::Appear);
@@ -772,7 +731,7 @@ namespace MphRead::Entities::Enemies
                 _staticShotCooldown
                     = static_cast<std::int32_t>(phaseValues.StaticShotCooldown) * 2;
                 RequireReference(_equipInfo).SetWeapon(
-                    VectorAt(RequireReference(Weapons::BossWeapons), 3));
+                    ManagedAt(RequireReference(Weapons::BossWeapons), 3));
                 if (_staticShotCounter > 1)
                 {
                     _soundSource.PlaySfx(SfxId::MISSILE);
@@ -870,7 +829,7 @@ namespace MphRead::Entities::Enemies
             {
                 for (std::int32_t i = 0; i < _synapseCount; ++i)
                 {
-                    RequireReference(ArrayAt(_synapses, i))
+                    RequireReference(ManagedAt(_synapses, i))
                         .ChangeState(SynapseState::Initial);
                 }
                 ChangeState(SlenchState::ShieldRaise);
@@ -1397,7 +1356,7 @@ namespace MphRead::Entities::Enemies
         float factor = 1.0F;
         if (_recoilTimer <= 4 * 2 + 1)
         {
-            factor = ArrayAt(
+            factor = ManagedAt(
                 _recoilLut, static_cast<std::int32_t>(_recoilTimer));
         }
         else
@@ -1420,7 +1379,7 @@ namespace MphRead::Entities::Enemies
     {
         for (std::int32_t i = 0; i < _synapseCount; ++i)
         {
-            if (RequireReference(ArrayAt(_synapses, i)).State()
+            if (RequireReference(ManagedAt(_synapses, i)).State()
                 != SynapseState::Dead)
             {
                 return false;
@@ -1437,7 +1396,7 @@ namespace MphRead::Entities::Enemies
         }
         for (std::int32_t i = 0; i < _synapseCount; ++i)
         {
-            Enemy44Entity& synapse = RequireReference(ArrayAt(_synapses, i));
+            Enemy44Entity& synapse = RequireReference(ManagedAt(_synapses, i));
             if (synapse.State() != SynapseState::Dying
                 && synapse.State() != SynapseState::Dead)
             {
@@ -1714,7 +1673,7 @@ namespace MphRead::Entities::Enemies
                 && GameState::SinglePlayer())
             {
                 RequireReference(_scene).StartMovie(
-                    ArrayAt(_deathMovieIds, _subtype),
+                    ManagedAt(_deathMovieIds, _subtype),
                     FadeType::FadeOutInWhite,
                     40.0F / 30.0F,
                     FadeType::FadeOutInWhite,

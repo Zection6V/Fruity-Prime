@@ -2,6 +2,7 @@
 
 #include "../Formats/Formats.hpp"
 #include "../Formats/Model.hpp"
+#include "../Formats/Types.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -27,6 +28,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::Int32ToUInt32;
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -51,16 +53,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedAt(const std::vector<T>& values, std::size_t index)
-    {
-        if (index >= values.size())
-        {
-            throw ManagedIndexOutOfRangeException();
-        }
-        return values[index];
     }
 
     [[nodiscard]] const std::string& RequireString(const std::optional<std::string>& value)

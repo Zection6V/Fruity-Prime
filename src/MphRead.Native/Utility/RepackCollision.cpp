@@ -38,6 +38,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -87,26 +88,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedAt(std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw System::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedAt(const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw System::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
     }
 
     [[nodiscard]] std::int32_t ToIntCount(std::size_t value) noexcept
@@ -300,7 +281,7 @@ namespace
         const auto& dataValues = Require(info.Data);
         for (const CollisionData& data : dataValues)
         {
-            const Vector4 plane = ManagedAt(
+            const Vector4 plane = ManagedListAt(
                 Require(info.Planes), static_cast<std::int32_t>(data.PlaneIndex));
             const Vector3 normal = plane.Xyz();
             auto editor = std::make_shared<CollisionDataEditor>();
@@ -312,9 +293,9 @@ namespace
             {
                 const std::int32_t pointIndexPosition = UncheckedAdd(
                     static_cast<std::int32_t>(data.PointStartIndex), i);
-                const std::uint16_t pointIndex = ManagedAt(
+                const std::uint16_t pointIndex = ManagedListAt(
                     Require(info.PointIndices), pointIndexPosition);
-                editor->Points->push_back(ManagedAt(
+                editor->Points->push_back(ManagedListAt(
                     Require(info.Points), static_cast<std::int32_t>(pointIndex)));
             }
             editors.push_back(std::move(editor));
@@ -361,8 +342,8 @@ namespace
         {
             const std::int32_t dataIndex = UncheckedAdd(
                 i, std::bit_cast<std::int32_t>(info.Header.PortalCount));
-            const FhCollisionData& data = ManagedAt(Require(info.Data), dataIndex);
-            const Vector4 plane = ManagedAt(
+            const FhCollisionData& data = ManagedListAt(Require(info.Data), dataIndex);
+            const Vector4 plane = ManagedListAt(
                 Require(info.Planes), static_cast<std::int32_t>(data.PlaneIndex));
             const Vector3 normal = plane.Xyz();
             const std::int32_t axis = GetPrimaryAxis(normal);
@@ -373,9 +354,9 @@ namespace
             {
                 const std::int32_t vectorIndex = UncheckedAdd(
                     static_cast<std::int32_t>(data.VectorStartIndex), j);
-                const FhCollisionVector& vector = ManagedAt(
+                const FhCollisionVector& vector = ManagedListAt(
                     Require(info.Vectors), vectorIndex);
-                editor->Points->push_back(ManagedAt(
+                editor->Points->push_back(ManagedListAt(
                     Require(info.Points), static_cast<std::int32_t>(vector.Point2Index)));
             }
             editors.push_back(std::move(editor));
@@ -443,9 +424,9 @@ namespace
         const std::int32_t count = ToIntCount(face.size());
         for (std::int32_t i = 0; i < count - 2; ++i)
         {
-            const Vector3 v0 = ManagedAt(face, 0);
-            const Vector3 v1 = ManagedAt(face, UncheckedAdd(i, 1));
-            const Vector3 v2 = ManagedAt(face, UncheckedAdd(i, 2));
+            const Vector3 v0 = ManagedListAt(face, 0);
+            const Vector3 v1 = ManagedListAt(face, UncheckedAdd(i, 1));
+            const Vector3 v2 = ManagedListAt(face, UncheckedAdd(i, 2));
             float t = 0.0F;
             const bool intersect = TestIntersection(point1, point2, v0, v1, v2, t);
             if (intersect && t <= Length(between))
@@ -505,7 +486,7 @@ namespace
 
         for (std::int32_t i = 0; i < ToIntCount(data.size()); ++i)
         {
-            CollisionDataEditor& item = Require(ManagedAt(data, i));
+            CollisionDataEditor& item = Require(ManagedListAt(data, i));
             const std::vector<Vector3>& itemPoints = *item.Points;
             if (ComponentMin(itemPoints, 0) > xEnd
                 || ComponentMax(itemPoints, 0) < xStart
@@ -534,19 +515,19 @@ namespace
                 for (std::int32_t j = 0;
                     j < ToIntCount(faces.size()) && !intersects; ++j)
                 {
-                    const std::vector<Vector3>& face = ManagedAt(faces, j);
+                    const std::vector<Vector3>& face = ManagedListAt(faces, j);
                     const std::int32_t pointCount = ToIntCount(itemPoints.size());
                     for (std::int32_t k = 0; k < pointCount - 1 && !intersects; ++k)
                     {
                         intersects |= CheckIntersection(
-                            ManagedAt(itemPoints, k),
-                            ManagedAt(itemPoints, UncheckedAdd(k, 1)), face);
+                            ManagedListAt(itemPoints, k),
+                            ManagedListAt(itemPoints, UncheckedAdd(k, 1)), face);
                     }
                     if (!intersects)
                     {
                         intersects |= CheckIntersection(
-                            ManagedAt(itemPoints, UncheckedAdd(pointCount, -1)),
-                            ManagedAt(itemPoints, 0), face);
+                            ManagedListAt(itemPoints, UncheckedAdd(pointCount, -1)),
+                            ManagedListAt(itemPoints, 0), face);
                     }
                 }
             }
@@ -718,7 +699,7 @@ namespace
         REPACK_COLLISION_DEBUG_ASSERT(!data.empty());
         for (std::int32_t i = 0; i < ToIntCount(data.size()); ++i)
         {
-            const auto& item = ManagedAt(data, i);
+            const auto& item = ManagedListAt(data, i);
             ThrowIfInvalid(item);
             CollisionDataEditor& itemValue = Require(item);
             for (Vector3 point : *itemValue.Points)
@@ -747,7 +728,7 @@ namespace
             {
                 pointIdxs.push_back(static_cast<std::uint16_t>(FindPoint(points, point)));
             }
-            pointIdxs.push_back(ManagedAt(pointIdxs, idxStart));
+            pointIdxs.push_back(ManagedListAt(pointIdxs, idxStart));
             dataPack.emplace_back(item, planeIndex, idxCount, idxStart);
         }
 
@@ -898,9 +879,9 @@ namespace
             const std::int32_t count = ToIntCount(verts.size());
             for (std::int32_t i = 0; i < count; ++i)
             {
-                const Vector3 point1 = ManagedAt(
+                const Vector3 point1 = ManagedListAt(
                     verts, i == 0 ? UncheckedAdd(count, -1) : UncheckedAdd(i, -1));
-                const Vector3 point2 = ManagedAt(verts, i);
+                const Vector3 point2 = ManagedListAt(verts, i);
                 const Vector4 plane = GetPlane(point1, point2, normal);
                 std::int32_t point1Index = FindPoint(points, point1);
                 std::int32_t point2Index = FindPoint(points, point2);
@@ -1217,8 +1198,8 @@ namespace
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packPoints.size()); ++i)
         {
-            const Vector3 left = ManagedAt(packPoints, i);
-            const Vector3 right = ManagedAt(Require(info.Points), i);
+            const Vector3 left = ManagedListAt(packPoints, i);
+            const Vector3 right = ManagedListAt(Require(info.Points), i);
             REPACK_COLLISION_DEBUG_ASSERT(left.X == right.X);
             REPACK_COLLISION_DEBUG_ASSERT(left.Y == right.Y);
             REPACK_COLLISION_DEBUG_ASSERT(left.Z == right.Z);
@@ -1230,8 +1211,8 @@ namespace
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packPlanes.size()); ++i)
         {
-            const Vector4 left = ManagedAt(packPlanes, i);
-            const Vector4 right = ManagedAt(Require(info.Planes), i);
+            const Vector4 left = ManagedListAt(packPlanes, i);
+            const Vector4 right = ManagedListAt(Require(info.Planes), i);
             REPACK_COLLISION_DEBUG_ASSERT(left.X == right.X);
             REPACK_COLLISION_DEBUG_ASSERT(left.Y == right.Y);
             REPACK_COLLISION_DEBUG_ASSERT(left.Z == right.Z);
@@ -1248,11 +1229,11 @@ namespace
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packData.size()); ++i)
         {
-            const CollisionData& data = ManagedAt(packData, i);
+            const CollisionData& data = ManagedListAt(packData, i);
 #if defined(DEBUG)
-            const CollisionData& other = ManagedAt(infoData, i);
+            const CollisionData& other = ManagedListAt(infoData, i);
 #else
-            const CollisionData& other = ManagedAt(Require(info.Data), i);
+            const CollisionData& other = ManagedListAt(Require(info.Data), i);
 #endif
             REPACK_COLLISION_DEBUG_ASSERT(data.Counter == other.Counter);
             REPACK_COLLISION_DEBUG_ASSERT(data.PlaneIndex == other.PlaneIndex);
@@ -1273,8 +1254,8 @@ namespace
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packEntries.size()); ++i)
         {
-            const CollisionEntry& left = ManagedAt(packEntries, i);
-            const CollisionEntry& right = ManagedAt(Require(info.Entries), i);
+            const CollisionEntry& left = ManagedListAt(packEntries, i);
+            const CollisionEntry& right = ManagedListAt(Require(info.Entries), i);
             REPACK_COLLISION_DEBUG_ASSERT(left.DataCount == right.DataCount);
             REPACK_COLLISION_DEBUG_ASSERT(left.DataStartIndex == right.DataStartIndex);
         }
@@ -1286,8 +1267,8 @@ namespace
         const auto& portalValues = Require(portals);
         for (std::int32_t i = 0; i < ToIntCount(portalValues.size()); ++i)
         {
-            const RawCollisionPortal& portal = ManagedAt(portalValues, i);
-            const RawCollisionPortal& other = ManagedAt(Require(otherPortals), i);
+            const RawCollisionPortal& portal = ManagedListAt(portalValues, i);
+            const RawCollisionPortal& other = ManagedListAt(Require(otherPortals), i);
             REPACK_COLLISION_DEBUG_ASSERT(portal.Name == other.Name);
             REPACK_COLLISION_DEBUG_ASSERT(portal.NodeName1 == other.NodeName1);
             REPACK_COLLISION_DEBUG_ASSERT(portal.NodeName2 == other.NodeName2);

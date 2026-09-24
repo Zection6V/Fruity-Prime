@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt64ToInt32;
 using ::OpenTK::Mathematics::CreateScale;
@@ -94,15 +95,6 @@ namespace
         return values[static_cast<std::size_t>(index)];
     }
 
-    template <typename T, std::size_t Size>
-    [[nodiscard]] T& ArrayAt(std::array<T, Size>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= Size)
-        {
-            throw MphRead::Memory::Detail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
 }
 
 namespace MphRead::Entities
@@ -340,7 +332,7 @@ namespace MphRead::Entities
             if (_target != nullptr)
             {
                 const Vector3 muzzlePos = TypeExtensions::AddY(Position, 0.4F);
-                const std::int32_t encounter = ArrayAt(
+                const std::int32_t encounter = ManagedAt(
                     GameState::EncounterState(), owner.SlotIndex());
                 if (owner.IsBot() && GameState::SinglePlayer()
                     && (encounter == 1 || encounter == 3 || encounter == 4))

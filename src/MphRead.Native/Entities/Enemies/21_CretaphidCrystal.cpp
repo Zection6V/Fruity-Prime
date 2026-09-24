@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::AddY;
 
@@ -38,27 +39,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        template <typename T>
-        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
@@ -100,7 +80,7 @@ namespace MphRead::Entities::Enemies
 
         const Weapons::WeaponList& bossWeapons
             = RequireReference(Weapons::BossWeapons);
-        const std::shared_ptr<WeaponInfo> weapon = VectorAt(bossWeapons, 0);
+        const std::shared_ptr<WeaponInfo> weapon = ManagedAt(bossWeapons, 0);
         _equipInfo = std::make_shared<EquipInfo>(weapon, _beams);
         RequireReference(_equipInfo).GetAmmo = [this]() { return _ammo; };
         RequireReference(_equipInfo).SetAmmo

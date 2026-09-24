@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::ScaleVector;
@@ -24,28 +26,6 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] const T& ManagedListAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw Memory::Detail::ArgumentOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T, std::size_t N>
-        [[nodiscard]] T& ManagedArrayAt(
-            std::array<T, N>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= N)
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
 
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
@@ -137,7 +117,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy27Entity::CheckPlayerCollision(float factor, std::int32_t damage)
     {
-        if (!ManagedArrayAt(HitPlayers, MainPlayer().SlotIndex()))
+        if (!ManagedAt(HitPlayers, MainPlayer().SlotIndex()))
         {
             return;
         }

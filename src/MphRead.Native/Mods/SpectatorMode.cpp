@@ -16,6 +16,7 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
@@ -26,17 +27,8 @@ namespace
     using MphRead::Entities::LoadFlags;
     using MphRead::Entities::PlayerEntity;
 
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(TContainer&& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return std::forward<TContainer>(values)[static_cast<std::size_t>(index)];
-    }
-
 }
+
 
 namespace MphRead::Mods
 {

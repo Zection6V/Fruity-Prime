@@ -25,6 +25,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -71,25 +72,6 @@ namespace MphRead::Entities::Enemies
             return static_cast<std::uint16_t>(count);
         }
 
-        template <typename T>
-        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
     }
 
     const std::array<std::int32_t, 11> Enemy10Entity::_recolors{
@@ -141,7 +123,7 @@ namespace MphRead::Entities::Enemies
 
         const std::int32_t subtype = UInt32ToInt32(
             static_cast<std::uint32_t>(_spawner->Data.Fields.S08().EnemySubtype));
-        _values = VectorAt(Metadata::Enemy10Values, subtype);
+        _values = ManagedAt(Metadata::Enemy10Values, subtype);
         _health = _healthMax = _values.HealthMax;
         Metadata::LoadEffectiveness(_values.Effectiveness, BeamEffectiveness);
         _scanId = _values.ScanId;
@@ -153,7 +135,7 @@ namespace MphRead::Entities::Enemies
 
         const std::vector<std::shared_ptr<WeaponInfo>>& enemyWeapons
             = RequireReference(Weapons::EnemyWeapons);
-        const std::shared_ptr<WeaponInfo> weapon = VectorAt(enemyWeapons, version);
+        const std::shared_ptr<WeaponInfo> weapon = ManagedAt(enemyWeapons, version);
         _equipInfo = std::make_shared<EquipInfo>(weapon, _beams);
         _equipInfo->GetAmmo = [this]() { return _ammo; };
         _equipInfo->SetAmmo = [this](std::int32_t newAmmo) { _ammo = newAmmo; };
@@ -362,8 +344,8 @@ namespace MphRead::Entities::Enemies
             = Metadata::BeamSfx();
         std::vector<std::vector<std::int32_t>>& sfxRows = RequireReference(beamSfx);
         const std::int32_t beamIndex = static_cast<std::int32_t>(weaponRef.Beam);
-        std::vector<std::int32_t>& sfxRow = VectorAt(sfxRows, beamIndex);
-        const std::int32_t sfx = VectorAt(
+        std::vector<std::int32_t>& sfxRow = ManagedAt(sfxRows, beamIndex);
+        const std::int32_t sfx = ManagedAt(
             sfxRow, static_cast<std::int32_t>(BeamSfx::Shot));
         if (sfx != -1)
         {

@@ -45,6 +45,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
@@ -89,46 +90,6 @@ namespace
     constexpr Vector3 UnitX(1.0F, 0.0F, 0.0F);
     constexpr Vector3 UnitY(0.0F, 1.0F, 0.0F);
     constexpr Vector3 UnitZ(0.0F, 0.0F, 1.0F);
-
-    template <typename T>
-    [[nodiscard]] T& ManagedAt(MphRead::ManagedArray<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedAt(const MphRead::ManagedArray<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= std::size(values))
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(const TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= std::size(values))
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
 
     [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)
     {

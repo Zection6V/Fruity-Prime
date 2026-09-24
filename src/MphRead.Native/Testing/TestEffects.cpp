@@ -29,6 +29,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::Int32ToUInt32;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -64,17 +65,6 @@ namespace
         }
         return std::bit_cast<std::int64_t>(
             (bits >> count) | (~std::uint64_t{0} << (64U - count)));
-    }
-
-    [[nodiscard]] const std::int32_t& At(
-        const std::vector<std::int32_t>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
-        }
-        return values[static_cast<std::size_t>(index)];
     }
 
     [[nodiscard]] std::string FormatSingle(float value)
@@ -306,20 +296,20 @@ namespace MphRead::Testing
         std::int32_t next;
         std::int32_t index1 = -1;
         std::int32_t index2 = 0;
-        if (percent < At(parameters, UncheckedAdd(index2, 0)))
+        if (percent < ManagedListAt(parameters, UncheckedAdd(index2, 0)))
         {
-            return At(parameters, UncheckedAdd(index2, 1));
+            return ManagedListAt(parameters, UncheckedAdd(index2, 1));
         }
-        if (At(parameters, UncheckedAdd(index2, 0)) != std::numeric_limits<std::int32_t>::min())
+        if (ManagedListAt(parameters, UncheckedAdd(index2, 0)) != std::numeric_limits<std::int32_t>::min())
         {
             do
             {
-                if (At(parameters, UncheckedAdd(index2, 0)) > percent)
+                if (ManagedListAt(parameters, UncheckedAdd(index2, 0)) > percent)
                 {
                     break;
                 }
                 index1 = index2;
-                next = At(parameters, UncheckedAdd(index2, 2));
+                next = ManagedListAt(parameters, UncheckedAdd(index2, 2));
                 index2 = UncheckedAdd(index2, 2);
             }
             while (next != std::numeric_limits<std::int32_t>::min());
@@ -328,36 +318,36 @@ namespace MphRead::Testing
         {
             return 0;
         }
-        const std::int32_t v7 = At(parameters, UncheckedAdd(index1, 2));
+        const std::int32_t v7 = ManagedListAt(parameters, UncheckedAdd(index1, 2));
         if (v7 == std::numeric_limits<std::int32_t>::min())
         {
-            result = At(parameters, UncheckedAdd(index1, 1));
+            result = ManagedListAt(parameters, UncheckedAdd(index1, 1));
         }
         else
         {
             const std::int32_t valueDelta = SubtractInt32(
-                At(parameters, UncheckedAdd(index1, 3)),
-                At(parameters, UncheckedAdd(index1, 1)));
+                ManagedListAt(parameters, UncheckedAdd(index1, 3)),
+                ManagedListAt(parameters, UncheckedAdd(index1, 1)));
             const std::int32_t percentDelta = SubtractInt32(
-                percent, At(parameters, UncheckedAdd(index1, 0)));
+                percent, ManagedListAt(parameters, UncheckedAdd(index1, 0)));
             const std::int32_t pointDelta = SubtractInt32(
-                v7, At(parameters, UncheckedAdd(index1, 0)));
+                v7, ManagedListAt(parameters, UncheckedAdd(index1, 0)));
             const std::int32_t fraction = FxDiv(percentDelta, pointDelta);
             const std::int64_t wide = static_cast<std::int64_t>(valueDelta)
                 * static_cast<std::int64_t>(fraction) + 2048;
             const std::int32_t interpolated = UInt32ToInt32(
                 static_cast<std::uint32_t>(ShiftRightInt64(wide, 12)));
-            result = UncheckedAdd(At(parameters, UncheckedAdd(index1, 1)), interpolated);
+            result = UncheckedAdd(ManagedListAt(parameters, UncheckedAdd(index1, 1)), interpolated);
 
             const std::int32_t left = SubtractInt32(
-                At(parameters, UncheckedAdd(index1, 3)),
-                At(parameters, UncheckedAdd(index1, 1)));
+                ManagedListAt(parameters, UncheckedAdd(index1, 3)),
+                ManagedListAt(parameters, UncheckedAdd(index1, 1)));
             const std::int32_t right = FxDiv(
-                SubtractInt32(percent, At(parameters, UncheckedAdd(index1, 0))),
-                SubtractInt32(v7, At(parameters, UncheckedAdd(index1, 0))));
+                SubtractInt32(percent, ManagedListAt(parameters, UncheckedAdd(index1, 0))),
+                SubtractInt32(v7, ManagedListAt(parameters, UncheckedAdd(index1, 0))));
             const std::int32_t prod = ShiftRightInt32(
                 UncheckedAdd(UncheckedMultiply(left, right), 2048), 12);
-            const std::int32_t parm = At(parameters, UncheckedAdd(index1, 1));
+            const std::int32_t parm = ManagedListAt(parameters, UncheckedAdd(index1, 1));
             [[maybe_unused]] const std::int32_t final = UncheckedAdd(parm, prod);
             Nop();
         }

@@ -43,6 +43,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::TestAny;
@@ -122,66 +123,6 @@ namespace
         hash = QueueRound(hash, static_cast<std::uint32_t>(value2));
         hash = QueueRound(hash, static_cast<std::uint32_t>(value3));
         return std::bit_cast<std::int32_t>(MixFinal(hash));
-    }
-
-    template <typename T, std::size_t Size>
-    [[nodiscard]] T& ManagedAt(std::array<T, Size>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= Size)
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T, std::size_t Size>
-    [[nodiscard]] const T& ManagedAt(const std::array<T, Size>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= Size)
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedAt(std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedAt(const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedAt(MphRead::ManagedArray<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedAt(const MphRead::ManagedArray<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
     }
 
     template <typename T>

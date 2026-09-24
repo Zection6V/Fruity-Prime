@@ -46,6 +46,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
@@ -96,29 +97,6 @@ namespace
             throw MphRead::SceneDetail::IndexOutOfRangeException();
         }
         return static_cast<std::size_t>(index);
-    }
-
-    template <typename T, std::size_t N>
-    [[nodiscard]] T& ManagedAt(std::array<T, N>& values, std::int32_t index)
-    {
-        return values[CheckedArrayIndex(index, N)];
-    }
-
-    template <typename T, std::size_t N>
-    [[nodiscard]] const T& ManagedAt(const std::array<T, N>& values, std::int32_t index)
-    {
-        return values[CheckedArrayIndex(index, N)];
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedAt(const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
-    {
-        ManagedArray<T>& array = RequireReference(values);
-        if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return array[static_cast<std::size_t>(index)];
     }
 
     template <typename T>

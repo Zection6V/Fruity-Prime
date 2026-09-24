@@ -18,6 +18,8 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -29,28 +31,6 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] const T& ManagedArrayAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& ManagedListAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw Memory::Detail::ArgumentOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
 
         [[nodiscard]] std::int32_t ManagedMultiplyByTwo(
             std::int32_t value) noexcept
@@ -126,7 +106,7 @@ namespace MphRead::Entities::Enemies
     void Enemy26Entity::Activate()
     {
         const std::int32_t index = static_cast<std::int32_t>(EnemyType::GoreaArm);
-        _scanId = ManagedArrayAt(Metadata::EnemyScanIds, index);
+        _scanId = ManagedAt(Metadata::EnemyScanIds, index);
         _health = 65535;
         _healthMax = 120;
         Flags |= EnemyFlags::CollidePlayer;

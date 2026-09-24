@@ -2,6 +2,8 @@
 
 #include "../Program.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../Formats/Types.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -18,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
+
 namespace
 {
     using System::IO::EndOfStreamException;
@@ -31,24 +35,6 @@ namespace
             throw OverflowException();
         }
         return std::vector<std::uint8_t>(static_cast<std::size_t>(length));
-    }
-
-    std::uint8_t& At(std::vector<std::uint8_t>& buffer, std::int64_t index)
-    {
-        if (index < 0 || static_cast<std::uint64_t>(index) >= buffer.size())
-        {
-            throw IndexOutOfRangeException();
-        }
-        return buffer[static_cast<std::size_t>(index)];
-    }
-
-    std::uint8_t At(const std::vector<std::uint8_t>& buffer, std::int64_t index)
-    {
-        if (index < 0 || static_cast<std::uint64_t>(index) >= buffer.size())
-        {
-            throw IndexOutOfRangeException();
-        }
-        return buffer[static_cast<std::size_t>(index)];
     }
 
     std::int32_t UncheckedAdd(std::int32_t left, std::int32_t right)
@@ -365,10 +351,10 @@ namespace MphRead
                 std::int32_t bufIdx = bufferOffset + bufferLength - disp;
                 for (std::int32_t i = 0; i < length; i++)
                 {
-                    const std::uint8_t next = At(buffer, bufIdx % bufferLength);
+                    const std::uint8_t next = ManagedAt(buffer, bufIdx % bufferLength);
                     bufIdx++;
                     WriteByte(outstream, next);
-                    At(buffer, bufferOffset) = next;
+                    ManagedAt(buffer, bufferOffset) = next;
                     bufferOffset = (bufferOffset + 1) % bufferLength;
                 }
                 currentOutSize = UncheckedAdd(currentOutSize, length);
@@ -391,7 +377,7 @@ namespace MphRead
 
                 currentOutSize++;
                 WriteByte(outstream, static_cast<std::uint8_t>(next));
-                At(buffer, bufferOffset) = static_cast<std::uint8_t>(next);
+                ManagedAt(buffer, bufferOffset) = static_cast<std::uint8_t>(next);
                 bufferOffset = (bufferOffset + 1) % bufferLength;
             }
             Flush(outstream);
@@ -481,7 +467,7 @@ namespace MphRead
 
             if (length < 3)
             {
-                At(outbuffer, bufferlength++) = *(instart + readBytes++);
+                ManagedAt(outbuffer, bufferlength++) = *(instart + readBytes++);
             }
             else
             {
@@ -489,12 +475,12 @@ namespace MphRead
 
                 outbuffer[0] |= static_cast<std::uint8_t>(1 << (7 - bufferedBlocks));
 
-                At(outbuffer, bufferlength) =
+                ManagedAt(outbuffer, bufferlength) =
                     static_cast<std::uint8_t>(((length - 3) << 4) & 0xF0);
-                At(outbuffer, bufferlength) |=
+                ManagedAt(outbuffer, bufferlength) |=
                     static_cast<std::uint8_t>(((disp - 1) >> 8) & 0x0F);
                 bufferlength++;
-                At(outbuffer, bufferlength) =
+                ManagedAt(outbuffer, bufferlength) =
                     static_cast<std::uint8_t>((disp - 1) & 0xFF);
                 bufferlength++;
             }
@@ -513,19 +499,19 @@ namespace MphRead
     std::int32_t LZ10::ToNDSu24(
         const std::vector<std::uint8_t>& buffer, std::int32_t offset)
     {
-        return At(buffer, offset)
-            | (At(buffer, UncheckedAdd(offset, 1)) << 8)
-            | (At(buffer, UncheckedAdd(offset, 2)) << 16);
+        return ManagedAt(buffer, offset)
+            | (ManagedAt(buffer, UncheckedAdd(offset, 1)) << 8)
+            | (ManagedAt(buffer, UncheckedAdd(offset, 2)) << 16);
     }
 
     std::int32_t LZ10::ToNDSs32(
         const std::vector<std::uint8_t>& buffer, std::int32_t offset)
     {
         const std::uint32_t value =
-            static_cast<std::uint32_t>(At(buffer, offset))
-            | (static_cast<std::uint32_t>(At(buffer, UncheckedAdd(offset, 1))) << 8)
-            | (static_cast<std::uint32_t>(At(buffer, UncheckedAdd(offset, 2))) << 16)
-            | (static_cast<std::uint32_t>(At(buffer, UncheckedAdd(offset, 3))) << 24);
+            static_cast<std::uint32_t>(ManagedAt(buffer, offset))
+            | (static_cast<std::uint32_t>(ManagedAt(buffer, UncheckedAdd(offset, 1))) << 8)
+            | (static_cast<std::uint32_t>(ManagedAt(buffer, UncheckedAdd(offset, 2))) << 16)
+            | (static_cast<std::uint32_t>(ManagedAt(buffer, UncheckedAdd(offset, 3))) << 24);
         return std::bit_cast<std::int32_t>(value);
     }
 
@@ -579,7 +565,7 @@ namespace MphRead
         PositionAdd(instream, -4);
         ReadExactly(instream, buffer.data(), 3);
         std::int32_t compressedSize =
-            At(buffer, 0) | (At(buffer, 1) << 8) | (At(buffer, 2) << 16);
+            ManagedAt(buffer, 0) | (ManagedAt(buffer, 1) << 8) | (ManagedAt(buffer, 2) << 16);
         compressedSize -= headerSize;
 
         if (static_cast<std::int64_t>(compressedSize) + headerSize >= inLength)
@@ -611,7 +597,7 @@ namespace MphRead
                 {
                     break;
                 }
-                flags = At(buffer, static_cast<std::int64_t>(buffer.size()) - 1 - readBytes);
+                flags = ManagedAt(buffer, static_cast<std::int64_t>(buffer.size()) - 1 - readBytes);
                 readBytes++;
                 mask = 0x80;
             }
@@ -634,7 +620,7 @@ namespace MphRead
                 {
                     break;
                 }
-                const std::int32_t byte1 = At(buffer, bufIndex);
+                const std::int32_t byte1 = ManagedAt(buffer, bufIndex);
                 readBytes++;
 
                 const std::int32_t index2 = compressedSize - 1 - readBytes;
@@ -642,7 +628,7 @@ namespace MphRead
                 {
                     break;
                 }
-                const std::int32_t byte2 = At(buffer, index2);
+                const std::int32_t byte2 = ManagedAt(buffer, index2);
                 readBytes++;
 
                 std::int32_t length = byte1 >> 4;
@@ -666,7 +652,7 @@ namespace MphRead
                 std::int32_t bufIdx = currentOutSize - disp;
                 for (std::int32_t i = 0; i < length; i++)
                 {
-                    const std::uint8_t next = At(
+                    const std::uint8_t next = ManagedAt(
                         outbuffer, static_cast<std::int64_t>(outbuffer.size()) - 1 - bufIdx);
                     bufIdx++;
 
@@ -676,7 +662,7 @@ namespace MphRead
                     {
                         break;
                     }
-                    At(outbuffer, outIndex) = next;
+                    ManagedAt(outbuffer, outIndex) = next;
                     currentOutSize++;
                 }
             }
@@ -694,10 +680,10 @@ namespace MphRead
                 {
                     break;
                 }
-                const std::uint8_t next = At(buffer, nextIndex);
+                const std::uint8_t next = ManagedAt(buffer, nextIndex);
                 readBytes++;
 
-                At(outbuffer,
+                ManagedAt(outbuffer,
                     static_cast<std::int64_t>(outbuffer.size()) - 1 - currentOutSize) = next;
                 currentOutSize++;
             }
@@ -841,7 +827,7 @@ namespace MphRead
 
             if (length < 3)
             {
-                At(outbuffer, bufferlength++) = *(instart + readBytes++);
+                ManagedAt(outbuffer, bufferlength++) = *(instart + readBytes++);
             }
             else
             {
@@ -849,12 +835,12 @@ namespace MphRead
 
                 outbuffer[0] |= static_cast<std::uint8_t>(1 << (7 - bufferedBlocks));
 
-                At(outbuffer, bufferlength) =
+                ManagedAt(outbuffer, bufferlength) =
                     static_cast<std::uint8_t>(((length - 3) << 4) & 0xF0);
-                At(outbuffer, bufferlength) |=
+                ManagedAt(outbuffer, bufferlength) |=
                     static_cast<std::uint8_t>(((disp - 3) >> 8) & 0x0F);
                 bufferlength++;
-                At(outbuffer, bufferlength) =
+                ManagedAt(outbuffer, bufferlength) =
                     static_cast<std::uint8_t>((disp - 3) & 0xFF);
                 bufferlength++;
             }
@@ -873,9 +859,9 @@ namespace MphRead
     std::uint32_t LZBackward::ToNDSu32(
         const std::vector<std::uint8_t>& buffer, std::int32_t offset)
     {
-        return static_cast<std::uint32_t>(At(buffer, offset))
-            | (static_cast<std::uint32_t>(At(buffer, UncheckedAdd(offset, 1))) << 8)
-            | (static_cast<std::uint32_t>(At(buffer, UncheckedAdd(offset, 2))) << 16)
-            | (static_cast<std::uint32_t>(At(buffer, UncheckedAdd(offset, 3))) << 24);
+        return static_cast<std::uint32_t>(ManagedAt(buffer, offset))
+            | (static_cast<std::uint32_t>(ManagedAt(buffer, UncheckedAdd(offset, 1))) << 8)
+            | (static_cast<std::uint32_t>(ManagedAt(buffer, UncheckedAdd(offset, 2))) << 16)
+            | (static_cast<std::uint32_t>(ManagedAt(buffer, UncheckedAdd(offset, 3))) << 24);
     }
 }

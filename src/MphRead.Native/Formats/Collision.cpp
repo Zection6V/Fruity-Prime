@@ -6,8 +6,8 @@
 
 #include "../Read.hpp"
 #include "../Scene.hpp"
-#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -38,8 +38,9 @@
 #define MPHREAD_COLLISION_DEBUG_ASSERT(condition) ((void)0)
 #endif
 
-using ::MphRead::HasFlag;
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::HasFlag;
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
@@ -75,30 +76,6 @@ namespace MphRead::Formats::Collision
                 ++length;
             }
             return std::string(value.data(), length);
-        }
-
-        template <typename T>
-        const T& At(
-            const std::shared_ptr<const std::vector<T>>& values,
-            std::size_t index)
-        {
-            if (!values)
-            {
-                throw System::NullReferenceException();
-            }
-            return values->at(index);
-        }
-
-        template <typename T>
-        T& At(
-            const std::shared_ptr<std::vector<T>>& values,
-            std::size_t index)
-        {
-            if (!values)
-            {
-                throw System::NullReferenceException();
-            }
-            return values->at(index);
         }
 
         template <typename T>
@@ -454,19 +431,19 @@ namespace MphRead::Formats::Collision
             i < raw.VectorCount;
             ++i)
         {
-            const FhCollisionVector& vector = At(
+            const FhCollisionVector& vector = ManagedAt(
                 rawVectors,
                 static_cast<std::size_t>(
                     raw.VectorStartIndex) + i);
 
             points->push_back(
-                At(
+                ManagedAt(
                     rawPoints,
                     vector.Point2Index)
                     .ToFloatVector());
 
             planes->push_back(
-                At(
+                ManagedAt(
                     rawPlanes,
                     vector.PlaneIndex)
                     .ToFloatVector());
@@ -791,14 +768,14 @@ namespace MphRead::Formats::Collision
                 ++j)
             {
                 const std::uint16_t pointIndex
-                    = At(
+                    = ManagedAt(
                         PointIndices,
                         static_cast<std::size_t>(
                             data.PointStartIndex)
                             + j);
 
                 (*verts)[j]
-                    = At(points, pointIndex)
+                    = ManagedAt(points, pointIndex)
                     + translation;
             }
 
@@ -926,7 +903,7 @@ namespace MphRead::Formats::Collision
         }
 
         const CollisionEntry& entry
-            = At(
+            = ManagedAt(
                 Entries,
                 static_cast<std::size_t>(
                     entryIndex));
@@ -936,14 +913,14 @@ namespace MphRead::Formats::Collision
             ++i)
         {
             const std::uint16_t dataIndex
-                = At(
+                = ManagedAt(
                     DataIndices,
                     static_cast<std::size_t>(
                         entry.DataStartIndex)
                         + i);
 
             const CollisionData& data
-                = At(Data, dataIndex);
+                = ManagedAt(Data, dataIndex);
 
             if (scene.ColTerDisplay()
                     != MphRead::Terrain::All
@@ -1064,14 +1041,14 @@ namespace MphRead::Formats::Collision
                 ++j)
             {
                 const std::uint16_t pointIndex
-                    = At(
+                    = ManagedAt(
                         PointIndices,
                         static_cast<std::size_t>(
                             data.PointStartIndex)
                             + j);
 
                 (*verts)[j]
-                    = At(points, pointIndex);
+                    = ManagedAt(points, pointIndex);
             }
 
             scene.AddRenderItem(
@@ -1203,7 +1180,7 @@ namespace MphRead::Formats::Collision
             ++i)
         {
             const FhCollisionData& data
-                = At(Data, i);
+                = ManagedAt(Data, i);
 
             MPHREAD_COLLISION_DEBUG_ASSERT(
                 data.VectorCount >= 3
@@ -1217,14 +1194,14 @@ namespace MphRead::Formats::Collision
                 ++j)
             {
                 const FhCollisionVector& vector
-                    = At(
+                    = ManagedAt(
                         Vectors,
                         static_cast<std::size_t>(
                             data.VectorStartIndex)
                             + j);
 
                 (*verts)[j]
-                    = At(
+                    = ManagedAt(
                         points,
                         vector.Point2Index)
                     + translation;
@@ -1269,7 +1246,7 @@ namespace MphRead::Formats::Collision
             = scene.GetNextPolygonId();
 
         const FhCollisionEntry& entry
-            = At(
+            = ManagedAt(
                 Entries,
                 static_cast<std::size_t>(
                     entryIndex));
@@ -1279,14 +1256,14 @@ namespace MphRead::Formats::Collision
             ++i)
         {
             const std::int32_t dataIndex
-                = At(
+                = ManagedAt(
                     DataIndices,
                     static_cast<std::size_t>(
                         entry.DataStartIndex)
                         + i);
 
             const FhCollisionData& data
-                = At(
+                = ManagedAt(
                     Data,
                     static_cast<std::size_t>(
                         dataIndex));
@@ -1303,14 +1280,14 @@ namespace MphRead::Formats::Collision
                 ++j)
             {
                 const FhCollisionVector& vector
-                    = At(
+                    = ManagedAt(
                         Vectors,
                         static_cast<std::size_t>(
                             data.VectorStartIndex)
                             + j);
 
                 (*verts)[j]
-                    = At(
+                    = ManagedAt(
                         points,
                         vector.Point2Index);
             }

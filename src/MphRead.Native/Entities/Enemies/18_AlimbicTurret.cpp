@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateRotationX;
@@ -78,26 +79,6 @@ namespace MphRead::Entities::Enemies
                 = static_cast<std::int64_t>(values.MinShots)
                 + static_cast<std::int64_t>(random);
             return static_cast<std::uint16_t>(count);
-        }
-
-        template <typename T>
-        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] Matrix4 Transpose(Matrix4 value) noexcept
@@ -178,7 +159,7 @@ namespace MphRead::Entities::Enemies
         _hurtVolumeInit = CollisionVolume(spawner.Data.Fields.S06().Volume0);
 
         const std::int32_t subtype = UInt32ToInt32(spawner.Data.Fields.S06().EnemySubtype);
-        _values = VectorAt(Metadata::Enemy18Values, subtype);
+        _values = ManagedAt(Metadata::Enemy18Values, subtype);
         _health = _healthMax = _values.HealthMax;
         Metadata::LoadEffectiveness(_values.Effectiveness, BeamEffectiveness);
         _scanId = _values.ScanId;

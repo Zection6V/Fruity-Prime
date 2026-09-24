@@ -21,6 +21,7 @@
 #include "Metadata/Player.hpp"
 #include "Sound/Music.hpp"
 #include "Sound/Sfx.hpp"
+#include "Formats/Types.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -42,6 +43,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::ShiftRight;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -89,38 +91,6 @@ namespace
             throw System::NullReferenceException();
         }
         return value;
-    }
-
-    template <typename T, std::size_t N>
-    [[nodiscard]] T& ArrayAt(std::array<T, N>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= N)
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T, std::size_t N>
-    [[nodiscard]] const T& ArrayAt(const std::array<T, N>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= N)
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedAt(const std::shared_ptr<MphRead::ManagedArray<T>>& values,
-        std::int32_t index)
-    {
-        const auto& array = RequireShared(values);
-        if (index < 0 || static_cast<std::size_t>(index) >= array->Length())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return (*array)[static_cast<std::size_t>(index)];
     }
 
     template <typename T>
@@ -1188,14 +1158,14 @@ namespace MphRead
                             if (static_cast<std::uint32_t>(player->TeamIndex())
                                 < static_cast<std::uint32_t>(_teamCount))
                             {
-                                ArrayAt(teams, player->TeamIndex()) = true;
+                                ManagedAt(teams, player->TeamIndex()) = true;
                             }
                         }
                     }
                     std::int32_t representedTeams = 0;
                     for (std::int32_t team = 0; team < _teamCount; ++team)
                     {
-                        if (ArrayAt(teams, team))
+                        if (ManagedAt(teams, team))
                         {
                             representedTeams = UncheckedAdd(representedTeams, 1);
                         }
@@ -1267,7 +1237,7 @@ namespace MphRead
                             }
                             else
                             {
-                                comparison = ArrayAt(
+                                comparison = ManagedAt(
                                     _alarmIntervals, _nextAlarmIndex);
                             }
                         }
@@ -1304,11 +1274,11 @@ namespace MphRead
                         auto player = PlayerAt(i);
                         if (HasLoadFlag(player->LoadFlags(), Entities::LoadFlags::Active)
                             && (player->Health() > 0
-                                || ArrayAt(_teamDeaths, player->TeamIndex())
+                                || ManagedAt(_teamDeaths, player->TeamIndex())
                                     <= _pointGoal))
                         {
-                            ArrayAt(_time, i) = -1.0F;
-                            ArrayAt(_teamTime, player->TeamIndex()) = -1.0F;
+                            ManagedAt(_time, i) = -1.0F;
+                            ManagedAt(_teamTime, player->TeamIndex()) = -1.0F;
                         }
                     }
                     UpdateState();
@@ -1330,7 +1300,7 @@ namespace MphRead
         }
         else if (_matchState == MphRead::MatchState::GameOver)
         {
-            auto winner = PlayerAt(ArrayAt(_resultSlots, 0));
+            auto winner = PlayerAt(ManagedAt(_resultSlots, 0));
             if (!IsResultTie() && winner->Health() > 0
                 && HasLoadFlag(winner->LoadFlags(), Entities::LoadFlags::Active)
                 && HasLoadFlag(winner->LoadFlags(), Entities::LoadFlags::Spawned))
@@ -1496,9 +1466,9 @@ namespace MphRead
         {
             auto player = PlayerAt(i);
             if (HasLoadFlag(player->LoadFlags(), Entities::LoadFlags::Active)
-                && ArrayAt(_teamPoints, player->TeamIndex()) >= _pointGoal)
+                && ManagedAt(_teamPoints, player->TeamIndex()) >= _pointGoal)
             {
-                ArrayAt(_teamPoints, player->TeamIndex()) = _pointGoal;
+                ManagedAt(_teamPoints, player->TeamIndex()) = _pointGoal;
                 _matchTime = 0.0F;
                 break;
             }
@@ -1530,9 +1500,9 @@ namespace MphRead
             auto player = PlayerAt(i);
             if (HasLoadFlag(player->LoadFlags(), Entities::LoadFlags::Active)
                 && (player->Health() > 0
-                    || ArrayAt(_teamDeaths, player->TeamIndex()) <= _pointGoal))
+                    || ManagedAt(_teamDeaths, player->TeamIndex()) <= _pointGoal))
             {
-                ArrayAt(_time, i) += frameTime;
+                ManagedAt(_time, i) += frameTime;
                 if (player->IsBot())
                 {
                     botsAlive = UncheckedAdd(botsAlive, 1);
@@ -1545,9 +1515,9 @@ namespace MphRead
                 {
                     if (static_cast<std::uint32_t>(player->TeamIndex())
                             < static_cast<std::uint32_t>(_teamCount)
-                        && !ArrayAt(teamsAlive, player->TeamIndex()))
+                        && !ManagedAt(teamsAlive, player->TeamIndex()))
                     {
-                        ArrayAt(teamsAlive, player->TeamIndex()) = true;
+                        ManagedAt(teamsAlive, player->TeamIndex()) = true;
                         aliveTeamCount = UncheckedAdd(aliveTeamCount, 1);
                     }
                 }
@@ -1564,9 +1534,9 @@ namespace MphRead
                 auto player = PlayerAt(i);
                 if (HasLoadFlag(player->LoadFlags(), Entities::LoadFlags::Active)
                     && (player->Health() > 0
-                        || ArrayAt(_teamDeaths, player->TeamIndex()) <= _pointGoal))
+                        || ManagedAt(_teamDeaths, player->TeamIndex()) <= _pointGoal))
                 {
-                    ArrayAt(_time, i) = -1.0F;
+                    ManagedAt(_time, i) = -1.0F;
                 }
             }
         }
@@ -1600,7 +1570,7 @@ namespace MphRead
         {
             auto player = PlayerAt(i);
             if (HasLoadFlag(player->LoadFlags(), Entities::LoadFlags::Active)
-                && ArrayAt(_teamTime, player->TeamIndex()) >= _timeGoal)
+                && ManagedAt(_teamTime, player->TeamIndex()) >= _timeGoal)
             {
                 _matchTime = 0.0F;
                 break;
@@ -1636,8 +1606,8 @@ namespace MphRead
         }
         if (_primeHunter != -1)
         {
-            ArrayAt(_time, _primeHunter) += scene->FrameTime();
-            if (ArrayAt(_time, _primeHunter) >= _timeGoal)
+            ManagedAt(_time, _primeHunter) += scene->FrameTime();
+            if (ManagedAt(_time, _primeHunter) >= _timeGoal)
             {
                 _matchTime = 0.0F;
             }
@@ -2049,15 +2019,15 @@ namespace MphRead
         IntSlots prevTeamDeaths{};
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(SlotCapacity); ++i)
         {
-            ArrayAt(prevTeamPoints, i) = ArrayAt(_teamPoints, i);
-            ArrayAt(prevTeamDeaths, i) = ArrayAt(_teamDeaths, i);
-            ArrayAt(_teamPoints, i) = 0;
-            ArrayAt(_teamDeaths, i) = 0;
-            ArrayAt(_teamKills, i) = 0;
+            ManagedAt(prevTeamPoints, i) = ManagedAt(_teamPoints, i);
+            ManagedAt(prevTeamDeaths, i) = ManagedAt(_teamDeaths, i);
+            ManagedAt(_teamPoints, i) = 0;
+            ManagedAt(_teamDeaths, i) = 0;
+            ManagedAt(_teamKills, i) = 0;
             if (_mode == GameMode::Survival
                 || _mode == GameMode::SurvivalTeams)
             {
-                ArrayAt(_teamTime, i) = 0.0F;
+                ManagedAt(_teamTime, i) = 0.0F;
             }
         }
 
@@ -2072,27 +2042,27 @@ namespace MphRead
                 continue;
             }
 
-            std::int32_t& teamPoints = ArrayAt(_teamPoints, player->TeamIndex());
-            teamPoints = UncheckedAdd(teamPoints, ArrayAt(_points, i));
-            std::int32_t& teamDeaths = ArrayAt(_teamDeaths, player->TeamIndex());
-            teamDeaths = UncheckedAdd(teamDeaths, ArrayAt(_deaths, i));
-            std::int32_t& teamKills = ArrayAt(_teamKills, player->TeamIndex());
-            teamKills = UncheckedAdd(teamKills, ArrayAt(_kills, i));
+            std::int32_t& teamPoints = ManagedAt(_teamPoints, player->TeamIndex());
+            teamPoints = UncheckedAdd(teamPoints, ManagedAt(_points, i));
+            std::int32_t& teamDeaths = ManagedAt(_teamDeaths, player->TeamIndex());
+            teamDeaths = UncheckedAdd(teamDeaths, ManagedAt(_deaths, i));
+            std::int32_t& teamKills = ManagedAt(_teamKills, player->TeamIndex());
+            teamKills = UncheckedAdd(teamKills, ManagedAt(_kills, i));
 
             if (_mode == GameMode::Survival
                 || _mode == GameMode::SurvivalTeams)
             {
-                if (ArrayAt(_time, i) == -1.0F
-                    || (ArrayAt(_teamTime, player->TeamIndex()) != -1.0F
-                        && ArrayAt(_teamTime, player->TeamIndex()) < ArrayAt(_time, i)))
+                if (ManagedAt(_time, i) == -1.0F
+                    || (ManagedAt(_teamTime, player->TeamIndex()) != -1.0F
+                        && ManagedAt(_teamTime, player->TeamIndex()) < ManagedAt(_time, i)))
                 {
-                    ArrayAt(_teamTime, player->TeamIndex()) = ArrayAt(_time, i);
+                    ManagedAt(_teamTime, player->TeamIndex()) = ManagedAt(_time, i);
                 }
             }
             else if (_mode == GameMode::Defender
                 || _mode == GameMode::DefenderTeams)
             {
-                ArrayAt(_time, i) = ArrayAt(_teamTime, player->TeamIndex());
+                ManagedAt(_time, i) = ManagedAt(_teamTime, player->TeamIndex());
             }
         }
 
@@ -2105,8 +2075,8 @@ namespace MphRead
             || _mode == GameMode::NodesTeams)
         {
             const std::int32_t teamIndex = MainPlayer()->TeamIndex();
-            const std::int32_t teamPoints = ArrayAt(_teamPoints, teamIndex);
-            if (teamPoints != ArrayAt(prevTeamPoints, teamIndex)
+            const std::int32_t teamPoints = ManagedAt(_teamPoints, teamIndex);
+            if (teamPoints != ManagedAt(prevTeamPoints, teamIndex)
                 && teamPoints == UncheckedSubtract(_pointGoal, 1))
             {
                 Sound::Sfx::QueueStream(
@@ -2127,7 +2097,7 @@ namespace MphRead
                     continue;
                 }
                 if (player->Health() > 0
-                    || ArrayAt(_teamDeaths, player->TeamIndex()) <= _pointGoal)
+                    || ManagedAt(_teamDeaths, player->TeamIndex()) <= _pointGoal)
                 {
                     if (player->TeamIndex() != MainPlayer()->TeamIndex()
                         && (opponentMask & (1 << player->TeamIndex())) == 0)
@@ -2137,7 +2107,7 @@ namespace MphRead
                         lastTeam = player->TeamIndex();
                     }
                 }
-                if (ArrayAt(_teamDeaths, player->TeamIndex()) > _pointGoal
+                if (ManagedAt(_teamDeaths, player->TeamIndex()) > _pointGoal
                     && player->RespawnTimer() == Entities::PlayerEntity::RespawnTime())
                 {
                     Sound::Sfx::QueueStream(VoiceId::VOICE_ELIMINATED);
@@ -2147,8 +2117,8 @@ namespace MphRead
             if (HasLoadFlag(MainPlayer()->LoadFlags(), Entities::LoadFlags::Active)
                 && opponents == 1 && lastTeam != -1)
             {
-                const std::int32_t teamDeaths = ArrayAt(_teamDeaths, lastTeam);
-                if (teamDeaths != ArrayAt(prevTeamDeaths, lastTeam)
+                const std::int32_t teamDeaths = ManagedAt(_teamDeaths, lastTeam);
+                if (teamDeaths != ManagedAt(prevTeamDeaths, lastTeam)
                     && teamDeaths == _pointGoal)
                 {
                     Sound::Sfx::QueueStream(
@@ -2164,10 +2134,10 @@ namespace MphRead
     std::int32_t GameState::ComparePlayers(
         std::int32_t slot1, std::int32_t slot2)
     {
-        const std::int32_t points1 = ArrayAt(_points, slot1);
-        const std::int32_t points2 = ArrayAt(_points, slot2);
-        float time1 = ArrayAt(_time, slot1);
-        float time2 = ArrayAt(_time, slot2);
+        const std::int32_t points1 = ManagedAt(_points, slot1);
+        const std::int32_t points2 = ManagedAt(_points, slot2);
+        float time1 = ManagedAt(_time, slot1);
+        float time2 = ManagedAt(_time, slot2);
         if (_mode == GameMode::Survival
             || _mode == GameMode::SurvivalTeams)
         {
@@ -2180,10 +2150,10 @@ namespace MphRead
                 time2 = std::numeric_limits<float>::max();
             }
         }
-        const std::int32_t deaths1 = ArrayAt(_deaths, slot1);
-        const std::int32_t deaths2 = ArrayAt(_deaths, slot2);
-        const std::int32_t kills1 = ArrayAt(_kills, slot1);
-        const std::int32_t kills2 = ArrayAt(_kills, slot2);
+        const std::int32_t deaths1 = ManagedAt(_deaths, slot1);
+        const std::int32_t deaths2 = ManagedAt(_deaths, slot2);
+        const std::int32_t kills1 = ManagedAt(_kills, slot1);
+        const std::int32_t kills2 = ManagedAt(_kills, slot2);
 
         if (_mode == GameMode::Battle
             || _mode == GameMode::BattleTeams)
@@ -2228,20 +2198,20 @@ namespace MphRead
     std::int32_t GameState::CompareTeams(
         std::int32_t slot1, std::int32_t slot2)
     {
-        const std::int32_t points1 = ArrayAt(_teamPoints, slot1);
-        const std::int32_t points2 = ArrayAt(_teamPoints, slot2);
-        float time1 = ArrayAt(_teamTime, slot1);
-        float time2 = ArrayAt(_teamTime, slot2);
+        const std::int32_t points1 = ManagedAt(_teamPoints, slot1);
+        const std::int32_t points2 = ManagedAt(_teamPoints, slot2);
+        float time1 = ManagedAt(_teamTime, slot1);
+        float time2 = ManagedAt(_teamTime, slot2);
         if (_mode == GameMode::Survival
             || _mode == GameMode::SurvivalTeams)
         {
             if (time1 == -1.0F) time1 = std::numeric_limits<float>::max();
             if (time2 == -1.0F) time2 = std::numeric_limits<float>::max();
         }
-        const std::int32_t deaths1 = ArrayAt(_teamDeaths, slot1);
-        const std::int32_t deaths2 = ArrayAt(_teamDeaths, slot2);
-        const std::int32_t kills1 = ArrayAt(_teamKills, slot1);
-        const std::int32_t kills2 = ArrayAt(_teamKills, slot2);
+        const std::int32_t deaths1 = ManagedAt(_teamDeaths, slot1);
+        const std::int32_t deaths2 = ManagedAt(_teamDeaths, slot2);
+        const std::int32_t kills1 = ManagedAt(_teamKills, slot1);
+        const std::int32_t kills2 = ManagedAt(_teamKills, slot2);
 
         if (_mode == GameMode::BattleTeams)
         {
@@ -2276,7 +2246,7 @@ namespace MphRead
     {
         if (roomId >= 27 && roomId <= 92)
         {
-            ArrayAt(_completedRandomEncounterRooms, UncheckedSubtract(roomId, 27)) = true;
+            ManagedAt(_completedRandomEncounterRooms, UncheckedSubtract(roomId, 27)) = true;
         }
     }
 
@@ -2499,38 +2469,38 @@ namespace MphRead
         {
             if (!keepNames)
             {
-                ArrayAt(_nicknames, i) = "Player" + std::to_string(i + 1);
+                ManagedAt(_nicknames, i) = "Player" + std::to_string(i + 1);
             }
-            ArrayAt(_stars, i) = 0;
-            ArrayAt(_standings, i) = 0;
-            ArrayAt(_teamStandings, i) = 0;
-            ArrayAt(_resultSlots, i) = 0;
-            ArrayAt(_points, i) = 0;
-            ArrayAt(_teamPoints, i) = 0;
-            ArrayAt(_kills, i) = 0;
-            ArrayAt(_teamKills, i) = 0;
-            ArrayAt(_deaths, i) = 0;
-            ArrayAt(_teamDeaths, i) = 0;
-            ArrayAt(_time, i) = 0.0F;
-            ArrayAt(_teamTime, i) = 0.0F;
-            ArrayAt(_beamDamageMax, i) = 0;
-            ArrayAt(_beamDamageDealt, i) = 0;
-            ArrayAt(_damageCount, i) = 0;
-            ArrayAt(_altDamageCount, i) = 0;
-            ArrayAt(_kills, i) = 0;
-            ArrayAt(_suicides, i) = 0;
-            ArrayAt(_friendlyKills, i) = 0;
-            ArrayAt(_headshotKills, i) = 0;
-            ArrayAt(_octolithScores, i) = 0;
-            ArrayAt(_octolithDrops, i) = 0;
-            ArrayAt(_octolithStops, i) = 0;
-            ArrayAt(_nodesCaptured, i) = 0;
-            ArrayAt(_nodesLost, i) = 0;
-            ArrayAt(_killsAsPrime, i) = 0;
-            ArrayAt(_primesKilled, i) = 0;
+            ManagedAt(_stars, i) = 0;
+            ManagedAt(_standings, i) = 0;
+            ManagedAt(_teamStandings, i) = 0;
+            ManagedAt(_resultSlots, i) = 0;
+            ManagedAt(_points, i) = 0;
+            ManagedAt(_teamPoints, i) = 0;
+            ManagedAt(_kills, i) = 0;
+            ManagedAt(_teamKills, i) = 0;
+            ManagedAt(_deaths, i) = 0;
+            ManagedAt(_teamDeaths, i) = 0;
+            ManagedAt(_time, i) = 0.0F;
+            ManagedAt(_teamTime, i) = 0.0F;
+            ManagedAt(_beamDamageMax, i) = 0;
+            ManagedAt(_beamDamageDealt, i) = 0;
+            ManagedAt(_damageCount, i) = 0;
+            ManagedAt(_altDamageCount, i) = 0;
+            ManagedAt(_kills, i) = 0;
+            ManagedAt(_suicides, i) = 0;
+            ManagedAt(_friendlyKills, i) = 0;
+            ManagedAt(_headshotKills, i) = 0;
+            ManagedAt(_octolithScores, i) = 0;
+            ManagedAt(_octolithDrops, i) = 0;
+            ManagedAt(_octolithStops, i) = 0;
+            ManagedAt(_nodesCaptured, i) = 0;
+            ManagedAt(_nodesLost, i) = 0;
+            ManagedAt(_killsAsPrime, i) = 0;
+            ManagedAt(_primesKilled, i) = 0;
             for (std::int32_t j = 0; j < 9; ++j)
             {
-                ArrayAt(ArrayAt(_beamKills, i), j) = 0;
+                ManagedAt(ManagedAt(_beamKills, i), j) = 0;
             }
         }
 

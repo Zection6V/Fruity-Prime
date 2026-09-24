@@ -7,8 +7,8 @@
 #include "NetDamage.hpp"
 #include "NetHooks.hpp"
 #include "NetSession.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -31,7 +31,7 @@
 #include <locale.h>
 #endif
 
-using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;

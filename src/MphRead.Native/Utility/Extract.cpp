@@ -12,6 +12,7 @@
 #include "../Metadata/SoundMeta.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../Formats/Types.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -50,6 +51,7 @@
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -569,17 +571,6 @@ namespace
         return bytes[static_cast<std::size_t>(index)];
     }
 
-    template <typename T>
-    [[nodiscard]] const T& AtManagedIndex(const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range(
-                "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
     [[nodiscard]] std::int32_t BitConverterToInt32(std::span<const std::uint8_t, 4> bytes) noexcept
     {
         std::int32_t result = 0;
@@ -841,7 +832,7 @@ namespace
         populateDir = [&](const std::shared_ptr<Extract::DirInfo>& dir)
         {
             const std::int32_t dirIndex = std::bit_cast<std::int32_t>(dir->Index);
-            const Extract::DirTableEntry& entry = AtManagedIndex(*entries, dirIndex);
+            const Extract::DirTableEntry& entry = ManagedListAt(*entries, dirIndex);
             std::uint32_t offset = header.FntOffset + entry.Offset;
             std::uint16_t fileIndex = entry.FirstFileIndex;
             std::uint8_t type = 1;
@@ -884,7 +875,7 @@ namespace
             for (const std::shared_ptr<Extract::FileInfo>& file : *dir->Files)
             {
                 const std::int32_t fileIndex = std::bit_cast<std::int32_t>(file->Index);
-                const auto& [start, end] = AtManagedIndex(fileOffsets, fileIndex);
+                const auto& [start, end] = ManagedListAt(fileOffsets, fileIndex);
                 assert(start > 0 && end > start);
                 const std::vector<std::uint8_t> fileBytes = Slice(bytes, start, end);
                 FileWriteAllBytes(Paths::Combine(path, file->Name), fileBytes);
@@ -968,7 +959,7 @@ namespace
 
             const std::int32_t overlayId = items.at(0);
             const std::int32_t fileId = items.at(6);
-            const auto& [overlayStart, overlayEnd] = AtManagedIndex(fileOffsets, fileId);
+            const auto& [overlayStart, overlayEnd] = ManagedListAt(fileOffsets, fileId);
             assert(overlayStart > 0 && overlayEnd > overlayStart);
             const std::vector<std::uint8_t> overlayBytes
                 = Slice(bytes, overlayStart, overlayEnd);

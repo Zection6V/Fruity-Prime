@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
@@ -43,48 +44,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename T, std::size_t N>
-        [[nodiscard]] T& ArrayAt(std::array<T, N>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= N)
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T, std::size_t N>
-        [[nodiscard]] const T& ArrayAt(
-            const std::array<T, N>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= N)
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
 
         [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
         {
@@ -179,7 +138,7 @@ namespace MphRead::Entities::Enemies
 
         const std::int32_t version
             = UInt32ToInt32(spawner.Data.Fields.S06().EnemyVersion);
-        SetRecolor(ArrayAt(_recolors, version));
+        SetRecolor(ManagedAt(_recolors, version));
 
         Flags |= EnemyFlags::Visible;
         Flags |= EnemyFlags::Invincible;
@@ -203,7 +162,7 @@ namespace MphRead::Entities::Enemies
 
         const std::int32_t subtype
             = UInt32ToInt32(spawner.Data.Fields.S06().EnemySubtype);
-        _values = VectorAt(Metadata::Enemy39Values, subtype);
+        _values = ManagedAt(Metadata::Enemy39Values, subtype);
         _health = _healthMax = _values.HealthMax;
 
         AnimationInfo& initAnim = RequireReference(inst.AnimInfo);
@@ -218,7 +177,7 @@ namespace MphRead::Entities::Enemies
         _scanId = _values.ScanId;
 
         const std::shared_ptr<WeaponInfo> weapon
-            = VectorAt(RequireReference(Weapons::EnemyWeapons), version);
+            = ManagedAt(RequireReference(Weapons::EnemyWeapons), version);
 
         _equipInfo[0] = std::make_shared<EquipInfo>(weapon, _beams);
         _equipInfo[1] = std::make_shared<EquipInfo>(weapon, _beams);
@@ -244,7 +203,7 @@ namespace MphRead::Entities::Enemies
             Model& model = RequireReference(inst.Model());
             const std::vector<std::shared_ptr<Material>>& materials
                 = RequireReference(model.Materials);
-            RequireReference(VectorAt(materials, 0)).Ambient
+            RequireReference(ManagedAt(materials, 0)).Ambient
                 = ColorRgb(18, 27, 31);
             SetHealthbarMessageId(5);
         }
@@ -411,11 +370,11 @@ namespace MphRead::Entities::Enemies
 
                 Vector3 dir = AddY(
                     static_cast<Vector3>(MainPlayer().Position), 0.5F)
-                    - ArrayAt(_wristPos, _wristId);
+                    - ManagedAt(_wristPos, _wristId);
                 dir = dir.Normalized();
 
                 std::shared_ptr<EquipInfo> equipInfo
-                    = ArrayAt(_equipInfo, _wristId);
+                    = ManagedAt(_equipInfo, _wristId);
                 EquipInfo& equip = RequireReference(equipInfo);
                 equip.UnchargedDamage(_values.BeamDamage);
                 equip.SplashDamage(_values.SplashDamage);
@@ -424,7 +383,7 @@ namespace MphRead::Entities::Enemies
                 (void)BeamProjectileEntity::Spawn(
                     SharedFrom<EntityBase>(this),
                     equipInfo,
-                    ArrayAt(_wristPos, _wristId),
+                    ManagedAt(_wristPos, _wristId),
                     dir,
                     BeamSpawnFlags::None,
                     NodeRef,
@@ -442,7 +401,7 @@ namespace MphRead::Entities::Enemies
                 if (_effectEntry)
                 {
                     const Vector3 wristPos
-                        = ArrayAt(_wristPos, _wristId);
+                        = ManagedAt(_wristPos, _wristId);
                     const Matrix4 transform
                         = ClearScale(static_cast<Matrix4>(Transform));
                     _effectEntry->Transform(wristPos, transform);
@@ -459,7 +418,7 @@ namespace MphRead::Entities::Enemies
         Matrix4 transform = GetTransformMatrix(
             Vector3(1.0F, 0.0F, 0.0F),
             Vector3(0.0F, 1.0F, 0.0F));
-        SetTranslation(transform, ArrayAt(_wristPos, _wristId));
+        SetTranslation(transform, ManagedAt(_wristPos, _wristId));
 
         const std::int32_t effectId
             = RequireReference(_spawner).Data.Fields.S06().EnemySubtype == 1U

@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::ShiftLeft;
 using ::MphRead::NativeRuntime::ShiftRight;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -58,24 +59,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& At(
-        const std::shared_ptr<const std::vector<T>>& values,
-        std::int32_t index)
-    {
-        const auto& list = Require(values);
-        return list.at(static_cast<std::size_t>(index));
-    }
-
-    template <typename T>
-    [[nodiscard]] T& At(
-        const std::shared_ptr<std::vector<T>>& values,
-        std::int32_t index)
-    {
-        auto& list = Require(values);
-        return list.at(static_cast<std::size_t>(index));
     }
 
     [[nodiscard]] Matrix4 Identity() noexcept
@@ -381,10 +364,10 @@ namespace MphRead
             Require(info.Texcoord).Slot = 0;
             Require(info.Node).Slot = 0;
 
-            Require(info.Material).Group = At(groups.Material, index);
-            Require(info.Texture).Group = At(groups.Texture, index);
-            Require(info.Texcoord).Group = At(groups.Texcoord, index);
-            Require(info.Node).Group = At(groups.Node, index);
+            Require(info.Material).Group = ManagedAt(groups.Material, index);
+            Require(info.Texture).Group = ManagedAt(groups.Texture, index);
+            Require(info.Texcoord).Group = ManagedAt(groups.Texcoord, index);
+            Require(info.Node).Group = ManagedAt(groups.Node, index);
 
             if (Require(Require(info.Node).Group).Count > 0)
             {
@@ -437,7 +420,7 @@ namespace MphRead
             if (TypeExtensions::TestFlag(setFlags, SetFlags::Material))
             {
                 Require(info.Material).Slot = slot;
-                Require(info.Material).Group = At(groups.Material, index);
+                Require(info.Material).Group = ManagedAt(groups.Material, index);
                 if (Require(Require(info.Material).Group).Count > 0)
                 {
                     (*info.FrameCount)[slotIndex]
@@ -447,7 +430,7 @@ namespace MphRead
             if (TypeExtensions::TestFlag(setFlags, SetFlags::Texcoord))
             {
                 Require(info.Texcoord).Slot = slot;
-                Require(info.Texcoord).Group = At(groups.Texcoord, index);
+                Require(info.Texcoord).Group = ManagedAt(groups.Texcoord, index);
                 if (Require(Require(info.Texcoord).Group).Count > 0)
                 {
                     (*info.FrameCount)[slotIndex]
@@ -457,7 +440,7 @@ namespace MphRead
             if (TypeExtensions::TestFlag(setFlags, SetFlags::Texture))
             {
                 Require(info.Texture).Slot = slot;
-                Require(info.Texture).Group = At(groups.Texture, index);
+                Require(info.Texture).Group = ManagedAt(groups.Texture, index);
                 if (Require(Require(info.Texture).Group).Count > 0)
                 {
                     (*info.FrameCount)[slotIndex]
@@ -467,7 +450,7 @@ namespace MphRead
             if (TypeExtensions::TestFlag(setFlags, SetFlags::Node))
             {
                 Require(info.Node).Slot = slot;
-                Require(info.Node).Group = At(groups.Node, index);
+                Require(info.Node).Group = ManagedAt(groups.Node, index);
                 if (Require(Require(info.Node).Group).Count > 0)
                 {
                     (*info.FrameCount)[slotIndex]
@@ -1155,11 +1138,11 @@ namespace MphRead
                         + static_cast<std::int32_t>(animation.Count);
                     for (std::int32_t j = animation.StartIndex; j < end; ++j)
                     {
-                        if (At(group->FrameIndices, j)
+                        if (ManagedAt(group->FrameIndices, j)
                             == animationInfo.TextureFrame())
                         {
-                            material.CurrentTextureId = At(group->TextureIds, j);
-                            material.CurrentPaletteId = At(group->PaletteIds, j);
+                            material.CurrentTextureId = ManagedAt(group->TextureIds, j);
+                            material.CurrentPaletteId = ManagedAt(group->PaletteIds, j);
                             break;
                         }
                     }
@@ -1179,11 +1162,11 @@ namespace MphRead
     {
         if (lutLength == 1)
         {
-            return At(values, start);
+            return ManagedAt(values, start);
         }
         if (blend == 1)
         {
-            return At(values, UncheckedAdd(start, frame));
+            return ManagedAt(values, UncheckedAdd(start, frame));
         }
 
         const std::int32_t shift = ShiftRight(blend, 1);
@@ -1195,7 +1178,7 @@ namespace MphRead
             const std::int32_t tail = UncheckedSubtract(
                 UncheckedSubtract(frameCount, limit),
                 UncheckedSubtract(frame, limit));
-            return At(
+            return ManagedAt(
                 values,
                 UncheckedSubtract(UncheckedAdd(start, lutLength), tail));
         }
@@ -1214,11 +1197,11 @@ namespace MphRead
         const std::int32_t remainder = frame % blend;
         if (remainder == 0)
         {
-            return At(values, UncheckedAdd(start, index));
+            return ManagedAt(values, UncheckedAdd(start, index));
         }
 
-        float first = At(values, UncheckedAdd(start, index));
-        float second = At(values, UncheckedAdd(UncheckedAdd(start, index), 1));
+        float first = ManagedAt(values, UncheckedAdd(start, index));
+        float second = ManagedAt(values, UncheckedAdd(UncheckedAdd(start, index), 1));
         if (isRotation)
         {
             if (first - second > std::numbers::pi_v<float>)
@@ -1351,7 +1334,7 @@ namespace MphRead
 
         std::vector<ColorRgba> pixels;
         const TextureFormat textureFormat
-            = At(recolor.Textures, textureId).Format;
+            = ManagedAt(recolor.Textures, textureId).Format;
 
         if (textureFormat == TextureFormat::DirectRgb)
         {
@@ -1454,7 +1437,7 @@ namespace MphRead
         }
 
         std::vector<ColorRgba> pixels;
-        const TextureFormat textureFormat = At(Textures, textureId).Format;
+        const TextureFormat textureFormat = ManagedAt(Textures, textureId).Format;
 
         if (textureFormat == TextureFormat::DirectRgb)
         {

@@ -19,6 +19,8 @@
 #include <stdexcept>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Add;
@@ -50,28 +52,6 @@ namespace
         if (index < 0 || static_cast<std::size_t>(index) >= values.size())
         {
             throw System::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedListAt(
-        std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw System::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T, std::size_t Size>
-    [[nodiscard]] T& ManagedArrayAt(
-        std::array<T, Size>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= Size)
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
     }
@@ -509,7 +489,7 @@ namespace MphRead::Entities
         auto entCol = std::make_shared<MphRead::Formats::Collision::EntityCollision>(
             collision, this);
         SetCollisionMaxAvg(*entCol);
-        ManagedArrayAt(EntityCollision, slot) = entCol;
+        ManagedAt(EntityCollision, slot) = entCol;
         _drawColUpdated = false;
         UpdateCollisionTransform(slot, ClearScale(Transform));
         UpdateLinkedInverse(slot);
@@ -568,7 +548,7 @@ namespace MphRead::Entities
     void EntityBase::UpdateCollisionTransform(std::int32_t slot, Matrix4 transform)
     {
         std::shared_ptr<MphRead::Formats::Collision::EntityCollision>& entCol
-            = ManagedArrayAt(EntityCollision, slot);
+            = ManagedAt(EntityCollision, slot);
         if (entCol != nullptr)
         {
             entCol->Transform = transform;
@@ -581,7 +561,7 @@ namespace MphRead::Entities
     void EntityBase::UpdateLinkedInverse(std::int32_t slot)
     {
         std::shared_ptr<MphRead::Formats::Collision::EntityCollision>& entCol
-            = ManagedArrayAt(EntityCollision, slot);
+            = ManagedAt(EntityCollision, slot);
         if (entCol != nullptr)
         {
             entCol->Inverse2 = Inverted(entCol->Transform);

@@ -24,6 +24,8 @@
 #include <type_traits>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -32,56 +34,6 @@ using ::MphRead::TestFlag;
 
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& ManagedAt(MphRead::ManagedArray<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedAt(const MphRead::ManagedArray<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.Length())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(const TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedListAt(const TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::Memory::Detail::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
     [[nodiscard]] std::int32_t UnboxInt32(const MphRead::MessageObject& value)
     {
         if (!value || !value->has_value())
@@ -131,6 +83,7 @@ namespace
     }
 
 }
+
 
 namespace MphRead::Entities
 {

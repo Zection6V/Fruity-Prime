@@ -35,6 +35,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateScale;
@@ -65,53 +66,6 @@ namespace
     [[nodiscard]] Model& RequireModel(ModelInstance& instance)
     {
         return RequireReference(instance.Model());
-    }
-
-    template <typename T, std::size_t Size>
-    [[nodiscard]] T& ManagedAt(std::array<T, Size>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= Size)
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T, std::size_t Size>
-    [[nodiscard]] const T& ManagedAt(const std::array<T, Size>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= Size)
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedAt(std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedAt(const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw MphRead::SceneDetail::IndexOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedAt(
-        const std::shared_ptr<const std::vector<T>>& values, std::int32_t index)
-    {
-        return ManagedAt(RequireReference(values), index);
     }
 
     [[nodiscard]] std::vector<float> CopyManagedArray(const MphRead::ManagedArray<float>& values)

@@ -1,10 +1,10 @@
 #include "Memory.hpp"
 
-#include "Formats/Types.hpp"
 #include "MemoryArrays.hpp"
 #include "MemoryClasses.hpp"
 #include "Program.hpp"
 #include "Scene.hpp"
+#include "Formats/Types.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -48,6 +48,7 @@
 #endif
 #endif
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
@@ -106,30 +107,6 @@ namespace
         {
         }
     };
-
-    template <typename T>
-    [[nodiscard]] T& ManagedArrayAt(
-        MphRead::ManagedArray<T>& array, std::int32_t index)
-    {
-        if (index < 0
-            || static_cast<std::size_t>(index) >= array.Length())
-        {
-            throw IndexOutOfRangeException();
-        }
-        return array[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ManagedArrayAt(
-        const MphRead::ManagedArray<T>& array, std::int32_t index)
-    {
-        if (index < 0
-            || static_cast<std::size_t>(index) >= array.Length())
-        {
-            throw IndexOutOfRangeException();
-        }
-        return array[static_cast<std::size_t>(index)];
-    }
 
     template <typename T>
     [[nodiscard]] T& VectorArrayAt(std::vector<T>& array, std::int32_t index)
@@ -1711,7 +1688,7 @@ namespace MphRead::Memory
         {
             const std::shared_ptr<AIAggro> item = list->Item(i);
             RequireReference(item).UpdateSlots(_players);
-            ManagedArrayAt(*_aggroItems, i) = item;
+            ManagedAt(*_aggroItems, i) = item;
         }
 
         static_cast<void>(5);
@@ -1934,12 +1911,12 @@ namespace MphRead::Memory
         {
             const std::int32_t destinationIndex = UncheckedAdd(offset, i);
             std::uint8_t& destination
-                = ManagedArrayAt(*_buffer, destinationIndex);
+                = ManagedAt(*_buffer, destinationIndex);
             if (!value)
             {
                 throw System::NullReferenceException();
             }
-            destination = ManagedArrayAt(*value, i);
+            destination = ManagedAt(*value, i);
         }
     }
 

@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -42,28 +43,6 @@ namespace MphRead::Entities::Enemies
             Enemy41Entity* typedSpawner = dynamic_cast<Enemy41Entity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] T& ManagedArrayAt(
-            const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
-        {
-            ManagedArray<T>& array = RequireReference(values);
-            if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return array[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] std::int32_t DivideInt32(
@@ -102,7 +81,7 @@ namespace MphRead::Entities::Enemies
     {
         const Enemy41Entity& slench = RequireReference(_slench);
         const std::int32_t index = UncheckedMultiply(slench.Subtype(), 3);
-        return VectorAt(Metadata::Enemy44Values, index);
+        return ManagedAt(Metadata::Enemy44Values, index);
     }
 
     Enemy44Values Enemy44Entity::GetPhaseValues() const
@@ -110,7 +89,7 @@ namespace MphRead::Entities::Enemies
         const Enemy41Entity& slench = RequireReference(_slench);
         const std::int32_t baseIndex = UncheckedMultiply(slench.Subtype(), 3);
         const std::int32_t index = UncheckedAdd(baseIndex, slench.Phase());
-        return VectorAt(Metadata::Enemy44Values, index);
+        return ManagedAt(Metadata::Enemy44Values, index);
     }
 
     void Enemy44Entity::EnemyInitialize()
@@ -156,7 +135,7 @@ namespace MphRead::Entities::Enemies
 
         const std::int32_t effectivenessIndex = slench.Subtype();
         const std::int32_t effectiveness
-            = VectorAt(Metadata::SlenchSynapseEffectiveness, effectivenessIndex);
+            = ManagedAt(Metadata::SlenchSynapseEffectiveness, effectivenessIndex);
         Metadata::LoadEffectiveness(effectiveness, BeamEffectiveness);
 
         ChangeState(SynapseState::Initial);
@@ -245,7 +224,7 @@ namespace MphRead::Entities::Enemies
             ModelInstance& model = RequireReference(_model);
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
             if (TypeExtensions::TestFlag(
-                ManagedArrayAt(animInfo.Flags, 0), AnimFlags::Ended))
+                ManagedAt(animInfo.Flags, 0), AnimFlags::Ended))
             {
                 SetTurretActive(true);
                 ChangeState(SynapseState::Idle);
@@ -272,7 +251,7 @@ namespace MphRead::Entities::Enemies
             ModelInstance& model = RequireReference(_model);
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
             if (TypeExtensions::TestFlag(
-                ManagedArrayAt(animInfo.Flags, 0), AnimFlags::Ended))
+                ManagedAt(animInfo.Flags, 0), AnimFlags::Ended))
             {
                 ChangeState(SynapseState::Idle);
             }
@@ -282,7 +261,7 @@ namespace MphRead::Entities::Enemies
             ModelInstance& model = RequireReference(_model);
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
             if (TypeExtensions::TestFlag(
-                ManagedArrayAt(animInfo.Flags, 0), AnimFlags::Ended))
+                ManagedAt(animInfo.Flags, 0), AnimFlags::Ended))
             {
                 ChangeState(SynapseState::Dead);
             }

@@ -23,7 +23,7 @@
 #include <string>
 #include <utility>
 
-using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::OpenTK::Mathematics::Add;

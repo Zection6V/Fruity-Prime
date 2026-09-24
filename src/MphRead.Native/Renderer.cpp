@@ -60,6 +60,7 @@
 #include "Mods/Network/MapVote.hpp"
 #include "Mods/PauseMenu.hpp"
 #include "Mods/WindowMode.hpp"
+#include "NativeRuntime/System/Managed.hpp"
 #include "Formats/Types.hpp"
 
 #include <algorithm>
@@ -82,6 +83,7 @@
 #include <thread>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateRotationY;
 using ::OpenTK::Mathematics::CreateRotationZ;
@@ -574,20 +576,6 @@ namespace MphRead
             throw System::NullReferenceException();
         }
         return *GameState::StorySave;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ManagedElement(const std::shared_ptr<ManagedArray<T>>& array, std::int32_t index)
-    {
-        if (!array)
-        {
-            throw System::NullReferenceException();
-        }
-        if (index < 0 || static_cast<std::size_t>(index) >= array->Length())
-        {
-            throw SceneDetail::IndexOutOfRangeException();
-        }
-        return (*array)[static_cast<std::size_t>(index)];
     }
 
     using Effects::EffectEntry;
@@ -3730,8 +3718,8 @@ namespace MphRead
             if (enteringShip)
             {
                 RequireStorySave().Health = RequireStorySave().HealthMax;
-                ManagedElement(RequireStorySave().Ammo, 0) = ManagedElement(RequireStorySave().AmmoMax, 0);
-                ManagedElement(RequireStorySave().Ammo, 1) = ManagedElement(RequireStorySave().AmmoMax, 1);
+                ManagedAt(RequireStorySave().Ammo, 0) = ManagedAt(RequireStorySave().AmmoMax, 0);
+                ManagedAt(RequireStorySave().Ammo, 1) = ManagedAt(RequireStorySave().AmmoMax, 1);
             }
         }
         _close();

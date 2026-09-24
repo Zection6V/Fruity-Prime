@@ -36,6 +36,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
@@ -89,54 +91,6 @@ namespace
             NullReference();
         }
         return value.get();
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ListAt(std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw System::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ListAt(const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw System::ArgumentOutOfRangeException();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ArrayAt(const std::vector<T>* values, std::size_t index)
-    {
-        if (values == nullptr)
-        {
-            NullReference();
-        }
-        if (index >= values->size())
-        {
-            ArrayBounds();
-        }
-        return (*values)[index];
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ArrayAt(std::vector<T>* values, std::size_t index)
-    {
-        if (values == nullptr)
-        {
-            NullReference();
-        }
-        if (index >= values->size())
-        {
-            ArrayBounds();
-        }
-        return (*values)[index];
     }
 
     [[nodiscard]] MphRead::Interop::ManagedArray<Vector3>* BuiltPoints(
@@ -724,8 +678,8 @@ namespace MphRead::Mods::MapGen
             Q3Model* model = Require(bsp->Models().front());
             const std::vector<float>* mins = Require(model->Mins());
             const std::vector<float>* maxs = Require(model->Maxs());
-            const float spanX = ArrayAt(maxs, 0) - ArrayAt(mins, 0);
-            const float spanY = ArrayAt(maxs, 1) - ArrayAt(mins, 1);
+            const float spanX = ManagedAt(maxs, 0) - ManagedAt(mins, 0);
+            const float spanY = ManagedAt(maxs, 1) - ManagedAt(mins, 1);
             skySpan = MathMax(spanX, spanY) / unit;
         }
 
@@ -750,7 +704,7 @@ namespace MphRead::Mods::MapGen
                 continue;
             }
 
-            Q3Texture* texture = Require(ListAt(bsp->Textures(), face->Texture()));
+            Q3Texture* texture = Require(ManagedListAt(bsp->Textures(), face->Texture()));
             if ((texture->Flags()
                 & (Q3Bsp::SurfaceNoDraw | Q3Bsp::SurfaceHint | Q3Bsp::SurfaceSkip)) != 0)
             {
@@ -856,8 +810,8 @@ namespace MphRead::Mods::MapGen
             brushIndex < brushEnd;
             brushIndex = UncheckedAdd(brushIndex, 1))
         {
-            Q3Brush* brush = Require(ListAt(bsp->Brushes(), brushIndex));
-            Q3Texture* texture = Require(ListAt(bsp->Textures(), brush->Texture()));
+            Q3Brush* brush = Require(ManagedListAt(bsp->Brushes(), brushIndex));
+            Q3Texture* texture = Require(ManagedListAt(bsp->Textures(), brush->Texture()));
 
             const bool solid = (texture->Contents() & Q3Bsp::ContentsSolid) != 0;
             const bool clip = (texture->Contents() & Q3Bsp::ContentsPlayerClip) != 0;
@@ -914,8 +868,8 @@ namespace MphRead::Mods::MapGen
             for (std::int32_t i = 0; i < brush->SideCount(); ++i)
             {
                 const std::int32_t sideIndex = UncheckedAdd(brush->FirstSide(), i);
-                Q3BrushSide* side = Require(ListAt(bsp->BrushSides(), sideIndex));
-                Q3Plane* plane = Require(ListAt(bsp->Planes(), side->Plane()));
+                Q3BrushSide* side = Require(ManagedListAt(bsp->BrushSides(), sideIndex));
+                Q3Plane* plane = Require(ManagedListAt(bsp->Planes(), side->Plane()));
                 planes[static_cast<std::size_t>(i)] = Vector4(
                     plane->X(), plane->Y(), plane->Z(), plane->Distance());
             }
@@ -1005,13 +959,13 @@ namespace MphRead::Mods::MapGen
                 const std::vector<float>* target = preview->Target();
                 std::cout
                     << "  \"preview\": { \"position\": ["
-                    << FormatOneOptional(ArrayAt(position, 0)) << ", "
-                    << FormatOneOptional(ArrayAt(position, 1)) << ", "
-                    << FormatOneOptional(ArrayAt(position, 2))
+                    << FormatOneOptional(ManagedAt(position, 0)) << ", "
+                    << FormatOneOptional(ManagedAt(position, 1)) << ", "
+                    << FormatOneOptional(ManagedAt(position, 2))
                     << "], \"target\": ["
-                    << FormatOneOptional(ArrayAt(target, 0)) << ", "
-                    << FormatOneOptional(ArrayAt(target, 1)) << ", "
-                    << FormatOneOptional(ArrayAt(target, 2))
+                    << FormatOneOptional(ManagedAt(target, 0)) << ", "
+                    << FormatOneOptional(ManagedAt(target, 1)) << ", "
+                    << FormatOneOptional(ManagedAt(target, 2))
                     << "] },\n";
             }
         }
@@ -1096,19 +1050,19 @@ namespace MphRead::Mods::MapGen
                         const std::int32_t meshIndex = UncheckedAdd(
                             UncheckedAdd(face->MeshVert(), i), j);
                         const std::int32_t vertexOffset
-                            = ListAt(bsp->MeshVerts(), meshIndex);
+                            = ManagedListAt(bsp->MeshVerts(), meshIndex);
                         const std::int32_t vertexIndex
                             = UncheckedAdd(face->Vertex(), vertexOffset);
                         Q3Vertex* vertex
-                            = Require(ListAt(bsp->Vertices(), vertexIndex));
+                            = Require(ManagedListAt(bsp->Vertices(), vertexIndex));
 
                         points[static_cast<std::size_t>(j)]
                             = ToWorld(Require(vertex->Position()), unit);
                         const std::vector<float>* surface
                             = Require(vertex->Surface());
                         uvs[static_cast<std::size_t>(j)] = Vector2(
-                            ArrayAt(surface, 0) * static_cast<float>(width),
-                            ArrayAt(surface, 1) * static_cast<float>(height));
+                            ManagedAt(surface, 0) * static_cast<float>(width),
+                            ManagedAt(surface, 1) * static_cast<float>(height));
 
                         normal = Add(
                             normal,
@@ -1117,9 +1071,9 @@ namespace MphRead::Mods::MapGen
                         const std::vector<std::uint8_t>* color
                             = Require(vertex->Color());
                         const std::int32_t colorSum
-                            = static_cast<std::int32_t>(ArrayAt(color, 0))
-                            + static_cast<std::int32_t>(ArrayAt(color, 1))
-                            + static_cast<std::int32_t>(ArrayAt(color, 2));
+                            = static_cast<std::int32_t>(ManagedAt(color, 0))
+                            + static_cast<std::int32_t>(ManagedAt(color, 1))
+                            + static_cast<std::int32_t>(ManagedAt(color, 2));
                         shade += static_cast<float>(colorSum)
                             / (3.0F * 255.0F);
                     }
@@ -1159,8 +1113,8 @@ namespace MphRead::Mods::MapGen
                 }
 
                 const std::vector<std::int32_t>* size = Require(face->Size());
-                const std::int32_t w = ArrayAt(size, 0);
-                const std::int32_t h = ArrayAt(size, 1);
+                const std::int32_t w = ManagedAt(size, 0);
+                const std::int32_t h = ManagedAt(size, 1);
                 if (w < 3 || h < 3 || w % 2 == 0 || h % 2 == 0)
                 {
                     co_return;
@@ -1222,7 +1176,7 @@ namespace MphRead::Mods::MapGen
                                                 face->Vertex(),
                                                 controlOffset);
                                         Q3Vertex* vertex = Require(
-                                            ListAt(
+                                            ManagedListAt(
                                                 bsp->Vertices(),
                                                 vertexIndex));
 
@@ -1240,9 +1194,9 @@ namespace MphRead::Mods::MapGen
                                             uv,
                                             Multiply(
                                                 Vector2(
-                                                    ArrayAt(surface, 0)
+                                                    ManagedAt(surface, 0)
                                                         * static_cast<float>(width),
-                                                    ArrayAt(surface, 1)
+                                                    ManagedAt(surface, 1)
                                                         * static_cast<float>(height)),
                                                 weight));
 
@@ -1257,11 +1211,11 @@ namespace MphRead::Mods::MapGen
                                             = Require(vertex->Color());
                                         const std::int32_t colorSum
                                             = static_cast<std::int32_t>(
-                                                ArrayAt(color, 0))
+                                                ManagedAt(color, 0))
                                             + static_cast<std::int32_t>(
-                                                ArrayAt(color, 1))
+                                                ManagedAt(color, 1))
                                             + static_cast<std::int32_t>(
-                                                ArrayAt(color, 2));
+                                                ManagedAt(color, 2));
                                         shade += (
                                             static_cast<float>(colorSum)
                                             / (3.0F * 255.0F))
@@ -1365,19 +1319,19 @@ namespace MphRead::Mods::MapGen
         std::int32_t material,
         float shade)
     {
-        const Vector3 point1 = ArrayAt(&points, 1);
-        const Vector3 point0a = ArrayAt(&points, 0);
-        const Vector3 point2 = ArrayAt(&points, 2);
-        const Vector3 point0b = ArrayAt(&points, 0);
+        const Vector3 point1 = ManagedAt(&points, 1);
+        const Vector3 point0a = ManagedAt(&points, 0);
+        const Vector3 point2 = ManagedAt(&points, 2);
+        const Vector3 point0b = ManagedAt(&points, 0);
         const Vector3 wound = Vector3::Cross(
             Subtract(point1, point0a),
             Subtract(point2, point0b));
         if (Vector3::Dot(wound, normal) < 0.0F)
         {
-            (void)ArrayAt(&points, 1);
-            (void)ArrayAt(&points, 2);
-            (void)ArrayAt(&uvs, 1);
-            (void)ArrayAt(&uvs, 2);
+            (void)ManagedAt(&points, 1);
+            (void)ManagedAt(&points, 2);
+            (void)ManagedAt(&uvs, 1);
+            (void)ManagedAt(&uvs, 2);
             std::swap(points[1], points[2]);
             std::swap(uvs[1], uvs[2]);
         }
@@ -1509,9 +1463,9 @@ namespace MphRead::Mods::MapGen
             const std::int32_t sideIndex
                 = UncheckedAdd(brush->FirstSide(), i);
             Q3BrushSide* side
-                = Require(ListAt(bsp->BrushSides(), sideIndex));
+                = Require(ManagedListAt(bsp->BrushSides(), sideIndex));
             Q3Texture* texture
-                = Require(ListAt(bsp->Textures(), side->Texture()));
+                = Require(ManagedListAt(bsp->Textures(), side->Texture()));
             if ((texture->Flags() & Q3Bsp::SurfaceSky) == 0)
             {
                 return false;
@@ -1614,7 +1568,7 @@ namespace MphRead::Mods::MapGen
             NullReference();
         }
         Recolor* recolor
-            = Require(ListAt(*requiredSource->Recolors, 0));
+            = Require(ManagedListAt(*requiredSource->Recolors, 0));
 
         if (!requiredSource->Materials)
         {
@@ -1638,9 +1592,9 @@ namespace MphRead::Mods::MapGen
             MapMaterial* material = Require(materialValue);
             const std::int32_t sourceMaterialId = material->SourceMaterial();
             Material* sourceMaterial = Require(
-                ListAt(*requiredSource->Materials, sourceMaterialId));
+                ManagedListAt(*requiredSource->Materials, sourceMaterialId));
             const Texture& texture
-                = ListAt(*recolor->Textures, sourceMaterial->TextureId);
+                = ManagedListAt(*recolor->Textures, sourceMaterial->TextureId);
             results.emplace_back(
                 static_cast<std::int32_t>(texture.Width),
                 static_cast<std::int32_t>(texture.Height));
@@ -1696,9 +1650,9 @@ namespace MphRead::Mods::MapGen
             const std::int32_t firstIndex
                 = UncheckedAdd(brush->FirstSide(), i);
             Q3BrushSide* firstSide
-                = Require(ListAt(bsp->BrushSides(), firstIndex));
+                = Require(ManagedListAt(bsp->BrushSides(), firstIndex));
             Q3Plane* plane
-                = Require(ListAt(bsp->Planes(), firstSide->Plane()));
+                = Require(ManagedListAt(bsp->Planes(), firstSide->Plane()));
             const Vector3 normal(
                 plane->X(), plane->Y(), plane->Z());
 
@@ -1716,9 +1670,9 @@ namespace MphRead::Mods::MapGen
                 const std::int32_t otherIndex
                     = UncheckedAdd(brush->FirstSide(), j);
                 Q3BrushSide* otherSide
-                    = Require(ListAt(bsp->BrushSides(), otherIndex));
+                    = Require(ManagedListAt(bsp->BrushSides(), otherIndex));
                 Q3Plane* other
-                    = Require(ListAt(bsp->Planes(), otherSide->Plane()));
+                    = Require(ManagedListAt(bsp->Planes(), otherSide->Plane()));
                 points = Clip(
                     points,
                     Vector3(other->X(), other->Y(), other->Z()),
@@ -1847,7 +1801,7 @@ namespace MphRead::Mods::MapGen
                 continue;
             }
 
-            const BrushBounds& bound = ListAt(bounds, index);
+            const BrushBounds& bound = ManagedListAt(bounds, index);
             if (point.X < bound.Min.X - 1.0F
                 || point.X > bound.Max.X + 1.0F
                 || point.Y < bound.Min.Y - 1.0F
@@ -1860,7 +1814,7 @@ namespace MphRead::Mods::MapGen
 
             bool inside = true;
             const std::vector<Vector4>& planes
-                = ListAt(brushes, index);
+                = ManagedListAt(brushes, index);
             for (const Vector4 plane : planes)
             {
                 if (plane.X * point.X
@@ -2079,7 +2033,7 @@ namespace MphRead::Mods::MapGen
                 }
 
                 Q3Model* volume
-                    = Require(ListAt(bsp->Models(), modelIndex));
+                    = Require(ManagedListAt(bsp->Models(), modelIndex));
                 const Vector3 min = ToWorld(
                     Require(volume->Mins()),
                     import->UnitsPerUnit());
@@ -2237,9 +2191,9 @@ namespace MphRead::Mods::MapGen
     Vector3 Q3Import::ToWorld(
         const std::vector<float>* position, float unit)
     {
-        const float x = ArrayAt(position, 0);
-        const float y = ArrayAt(position, 2);
-        const float z = -ArrayAt(position, 1);
+        const float x = ManagedAt(position, 0);
+        const float y = ManagedAt(position, 2);
+        const float z = -ManagedAt(position, 1);
         return Vector3(x / unit, y / unit, z / unit);
     }
 
@@ -2256,9 +2210,9 @@ namespace MphRead::Mods::MapGen
         const std::vector<float>* direction)
     {
         const Vector3 result(
-            ArrayAt(direction, 0),
-            ArrayAt(direction, 2),
-            -ArrayAt(direction, 1));
+            ManagedAt(direction, 0),
+            ManagedAt(direction, 2),
+            -ManagedAt(direction, 1));
         return LengthSquared(result) < 0.0001F
             ? Vector3(0.0F, 1.0F, 0.0F)
             : result.Normalized();

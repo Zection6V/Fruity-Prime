@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::AddX;
 using ::OpenTK::Mathematics::Equal;
@@ -69,26 +70,6 @@ namespace MphRead::Entities::Enemies
                 static_cast<std::uint32_t>(values.MinShots) + random);
         }
 
-        template <typename T>
-        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
     }
 
     const std::array<std::int32_t, 11> Enemy36Entity::_recolors{
@@ -123,7 +104,7 @@ namespace MphRead::Entities::Enemies
 
         const std::int32_t subtype = UInt32ToInt32(
             static_cast<std::uint32_t>(spawner.Data.Fields.S06().EnemySubtype));
-        _values = VectorAt(Metadata::Enemy36Values, subtype);
+        _values = ManagedAt(Metadata::Enemy36Values, subtype);
 
         Vector3 facing = spawner.Data.Header.FacingVector.ToFloatVector().Normalized();
         Vector3 up = FixParallelVectors(facing, Vector3(0.0F, 1.0F, 0.0F));

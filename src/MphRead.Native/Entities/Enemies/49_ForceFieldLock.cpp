@@ -18,6 +18,7 @@
 #include <memory>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::ScaleVector;
 
@@ -44,34 +45,22 @@ namespace MphRead::Entities::Enemies
             return left.X * right.X + left.Y * right.Y + left.Z * right.Z;
         }
 
-        template <typename T>
-        [[nodiscard]] T& ManagedArrayAt(
-            const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
-        {
-            ManagedArray<T>& array = RequireReference(values);
-            if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return array[static_cast<std::size_t>(index)];
-        }
-
         [[nodiscard]] bool AnimationEnded(ModelInstance& model)
         {
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
-            return (ManagedArrayAt(animInfo.Flags, 0) & AnimFlags::Ended) != AnimFlags::None;
+            return (ManagedAt(animInfo.Flags, 0) & AnimFlags::Ended) != AnimFlags::None;
         }
 
         [[nodiscard]] std::int32_t AnimationIndex(ModelInstance& model)
         {
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
-            return ManagedArrayAt(animInfo.Index, 0);
+            return ManagedAt(animInfo.Index, 0);
         }
 
         [[nodiscard]] std::int32_t AnimationFrame(ModelInstance& model)
         {
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
-            return ManagedArrayAt(animInfo.Frame, 0);
+            return ManagedAt(animInfo.Frame, 0);
         }
 
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)

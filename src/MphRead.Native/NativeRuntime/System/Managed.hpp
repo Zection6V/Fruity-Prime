@@ -6,11 +6,15 @@
 
 #include "Exceptions.hpp"
 
+#include <array>
 #include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <memory>
+#include <span>
 #include <string>
 #include <type_traits>
 
@@ -283,5 +287,124 @@ namespace MphRead::NativeRuntime
     {
         // C++20 defines >> on a negative signed value as arithmetic.
         return value >> (std::bit_cast<std::uint32_t>(count) & 31U);
+    }
+
+    // Enum.HasFlag(flag): every bit of flag set. The same test as the C#'s
+    // TestFlag extension (Formats/Types.hpp), under .NET's name.
+    template <typename T>
+    requires std::is_enum_v<T>
+    [[nodiscard]] constexpr bool HasFlag(T value, T flag) noexcept
+    {
+        using U = std::make_unsigned_t<std::underlying_type_t<T>>;
+        const U valueBits = static_cast<U>(value);
+        const U flagBits = static_cast<U>(flag);
+        return (valueBits & flagBits) == flagBits;
+    }
+
+    // array[index] and list[index] from the C#: an index outside the
+    // collection throws, never reads past it. ManagedAt is an array's
+    // IndexOutOfRangeException, ManagedListAt a List<T>'s
+    // ArgumentOutOfRangeException. The collection is anything indexable
+    // with a size (a vector, std::array, span, built-in array, ManagedArray),
+    // or a pointer or shared_ptr to one, which throws NullReferenceException
+    // when null; the index may be any integer type, and a negative one is
+    // out of range. Each file used to carry its own.
+    namespace ManagedAtDetail
+    {
+        template <typename TContainer>
+        [[nodiscard]] constexpr std::size_t Size(const TContainer& values) noexcept
+        {
+            if constexpr (requires { values.Length(); })
+            {
+                return static_cast<std::size_t>(values.Length());
+            }
+            else
+            {
+                return static_cast<std::size_t>(std::size(values));
+            }
+        }
+
+        template <typename TContainer>
+        concept Indexable = !Detail::IsSharedPtr<std::remove_cv_t<TContainer>>::value
+            && !std::is_pointer_v<TContainer>
+            && requires(TContainer& values) {
+                Size(values);
+                values[std::size_t{}];
+            };
+
+        template <std::integral I>
+        [[nodiscard]] constexpr bool InRange(I index, std::size_t size) noexcept
+        {
+            if constexpr (std::is_signed_v<I>)
+            {
+                if (index < 0)
+                {
+                    return false;
+                }
+            }
+            return static_cast<std::make_unsigned_t<I>>(index) < size;
+        }
+
+        template <typename TException, std::integral I>
+        [[nodiscard]] std::size_t Check(I index, std::size_t size)
+        {
+            if (!InRange(index, size))
+            {
+                throw TException();
+            }
+            return static_cast<std::size_t>(index);
+        }
+
+        template <typename T>
+        [[nodiscard]] T& Deref(T* value)
+        {
+            if (value == nullptr)
+            {
+                throw System::NullReferenceException();
+            }
+            return *value;
+        }
+    }
+
+    template <typename TContainer, std::integral I>
+    requires ManagedAtDetail::Indexable<TContainer>
+    [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, I index)
+    {
+        return values[ManagedAtDetail::Check<System::IndexOutOfRangeException>(
+            index, ManagedAtDetail::Size(values))];
+    }
+
+    template <typename TContainer, std::integral I>
+    requires ManagedAtDetail::Indexable<TContainer>
+    [[nodiscard]] decltype(auto) ManagedAt(TContainer* values, I index)
+    {
+        return ManagedAt(ManagedAtDetail::Deref(values), index);
+    }
+
+    template <typename TContainer, std::integral I>
+    [[nodiscard]] decltype(auto) ManagedAt(const std::shared_ptr<TContainer>& values, I index)
+    {
+        return ManagedAt(ManagedAtDetail::Deref(values.get()), index);
+    }
+
+    template <typename TContainer, std::integral I>
+    requires ManagedAtDetail::Indexable<TContainer>
+    [[nodiscard]] decltype(auto) ManagedListAt(TContainer& values, I index)
+    {
+        return values[ManagedAtDetail::Check<System::ArgumentOutOfRangeException>(
+            index, ManagedAtDetail::Size(values))];
+    }
+
+    template <typename TContainer, std::integral I>
+    requires ManagedAtDetail::Indexable<TContainer>
+    [[nodiscard]] decltype(auto) ManagedListAt(TContainer* values, I index)
+    {
+        return ManagedListAt(ManagedAtDetail::Deref(values), index);
+    }
+
+    template <typename TContainer, std::integral I>
+    [[nodiscard]] decltype(auto) ManagedListAt(const std::shared_ptr<TContainer>& values, I index)
+    {
+        return ManagedListAt(ManagedAtDetail::Deref(values.get()), index);
     }
 }

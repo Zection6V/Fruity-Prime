@@ -3,8 +3,8 @@
 #include "Q3Bsp.hpp"
 #include "../../Formats/Enums.hpp"
 #include "../../Formats/Model.hpp"
-#include "../../Formats/Types.hpp"
 #include "../../Read.hpp"
+#include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -20,6 +20,7 @@
 #include <string_view>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 
@@ -30,22 +31,6 @@ namespace
         std::string Name;
         std::int32_t Count;
     };
-
-    [[noreturn]] void ThrowListIndex()
-    {
-        throw System::ArgumentOutOfRangeException();
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ListAt(
-        const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            ThrowListIndex();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
 
     [[nodiscard]] std::size_t ManagedStringLength(std::string_view text) noexcept
     {
@@ -198,7 +183,7 @@ namespace MphRead::Mods::MapGen
             }
 
             const std::shared_ptr<Q3Texture>& textureRef
-                = ListAt(bsp->Textures(), face.Texture());
+                = ManagedAt(bsp->Textures(), face.Texture());
             const Q3Texture& texture = RequireReference(textureRef);
             if ((texture.Flags() & (Q3Bsp::SurfaceNoDraw | Q3Bsp::SurfaceSky
                 | Q3Bsp::SurfaceHint | Q3Bsp::SurfaceSkip)) != 0)
@@ -292,7 +277,7 @@ namespace MphRead::Mods::MapGen
         }
 
         const std::shared_ptr<Recolor>& recolor
-            = ListAt(*model->Recolors, 0);
+            = ManagedAt(*model->Recolors, 0);
 
         if (!model->Materials)
         {
@@ -324,7 +309,7 @@ namespace MphRead::Mods::MapGen
             i < static_cast<std::int32_t>(model->Materials->size()); ++i)
         {
             const std::shared_ptr<Material>& materialRef
-                = ListAt(*model->Materials, i);
+                = ManagedAt(*model->Materials, i);
             const Material& material = RequireReference(materialRef);
 
             std::string size = "no texture";
@@ -334,7 +319,7 @@ namespace MphRead::Mods::MapGen
                     < static_cast<std::int32_t>(recolor->Textures->size()))
             {
                 const Texture& texture
-                    = ListAt(*recolor->Textures, material.TextureId);
+                    = ManagedAt(*recolor->Textures, material.TextureId);
                 size = FormatInt32(static_cast<std::int32_t>(texture.Width));
                 size += 'x';
                 size += FormatInt32(static_cast<std::int32_t>(texture.Height));

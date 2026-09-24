@@ -15,6 +15,7 @@
 #include <memory>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
@@ -36,17 +37,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::InvalidCastException();
             }
             return *cast;
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& ManagedListAt(
-            const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw Memory::Detail::ArgumentOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] PlayerEntity& MainPlayer()

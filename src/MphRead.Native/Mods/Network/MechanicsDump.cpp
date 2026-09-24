@@ -6,6 +6,7 @@
 #include "../../Metadata/Player.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -19,7 +20,7 @@
 #include <system_error>
 #include <type_traits>
 
-using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::HasFlag;
 
 namespace MphRead::Mods::Network
 {

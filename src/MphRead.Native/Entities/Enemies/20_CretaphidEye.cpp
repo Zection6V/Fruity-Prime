@@ -23,6 +23,7 @@
 #include <type_traits>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateRotationX;
@@ -51,30 +52,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        template <typename T>
-        [[nodiscard]] T& ManagedAt(
-            const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
-        {
-            ManagedArray<T>& array = RequireReference(values);
-            if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return array[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& ManagedAt(
-            const std::shared_ptr<const ManagedArray<T>>& values, std::int32_t index)
-        {
-            const ManagedArray<T>& array = RequireReference(values);
-            if (index < 0 || static_cast<std::size_t>(index) >= array.Length())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return array[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] bool AnimationEnded(ModelInstance& model)

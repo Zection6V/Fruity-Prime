@@ -8,6 +8,7 @@
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <csignal>
@@ -20,9 +21,12 @@
 #include <intrin.h>
 #endif
 
+using ::MphRead::NativeRuntime::HasFlag;
+
 namespace
 {
 }
+
 
 namespace MphRead::Entities
 {

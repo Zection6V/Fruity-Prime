@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedDecrement;
@@ -73,46 +74,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        template <typename T, std::size_t N>
-        [[nodiscard]] T& ArrayAt(std::array<T, N>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= N)
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T, std::size_t N>
-        [[nodiscard]] const T& ArrayAt(const std::array<T, N>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= N)
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(const std::vector<T>& values, std::int32_t index)
-        {
-            if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return values[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
@@ -587,7 +548,7 @@ namespace MphRead::Entities::Enemies
             {
                 arm->Index = i;
                 RequireReference(_scene).AddEntity(arm);
-                ArrayAt(_arms, i) = std::move(arm);
+                ManagedAt(_arms, i) = std::move(arm);
                 _armBits |= 1 << i;
             }
         }
@@ -604,7 +565,7 @@ namespace MphRead::Entities::Enemies
             {
                 leg->Index = i;
                 RequireReference(_scene).AddEntity(leg);
-                ArrayAt(_legs, i) = std::move(leg);
+                ManagedAt(_legs, i) = std::move(leg);
             }
         }
     }
@@ -623,7 +584,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy24Entity::Activate()
     {
-        _scanId = VectorAt(Metadata::EnemyScanIds,
+        _scanId = ManagedAt(Metadata::EnemyScanIds,
             static_cast<std::int32_t>(EnemyType()));
         Flags |= EnemyFlags::Visible;
         Flags |= EnemyFlags::CollidePlayer;
@@ -640,14 +601,14 @@ namespace MphRead::Entities::Enemies
         for (std::int32_t i = 0; i < 2; ++i)
         {
             _armBits |= 1 << i;
-            RequireReference(ArrayAt(_arms, i)).Activate();
+            RequireReference(ManagedAt(_arms, i)).Activate();
         }
         _speed = Vector3::Zero;
         RequireReference(_model).SetAnimation(0, 0, _animSetNoMat, AnimFlags::NoLoop);
         _soundSource.PlaySfx(SfxId::GOREA_REGEN_ARM_SCR);
         for (std::int32_t i = 0; i < 3; ++i)
         {
-            Enemy27Entity& leg = RequireReference(ArrayAt(_legs, i));
+            Enemy27Entity& leg = RequireReference(ManagedAt(_legs, i));
             leg.Flags |= EnemyFlags::CollidePlayer;
             leg.Flags |= EnemyFlags::CollideBeam;
             leg.Flags |= EnemyFlags::NoHomingNc;
@@ -667,20 +628,20 @@ namespace MphRead::Entities::Enemies
         {
             _weaponIndex = 0;
         }
-        _colors = &VectorAt(Metadata::Enemy24Colors, _weaponIndex);
+        _colors = &ManagedAt(Metadata::Enemy24Colors, _weaponIndex);
         if (MainPlayer().Health() > 0)
         {
-            Music::PlayMusic(ArrayAt(_musicTracks, _weaponIndex));
+            Music::PlayMusic(ManagedAt(_musicTracks, _weaponIndex));
         }
         const Weapons::WeaponList& goreaWeapons
             = RequireReference(Weapons::GoreaWeapons);
         const std::shared_ptr<WeaponInfo> weapon
-            = VectorAt(goreaWeapons, _weaponIndex);
+            = ManagedAt(goreaWeapons, _weaponIndex);
         const std::int32_t effectiveness
-            = VectorAt(Metadata::GoreaEffectiveness, _weaponIndex);
+            = ManagedAt(Metadata::GoreaEffectiveness, _weaponIndex);
         for (std::int32_t i = 0; i < 2; ++i)
         {
-            Enemy26Entity& arm = RequireReference(ArrayAt(_arms, i));
+            Enemy26Entity& arm = RequireReference(ManagedAt(_arms, i));
             arm.UpdateWeapon(weapon);
             Metadata::LoadEffectiveness(effectiveness, arm.BeamEffectiveness);
         }
@@ -697,9 +658,9 @@ namespace MphRead::Entities::Enemies
         }
         if (_field23E >= 0
             && (TypeExtensions::TestFlag(
-                    RequireReference(ArrayAt(_arms, 0)).ArmFlags, GoreaArmFlags::Bit0)
+                    RequireReference(ManagedAt(_arms, 0)).ArmFlags, GoreaArmFlags::Bit0)
                 || TypeExtensions::TestFlag(
-                    RequireReference(ArrayAt(_arms, 1)).ArmFlags, GoreaArmFlags::Bit0)))
+                    RequireReference(ManagedAt(_arms, 1)).ArmFlags, GoreaArmFlags::Bit0)))
         {
             --_field23E;
         }
@@ -745,26 +706,26 @@ namespace MphRead::Entities::Enemies
             {
                 const std::int32_t nameIndex = i * 6 + j;
                 std::shared_ptr<Material> material = modelData.GetMaterialByName(
-                    std::string(ArrayAt(_armMatNames, nameIndex)));
-                const ColorRgb ambient = VectorAt(RequireReference(_colors), 0);
-                const ColorRgb diffuse = VectorAt(RequireReference(_colors), 1);
+                    std::string(ManagedAt(_armMatNames, nameIndex)));
+                const ColorRgb ambient = ManagedAt(RequireReference(_colors), 0);
+                const ColorRgb diffuse = ManagedAt(RequireReference(_colors), 1);
                 IncrementMaterialColors(material.get(), ambient, diffuse, frame, frameCount);
             }
         }
         for (std::int32_t i = 0; i < 10; ++i)
         {
             std::shared_ptr<Material> material = modelData.GetMaterialByName(
-                std::string(ArrayAt(_bodyMatNames1, i)));
-            const ColorRgb ambient = VectorAt(RequireReference(_colors), 2);
-            const ColorRgb diffuse = VectorAt(RequireReference(_colors), 3);
+                std::string(ManagedAt(_bodyMatNames1, i)));
+            const ColorRgb ambient = ManagedAt(RequireReference(_colors), 2);
+            const ColorRgb diffuse = ManagedAt(RequireReference(_colors), 3);
             IncrementMaterialColors(material.get(), ambient, diffuse, frame, frameCount);
         }
         for (std::int32_t i = 0; i < 2; ++i)
         {
             std::shared_ptr<Material> material = modelData.GetMaterialByName(
-                std::string(ArrayAt(_bodyMatNames2, i)));
-            const ColorRgb ambient = VectorAt(RequireReference(_colors), 0);
-            const ColorRgb diffuse = VectorAt(RequireReference(_colors), 1);
+                std::string(ManagedAt(_bodyMatNames2, i)));
+            const ColorRgb ambient = ManagedAt(RequireReference(_colors), 0);
+            const ColorRgb diffuse = ManagedAt(RequireReference(_colors), 1);
             IncrementMaterialColors(material.get(), ambient, diffuse, frame, frameCount);
         }
     }
@@ -772,7 +733,7 @@ namespace MphRead::Entities::Enemies
     void Enemy24Entity::CheckPlayerCollision()
     {
         PlayerEntity& player = MainPlayer();
-        if (!ArrayAt(HitPlayers, player.SlotIndex()))
+        if (!ManagedAt(HitPlayers, player.SlotIndex()))
         {
             return;
         }
@@ -791,7 +752,7 @@ namespace MphRead::Entities::Enemies
         {
             for (std::int32_t i = 0; i < 2; ++i)
             {
-                RequireReference(ArrayAt(_arms, i)).Flags |= EnemyFlags::Invincible;
+                RequireReference(ManagedAt(_arms, i)).Flags |= EnemyFlags::Invincible;
             }
             _goreaFlags &= ~Gorea1AFlags::Bit2;
             RequireReference(_model).SetAnimation(0, 0, _animSetNoMat, AnimFlags::NoLoop);
@@ -820,7 +781,7 @@ namespace MphRead::Entities::Enemies
         {
             for (std::int32_t i = 0; i < 2; ++i)
             {
-                RequireReference(ArrayAt(_arms, i)).Flags &= ~EnemyFlags::Invincible;
+                RequireReference(ManagedAt(_arms, i)).Flags &= ~EnemyFlags::Invincible;
             }
             _field240 = static_cast<std::int32_t>(Rng::GetRandomInt2(90) + 150U) * 2;
         }
@@ -857,7 +818,7 @@ namespace MphRead::Entities::Enemies
         for (std::int32_t i = index * 6; i < end; ++i)
         {
             RequireReference(model.GetMaterialByName(
-                std::string(ArrayAt(_armMatNames, i)))).Alpha = alpha;
+                std::string(ManagedAt(_armMatNames, i)))).Alpha = alpha;
         }
     }
 
@@ -922,7 +883,7 @@ namespace MphRead::Entities::Enemies
     {
         for (std::int32_t i = 0; i < 2; ++i)
         {
-            const std::shared_ptr<Enemy26Entity>& arm = ArrayAt(_arms, i);
+            const std::shared_ptr<Enemy26Entity>& arm = ManagedAt(_arms, i);
             if (CheckTargeting(arm.get()))
             {
                 Vector3 spawnPos;
@@ -933,11 +894,11 @@ namespace MphRead::Entities::Enemies
                 (void)BeamProjectileEntity::Spawn(
                     arm, armRef.EquipInfo(), spawnPos, spawnDir,
                     BeamSpawnFlags::None, armRef.NodeRef, _scene);
-                const std::int32_t shotEffect = ArrayAt(_shotEffects, WeaponIndex());
+                const std::int32_t shotEffect = ManagedAt(_shotEffects, WeaponIndex());
                 CreateShotEffectLoose(arm.get(), shotEffect);
-                const BeamType stopBeam = ArrayAt(_beamTypes, WeaponIndex());
+                const BeamType stopBeam = ManagedAt(_beamTypes, WeaponIndex());
                 StopBeamChargeSfx(stopBeam);
-                const BeamType shotBeam = ArrayAt(_beamTypes, WeaponIndex());
+                const BeamType shotBeam = ManagedAt(_beamTypes, WeaponIndex());
                 const bool charged
                     = TypeExtensions::TestFlag(armRef.ArmFlags, GoreaArmFlags::Bit2);
                 PlayBeamShotSfx(shotBeam, charged);
@@ -1042,13 +1003,13 @@ namespace MphRead::Entities::Enemies
         {
             const std::shared_ptr<std::vector<std::vector<std::int32_t>>> hunterSfx
                 = Metadata::HunterSfx();
-            return VectorAt(VectorAt(RequireReference(hunterSfx), 0),
+            return ManagedAt(ManagedAt(RequireReference(hunterSfx), 0),
                 static_cast<std::int32_t>(HunterSfx::MissileCharge));
         }
         const std::shared_ptr<std::vector<std::vector<std::int32_t>>> beamSfx
             = Metadata::BeamSfx();
-        return VectorAt(
-            VectorAt(RequireReference(beamSfx), static_cast<std::int32_t>(beam)),
+        return ManagedAt(
+            ManagedAt(RequireReference(beamSfx), static_cast<std::int32_t>(beam)),
             static_cast<std::int32_t>(BeamSfx::Charge));
     }
 
@@ -1076,7 +1037,7 @@ namespace MphRead::Entities::Enemies
         BeamSfx sfx;
         if (charged)
         {
-            sfx = beam == VectorAt(Weapons::AffinityWeapons, 0)
+            sfx = beam == ManagedAt(Weapons::AffinityWeapons, 0)
                 ? BeamSfx::AffinityChargeShot
                 : BeamSfx::ChargeShot;
         }
@@ -1086,8 +1047,8 @@ namespace MphRead::Entities::Enemies
         }
         const std::shared_ptr<std::vector<std::vector<std::int32_t>>> beamSfx
             = Metadata::BeamSfx();
-        const std::int32_t id = VectorAt(
-            VectorAt(RequireReference(beamSfx), static_cast<std::int32_t>(beam)),
+        const std::int32_t id = ManagedAt(
+            ManagedAt(RequireReference(beamSfx), static_cast<std::int32_t>(beam)),
             static_cast<std::int32_t>(sfx));
         if (id != -1 && (_weaponIndex != 5 || _soundSource.CountSourcePlayingSfx(id) == 0))
         {
@@ -1220,7 +1181,7 @@ namespace MphRead::Entities::Enemies
             head.Flags |= EnemyFlags::NoHomingCo;
             for (std::int32_t i = 0; i < 2; ++i)
             {
-                Enemy26Entity& arm = RequireReference(ArrayAt(_arms, i));
+                Enemy26Entity& arm = RequireReference(ManagedAt(_arms, i));
                 arm.Flags &= ~EnemyFlags::Visible;
                 arm.Flags &= ~EnemyFlags::CollidePlayer;
                 arm.Flags &= ~EnemyFlags::CollideBeam;
@@ -1232,7 +1193,7 @@ namespace MphRead::Entities::Enemies
             gorea1B.Activate();
             for (std::int32_t i = 0; i < 3; ++i)
             {
-                RequireReference(ArrayAt(_legs, i)).SetKneeNode(&gorea1B);
+                RequireReference(ManagedAt(_legs, i)).SetKneeNode(&gorea1B);
             }
         }
         (void)CallSubroutine<Enemy24Entity>(Metadata::Enemy24Subroutines, this);
@@ -1278,7 +1239,7 @@ namespace MphRead::Entities::Enemies
         std::int32_t index = 0;
         while ((_armBits & (1 << index)) == 0
             || !TypeExtensions::TestFlag(
-                RequireReference(ArrayAt(_arms, index)).ArmFlags, GoreaArmFlags::Bit0))
+                RequireReference(ManagedAt(_arms, index)).ArmFlags, GoreaArmFlags::Bit0))
         {
             if (++index >= 2)
             {
@@ -1298,7 +1259,7 @@ namespace MphRead::Entities::Enemies
         }
         _speed = Vector3::Zero;
         SetArmMaterialAlpha(index, 0);
-        const Vector3 spawnPos = RequireReference(ArrayAt(_arms, index)).Position;
+        const Vector3 spawnPos = RequireReference(ManagedAt(_arms, index)).Position;
         SpawnEffect(45, spawnPos);
         StopShots(index, false);
         if (_armBits != 0)
@@ -1315,8 +1276,8 @@ namespace MphRead::Entities::Enemies
 
     void Enemy24Entity::StopShots(std::int32_t index, bool detach)
     {
-        RequireReference(ArrayAt(_arms, index)).StopShotEffect(detach);
-        StopBeamChargeSfx(ArrayAt(_beamTypes, WeaponIndex()));
+        RequireReference(ManagedAt(_arms, index)).StopShotEffect(detach);
+        StopBeamChargeSfx(ManagedAt(_beamTypes, WeaponIndex()));
     }
 
     bool Enemy24Entity::Behavior05()
@@ -1330,15 +1291,15 @@ namespace MphRead::Entities::Enemies
             const Weapons::WeaponList& goreaWeapons
                 = RequireReference(Weapons::GoreaWeapons);
             const std::uint16_t charge
-                = RequireReference(VectorAt(goreaWeapons, WeaponIndex())).FullCharge;
+                = RequireReference(ManagedAt(goreaWeapons, WeaponIndex())).FullCharge;
             for (std::int32_t i = 0; i < 2; ++i)
             {
-                Enemy26Entity& arm = RequireReference(ArrayAt(_arms, i));
+                Enemy26Entity& arm = RequireReference(ManagedAt(_arms, i));
                 RequireReference(arm.EquipInfo()).ChargeLevel
                     = IntToUInt16Unchecked(static_cast<std::int32_t>(charge) * 2);
                 arm.ArmFlags |= GoreaArmFlags::Bit1;
             }
-            model.SetAnimation(ArrayAt(_weaponAnimIds, WeaponIndex()), 0, _animSetNoMat);
+            model.SetAnimation(ManagedAt(_weaponAnimIds, WeaponIndex()), 0, _animSetNoMat);
             return true;
         }
         return false;
@@ -1356,7 +1317,7 @@ namespace MphRead::Entities::Enemies
                 | SetFlags::Unused | SetFlags::Node | SetFlags::Material;
             const std::vector<std::shared_ptr<ModelInstance>>& models
                 = RequireReference(_gorea1B).GetModels();
-            ModelInstance& goreaModel = RequireReference(VectorAt(models, 0));
+            ModelInstance& goreaModel = RequireReference(ManagedAt(models, 0));
             goreaModel.SetAnimation(anim, 0, setFlags, AnimFlags::NoLoop);
             UpdateAnimFrames(goreaModel);
             (*goreaModel.AnimInfo->Frame)[0] = 5;
@@ -1407,13 +1368,13 @@ namespace MphRead::Entities::Enemies
     void Enemy24Entity::StopAndSetUp()
     {
         _goreaFlags &= ~Gorea1AFlags::Bit4;
-        const std::shared_ptr<Enemy26Entity>& armL = ArrayAt(_arms, 0);
-        const std::shared_ptr<Enemy26Entity>& armR = ArrayAt(_arms, 1);
+        const std::shared_ptr<Enemy26Entity>& armL = ManagedAt(_arms, 0);
+        const std::shared_ptr<Enemy26Entity>& armR = ManagedAt(_arms, 1);
         RequireReference(RequireReference(armL).EquipInfo()).ChargeLevel = 0;
         RequireReference(RequireReference(armR).EquipInfo()).ChargeLevel = 0;
         const Weapons::WeaponList& goreaWeapons
             = RequireReference(Weapons::GoreaWeapons);
-        const std::shared_ptr<WeaponInfo> weapon = VectorAt(goreaWeapons, WeaponIndex());
+        const std::shared_ptr<WeaponInfo> weapon = ManagedAt(goreaWeapons, WeaponIndex());
         WeaponInfo& weaponRef = RequireReference(weapon);
         RequireReference(armL).Cooldown = UncheckedMultiply(weaponRef.ShotCooldown, 2);
         RequireReference(armR).Cooldown = UncheckedMultiply(weaponRef.AutofireCooldown, 2);
@@ -1424,17 +1385,17 @@ namespace MphRead::Entities::Enemies
     void Enemy24Entity::StartShots()
     {
         const std::uint32_t chargeRandom = Rng::GetRandomInt2(100);
-        const std::int32_t chargeChance = ArrayAt(_chargeChances, WeaponIndex());
+        const std::int32_t chargeChance = ManagedAt(_chargeChances, WeaponIndex());
         const bool charge = chargeRandom < static_cast<std::uint32_t>(chargeChance);
-        const std::shared_ptr<Enemy26Entity>& armL = ArrayAt(_arms, 0);
-        const std::shared_ptr<Enemy26Entity>& armR = ArrayAt(_arms, 1);
+        const std::shared_ptr<Enemy26Entity>& armL = ManagedAt(_arms, 0);
+        const std::shared_ptr<Enemy26Entity>& armR = ManagedAt(_arms, 1);
         if (charge)
         {
             RequireReference(armL).ArmFlags |= GoreaArmFlags::Bit2;
             RequireReference(armR).ArmFlags |= GoreaArmFlags::Bit2;
             const Weapons::WeaponList& goreaWeapons
                 = RequireReference(Weapons::GoreaWeapons);
-            WeaponInfo& weapon = RequireReference(VectorAt(goreaWeapons, WeaponIndex()));
+            WeaponInfo& weapon = RequireReference(ManagedAt(goreaWeapons, WeaponIndex()));
             RequireReference(RequireReference(armL).EquipInfo()).ChargeLevel
                 = IntToUInt16Unchecked(static_cast<std::int32_t>(weapon.FullCharge) * 2);
             RequireReference(armL).Cooldown = UncheckedMultiply(weapon.ShotCooldown, 2);
@@ -1450,7 +1411,7 @@ namespace MphRead::Entities::Enemies
                 CreateChargeEffect(1);
             }
             _nextState = 6;
-            PlayBeamChargeSfx(ArrayAt(_beamTypes, WeaponIndex()));
+            PlayBeamChargeSfx(ManagedAt(_beamTypes, WeaponIndex()));
         }
         else
         {
@@ -1468,14 +1429,14 @@ namespace MphRead::Entities::Enemies
     void Enemy24Entity::CreateChargeEffect(std::int32_t index)
     {
         StopShots(index, true);
-        RequireReference(ArrayAt(_arms, index)).SpawnShotEffect(
-            ArrayAt(_chargeEffects, WeaponIndex()));
+        RequireReference(ManagedAt(_arms, index)).SpawnShotEffect(
+            ManagedAt(_chargeEffects, WeaponIndex()));
     }
 
     void Enemy24Entity::SetShotAnimation()
     {
-        const std::shared_ptr<Enemy26Entity>& armL = ArrayAt(_arms, 0);
-        const std::shared_ptr<Enemy26Entity>& armR = ArrayAt(_arms, 1);
+        const std::shared_ptr<Enemy26Entity>& armL = ManagedAt(_arms, 0);
+        const std::shared_ptr<Enemy26Entity>& armR = ManagedAt(_arms, 1);
         std::int32_t animId;
         if (TypeExtensions::TestFlag(RequireReference(armL).ArmFlags, GoreaArmFlags::Bit0))
         {
@@ -1550,7 +1511,7 @@ namespace MphRead::Entities::Enemies
         {
             _speed = Vector3::Zero;
             _nextState = _state1;
-            StopBeamChargeSfx(ArrayAt(_beamTypes, WeaponIndex()));
+            StopBeamChargeSfx(ManagedAt(_beamTypes, WeaponIndex()));
             _soundSource.PlaySfx(SfxId::GOREA_ROAR_SCR);
             RequireReference(_model).SetAnimation(13, 0, _animSetNoMat, AnimFlags::NoLoop);
             return true;
@@ -1567,7 +1528,7 @@ namespace MphRead::Entities::Enemies
         {
             _speed = Vector3::Zero;
             SetSwingAnimation(between, distance);
-            StopBeamChargeSfx(ArrayAt(_beamTypes, WeaponIndex()));
+            StopBeamChargeSfx(ManagedAt(_beamTypes, WeaponIndex()));
             _soundSource.PlaySfx(SfxId::GOREA_ARM_SWING_ATTACK_SCR);
             return true;
         }
@@ -1576,8 +1537,8 @@ namespace MphRead::Entities::Enemies
 
     void Enemy24Entity::SetSwingAnimation(Vector3 between, float distance)
     {
-        const std::shared_ptr<Enemy26Entity>& armL = ArrayAt(_arms, 0);
-        const std::shared_ptr<Enemy26Entity>& armR = ArrayAt(_arms, 1);
+        const std::shared_ptr<Enemy26Entity>& armL = ManagedAt(_arms, 0);
+        const std::shared_ptr<Enemy26Entity>& armR = ManagedAt(_arms, 1);
         std::int32_t animId = 5;
         if (TypeExtensions::TestFlag(RequireReference(armL).ArmFlags, GoreaArmFlags::Bit0))
         {
@@ -1657,7 +1618,7 @@ namespace MphRead::Entities::Enemies
             && TypeExtensions::TestFlag(_goreaFlags, Gorea1AFlags::Bit4)
             && TrySprintingRoomInVolume())
         {
-            StopBeamChargeSfx(ArrayAt(_beamTypes, WeaponIndex()));
+            StopBeamChargeSfx(ManagedAt(_beamTypes, WeaponIndex()));
             return true;
         }
         return false;
@@ -1706,7 +1667,7 @@ namespace MphRead::Entities::Enemies
         {
             head.Damage = 0;
             _nextState = _state1;
-            StopBeamChargeSfx(ArrayAt(_beamTypes, WeaponIndex()));
+            StopBeamChargeSfx(ManagedAt(_beamTypes, WeaponIndex()));
             RequireReference(_model).SetAnimation(19, 0, _animSetNoMat, AnimFlags::NoLoop);
             return true;
         }
@@ -1745,9 +1706,9 @@ namespace MphRead::Entities::Enemies
         }
         _field23E = 510 * 2;
         if (!TypeExtensions::TestFlag(
-                RequireReference(ArrayAt(_arms, 0)).ArmFlags, GoreaArmFlags::Bit0)
+                RequireReference(ManagedAt(_arms, 0)).ArmFlags, GoreaArmFlags::Bit0)
             && !TypeExtensions::TestFlag(
-                RequireReference(ArrayAt(_arms, 1)).ArmFlags, GoreaArmFlags::Bit0))
+                RequireReference(ManagedAt(_arms, 1)).ArmFlags, GoreaArmFlags::Bit0))
         {
             return false;
         }
@@ -1760,13 +1721,13 @@ namespace MphRead::Entities::Enemies
     {
         for (std::int32_t i = 0; i < 2; ++i)
         {
-            Enemy26Entity& arm = RequireReference(ArrayAt(_arms, i));
+            Enemy26Entity& arm = RequireReference(ManagedAt(_arms, i));
             arm.Damage = 0;
             if (TypeExtensions::TestFlag(arm.ArmFlags, GoreaArmFlags::Bit0))
             {
                 std::int32_t anim = 1;
                 _armBits |= 1 << i;
-                arm.SetScanId(VectorAt(Metadata::EnemyScanIds,
+                arm.SetScanId(ManagedAt(Metadata::EnemyScanIds,
                     static_cast<std::int32_t>(MphRead::EnemyType::GoreaArm)));
                 arm.Flags |= EnemyFlags::CollidePlayer;
                 arm.Flags |= EnemyFlags::CollideBeam;
@@ -1812,7 +1773,7 @@ namespace MphRead::Entities::Enemies
                 phase = 2;
             }
         }
-        _speedFactor = ArrayAt(_speedFactors, phase);
+        _speedFactor = ManagedAt(_speedFactors, phase);
     }
 
     bool Enemy24Entity::EnemyGetDrawInfo()
@@ -1836,7 +1797,7 @@ namespace MphRead::Entities::Enemies
     {
         for (std::int32_t i = 0; i < 2; ++i)
         {
-            Enemy26Entity& arm = RequireReference(ArrayAt(_arms, i));
+            Enemy26Entity& arm = RequireReference(ManagedAt(_arms, i));
             if (arm.RegenTimer != 0)
             {
                 arm.DrawRegen(RequireReference(_regenModel));
@@ -1862,7 +1823,7 @@ namespace MphRead::Entities::Enemies
         Model& model = RequireReference(RequireReference(_model).Model());
         for (std::int32_t i = 0; i < 2; ++i)
         {
-            const std::shared_ptr<Enemy26Entity>& arm = ArrayAt(_arms, i);
+            const std::shared_ptr<Enemy26Entity>& arm = ManagedAt(_arms, i);
             const char* matName = i == 0 ? "L_ShoulderTarget" : "R_ShoulderTarget";
             std::shared_ptr<Material> material = model.GetMaterialByName(matName);
             Material& materialRef = RequireReference(material);
@@ -1888,7 +1849,7 @@ namespace MphRead::Entities::Enemies
             = RequireReference(model.Materials);
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(materials.size()); ++i)
         {
-            Material& material = RequireReference(VectorAt(materials, i));
+            Material& material = RequireReference(ManagedAt(materials, i));
             if (material.Name == "L_ShoulderTarget" || material.Name == "R_ShoulderTarget")
             {
                 material.AnimationFlags |= MatAnimFlags::DisableAlpha;

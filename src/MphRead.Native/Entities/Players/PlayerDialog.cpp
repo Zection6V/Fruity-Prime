@@ -28,6 +28,7 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedDecrement;
@@ -38,26 +39,6 @@ using ::MphRead::TestFlag;
 
 namespace
 {
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range("Index was outside the bounds of the array.");
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(const TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range("Index was outside the bounds of the array.");
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
     template <typename T>
     [[nodiscard]] T& RequireOptional(std::optional<T>& value)
     {
@@ -175,6 +156,7 @@ namespace
         }
     }
 }
+
 
 namespace MphRead::Entities
 {

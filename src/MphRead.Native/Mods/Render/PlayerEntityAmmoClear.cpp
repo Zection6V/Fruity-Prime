@@ -10,20 +10,13 @@
 #include <memory>
 #include <stdexcept>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 
 namespace
 {
-    template <typename TContainer>
-    [[nodiscard]] decltype(auto) ManagedAt(const TContainer& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            throw std::out_of_range("Index was outside the bounds of the array.");
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
 }
+
 
 namespace MphRead::Entities
 {

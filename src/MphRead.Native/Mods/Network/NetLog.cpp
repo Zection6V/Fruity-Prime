@@ -7,6 +7,7 @@
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <array>
 #include <cerrno>
@@ -47,7 +48,7 @@
 #include <locale.h>
 #endif
 
-using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::HasFlag;
 
 namespace
 {

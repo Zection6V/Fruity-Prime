@@ -34,7 +34,7 @@
 #include <locale.h>
 #endif
 
-using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::MathMax;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;

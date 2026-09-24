@@ -20,8 +20,8 @@
 #include "NetSlotManager.hpp"
 #include "NetUnlagged.hpp"
 #include "PlayerColors.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -59,7 +59,7 @@
 #include <unistd.h>
 #endif
 
-using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::UncheckedAdd;

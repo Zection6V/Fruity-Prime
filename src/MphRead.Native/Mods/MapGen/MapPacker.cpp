@@ -12,6 +12,7 @@
 #include "MapTexturePack.hpp"
 #include "Q3Import.hpp"
 #include "RawStructs.hpp"
+#include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -51,6 +52,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
@@ -214,16 +216,6 @@ namespace
         throw System::NullReferenceException();
     }
 
-    [[noreturn]] void ListBounds()
-    {
-        throw System::ArgumentOutOfRangeException();
-    }
-
-    [[noreturn]] void ArrayBounds()
-    {
-        throw std::out_of_range("Index was outside the bounds of the array.");
-    }
-
     template <typename T>
     [[nodiscard]] T* Require(const std::shared_ptr<T>& value)
     {
@@ -242,26 +234,6 @@ namespace
             NullReference();
         }
         return value.get();
-    }
-
-    template <typename T>
-    [[nodiscard]] T& ListAt(std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            ListBounds();
-        }
-        return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ListAt(const std::vector<T>& values, std::int32_t index)
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= values.size())
-        {
-            ListBounds();
-        }
-        return values[static_cast<std::size_t>(index)];
     }
 
     [[nodiscard]] std::int32_t ListCount(std::size_t count)
@@ -322,20 +294,6 @@ namespace
             NullReference();
         }
         return texcoords;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& ArrayAt(const ManagedArray<T>* array, std::size_t index)
-    {
-        if (array == nullptr)
-        {
-            NullReference();
-        }
-        if (index >= array->Length())
-        {
-            ArrayBounds();
-        }
-        return (*array)[index];
     }
 
     [[nodiscard]] MphRead::Interop::ManagedArray<Vector3>* BuiltPoints(
@@ -1078,13 +1036,13 @@ namespace
         result.reserve(length - 2);
         for (std::size_t i = 1; i + 1 < length; ++i)
         {
-            const Vector3 p0 = ArrayAt(points, 0);
-            const Vector3 p1 = ArrayAt(points, i);
-            const Vector3 p2 = ArrayAt(points, i + 1);
+            const Vector3 p0 = ManagedAt(points, 0);
+            const Vector3 p1 = ManagedAt(points, i);
+            const Vector3 p2 = ManagedAt(points, i + 1);
             ManagedArray<Vector2>* texcoords = FaceTexcoords(face);
-            const Vector2 t0 = ArrayAt(texcoords, 0);
-            const Vector2 t1 = ArrayAt(texcoords, i);
-            const Vector2 t2 = ArrayAt(texcoords, i + 1);
+            const Vector2 t0 = ManagedAt(texcoords, 0);
+            const Vector2 t1 = ManagedAt(texcoords, i);
+            const Vector2 t2 = ManagedAt(texcoords, i + 1);
             const Vector3 normal = face->Normal();
             const std::int32_t material = face->Material();
             const float shade = face->Shade();
@@ -1179,11 +1137,11 @@ namespace
             for (std::size_t i = 0; i < points->Length(); ++i)
             {
                 ManagedArray<Vector2>* texcoords = FaceTexcoords(face);
-                const Vector2 texcoord = ArrayAt(texcoords, i);
+                const Vector2 texcoord = ManagedAt(texcoords, i);
                 instructions.push_back(Instruction(
                     InstructionCode::TEXCOORD,
                     {PackTexcoord(texcoord.X, texcoord.Y)}));
-                instructions.push_back(PackVertex(ArrayAt(points, i), scale));
+                instructions.push_back(PackVertex(ManagedAt(points, i), scale));
                 vertexCount = UncheckedAdd(vertexCount, 1);
             }
         }
@@ -1402,7 +1360,7 @@ namespace
         MphRead::Model* sourceValue = Require(source);
         const auto* recolors = Require(sourceValue->Recolors);
         const std::shared_ptr<MphRead::Recolor>& recolorValue
-            = ListAt(*recolors, 0);
+            = ManagedAt(*recolors, 0);
         MphRead::Recolor* recolor = recolorValue.get();
 
         auto textures = std::make_shared<std::vector<std::shared_ptr<Repack::TextureInfo>>>();
@@ -1442,7 +1400,7 @@ namespace
             const auto* modelMaterialsForIndex = Require(sourceValue->Materials);
             const std::int32_t materialForIndex = mapMaterial->SourceMaterial();
             const std::shared_ptr<Material>& srcMaterialValue
-                = ListAt(*modelMaterialsForIndex, materialForIndex);
+                = ManagedAt(*modelMaterialsForIndex, materialForIndex);
             Material* srcMaterial = Require(srcMaterialValue);
             if (srcMaterial->TextureId < 0 || srcMaterial->PaletteId < 0)
             {
@@ -1464,10 +1422,10 @@ namespace
                 }
                 const auto* recolorTextures = Require(recolor->Textures);
                 const MphRead::Texture& texture
-                    = ListAt(*recolorTextures, srcMaterial->TextureId);
+                    = ManagedAt(*recolorTextures, srcMaterial->TextureId);
                 const auto* textureDataLists = Require(recolor->TextureData);
                 const std::shared_ptr<const std::vector<MphRead::TextureData>>& textureData
-                    = ListAt(*textureDataLists, srcMaterial->TextureId);
+                    = ManagedAt(*textureDataLists, srcMaterial->TextureId);
                 textures->push_back(Repack::ConvertData(texture, textureData));
                 textureMap.emplace(srcMaterial->TextureId, textureId);
             }
@@ -1487,7 +1445,7 @@ namespace
                 }
                 const auto* paletteDataLists = Require(recolor->PaletteData);
                 const std::shared_ptr<const std::vector<MphRead::PaletteData>>& sourcePalette
-                    = ListAt(*paletteDataLists, srcMaterial->PaletteId);
+                    = ManagedAt(*paletteDataLists, srcMaterial->PaletteId);
                 if (!sourcePalette)
                 {
                     throw System::ArgumentNullException("source");
@@ -1548,12 +1506,12 @@ namespace
                     4 | MphRead::Mods::MapGen::MapPacker::GetPrimaryAxis(normal));
                 editor->Plane = Vector4(
                     normal,
-                    Vector3::Dot(normal, ArrayAt(facePoints, 0)));
+                    Vector3::Dot(normal, ManagedAt(facePoints, 0)));
                 editor->Damaging(face->Damaging());
                 editor->Terrain(face->Terrain());
                 for (std::size_t i = 0; i < facePoints->Length(); ++i)
                 {
-                    editor->Points->push_back(ArrayAt(facePoints, i));
+                    editor->Points->push_back(ManagedAt(facePoints, i));
                 }
                 editors->push_back(std::move(editor));
             }
@@ -1570,12 +1528,12 @@ namespace
                         4 | MphRead::Mods::MapGen::MapPacker::GetPrimaryAxis(normal));
                     editor->Plane = Vector4(
                         normal,
-                        Vector3::Dot(normal, ArrayAt(partPoints, 0)));
+                        Vector3::Dot(normal, ManagedAt(partPoints, 0)));
                     editor->Damaging(face->Damaging());
                     editor->Terrain(face->Terrain());
                     for (std::size_t i = 0; i < partPoints->Length(); ++i)
                     {
-                        editor->Points->push_back(ArrayAt(partPoints, i));
+                        editor->Points->push_back(ManagedAt(partPoints, i));
                     }
                     editors->push_back(std::move(editor));
                 }

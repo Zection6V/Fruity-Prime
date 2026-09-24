@@ -33,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
@@ -99,48 +100,6 @@ namespace MphRead::Entities
             {
                 return static_cast<std::int32_t>(std::size(storage));
             }
-        }
-
-        template <typename TContainer>
-        [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
-        {
-            auto&& storage = ManagedStorage(values);
-            const std::int32_t length = ManagedLength(storage);
-            if (index < 0 || index >= length)
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return storage[static_cast<std::size_t>(index)];
-        }
-
-        template <typename T>
-        [[nodiscard]] T& VectorAt(const std::shared_ptr<const std::vector<std::shared_ptr<T>>>& values,
-            std::int32_t index)
-        {
-            if (!values)
-            {
-                throw System::NullReferenceException();
-            }
-            if (index < 0 || static_cast<std::size_t>(index) >= values->size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return RequireReference((*values)[static_cast<std::size_t>(index)]);
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& VectorAt(
-            const std::shared_ptr<const std::vector<T>>& values, std::int32_t index)
-        {
-            if (!values)
-            {
-                throw System::NullReferenceException();
-            }
-            if (index < 0 || static_cast<std::size_t>(index) >= values->size())
-            {
-                throw SceneDetail::IndexOutOfRangeException();
-            }
-            return (*values)[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
@@ -340,7 +299,7 @@ namespace MphRead::Entities
             }
             std::shared_ptr<Model> model = _trailModel->Model();
             Model& modelRef = RequireReference(model);
-            Material& material = VectorAt(modelRef.Materials, 0);
+            Material& material = RequireReference(ManagedAt(modelRef.Materials, 0));
             _bindingId = RequireReference(_scene).BindGetTexture(
                 model, material.TextureId, material.PaletteId, recolor);
         }
@@ -1012,8 +971,8 @@ namespace MphRead::Entities
         const Vector3 vec = point2 - point1;
         ModelInstance& trailModel = RequireReference(_trailModel);
         Model& model = RequireReference(trailModel.Model());
-        MphRead::Recolor& recolorData = VectorAt(model.Recolors, recolor);
-        const Texture& texture = VectorAt(recolorData.Textures, 0);
+        MphRead::Recolor& recolorData = RequireReference(ManagedAt(model.Recolors, recolor));
+        const Texture& texture = ManagedAt(recolorData.Textures, 0);
         const float uvT = (texture.Height - (1.0F / 16.0F)) / texture.Height;
         auto uvsAndVerts = MphRead::NativeRuntime::RentFromSharedArrayPool(count);
         for (std::int32_t i = 0; i < segments; ++i)
@@ -1043,7 +1002,7 @@ namespace MphRead::Entities
             (*uvsAndVerts)[static_cast<std::size_t>(4 * i + 3)]
                 = Vector3(x, y + height, z);
         }
-        Material& material = VectorAt(model.Materials, 0);
+        Material& material = RequireReference(ManagedAt(model.Materials, 0));
         RequireReference(_scene).AddRenderItem(
             RenderItemType::TrailMulti,
             1.0F,

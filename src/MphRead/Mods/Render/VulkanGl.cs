@@ -763,12 +763,11 @@ namespace MphRead.Mods.Render
             {
                 // OpenGL permits an application to create a texture object by
                 // binding any otherwise-unused nonzero name. That must not
-                // perturb the allocator used by glGenTextures. Fruity's
-                // launcher still owns a few deliberately fixed 1,000,000+
-                // names, while scene/model textures now all use GenTexture.
-                // Advancing _nextTexture to a manually-bound high name would
-                // needlessly move generated scene resources into that reserved
-                // range.
+                // perturb the allocator used by glGenTextures. Fruity now asks
+                // the backend for every application-owned texture name, but
+                // preserving this OpenGL rule keeps the compatibility facade
+                // correct for callers and diagnostics that bind an arbitrary
+                // name explicitly.
                 info = new TextureInfo();
                 _textures[name] = info;
             }
@@ -1664,10 +1663,10 @@ namespace MphRead.Mods.Render
 
         public static int GenTexture()
         {
-            // Return an unused name without treating manually-bound high names
-            // as the start of the generated namespace. This mirrors the
-            // glGenTextures guarantee and keeps generated scene/model objects
-            // away from Fruity's fixed 1,000,000+ launcher names.
+            // Return an unused name without treating a manually-bound name as
+            // the start of the generated namespace. This mirrors the
+            // glGenTextures guarantee and keeps explicit binds independent from
+            // allocator state.
             while (_nextTexture == 0 || _textures.ContainsKey(_nextTexture))
             {
                 _nextTexture++;

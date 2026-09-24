@@ -30,20 +30,12 @@ namespace MphRead.Mods.Render
         /// <summary>
         /// The texture name this takes, chosen rather than asked for.
         ///
-        /// The engine does not call <c>glGenTextures</c> for its own textures:
-        /// it counts (<c>Scene._textureCount</c>) and binds the number, which
-        /// is legal -- a bind creates the object -- and which upstream gets
-        /// away with because the counter starts at one in a context nothing
-        /// else draws in. A name taken from GenTextures is therefore a name
-        /// the next scene will count its way onto and overwrite: the launcher
-        /// was handed name 1, the first hunter model loaded took name 1 as
-        /// well, and the pause menu came out as a 128x128 piece of somebody's
-        /// armour stretched over the window.
-        ///
-        /// So the overlay lives above anything the counter will reach in a
-        /// session -- a room and eight hunters is a few hundred textures, not
-        /// a million -- and it is never given back, since the counter restarts
-        /// at one with every match and would collide again.
+        /// Kept in the launcher's reserved high-name range. Scene/model
+        /// textures now come from <c>glGenTextures</c> (and the Vulkan
+        /// equivalent allocator), so they cannot collide with one another
+        /// across the launcher's preview scene and a match. This fixed name is
+        /// retained to keep the UI objects visibly separate from game assets
+        /// in diagnostics and to preserve the launcher's existing lifetime.
         /// </summary>
         private const int Name = 1_000_000;
 

@@ -3,6 +3,7 @@ using System;
 using MphRead.Mods.Launcher.Gui;
 using OpenTK.Graphics.OpenGL;
 using OpenTK.Mathematics;
+using GL = MphRead.Mods.Render.RenderGl;
 
 namespace MphRead.Mods.Diagnostics
 {

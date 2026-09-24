@@ -386,6 +386,7 @@ namespace MphRead.Mods.Diagnostics
                     GL.DeleteProgram(sceneProgram);
                 }
 
+                CheckVulkanUniformIsolation(framebuffer, size);
                 CheckVulkanFixedFunctionTextureState(framebuffer, size);
                 CheckVulkanCopyTexSubImageOrientation(framebuffer, size);
                 CheckVulkanFramebufferSamplingOrientation(texture, framebuffer, size);
@@ -406,6 +407,67 @@ namespace MphRead.Mods.Diagnostics
                 GL.DeleteRenderbuffer(depth);
                 GL.DeleteFramebuffer(framebuffer);
                 GL.DeleteTexture(texture);
+            }
+        }
+
+        private static void CheckVulkanUniformIsolation(int framebuffer, int size)
+        {
+            int program = CreateSceneProgram();
+            try
+            {
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(program);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Texture2D);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(false);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+
+                int useOverride = GL.GetUniformLocation(program, "use_override");
+                int overrideColor = GL.GetUniformLocation(program, "override_color");
+                int useTexture = GL.GetUniformLocation(program, "use_texture");
+                int useLight = GL.GetUniformLocation(program, "use_light");
+                int showColors = GL.GetUniformLocation(program, "show_colors");
+                GL.Uniform1(useOverride, 1);
+                GL.Uniform1(useTexture, 0);
+                GL.Uniform1(useLight, 0);
+                GL.Uniform1(showColors, 0);
+
+                // These two draws are deliberately recorded before one
+                // readback/submit. A shared mutable Vulkan UBO would let the
+                // second color leak into the first draw.
+                GL.Uniform4(overrideColor, 1f, 0f, 0f, 1f);
+                DrawTestQuad(-1f, -0.05f);
+                GL.Uniform4(overrideColor, 0f, 1f, 0f, 1f);
+                DrawTestQuad(0.05f, 1f);
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 4, size / 2, 255, 0, 0)
+                    || !PixelIs(pixels, size, size * 3 / 4, size / 2, 0, 255, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan draw uniforms were overwritten by a later draw in the same frame.");
+                }
+                Console.WriteLine("[windowcheck] Vulkan per-draw uniform isolation passed.");
+            }
+            finally
+            {
+                GL.UseProgram(0);
+                GL.Enable(EnableCap.Texture2D);
+                GL.DepthMask(true);
+                GL.DeleteProgram(program);
             }
         }
 
@@ -807,6 +869,16 @@ namespace MphRead.Mods.Diagnostics
             GL.Vertex3(1f, -1f, 0f);
             GL.Vertex3(1f, 1f, 0f);
             GL.Vertex3(-1f, 1f, 0f);
+            GL.End();
+        }
+
+        private static void DrawTestQuad(float left, float right)
+        {
+            GL.Begin(PrimitiveType.Quads);
+            GL.Vertex3(left, -1f, 0f);
+            GL.Vertex3(right, -1f, 0f);
+            GL.Vertex3(right, 1f, 0f);
+            GL.Vertex3(left, 1f, 0f);
             GL.End();
         }
 

@@ -386,6 +386,7 @@ namespace MphRead.Mods.Diagnostics
                     GL.DeleteProgram(sceneProgram);
                 }
 
+                CheckVulkanSceneDepthPreservation(framebuffer, size);
                 CheckVulkanUniformIsolation(framebuffer, size);
                 CheckVulkanGeometryIsolation(framebuffer, size);
                 CheckVulkanAlphaTestReference(framebuffer, size);
@@ -412,6 +413,69 @@ namespace MphRead.Mods.Diagnostics
                 GL.DeleteRenderbuffer(depth);
                 GL.DeleteFramebuffer(framebuffer);
                 GL.DeleteTexture(texture);
+            }
+        }
+
+        private static void CheckVulkanSceneDepthPreservation(
+            int framebuffer, int size)
+        {
+            int program = CreateSceneProgram();
+            try
+            {
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(program);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Texture2D);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.Disable(EnableCap.PolygonOffsetFill);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(true);
+                GL.Enable(EnableCap.DepthTest);
+                GL.DepthFunc(DepthFunction.Less);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
+                GL.Uniform1(GL.GetUniformLocation(program, "use_texture"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_light"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "show_colors"), 1);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_override"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "mat_mode"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "mat_alpha"), 1f);
+
+                // The translated scene fragment shader also implements
+                // GL_POLYGON_OFFSET_FILL. Because that makes gl_FragDepth a
+                // statically written output, ordinary draws must explicitly
+                // write the unmodified gl_FragCoord.z too. Back first, then
+                // front: an undefined ordinary fragment depth turns this into
+                // driver-dependent speckle/z-fighting.
+                DrawDepthTestQuad(0.5f, 0f, 1f, 0f);
+                DrawDepthTestQuad(-0.5f, 1f, 0f, 0f);
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 2, size / 2, 255, 0, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan scene fragment depth did not preserve ordinary OpenGL depth ordering.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan ordinary scene fragment-depth preservation passed.");
+            }
+            finally
+            {
+                GL.Disable(EnableCap.DepthTest);
+                GL.DepthMask(true);
+                GL.UseProgram(0);
+                GL.Enable(EnableCap.Texture2D);
+                GL.DeleteProgram(program);
             }
         }
 
@@ -1257,6 +1321,18 @@ namespace MphRead.Mods.Diagnostics
             GL.Vertex3(right, -1f, 0f);
             GL.Vertex3(right, 1f, 0f);
             GL.Vertex3(left, 1f, 0f);
+            GL.End();
+        }
+
+        private static void DrawDepthTestQuad(float z,
+            float red, float green, float blue)
+        {
+            GL.Begin(PrimitiveType.Quads);
+            GL.Color4(red, green, blue, 1f);
+            GL.Vertex3(-1f, -1f, z);
+            GL.Vertex3(1f, -1f, z);
+            GL.Vertex3(1f, 1f, z);
+            GL.Vertex3(-1f, 1f, z);
             GL.End();
         }
 

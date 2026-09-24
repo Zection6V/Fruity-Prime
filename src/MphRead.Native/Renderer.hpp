@@ -63,14 +63,7 @@ namespace OpenTK::Mathematics
 
 namespace MphRead::RendererDetail
 {
-    [[nodiscard]] constexpr OpenTK::Mathematics::Matrix4 IdentityMatrix() noexcept
-    {
-        return OpenTK::Mathematics::Matrix4(
-            OpenTK::Mathematics::Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            OpenTK::Mathematics::Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            OpenTK::Mathematics::Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            OpenTK::Mathematics::Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
+    using ::OpenTK::Mathematics::IdentityMatrix;
 }
 
 namespace MphRead

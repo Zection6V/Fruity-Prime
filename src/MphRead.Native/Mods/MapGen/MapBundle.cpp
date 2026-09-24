@@ -42,6 +42,7 @@
 #include <sys/types.h>
 #endif
 
+using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
@@ -508,12 +509,7 @@ namespace
 
     [[nodiscard]] ByteVector ReadAllBytes(const std::string& path)
     {
-        std::ifstream stream(PathFromUtf8(path), std::ios::binary);
-        if (!stream)
-        {
-            throw std::runtime_error("Could not open file: " + path);
-        }
-        return ReadAllBytes(stream, path);
+        return FileReadAllBytes(path);
     }
 
     [[nodiscard]] std::uint32_t Crc32(const ByteVector& bytes) noexcept

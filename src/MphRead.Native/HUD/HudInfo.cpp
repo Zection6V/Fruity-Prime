@@ -4,6 +4,7 @@
 #include "../Read.hpp"
 #include "../Scene.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,8 +27,10 @@
 #include <unordered_map>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
 {
@@ -175,30 +178,6 @@ namespace
             throw std::overflow_error("Arithmetic operation resulted in an overflow.");
         }
         return static_cast<std::size_t>(length);
-    }
-
-    [[nodiscard]] std::int32_t RoundToEven(float value)
-    {
-        if (!std::isfinite(value))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        const float lower = std::floor(value);
-        const float fraction = value - lower;
-        float rounded = lower;
-        if (fraction > 0.5F)
-        {
-            rounded = lower + 1.0F;
-        }
-        else if (fraction == 0.5F)
-        {
-            rounded = std::fmod(std::fabs(lower), 2.0F) == 0.0F ? lower : lower + 1.0F;
-        }
-        if (rounded < -2147483648.0F || rounded >= 2147483648.0F)
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        return static_cast<std::int32_t>(rounded);
     }
 
     [[nodiscard]] std::string LastPathPartWithoutExtension(const std::string& path)
@@ -595,7 +574,7 @@ namespace MphRead::Hud
             else if (Loop == HudObjectLoopType::Offset)
             {
                 const float elapsedTime = Time - Timer;
-                const std::int32_t elapsedFrames = RoundToEven(elapsedTime * 30.0F);
+                const std::int32_t elapsedFrames = ConvertToInt32Net9(RoundToEven(elapsedTime * 30.0F));
                 const std::int32_t frame = WrappedAdd(StartFrame, elapsedFrames);
                 assert(AnimFrames);
                 if (!AnimFrames)
@@ -607,8 +586,8 @@ namespace MphRead::Hud
             }
             else
             {
-                const std::int32_t frame = WrappedAdd(StartFrame, RoundToEven(
-                    static_cast<float>(WrappedSubtract(TargetFrame, StartFrame)) * (1.0F - Timer / Time)));
+                const std::int32_t frame = WrappedAdd(StartFrame, ConvertToInt32Net9(RoundToEven(
+                    static_cast<float>(WrappedSubtract(TargetFrame, StartFrame)) * (1.0F - Timer / Time))));
                 CurrentFrame = !AnimFrames
                     ? frame : AnimFrames->at(static_cast<std::size_t>(frame));
             }

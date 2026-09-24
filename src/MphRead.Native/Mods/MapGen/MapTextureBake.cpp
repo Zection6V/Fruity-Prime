@@ -149,21 +149,7 @@ namespace
     [[nodiscard]] bool FileExists(
         const std::optional<std::string>& path) noexcept
     {
-        if (!path.has_value() || path->empty())
-        {
-            return false;
-        }
-        try
-        {
-            std::error_code error;
-            const bool regular = std::filesystem::is_regular_file(
-                PathFromUtf8(*path), error);
-            return regular && !error;
-        }
-        catch (...)
-        {
-            return false;
-        }
+        return path.has_value() && MphRead::NativeRuntime::FileExists(*path);
     }
 
     [[nodiscard]] bool IsDirectorySeparator(char value) noexcept

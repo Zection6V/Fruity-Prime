@@ -192,7 +192,7 @@ namespace
         return value;
     }
 
-    [[nodiscard]] MphRead::StorySave& StorySave()
+    [[nodiscard]] MphRead::StorySave& RequireStorySave()
     {
         if (MphRead::GameState::StorySave == nullptr)
         {
@@ -253,18 +253,18 @@ namespace MphRead::Entities
             SetUpModel("ArtifactBase");
         }
         assert(GameState::Mode() == GameMode::SinglePlayer);
-        Active = StorySave().InitRoomState(
+        Active = RequireStorySave().InitRoomState(
             RoomId(_scene), Id, _data.Active != 0, 2) != 0;
         if (data.ModelId < 8)
         {
-            if (StorySave().CheckFoundArtifact(data.ArtifactId, data.ModelId))
+            if (RequireStorySave().CheckFoundArtifact(data.ArtifactId, data.ModelId))
             {
                 Active = false;
             }
         }
         else if (Id != -1)
         {
-            if (StorySave().CheckFoundOctolith(data.ArtifactId))
+            if (RequireStorySave().CheckFoundOctolith(data.ArtifactId))
             {
                 Active = false;
             }
@@ -415,7 +415,7 @@ namespace MphRead::Entities
 
             if (_data.ModelId >= 8)
             {
-                StorySave().UpdateFoundOctolith(_data.ArtifactId);
+                RequireStorySave().UpdateFoundOctolith(_data.ArtifactId);
                 if (Id == -1)
                 {
                     auto&& dialogMain = PlayerEntity::Main();
@@ -433,14 +433,14 @@ namespace MphRead::Entities
                         FadeType::FadeOutInWhite,
                         5.0F / 30.0F);
                     GameState::UpdateBossFlags(_scene->AreaId());
-                    const std::int32_t collected = StorySave().CountFoundOctoliths();
+                    const std::int32_t collected = RequireStorySave().CountFoundOctoliths();
                     GameState::QueuedOctolithMessageId(
                         GetChecked(_octolithMessageIds, collected - 1));
                 }
             }
             else
             {
-                const std::int32_t collected = StorySave().CountFoundArtifacts(_data.ModelId);
+                const std::int32_t collected = RequireStorySave().CountFoundArtifacts(_data.ModelId);
                 if (collected >= 2)
                 {
                     _soundSource.PlayFreeSfx(SfxId::ARTIFACT3);
@@ -454,13 +454,13 @@ namespace MphRead::Entities
                     _soundSource.PlayFreeSfx(SfxId::ARTIFACT1);
                 }
 
-                StorySave().UpdateFoundArtifact(_data.ArtifactId, _data.ModelId);
+                RequireStorySave().UpdateFoundArtifact(_data.ArtifactId, _data.ModelId);
                 {
                     std::ostringstream line;
                     line << "artifact " << static_cast<std::int32_t>(_data.ArtifactId) << " of set "
                         << static_cast<std::int32_t>(_data.ModelId) << " picked up in room "
                         << RoomId(_scene) << ": artifacts=0x" << std::hex << std::uppercase
-                        << StorySave().Artifacts;
+                        << RequireStorySave().Artifacts;
                     Mods::DebugLog::Line("save", line.str());
                 }
                 auto&& dialogMain = PlayerEntity::Main();
@@ -480,7 +480,7 @@ namespace MphRead::Entities
             }
 
             Active = false;
-            StorySave().SetRoomState(RoomId(_scene), Id, 1);
+            RequireStorySave().SetRoomState(RoomId(_scene), Id, 1);
             _soundSource.StopAllSfx(true);
         }
         else
@@ -504,19 +504,19 @@ namespace MphRead::Entities
         if (info.Message == Message::Activate)
         {
             Active = true;
-            StorySave().SetRoomState(RoomId(_scene), Id, 3);
+            RequireStorySave().SetRoomState(RoomId(_scene), Id, 3);
         }
         else if (info.Message == Message::SetActive)
         {
             if (UnboxInt32(info.Param1) != 0)
             {
                 Active = true;
-                StorySave().SetRoomState(RoomId(_scene), Id, 3);
+                RequireStorySave().SetRoomState(RoomId(_scene), Id, 3);
             }
             else
             {
                 Active = false;
-                StorySave().SetRoomState(RoomId(_scene), Id, 1);
+                RequireStorySave().SetRoomState(RoomId(_scene), Id, 1);
             }
         }
         else if (info.Message == Message::MoveItemSpawner && info.Sender != nullptr)

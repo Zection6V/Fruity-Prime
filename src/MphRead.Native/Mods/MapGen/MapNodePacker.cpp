@@ -15,8 +15,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 using ::MphRead::NativeRuntime::RoundToEven;

@@ -4,8 +4,8 @@
 #include <cmath>
 #include <limits>
 #include <string>
-#include "../../../NativeRuntime/System/Managed.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 using ::MphRead::NativeRuntime::RoundToEven;
 

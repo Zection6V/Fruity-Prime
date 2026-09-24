@@ -13,6 +13,7 @@
 #include "Q3Import.hpp"
 #include "RawStructs.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -47,7 +48,6 @@
 #include <dlfcn.h>
 #include <locale.h>
 #include <wchar.h>
-#include "../../NativeRuntime/System/Managed.hpp"
 #endif
 
 using ::MphRead::NativeRuntime::FileWriteAllBytes;

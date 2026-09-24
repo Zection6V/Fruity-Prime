@@ -7,8 +7,8 @@
 #include <stdexcept>
 #include <system_error>
 #include <utility>
-#include "../../../NativeRuntime/System/Managed.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 using ::MphRead::NativeRuntime::RoundToEven;
 

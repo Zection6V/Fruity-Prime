@@ -9,6 +9,7 @@
 #include "MapTextureBake.hpp"
 #include "Q3Bsp.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -42,7 +43,6 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
-#include "../../NativeRuntime/System/Managed.hpp"
 #endif
 
 using ::MphRead::NativeRuntime::FileExists;

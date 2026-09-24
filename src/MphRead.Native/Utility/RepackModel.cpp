@@ -6,6 +6,8 @@
 #include "../Read.hpp"
 #include "../SceneSetup.hpp"
 #include "../Formats/Model.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -30,8 +32,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include "../NativeRuntime/System/Managed.hpp"
-#include "../NativeRuntime/System/IO.hpp"
 
 #if defined(DEBUG)
 #define REPACK_MODEL_DEBUG_ASSERT(condition) do { if (!(condition)) { std::abort(); } } while (false)

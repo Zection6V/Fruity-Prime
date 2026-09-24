@@ -15,8 +15,8 @@
 #include <limits>
 #include <string>
 #include <memory>
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 using ::MphRead::NativeRuntime::RoundToEven;

@@ -2023,8 +2023,14 @@ namespace MphRead::Mods
                 Launcher::LauncherPrefs::Directory(), "logs");
             std::filesystem::create_directories(PathFromManagedString(directory));
             Prune(directory);
+            // The process id is not decoration: a thumbnail batch starts
+            // several workers inside one second, and a name good only to
+            // the second had all of them truncating and writing over one
+            // file at once -- which reads as a corrupted log rather than
+            // as several.
             const std::string name = ReplaceSpaces(Branding::Name) + "-"
-                + FileTimestamp() + ".log";
+                + FileTimestamp() + "-"
+                + std::to_string(::MphRead::NativeRuntime::EnvironmentProcessId()) + ".log";
             const std::string path = CombinePath(directory, name);
             state.Path.store(std::make_shared<const std::string>(path));
             state.Writer.store(std::make_shared<Utf8Writer>(path));

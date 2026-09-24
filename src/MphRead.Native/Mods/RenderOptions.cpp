@@ -269,6 +269,7 @@ namespace
 
 namespace MphRead::Mods
 {
+    std::int32_t RenderOptions::_fieldOfView = RenderOptions::DefaultFov;
     std::int32_t RenderOptions::_resolutionScale = 100;
     bool RenderOptions::_lighting = true;
     bool RenderOptions::_celShading = false;
@@ -410,6 +411,32 @@ namespace MphRead::Mods
     std::string_view RenderOptions::OnOff(bool value) noexcept
     {
         return value ? std::string_view{"on"} : std::string_view{"off"};
+    }
+
+    std::int32_t RenderOptions::FieldOfView() noexcept
+    {
+        return _fieldOfView;
+    }
+
+    void RenderOptions::FieldOfView(std::int32_t value) noexcept
+    {
+        _fieldOfView = ClampInt32(value, MinFov, MaxFov);
+    }
+
+    float RenderOptions::FovScale() noexcept
+    {
+        return static_cast<float>(_fieldOfView) / static_cast<float>(DefaultFov);
+    }
+
+    std::int32_t RenderOptions::ParseFov(
+        std::optional<std::string_view> value, std::int32_t fallback) noexcept
+    {
+        std::int32_t parsed = 0;
+        if (value.has_value() && TryParseInt32IntegerInvariant(*value, parsed))
+        {
+            return ClampInt32(parsed, MinFov, MaxFov);
+        }
+        return fallback;
     }
 
     std::int32_t RenderOptions::ParseScale(

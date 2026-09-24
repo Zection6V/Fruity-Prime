@@ -6165,6 +6165,21 @@ namespace MphRead
         return _window->CurrentMonitorClientArea();
     }
 
+    std::vector<RendererPlatform::MonitorArea> RenderWindow::MonitorClientAreas() const
+    {
+        return _window->MonitorClientAreas();
+    }
+
+    RendererPlatform::WindowStateValue RenderWindow::WindowState() const
+    {
+        return _window->WindowState();
+    }
+
+    void RenderWindow::WindowStateMaximized()
+    {
+        _window->WindowStateMaximized();
+    }
+
     void RenderWindow::WindowStateNormal()
     {
         _window->WindowStateNormal();

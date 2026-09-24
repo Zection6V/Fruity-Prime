@@ -28,8 +28,8 @@ namespace MphRead::NativeRuntime::Avalonia
             {
                 if (_window == nullptr)
                 {
-                    _window = std::make_unique<Toolkit::Window>(
-                        Toolkit::WindowOptions{_decorated, _transparent, _topmost});
+                    _window = std::make_unique<Toolkit::Window>(Toolkit::WindowOptions{
+                        _decorated, _transparent, _topmost, _showInTaskbar});
                     _window->Title(_title);
                     _window->Background(_background);
                 }
@@ -85,6 +85,18 @@ namespace MphRead::NativeRuntime::Avalonia
                 }
             }
 
+            // Avalonia applies Topmost to a window that is already up; the
+            // pause menu steps out of the topmost band while its settings are
+            // open, and back in when they close.
+            void Topmost(bool topmost)
+            {
+                _topmost = topmost;
+                if (_window != nullptr)
+                {
+                    _window->Topmost(topmost);
+                }
+            }
+
             // Null until the window has been shown once.
             [[nodiscard]] Toolkit::Window* Handle() noexcept { return _window.get(); }
 
@@ -96,6 +108,7 @@ namespace MphRead::NativeRuntime::Avalonia
             bool _decorated = true;
             bool _topmost = false;
             bool _transparent = false;
+            bool _showInTaskbar = true;
             bool _placed = false;
             std::int32_t _x = 0;
             std::int32_t _y = 0;
@@ -200,14 +213,15 @@ namespace MphRead::NativeRuntime::Avalonia
             void SetSystemDecorations(
                 Launcher::SettingsWindowSystemDecorations decorations) override
             {
-                (void)decorations;
+                _window._decorated
+                    = decorations != Launcher::SettingsWindowSystemDecorations::None;
             }
 
-            void SetTopmost(bool topmost) override { (void)topmost; }
+            void SetTopmost(bool topmost) override { _window.Topmost(topmost); }
 
             void SetShowInTaskbar(bool showInTaskbar) override
             {
-                (void)showInTaskbar;
+                _window._showInTaskbar = showInTaskbar;
             }
 
             void SetWindowStartupLocation(
@@ -597,12 +611,12 @@ namespace MphRead::NativeRuntime::Avalonia
             void SetTopmost(bool topmost) override
             {
                 _topmost = topmost;
-                _window._topmost = topmost;
+                _window.Topmost(topmost);
             }
 
             void SetShowInTaskbar(bool showInTaskbar) override
             {
-                (void)showInTaskbar;
+                _window._showInTaskbar = showInTaskbar;
             }
 
             void SetWindowContent(

@@ -102,6 +102,9 @@ namespace MphRead::NativeRuntime::Gui
         // overlay with the match showing through it.
         bool Transparent = false;
         bool Topmost = false;
+        // Avalonia's ShowInTaskbar: an in-match overlay has no taskbar button
+        // of its own, the game window already has one.
+        bool ShowInTaskbar = true;
     };
 
     class Window final

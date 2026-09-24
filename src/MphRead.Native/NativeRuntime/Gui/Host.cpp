@@ -12,6 +12,12 @@
 
 namespace MphRead::NativeRuntime::Gui
 {
+    namespace Detail
+    {
+        // HostTaskbar.cpp, which is where <windows.h> is allowed.
+        void HideFromTaskbar(GLFWwindow* handle);
+    }
+
     namespace
     {
         // GLFW is initialized once for the process, as the renderer's own
@@ -326,6 +332,10 @@ namespace MphRead::NativeRuntime::Gui
                                            : std::string())
                 << ")\n";
             return;
+        }
+        if (!options.ShowInTaskbar)
+        {
+            Detail::HideFromTaskbar(_handle);
         }
         ::glfwSetWindowUserPointer(_handle, this);
         ::glfwSetKeyCallback(_handle, &Window::OnKey);

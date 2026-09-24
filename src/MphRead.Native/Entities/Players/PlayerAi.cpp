@@ -1,5 +1,6 @@
 #include "PlayerAi.hpp"
 
+#include "../../NativeRuntime/System/Runtime.hpp"
 #include "HalfturretEntity.hpp"
 #include "../RoomEntity.hpp"
 #include "../../Formats/CollisionDetection.hpp"
@@ -21,16 +22,6 @@
 
 namespace
 {
-    void DebuggerBreak()
-    {
-#if defined(_MSC_VER)
-        __debugbreak();
-#elif defined(SIGTRAP)
-        std::raise(SIGTRAP);
-#else
-        std::abort();
-#endif
-    }
 }
 
 namespace MphRead::Entities
@@ -328,7 +319,7 @@ namespace MphRead::Entities
         }
         if (_hasTouch)
         {
-            DebuggerBreak();
+            ::MphRead::NativeRuntime::DebuggerBreak();
             Flags3 &= ~AiFlags3::NoInput;
             _framesWithoutTouch = 0;
             if (_framesWithTouch < 6000) ++_framesWithTouch;

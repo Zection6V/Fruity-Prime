@@ -1,5 +1,6 @@
 #include "Scene.hpp"
 
+#include "NativeRuntime/System/Runtime.hpp"
 #include "Formats/Entity.hpp"
 #include "Formats/Formats.hpp"
 #include "GameState.hpp"
@@ -77,18 +78,6 @@ namespace
         return value;
     }
 
-    void DebuggerBreak()
-    {
-#if defined(_MSC_VER)
-        __debugbreak();
-#elif defined(__clang__) && __has_builtin(__builtin_debugtrap)
-        __builtin_debugtrap();
-#elif defined(SIGTRAP)
-        std::raise(SIGTRAP);
-#else
-        std::abort();
-#endif
-    }
 
     template <typename T, typename U>
     [[nodiscard]] std::shared_ptr<T> ManagedCast(const std::shared_ptr<U>& value)
@@ -356,7 +345,7 @@ namespace MphRead
                 (void)roomId;
                 if (meta == nullptr || !meta->EntityPath.has_value())
                 {
-                    DebuggerBreak();
+                    ::MphRead::NativeRuntime::DebuggerBreak();
                     continue;
                 }
 

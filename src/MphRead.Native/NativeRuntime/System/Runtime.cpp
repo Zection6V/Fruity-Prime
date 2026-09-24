@@ -109,6 +109,13 @@ namespace MphRead::NativeRuntime
 
     void DebuggerBreak()
     {
+        // Debugger.Break() on .NET (Core) signals a user breakpoint to an
+        // attached debugger and is a no-op otherwise -- there is no JIT-attach
+        // prompt as on .NET Framework, and nothing that ends the process.
+        if (!DebuggerAttached())
+        {
+            return;
+        }
 #if defined(_WIN32)
         __debugbreak();
 #else

@@ -1,6 +1,7 @@
 #include "Sound.hpp"
 
 #define SoundRead FhSoundReadContribution
+#include "../NativeRuntime/System/Runtime.hpp"
 #include "FhSound.hpp"
 #undef SoundRead
 
@@ -497,16 +498,6 @@ namespace MphRead::Formats::Sound
                 sum += length;
             }
             return sum;
-        }
-        void DebugBreak()
-        {
-#if defined(_MSC_VER)
-            __debugbreak();
-#elif defined(SIGTRAP)
-            std::raise(SIGTRAP);
-#else
-            std::abort();
-#endif
         }
         class FixedVectorStreamBuf final : public std::streambuf
         {
@@ -1484,7 +1475,7 @@ namespace MphRead::Formats::Sound
                             static_cast<std::uint16_t>(item.Value & 0xC000U);
                         if (flags != 0 && flags != 0x4000)
                         {
-                            DebugBreak();
+                            ::MphRead::NativeRuntime::DebuggerBreak();
                         }
                     }
                 };

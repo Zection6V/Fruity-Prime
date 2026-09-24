@@ -17,6 +17,7 @@
 #include <cerrno>
 #include <chrono>
 #include <climits>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -1652,6 +1653,29 @@ namespace
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
+    // abort() raises SIGABRT and then leaves with STATUS_FATAL_APP_EXIT,
+    // through no exception anything above would see. Where it was called
+    // from is written first; returning lets the process end as it would have.
+    extern "C" void AbortSignalHandler(int)
+    {
+        try
+        {
+            MphRead::Mods::DebugLog::Line("crash", "the process is going down through abort() on thread "
+                + std::to_string(::GetCurrentThreadId()));
+            std::array<void*, 32> frames{};
+            const USHORT count = ::CaptureStackBackTrace(0,
+                static_cast<DWORD>(frames.size()), frames.data(), nullptr);
+            for (USHORT index = 0; index < count; ++index)
+            {
+                MphRead::Mods::DebugLog::Line("crash", "   at " + DescribeAddress(frames[index]));
+            }
+            FlushWriterNoThrow();
+        }
+        catch (...)
+        {
+        }
+    }
+
     // Where the window thread is, while it is not coming back. The addresses
     // are collected with the thread suspended and described only after it
     // has been resumed: describing reads files and allocates, and the thread
@@ -1808,6 +1832,7 @@ namespace
 #if defined(_WIN32)
             PreviousFaultFilter = ::SetUnhandledExceptionFilter(&NativeFaultFilter);
             ::AddVectoredExceptionHandler(1, &FirstChanceFaultHandler);
+            std::signal(SIGABRT, &AbortSignalHandler);
             std::thread(&RunFreezeWatchdog).detach();
 #endif
         });

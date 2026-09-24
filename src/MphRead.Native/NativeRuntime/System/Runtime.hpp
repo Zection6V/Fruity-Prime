@@ -15,7 +15,7 @@ namespace MphRead::NativeRuntime
 
     // Debugger.IsAttached.
     [[nodiscard]] bool DebuggerAttached();
-    // Debugger.Break().
+    // Debugger.Break(): a break into an attached debugger, nothing otherwise.
     void DebuggerBreak();
     // Debug.Assert(condition). Callers compile the call only where the C# code is
     // built with DEBUG defined, as [Conditional("DEBUG")] does.

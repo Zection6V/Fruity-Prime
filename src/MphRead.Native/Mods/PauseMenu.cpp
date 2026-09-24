@@ -3,6 +3,10 @@
 #include "../Renderer.hpp"
 
 #include "WindowMode.hpp"
+#if defined(MPHREAD_AVALONIA)
+#include "Launcher/Gui/GuiLauncher.hpp"
+#include "Launcher/Gui/PauseMenuWindow.hpp"
+#endif
 
 #include <atomic>
 #include <cstdint>

@@ -624,6 +624,7 @@ namespace MphRead::Mods::Launcher::Gui
                     }
 
                     auto tile = std::make_shared<MapTile>(*tileControl, room);
+                    _adapter.AttachMapTile(*tileControl, tile);
                     tile->Selected(StringEquals(room, current));
                     if (!_first)
                     {
@@ -655,6 +656,7 @@ namespace MphRead::Mods::Launcher::Gui
         }
         _back = std::make_unique<MenuEntry>(
             *_backControl, std::u16string(u"Back"), std::u16string{}, 13.0);
+        _adapter.AttachMenuEntry(*_backControl, *_back);
         _back->Accent(GuiTheme::TextDim);
         const MapPickerViewAdapter::ElementHandle backElement
             = _adapter.ElementOfMenuEntry(*_backControl);

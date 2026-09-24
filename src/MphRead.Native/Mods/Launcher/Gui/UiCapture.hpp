@@ -222,6 +222,12 @@ namespace MphRead::Mods::Launcher::Gui
     // Native equivalent of C# internal static class UiCapture. The adapter is
     // the unavoidable platform boundary for Avalonia/System.IO operations;
     // sequencing and state remain pair-local here.
+    namespace Detail
+    {
+        // The platform's own capture adapter, supplied by the GUI host.
+        [[nodiscard]] UiCaptureAdapter& UiCaptureAdapterInstance();
+    }
+
     class UiCapture final
     {
     public:

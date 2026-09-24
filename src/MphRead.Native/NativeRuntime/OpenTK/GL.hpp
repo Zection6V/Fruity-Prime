@@ -79,9 +79,18 @@ namespace OpenTK::Graphics::OpenGL
         enum class FramebufferParameterName : std::int32_t { FramebufferAttachmentDepthSize = 0x8216 };
         enum class FramebufferTarget : std::int32_t { ReadFramebuffer = 0x8CA8, Framebuffer = 0x8D40 };
         enum class ListMode : std::int32_t { Compile = 0x1300 };
-        enum class PixelFormat : std::int32_t { Rgb = 0x1907, Rgba = 0x1908, DepthStencil = 0x84F9 };
-        enum class PixelInternalFormat : std::int32_t { Rgb = 0x1907, Rgba = 0x1908, Depth24Stencil8 = 0x88F0 };
-        enum class PixelStoreParameter : std::int32_t { PackAlignment = 0x0D05 };
+        enum class PixelFormat : std::int32_t
+        {
+            Alpha = 0x1906, Red = 0x1903, Rgb = 0x1907, Rgba = 0x1908, DepthStencil = 0x84F9
+        };
+        enum class PixelInternalFormat : std::int32_t
+        {
+            Alpha = 0x1906, Red = 0x1903, Rgb = 0x1907, Rgba = 0x1908, Depth24Stencil8 = 0x88F0
+        };
+        enum class PixelStoreParameter : std::int32_t
+        {
+            UnpackAlignment = 0x0CF5, PackAlignment = 0x0D05
+        };
         enum class PixelType : std::int32_t { UnsignedByte = 0x1401, UnsignedInt248 = 0x84FA };
         enum class PolygonMode : std::int32_t { Line = 0x1B01, Fill = 0x1B02 };
         enum class PrimitiveType : std::int32_t
@@ -165,6 +174,7 @@ namespace OpenTK::Graphics::OpenGL
             RenderbufferTarget renderbuffertarget, std::int32_t renderbuffer);
         void FramebufferTexture2D(FramebufferTarget target, FramebufferAttachment attachment,
             TextureTarget textarget, std::int32_t texture, std::int32_t level);
+        void DeleteFramebuffer(std::int32_t framebuffer);
         [[nodiscard]] std::int32_t GenFramebuffer();
         [[nodiscard]] std::int32_t GenLists(std::int32_t range);
         [[nodiscard]] std::int32_t GenRenderbuffer();

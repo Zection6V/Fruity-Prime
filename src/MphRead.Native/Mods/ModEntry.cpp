@@ -1156,7 +1156,9 @@ namespace
 #if defined(MPHREAD_AVALONIA)
         try
         {
-            return MphRead::Mods::Launcher::Gui::UiCapture::Run(directory);
+            return MphRead::Mods::Launcher::Gui::UiCapture::Run(
+                MphRead::Mods::Launcher::Gui::Detail::UiCaptureAdapterInstance(),
+                directory);
         }
         catch (const std::exception& ex)
         {

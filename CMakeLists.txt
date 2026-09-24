@@ -58,9 +58,17 @@ target_compile_features(fruity_mphread_native PUBLIC cxx_std_20)
 target_link_libraries(fruity_mphread_native PUBLIC fruity_ncsfplay_native Threads::Threads ZLIB::ZLIB)
 set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Native")
 
+# The windowed launcher. The name is upstream's, from the toolkit the C# build
+# uses; here it selects NativeRuntime/Avalonia, which is the same screens on
+# NativeRuntime/Gui's own toolkit.
+if(NOT ANDROID)
+    target_compile_definitions(fruity_mphread_native PUBLIC MPHREAD_AVALONIA)
+endif()
+
 if(WIN32)
     target_compile_definitions(fruity_mphread_native PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    target_link_libraries(fruity_mphread_native PUBLIC ws2_32 bcrypt)
+    # The launcher's file picker is the platform's own common dialog.
+    target_link_libraries(fruity_mphread_native PUBLIC ws2_32 bcrypt comdlg32)
 endif()
 
 # The renderer's GL entry points and the sound mixer's OpenAL ones, which the
@@ -71,6 +79,10 @@ if(NOT ANDROID)
 
     find_package(glfw3 CONFIG REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC glfw)
+
+    # The launcher's text, which Avalonia rasterises on the C# side.
+    find_package(Freetype REQUIRED)
+    target_link_libraries(fruity_mphread_native PUBLIC Freetype::Freetype)
 
     find_library(FRUITY_OPENAL_LIBRARY NAMES openal OpenAL OpenAL32)
     if(FRUITY_OPENAL_LIBRARY)
@@ -88,6 +100,31 @@ if(NOT ANDROID)
     add_executable(fruity_prime "${CMAKE_CURRENT_SOURCE_DIR}/src/FruityPrime/Main.cpp")
     target_link_libraries(fruity_prime PRIVATE fruity_mphread_native)
     set_target_properties(fruity_prime PROPERTIES OUTPUT_NAME "FruityPrime")
+
+    if(MINGW)
+        # The compiler's own runtime goes into the binary. Nobody running the
+        # game has the toolchain installed, and these three DLLs are the ones
+        # they would otherwise be missing.
+        target_link_options(fruity_prime PRIVATE
+            -static-libgcc -static-libstdc++
+            -Wl,-Bstatic,--whole-archive -lwinpthread
+            -Wl,--no-whole-archive,-Bdynamic)
+
+        # Everything else the binary loads -- GLFW, OpenAL, zlib, curl,
+        # libarchive and whatever those need in turn -- is copied next to it,
+        # so the build output runs as it stands.
+        find_program(FRUITY_OBJDUMP NAMES objdump)
+        get_filename_component(FRUITY_TOOLCHAIN_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        if(FRUITY_OBJDUMP)
+            add_custom_command(TARGET fruity_prime POST_BUILD
+                COMMAND "${CMAKE_COMMAND}"
+                    "-DBINARY=$<TARGET_FILE:fruity_prime>"
+                    "-DSEARCH_DIR=${FRUITY_TOOLCHAIN_BIN}"
+                    "-DOBJDUMP=${FRUITY_OBJDUMP}"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/build/copy-runtime-dlls.cmake"
+                VERBATIM)
+        endif()
+    endif()
 endif()
 
 if(CMAKE_DL_LIBS)

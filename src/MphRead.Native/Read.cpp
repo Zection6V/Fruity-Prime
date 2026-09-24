@@ -1028,19 +1028,22 @@ namespace MphRead
             const std::int32_t translationCount = ReadDetail::ManagedInt32(
                 raw.AnimationOffset - raw.TranslateLutOffset) / 4;
             auto scales = std::make_shared<std::vector<float>>();
-            for (const Fixed& value : *DoOffsets<Fixed>(bytes, raw.ScaleLutOffset, scaleCount))
+            const auto scaleLut = DoOffsets<Fixed>(bytes, raw.ScaleLutOffset, scaleCount);
+            for (const Fixed& value : *scaleLut)
             {
                 scales->push_back(value.FloatValue());
             }
             auto rotations = std::make_shared<std::vector<float>>();
             rotations->reserve(ManagedCapacity(rotationCount));
-            for (std::uint16_t value : *DoOffsets<std::uint16_t>(bytes, raw.RotateLutOffset, rotationCount))
+            const auto rotateLut = DoOffsets<std::uint16_t>(bytes, raw.RotateLutOffset, rotationCount);
+            for (std::uint16_t value : *rotateLut)
             {
                 rotations->push_back(static_cast<float>(value) / 65536.0F
                     * 2.0F * std::numbers::pi_v<float>);
             }
             auto translations = std::make_shared<std::vector<float>>();
-            for (const Fixed& value : *DoOffsets<Fixed>(bytes, raw.TranslateLutOffset, translationCount))
+            const auto translateLut = DoOffsets<Fixed>(bytes, raw.TranslateLutOffset, translationCount);
+            for (const Fixed& value : *translateLut)
             {
                 translations->push_back(value.FloatValue());
             }
@@ -1079,7 +1082,8 @@ namespace MphRead
             const std::int32_t colorCount = ReadDetail::ManagedInt32(
                 raw.AnimationOffset - raw.ColorLutOffset);
             auto colors = std::make_shared<std::vector<float>>();
-            for (std::uint8_t value : *DoOffsets<std::uint8_t>(bytes, raw.ColorLutOffset, colorCount))
+            const auto colorLut = DoOffsets<std::uint8_t>(bytes, raw.ColorLutOffset, colorCount);
+            for (std::uint8_t value : *colorLut)
             {
                 colors->push_back(static_cast<float>(value));
             }
@@ -1130,13 +1134,15 @@ namespace MphRead
             std::int32_t translationCount = ReadDetail::ManagedInt32(
                 raw.AnimationOffset - raw.TranslateLutOffset) / 4;
             auto scales = std::make_shared<std::vector<float>>();
-            for (const Fixed& value : *DoOffsets<Fixed>(bytes, raw.ScaleLutOffset, scaleCount))
+            const auto scaleLut2 = DoOffsets<Fixed>(bytes, raw.ScaleLutOffset, scaleCount);
+            for (const Fixed& value : *scaleLut2)
             {
                 scales->push_back(value.FloatValue());
             }
             auto rotations = std::make_shared<std::vector<float>>();
             rotations->reserve(ManagedCapacity(rotationCount));
-            for (std::uint16_t value : *DoOffsets<std::uint16_t>(bytes, raw.RotateLutOffset, rotationCount))
+            const auto rotateLut2 = DoOffsets<std::uint16_t>(bytes, raw.RotateLutOffset, rotationCount);
+            for (std::uint16_t value : *rotateLut2)
             {
                 rotations->push_back(static_cast<float>(value) / 65536.0F
                     * 2.0F * std::numbers::pi_v<float>);
@@ -1146,7 +1152,8 @@ namespace MphRead
                 translationCount = 26;
             }
             auto translations = std::make_shared<std::vector<float>>();
-            for (const Fixed& value : *DoOffsets<Fixed>(bytes, raw.TranslateLutOffset, translationCount))
+            const auto translateLut2 = DoOffsets<Fixed>(bytes, raw.TranslateLutOffset, translationCount);
+            for (const Fixed& value : *translateLut2)
             {
                 translations->push_back(value.FloatValue());
             }
@@ -1496,8 +1503,9 @@ namespace MphRead
         const std::span<const std::uint8_t> bytes(storage);
         const RawEffect rawEffect = ReadStruct<RawEffect>(bytes);
         auto funcs = std::make_shared<Effects::EffectFuncDictionary>();
-        for (std::uint32_t offset : *DoOffsets<std::uint32_t>(
-            bytes, rawEffect.FuncOffset, rawEffect.FuncCount))
+        const auto funcOffsets = DoOffsets<std::uint32_t>(
+            bytes, rawEffect.FuncOffset, rawEffect.FuncCount);
+        for (std::uint32_t offset : *funcOffsets)
         {
             const std::uint32_t funcId = SpanReadUint(bytes, offset);
             const std::uint32_t paramOffset = SpanReadUint(bytes, offset + 4U);
@@ -1521,8 +1529,9 @@ namespace MphRead
             const RawEffectElement element = DoOffset<RawEffectElement>(bytes, offset);
             auto particles = std::make_shared<std::vector<std::shared_ptr<Particle>>>();
             particles->reserve(ManagedCapacity(ReadDetail::ManagedInt32(element.ParticleCount)));
-            for (std::uint32_t nameOffset : *DoOffsets<std::uint32_t>(
-                bytes, element.ParticleOffset, element.ParticleCount))
+            const auto nameOffsets = DoOffsets<std::uint32_t>(
+                bytes, element.ParticleOffset, element.ParticleCount);
+            for (std::uint32_t nameOffset : *nameOffsets)
             {
                 particles->push_back(GetParticle(
                     element.ModelNameString(), ReadString(bytes, nameOffset, 16)));

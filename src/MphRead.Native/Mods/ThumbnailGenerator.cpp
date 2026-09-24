@@ -1223,8 +1223,13 @@ namespace MphRead::Mods
                 const std::int32_t layerId = Metadata::GetMultiplayerEntityLayer(
                     GameMode::Battle, Network::NetLaunch::RoomPlayerCount);
 
-                for (const auto& entity : *Read::GetEntities(
-                    *meta.EntityPath, layerId, meta.FirstHunt))
+                // The list has to be held: iterating over the dereferenced
+                // return value frees it before the first step, and reading a
+                // destroyed entity is what threw std::bad_cast below.
+                const std::shared_ptr<const std::vector<std::shared_ptr<Entity>>>
+                    entities = Read::GetEntities(
+                        *meta.EntityPath, layerId, meta.FirstHunt);
+                for (const auto& entity : *entities)
                 {
                     if (entity->Type != EntityType::PlayerSpawn
                         && entity->Type != EntityType::FhPlayerSpawn)

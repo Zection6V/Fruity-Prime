@@ -36,6 +36,7 @@ namespace
     using PFN_CompileShader = void(APIENTRY*)(GLuint);
     using PFN_CreateProgram = GLuint(APIENTRY*)();
     using PFN_CreateShader = GLuint(APIENTRY*)(GLenum);
+    using PFN_DeleteFramebuffers = void(APIENTRY*)(GLsizei, const GLuint*);
     using PFN_DeleteShader = void(APIENTRY*)(GLuint);
     using PFN_DetachShader = void(APIENTRY*)(GLuint, GLuint);
     using PFN_FramebufferRenderbuffer = void(APIENTRY*)(GLenum, GLenum, GLenum, GLuint);
@@ -121,6 +122,7 @@ namespace
     MPHREAD_GL_ENTRY(PFN_CompileShader, CompileShader)
     MPHREAD_GL_ENTRY(PFN_CreateProgram, CreateProgram)
     MPHREAD_GL_ENTRY(PFN_CreateShader, CreateShader)
+    MPHREAD_GL_ENTRY(PFN_DeleteFramebuffers, DeleteFramebuffers)
     MPHREAD_GL_ENTRY(PFN_DeleteShader, DeleteShader)
     MPHREAD_GL_ENTRY(PFN_DetachShader, DetachShader)
     MPHREAD_GL_ENTRY(PFN_FramebufferRenderbuffer, FramebufferRenderbuffer)
@@ -376,6 +378,15 @@ namespace OpenTK::Graphics::OpenGL::GL
         {
             fn(ToEnum(target), ToEnum(attachment), ToEnum(textarget),
                 static_cast<GLuint>(texture), level);
+        }
+    }
+
+    void DeleteFramebuffer(std::int32_t framebuffer)
+    {
+        const GLuint name = static_cast<GLuint>(framebuffer);
+        if (const auto fn = GetDeleteFramebuffers())
+        {
+            fn(1, &name);
         }
     }
 

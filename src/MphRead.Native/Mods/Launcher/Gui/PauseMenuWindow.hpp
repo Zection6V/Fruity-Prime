@@ -279,3 +279,11 @@ namespace MphRead::Mods::Launcher::Gui
             CreatePauseMenuWindowAdapter();
     }
 }
+
+namespace MphRead::Mods::Detail
+{
+    // PauseMenu's own calls into the window, which C# makes directly.
+    void PauseMenuGuiFollowGameWindow();
+    [[nodiscard]] bool PauseMenuGuiOpenWindow();
+    void PauseMenuGuiCloseWindowIfOpen();
+}

@@ -349,11 +349,17 @@ namespace MphRead::Mods::Launcher::Gui
             CreateMapTileControl() = 0;
         [[nodiscard]] virtual ElementHandle ElementOfMapTile(
             MapTileControlAdapter& tile) = 0;
+        // The tile built over that control, so the platform can draw it and
+        // route the pointer to it: in Avalonia the two are one object.
+        virtual void AttachMapTile(
+            MapTileControlAdapter& control, const std::shared_ptr<MapTile>& tile) = 0;
 
         [[nodiscard]] virtual std::shared_ptr<MenuEntryControlAdapter>
             CreateMenuEntryControl() = 0;
         [[nodiscard]] virtual ElementHandle ElementOfMenuEntry(
             MenuEntryControlAdapter& entry) = 0;
+        virtual void AttachMenuEntry(
+            MenuEntryControlAdapter& control, MenuEntry& entry) = 0;
 
         [[nodiscard]] virtual ElementHandle CreateTextBlock() = 0;
         virtual void SetTextBlockText(

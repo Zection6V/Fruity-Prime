@@ -106,9 +106,15 @@ namespace
             EnsureGlfw();
             ::glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, settings.ApiMajor);
             ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, settings.ApiMinor);
-            // ContextProfile.Compatability: the immediate-mode calls the
-            // renderer makes are only there in the compatibility profile.
-            ::glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_ANY_PROFILE);
+            // ContextProfile.Compatability, and it has to be asked for by
+            // name: the renderer is written in immediate mode, which a core
+            // profile does not have, and a driver handed ANY_PROFILE with a
+            // version of 3.2 or above gives a core one -- every frame then
+            // comes out black with nothing in any log to say why.
+            ::glfwWindowHint(GLFW_OPENGL_PROFILE,
+                settings.Profile == WindowSettings::ContextProfile::Compatability
+                    ? GLFW_OPENGL_COMPAT_PROFILE
+                    : GLFW_OPENGL_ANY_PROFILE);
             ::glfwWindowHint(GLFW_VISIBLE, settings.StartVisible ? GLFW_TRUE : GLFW_FALSE);
             _handle = ::glfwCreateWindow(
                 settings.ClientSize.X, settings.ClientSize.Y,

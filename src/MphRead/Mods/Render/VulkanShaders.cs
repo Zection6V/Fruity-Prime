@@ -266,10 +266,16 @@ void main()
         c = u.fade_color;
     }
     else {
-        c = texture(sampler2D(Tex0, Samp0), fs_tex);
+        vec2 texUv = fs_tex;
+        if (u.params1.y > 0.5) texUv.y = 1.0 - texUv.y;
+        c = texture(sampler2D(Tex0, Samp0), texUv);
         if (u.rtt0.y > 0.5) {
-            float maskY = gl_FragCoord.y + (u.rtt0.z - u.rtt0.w) / 2.0;
+            // Vulkan FragCoord has an upper-left origin. The original RTT
+            // shader's mask math is defined in OpenGL window coordinates.
+            float glY = u.rtt0.w - gl_FragCoord.y;
+            float maskY = glY + (u.rtt0.z - u.rtt0.w) / 2.0;
             vec2 maskUv = vec2(gl_FragCoord.x / u.rtt0.z, 1.0 - maskY / u.rtt0.z);
+            if (u.params1.z > 0.5) maskUv.y = 1.0 - maskUv.y;
             if (texture(sampler2D(Tex1, Samp1), maskUv).a > 0.0) c.a = 0.0;
         }
         c.a *= u.rtt0.x;
@@ -322,9 +328,11 @@ void main()
     float value2 = shift_value(index + 1);
     float value = mix(value1, value2, u.shift0.z) * u.shift0.y;
     vec2 shifted = vec2(fs_tex.x + value, fs_tex.y);
+    vec2 sampleUv = shifted;
+    if (u.params1.y > 0.5) sampleUv.y = 1.0 - sampleUv.y;
     vec4 c;
     if (shifted.x < 0.0 || shifted.x > 1.0) c = vec4(0.0, 0.0, 0.0, 1.0);
-    else c = texture(sampler2D(Tex0, Samp0), shifted);
+    else c = texture(sampler2D(Tex0, Samp0), sampleUv);
 
     float white_fac = u.shift0.w;
     if (white_fac != 0.0) {

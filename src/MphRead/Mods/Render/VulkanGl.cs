@@ -100,6 +100,11 @@ namespace MphRead.Mods.Render
             public uint Height;
             public bool Depth;
             public bool Linear;
+            // CPU-uploaded textures keep the caller's row/UV convention.
+            // A Vulkan framebuffer, however, has a top-left UV origin while
+            // Fruity's fullscreen quads carry OpenGL framebuffer coordinates
+            // (top is v=1). RTT/shift sampling flips only these textures.
+            public bool FlipVWhenSampledAsOpenGl;
             public SamplerAddressMode AddressU = SamplerAddressMode.Wrap;
             public SamplerAddressMode AddressV = SamplerAddressMode.Wrap;
             public int Version;
@@ -1062,6 +1067,14 @@ namespace MphRead.Mods.Render
             return sampler;
         }
 
+        private static bool BoundTextureNeedsOpenGlVFlip(int unit)
+        {
+            int name = _boundTextures[unit];
+            return name != 0
+                && _textures.TryGetValue(name, out TextureInfo? texture)
+                && texture.FlipVWhenSampledAsOpenGl;
+        }
+
         private static ProgramInfo CurrentProgramInfo()
         {
             if (_currentProgram != 0 && _programs.TryGetValue(_currentProgram, out ProgramInfo? info))
@@ -1108,7 +1121,9 @@ namespace MphRead.Mods.Render
             int alphaMode = !_alphaTest ? 0
                 : _alphaFunction == AlphaFunction.Equal ? 1
                 : _alphaFunction == AlphaFunction.Less ? 2 : 0;
-            WriteVector4(data, Params1Offset, new Vector4(alphaMode, 0, 0, 0));
+            float flipTex0 = BoundTextureNeedsOpenGlVFlip(0) ? 1f : 0f;
+            float flipTex1 = BoundTextureNeedsOpenGlVFlip(1) ? 1f : 0f;
+            WriteVector4(data, Params1Offset, new Vector4(alphaMode, flipTex0, flipTex1, 0));
             WriteVector4(data, Params2Offset, new Vector4(
                 _polygonOffsetFactor, _polygonOffsetUnits, _polygonOffsetFill ? 1f : 0f, 0f));
 
@@ -1416,6 +1431,7 @@ namespace MphRead.Mods.Render
             _commands!.CopyTexture(src, (uint)x, (uint)y, 0, 0, 0,
                 dst.Texture, (uint)xoffset, (uint)yoffset, 0, 0, 0,
                 (uint)width, (uint)height, 1, 1);
+            dst.FlipVWhenSampledAsOpenGl = _gd.IsUvOriginTopLeft;
         }
 
         public static void ReadPixels<T>(int x, int y, int width, int height,
@@ -1531,9 +1547,19 @@ namespace MphRead.Mods.Render
             if (id == 0 || !_framebuffers.TryGetValue(id, out FramebufferInfo? fb)) return;
             SynchronizeResourceMutation();
             fb.Dispose();
-            if (attachment == GLFramebufferAttachment.ColorAttachment0) fb.ColorTexture = texture;
+            if (attachment == GLFramebufferAttachment.ColorAttachment0)
+            {
+                fb.ColorTexture = texture;
+                if (texture != 0)
+                {
+                    GetTexture(texture).FlipVWhenSampledAsOpenGl = _gd!.IsUvOriginTopLeft;
+                }
+            }
             else if (attachment == GLFramebufferAttachment.DepthStencilAttachment
-                || attachment == GLFramebufferAttachment.DepthAttachment) fb.DepthTexture = texture;
+                || attachment == GLFramebufferAttachment.DepthAttachment)
+            {
+                fb.DepthTexture = texture;
+            }
             DisposePipelineCache();
         }
 

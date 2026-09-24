@@ -21,6 +21,7 @@
 #include <intrin.h>
 #else
 #if defined(__APPLE__)
+#include <TargetConditionals.h>
 #include <climits>
 #include <mach-o/dyld.h>
 #endif
@@ -147,6 +148,43 @@ namespace MphRead::NativeRuntime
         return true;
 #else
         return false;
+#endif
+    }
+
+    bool IsMacOS()
+    {
+#if defined(__APPLE__)
+        return TARGET_OS_OSX != 0;
+#else
+        return false;
+#endif
+    }
+
+    std::string EnvironmentUserProfile()
+    {
+#if defined(_WIN32)
+        // Environment.GetFolderPath reads the known folder; USERPROFILE is
+        // what .NET falls back to and what every shell here sets.
+        std::vector<wchar_t> buffer(260);
+        for (;;)
+        {
+            const DWORD length = ::GetEnvironmentVariableW(
+                L"USERPROFILE", buffer.data(), static_cast<DWORD>(buffer.size()));
+            if (length == 0)
+            {
+                return std::string();
+            }
+            if (length < buffer.size())
+            {
+                const std::wstring wide(buffer.data(), length);
+                const std::u8string text = std::filesystem::path(wide).u8string();
+                return std::string(text.begin(), text.end());
+            }
+            buffer.resize(length);
+        }
+#else
+        const char* const home = std::getenv("HOME");
+        return home == nullptr ? std::string() : std::string(home);
 #endif
     }
 

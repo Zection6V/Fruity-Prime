@@ -23,6 +23,12 @@ namespace MphRead::NativeRuntime
 
     // OperatingSystem.IsAndroid().
     [[nodiscard]] bool IsAndroid();
+    // OperatingSystem.IsMacOS().
+    [[nodiscard]] bool IsMacOS();
+
+    // Environment.GetFolderPath(Environment.SpecialFolder.UserProfile): the
+    // home directory, or an empty string where there is none, as .NET returns.
+    [[nodiscard]] std::string EnvironmentUserProfile();
 
     // AppContext.BaseDirectory: the directory the executable is in, UTF-8,
     // ending in a separator.

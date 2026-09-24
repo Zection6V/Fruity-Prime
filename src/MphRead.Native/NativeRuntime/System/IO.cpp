@@ -36,6 +36,13 @@ namespace MphRead::NativeRuntime
 #endif
         }
 
+        // Path.DirectorySeparatorChar.
+#if defined(_WIN32)
+        constexpr char PreferredSeparator = '\\';
+#else
+        constexpr char PreferredSeparator = '/';
+#endif
+
         [[noreturn]] void ThrowFileTooLong(const std::string& fullPath)
         {
             (void)fullPath;
@@ -743,4 +750,185 @@ namespace MphRead::NativeRuntime
         return name;
     }
 
+    namespace
+    {
+        // Path.IsPathRooted(path).
+        [[nodiscard]] bool IsPathRooted(std::string_view path) noexcept
+        {
+            return PathRootLength(path) > 0;
+        }
+
+        // Path.JoinInternal: one separator between the parts, and only where
+        // the left part does not already end in one.
+        void AppendJoined(std::string& result, std::string_view part)
+        {
+            if (!result.empty() && !IsDirectorySeparator(result.back())
+                && !(!part.empty() && IsDirectorySeparator(part.front())))
+            {
+                result.push_back(PreferredSeparator);
+            }
+            result.append(part);
+        }
+    }
+
+    std::string PathCombine(std::string_view path1, std::string_view path2)
+    {
+        if (path1.empty())
+        {
+            return std::string(path2);
+        }
+        if (path2.empty())
+        {
+            return std::string(path1);
+        }
+        if (IsPathRooted(path2))
+        {
+            return std::string(path2);
+        }
+        std::string result(path1);
+        AppendJoined(result, path2);
+        return result;
+    }
+
+    std::string PathCombine(
+        std::string_view path1, std::string_view path2, std::string_view path3)
+    {
+        if (path1.empty())
+        {
+            return PathCombine(path2, path3);
+        }
+        if (path2.empty())
+        {
+            return PathCombine(path1, path3);
+        }
+        if (path3.empty())
+        {
+            return PathCombine(path1, path2);
+        }
+        if (IsPathRooted(path3))
+        {
+            return std::string(path3);
+        }
+        if (IsPathRooted(path2))
+        {
+            return PathCombine(path2, path3);
+        }
+        std::string result(path1);
+        AppendJoined(result, path2);
+        AppendJoined(result, path3);
+        return result;
+    }
+
+    std::string PathCombine(std::string_view path1, std::string_view path2,
+        std::string_view path3, std::string_view path4)
+    {
+        if (path1.empty())
+        {
+            return PathCombine(path2, path3, path4);
+        }
+        if (path2.empty())
+        {
+            return PathCombine(path1, path3, path4);
+        }
+        if (path3.empty())
+        {
+            return PathCombine(path1, path2, path4);
+        }
+        if (path4.empty())
+        {
+            return PathCombine(path1, path2, path3);
+        }
+        if (IsPathRooted(path4))
+        {
+            return std::string(path4);
+        }
+        if (IsPathRooted(path3))
+        {
+            return PathCombine(path3, path4);
+        }
+        if (IsPathRooted(path2))
+        {
+            return PathCombine(path2, path3, path4);
+        }
+        std::string result(path1);
+        AppendJoined(result, path2);
+        AppendJoined(result, path3);
+        AppendJoined(result, path4);
+        return result;
+    }
+
+    std::string PathGetExtension(std::string_view path)
+    {
+        for (std::size_t i = path.size(); i > 0; --i)
+        {
+            const char value = path[i - 1];
+            if (value == '.')
+            {
+                // ".ext" only when something follows the dot.
+                return i == path.size() ? std::string() : std::string(path.substr(i - 1));
+            }
+            if (IsDirectorySeparator(value))
+            {
+                break;
+            }
+        }
+        return std::string();
+    }
+
+    DirectoryInfo::DirectoryInfo(std::string_view path)
+    {
+        _fullName = PathGetFullPath(std::string(path));
+        // GetFullPath keeps a trailing separator; .NET's DirectoryInfo.Name
+        // and Parent both look past one, so it is dropped here -- except where
+        // the whole path is the root, which has nothing else in it.
+        const std::size_t root = PathRootLength(_fullName);
+        while (_fullName.size() > root && IsDirectorySeparator(_fullName.back()))
+        {
+            _fullName.pop_back();
+        }
+        std::size_t start = _fullName.size();
+        while (start > root && !IsDirectorySeparator(_fullName[start - 1]))
+        {
+            --start;
+        }
+        _name = _fullName.substr(start);
+    }
+
+    const std::string& DirectoryInfo::Name() const noexcept
+    {
+        return _name;
+    }
+
+    const std::string& DirectoryInfo::FullName() const noexcept
+    {
+        return _fullName;
+    }
+
+    std::string DirectoryInfo::Extension() const
+    {
+        return PathGetExtension(_name);
+    }
+
+    std::shared_ptr<DirectoryInfo> DirectoryInfo::Parent() const
+    {
+        const std::size_t root = PathRootLength(_fullName);
+        if (_fullName.size() <= root)
+        {
+            return nullptr;
+        }
+        std::size_t end = _fullName.size();
+        while (end > root && !IsDirectorySeparator(_fullName[end - 1]))
+        {
+            --end;
+        }
+        while (end > root && IsDirectorySeparator(_fullName[end - 1]))
+        {
+            --end;
+        }
+        if (end == 0)
+        {
+            return nullptr;
+        }
+        return std::make_shared<DirectoryInfo>(_fullName.substr(0, end == root ? root : end));
+    }
 }

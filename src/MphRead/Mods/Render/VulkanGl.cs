@@ -754,7 +754,7 @@ namespace MphRead.Mods.Render
         {
             if (_vertexBuffer == null || vertexBytes > _vertexBufferBytes)
             {
-                _gd!.WaitForIdle();
+                SynchronizeResourceMutation();
                 _vertexBuffer?.Dispose();
                 _vertexBufferBytes = Math.Max(vertexBytes, Math.Max(_vertexBufferBytes * 2, 65536u));
                 _vertexBuffer = _factory!.CreateBuffer(new BufferDescription(_vertexBufferBytes,
@@ -762,7 +762,7 @@ namespace MphRead.Mods.Render
             }
             if (_indexBuffer == null || indexBytes > _indexBufferBytes)
             {
-                _gd!.WaitForIdle();
+                SynchronizeResourceMutation();
                 _indexBuffer?.Dispose();
                 _indexBufferBytes = Math.Max(indexBytes, Math.Max(_indexBufferBytes * 2, 32768u));
                 _indexBuffer = _factory!.CreateBuffer(new BufferDescription(_indexBufferBytes,

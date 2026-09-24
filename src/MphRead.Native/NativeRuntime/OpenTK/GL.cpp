@@ -24,6 +24,10 @@
 #endif
 #endif
 
+#ifndef APIENTRY
+#define APIENTRY
+#endif
+
 // The GL entry points this file calls. Only the 1.1 set is exported by the
 // platform's own library; everything newer is resolved at run time, which is
 // what the driver requires and what OpenTK's own loader does.

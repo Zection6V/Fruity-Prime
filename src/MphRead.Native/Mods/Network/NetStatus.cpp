@@ -4,6 +4,7 @@
 #include "NetProtocol.hpp"
 #include "../../Formats/Formats.hpp"
 #include "../../Metadata/Metadata.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <bit>
@@ -39,6 +40,9 @@
 #include <sys/time.h>
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 
 namespace MphRead::Mods::Network::Detail
 {
@@ -139,115 +143,6 @@ namespace
         return std::move(*result);
     }
 
-    [[nodiscard]] bool IsManagedWhiteSpace(std::uint32_t codePoint) noexcept
-    {
-        return (codePoint >= 0x0009U && codePoint <= 0x000DU)
-            || codePoint == 0x0020U
-            || codePoint == 0x0085U
-            || codePoint == 0x00A0U
-            || codePoint == 0x1680U
-            || (codePoint >= 0x2000U && codePoint <= 0x200AU)
-            || codePoint == 0x2028U
-            || codePoint == 0x2029U
-            || codePoint == 0x202FU
-            || codePoint == 0x205FU
-            || codePoint == 0x3000U;
-    }
-
-    [[nodiscard]] bool IsNullOrWhiteSpace(const std::string& value) noexcept
-    {
-        if (value.empty())
-        {
-            return true;
-        }
-
-        for (std::size_t index = 0; index < value.size();)
-        {
-            const auto first = static_cast<unsigned char>(value[index]);
-            std::uint32_t codePoint = 0;
-            std::size_t consumed = 1;
-            bool valid = true;
-
-            if (first < 0x80U)
-            {
-                codePoint = first;
-            }
-            else if (first >= 0xC2U && first <= 0xDFU
-                && index + 1 < value.size())
-            {
-                const auto b1 = static_cast<unsigned char>(value[index + 1]);
-                if ((b1 & 0xC0U) != 0x80U)
-                {
-                    valid = false;
-                }
-                else
-                {
-                    codePoint = (static_cast<std::uint32_t>(first & 0x1FU) << 6)
-                        | static_cast<std::uint32_t>(b1 & 0x3FU);
-                    consumed = 2;
-                }
-            }
-            else if (first >= 0xE0U && first <= 0xEFU
-                && index + 2 < value.size())
-            {
-                const auto b1 = static_cast<unsigned char>(value[index + 1]);
-                const auto b2 = static_cast<unsigned char>(value[index + 2]);
-                const bool continuation = (b1 & 0xC0U) == 0x80U
-                    && (b2 & 0xC0U) == 0x80U;
-                const bool notOverlong = first != 0xE0U || b1 >= 0xA0U;
-                const bool notSurrogate = first != 0xEDU || b1 <= 0x9FU;
-                if (!continuation || !notOverlong || !notSurrogate)
-                {
-                    valid = false;
-                }
-                else
-                {
-                    codePoint = (static_cast<std::uint32_t>(first & 0x0FU) << 12)
-                        | (static_cast<std::uint32_t>(b1 & 0x3FU) << 6)
-                        | static_cast<std::uint32_t>(b2 & 0x3FU);
-                    consumed = 3;
-                }
-            }
-            else if (first >= 0xF0U && first <= 0xF4U
-                && index + 3 < value.size())
-            {
-                const auto b1 = static_cast<unsigned char>(value[index + 1]);
-                const auto b2 = static_cast<unsigned char>(value[index + 2]);
-                const auto b3 = static_cast<unsigned char>(value[index + 3]);
-                const bool continuation = (b1 & 0xC0U) == 0x80U
-                    && (b2 & 0xC0U) == 0x80U
-                    && (b3 & 0xC0U) == 0x80U;
-                const bool notOverlong = first != 0xF0U || b1 >= 0x90U;
-                const bool inRange = first != 0xF4U || b1 <= 0x8FU;
-                if (!continuation || !notOverlong || !inRange)
-                {
-                    valid = false;
-                }
-                else
-                {
-                    codePoint = (static_cast<std::uint32_t>(first & 0x07U) << 18)
-                        | (static_cast<std::uint32_t>(b1 & 0x3FU) << 12)
-                        | (static_cast<std::uint32_t>(b2 & 0x3FU) << 6)
-                        | static_cast<std::uint32_t>(b3 & 0x3FU);
-                    consumed = 4;
-                }
-            }
-            else
-            {
-                valid = false;
-            }
-
-            // A non-ASCII scalar above U+FFFF occupies surrogate chars in the
-            // managed string, and neither surrogate is whitespace.
-            if (!valid || codePoint > 0xFFFFU || !IsManagedWhiteSpace(codePoint))
-            {
-                return false;
-            }
-            index += consumed;
-        }
-        return true;
-    }
-
     [[nodiscard]] std::int32_t StopwatchElapsedMilliseconds(
         std::chrono::steady_clock::time_point started) noexcept
     {
@@ -274,7 +169,7 @@ namespace MphRead::Mods::Network
     ServerStatus NetStatus::Query(const std::string& address, std::int32_t port,
         bool allowJoinProbe, std::int32_t timeoutMs)
     {
-        if (IsNullOrWhiteSpace(address))
+        if (StringIsNullOrWhiteSpace(address))
         {
             return ServerStatus::Offline("No server address.");
         }

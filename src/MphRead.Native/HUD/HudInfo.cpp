@@ -3,6 +3,7 @@
 #include "../Export/Images.hpp"
 #include "../Read.hpp"
 #include "../Scene.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -31,6 +32,7 @@ using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
@@ -170,21 +172,6 @@ namespace
         const std::size_t start = slash == std::string::npos ? 0 : slash + 1;
         const std::size_t dot = path.find('.', start);
         return path.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
-    }
-
-    [[nodiscard]] std::string ReplaceAll(std::string value, std::string_view from, std::string_view to)
-    {
-        if (from.empty())
-        {
-            return value;
-        }
-        std::size_t position = 0;
-        while ((position = value.find(from, position)) != std::string::npos)
-        {
-            value.replace(position, from.size(), to);
-            position += to.size();
-        }
-        return value;
     }
 
     [[nodiscard]] std::string PadLeft(std::int32_t value, std::size_t width)
@@ -1212,8 +1199,8 @@ namespace MphRead::Hud
                         }
                         if (!skip)
                         {
-                            std::string directory = ReplaceAll(file, "_archives/", "");
-                            directory = ReplaceAll(std::move(directory), ".bin", "");
+                            std::string directory = StringReplace(file, "_archives/", "");
+                            directory = StringReplace(std::move(directory), ".bin", "");
                             directory = Paths::Combine(Paths::Export(), "_2D/Objects",
                                 directory, "pal_" + PadLeft(static_cast<std::int32_t>(p), 2));
                             std::filesystem::create_directories(PathFromUtf8(directory));
@@ -1380,7 +1367,7 @@ namespace MphRead::Hud
                 }
             }
 
-            const std::string name = ReplaceAll(file, "/", "--");
+            const std::string name = StringReplace(file, "/", "--");
             if (exportChars)
             {
                 std::string directory = Paths::Combine(Paths::Export(), "_2D\\Layers", name);

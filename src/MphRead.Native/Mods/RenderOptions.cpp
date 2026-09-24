@@ -1,146 +1,17 @@
 #include "RenderOptions.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 
 #include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
+using ::MphRead::NativeRuntime::StringTrimView;
+
 namespace
 {
-    constexpr bool IsDotNetWhiteSpace(char32_t value) noexcept
-    {
-        return (value >= U'\u0009' && value <= U'\u000D')
-            || value == U'\u0020'
-            || value == U'\u0085'
-            || value == U'\u00A0'
-            || value == U'\u1680'
-            || (value >= U'\u2000' && value <= U'\u200A')
-            || value == U'\u2028'
-            || value == U'\u2029'
-            || value == U'\u202F'
-            || value == U'\u205F'
-            || value == U'\u3000';
-    }
-
-    bool DecodeFirst(std::string_view text, char32_t& value,
-        std::size_t& length) noexcept
-    {
-        if (text.empty())
-        {
-            return false;
-        }
-
-        const auto first = static_cast<unsigned char>(text.front());
-        if (first < 0x80)
-        {
-            value = first;
-            length = 1;
-            return true;
-        }
-
-        std::size_t expected = 0;
-        char32_t codePoint = 0;
-        if ((first & 0xE0) == 0xC0)
-        {
-            expected = 2;
-            codePoint = first & 0x1F;
-        }
-        else if ((first & 0xF0) == 0xE0)
-        {
-            expected = 3;
-            codePoint = first & 0x0F;
-        }
-        else if ((first & 0xF8) == 0xF0)
-        {
-            expected = 4;
-            codePoint = first & 0x07;
-        }
-        else
-        {
-            return false;
-        }
-
-        if (text.size() < expected)
-        {
-            return false;
-        }
-        for (std::size_t index = 1; index < expected; ++index)
-        {
-            const auto next = static_cast<unsigned char>(text[index]);
-            if ((next & 0xC0) != 0x80)
-            {
-                return false;
-            }
-            codePoint = (codePoint << 6) | (next & 0x3F);
-        }
-
-        if ((expected == 2 && codePoint < 0x80)
-            || (expected == 3 && codePoint < 0x800)
-            || (expected == 4 && codePoint < 0x10000)
-            || codePoint > 0x10FFFF
-            || (codePoint >= 0xD800 && codePoint <= 0xDFFF))
-        {
-            return false;
-        }
-
-        value = codePoint;
-        length = expected;
-        return true;
-    }
-
-    bool DecodeLast(std::string_view text, char32_t& value,
-        std::size_t& length) noexcept
-    {
-        if (text.empty())
-        {
-            return false;
-        }
-
-        std::size_t start = text.size() - 1;
-        std::size_t continuation = 0;
-        while (start > 0
-            && (static_cast<unsigned char>(text[start]) & 0xC0) == 0x80
-            && continuation < 3)
-        {
-            --start;
-            ++continuation;
-        }
-
-        std::size_t decodedLength = 0;
-        if (!DecodeFirst(text.substr(start), value, decodedLength)
-            || start + decodedLength != text.size())
-        {
-            return false;
-        }
-        length = decodedLength;
-        return true;
-    }
-
-    std::string_view Trim(std::string_view text) noexcept
-    {
-        while (!text.empty())
-        {
-            char32_t value = 0;
-            std::size_t length = 0;
-            if (!DecodeFirst(text, value, length) || !IsDotNetWhiteSpace(value))
-            {
-                break;
-            }
-            text.remove_prefix(length);
-        }
-        while (!text.empty())
-        {
-            char32_t value = 0;
-            std::size_t length = 0;
-            if (!DecodeLast(text, value, length) || !IsDotNetWhiteSpace(value))
-            {
-                break;
-            }
-            text.remove_suffix(length);
-        }
-        return text;
-    }
-
     bool EqualsLowerInvariantAscii(std::string_view text,
         std::string_view expected) noexcept
     {
@@ -161,11 +32,6 @@ namespace
             }
         }
         return true;
-    }
-
-    constexpr bool IsNumberWhiteSpace(unsigned char value) noexcept
-    {
-        return value == 0x20 || (value >= 0x09 && value <= 0x0D);
     }
 
     bool TryParseInt32IntegerInvariant(std::string_view text,
@@ -392,7 +258,7 @@ namespace MphRead::Mods
             return fallback;
         }
 
-        const std::string_view text = Trim(*value);
+        const std::string_view text = StringTrimView(*value);
         if (EqualsLowerInvariantAscii(text, "on")
             || EqualsLowerInvariantAscii(text, "true")
             || EqualsLowerInvariantAscii(text, "yes"))
@@ -444,7 +310,7 @@ namespace MphRead::Mods
     {
         if (value.has_value())
         {
-            std::string_view text = Trim(*value);
+            std::string_view text = StringTrimView(*value);
             while (!text.empty() && text.back() == '%')
             {
                 text.remove_suffix(1);
@@ -464,7 +330,7 @@ namespace MphRead::Mods
     {
         if (value.has_value())
         {
-            std::string_view text = Trim(*value);
+            std::string_view text = StringTrimView(*value);
             while (!text.empty() && text.back() == '%')
             {
                 text.remove_suffix(1);

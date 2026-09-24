@@ -55,6 +55,7 @@
 #include "Update/UpdateInstall.hpp"
 #include "Update/Updater.hpp"
 #include "WindowMode.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
@@ -95,9 +96,11 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 
 // Environment.ExitCode is process state, not an immediate exit. The executable
 // wrapper is the Native equivalent of the CLR host and owns the eventual return
@@ -148,34 +151,6 @@ namespace
         return ch;
     }
 
-    [[nodiscard]] bool EqualsOrdinalIgnoreCase(std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i)
-        {
-            const unsigned char a = static_cast<unsigned char>(left[i]);
-            const unsigned char b = static_cast<unsigned char>(right[i]);
-            if (a < 0x80 && b < 0x80)
-            {
-                if (AsciiLower(static_cast<char>(a)) != AsciiLower(static_cast<char>(b)))
-                {
-                    return false;
-                }
-            }
-            else if (a != b)
-            {
-                // All names owned by ModEntry are ASCII. Non-ASCII code units
-                // therefore cannot match one of them unless they are identical;
-                // this branch also avoids locale-dependent case conversion.
-                return false;
-            }
-        }
-        return true;
-    }
-
     [[nodiscard]] std::string ToLowerAscii(std::string_view value)
     {
         std::string result(value);
@@ -202,7 +177,7 @@ namespace
 
     [[nodiscard]] bool IsFlag(std::string_view argument, std::string_view name) noexcept
     {
-        return EqualsOrdinalIgnoreCase(TrimStartHyphen(argument), name);
+        return StringEqualsOrdinalIgnoreCase(TrimStartHyphen(argument), name);
     }
 
     [[nodiscard]] bool HasFlag(const std::vector<std::string>& args, std::string_view name) noexcept
@@ -267,59 +242,6 @@ namespace
     [[nodiscard]] bool StartsWithHyphen(const std::optional<std::string>& value) noexcept
     {
         return value.has_value() && !value->empty() && value->front() == '-';
-    }
-
-    [[nodiscard]] bool TryParseInt32(std::string_view text, std::int32_t& value) noexcept
-    {
-        text = TrimNumberWhitespace(text);
-        if (text.empty())
-        {
-            value = 0;
-            return false;
-        }
-        bool negative = false;
-        if (text.front() == '+' || text.front() == '-')
-        {
-            negative = text.front() == '-';
-            text.remove_prefix(1);
-            if (text.empty())
-            {
-                value = 0;
-                return false;
-            }
-        }
-        std::uint64_t magnitude = 0;
-        const char* first = text.data();
-        const char* last = first + text.size();
-        const auto parsed = std::from_chars(first, last, magnitude, 10);
-        if (parsed.ec != std::errc{} || parsed.ptr != last)
-        {
-            value = 0;
-            return false;
-        }
-        constexpr std::uint64_t maxPositive = static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
-        constexpr std::uint64_t maxNegative = maxPositive + 1;
-        if ((!negative && magnitude > maxPositive) || (negative && magnitude > maxNegative))
-        {
-            value = 0;
-            return false;
-        }
-        if (negative)
-        {
-            value = magnitude == maxNegative
-                ? std::numeric_limits<std::int32_t>::min()
-                : -static_cast<std::int32_t>(magnitude);
-        }
-        else
-        {
-            value = static_cast<std::int32_t>(magnitude);
-        }
-        return true;
-    }
-
-    [[nodiscard]] bool EqualsIgnoreCaseAscii(std::string_view left, std::string_view right) noexcept
-    {
-        return EqualsOrdinalIgnoreCase(left, right);
     }
 
     template <typename Float>
@@ -496,7 +418,7 @@ namespace
         if ((first >= '0' && first <= '9') || first == '+' || first == '-')
         {
             std::int32_t number = 0;
-            if (!TryParseInt32(text, number) || number < minValue || number > maxValue)
+            if (!Int32TryParseCurrentCulture(text, number) || number < minValue || number > maxValue)
             {
                 return false;
             }
@@ -517,7 +439,7 @@ namespace
             bool found = false;
             for (const auto& item : names)
             {
-                if (EqualsIgnoreCaseAscii(part, item.Name))
+                if (StringEqualsOrdinalIgnoreCase(part, item.Name))
                 {
                     combined |= item.Value;
                     found = true;
@@ -860,8 +782,8 @@ namespace
             }
             std::int32_t width = 0;
             std::int32_t height = 0;
-            if (parts.size() == 2 && TryParseInt32(parts[0], width)
-                && TryParseInt32(parts[1], height) && width > 0 && height > 0)
+            if (parts.size() == 2 && Int32TryParseCurrentCulture(parts[0], width)
+                && Int32TryParseCurrentCulture(parts[1], height) && width > 0 && height > 0)
             {
                 return {width, height};
             }
@@ -876,7 +798,7 @@ namespace
     {
         const std::optional<std::string> value = ValueAfter(args, "port");
         std::int32_t port = 0;
-        if (value.has_value() && TryParseInt32(*value, port))
+        if (value.has_value() && Int32TryParseCurrentCulture(*value, port))
         {
             return port;
         }
@@ -900,7 +822,7 @@ namespace
     {
         const std::optional<std::string> value = ValueAfter(args, "recolor");
         std::int32_t recolor = 0;
-        if (value.has_value() && TryParseInt32(*value, recolor))
+        if (value.has_value() && Int32TryParseCurrentCulture(*value, recolor))
         {
             return recolor;
         }
@@ -950,7 +872,7 @@ namespace
 
         const std::optional<std::string> bands = ValueAfter(args, "celbands");
         std::int32_t parsedBands = 0;
-        if (bands.has_value() && TryParseInt32(*bands, parsedBands))
+        if (bands.has_value() && Int32TryParseCurrentCulture(*bands, parsedBands))
         {
             RenderOptions::CelBands(parsedBands);
         }
@@ -964,7 +886,7 @@ namespace
                 trimmed.pop_back();
             }
             std::int32_t edgePercent = 0;
-            if (TryParseInt32(trimmed, edgePercent))
+            if (Int32TryParseCurrentCulture(trimmed, edgePercent))
             {
                 RenderOptions::CelEdge(edgePercent / 100.0f);
             }
@@ -983,14 +905,14 @@ namespace
         const std::optional<std::string> weaponStyle = ValueAfter(args, "weaponstyle");
         if (weaponStyle.has_value() && !StartsWithHyphen(weaponStyle))
         {
-            if (EqualsOrdinalIgnoreCase(*weaponStyle, "static")
-                || EqualsOrdinalIgnoreCase(*weaponStyle, "quake"))
+            if (StringEqualsOrdinalIgnoreCase(*weaponStyle, "static")
+                || StringEqualsOrdinalIgnoreCase(*weaponStyle, "quake"))
             {
                 Features::ProHudFixedWeapon(true);
                 Features::FixedWeapon(true);
             }
-            else if (EqualsOrdinalIgnoreCase(*weaponStyle, "dynamic")
-                || EqualsOrdinalIgnoreCase(*weaponStyle, "metroid"))
+            else if (StringEqualsOrdinalIgnoreCase(*weaponStyle, "dynamic")
+                || StringEqualsOrdinalIgnoreCase(*weaponStyle, "metroid"))
             {
                 Features::ProHudFixedWeapon(false);
                 Features::FixedWeapon(false);
@@ -1059,7 +981,7 @@ namespace
 
         int port = NetMasterConfig::DefaultPort;
         std::int32_t parsedPort = 0;
-        if (portValue.has_value() && TryParseInt32(*portValue, parsedPort))
+        if (portValue.has_value() && Int32TryParseCurrentCulture(*portValue, parsedPort))
         {
             port = parsedPort;
         }
@@ -1160,7 +1082,7 @@ namespace
         int jobs = ThumbnailBatch::DefaultParallelism();
         const std::optional<std::string> jobsValue = ValueAfter(args, "jobs");
         std::int32_t parsedJobs = 0;
-        if (jobsValue.has_value() && TryParseInt32(*jobsValue, parsedJobs))
+        if (jobsValue.has_value() && Int32TryParseCurrentCulture(*jobsValue, parsedJobs))
         {
             jobs = parsedJobs;
         }
@@ -1207,7 +1129,7 @@ namespace MphRead::Mods
                 relaunch.push_back(args[static_cast<std::size_t>(i)]);
             }
             std::int32_t waitFor = -1;
-            if (!TryParseInt32(args[static_cast<std::size_t>(applyAt + 2)], waitFor))
+            if (!Int32TryParseCurrentCulture(args[static_cast<std::size_t>(applyAt + 2)], waitFor))
             {
                 waitFor = -1;
             }
@@ -1283,8 +1205,8 @@ namespace MphRead::Mods
             int failed = 0;
             for (const auto& definition : MapGen::CustomRooms::Definitions())
             {
-                if (which.has_value() && !EqualsOrdinalIgnoreCase(*which, Deref(definition).Name())
-                    && !EqualsOrdinalIgnoreCase(*which, "all"))
+                if (which.has_value() && !StringEqualsOrdinalIgnoreCase(*which, Deref(definition).Name())
+                    && !StringEqualsOrdinalIgnoreCase(*which, "all"))
                 {
                     continue;
                 }
@@ -1383,7 +1305,7 @@ namespace MphRead::Mods
                 masterPortValue = ValueAfter(args, "masterport");
             }
             std::int32_t parsedMasterPort = 0;
-            if (masterPortValue.has_value() && TryParseInt32(*masterPortValue, parsedMasterPort))
+            if (masterPortValue.has_value() && Int32TryParseCurrentCulture(*masterPortValue, parsedMasterPort))
             {
                 masterPort = parsedMasterPort;
             }
@@ -1391,7 +1313,7 @@ namespace MphRead::Mods
             ShutdownSignals signals;
 
             const std::string hostPorts = ValueAfter(args, "hostports").value_or("27900-27919");
-            if (!EqualsOrdinalIgnoreCase(hostPorts, "none"))
+            if (!StringEqualsOrdinalIgnoreCase(hostPorts, "none"))
             {
                 const std::size_t dash = hostPorts.find('-');
                 std::string firstText;
@@ -1407,8 +1329,8 @@ namespace MphRead::Mods
                 }
                 std::int32_t first = 0;
                 std::int32_t last = 0;
-                if (dash != std::string::npos && TryParseInt32(firstText, first)
-                    && TryParseInt32(lastText, last) && first > 0 && last >= first)
+                if (dash != std::string::npos && Int32TryParseCurrentCulture(firstText, first)
+                    && Int32TryParseCurrentCulture(lastText, last) && first > 0 && last >= first)
                 {
                     master.SetHostPorts(first, last);
                 }
@@ -1455,14 +1377,14 @@ namespace MphRead::Mods
         int port = Network::NetConfig::DefaultPort;
         const std::optional<std::string> portValue = ValueAfter(args, "port");
         std::int32_t parsedPort = 0;
-        if (portValue.has_value() && TryParseInt32(*portValue, parsedPort))
+        if (portValue.has_value() && Int32TryParseCurrentCulture(*portValue, parsedPort))
         {
             port = parsedPort;
         }
         int maxPlayers = 4;
         const std::optional<std::string> playersValue = ValueAfter(args, "players");
         std::int32_t parsedPlayers = 0;
-        if (playersValue.has_value() && TryParseInt32(*playersValue, parsedPlayers))
+        if (playersValue.has_value() && Int32TryParseCurrentCulture(*playersValue, parsedPlayers))
         {
             maxPlayers = parsedPlayers;
         }
@@ -1504,7 +1426,7 @@ namespace MphRead::Mods
             int reportPort = Network::NetMasterConfig::DefaultPort;
             const std::optional<std::string> reportPortValue = ValueAfter(args, "masterport");
             std::int32_t parsedReportPort = 0;
-            if (reportPortValue.has_value() && TryParseInt32(*reportPortValue, parsedReportPort))
+            if (reportPortValue.has_value() && Int32TryParseCurrentCulture(*reportPortValue, parsedReportPort))
             {
                 reportPort = parsedReportPort;
             }
@@ -1614,8 +1536,8 @@ namespace MphRead::Mods
             int failed = 0;
             for (const auto& definition : MapGen::CustomRooms::Definitions())
             {
-                if (only.has_value() && !EqualsOrdinalIgnoreCase(*only, Deref(definition).Name())
-                    && !EqualsOrdinalIgnoreCase(*only, "all"))
+                if (only.has_value() && !StringEqualsOrdinalIgnoreCase(*only, Deref(definition).Name())
+                    && !StringEqualsOrdinalIgnoreCase(*only, "all"))
                 {
                     continue;
                 }
@@ -1674,7 +1596,7 @@ namespace MphRead::Mods
             int textureSize = MapGen::MapTextureBake::DefaultSize;
             const std::optional<std::string> texSizeValue = ValueAfter(args, "texsize");
             std::int32_t parsedTextureSize = 0;
-            if (texSizeValue.has_value() && TryParseInt32(*texSizeValue, parsedTextureSize)
+            if (texSizeValue.has_value() && Int32TryParseCurrentCulture(*texSizeValue, parsedTextureSize)
                 && parsedTextureSize >= 8 && parsedTextureSize <= 256)
             {
                 textureSize = parsedTextureSize;
@@ -1727,7 +1649,7 @@ namespace MphRead::Mods
             int players = 8;
             const std::optional<std::string> playersValue = ValueAfter(args, "players");
             std::int32_t parsedPlayers = 0;
-            if (playersValue.has_value() && TryParseInt32(*playersValue, parsedPlayers))
+            if (playersValue.has_value() && Int32TryParseCurrentCulture(*playersValue, parsedPlayers))
             {
                 players = parsedPlayers;
             }
@@ -1749,7 +1671,7 @@ namespace MphRead::Mods
             int players = 8;
             const std::optional<std::string> playersValue = ValueAfter(args, "players");
             std::int32_t parsedPlayers = 0;
-            if (playersValue.has_value() && TryParseInt32(*playersValue, parsedPlayers))
+            if (playersValue.has_value() && Int32TryParseCurrentCulture(*playersValue, parsedPlayers))
             {
                 players = parsedPlayers;
             }
@@ -1772,7 +1694,7 @@ namespace MphRead::Mods
             }
             const std::optional<std::string> drawRateValue = ValueAfter(args, "drawrate");
             std::int32_t drawRate = 0;
-            if (drawRateValue.has_value() && TryParseInt32(*drawRateValue, drawRate)
+            if (drawRateValue.has_value() && Int32TryParseCurrentCulture(*drawRateValue, drawRate)
                 && drawRate > 0)
             {
                 Network::MapAudit::DrawRate(drawRate);
@@ -1793,8 +1715,8 @@ namespace MphRead::Mods
                 }
                 std::int32_t auditWidth = 0;
                 std::int32_t auditHeight = 0;
-                if (split.size() == 2 && TryParseInt32(split[0], auditWidth)
-                    && TryParseInt32(split[1], auditHeight)
+                if (split.size() == 2 && Int32TryParseCurrentCulture(split[0], auditWidth)
+                    && Int32TryParseCurrentCulture(split[1], auditHeight)
                     && auditWidth > 0 && auditHeight > 0)
                 {
                     Network::MapAudit::WindowSize(OpenTK::Mathematics::Vector2i(auditWidth, auditHeight));
@@ -1815,7 +1737,7 @@ namespace MphRead::Mods
             int masterPort = Network::NetMasterConfig::DefaultPort;
             const std::optional<std::string> masterPortValue = ValueAfter(args, "masterport");
             std::int32_t parsedMasterPort = 0;
-            if (masterPortValue.has_value() && TryParseInt32(*masterPortValue, parsedMasterPort))
+            if (masterPortValue.has_value() && Int32TryParseCurrentCulture(*masterPortValue, parsedMasterPort))
             {
                 masterPort = parsedMasterPort;
             }

@@ -8,6 +8,7 @@
 #include "../../Sound/Music.hpp"
 #include "../../Strings.hpp"
 #include "PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
@@ -30,6 +31,7 @@
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedDecrement;
 using ::MphRead::NativeRuntime::UncheckedIncrement;
@@ -146,16 +148,8 @@ namespace
         return length;
     }
 
-    void ReplaceAll(std::string& value, std::string_view oldValue, const std::string& newValue)
-    {
-        std::size_t position = 0;
-        while ((position = value.find(oldValue, position)) != std::string::npos)
-        {
-            value.replace(position, oldValue.size(), newValue);
-            position += newValue.size();
-        }
-    }
 }
+
 
 
 namespace MphRead::Entities
@@ -416,13 +410,13 @@ namespace MphRead::Entities
         _overlayMessage2 = entry->Value2;
         if (_dialogValue1)
         {
-            ReplaceAll(RequireOptional(_overlayMessage1), "&tab0", RequireOptional(_dialogValue1));
-            ReplaceAll(RequireOptional(_overlayMessage2), "&tab0", RequireOptional(_dialogValue1));
+            RequireOptional(_overlayMessage1) = StringReplace(std::move(RequireOptional(_overlayMessage1)), "&tab0", RequireOptional(_dialogValue1));
+            RequireOptional(_overlayMessage2) = StringReplace(std::move(RequireOptional(_overlayMessage2)), "&tab0", RequireOptional(_dialogValue1));
         }
         if (_dialogValue2)
         {
-            ReplaceAll(RequireOptional(_overlayMessage1), "&tab1", RequireOptional(_dialogValue2));
-            ReplaceAll(RequireOptional(_overlayMessage2), "&tab1", RequireOptional(_dialogValue2));
+            RequireOptional(_overlayMessage1) = StringReplace(std::move(RequireOptional(_overlayMessage1)), "&tab1", RequireOptional(_dialogValue2));
+            RequireOptional(_overlayMessage2) = StringReplace(std::move(RequireOptional(_overlayMessage2)), "&tab1", RequireOptional(_dialogValue2));
         }
         _overlayBuffer1.fill(u'\0');
         _overlayBuffer2.fill(u'\0');

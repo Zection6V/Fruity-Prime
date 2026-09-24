@@ -1,5 +1,6 @@
 #include "NetLag.hpp"
 #include "NativeRuntime/System/Charconv.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <bit>
@@ -35,6 +36,8 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::StringTrimView;
+
 namespace
 {
     constexpr std::array<std::string_view, 25> DotNetWhiteSpaceUtf8{
@@ -47,44 +50,10 @@ namespace
         "\xE2\x81\x9F", "\xE3\x80\x80"
     };
 
-    [[nodiscard]] std::string_view TrimDotNetWhiteSpace(std::string_view value) noexcept
-    {
-        bool removed = true;
-        while (removed && !value.empty())
-        {
-            removed = false;
-            for (const std::string_view whiteSpace : DotNetWhiteSpaceUtf8)
-            {
-                if (value.starts_with(whiteSpace))
-                {
-                    value.remove_prefix(whiteSpace.size());
-                    removed = true;
-                    break;
-                }
-            }
-        }
-
-        removed = true;
-        while (removed && !value.empty())
-        {
-            removed = false;
-            for (const std::string_view whiteSpace : DotNetWhiteSpaceUtf8)
-            {
-                if (value.ends_with(whiteSpace))
-                {
-                    value.remove_suffix(whiteSpace.size());
-                    removed = true;
-                    break;
-                }
-            }
-        }
-        return value;
-    }
-
     [[nodiscard]] bool IsNullOrWhiteSpaceLikeDotNet(
         const std::optional<std::string>& value) noexcept
     {
-        return !value.has_value() || TrimDotNetWhiteSpace(*value).empty();
+        return !value.has_value() || StringTrimView(*value).empty();
     }
 
     [[nodiscard]] constexpr bool IsNumberWhite(char value) noexcept
@@ -433,7 +402,7 @@ namespace
 
         // .NET's floating parser falls back to the culture's special symbols after
         // numeric parsing fails and trims them with Char.IsWhiteSpace semantics.
-        std::string_view value = TrimDotNetWhiteSpace(*source);
+        std::string_view value = StringTrimView(*source);
         if (EqualsOrdinalIgnoreCaseAscii(value, "Infinity"))
         {
             parsed = std::numeric_limits<double>::infinity();

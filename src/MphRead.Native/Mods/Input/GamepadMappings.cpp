@@ -2,6 +2,7 @@
 
 #include "GamepadLayout.hpp"
 #include "../Launcher/Portable/LauncherPrefs.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -42,9 +43,11 @@
 #endif
 #endif
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::StringTrimView;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
@@ -221,106 +224,6 @@ namespace
             AppendUtf8(output, 0xFFFDU);
         }
         return output;
-    }
-
-    [[nodiscard]] std::pair<std::uint32_t, std::size_t> DecodeCodePoint(
-        std::string_view text, std::size_t offset) noexcept
-    {
-        const auto first = static_cast<unsigned char>(text[offset]);
-        if (first <= 0x7FU)
-        {
-            return {first, 1};
-        }
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            return {
-                ((first & 0x1FU) << 6)
-                    | (static_cast<unsigned char>(text[offset + 1]) & 0x3FU),
-                2
-            };
-        }
-        if ((first & 0xF0U) == 0xE0U)
-        {
-            return {
-                ((first & 0x0FU) << 12)
-                    | ((static_cast<unsigned char>(text[offset + 1]) & 0x3FU) << 6)
-                    | (static_cast<unsigned char>(text[offset + 2]) & 0x3FU),
-                3
-            };
-        }
-        return {
-            ((first & 0x07U) << 18)
-                | ((static_cast<unsigned char>(text[offset + 1]) & 0x3FU) << 12)
-                | ((static_cast<unsigned char>(text[offset + 2]) & 0x3FU) << 6)
-                | (static_cast<unsigned char>(text[offset + 3]) & 0x3FU),
-            4
-        };
-    }
-
-    [[nodiscard]] bool IsDotNetWhitespace(std::uint32_t value) noexcept
-    {
-        if (value >= 0x0009U && value <= 0x000DU)
-        {
-            return true;
-        }
-        switch (value)
-        {
-        case 0x0020U:
-        case 0x0085U:
-        case 0x00A0U:
-        case 0x1680U:
-        case 0x2000U:
-        case 0x2001U:
-        case 0x2002U:
-        case 0x2003U:
-        case 0x2004U:
-        case 0x2005U:
-        case 0x2006U:
-        case 0x2007U:
-        case 0x2008U:
-        case 0x2009U:
-        case 0x200AU:
-        case 0x2028U:
-        case 0x2029U:
-        case 0x202FU:
-        case 0x205FU:
-        case 0x3000U:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    [[nodiscard]] std::string_view TrimDotNetWhitespace(
-        std::string_view text) noexcept
-    {
-        std::size_t first = 0;
-        std::size_t last = text.size();
-        while (first < last)
-        {
-            const auto [value, length] = DecodeCodePoint(text, first);
-            if (!IsDotNetWhitespace(value))
-            {
-                break;
-            }
-            first += length;
-        }
-        while (last > first)
-        {
-            std::size_t start = last - 1;
-            while (start > first
-                && (static_cast<unsigned char>(text[start]) & 0xC0U) == 0x80U)
-            {
-                --start;
-            }
-            const auto [value, length] = DecodeCodePoint(text, start);
-            if (start + length != last || !IsDotNetWhitespace(value))
-            {
-                break;
-            }
-            last = start;
-        }
-        return text.substr(first, last - first);
     }
 
     [[nodiscard]] std::string ToUtf8(const std::filesystem::path& path)
@@ -736,7 +639,7 @@ namespace MphRead::Mods::Input
 
         const std::optional<std::string> config = EnvironmentVariable();
         if (config.has_value()
-            && !TrimDotNetWhitespace(*config).empty()
+            && !StringTrimView(*config).empty()
             && Apply(*config))
         {
             files = UncheckedAdd(files, 1);
@@ -810,7 +713,7 @@ namespace MphRead::Mods::Input
             const std::string_view line = newline == std::string_view::npos
                 ? text.substr(start)
                 : text.substr(start, newline - start);
-            const std::string_view trimmed = TrimDotNetWhitespace(line);
+            const std::string_view trimmed = StringTrimView(line);
             if (!trimmed.empty() && trimmed.front() != '#')
             {
                 ++count;

@@ -5,6 +5,7 @@
 #include <span>
 
 #include "Mods/Render/Crosshair.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <bit>
 #include <charconv>
@@ -14,6 +15,10 @@
 #include <optional>
 #include <string_view>
 #include <system_error>
+
+using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::StringTrimView;
 
 namespace MphRead
 {
@@ -108,19 +113,6 @@ namespace MphRead
             return 0;
         }
 
-        std::string_view TrimDotNetWhitespace(std::string_view value)
-        {
-            while (const std::size_t count = DotNetWhitespacePrefixLength(value))
-            {
-                value.remove_prefix(count);
-            }
-            while (const std::size_t count = DotNetWhitespaceSuffixLength(value))
-            {
-                value.remove_suffix(count);
-            }
-            return value;
-        }
-
         std::string_view TrimDotNetWhitespaceAndNull(std::string_view value)
         {
             while (!value.empty())
@@ -154,15 +146,9 @@ namespace MphRead
             return value;
         }
 
-        constexpr bool IsNumberWhitespace(char value)
-        {
-            const unsigned char ch = static_cast<unsigned char>(value);
-            return ch == 0x20 || (ch >= 0x09 && ch <= 0x0D);
-        }
-
         std::string_view TrimNumberInput(std::string_view value)
         {
-            while (!value.empty() && IsNumberWhitespace(value.front()))
+            while (!value.empty() && IsNumberWhiteSpace(value.front()))
             {
                 value.remove_prefix(1);
             }
@@ -170,47 +156,22 @@ namespace MphRead
             {
                 value.remove_suffix(1);
             }
-            while (!value.empty() && IsNumberWhitespace(value.back()))
+            while (!value.empty() && IsNumberWhiteSpace(value.back()))
             {
                 value.remove_suffix(1);
             }
             return value;
         }
 
-        constexpr char FoldAsciiCase(char value)
-        {
-            if (value >= 'A' && value <= 'Z')
-            {
-                return static_cast<char>(value + ('a' - 'A'));
-            }
-            return value;
-        }
-
-        bool EqualsIgnoreCase(std::string_view left, std::string_view right)
-        {
-            if (left.size() != right.size())
-            {
-                return false;
-            }
-            for (std::size_t i = 0; i < left.size(); i++)
-            {
-                if (FoldAsciiCase(left[i]) != FoldAsciiCase(right[i]))
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         bool TryParseBoolean(std::string_view value, bool& parsed)
         {
             value = TrimDotNetWhitespaceAndNull(value);
-            if (EqualsIgnoreCase(value, "true"))
+            if (StringEqualsOrdinalIgnoreCase(value, "true"))
             {
                 parsed = true;
                 return true;
             }
-            if (EqualsIgnoreCase(value, "false"))
+            if (StringEqualsOrdinalIgnoreCase(value, "false"))
             {
                 parsed = false;
                 return true;
@@ -299,20 +260,20 @@ namespace MphRead
 
         bool TryParseSingleInvariant(std::string_view value, float& parsed)
         {
-            const std::string_view special = TrimDotNetWhitespace(value);
-            if (EqualsIgnoreCase(special, "nan")
-                || EqualsIgnoreCase(special, "+nan")
-                || EqualsIgnoreCase(special, "-nan"))
+            const std::string_view special = StringTrimView(value);
+            if (StringEqualsOrdinalIgnoreCase(special, "nan")
+                || StringEqualsOrdinalIgnoreCase(special, "+nan")
+                || StringEqualsOrdinalIgnoreCase(special, "-nan"))
             {
                 parsed = DotNetSingleNaN();
                 return true;
             }
-            if (EqualsIgnoreCase(special, "infinity") || EqualsIgnoreCase(special, "+infinity"))
+            if (StringEqualsOrdinalIgnoreCase(special, "infinity") || StringEqualsOrdinalIgnoreCase(special, "+infinity"))
             {
                 parsed = std::numeric_limits<float>::infinity();
                 return true;
             }
-            if (EqualsIgnoreCase(special, "-infinity"))
+            if (StringEqualsOrdinalIgnoreCase(special, "-infinity"))
             {
                 parsed = -std::numeric_limits<float>::infinity();
                 return true;

@@ -1,5 +1,7 @@
 #include "TestParse.hpp"
 #include "../Formats/Types.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <bit>
 #include <cmath>
@@ -11,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
 
@@ -30,12 +33,6 @@ namespace
         float Z = 0.0F;
         float W = 0.0F;
     };
-
-    [[nodiscard]] constexpr bool IsNumberWhitespace(char ch) noexcept
-    {
-        const auto value = static_cast<unsigned char>(ch);
-        return value == 0x20 || (value >= 0x09 && value <= 0x0D);
-    }
 
     [[nodiscard]] constexpr std::int32_t HexValue(char ch) noexcept
     {
@@ -57,7 +54,7 @@ namespace
     [[nodiscard]] std::int32_t ParseHexInt32(std::string_view value)
     {
         std::size_t index = 0;
-        while (index < value.size() && IsNumberWhitespace(value[index]))
+        while (index < value.size() && IsNumberWhiteSpace(value[index]))
         {
             index++;
         }
@@ -98,7 +95,7 @@ namespace
 
         const bool overflow = significantDigits > 8;
 
-        while (index < value.size() && IsNumberWhitespace(value[index]))
+        while (index < value.size() && IsNumberWhiteSpace(value[index]))
         {
             index++;
         }

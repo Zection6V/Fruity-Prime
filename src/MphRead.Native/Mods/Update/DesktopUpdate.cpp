@@ -3,6 +3,7 @@
 
 #include "BuildVersion.hpp"
 #include "UpdateDownload.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 
 #include <archive.h>
@@ -57,6 +58,7 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::DirectoryExists;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathCombine;
@@ -1052,30 +1054,14 @@ namespace MphRead::Mods::Update
         }
 
 #if defined(_WIN32)
-        [[nodiscard]] bool IsDotNetWhiteSpace(wchar_t ch) noexcept
-        {
-            return (ch >= L'\t' && ch <= L'\r')
-                || ch == L' '
-                || ch == static_cast<wchar_t>(0x0085)
-                || ch == static_cast<wchar_t>(0x00A0)
-                || ch == static_cast<wchar_t>(0x1680)
-                || (ch >= static_cast<wchar_t>(0x2000)
-                    && ch <= static_cast<wchar_t>(0x200A))
-                || ch == static_cast<wchar_t>(0x2028)
-                || ch == static_cast<wchar_t>(0x2029)
-                || ch == static_cast<wchar_t>(0x202F)
-                || ch == static_cast<wchar_t>(0x205F)
-                || ch == static_cast<wchar_t>(0x3000);
-        }
-
         [[nodiscard]] std::wstring_view TrimDotNetWhiteSpace(
             std::wstring_view value) noexcept
         {
-            while (!value.empty() && IsDotNetWhiteSpace(value.front()))
+            while (!value.empty() && CharIsWhiteSpace(value.front()))
             {
                 value.remove_prefix(1);
             }
-            while (!value.empty() && IsDotNetWhiteSpace(value.back()))
+            while (!value.empty() && CharIsWhiteSpace(value.back()))
             {
                 value.remove_suffix(1);
             }
@@ -1087,7 +1073,7 @@ namespace MphRead::Mods::Update
             bool simple = !value.empty();
             for (const wchar_t ch : value)
             {
-                if (ch == L'\"' || IsDotNetWhiteSpace(ch))
+                if (ch == L'\"' || CharIsWhiteSpace(ch))
                 {
                     simple = false;
                     break;

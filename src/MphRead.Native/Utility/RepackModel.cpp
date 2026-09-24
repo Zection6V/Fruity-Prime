@@ -7,6 +7,7 @@
 #include "../SceneSetup.hpp"
 #include "../Formats/Model.hpp"
 #include "../Formats/Types.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -45,6 +46,7 @@ using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
 
@@ -239,22 +241,6 @@ namespace
             {
                 c = static_cast<char>(c - 'A' + 'a');
             }
-        }
-        return value;
-    }
-
-    [[nodiscard]] std::string ReplaceAll(
-        std::string value, std::string_view oldValue, std::string_view newValue)
-    {
-        if (oldValue.empty())
-        {
-            return value;
-        }
-        std::size_t position = 0;
-        while ((position = value.find(oldValue, position)) != std::string::npos)
-        {
-            value.replace(position, oldValue.size(), newValue);
-            position += newValue.size();
         }
         return value;
     }
@@ -2200,7 +2186,7 @@ namespace MphRead::Utility
                     std::string modelPath = meta.ModelPath;
                     if (meta.Name == "arcWelder1")
                     {
-                        modelPath = ReplaceAll(
+                        modelPath = StringReplace(
                             modelPath, "arcWelder1",
                             "arcWelder" + std::to_string(i + 1));
                     }

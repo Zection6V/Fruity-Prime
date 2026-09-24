@@ -10,8 +10,10 @@
 #include "../../Formats/RawFormats.hpp"
 #include "../EntityBase.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -49,6 +51,7 @@
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::Divide;
@@ -99,22 +102,6 @@ namespace
     {
         return left.X * right.X + left.Y * right.Y
             + left.Z * right.Z + left.W * right.W;
-    }
-
-    [[nodiscard]] std::string ReplaceAll(
-        std::string value, std::string_view oldValue, std::string_view newValue)
-    {
-        if (oldValue.empty())
-        {
-            return value;
-        }
-        std::size_t start = 0;
-        while ((start = value.find(oldValue, start)) != std::string::npos)
-        {
-            value.replace(start, oldValue.size(), newValue);
-            start += newValue.size();
-        }
-        return value;
     }
 
     [[nodiscard]] bool IsCockpitLoop(std::int32_t id) noexcept
@@ -646,7 +633,7 @@ namespace MphRead::Formats
         CameraSequenceHeader header,
         const std::vector<RawCameraSequenceKeyframe>& keyframes)
         : _sequenceId(id),
-          _name(ReplaceAll(std::move(name), ".bin", "")),
+          _name(StringReplace(std::move(name), ".bin", "")),
           _version(header.Version),
           _initialCamInfo(std::make_unique<Entities::CameraInfo>()),
           _scene(scene)

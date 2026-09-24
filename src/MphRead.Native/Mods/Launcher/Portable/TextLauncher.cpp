@@ -1,6 +1,5 @@
 #include "TextLauncher.hpp"
 
-#include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../Renderer.hpp"
 #include "../../WindowMode.hpp"
 
@@ -38,6 +37,7 @@
 #include "../../Network/NetStatus.hpp"
 #include "../../Update/Updater.hpp"
 #include "../../WindowMode.hpp"
+#include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
@@ -82,6 +82,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::StringTrim;
 
 namespace MphRead::GameStateDetail
 {
@@ -214,54 +215,6 @@ namespace
             return {};
         }
         return {scalar, length};
-    }
-
-    [[nodiscard]] bool DotNetWhitespace(std::uint32_t scalar) noexcept
-    {
-        if (scalar >= 0x0009U && scalar <= 0x000DU)
-        {
-            return true;
-        }
-        switch (scalar)
-        {
-        case 0x0020U:
-        case 0x0085U:
-        case 0x00A0U:
-        case 0x1680U:
-        case 0x2028U:
-        case 0x2029U:
-        case 0x202FU:
-        case 0x205FU:
-        case 0x3000U:
-            return true;
-        default:
-            return scalar >= 0x2000U && scalar <= 0x200AU;
-        }
-    }
-
-    [[nodiscard]] std::string Trim(std::string_view text)
-    {
-        std::optional<std::size_t> first;
-        std::size_t last = 0;
-        for (std::size_t position = 0; position < text.size();)
-        {
-            const Utf8Unit unit = DecodeUtf8(text, position);
-            const std::size_t length = unit.Length == 0 ? 1 : unit.Length;
-            if (!DotNetWhitespace(unit.Scalar))
-            {
-                if (!first.has_value())
-                {
-                    first = position;
-                }
-                last = position + length;
-            }
-            position += length;
-        }
-        if (!first.has_value())
-        {
-            return {};
-        }
-        return std::string(text.substr(*first, last - *first));
     }
 
     [[nodiscard]] std::string TrimQuotes(std::string value)
@@ -693,13 +646,13 @@ namespace
             std::cout << '\n';
             return fallback;
         }
-        const std::string trimmed = Trim(*line);
+        const std::string trimmed = StringTrim(*line);
         return trimmed.empty() ? fallback : trimmed;
     }
 
     [[nodiscard]] bool ParseEndpoint(std::string text, std::string& host, std::int32_t& port)
     {
-        text = Trim(text);
+        text = StringTrim(text);
         if (text.empty())
         {
             return false;
@@ -907,7 +860,7 @@ namespace
         {
             return;
         }
-        path = TrimQuotes(Trim(path));
+        path = TrimQuotes(StringTrim(path));
         if (!FileExists(path))
         {
             std::cout << "  There is no file at " << path << '\n';

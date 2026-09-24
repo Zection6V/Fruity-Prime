@@ -1,4 +1,5 @@
 #include "Metadata.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -7,26 +8,12 @@
 #include <stdexcept>
 #include <tuple>
 
+using ::MphRead::NativeRuntime::StringReplace;
+
 namespace MphRead
 {
 namespace
 {
-std::string ReplaceAll(std::string value, std::string_view from, std::string_view to)
-{
-    if (from.empty())
-    {
-        // C# String.Replace(oldValue, newValue) rejects an empty oldValue.
-        throw std::invalid_argument("oldValue");
-    }
-    std::size_t position = 0;
-    while ((position = value.find(from, position)) != std::string::npos)
-    {
-        value.replace(position, from.size(), to);
-        position += to.size();
-    }
-    return value;
-}
-
 const std::string& DirectoryFor(MetaDir dir)
 {
     static const std::map<MetaDir, std::string> dirs =
@@ -165,7 +152,7 @@ ModelMetadata::ModelMetadata(std::string name, std::string remove, bool animatio
         values.Name = std::move(name);
         const std::string directory = "models";
         values.ModelPath = directory + "\\" + values.Name + "_Model.bin";
-        const std::string removed = ReplaceAll(values.Name, remove, "");
+        const std::string removed = StringReplace(values.Name, remove, "");
         if (animation)
         {
             values.AnimationPath = animationPath ? std::move(animationPath)
@@ -203,7 +190,7 @@ ModelMetadata::ModelMetadata(std::string name, std::vector<std::string> recolors
         {
             values.ModelPath = "_archives\\" + *archive + "\\" + values.Name + "_Model.bin";
         }
-        const std::string pathName = remove ? ReplaceAll(values.Name, *remove, "") : values.Name;
+        const std::string pathName = remove ? StringReplace(values.Name, *remove, "") : values.Name;
         if (mdlSuffix != MdlSuffix::All)
         {
             suffix.clear();
@@ -225,7 +212,7 @@ ModelMetadata::ModelMetadata(std::string name, std::vector<std::string> recolors
                 + (noUnderscore ? "" : "_") + recolor;
             if (!recolor.empty() && recolor.front() == '*')
             {
-                recolorString = ReplaceAll(recolor, "*", "");
+                recolorString = StringReplace(recolor, "*", "");
             }
             const std::string recolorModel = "models\\" + recolorString + "_Model.bin";
             const std::string texturePathValue = texture

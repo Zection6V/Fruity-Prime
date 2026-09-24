@@ -13,6 +13,8 @@
 #include "../Program.hpp"
 #include "../Read.hpp"
 #include "../Formats/Types.hpp"
+#include "../NativeRuntime/System/Console.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -48,12 +50,16 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::EnvironmentNewLine;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
+using ::MphRead::NativeRuntime::StringTrim;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead::ExtractDependency
@@ -348,156 +354,12 @@ namespace
         return PathToUtf8(PathFromUtf8(path).extension());
     }
 
-    [[nodiscard]] std::uint32_t DecodeUtf8(std::string_view text, std::size_t& index) noexcept
-    {
-        const auto first = static_cast<unsigned char>(text[index]);
-        if (first <= 0x7FU)
-        {
-            ++index;
-            return first;
-        }
-
-        std::uint32_t value = 0;
-        std::size_t length = 0;
-        std::uint32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            value = first & 0x1FU;
-            length = 2;
-            minimum = 0x80U;
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            value = first & 0x0FU;
-            length = 3;
-            minimum = 0x800U;
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            value = first & 0x07U;
-            length = 4;
-            minimum = 0x10000U;
-        }
-        else
-        {
-            ++index;
-            return 0xFFFDU;
-        }
-
-        if (index + length > text.size())
-        {
-            ++index;
-            return 0xFFFDU;
-        }
-
-        for (std::size_t i = 1; i < length; ++i)
-        {
-            const auto next = static_cast<unsigned char>(text[index + i]);
-            if ((next & 0xC0U) != 0x80U)
-            {
-                ++index;
-                return 0xFFFDU;
-            }
-            value = (value << 6) | (next & 0x3FU);
-        }
-        if (value < minimum || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
-        {
-            ++index;
-            return 0xFFFDU;
-        }
-        index += length;
-        return value;
-    }
-
-    [[nodiscard]] bool IsDotNetWhitespace(std::uint32_t codePoint) noexcept
-    {
-        if (codePoint >= 0x0009U && codePoint <= 0x000DU)
-        {
-            return true;
-        }
-        switch (codePoint)
-        {
-        case 0x0020U:
-        case 0x0085U:
-        case 0x00A0U:
-        case 0x1680U:
-        case 0x2000U:
-        case 0x2001U:
-        case 0x2002U:
-        case 0x2003U:
-        case 0x2004U:
-        case 0x2005U:
-        case 0x2006U:
-        case 0x2007U:
-        case 0x2008U:
-        case 0x2009U:
-        case 0x200AU:
-        case 0x2028U:
-        case 0x2029U:
-        case 0x202FU:
-        case 0x205FU:
-        case 0x3000U:
-            return true;
-        default:
-            return false;
-        }
-    }
-
     struct Utf8Position final
     {
         std::uint32_t CodePoint;
         std::size_t Start;
         std::size_t End;
     };
-
-    [[nodiscard]] std::vector<Utf8Position> DecodeUtf8Positions(std::string_view text)
-    {
-        std::vector<Utf8Position> result;
-        std::size_t index = 0;
-        while (index < text.size())
-        {
-            const std::size_t start = index;
-            const std::uint32_t value = DecodeUtf8(text, index);
-            result.push_back(Utf8Position{value, start, index});
-        }
-        return result;
-    }
-
-    [[nodiscard]] bool IsNullOrWhiteSpace(const std::string& value)
-    {
-        if (value.empty())
-        {
-            return true;
-        }
-        for (const Utf8Position& position : DecodeUtf8Positions(value))
-        {
-            if (!IsDotNetWhitespace(position.CodePoint))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    [[nodiscard]] std::string TrimDotNetWhitespace(std::string value)
-    {
-        const auto positions = DecodeUtf8Positions(value);
-        std::size_t first = 0;
-        std::size_t last = positions.size();
-        while (first < last && IsDotNetWhitespace(positions[first].CodePoint))
-        {
-            ++first;
-        }
-        while (last > first && IsDotNetWhitespace(positions[last - 1].CodePoint))
-        {
-            --last;
-        }
-        if (first == last)
-        {
-            return {};
-        }
-        return value.substr(positions[first].Start, positions[last - 1].End - positions[first].Start);
-    }
 
     [[nodiscard]] std::string ToLowerForPrompt(std::string value)
     {
@@ -613,15 +475,6 @@ namespace
     [[nodiscard]] std::string ProgramVersionToString()
     {
         return Program::Version.ToString();
-    }
-
-    [[nodiscard]] const char* EnvironmentNewLine() noexcept
-    {
-#if defined(_WIN32)
-        return "\r\n";
-#else
-        return "\n";
-#endif
     }
 
     void AddOrReplaceTag(
@@ -1049,8 +902,8 @@ namespace MphRead
         Paths::UpdatePaths();
         if (FileExists("paths.txt"))
         {
-            if ((!isFh && !IsNullOrWhiteSpace(Paths::FileSystem()))
-                || (isFh && !IsNullOrWhiteSpace(Paths::FhFileSystem())))
+            if ((!isFh && !StringIsNullOrWhiteSpace(Paths::FileSystem()))
+                || (isFh && !StringIsNullOrWhiteSpace(Paths::FhFileSystem())))
             {
                 std::cout
                     << "A path has already been specified for "
@@ -1059,7 +912,7 @@ namespace MphRead
                 std::cout.flush();
 
                 std::string input = ReadLineOrEmpty();
-                input = ToLowerForPrompt(TrimDotNetWhitespace(std::move(input)));
+                input = ToLowerForPrompt(StringTrim(std::move(input)));
                 if (input != "y" && input != "yes")
                 {
                     return;

@@ -5,14 +5,41 @@
 // current culture. Strings are UTF-8.
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 
 namespace MphRead::NativeRuntime
 {
-    // string.IsNullOrWhiteSpace(value).
+    // char.IsWhiteSpace(c): the Unicode white space the BCL knows, for a
+    // UTF-16 unit or a code point alike.
+    [[nodiscard]] constexpr bool CharIsWhiteSpace(char32_t value) noexcept
+    {
+        return (value >= U'\u0009' && value <= U'\u000D') || value == U'\u0020'
+            || value == U'\u0085' || value == U'\u00A0' || value == U'\u1680'
+            || (value >= U'\u2000' && value <= U'\u200A') || value == U'\u2028'
+            || value == U'\u2029' || value == U'\u202F' || value == U'\u205F'
+            || value == U'\u3000';
+    }
+    // The white space int.Parse and float.Parse skip around a number
+    // (NumberStyles.AllowLeadingWhite/AllowTrailingWhite): tab to carriage
+    // return and the space, nothing wider.
+    [[nodiscard]] constexpr bool IsNumberWhiteSpace(char32_t value) noexcept
+    {
+        return value == U' ' || (value >= U'\t' && value <= U'\r');
+    }
+    // string.IsNullOrWhiteSpace(value), character by character.
     [[nodiscard]] bool StringIsNullOrWhiteSpace(std::string_view value) noexcept;
+    [[nodiscard]] bool StringIsNullOrWhiteSpace(const std::string& value) noexcept;
+    [[nodiscard]] bool StringIsNullOrWhiteSpace(const char* value) noexcept;
+    [[nodiscard]] bool StringIsNullOrWhiteSpace(const std::optional<std::string>& value) noexcept;
+    // value.Trim() without the copy: the same characters, as a view into value.
+    [[nodiscard]] std::string_view StringTrimView(std::string_view value) noexcept;
+    // value.Replace(oldValue, newValue): ordinal, every occurrence, left to
+    // right; ArgumentException for an empty oldValue, as .NET throws.
+    [[nodiscard]] std::string StringReplace(
+        std::string value, std::string_view oldValue, std::string_view newValue);
     // string.Equals(left, right, StringComparison.OrdinalIgnoreCase).
     [[nodiscard]] bool StringEqualsOrdinalIgnoreCase(
         std::string_view left, std::string_view right) noexcept;
@@ -20,8 +47,8 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] std::int32_t MathRoundToInt32(double value) noexcept;
     // Encoding.ASCII.GetString(bytes): every byte over 0x7F becomes '?'.
     [[nodiscard]] std::string AsciiGetString(std::span<const std::uint8_t> bytes);
-    // string.Trim().
-    [[nodiscard]] std::string StringTrim(std::string value);
+    // value.Trim(): leading and trailing char.IsWhiteSpace characters off.
+    [[nodiscard]] std::string StringTrim(std::string_view value);
     // float.TryParse(text, out value): NumberStyles.Float | AllowThousands, current culture.
     [[nodiscard]] bool SingleTryParseCurrentCulture(std::string text, float& value);
     // float.ToString(): the shortest round-trippable form, current culture.
@@ -63,4 +90,7 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] bool Int32TryParseCurrentCulture(
         std::string_view value,
         std::int32_t& result);
+    // int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture,
+    // out result).
+    [[nodiscard]] bool Int32TryParseInvariant(std::string_view value, std::int32_t& result);
 }

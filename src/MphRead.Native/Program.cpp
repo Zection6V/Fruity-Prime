@@ -16,6 +16,7 @@
 #include "NativeRuntime/System/Runtime.hpp"
 #include "Utility/Console.hpp"
 #include "Utility/Extract.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
 #include <array>
 #include <cerrno>
@@ -47,46 +48,14 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
+using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::StringTrimView;
 
 namespace
 {
-    [[nodiscard]] bool IsDotNetTrimWhitespace(std::uint32_t codePoint) noexcept
-    {
-        if (codePoint >= 0x0009 && codePoint <= 0x000D)
-            return true;
-        switch (codePoint)
-        {
-        case 0x0020:
-        case 0x0085:
-        case 0x00A0:
-        case 0x1680:
-        case 0x2000:
-        case 0x2001:
-        case 0x2002:
-        case 0x2003:
-        case 0x2004:
-        case 0x2005:
-        case 0x2006:
-        case 0x2007:
-        case 0x2008:
-        case 0x2009:
-        case 0x200A:
-        case 0x2028:
-        case 0x2029:
-        case 0x202F:
-        case 0x205F:
-        case 0x3000:
-            return true;
-        default:
-            return false;
-        }
-    }
-    [[nodiscard]] bool IsNumberWhitespace(unsigned char ch) noexcept
-    {
-        return ch == 0x20 || (ch >= 0x09 && ch <= 0x0D);
-    }
     struct Utf8CodePoint final
     {
         std::uint32_t Value;
@@ -134,84 +103,6 @@ namespace
         if (value < minimum || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU))
             return std::nullopt;
         return Utf8CodePoint{value, length};
-    }
-    [[nodiscard]] std::optional<std::pair<Utf8CodePoint, std::size_t>> DecodeUtf8Backward(std::string_view text, std::size_t end) noexcept
-    {
-        if (end == 0 || end > text.size())
-            return std::nullopt;
-        std::size_t start = end - 1;
-        while (start > 0 && (static_cast<unsigned char>(text[start]) & 0xC0U) == 0x80U)
-            --start;
-        const auto decoded = DecodeUtf8Forward(text, start);
-        if (!decoded.has_value() || start + decoded->Length != end)
-            return std::nullopt;
-        return std::make_pair(*decoded, start);
-    }
-    [[nodiscard]] std::string_view TrimDotNetWhitespace(std::string_view text) noexcept
-    {
-        std::size_t first = 0;
-        std::size_t last = text.size();
-        while (first < last)
-        {
-            const auto decoded = DecodeUtf8Forward(text.substr(0, last), first);
-            if (!decoded.has_value() || !IsDotNetTrimWhitespace(decoded->Value))
-                break;
-            first += decoded->Length;
-        }
-        while (last > first)
-        {
-            const auto decoded = DecodeUtf8Backward(text, last);
-            if (!decoded.has_value() || !IsDotNetTrimWhitespace(decoded->first.Value))
-                break;
-            last = decoded->second;
-        }
-        return text.substr(first, last - first);
-    }
-    [[nodiscard]] bool TryParseInt32(std::string_view input, std::int32_t &result) noexcept
-    {
-        result = 0;
-        if (input.empty())
-            return false;
-        std::size_t index = 0;
-        while (index < input.size() && IsNumberWhitespace(static_cast<unsigned char>(input[index])))
-            ++index;
-        if (index == input.size())
-            return false;
-        bool negative = false;
-        if (input[index] == '+' || input[index] == '-')
-        {
-            negative = input[index] == '-';
-            ++index;
-        }
-        if (index == input.size() || input[index] < '0' || input[index] > '9')
-            return false;
-        constexpr std::uint64_t PositiveLimit = static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
-        constexpr std::uint64_t NegativeLimit = PositiveLimit + 1ULL;
-        const std::uint64_t limit = negative ? NegativeLimit : PositiveLimit;
-        std::uint64_t value = 0;
-        bool overflow = false;
-        while (index < input.size() && input[index] >= '0' && input[index] <= '9')
-        {
-            const std::uint64_t digit = static_cast<std::uint64_t>(input[index] - '0');
-            if (value > (limit - digit) / 10ULL)
-                overflow = true;
-            else if (!overflow)
-                value = value * 10ULL + digit;
-            ++index;
-        }
-        while (index < input.size() && IsNumberWhitespace(static_cast<unsigned char>(input[index])))
-            ++index;
-        while (index < input.size() && input[index] == '\0')
-            ++index;
-        if (index != input.size() || overflow)
-            return false;
-        if (!negative)
-            result = static_cast<std::int32_t>(value);
-        else if (value == NegativeLimit)
-            result = std::numeric_limits<std::int32_t>::min();
-        else
-            result = -static_cast<std::int32_t>(value);
-        return true;
     }
     [[nodiscard]] bool StartsWithDash(std::string_view text) noexcept
     {
@@ -494,7 +385,7 @@ namespace
                 ? text.substr(start)
                 : text.substr(start, separator - start);
             std::int32_t value = 0;
-            if (!TryParseInt32(component, value) || value < 0)
+            if (!Int32TryParseCurrentCulture(component, value) || value < 0)
             {
                 return std::nullopt;
             }
@@ -627,7 +518,7 @@ namespace MphRead
                         std::int32_t valueTwo = 0;
                         if (argument.ValueTwo.has_value())
                         {
-                            (void)TryParseInt32(*argument.ValueTwo, valueTwo);
+                            (void)Int32TryParseCurrentCulture(*argument.ValueTwo, valueTwo);
                         }
                         _current = std::make_pair(*argument.ValueOne, valueTwo);
                         return;
@@ -746,7 +637,7 @@ namespace MphRead
         if (TryGetString(arguments, fullName, shortName, stringValue))
         {
             std::int32_t intValue = 0;
-            if (TryParseInt32(*stringValue, intValue))
+            if (Int32TryParseCurrentCulture(*stringValue, intValue))
             {
                 value = intValue;
                 return true;
@@ -803,7 +694,7 @@ namespace MphRead
         {
             text.resize(newline);
         }
-        const std::string_view trimmed = TrimDotNetWhitespace(text);
+        const std::string_view trimmed = StringTrimView(text);
         const std::optional<Mods::Update::Version> extractVersion
             = TryParseVersionForProgram(trimmed);
         return extractVersion.has_value()

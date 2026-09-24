@@ -7,6 +7,7 @@
 #include "../../Formats/Types.hpp"
 #include "../Launcher/Portable/GameFiles.hpp"
 #include "../../Program.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
@@ -33,6 +34,7 @@ using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 
 namespace System::Text::Json
 {
@@ -342,32 +344,6 @@ namespace
     [[nodiscard]] bool IsPathRooted(const std::string& path)
     {
         return PathFromUtf8(path).has_root_path();
-    }
-
-    [[nodiscard]] bool EqualsIgnoreCaseAscii(std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i)
-        {
-            unsigned char a = static_cast<unsigned char>(left[i]);
-            unsigned char b = static_cast<unsigned char>(right[i]);
-            if (a >= 'A' && a <= 'Z')
-            {
-                a = static_cast<unsigned char>(a - 'A' + 'a');
-            }
-            if (b >= 'A' && b <= 'Z')
-            {
-                b = static_cast<unsigned char>(b - 'A' + 'a');
-            }
-            if (a != b)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     enum class JsonKind
@@ -1306,106 +1282,106 @@ namespace MphRead::Mods::MapGen
         {
             for (const auto& [name, item] : value.Object)
             {
-                if (EqualsIgnoreCaseAscii(name, "Name"))
+                if (StringEqualsOrdinalIgnoreCase(name, "Name"))
                 {
                     result._name = item.Kind == JsonKind::Null
                         ? std::shared_ptr<std::string>{}
                         : std::make_shared<std::string>(JsonString(item));
                 }
-                else if (EqualsIgnoreCaseAscii(name, "InGameName"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "InGameName"))
                 {
                     result._inGameName = item.Kind == JsonKind::Null
                         ? std::optional<std::string>{}
                         : std::optional<std::string>{JsonString(item)};
                 }
-                else if (EqualsIgnoreCaseAscii(name, "TextureSource"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "TextureSource"))
                 {
                     result._textureSource = item.Kind == JsonKind::Null
                         ? std::shared_ptr<std::string>{}
                         : std::make_shared<std::string>(JsonString(item));
                 }
-                else if (EqualsIgnoreCaseAscii(name, "ScaleFactor"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "ScaleFactor"))
                 {
                     result._scaleFactor = SignedInteger<std::int32_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "KillHeight"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "KillHeight"))
                 {
                     result._killHeight = JsonFloat(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "FarClip"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "FarClip"))
                 {
                     result._farClip = JsonFloat(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "FogEnabled"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "FogEnabled"))
                 {
                     result._fogEnabled = JsonBool(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "FogColor"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "FogColor"))
                 {
                     result._fogColor = JsonArray<std::int32_t>(item,
                         [](const JsonValue& element) { return SignedInteger<std::int32_t>(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "FogSlope"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "FogSlope"))
                 {
                     result._fogSlope = SignedInteger<std::int32_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "FogOffset"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "FogOffset"))
                 {
                     result._fogOffset = SignedInteger<std::int32_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Light1Color"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Light1Color"))
                 {
                     result._light1Color = JsonArray<std::int32_t>(item,
                         [](const JsonValue& element) { return SignedInteger<std::int32_t>(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Light1Vector"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Light1Vector"))
                 {
                     result._light1Vector = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Light2Color"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Light2Color"))
                 {
                     result._light2Color = JsonArray<std::int32_t>(item,
                         [](const JsonValue& element) { return SignedInteger<std::int32_t>(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Light2Vector"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Light2Vector"))
                 {
                     result._light2Vector = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "BattleTimeLimit"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "BattleTimeLimit"))
                 {
                     result._battleTimeLimit = UnsignedInteger<std::uint32_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "PointLimit"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "PointLimit"))
                 {
                     result._pointLimit = SignedInteger<std::int16_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Import"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Import"))
                 {
                     result._import = ReadObject<MapImport>(item, ReadMapImport);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Preview"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Preview"))
                 {
                     result._preview = ReadObject<MapPreview>(item, ReadMapPreview);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Materials"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Materials"))
                 {
                     result._materials = ReadObjectList<MapMaterial>(item, ReadMapMaterial);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Brushes"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Brushes"))
                 {
                     result._brushes = ReadObjectList<MapBrush>(item, ReadMapBrush);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Spawns"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Spawns"))
                 {
                     result._spawns = ReadObjectList<MapSpawn>(item, ReadMapSpawn);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "JumpPads"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "JumpPads"))
                 {
                     result._jumpPads = ReadObjectList<MapJumpPad>(item, ReadMapJumpPad);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Items"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Items"))
                 {
                     result._items = ReadObjectList<MapItem>(item, ReadMapItem);
                 }
@@ -1417,12 +1393,12 @@ namespace MphRead::Mods::MapGen
         {
             for (const auto& [name, item] : value.Object)
             {
-                if (EqualsIgnoreCaseAscii(name, "Position"))
+                if (StringEqualsOrdinalIgnoreCase(name, "Position"))
                 {
                     result._position = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Target"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Target"))
                 {
                     result._target = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
@@ -1434,29 +1410,29 @@ namespace MphRead::Mods::MapGen
         {
             for (const auto& [name, item] : value.Object)
             {
-                if (EqualsIgnoreCaseAscii(name, "Source"))
+                if (StringEqualsOrdinalIgnoreCase(name, "Source"))
                 {
                     result._source = item.Kind == JsonKind::Null
                         ? std::shared_ptr<std::string>{}
                         : std::make_shared<std::string>(JsonString(item));
                 }
-                else if (EqualsIgnoreCaseAscii(name, "MapName"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "MapName"))
                 {
                     result._mapName = item.Kind == JsonKind::Null
                         ? std::optional<std::string>{}
                         : std::optional<std::string>{JsonString(item)};
                 }
-                else if (EqualsIgnoreCaseAscii(name, "UnitsPerUnit"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "UnitsPerUnit"))
                 {
                     result._unitsPerUnit = JsonFloat(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Textures"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Textures"))
                 {
                     result._textures = item.Kind == JsonKind::Null
                         ? std::optional<std::string>{}
                         : std::optional<std::string>{JsonString(item)};
                 }
-                else if (EqualsIgnoreCaseAscii(name, "ShaderMaterials"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "ShaderMaterials"))
                 {
                     if (item.Kind == JsonKind::Null)
                     {
@@ -1476,27 +1452,27 @@ namespace MphRead::Mods::MapGen
                         result._shaderMaterials = std::move(dictionary);
                     }
                 }
-                else if (EqualsIgnoreCaseAscii(name, "DefaultMaterial"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "DefaultMaterial"))
                 {
                     result._defaultMaterial = SignedInteger<std::int32_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "TexScale"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "TexScale"))
                 {
                     result._texScale = JsonFloat(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "KeepSky"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "KeepSky"))
                 {
                     result._keepSky = JsonBool(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "KeepClip"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "KeepClip"))
                 {
                     result._keepClip = JsonBool(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "PatchLevel"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "PatchLevel"))
                 {
                     result._patchLevel = SignedInteger<std::int32_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "KeepSpawns"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "KeepSpawns"))
                 {
                     result._keepSpawns = JsonBool(item);
                 }
@@ -1508,17 +1484,17 @@ namespace MphRead::Mods::MapGen
         {
             for (const auto& [name, item] : value.Object)
             {
-                if (EqualsIgnoreCaseAscii(name, "Name"))
+                if (StringEqualsOrdinalIgnoreCase(name, "Name"))
                 {
                     result._name = item.Kind == JsonKind::Null
                         ? std::shared_ptr<std::string>{}
                         : std::make_shared<std::string>(JsonString(item));
                 }
-                else if (EqualsIgnoreCaseAscii(name, "SourceMaterial"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "SourceMaterial"))
                 {
                     result._sourceMaterial = SignedInteger<std::int32_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "TexScale"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "TexScale"))
                 {
                     result._texScale = JsonFloat(item);
                 }
@@ -1529,33 +1505,33 @@ namespace MphRead::Mods::MapGen
         {
             for (const auto& [name, item] : value.Object)
             {
-                if (EqualsIgnoreCaseAscii(name, "Min"))
+                if (StringEqualsOrdinalIgnoreCase(name, "Min"))
                 {
                     result._min = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Max"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Max"))
                 {
                     result._max = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Material"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Material"))
                 {
                     result._material = SignedInteger<std::int32_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Shade"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Shade"))
                 {
                     result._shade = JsonFloat(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Solid"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Solid"))
                 {
                     result._solid = JsonBool(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Damaging"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Damaging"))
                 {
                     result._damaging = JsonBool(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Terrain"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Terrain"))
                 {
                     result._terrain = item.Kind == JsonKind::Null
                         ? std::optional<std::string>{}
@@ -1568,12 +1544,12 @@ namespace MphRead::Mods::MapGen
         {
             for (const auto& [name, item] : value.Object)
             {
-                if (EqualsIgnoreCaseAscii(name, "Position"))
+                if (StringEqualsOrdinalIgnoreCase(name, "Position"))
                 {
                     result._position = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Yaw"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Yaw"))
                 {
                     result._yaw = JsonFloat(item);
                 }
@@ -1584,39 +1560,39 @@ namespace MphRead::Mods::MapGen
         {
             for (const auto& [name, item] : value.Object)
             {
-                if (EqualsIgnoreCaseAscii(name, "Position"))
+                if (StringEqualsOrdinalIgnoreCase(name, "Position"))
                 {
                     result._position = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Target"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Target"))
                 {
                     result._target = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Vector"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Vector"))
                 {
                     result._vector = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Speed"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Speed"))
                 {
                     result._speed = JsonFloat(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Size"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Size"))
                 {
                     result._size = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "ModelId"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "ModelId"))
                 {
                     result._modelId = UnsignedInteger<std::uint32_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "CooldownTime"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "CooldownTime"))
                 {
                     result._cooldownTime = UnsignedInteger<std::uint16_t>(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "ControlLockTime"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "ControlLockTime"))
                 {
                     result._controlLockTime = UnsignedInteger<std::uint16_t>(item);
                 }
@@ -1627,22 +1603,22 @@ namespace MphRead::Mods::MapGen
         {
             for (const auto& [name, item] : value.Object)
             {
-                if (EqualsIgnoreCaseAscii(name, "Position"))
+                if (StringEqualsOrdinalIgnoreCase(name, "Position"))
                 {
                     result._position = JsonArray<float>(item,
                         [](const JsonValue& element) { return JsonFloat(element); });
                 }
-                else if (EqualsIgnoreCaseAscii(name, "Type"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "Type"))
                 {
                     result._type = item.Kind == JsonKind::Null
                         ? std::shared_ptr<std::string>{}
                         : std::make_shared<std::string>(JsonString(item));
                 }
-                else if (EqualsIgnoreCaseAscii(name, "HasBase"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "HasBase"))
                 {
                     result._hasBase = JsonBool(item);
                 }
-                else if (EqualsIgnoreCaseAscii(name, "SpawnInterval"))
+                else if (StringEqualsOrdinalIgnoreCase(name, "SpawnInterval"))
                 {
                     result._spawnInterval = UnsignedInteger<std::uint16_t>(item);
                 }

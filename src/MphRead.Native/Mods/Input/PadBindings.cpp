@@ -1,4 +1,5 @@
 #include "PadBindings.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <charconv>
@@ -10,6 +11,9 @@
 #include <string_view>
 #include <type_traits>
 #include <vector>
+
+using ::MphRead::NativeRuntime::Int32TryParseInvariant;
+using ::MphRead::NativeRuntime::StringTrimView;
 
 namespace MphRead::Mods::Input
 {
@@ -60,143 +64,11 @@ namespace MphRead::Mods::Input
             {"RightTrigger", GamepadButtons::RightTrigger}
         }};
 
-        std::size_t DotNetWhitespacePrefixLength(std::string_view value)
-        {
-            if (value.empty())
-            {
-                return 0;
-            }
-
-            const auto byte = [](char ch) { return static_cast<unsigned char>(ch); };
-            const unsigned char c0 = byte(value[0]);
-            if ((c0 >= 0x09 && c0 <= 0x0D) || c0 == 0x20)
-            {
-                return 1;
-            }
-            if (value.size() >= 2 && c0 == 0xC2)
-            {
-                const unsigned char c1 = byte(value[1]);
-                if (c1 == 0x85 || c1 == 0xA0)
-                {
-                    return 2;
-                }
-            }
-            if (value.size() >= 3)
-            {
-                const unsigned char c1 = byte(value[1]);
-                const unsigned char c2 = byte(value[2]);
-                if (c0 == 0xE1 && c1 == 0x9A && c2 == 0x80)
-                {
-                    return 3;
-                }
-                if (c0 == 0xE2 && c1 == 0x80
-                    && ((c2 >= 0x80 && c2 <= 0x8A) || c2 == 0xA8 || c2 == 0xA9 || c2 == 0xAF))
-                {
-                    return 3;
-                }
-                if (c0 == 0xE2 && c1 == 0x81 && c2 == 0x9F)
-                {
-                    return 3;
-                }
-                if (c0 == 0xE3 && c1 == 0x80 && c2 == 0x80)
-                {
-                    return 3;
-                }
-            }
-            return 0;
-        }
-
-        std::size_t DotNetWhitespaceSuffixLength(std::string_view value)
-        {
-            if (value.empty())
-            {
-                return 0;
-            }
-
-            const auto byte = [](char ch) { return static_cast<unsigned char>(ch); };
-            const unsigned char last = byte(value.back());
-            if ((last >= 0x09 && last <= 0x0D) || last == 0x20)
-            {
-                return 1;
-            }
-            if (value.size() >= 2 && byte(value[value.size() - 2]) == 0xC2
-                && (last == 0x85 || last == 0xA0))
-            {
-                return 2;
-            }
-            if (value.size() >= 3)
-            {
-                const unsigned char c0 = byte(value[value.size() - 3]);
-                const unsigned char c1 = byte(value[value.size() - 2]);
-                if (c0 == 0xE1 && c1 == 0x9A && last == 0x80)
-                {
-                    return 3;
-                }
-                if (c0 == 0xE2 && c1 == 0x80
-                    && ((last >= 0x80 && last <= 0x8A) || last == 0xA8 || last == 0xA9 || last == 0xAF))
-                {
-                    return 3;
-                }
-                if (c0 == 0xE2 && c1 == 0x81 && last == 0x9F)
-                {
-                    return 3;
-                }
-                if (c0 == 0xE3 && c1 == 0x80 && last == 0x80)
-                {
-                    return 3;
-                }
-            }
-            return 0;
-        }
-
-        std::string_view TrimDotNetWhitespace(std::string_view value)
-        {
-            while (const std::size_t count = DotNetWhitespacePrefixLength(value))
-            {
-                value.remove_prefix(count);
-            }
-            while (const std::size_t count = DotNetWhitespaceSuffixLength(value))
-            {
-                value.remove_suffix(count);
-            }
-            return value;
-        }
-
-        bool TryParseInt32(std::string_view value, std::int32_t& parsed)
-        {
-            if (value.empty())
-            {
-                return false;
-            }
-
-            if (value.front() == '+')
-            {
-                value.remove_prefix(1);
-                if (value.empty() || value.front() < '0' || value.front() > '9')
-                {
-                    return false;
-                }
-            }
-
-            std::int64_t wide = 0;
-            const char* const end = value.data() + value.size();
-            const auto [ptr, error] = std::from_chars(value.data(), end, wide, 10);
-            if (error != std::errc{} || ptr != end
-                || wide < std::numeric_limits<std::int32_t>::min()
-                || wide > std::numeric_limits<std::int32_t>::max())
-            {
-                return false;
-            }
-
-            parsed = static_cast<std::int32_t>(wide);
-            return true;
-        }
-
         template <typename TEnum, std::size_t N>
         bool TryParseEnum(std::string_view value,
             const std::array<EnumName<TEnum>, N>& names, TEnum& parsed)
         {
-            std::string_view text = TrimDotNetWhitespace(value);
+            std::string_view text = StringTrimView(value);
             if (text.empty())
             {
                 return false;
@@ -206,7 +78,7 @@ namespace MphRead::Mods::Input
             if ((first >= '0' && first <= '9') || first == '+' || first == '-')
             {
                 std::int32_t numeric = 0;
-                if (!TryParseInt32(text, numeric))
+                if (!Int32TryParseInvariant(text, numeric))
                 {
                     return false;
                 }
@@ -223,7 +95,7 @@ namespace MphRead::Mods::Input
                 const std::size_t count = comma == std::string_view::npos
                     ? std::string_view::npos
                     : comma - start;
-                const std::string_view part = TrimDotNetWhitespace(text.substr(start, count));
+                const std::string_view part = StringTrimView(text.substr(start, count));
                 if (part.empty())
                 {
                     return false;

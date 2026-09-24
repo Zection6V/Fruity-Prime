@@ -24,6 +24,7 @@
 #include "../../WindowMode.hpp"
 #include "../Portable/GameFiles.hpp"
 #include "../Portable/LauncherPrefs.hpp"
+#include "../../../NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -40,6 +41,9 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 
 namespace
 {
@@ -173,30 +177,15 @@ namespace
         return result;
     }
 
-    [[nodiscard]] constexpr bool DotNetWhiteSpace(char16_t value) noexcept
-    {
-        return (value >= u'\u0009' && value <= u'\u000D')
-            || value == u'\u0020'
-            || value == u'\u0085'
-            || value == u'\u00A0'
-            || value == u'\u1680'
-            || (value >= u'\u2000' && value <= u'\u200A')
-            || value == u'\u2028'
-            || value == u'\u2029'
-            || value == u'\u202F'
-            || value == u'\u205F'
-            || value == u'\u3000';
-    }
-
     [[nodiscard]] std::u16string Trim(std::u16string_view text)
     {
         std::size_t first = 0;
-        while (first < text.size() && DotNetWhiteSpace(text[first]))
+        while (first < text.size() && CharIsWhiteSpace(text[first]))
         {
             ++first;
         }
         std::size_t last = text.size();
-        while (last > first && DotNetWhiteSpace(text[last - 1]))
+        while (last > first && CharIsWhiteSpace(text[last - 1]))
         {
             --last;
         }
@@ -226,24 +215,6 @@ namespace
         return text.substr(first, last - first);
     }
 
-    [[nodiscard]] bool EqualsIgnoreCaseAscii(
-        std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i)
-        {
-            unsigned char a = static_cast<unsigned char>(left[i]);
-            unsigned char b = static_cast<unsigned char>(right[i]);
-            if (a >= 'A' && a <= 'Z') a = static_cast<unsigned char>(a + ('a' - 'A'));
-            if (b >= 'A' && b <= 'Z') b = static_cast<unsigned char>(b + ('a' - 'A'));
-            if (a != b) return false;
-        }
-        return true;
-    }
-
     [[nodiscard]] bool TryParseSingleInvariant(std::string_view text, float& result)
     {
         text = TrimNumberWhiteSpace(text);
@@ -252,20 +223,20 @@ namespace
             result = 0.0F;
             return false;
         }
-        if (EqualsIgnoreCaseAscii(text, "NaN")
-            || EqualsIgnoreCaseAscii(text, "+NaN")
-            || EqualsIgnoreCaseAscii(text, "-NaN"))
+        if (StringEqualsOrdinalIgnoreCase(text, "NaN")
+            || StringEqualsOrdinalIgnoreCase(text, "+NaN")
+            || StringEqualsOrdinalIgnoreCase(text, "-NaN"))
         {
             result = std::numeric_limits<float>::quiet_NaN();
             return true;
         }
-        if (EqualsIgnoreCaseAscii(text, "Infinity")
-            || EqualsIgnoreCaseAscii(text, "+Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(text, "Infinity")
+            || StringEqualsOrdinalIgnoreCase(text, "+Infinity"))
         {
             result = std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsIgnoreCaseAscii(text, "-Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(text, "-Infinity"))
         {
             result = -std::numeric_limits<float>::infinity();
             return true;

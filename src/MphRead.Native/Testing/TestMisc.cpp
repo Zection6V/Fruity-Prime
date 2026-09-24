@@ -12,6 +12,7 @@
 #include "../Utility/Repack.hpp"
 #include "../Utility/RepackCollision.hpp"
 #include "../Utility/Rng.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -41,6 +42,7 @@
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::Int32ToUInt32;
+using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -136,22 +138,6 @@ namespace
     {
         const std::size_t slash = path.find_last_of("/\\");
         return slash == std::string::npos ? std::string{} : path.substr(0, slash);
-    }
-
-    [[nodiscard]] std::string ReplaceAll(
-        std::string value, const std::string& from, const std::string& to)
-    {
-        if (from.empty())
-        {
-            return value;
-        }
-        std::size_t start = 0;
-        while ((start = value.find(from, start)) != std::string::npos)
-        {
-            value.replace(start, from.size(), to);
-            start += to.size();
-        }
-        return value;
     }
 
     [[nodiscard]] std::vector<std::string> EnumerateFiles(const std::string& path)
@@ -3719,7 +3705,7 @@ namespace MphRead::Testing
         const std::string modelDest = Paths::Combine(folder, modelPath);
         const std::string texDest = Paths::Combine(
             folder,
-            ReplaceAll(ReplaceAll(modelPath, "_Model.bin", "_Tex.bin"),
+            StringReplace(StringReplace(modelPath, "_Model.bin", "_Tex.bin"),
                 "_model.bin", "_tex.bin"));
         FileWriteAllBytes(modelDest, model);
         FileWriteAllBytes(texDest, texture);
@@ -3782,7 +3768,7 @@ namespace MphRead::Testing
         const std::string archiveName = overMeta ? overMeta->Archive : meta->Archive;
         std::cout << " Compressing...\n";
         (void)LZ10::Compress(
-            outPath, ReplaceAll(outPath, "out.arc", archiveName + ".arc"));
+            outPath, StringReplace(outPath, "out.arc", archiveName + ".arc"));
         DeleteFile(outPath);
         std::cout << "Done.\n";
         Nop();

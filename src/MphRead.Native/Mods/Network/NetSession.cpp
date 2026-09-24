@@ -21,6 +21,7 @@
 #include "NetUnlagged.hpp"
 #include "PlayerColors.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -59,9 +60,11 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
@@ -511,33 +514,6 @@ namespace
             return {first, 1, false};
         }
         return {codePoint, length, true};
-    }
-
-    [[nodiscard]] bool IsManagedWhiteSpace(char32_t value) noexcept
-    {
-        return (value >= 0x0009U && value <= 0x000DU)
-            || value == 0x0020U || value == 0x0085U || value == 0x00A0U
-            || value == 0x1680U || (value >= 0x2000U && value <= 0x200AU)
-            || value == 0x2028U || value == 0x2029U || value == 0x202FU
-            || value == 0x205FU || value == 0x3000U;
-    }
-
-    [[nodiscard]] bool IsNullOrWhiteSpace(std::string_view text) noexcept
-    {
-        if (text.empty())
-        {
-            return true;
-        }
-        for (std::size_t index = 0; index < text.size();)
-        {
-            const Utf8Unit unit = DecodeUtf8(text, index);
-            if (!unit.Valid || !IsManagedWhiteSpace(unit.CodePoint))
-            {
-                return false;
-            }
-            index += unit.Length;
-        }
-        return true;
     }
 
     [[nodiscard]] std::vector<std::uint8_t> AsciiBytes(std::string_view text)
@@ -1215,7 +1191,7 @@ namespace MphRead::Mods::Network
 
     void NetSession::SendChat(const std::string& text)
     {
-        if (_transport == nullptr || IsNullOrWhiteSpace(text))
+        if (_transport == nullptr || StringIsNullOrWhiteSpace(text))
         {
             return;
         }

@@ -5,9 +5,11 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Program.hpp"
 #include "../Strings.hpp"
+#include "Types.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
-#include "Types.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -24,9 +26,12 @@
 #include <stdexcept>
 #include <system_error>
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::StringReplace;
+using ::MphRead::NativeRuntime::StringTrim;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::Multiply;
@@ -305,22 +310,6 @@ namespace
         return PathToUtf8(PathFromUtf8(name).stem());
     }
 
-    [[nodiscard]] std::string ReplaceAll(
-        std::string value, std::string_view oldValue, std::string_view newValue)
-    {
-        if (oldValue.empty())
-        {
-            return value;
-        }
-        std::size_t position = 0;
-        while ((position = value.find(oldValue, position)) != std::string::npos)
-        {
-            value.replace(position, oldValue.size(), newValue);
-            position += newValue.size();
-        }
-        return value;
-    }
-
     [[nodiscard]] std::int64_t TickCount64Milliseconds() noexcept
     {
         using namespace std::chrono;
@@ -349,40 +338,6 @@ namespace
         std::uint32_t Value;
         std::size_t Length;
     };
-
-    [[nodiscard]] bool IsDotNetWhitespace(std::uint32_t codePoint) noexcept
-    {
-        if (codePoint >= 0x0009U && codePoint <= 0x000DU)
-        {
-            return true;
-        }
-        switch (codePoint)
-        {
-        case 0x0020U:
-        case 0x0085U:
-        case 0x00A0U:
-        case 0x1680U:
-        case 0x2000U:
-        case 0x2001U:
-        case 0x2002U:
-        case 0x2003U:
-        case 0x2004U:
-        case 0x2005U:
-        case 0x2006U:
-        case 0x2007U:
-        case 0x2008U:
-        case 0x2009U:
-        case 0x200AU:
-        case 0x2028U:
-        case 0x2029U:
-        case 0x202FU:
-        case 0x205FU:
-        case 0x3000U:
-            return true;
-        default:
-            return false;
-        }
-    }
 
     [[nodiscard]] std::optional<Utf8CodePoint> DecodeUtf8Forward(
         std::string_view text, std::size_t position) noexcept
@@ -464,36 +419,6 @@ namespace
             return std::nullopt;
         }
         return std::make_pair(*decoded, start);
-    }
-
-    [[nodiscard]] std::string TrimDotNetWhitespace(std::string value)
-    {
-        std::size_t first = 0;
-        std::size_t last = value.size();
-
-        while (first < last)
-        {
-            const auto decoded = DecodeUtf8Forward(
-                std::string_view(value).substr(0, last), first);
-            if (!decoded.has_value() || !IsDotNetWhitespace(decoded->Value))
-            {
-                break;
-            }
-            first += decoded->Length;
-        }
-
-        while (last > first)
-        {
-            const auto decoded = DecodeUtf8Backward(value, last);
-            if (!decoded.has_value()
-                || !IsDotNetWhitespace(decoded->first.Value))
-            {
-                break;
-            }
-            last = decoded->second;
-        }
-
-        return value.substr(first, last - first);
     }
 
     [[nodiscard]] std::vector<std::string> SplitEquals(const std::string& value)
@@ -1153,7 +1078,7 @@ namespace MphRead
         std::shared_ptr<const std::vector<std::shared_ptr<EffectElement>>> elements,
         std::string name)
         : Id(id),
-          Name(ReplaceAll(GetFileNameWithoutExtension(name), "_PS", "")),
+          Name(StringReplace(GetFileNameWithoutExtension(name), "_PS", "")),
           Field0(raw.Field0),
           Funcs(FreezeMap(funcs)),
           List2(std::move(list2)),
@@ -1974,15 +1899,15 @@ namespace MphRead
             const std::vector<std::string> lines = ReadAllLines("paths.txt");
             for (const std::string& rawLine : lines)
             {
-                const std::string line = TrimDotNetWhitespace(rawLine);
+                const std::string line = StringTrim(rawLine);
                 const std::vector<std::string> split = SplitEquals(line);
                 const std::string key
-                    = TrimDotNetWhitespace(split.at(0));
+                    = StringTrim(split.at(0));
                 if (split.size() == 2
                     && _allPaths.find(key) != _allPaths.end())
                 {
                     _allPaths[key]
-                        = TrimDotNetWhitespace(split[1]);
+                        = StringTrim(split[1]);
                 }
             }
         }

@@ -13,7 +13,9 @@
 #include "PlayerEntity.hpp"
 #include "PlayerHud.hpp"
 #include "PlayerInput.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -37,6 +39,7 @@
 
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateScale;
@@ -134,32 +137,6 @@ namespace
         matrix.M41 = translation.X;
         matrix.M42 = translation.Y;
         matrix.M43 = translation.Z;
-    }
-
-    [[nodiscard]] bool EqualsIgnoreCase(std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i)
-        {
-            unsigned char a = static_cast<unsigned char>(left[i]);
-            unsigned char b = static_cast<unsigned char>(right[i]);
-            if (a >= 'A' && a <= 'Z')
-            {
-                a = static_cast<unsigned char>(a - 'A' + 'a');
-            }
-            if (b >= 'A' && b <= 'Z')
-            {
-                b = static_cast<unsigned char>(b - 'A' + 'a');
-            }
-            if (a != b)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     [[nodiscard]] bool StartsWith(std::string_view value, std::string_view prefix) noexcept
@@ -378,7 +355,7 @@ namespace MphRead::Entities
                     {
                         std::shared_ptr<Node> nodeValue = ManagedAt(nodes, j);
                         Node& node = RequireReference(nodeValue);
-                        if (node.ParentIndex == 0 && EqualsIgnoreCase(node.Name, roomName))
+                        if (node.ParentIndex == 0 && StringEqualsOrdinalIgnoreCase(node.Name, roomName))
                         {
                             roomNode = std::move(nodeValue);
                             break;
@@ -486,7 +463,7 @@ namespace MphRead::Entities
                     const auto roomSymbolsValue = navMapRoomSymbols[k];
                     const NavMapRoomSymbols& roomSymbols = RequireReference(roomSymbolsValue);
                     if (!RequireStorySave().CheckVisitedRoom(roomSymbols.Id)
-                        || !EqualsIgnoreCase(roomSymbols.Name, roomNode.Name))
+                        || !StringEqualsOrdinalIgnoreCase(roomSymbols.Name, roomNode.Name))
                     {
                         continue;
                     }
@@ -648,7 +625,7 @@ namespace MphRead::Entities
                         {
                             break;
                         }
-                        if (EqualsIgnoreCase(roomEntry->Value1, _navMapDrawNode->Name))
+                        if (StringEqualsOrdinalIgnoreCase(roomEntry->Value1, _navMapDrawNode->Name))
                         {
                             roomName = roomEntry->Value2;
                             break;
@@ -1058,7 +1035,7 @@ namespace MphRead::Entities
         for (std::int32_t i = 27; i <= 92; ++i)
         {
             const RoomMetadata& meta = RequireReference(Metadata::GetRoomById(i));
-            if (EqualsIgnoreCase(node.Name, meta.Name))
+            if (StringEqualsOrdinalIgnoreCase(node.Name, meta.Name))
             {
                 return RequireStorySave().CheckVisitedRoom(i);
             }
@@ -1133,7 +1110,7 @@ namespace MphRead::Entities
         for (std::int32_t i = 0; i < navMapRoomSymbols.Length(); ++i)
         {
             const NavMapRoomSymbols& roomSymbols = RequireReference(navMapRoomSymbols[i]);
-            if (!EqualsIgnoreCase(roomSymbols.Name, _navMapDrawNode->Name))
+            if (!StringEqualsOrdinalIgnoreCase(roomSymbols.Name, _navMapDrawNode->Name))
             {
                 continue;
             }

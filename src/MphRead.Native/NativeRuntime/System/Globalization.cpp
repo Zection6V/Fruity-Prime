@@ -40,13 +40,9 @@ namespace MphRead::NativeRuntime
 {
     namespace
     {
-        [[nodiscard]] bool IsManagedWhiteSpace(char32_t value) noexcept
+        [[nodiscard]] constexpr bool IsManagedWhiteSpace(char32_t value) noexcept
         {
-            return (value >= U'\u0009' && value <= U'\u000D') || value == U'\u0020'
-                || value == U'\u0085' || value == U'\u00A0' || value == U'\u1680'
-                || (value >= U'\u2000' && value <= U'\u200A') || value == U'\u2028'
-                || value == U'\u2029' || value == U'\u202F' || value == U'\u205F'
-                || value == U'\u3000';
+            return ::MphRead::NativeRuntime::CharIsWhiteSpace(value);
         }
 
         [[nodiscard]] std::pair<char32_t, std::size_t> DecodeUtf8At(
@@ -1513,15 +1509,81 @@ namespace MphRead::NativeRuntime
 
     bool StringIsNullOrWhiteSpace(std::string_view value) noexcept
     {
-        for (const char item : value)
+        // Character by character, as string.IsNullOrWhiteSpace does: a UTF-8
+        // byte is not a character, and U+3000 alone is white space.
+        for (std::size_t offset = 0; offset < value.size();)
         {
-            if (!IsManagedWhiteSpace(static_cast<char32_t>(
-                    static_cast<unsigned char>(item))))
+            const auto [codePoint, next] = DecodeUtf8At(value, offset);
+            if (!IsManagedWhiteSpace(codePoint))
             {
                 return false;
             }
+            offset = next;
         }
         return true;
+    }
+
+    bool StringIsNullOrWhiteSpace(const std::string& value) noexcept
+    {
+        return StringIsNullOrWhiteSpace(std::string_view(value));
+    }
+
+    bool StringIsNullOrWhiteSpace(const char* value) noexcept
+    {
+        return value == nullptr || StringIsNullOrWhiteSpace(std::string_view(value));
+    }
+
+    bool StringIsNullOrWhiteSpace(const std::optional<std::string>& value) noexcept
+    {
+        return !value.has_value() || StringIsNullOrWhiteSpace(std::string_view(*value));
+    }
+
+    std::string_view StringTrimView(std::string_view value) noexcept
+    {
+        std::size_t first = std::string_view::npos;
+        std::size_t lastEnd = 0;
+        for (std::size_t offset = 0; offset < value.size();)
+        {
+            const std::size_t start = offset;
+            const auto [codePoint, next] = DecodeUtf8At(value, offset);
+            offset = next;
+            if (!IsManagedWhiteSpace(codePoint))
+            {
+                if (first == std::string_view::npos)
+                {
+                    first = start;
+                }
+                lastEnd = next;
+            }
+        }
+        if (first == std::string_view::npos)
+        {
+            return value.substr(0, 0);
+        }
+        return value.substr(first, lastEnd - first);
+    }
+
+    std::string StringReplace(std::string value, std::string_view oldValue, std::string_view newValue)
+    {
+        if (oldValue.empty())
+        {
+            throw System::ArgumentException("String cannot be of zero length. (Parameter 'oldValue')");
+        }
+        std::string result;
+        std::size_t start = 0;
+        for (std::size_t found = value.find(oldValue); found != std::string::npos;
+             found = value.find(oldValue, start))
+        {
+            result.append(value, start, found - start);
+            result.append(newValue);
+            start = found + oldValue.size();
+        }
+        if (start == 0)
+        {
+            return value;
+        }
+        result.append(value, start, std::string::npos);
+        return result;
     }
 
     bool StringEqualsOrdinalIgnoreCase(
@@ -1570,9 +1632,9 @@ namespace MphRead::NativeRuntime
         return result;
     }
 
-    std::string StringTrim(std::string value)
+    std::string StringTrim(std::string_view value)
     {
-        return TrimManagedWhiteSpace(std::move(value));
+        return std::string(StringTrimView(value));
     }
 
     bool SingleTryParseCurrentCulture(std::string text, float& value)
@@ -1580,7 +1642,7 @@ namespace MphRead::NativeRuntime
         return TryParseSingleCurrentCulture(std::move(text), value);
     }
 
-    bool Int32TryParseCurrentCulture(std::string_view value, std::int32_t& result)
+    static std::u32string Int32ParseUnits(std::string_view value)
     {
         // The UTF-16 string the managed parser sees, spelled here as the code
         // points the other overload takes.
@@ -1613,7 +1675,12 @@ namespace MphRead::NativeRuntime
             }
             wide.push_back(code);
         }
-        return Int32TryParseCurrentCulture(std::u32string_view(wide), result);
+        return wide;
+    }
+
+    bool Int32TryParseCurrentCulture(std::string_view value, std::int32_t& result)
+    {
+        return Int32TryParseCurrentCulture(std::u32string_view(Int32ParseUnits(value)), result);
     }
 
     bool SingleTryParseInvariantFloat(std::string text, float& value)
@@ -2414,13 +2481,13 @@ namespace MphRead::NativeRuntime
         return IsPrefix(Utf32ToUtf16(value), Utf32ToUtf16(prefix));
     }
 
-    bool Int32TryParseCurrentCulture(std::u32string_view value, std::int32_t& result)
+    static bool Int32TryParseInteger(
+        std::u32string_view value, const ManagedNumberFormat& format, std::int32_t& result)
     {
         // Number.TryParseBinaryIntegerStyle with NumberStyles.Integer (leading and
-        // trailing white, leading sign) and the current culture's signs.
+        // trailing white, leading sign) and the given culture's signs.
         constexpr std::int32_t MaxDigitCount = 10;
         constexpr std::uint32_t MaxValueDiv10 = 214748364U;
-        const ManagedNumberFormat format = CurrentManagedNumberFormat();
 
         std::uint32_t answer = 0;
         bool isNegative = false;
@@ -2615,5 +2682,16 @@ namespace MphRead::NativeRuntime
             goto FalseExit;
         }
         goto DoneAtEndButPotentialOverflow;
+    }
+
+    bool Int32TryParseCurrentCulture(std::u32string_view value, std::int32_t& result)
+    {
+        return Int32TryParseInteger(value, CurrentManagedNumberFormat(), result);
+    }
+
+    bool Int32TryParseInvariant(std::string_view value, std::int32_t& result)
+    {
+        // The invariant culture's NumberFormatInfo is the struct's defaults.
+        return Int32TryParseInteger(Int32ParseUnits(value), ManagedNumberFormat{}, result);
     }
 }

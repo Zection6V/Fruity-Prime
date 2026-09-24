@@ -11,6 +11,7 @@
 #include "../Scene.hpp"
 #include "../Sound/Music.hpp"
 #include "../Sound/Sfx.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -23,118 +24,20 @@
 #include <string_view>
 #include <system_error>
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::Int32TryParseInvariant;
+using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::StringTrimView;
+
 namespace
 {
-    [[nodiscard]] constexpr bool IsNumberWhiteSpace(unsigned char value) noexcept
-    {
-        return value == 0x20 || (value >= 0x09 && value <= 0x0D);
-    }
-
-    [[nodiscard]] constexpr bool IsDotNetWhiteSpace(char32_t value) noexcept
-    {
-        return (value >= U'\u0009' && value <= U'\u000D')
-            || value == U'\u0020'
-            || value == U'\u0085'
-            || value == U'\u00A0'
-            || value == U'\u1680'
-            || (value >= U'\u2000' && value <= U'\u200A')
-            || value == U'\u2028'
-            || value == U'\u2029'
-            || value == U'\u202F'
-            || value == U'\u205F'
-            || value == U'\u3000';
-    }
-
     struct Utf8Character
     {
         char32_t Value;
         std::size_t Length;
         bool Valid;
     };
-
-    [[nodiscard]] Utf8Character DecodeUtf8(
-        std::string_view text, std::size_t offset) noexcept
-    {
-        const auto first = static_cast<unsigned char>(text[offset]);
-        if (first < 0x80)
-        {
-            return {first, 1, true};
-        }
-
-        std::size_t length = 0;
-        char32_t value = 0;
-        char32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            length = 2;
-            value = first & 0x1FU;
-            minimum = 0x80;
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            length = 3;
-            value = first & 0x0FU;
-            minimum = 0x800;
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            length = 4;
-            value = first & 0x07U;
-            minimum = 0x10000;
-        }
-        else
-        {
-            return {first, 1, false};
-        }
-
-        if (offset + length > text.size())
-        {
-            return {first, 1, false};
-        }
-        for (std::size_t index = 1; index < length; ++index)
-        {
-            const auto next = static_cast<unsigned char>(text[offset + index]);
-            if ((next & 0xC0U) != 0x80U)
-            {
-                return {first, 1, false};
-            }
-            value = (value << 6) | (next & 0x3FU);
-        }
-        if (value < minimum || value > 0x10FFFF
-            || (value >= 0xD800 && value <= 0xDFFF))
-        {
-            return {first, 1, false};
-        }
-        return {value, length, true};
-    }
-
-    [[nodiscard]] std::string_view TrimDotNetWhiteSpace(
-        std::string_view value) noexcept
-    {
-        std::size_t first = 0;
-        while (first < value.size())
-        {
-            const Utf8Character character = DecodeUtf8(value, first);
-            if (!character.Valid || !IsDotNetWhiteSpace(character.Value))
-            {
-                break;
-            }
-            first += character.Length;
-        }
-
-        std::size_t cursor = first;
-        std::size_t lastNonWhite = first;
-        while (cursor < value.size())
-        {
-            const Utf8Character character = DecodeUtf8(value, cursor);
-            if (!character.Valid || !IsDotNetWhiteSpace(character.Value))
-            {
-                lastNonWhite = cursor + character.Length;
-            }
-            cursor += character.Length;
-        }
-        return value.substr(first, lastNonWhite - first);
-    }
 
     [[nodiscard]] std::string_view TrimNumberWhiteSpace(
         std::string_view value) noexcept
@@ -159,110 +62,24 @@ namespace
         return value.substr(first, last - first);
     }
 
-    [[nodiscard]] bool TryParseInt32(
-        std::string_view input, std::int32_t& result) noexcept
-    {
-        result = 0;
-        input = TrimNumberWhiteSpace(input);
-        if (input.empty())
-        {
-            return false;
-        }
-
-        std::size_t index = 0;
-        bool negative = false;
-        if (input[index] == '+' || input[index] == '-')
-        {
-            negative = input[index] == '-';
-            ++index;
-        }
-        if (index == input.size() || input[index] < '0' || input[index] > '9')
-        {
-            return false;
-        }
-
-        constexpr std::uint64_t PositiveLimit
-            = static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
-        constexpr std::uint64_t NegativeLimit = PositiveLimit + 1ULL;
-        const std::uint64_t limit = negative ? NegativeLimit : PositiveLimit;
-        std::uint64_t value = 0;
-
-        while (index < input.size() && input[index] >= '0' && input[index] <= '9')
-        {
-            const std::uint64_t digit
-                = static_cast<std::uint64_t>(input[index] - '0');
-            if (value > (limit - digit) / 10ULL)
-            {
-                return false;
-            }
-            value = value * 10ULL + digit;
-            ++index;
-        }
-        if (index != input.size())
-        {
-            return false;
-        }
-
-        if (!negative)
-        {
-            result = static_cast<std::int32_t>(value);
-        }
-        else if (value == NegativeLimit)
-        {
-            result = std::numeric_limits<std::int32_t>::min();
-        }
-        else
-        {
-            result = -static_cast<std::int32_t>(value);
-        }
-        return true;
-    }
-
-    [[nodiscard]] bool EqualsIgnoreCaseAscii(
-        std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t index = 0; index < left.size(); ++index)
-        {
-            unsigned char a = static_cast<unsigned char>(left[index]);
-            unsigned char b = static_cast<unsigned char>(right[index]);
-            if (a >= 'A' && a <= 'Z')
-            {
-                a = static_cast<unsigned char>(a + ('a' - 'A'));
-            }
-            if (b >= 'A' && b <= 'Z')
-            {
-                b = static_cast<unsigned char>(b + ('a' - 'A'));
-            }
-            if (a != b)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
     [[nodiscard]] bool TryParseSpecialSingle(
         std::string_view input, float& result) noexcept
     {
-        const std::string_view text = TrimDotNetWhiteSpace(input);
-        if (EqualsIgnoreCaseAscii(text, "Infinity")
-            || EqualsIgnoreCaseAscii(text, "+Infinity"))
+        const std::string_view text = StringTrimView(input);
+        if (StringEqualsOrdinalIgnoreCase(text, "Infinity")
+            || StringEqualsOrdinalIgnoreCase(text, "+Infinity"))
         {
             result = std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsIgnoreCaseAscii(text, "-Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(text, "-Infinity"))
         {
             result = -std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsIgnoreCaseAscii(text, "NaN")
-            || EqualsIgnoreCaseAscii(text, "+NaN")
-            || EqualsIgnoreCaseAscii(text, "-NaN"))
+        if (StringEqualsOrdinalIgnoreCase(text, "NaN")
+            || StringEqualsOrdinalIgnoreCase(text, "+NaN")
+            || StringEqualsOrdinalIgnoreCase(text, "-NaN"))
         {
             result = std::numeric_limits<float>::quiet_NaN();
             return true;
@@ -563,14 +380,14 @@ namespace
             return false;
         }
 
-        const std::string_view text = TrimDotNetWhiteSpace(*value);
+        const std::string_view text = StringTrimView(*value);
         if (text.empty())
         {
             return false;
         }
 
         std::int32_t numeric = 0;
-        if (TryParseInt32(text, numeric))
+        if (Int32TryParseInvariant(text, numeric))
         {
             result = static_cast<MphRead::Language>(numeric);
             return true;
@@ -581,7 +398,7 @@ namespace
         while (true)
         {
             const std::size_t comma = text.find(',', start);
-            const std::string_view part = TrimDotNetWhiteSpace(
+            const std::string_view part = StringTrimView(
                 comma == std::string_view::npos
                     ? text.substr(start)
                     : text.substr(start, comma - start));
@@ -702,7 +519,7 @@ namespace MphRead::Mods
         }
 
         std::int32_t pointGoal = 0;
-        if (TryParseInt32(settings->PointGoal, pointGoal)
+        if (Int32TryParseInvariant(settings->PointGoal, pointGoal)
             && pointGoal > 0)
         {
             GameState::PointGoal(pointGoal);
@@ -749,7 +566,7 @@ namespace MphRead::Mods
             return false;
         }
 
-        const std::string_view trimmed = TrimDotNetWhiteSpace(*value);
+        const std::string_view trimmed = StringTrimView(*value);
         if (trimmed.empty())
         {
             return false;
@@ -778,7 +595,7 @@ namespace MphRead::Mods
                 : trimmed.substr(start, colon - start);
 
             std::int32_t number = 0;
-            if (!TryParseInt32(part, number) || number < 0)
+            if (!Int32TryParseInvariant(part, number) || number < 0)
             {
                 return false;
             }

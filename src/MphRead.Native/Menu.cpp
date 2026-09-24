@@ -21,6 +21,7 @@
 #include "Sound/Sfx.hpp"
 #include "Strings.hpp"
 #include "Utility/Rng.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -60,6 +61,12 @@
 #include <wctype.h>
 #endif
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
+using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
+using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
+using ::MphRead::NativeRuntime::StringReplace;
+using ::MphRead::NativeRuntime::StringTrim;
 
 namespace
 {
@@ -75,6 +82,7 @@ namespace
         return keys;
     }
 }
+
 
 namespace MphRead
 {
@@ -166,60 +174,16 @@ namespace
         return {value, length, true};
     }
 
-    [[nodiscard]] constexpr bool IsDotNetWhiteSpace(char32_t value) noexcept
-    {
-        return (value >= U'\u0009' && value <= U'\u000D')
-            || value == U'\u0020'
-            || value == U'\u0085'
-            || value == U'\u00A0'
-            || value == U'\u1680'
-            || (value >= U'\u2000' && value <= U'\u200A')
-            || value == U'\u2028'
-            || value == U'\u2029'
-            || value == U'\u202F'
-            || value == U'\u205F'
-            || value == U'\u3000';
-    }
-
-    [[nodiscard]] std::string DotNetTrim(std::string_view text)
-    {
-        std::size_t first = 0;
-        while (first < text.size())
-        {
-            const Utf8Character character = DecodeUtf8(text, first);
-            if (!character.Valid || !IsDotNetWhiteSpace(character.Value)) break;
-            first += character.Length;
-        }
-
-        std::size_t cursor = first;
-        std::size_t lastNonWhite = first;
-        while (cursor < text.size())
-        {
-            const Utf8Character character = DecodeUtf8(text, cursor);
-            if (!character.Valid || !IsDotNetWhiteSpace(character.Value))
-            {
-                lastNonWhite = cursor + character.Length;
-            }
-            cursor += character.Length;
-        }
-        return std::string(text.substr(first, lastNonWhite - first));
-    }
-
     [[nodiscard]] std::string DotNetTrimStart(std::string_view text)
     {
         std::size_t first = 0;
         while (first < text.size())
         {
             const Utf8Character character = DecodeUtf8(text, first);
-            if (!character.Valid || !IsDotNetWhiteSpace(character.Value)) break;
+            if (!character.Valid || !CharIsWhiteSpace(character.Value)) break;
             first += character.Length;
         }
         return std::string(text.substr(first));
-    }
-
-    [[nodiscard]] constexpr bool IsNumberWhiteSpace(unsigned char value) noexcept
-    {
-        return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
     }
 
     [[nodiscard]] std::string TrimNumberWhiteSpace(std::string_view text)
@@ -1080,11 +1044,6 @@ namespace
         bool Control = false;
     };
 
-    [[nodiscard]] std::string Trim(std::string value)
-    {
-        return DotNetTrim(value);
-    }
-
     [[nodiscard]] std::string ToLower(std::string value)
     {
         return DotNetToLower(value);
@@ -1093,11 +1052,6 @@ namespace
     [[nodiscard]] std::string ToUpper(std::string value)
     {
         return DotNetToUpper(value);
-    }
-
-    [[nodiscard]] bool IsNullOrWhiteSpace(const std::optional<std::string>& input)
-    {
-        return !input.has_value() || Trim(*input).empty();
     }
 
     [[nodiscard]] bool StartsWith(std::string_view value, std::string_view prefix) noexcept
@@ -1109,17 +1063,6 @@ namespace
         return value.size() >= suffix.size() && value.substr(value.size() - suffix.size()) == suffix;
     }
 
-    void ReplaceAll(std::string& value, std::string_view from, std::string_view to)
-    {
-        if (from.empty()) return;
-        std::size_t position = 0;
-        while ((position = value.find(from, position)) != std::string::npos)
-        {
-            value.replace(position, from.size(), to);
-            position += to.size();
-        }
-    }
-
     [[nodiscard]] std::vector<std::string> Split(const std::string& value, char separator, bool trim, bool removeEmpty)
     {
         std::vector<std::string> result;
@@ -1128,7 +1071,7 @@ namespace
         {
             const std::size_t end = value.find(separator, start);
             std::string item = value.substr(start, end == std::string::npos ? std::string::npos : end - start);
-            if (trim) item = Trim(std::move(item));
+            if (trim) item = StringTrim(std::move(item));
             if (!removeEmpty || !item.empty()) result.push_back(std::move(item));
             if (end == std::string::npos) break;
             start = end + 1;
@@ -1136,59 +1079,10 @@ namespace
         return result;
     }
 
-    [[nodiscard]] bool TryParseInt32(std::string_view input, std::int32_t& result)
-    {
-        result = 0;
-        std::string_view numeric = input;
-        while (!numeric.empty() && numeric.back() == '\0') numeric.remove_suffix(1);
-        std::string text = TrimNumberWhiteSpace(numeric);
-        if (text.empty()) return false;
-
-        const NumberFormatInfo& format = CurrentNumberFormat();
-        bool negative = false;
-        if (StartsWithText(text, format.NegativeSign))
-        {
-            negative = true;
-            text.erase(0, format.NegativeSign.size());
-        }
-        else if (format.NegativeSign != "-" && StartsWithText(text, "-"))
-        {
-            negative = true;
-            text.erase(0, 1);
-        }
-        else if (StartsWithText(text, format.PositiveSign))
-        {
-            text.erase(0, format.PositiveSign.size());
-        }
-        if (text.empty()) return false;
-
-        const std::uint64_t limit = negative ? 2147483648ULL : 2147483647ULL;
-        std::uint64_t value = 0;
-        for (char ch : text)
-        {
-            if (ch < '0' || ch > '9') return false;
-            const std::uint64_t digit = static_cast<std::uint64_t>(ch - '0');
-            if (value > limit / 10ULL || (value == limit / 10ULL && digit > limit % 10ULL))
-            {
-                return false;
-            }
-            value = value * 10ULL + digit;
-        }
-
-        if (negative)
-        {
-            result = value == 2147483648ULL
-                ? std::numeric_limits<std::int32_t>::min()
-                : -static_cast<std::int32_t>(value);
-        }
-        else result = static_cast<std::int32_t>(value);
-        return true;
-    }
-
     [[nodiscard]] bool TryParseByte(std::string_view input, std::uint8_t& result)
     {
         std::int32_t value = 0;
-        if (!TryParseInt32(input, value) || value < 0 || value > 255) { result = 0; return false; }
+        if (!Int32TryParseCurrentCulture(input, value) || value < 0 || value > 255) { result = 0; return false; }
         result = static_cast<std::uint8_t>(value);
         return true;
     }
@@ -1290,14 +1184,14 @@ namespace
     [[nodiscard]] bool TryParseLanguage(std::string_view value, Language& result)
     {
         if (TryParseEnumNumeric(value, result)) return true;
-        const std::string text = DotNetTrim(value);
+        const std::string text = StringTrim(value);
 
         std::int32_t combined = 0;
         const std::vector<std::string> parts = Split(text, ',', false, false);
         if (parts.empty()) return false;
         for (const std::string& partValue : parts)
         {
-            const std::string part = DotNetTrim(partValue);
+            const std::string part = StringTrim(partValue);
             Language parsed{};
             if (part == "English") parsed = Language::English;
             else if (part == "Japanese") parsed = Language::Japanese;
@@ -1321,14 +1215,14 @@ namespace
             value = ToUpper(value.substr(0, firstLength)) + ToLower(value.substr(firstLength));
             SaveWhen numeric{};
             if (TryParseEnumNumeric(value, numeric)) return numeric;
-            const std::string text = DotNetTrim(value);
+            const std::string text = StringTrim(value);
 
             std::int32_t combined = 0;
             const std::vector<std::string> parts = Split(text, ',', false, false);
             if (parts.empty()) return fallback;
             for (const std::string& partValue : parts)
             {
-                const std::string part = DotNetTrim(partValue);
+                const std::string part = StringTrim(partValue);
                 if (part == "Never") combined |= 0;
                 else if (part == "Always") combined |= 1;
                 else if (part == "Prompt") combined |= 2;
@@ -1365,14 +1259,14 @@ namespace
     [[nodiscard]] bool TryParseHunter(std::string_view value, Hunter& result)
     {
         if (TryParseEnumNumeric(value, result)) return true;
-        const std::string text = DotNetTrim(value);
+        const std::string text = StringTrim(value);
 
         std::int32_t combined = 0;
         const std::vector<std::string> parts = Split(text, ',', false, false);
         if (parts.empty()) return false;
         for (const std::string& partValue : parts)
         {
-            const std::string part = DotNetTrim(partValue);
+            const std::string part = StringTrim(partValue);
             bool matched = false;
             for (std::int32_t i = 0; i <= 8; ++i)
             {
@@ -1400,13 +1294,13 @@ namespace
         };
         MetaDir numeric{};
         if (TryParseEnumNumeric(value, numeric)) return numeric;
-        const std::string text = DotNetTrim(value);
+        const std::string text = StringTrim(value);
         std::int32_t combined = 0;
         const std::vector<std::string> parts = Split(text, ',', false, false);
         if (parts.empty()) return std::nullopt;
         for (const std::string& partValue : parts)
         {
-            const std::string part = DotNetTrim(partValue);
+            const std::string part = StringTrim(partValue);
             bool matched = false;
             for (std::size_t i = 0; i < names.size(); ++i)
             {
@@ -1479,7 +1373,7 @@ namespace
     {
         static constexpr auto names = MakeEnumNames<E, Min>(std::make_index_sequence<static_cast<std::size_t>(Max - Min + 1)>{});
         if (TryParseEnumNumeric(text, result)) return true;
-        const std::string value = DotNetTrim(text);
+        const std::string value = StringTrim(text);
 
         std::int32_t combined = 0;
         const std::vector<std::string> parts = Split(value, ',', false, false);
@@ -1490,7 +1384,7 @@ namespace
         }
         for (const std::string& partValue : parts)
         {
-            const std::string part = DotNetTrim(partValue);
+            const std::string part = StringTrim(partValue);
             bool matched = false;
             for (const auto& [enumRaw, name] : names)
             {
@@ -1710,7 +1604,7 @@ namespace
                             const std::string_view part(parameters.data() + start,
                                 (end == std::string::npos ? parameters.size() : end) - start);
                             std::int32_t parsed = 0;
-                            if (part.empty() || !TryParseInt32(part, parsed)) return std::nullopt;
+                            if (part.empty() || !Int32TryParseCurrentCulture(part, parsed)) return std::nullopt;
                             return parsed;
                         };
                         auto Modifier = [&]() -> std::int32_t
@@ -1718,7 +1612,7 @@ namespace
                             const std::size_t separator = parameters.rfind(';');
                             if (separator == std::string::npos) return 1;
                             std::int32_t parsed = 1;
-                            if (!TryParseInt32(std::string_view(parameters).substr(separator + 1), parsed)) return 1;
+                            if (!Int32TryParseCurrentCulture(std::string_view(parameters).substr(separator + 1), parsed)) return 1;
                             return parsed;
                         };
                         const std::int32_t modifier = Modifier();
@@ -1836,18 +1730,18 @@ namespace
         auto Wrap = [](std::uint32_t value) { return static_cast<std::int32_t>(value); };
         if (split.size() == 1)
         {
-            if (TryParseInt32(split[0], a)) { result = Decimal::FromInt(Wrap(static_cast<std::uint32_t>(a) * 60U)); return true; }
+            if (Int32TryParseCurrentCulture(split[0], a)) { result = Decimal::FromInt(Wrap(static_cast<std::uint32_t>(a) * 60U)); return true; }
         }
         else if (split.size() == 2)
         {
-            if (TryParseInt32(split[0], a) && TryParseInt32(split[1], b))
+            if (Int32TryParseCurrentCulture(split[0], a) && Int32TryParseCurrentCulture(split[1], b))
             {
                 result = Decimal::FromInt(Wrap(static_cast<std::uint32_t>(a) * 60U + static_cast<std::uint32_t>(b))); return true;
             }
         }
         else if (split.size() == 3)
         {
-            if (TryParseInt32(split[0], a) && TryParseInt32(split[1], b) && TryParseInt32(split[2], c))
+            if (Int32TryParseCurrentCulture(split[0], a) && Int32TryParseCurrentCulture(split[1], b) && Int32TryParseCurrentCulture(split[2], c))
             {
                 result = Decimal::FromInt(Wrap(static_cast<std::uint32_t>(a) * 3600U
                     + static_cast<std::uint32_t>(b) * 60U + static_cast<std::uint32_t>(c))); return true;
@@ -1899,8 +1793,8 @@ namespace
 
     void ReadTimeGoal(const std::optional<std::string>& input)
     {
-        if (IsNullOrWhiteSpace(input)) return;
-        const std::string text = ToUpper(Trim(*input));
+        if (StringIsNullOrWhiteSpace(input)) return;
+        const std::string text = ToUpper(StringTrim(*input));
         if (_goalType == "Time Goal")
         {
             Decimal result;
@@ -1919,9 +1813,9 @@ namespace
 
     void ReadTimeLimit(const std::optional<std::string>& input)
     {
-        if (IsNullOrWhiteSpace(input)) return;
+        if (StringIsNullOrWhiteSpace(input)) return;
         Decimal result;
-        if (GetTime(ToUpper(Trim(*input)), result)) _timeLimit = result;
+        if (GetTime(ToUpper(StringTrim(*input)), result)) _timeLimit = result;
     }
 
     [[nodiscard]] GameMode ParseGameMode(std::string_view mode)
@@ -2062,11 +1956,11 @@ namespace MphRead
 
         auto ReadRoom = [&](const std::optional<std::string>& input)
         {
-            if (IsNullOrWhiteSpace(input)) return;
-            const std::string value = ToLower(Trim(*input));
+            if (StringIsNullOrWhiteSpace(input)) return;
+            const std::string value = ToLower(StringTrim(*input));
             std::int32_t id = 0;
             const RoomMetadata* meta = nullptr;
-            if (TryParseInt32(value, id))
+            if (Int32TryParseCurrentCulture(value, id))
             {
                 meta = Metadata::GetRoomById(id, true);
                 if (meta)
@@ -2125,9 +2019,9 @@ namespace MphRead
 
         auto ReadMode = [&](const std::optional<std::string>& input)
         {
-            if (IsNullOrWhiteSpace(input)) return;
-            std::string value = ToLower(Trim(*input));
-            ReplaceAll(value, " ", "");
+            if (StringIsNullOrWhiteSpace(input)) return;
+            std::string value = ToLower(StringTrim(*input));
+            value = StringReplace(std::move(value), " ", "");
             const auto it = modeOpts.find(value);
             if (it != modeOpts.end())
             {
@@ -2144,8 +2038,8 @@ namespace MphRead
 
         auto ReadPlayer = [&](const std::optional<std::string>& input, std::int32_t index)
         {
-            if (IsNullOrWhiteSpace(input)) return;
-            const std::string value = ToLower(Trim(*input));
+            if (StringIsNullOrWhiteSpace(input)) return;
+            const std::string value = ToLower(StringTrim(*input));
             const std::vector<std::string> split = Split(value, ' ', false, false);
             std::string player = "none";
             std::string name = split.at(0);
@@ -2172,13 +2066,13 @@ namespace MphRead
                     else
                     {
                         std::int32_t parsed = 0;
-                        if (TryParseInt32(split[1], parsed)) team = std::clamp(parsed, 0, 1) == 0 ? "orange" : "green";
+                        if (Int32TryParseCurrentCulture(split[1], parsed)) team = std::clamp(parsed, 0, 1) == 0 ? "orange" : "green";
                     }
                 }
                 else
                 {
                     std::int32_t parsed = 0;
-                    if (TryParseInt32(split[1], parsed)) recolor = std::to_string(std::clamp(parsed, 0, 5));
+                    if (Int32TryParseCurrentCulture(split[1], parsed)) recolor = std::to_string(std::clamp(parsed, 0, 5));
                 }
             }
             players.at(static_cast<std::size_t>(index)) = PlayerSetting{player, team, recolor};
@@ -2192,12 +2086,12 @@ namespace MphRead
 
         auto ReadModels = [&](const std::optional<std::string>& input)
         {
-            if (IsNullOrWhiteSpace(input)) return;
+            if (StringIsNullOrWhiteSpace(input)) return;
             models.clear();
             const auto split = Split(*input, ',', false, false);
             for (const std::string& raw : split)
             {
-                const auto parts = Split(Trim(raw), ' ', true, true);
+                const auto parts = Split(StringTrim(raw), ' ', true, true);
                 std::int32_t recolor = 0;
                 bool firstHunt = false;
                 MetaDir dir = static_cast<MetaDir>(0);
@@ -2208,7 +2102,7 @@ namespace MphRead
                     else
                     {
                         std::int32_t parsed = 0;
-                        if (TryParseInt32(part, parsed)) recolor = parsed;
+                        if (Int32TryParseCurrentCulture(part, parsed)) recolor = parsed;
                         else
                         {
                             recolor = 0;
@@ -2232,8 +2126,8 @@ namespace MphRead
 
         auto ReadMphVersion = [&](const std::optional<std::string>& input)
         {
-            if (IsNullOrWhiteSpace(input)) return;
-            const std::string value = ToUpper(Trim(*input));
+            if (StringIsNullOrWhiteSpace(input)) return;
+            const std::string value = ToUpper(StringTrim(*input));
             if (std::find(mphVersions.begin(), mphVersions.end(), value) != mphVersions.end()
                 && !Paths::AllPaths().at(value).empty())
             {
@@ -2243,8 +2137,8 @@ namespace MphRead
         };
         auto ReadFhVersion = [&](const std::optional<std::string>& input)
         {
-            if (IsNullOrWhiteSpace(input)) return;
-            const std::string value = ToUpper(Trim(*input));
+            if (StringIsNullOrWhiteSpace(input)) return;
+            const std::string value = ToUpper(StringTrim(*input));
             if (std::find(fhVersions.begin(), fhVersions.end(), value) != fhVersions.end()
                 && !Paths::AllPaths().at(value).empty())
             {
@@ -2280,7 +2174,7 @@ namespace MphRead
                 Music::UserVolume(_musicVolume.ToFloat());
             }
             std::int32_t integer = 0;
-            if (TryParseInt32(settings.PointGoal, integer)) _pointGoal = Decimal::FromInt(integer);
+            if (Int32TryParseCurrentCulture(settings.PointGoal, integer)) _pointGoal = Decimal::FromInt(integer);
             _octolithReset = settings.PointGoal != "off";
             _teams = settings.TeamPlay != "off";
             _radarPlayers = settings.HunterRadar != "off";
@@ -2310,10 +2204,10 @@ namespace MphRead
             _vdo1State = GetState(settings.Vdo1State); _vdo2State = GetState(settings.Vdo2State);
             _arcterra1State = GetState(settings.Arcterra1State); _arcterra2State = GetState(settings.Arcterra2State);
             if (settings.CheckpointId == "none") _checkpointId = -1;
-            else if (TryParseInt32(settings.CheckpointId, integer) && integer >= 0) _checkpointId = integer;
-            if (TryParseInt32(settings.HealthMax, integer)) _healthMax = std::max(integer, 1);
-            if (TryParseInt32(settings.MissileMax, integer)) _missileMax = std::max(integer, 0);
-            if (TryParseInt32(settings.UaMax, integer)) _uaMax = std::max(integer, 0);
+            else if (Int32TryParseCurrentCulture(settings.CheckpointId, integer) && integer >= 0) _checkpointId = integer;
+            if (Int32TryParseCurrentCulture(settings.HealthMax, integer)) _healthMax = std::max(integer, 1);
+            if (Int32TryParseCurrentCulture(settings.MissileMax, integer)) _missileMax = std::max(integer, 0);
+            if (Int32TryParseCurrentCulture(settings.UaMax, integer)) _uaMax = std::max(integer, 0);
             const auto weapons = Split(ToLower(settings.Weapons), ',', true, true);
             if (!weapons.empty())
             {
@@ -2763,7 +2657,7 @@ namespace MphRead
                 if (_mode == "Adventure") gameMode = GameMode::SinglePlayer;
                 else if (_mode != "auto-select")
                 {
-                    std::string modeName = _mode; ReplaceAll(modeName, " ", "");
+                    std::string modeName = _mode; modeName = StringReplace(std::move(modeName), " ", "");
                     gameMode = ParseGameMode(modeName);
                 }
                 renderer.Get()->AddRoom(roomKey, gameMode);
@@ -2850,7 +2744,7 @@ namespace MphRead
         {
             std::int32_t s = 0;
             std::string modeString = _mode == "auto-select" ? "Battle" : _mode;
-            ReplaceAll(modeString, " Teams", "");
+            modeString = StringReplace(std::move(modeString), " Teams", "");
             modeString += " Mode Settings";
             const std::string goalString = StartsWith(_mode, "Defender") || _mode == "Prime Hunter"
                 ? ::FormatTime(_timeGoal) : _pointGoal.ToString();
@@ -2962,7 +2856,7 @@ namespace MphRead
                         if (_mode == "auto-select") _mode = "Battle";
                         _mode += " Teams";
                     }
-                    else if (!_teams && EndsWith(_mode, "Teams")) ReplaceAll(_mode, " Teams", "");
+                    else if (!_teams && EndsWith(_mode, "Teams")) _mode = StringReplace(std::move(_mode), " Teams", "");
                 }
             }
             else
@@ -3561,14 +3455,14 @@ namespace MphRead
                 {
                     WriteLine(); WriteLine("Enter playlist index.");
                     auto entry = ReadLine(); std::int32_t id = 0;
-                    if (entry && TryParseInt32(*entry, id) && id >= 0 && id < static_cast<std::int32_t>(musicList.size()))
+                    if (entry && Int32TryParseCurrentCulture(*entry, id) && id >= 0 && id < static_cast<std::int32_t>(musicList.size()))
                     { playlist = id; UpdatePlaylist(0); PlayPlaylist(); }
                 }
                 else if (selection == 1)
                 {
                     WriteLine(); WriteLine("Enter music name or ID.");
                     auto entry = ReadLine(); std::int32_t id = 0;
-                    if (entry && TryParseInt32(*entry, id))
+                    if (entry && Int32TryParseCurrentCulture(*entry, id))
                     {
                         if (id >= 1 && id <= 68) { music = static_cast<MusicId>(id); UpdateMusic(0); PlayMusic(); }
                     }
@@ -3583,13 +3477,13 @@ namespace MphRead
                 {
                     WriteLine(); WriteLine("Enter sequence name or ID.");
                     auto entry = ReadLine(); std::int32_t id = 0;
-                    if (entry && TryParseInt32(*entry, id))
+                    if (entry && Int32TryParseCurrentCulture(*entry, id))
                     {
                         if (id >= 0 && id <= 59) { seq = static_cast<SeqId>(id); PlaySeq(); }
                     }
                     else if (entry)
                     {
-                        std::string name = ToUpper(*entry); ReplaceAll(name, "SEQ_", "");
+                        std::string name = ToUpper(*entry); name = StringReplace(std::move(name), "SEQ_", "");
                         SeqId parsed{}; if (TryParseSeq(name, parsed) && parsed != SeqId::None) { seq = parsed; PlaySeq(); }
                     }
                 }
@@ -3597,7 +3491,7 @@ namespace MphRead
                 {
                     WriteLine(); WriteLine("Enter voice/stream name or ID.");
                     auto entry = ReadLine(); std::int32_t id = 0;
-                    if (entry && TryParseInt32(*entry, id))
+                    if (entry && Int32TryParseCurrentCulture(*entry, id))
                     {
                         if (id >= 0 && id <= 11) { stream = static_cast<VoiceId>(id); PlayStream(); }
                     }
@@ -3610,13 +3504,13 @@ namespace MphRead
                 {
                     WriteLine(); WriteLine("Enter SFX name or ID.");
                     auto entry = ReadLine(); std::int32_t id = 0;
-                    if (entry && TryParseInt32(*entry, id))
+                    if (entry && Int32TryParseCurrentCulture(*entry, id))
                     {
                         if (id >= 0 && id <= 527) { sfx = static_cast<SfxId>(id); PlaySfx(); }
                     }
                     else if (entry)
                     {
-                        std::string name = ToUpper(*entry); ReplaceAll(name, "SFX_", "");
+                        std::string name = ToUpper(*entry); name = StringReplace(std::move(name), "SFX_", "");
                         SfxId parsed{};
                         if (TryParseSfx(name, parsed) && parsed != SfxId::None)
                         {
@@ -4006,7 +3900,7 @@ namespace MphRead
             {
                 WriteLine(); WriteLine("Enter save slot from 1 to 255.");
                 auto entry = ReadLine(); std::int32_t slot = 0;
-                if (entry && TryParseInt32(*entry, slot) && slot >= 0 && slot <= 255)
+                if (entry && Int32TryParseCurrentCulture(*entry, slot) && slot >= 0 && slot <= 255)
                 { SaveSlot = static_cast<std::uint8_t>(slot); UpdateSaveInfo(); }
                 prompt = 0;
             }

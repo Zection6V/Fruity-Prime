@@ -6,8 +6,10 @@
 #include "../../Program.hpp"
 #include "BuiltMap.hpp"
 #include "MapDefinition.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <bit>
 #include <cmath>
@@ -23,6 +25,7 @@
 
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 
@@ -160,33 +163,6 @@ namespace
             value.remove_suffix(count);
         }
         return value;
-    }
-
-    [[nodiscard]] bool EqualsIgnoreCaseAscii(
-        std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i)
-        {
-            unsigned char a = static_cast<unsigned char>(left[i]);
-            unsigned char b = static_cast<unsigned char>(right[i]);
-            if (a >= 'a' && a <= 'z')
-            {
-                a = static_cast<unsigned char>(a - ('a' - 'A'));
-            }
-            if (b >= 'a' && b <= 'z')
-            {
-                b = static_cast<unsigned char>(b - ('a' - 'A'));
-            }
-            if (a != b)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     [[nodiscard]] bool TryParseSignedDecimal(
@@ -329,7 +305,7 @@ namespace
         };
         for (const Entry& entry : Entries)
         {
-            if (EqualsIgnoreCaseAscii(value, entry.Name))
+            if (StringEqualsOrdinalIgnoreCase(value, entry.Name))
             {
                 result = entry.Value;
                 return true;
@@ -362,7 +338,7 @@ namespace
         };
         for (const Entry& entry : Entries)
         {
-            if (EqualsIgnoreCaseAscii(value, entry.Name))
+            if (StringEqualsOrdinalIgnoreCase(value, entry.Name))
             {
                 result = entry.Value;
                 return true;

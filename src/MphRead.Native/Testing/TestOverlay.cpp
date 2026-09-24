@@ -1,6 +1,7 @@
 #include "TestOverlay.hpp"
 
 #include "../Formats/Formats.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
@@ -20,6 +21,7 @@
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::StringReplace;
 
 namespace
 {
@@ -41,25 +43,6 @@ namespace
     [[nodiscard]] std::string GetFileName(const std::string& path)
     {
         return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
-    [[nodiscard]] std::string ReplaceAll(
-        std::string value,
-        const std::string& oldValue,
-        const std::string& newValue)
-    {
-        if (oldValue.empty())
-        {
-            throw std::invalid_argument(
-                "The value cannot be an empty string. (Parameter 'oldValue')");
-        }
-        std::size_t position = 0;
-        while ((position = value.find(oldValue, position)) != std::string::npos)
-        {
-            value.replace(position, oldValue.size(), newValue);
-            position += newValue.size();
-        }
-        return value;
     }
 
     [[nodiscard]] bool Contains(
@@ -99,7 +82,7 @@ namespace
                             entry.path(),
                             current.RemainingDepth - 1});
                     }
-                    result.push_back(ReplaceAll(PathToUtf8(entry.path()), root, ""));
+                    result.push_back(StringReplace(PathToUtf8(entry.path()), root, ""));
                 }
             }
         }

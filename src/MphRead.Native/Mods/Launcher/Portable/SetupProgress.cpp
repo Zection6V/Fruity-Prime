@@ -8,8 +8,10 @@
 #include <system_error>
 #include <utility>
 #include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 
+using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -24,80 +26,9 @@ namespace
         return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
     }
 
-    [[nodiscard]] bool IsNumberStylesIntegerWhite(char value) noexcept
-    {
-        return value == ' ' || (value >= '\t' && value <= '\r');
-    }
-
     [[nodiscard]] bool IsAsciiDigit(char value) noexcept
     {
         return value >= '0' && value <= '9';
-    }
-
-    [[nodiscard]] bool TryParseInt32(std::string_view text, std::int32_t& result) noexcept
-    {
-        result = 0;
-
-        std::size_t begin = 0;
-        while (begin < text.size() && IsNumberStylesIntegerWhite(text[begin]))
-        {
-            ++begin;
-        }
-
-        std::size_t end = text.size();
-        while (end > begin && IsNumberStylesIntegerWhite(text[end - 1]))
-        {
-            --end;
-        }
-        if (begin == end)
-        {
-            return false;
-        }
-
-        bool negative = false;
-        if (text[begin] == '+' || text[begin] == '-')
-        {
-            negative = text[begin] == '-';
-            ++begin;
-        }
-        if (begin == end)
-        {
-            return false;
-        }
-
-        constexpr std::uint32_t PositiveLimit = static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max());
-        constexpr std::uint32_t NegativeLimit = PositiveLimit + 1U;
-        const std::uint32_t limit = negative ? NegativeLimit : PositiveLimit;
-        std::uint32_t value = 0;
-
-        for (std::size_t index = begin; index < end; ++index)
-        {
-            const char character = text[index];
-            if (!IsAsciiDigit(character))
-            {
-                return false;
-            }
-            const std::uint32_t digit = static_cast<std::uint32_t>(character - '0');
-            if (value > (limit - digit) / 10U)
-            {
-                return false;
-            }
-            value = value * 10U + digit;
-        }
-
-        if (!negative)
-        {
-            result = static_cast<std::int32_t>(value);
-        }
-        else if (value == NegativeLimit)
-        {
-            result = std::numeric_limits<std::int32_t>::min();
-        }
-        else
-        {
-            result = -static_cast<std::int32_t>(value);
-        }
-        return true;
     }
 
     [[nodiscard]] std::string FormatInt32(std::int32_t value)
@@ -204,9 +135,9 @@ namespace MphRead::Mods::Launcher
             ++end;
         }
 
-        return TryParseInt32(rest.substr(0, slash), done)
+        return Int32TryParseCurrentCulture(rest.substr(0, slash), done)
             && end > 0
-            && TryParseInt32(after.substr(0, end), total);
+            && Int32TryParseCurrentCulture(after.substr(0, end), total);
     }
 
     SetupProgress::Band SetupProgress::Classify(std::string_view line) const

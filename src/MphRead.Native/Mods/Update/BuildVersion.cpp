@@ -1,4 +1,5 @@
 #include "BuildVersion.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <cstddef>
@@ -7,123 +8,20 @@
 #include <mutex>
 #include <stdexcept>
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
+using ::MphRead::NativeRuntime::StringTrimView;
+
 namespace MphRead::Mods::Update
 {
     namespace
     {
-        [[nodiscard]] constexpr bool IsNumberWhiteSpace(unsigned char value) noexcept
-        {
-            // NumberStyles.Integer in .NET accepts only ASCII space and U+0009..U+000D
-            // as leading/trailing whitespace.
-            return value == 0x20 || (value >= 0x09 && value <= 0x0D);
-        }
-
-        [[nodiscard]] constexpr bool IsDotNetWhiteSpace(char32_t value) noexcept
-        {
-            // Char.IsWhiteSpace / String.Trim whitespace set used by .NET 9.
-            return (value >= U'\u0009' && value <= U'\u000D')
-                || value == U'\u0020'
-                || value == U'\u0085'
-                || value == U'\u00A0'
-                || value == U'\u1680'
-                || (value >= U'\u2000' && value <= U'\u200A')
-                || value == U'\u2028'
-                || value == U'\u2029'
-                || value == U'\u202F'
-                || value == U'\u205F'
-                || value == U'\u3000';
-        }
-
         struct Utf8Character
         {
             char32_t Value;
             std::size_t Length;
             bool Valid;
         };
-
-        [[nodiscard]] Utf8Character DecodeUtf8(std::string_view text,
-            std::size_t offset) noexcept
-        {
-            const auto byte = static_cast<unsigned char>(text[offset]);
-            if (byte < 0x80)
-            {
-                return {byte, 1, true};
-            }
-
-            std::size_t length = 0;
-            char32_t value = 0;
-            char32_t minimum = 0;
-            if ((byte & 0xE0) == 0xC0)
-            {
-                length = 2;
-                value = byte & 0x1F;
-                minimum = 0x80;
-            }
-            else if ((byte & 0xF0) == 0xE0)
-            {
-                length = 3;
-                value = byte & 0x0F;
-                minimum = 0x800;
-            }
-            else if ((byte & 0xF8) == 0xF0)
-            {
-                length = 4;
-                value = byte & 0x07;
-                minimum = 0x10000;
-            }
-            else
-            {
-                return {byte, 1, false};
-            }
-
-            if (offset + length > text.size())
-            {
-                return {byte, 1, false};
-            }
-            for (std::size_t i = 1; i < length; ++i)
-            {
-                const auto continuation = static_cast<unsigned char>(text[offset + i]);
-                if ((continuation & 0xC0) != 0x80)
-                {
-                    return {byte, 1, false};
-                }
-                value = (value << 6) | (continuation & 0x3F);
-            }
-            if (value < minimum || value > 0x10FFFF
-                || (value >= 0xD800 && value <= 0xDFFF))
-            {
-                return {byte, 1, false};
-            }
-            return {value, length, true};
-        }
-
-        [[nodiscard]] std::string_view TrimDotNetWhiteSpace(
-            std::string_view text) noexcept
-        {
-            std::size_t first = 0;
-            while (first < text.size())
-            {
-                const Utf8Character character = DecodeUtf8(text, first);
-                if (!character.Valid || !IsDotNetWhiteSpace(character.Value))
-                {
-                    break;
-                }
-                first += character.Length;
-            }
-
-            std::size_t cursor = first;
-            std::size_t lastNonWhite = first;
-            while (cursor < text.size())
-            {
-                const Utf8Character character = DecodeUtf8(text, cursor);
-                if (!character.Valid || !IsDotNetWhiteSpace(character.Value))
-                {
-                    lastNonWhite = cursor + character.Length;
-                }
-                cursor += character.Length;
-            }
-            return text.substr(first, lastNonWhite - first);
-        }
 
         [[nodiscard]] bool TryParseInt32Component(std::string_view component,
             std::int32_t& result) noexcept
@@ -473,7 +371,7 @@ namespace MphRead::Mods::Update
             return std::nullopt;
         }
 
-        std::string_view value = TrimDotNetWhiteSpace(*text);
+        std::string_view value = StringTrimView(*text);
         if (value.empty())
         {
             return std::nullopt;

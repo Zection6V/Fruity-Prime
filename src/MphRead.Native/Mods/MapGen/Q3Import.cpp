@@ -11,9 +11,11 @@
 #include "MapTextureBake.hpp"
 #include "MapTexturePack.hpp"
 #include "Q3Bsp.hpp"
+#include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
-#include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -36,12 +38,14 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Add;
@@ -136,33 +140,6 @@ namespace
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
     {
         return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
-    }
-
-    [[nodiscard]] bool EqualsIgnoreCaseAscii(
-        std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i)
-        {
-            unsigned char a = static_cast<unsigned char>(left[i]);
-            unsigned char b = static_cast<unsigned char>(right[i]);
-            if (a >= 'a' && a <= 'z')
-            {
-                a = static_cast<unsigned char>(a - ('a' - 'A'));
-            }
-            if (b >= 'a' && b <= 'z')
-            {
-                b = static_cast<unsigned char>(b - ('a' - 'A'));
-            }
-            if (a != b)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     [[nodiscard]] bool IsFloatNumber(
@@ -317,20 +294,20 @@ namespace
         {
             special.remove_suffix(1);
         }
-        if (EqualsIgnoreCaseAscii(special, "NaN")
-            || EqualsIgnoreCaseAscii(special, "+NaN")
-            || EqualsIgnoreCaseAscii(special, "-NaN"))
+        if (StringEqualsOrdinalIgnoreCase(special, "NaN")
+            || StringEqualsOrdinalIgnoreCase(special, "+NaN")
+            || StringEqualsOrdinalIgnoreCase(special, "-NaN"))
         {
             result = std::bit_cast<float>(std::uint32_t{0xFFC00000U});
             return true;
         }
-        if (EqualsIgnoreCaseAscii(special, "Infinity")
-            || EqualsIgnoreCaseAscii(special, "+Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(special, "Infinity")
+            || StringEqualsOrdinalIgnoreCase(special, "+Infinity"))
         {
             result = std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsIgnoreCaseAscii(special, "-Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(special, "-Infinity"))
         {
             result = -std::numeric_limits<float>::infinity();
             return true;
@@ -407,80 +384,6 @@ namespace
                 : std::numeric_limits<float>::infinity();
         }
         return true;
-    }
-
-    [[nodiscard]] bool TryParseInt32(std::string_view text, std::int32_t& result) noexcept
-    {
-        result = 0;
-        std::size_t position = 0;
-        while (position < text.size()
-            && IsAsciiWhitespace(static_cast<unsigned char>(text[position])))
-        {
-            ++position;
-        }
-        if (position == text.size())
-        {
-            return false;
-        }
-
-        bool negative = false;
-        if (text[position] == '+' || text[position] == '-')
-        {
-            negative = text[position] == '-';
-            ++position;
-        }
-        const std::size_t digitsStart = position;
-        const std::uint64_t limit = negative
-            ? static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()) + 1U
-            : static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
-        std::uint64_t magnitude = 0;
-        while (position < text.size()
-            && text[position] >= '0' && text[position] <= '9')
-        {
-            const std::uint64_t digit
-                = static_cast<std::uint64_t>(text[position] - '0');
-            if (magnitude > (limit - digit) / 10U)
-            {
-                return false;
-            }
-            magnitude = magnitude * 10U + digit;
-            ++position;
-        }
-        if (position == digitsStart)
-        {
-            return false;
-        }
-        while (position < text.size()
-            && IsAsciiWhitespace(static_cast<unsigned char>(text[position])))
-        {
-            ++position;
-        }
-        while (position < text.size() && text[position] == '\0')
-        {
-            ++position;
-        }
-        if (position != text.size())
-        {
-            return false;
-        }
-
-        if (negative)
-        {
-            result = magnitude == limit
-                ? std::numeric_limits<std::int32_t>::min()
-                : -static_cast<std::int32_t>(magnitude);
-        }
-        else
-        {
-            result = static_cast<std::int32_t>(magnitude);
-        }
-        return true;
-    }
-
-    [[nodiscard]] bool EqualsOrdinalIgnoreCase(
-        const std::string& left, const std::string& right) noexcept
-    {
-        return Q3StringEqual{}(left, right);
     }
 
     [[nodiscard]] bool StartsWithOrdinalIgnoreCase(
@@ -1959,9 +1862,9 @@ namespace MphRead::Mods::MapGen
                 continue;
             }
 
-            if (EqualsOrdinalIgnoreCase(
+            if (StringEqualsOrdinalIgnoreCase(
                     *classname, "info_player_deathmatch")
-                || EqualsOrdinalIgnoreCase(
+                || StringEqualsOrdinalIgnoreCase(
                     *classname, "info_player_start"))
             {
                 const std::string* origin = nullptr;
@@ -1999,7 +1902,7 @@ namespace MphRead::Mods::MapGen
                 spawn->Yaw(90.0F + angle);
                 spawns->push_back(std::move(spawn));
             }
-            else if (EqualsOrdinalIgnoreCase(
+            else if (StringEqualsOrdinalIgnoreCase(
                 *classname, "trigger_push"))
             {
                 const std::string* model
@@ -2022,7 +1925,7 @@ namespace MphRead::Mods::MapGen
                 const Vector3 destination = targetIterator->second;
 
                 std::int32_t modelIndex = 0;
-                if (!TryParseInt32(
+                if (!Int32TryParseCurrentCulture(
                         std::string_view(*model).substr(1),
                         modelIndex)
                     || modelIndex < 0

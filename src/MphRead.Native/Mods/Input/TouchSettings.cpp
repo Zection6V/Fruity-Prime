@@ -1,6 +1,9 @@
 #include "TouchSettings.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <cstddef>
+
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 
 namespace
 {
@@ -114,27 +117,6 @@ namespace
         return value;
     }
 
-    bool EqualsIgnoreCaseAscii(std::string_view value, std::string_view expectedLower)
-    {
-        if (value.size() != expectedLower.size())
-        {
-            return false;
-        }
-        for (std::size_t index = 0; index < value.size(); ++index)
-        {
-            unsigned char current = static_cast<unsigned char>(value[index]);
-            if (current >= 'A' && current <= 'Z')
-            {
-                current = static_cast<unsigned char>(current + ('a' - 'A'));
-            }
-            if (current != static_cast<unsigned char>(expectedLower[index]))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
     bool TryParseBoolean(std::optional<std::string_view> value, bool& result)
     {
         result = false;
@@ -144,12 +126,12 @@ namespace
         }
 
         const std::string_view trimmed = TrimBooleanInput(*value);
-        if (EqualsIgnoreCaseAscii(trimmed, "true"))
+        if (StringEqualsOrdinalIgnoreCase(trimmed, "true"))
         {
             result = true;
             return true;
         }
-        if (EqualsIgnoreCaseAscii(trimmed, "false"))
+        if (StringEqualsOrdinalIgnoreCase(trimmed, "false"))
         {
             return true;
         }

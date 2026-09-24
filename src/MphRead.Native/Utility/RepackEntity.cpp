@@ -9,6 +9,7 @@
 #include "../Metadata/Rooms.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
@@ -46,6 +47,7 @@
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::StringTrim;
 
 namespace MphRead::Utility
 {
@@ -560,27 +562,6 @@ namespace MphRead::Utility
             }
         }
 
-        [[nodiscard]] std::string Trim(std::string value)
-        {
-            auto whitespace = [](unsigned char c)
-            {
-                return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v';
-            };
-            auto first = std::find_if_not(value.begin(), value.end(), [&](char c)
-            {
-                return whitespace(static_cast<unsigned char>(c));
-            });
-            auto last = std::find_if_not(value.rbegin(), value.rend(), [&](char c)
-            {
-                return whitespace(static_cast<unsigned char>(c));
-            }).base();
-            if (first >= last)
-            {
-                return {};
-            }
-            return std::string(first, last);
-        }
-
         [[nodiscard]] const RoomMetadata& Room(const std::string& name)
         {
             return *Metadata::RoomMetadata.at(name);
@@ -988,7 +969,7 @@ namespace MphRead::Utility
                     mph->PlayerColMsgParam1 = 0;
                     mph->PlayerColMsgParam2 = 0;
                     mph->PlayerColMsgTarget = 0xFFFF;
-                    mph->PortalName = S(Trim(R(platform->PortalName)));
+                    mph->PortalName = S(StringTrim(R(platform->PortalName)));
                     mph->Position = platform->Position;
                     mph->PositionCount = platform->PositionCount;
                     mph->PositionOffset = Zero3();

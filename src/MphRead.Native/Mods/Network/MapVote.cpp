@@ -3,6 +3,7 @@
 #include "../../Formats/Types.hpp"
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <climits>
 #include <cstddef>
@@ -28,6 +29,9 @@
 #include <locale.h>
 #include <wctype.h>
 #endif
+
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 
 namespace
 {
@@ -127,34 +131,6 @@ namespace
             4,
             true
         };
-    }
-
-    [[nodiscard]] bool IsManagedWhiteSpace(std::uint32_t value) noexcept
-    {
-        return (value >= 0x0009U && value <= 0x000DU)
-            || value == 0x0020U || value == 0x0085U || value == 0x00A0U
-            || value == 0x1680U || (value >= 0x2000U && value <= 0x200AU)
-            || value == 0x2028U || value == 0x2029U || value == 0x202FU
-            || value == 0x205FU || value == 0x3000U;
-    }
-
-    [[nodiscard]] bool IsNullOrWhiteSpace(
-        const std::optional<std::string>& value) noexcept
-    {
-        if (!value.has_value() || value->empty())
-        {
-            return true;
-        }
-        for (std::size_t index = 0; index < value->size();)
-        {
-            const Utf8Unit unit = DecodeUtf8(*value, index);
-            if (!unit.Valid || !IsManagedWhiteSpace(unit.Scalar))
-            {
-                return false;
-            }
-            index += unit.Length;
-        }
-        return true;
     }
 
     void AppendUtf8(std::string& output, std::uint32_t scalar)
@@ -505,7 +481,7 @@ namespace MphRead::Mods::Network
 
     void MapVote::Propose(const std::optional<std::string>& roomKey)
     {
-        if (!NetSession::Active() || IsNullOrWhiteSpace(roomKey))
+        if (!NetSession::Active() || StringIsNullOrWhiteSpace(roomKey))
         {
             return;
         }

@@ -3,6 +3,8 @@
 #include "../Formats/Formats.hpp"
 #include "../Formats/Model.hpp"
 #include "../Formats/Types.hpp"
+#include "../NativeRuntime/System/Console.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -27,9 +29,14 @@
 #include <intrin.h>
 #endif
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::EnvironmentNewLine;
 using ::MphRead::NativeRuntime::Int32ToUInt32;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
+using ::MphRead::NativeRuntime::StringReplace;
+using ::MphRead::NativeRuntime::StringTrim;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -140,90 +147,6 @@ namespace
         return {first, 1};
     }
 
-    [[nodiscard]] constexpr bool ManagedCharIsWhiteSpace(char32_t value) noexcept
-    {
-        return value == 0x0009 || value == 0x000A || value == 0x000B
-            || value == 0x000C || value == 0x000D || value == 0x0020
-            || value == 0x0085 || value == 0x00A0 || value == 0x1680
-            || (value >= 0x2000 && value <= 0x200A)
-            || value == 0x2028 || value == 0x2029 || value == 0x202F
-            || value == 0x205F || value == 0x3000;
-    }
-
-    [[nodiscard]] bool IsNullOrWhiteSpace(const std::optional<std::string>& value) noexcept
-    {
-        if (!value || value->empty())
-        {
-            return true;
-        }
-        std::size_t offset = 0;
-        while (offset < value->size())
-        {
-            const Utf8CodePoint cp = DecodeUtf8(*value, offset);
-            if (!ManagedCharIsWhiteSpace(cp.Value))
-            {
-                return false;
-            }
-            offset += cp.Length;
-        }
-        return true;
-    }
-
-    [[nodiscard]] std::string TrimManaged(std::string_view value)
-    {
-        struct Span final
-        {
-            std::size_t Offset;
-            std::size_t Length;
-            char32_t Value;
-        };
-
-        std::vector<Span> spans;
-        spans.reserve(value.size());
-        for (std::size_t offset = 0; offset < value.size();)
-        {
-            const Utf8CodePoint cp = DecodeUtf8(value, offset);
-            spans.push_back({offset, cp.Length, cp.Value});
-            offset += cp.Length;
-        }
-
-        std::size_t first = 0;
-        while (first < spans.size() && ManagedCharIsWhiteSpace(spans[first].Value))
-        {
-            first++;
-        }
-        if (first == spans.size())
-        {
-            return {};
-        }
-
-        std::size_t last = spans.size();
-        while (last > first && ManagedCharIsWhiteSpace(spans[last - 1].Value))
-        {
-            last--;
-        }
-
-        const std::size_t start = spans[first].Offset;
-        const std::size_t end = spans[last - 1].Offset + spans[last - 1].Length;
-        return std::string(value.substr(start, end - start));
-    }
-
-    [[nodiscard]] std::string ReplaceAll(
-        std::string value, std::string_view oldValue, std::string_view newValue)
-    {
-        if (oldValue.empty())
-        {
-            throw std::invalid_argument("String cannot be of zero length. (Parameter 'oldValue')");
-        }
-        std::size_t offset = 0;
-        while ((offset = value.find(oldValue, offset)) != std::string::npos)
-        {
-            value.replace(offset, oldValue.size(), newValue);
-            offset += newValue.size();
-        }
-        return value;
-    }
-
     [[nodiscard]] std::vector<std::string> SplitChar(std::string_view value, char separator)
     {
         std::vector<std::string> result;
@@ -257,15 +180,6 @@ namespace
             result.emplace_back(value.substr(start, found - start));
             start = found + separator.size();
         }
-    }
-
-    [[nodiscard]] constexpr std::string_view EnvironmentNewLine() noexcept
-    {
-#ifdef _WIN32
-        return "\r\n";
-#else
-        return "\n";
-#endif
     }
 
     [[nodiscard]] std::string FormatInt32CurrentCulture(std::int32_t value)
@@ -311,7 +225,7 @@ namespace
         while (first < value.size())
         {
             const Utf8CodePoint cp = DecodeUtf8(value, first);
-            if (!ManagedCharIsWhiteSpace(cp.Value))
+            if (!CharIsWhiteSpace(cp.Value))
             {
                 break;
             }
@@ -354,7 +268,7 @@ namespace
         while (first < value.size())
         {
             const Utf8CodePoint cp = DecodeUtf8(value, first);
-            if (!ManagedCharIsWhiteSpace(cp.Value))
+            if (!CharIsWhiteSpace(cp.Value))
             {
                 throw System::FormatException();
             }
@@ -1917,7 +1831,7 @@ namespace MphRead::Testing
 #if !defined(DEBUG)
         (void)className;
 #endif
-        if (IsNullOrWhiteSpace(data))
+        if (StringIsNullOrWhiteSpace(data))
         {
             return;
         }
@@ -1962,10 +1876,10 @@ namespace MphRead::Testing
         std::vector<std::string> news;
         for (const std::string& line : SplitString(RequireString(data), EnvironmentNewLine()))
         {
-            std::string normalized = TrimManaged(line);
-            normalized = ReplaceAll(std::move(normalized), "signed ", "signed");
-            normalized = ReplaceAll(std::move(normalized), " *", "* ");
-            normalized = ReplaceAll(std::move(normalized), ";", "");
+            std::string normalized = StringTrim(line);
+            normalized = StringReplace(std::move(normalized), "signed ", "signed");
+            normalized = StringReplace(std::move(normalized), " *", "* ");
+            normalized = StringReplace(std::move(normalized), ";", "");
             std::vector<std::string> split = SplitChar(normalized, ' ');
             MPH_TESTPRINT_DEBUG_ASSERT(split.size() == 2);
 
@@ -2244,8 +2158,8 @@ namespace MphRead::Testing
                 }
                 else
                 {
-                    type = ReplaceAll(getter, "Read", "");
-                    type = ReplaceAll(std::move(type), "Pointer", "IntPtr") + "Array";
+                    type = StringReplace(getter, "Read", "");
+                    type = StringReplace(std::move(type), "Pointer", "IntPtr") + "Array";
                 }
                 size = UncheckedMultiply(size, number);
             }

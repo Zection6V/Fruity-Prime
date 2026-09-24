@@ -8,6 +8,7 @@
 #include "../../Network/NetMaster.hpp"
 #include "../../Network/NetProtocol.hpp"
 #include "../../Network/PlayerColors.hpp"
+#include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
 
 #include <array>
@@ -59,7 +60,11 @@
 #include <sys/stat.h>
 #endif
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::Int32TryParseInvariant;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::StringTrimView;
 
 namespace
 {
@@ -154,78 +159,12 @@ namespace
         return std::make_pair(*decoded, start);
     }
 
-    [[nodiscard]] bool IsDotNetWhitespace(std::uint32_t value) noexcept
-    {
-        if (value >= 0x0009U && value <= 0x000DU)
-        {
-            return true;
-        }
-
-        switch (value)
-        {
-        case 0x0020U:
-        case 0x0085U:
-        case 0x00A0U:
-        case 0x1680U:
-        case 0x2000U:
-        case 0x2001U:
-        case 0x2002U:
-        case 0x2003U:
-        case 0x2004U:
-        case 0x2005U:
-        case 0x2006U:
-        case 0x2007U:
-        case 0x2008U:
-        case 0x2009U:
-        case 0x200AU:
-        case 0x2028U:
-        case 0x2029U:
-        case 0x202FU:
-        case 0x205FU:
-        case 0x3000U:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    [[nodiscard]] std::string_view TrimDotNetWhitespace(
-        std::string_view value) noexcept
-    {
-        std::size_t first = 0;
-        std::size_t last = value.size();
-
-        while (first < last)
-        {
-            const std::optional<Utf8CodePoint> decoded
-                = DecodeUtf8Forward(value.substr(0, last), first);
-            if (!decoded.has_value() || !IsDotNetWhitespace(decoded->Value))
-            {
-                break;
-            }
-            first += decoded->Length;
-        }
-
-        while (last > first)
-        {
-            const auto decoded = DecodeUtf8Backward(value, last);
-            if (!decoded.has_value()
-                || !IsDotNetWhitespace(decoded->first.Value))
-            {
-                break;
-            }
-            last = decoded->second;
-        }
-
-        return value.substr(first, last - first);
-    }
-
     [[nodiscard]] std::string_view TrimBooleanInput(
         std::string_view value) noexcept
     {
         for (;;)
         {
-            const std::string_view trimmed = TrimDotNetWhitespace(value);
+            const std::string_view trimmed = StringTrimView(value);
             if (trimmed.data() != value.data() || trimmed.size() != value.size())
             {
                 value = trimmed;
@@ -245,40 +184,16 @@ namespace
         }
     }
 
-    [[nodiscard]] char AsciiLower(char value) noexcept
-    {
-        return value >= 'A' && value <= 'Z'
-            ? static_cast<char>(value + ('a' - 'A'))
-            : value;
-    }
-
-    [[nodiscard]] bool EqualsIgnoreCase(
-        std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t index = 0; index < left.size(); ++index)
-        {
-            if (AsciiLower(left[index]) != AsciiLower(right[index]))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
     [[nodiscard]] bool TryParseBoolean(
         std::string_view value, bool& result) noexcept
     {
         value = TrimBooleanInput(value);
-        if (EqualsIgnoreCase(value, "true"))
+        if (StringEqualsOrdinalIgnoreCase(value, "true"))
         {
             result = true;
             return true;
         }
-        if (EqualsIgnoreCase(value, "false"))
+        if (StringEqualsOrdinalIgnoreCase(value, "false"))
         {
             result = false;
             return true;
@@ -308,83 +223,10 @@ namespace
         return index == value.size();
     }
 
-    [[nodiscard]] bool TryParseInt32(
-        std::string_view value, std::int32_t& result) noexcept
-    {
-        value = TrimDotNetWhitespace(value);
-        if (value.empty())
-        {
-            result = 0;
-            return false;
-        }
-
-        bool negative = false;
-        std::size_t index = 0;
-        if (value[index] == '+' || value[index] == '-')
-        {
-            negative = value[index] == '-';
-            ++index;
-        }
-        if (index == value.size())
-        {
-            result = 0;
-            return false;
-        }
-
-        constexpr std::uint64_t PositiveLimit
-            = static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
-        constexpr std::uint64_t NegativeLimit = PositiveLimit + 1U;
-        const std::uint64_t limit = negative ? NegativeLimit : PositiveLimit;
-
-        std::uint64_t parsed = 0;
-        bool hasDigit = false;
-        for (; index < value.size(); ++index)
-        {
-            const char character = value[index];
-            if (character < '0' || character > '9')
-            {
-                if (!hasDigit || !HasValidIntegerTrailingCharacters(value, index))
-                {
-                    result = 0;
-                    return false;
-                }
-                break;
-            }
-            hasDigit = true;
-            const std::uint64_t digit
-                = static_cast<std::uint64_t>(character - '0');
-            if (parsed > (limit - digit) / 10U)
-            {
-                result = 0;
-                return false;
-            }
-            parsed = parsed * 10U + digit;
-        }
-        if (!hasDigit)
-        {
-            result = 0;
-            return false;
-        }
-
-        if (!negative)
-        {
-            result = static_cast<std::int32_t>(parsed);
-        }
-        else if (parsed == NegativeLimit)
-        {
-            result = std::numeric_limits<std::int32_t>::min();
-        }
-        else
-        {
-            result = -static_cast<std::int32_t>(parsed);
-        }
-        return true;
-    }
-
     [[nodiscard]] bool TryParseByteNumeric(
         std::string_view value, std::uint8_t& result) noexcept
     {
-        value = TrimDotNetWhitespace(value);
+        value = StringTrimView(value);
         if (value.empty())
         {
             result = 0;
@@ -464,7 +306,7 @@ namespace
     [[nodiscard]] bool TryParseHunter(
         std::string_view value, MphRead::Hunter& result) noexcept
     {
-        value = TrimDotNetWhitespace(value);
+        value = StringTrimView(value);
         if (value.empty())
         {
             result = static_cast<MphRead::Hunter>(0);
@@ -487,7 +329,7 @@ namespace
         for (;;)
         {
             const std::size_t comma = value.find(',', position);
-            const std::string_view part = TrimDotNetWhitespace(
+            const std::string_view part = StringTrimView(
                 comma == std::string_view::npos
                     ? value.substr(position)
                     : value.substr(position, comma - position));
@@ -500,7 +342,7 @@ namespace
             bool found = false;
             for (const HunterName& entry : HunterNames)
             {
-                if (EqualsIgnoreCase(part, entry.Name))
+                if (StringEqualsOrdinalIgnoreCase(part, entry.Name))
                 {
                     combined = static_cast<std::uint8_t>(combined | entry.Value);
                     found = true;
@@ -1458,8 +1300,8 @@ namespace MphRead::Mods::Launcher
         }
         std::int32_t a = 0;
         std::int32_t b = 0;
-        if (TryParseInt32(value.substr(0, at), a)
-            && TryParseInt32(value.substr(at + 1), b))
+        if (Int32TryParseInvariant(value.substr(0, at), a)
+            && Int32TryParseInvariant(value.substr(at + 1), b))
         {
             first = a;
             second = b;
@@ -1492,7 +1334,7 @@ namespace MphRead::Mods::Launcher
         {
             for (const std::string& raw : ReadAllLines(Path()))
             {
-                const std::string_view line = TrimDotNetWhitespace(raw);
+                const std::string_view line = StringTrimView(raw);
                 const std::size_t split = line.find('=');
                 if (line.empty() || line.front() == '#'
                     || split == std::string_view::npos || split == 0)
@@ -1501,9 +1343,9 @@ namespace MphRead::Mods::Launcher
                 }
 
                 const std::string_view key
-                    = TrimDotNetWhitespace(line.substr(0, split));
+                    = StringTrimView(line.substr(0, split));
                 const std::string_view value
-                    = TrimDotNetWhitespace(line.substr(split + 1));
+                    = StringTrimView(line.substr(split + 1));
 
                 if (key == "server_address")
                 {
@@ -1519,7 +1361,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "master_port")
                 {
                     std::int32_t masterPort = 0;
-                    if (TryParseInt32(value, masterPort)
+                    if (Int32TryParseInvariant(value, masterPort)
                         && masterPort > 0 && masterPort <= 65535)
                     {
                         _masterPort = masterPort;
@@ -1528,7 +1370,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "server_port")
                 {
                     std::int32_t port = 0;
-                    if (TryParseInt32(value, port))
+                    if (Int32TryParseInvariant(value, port))
                     {
                         _serverPort = port;
                     }
@@ -1543,7 +1385,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "last_role")
                 {
                     std::int32_t role = 0;
-                    if (TryParseInt32(value, role))
+                    if (Int32TryParseInvariant(value, role))
                     {
                         _lastRole = role;
                     }
@@ -1559,7 +1401,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "color")
                 {
                     std::int32_t color = 0;
-                    if (TryParseInt32(value, color))
+                    if (Int32TryParseInvariant(value, color))
                     {
                         _lastColor = Network::PlayerColors::Clamp(color);
                     }
@@ -1567,7 +1409,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "bots")
                 {
                     std::int32_t bots = 0;
-                    if (TryParseInt32(value, bots))
+                    if (Int32TryParseInvariant(value, bots))
                     {
                         _bots = bots;
                     }
@@ -1575,7 +1417,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "bot_level")
                 {
                     std::int32_t level = 0;
-                    if (TryParseInt32(value, level))
+                    if (Int32TryParseInvariant(value, level))
                     {
                         _botLevel = level;
                     }
@@ -1599,7 +1441,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "host_port")
                 {
                     std::int32_t hostPort = 0;
-                    if (TryParseInt32(value, hostPort))
+                    if (Int32TryParseInvariant(value, hostPort))
                     {
                         _hostPort = hostPort;
                     }
@@ -1652,7 +1494,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "last_kind")
                 {
                     std::int32_t kind = 0;
-                    if (TryParseInt32(value, kind))
+                    if (Int32TryParseInvariant(value, kind))
                     {
                         _lastKind = kind;
                     }

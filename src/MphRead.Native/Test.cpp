@@ -4,6 +4,8 @@
 #include "Formats/EntityEnemy.hpp"
 #include "Metadata/Rooms.hpp"
 #include "Read.hpp"
+#include "NativeRuntime/System/Console.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 
@@ -34,9 +36,11 @@
 #include <intrin.h>
 #endif
 
+using ::MphRead::NativeRuntime::EnvironmentNewLine;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::Int32ToUInt32;
 using ::MphRead::NativeRuntime::ShiftLeft;
+using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -184,15 +188,6 @@ namespace
         std::int32_t Z = 0;
         std::int32_t W = 0;
     };
-
-    [[nodiscard]] constexpr std::string_view EnvironmentNewLine() noexcept
-    {
-#if defined(_WIN32)
-        return "\r\n";
-#else
-        return "\n";
-#endif
-    }
 
     void WriteConsoleLine(std::string_view value)
     {
@@ -451,23 +446,6 @@ namespace
     [[nodiscard]] std::string GetFileName(const std::string& path)
     {
         return ::MphRead::NativeRuntime::PathGetFileName(path);
-    }
-
-    [[nodiscard]] std::string ReplaceAll(
-        std::string value, std::string_view from, std::string_view to)
-    {
-        if (from.empty())
-        {
-            return value;
-        }
-
-        std::size_t position = 0;
-        while ((position = value.find(from, position)) != std::string::npos)
-        {
-            value.replace(position, from.size(), to);
-            position += to.size();
-        }
-        return value;
     }
 
     [[nodiscard]] std::string ManagedToLower(std::string value)
@@ -1038,11 +1016,11 @@ namespace MphRead
             std::string model, const std::string& suffix,
             std::vector<std::string>& list)
         {
-            model = ReplaceAll(ManagedToLower(std::move(model)), "_lod0", "");
-            model = ReplaceAll(std::move(model), "lod1", "");
-            std::string match1 = ReplaceAll(
+            model = StringReplace(ManagedToLower(std::move(model)), "_lod0", "");
+            model = StringReplace(std::move(model), "lod1", "");
+            std::string match1 = StringReplace(
                 std::move(model), "_model.bin", "_" + suffix + ".bin");
-            const std::string match2 = ReplaceAll(match1, "_mdl", "");
+            const std::string match2 = StringReplace(match1, "_mdl", "");
 
             std::int32_t index = -1;
             for (std::size_t i = 0; i < list.size(); ++i)

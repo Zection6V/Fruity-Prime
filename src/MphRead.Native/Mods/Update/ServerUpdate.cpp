@@ -2,6 +2,7 @@
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "BuildVersion.hpp"
 #include "DesktopUpdate.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <atomic>
 #include <cerrno>
@@ -44,6 +45,8 @@
 #include <stdio.h>
 #endif
 #endif
+
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 
 namespace MphRead::Mods::Update::Detail
 {
@@ -542,29 +545,6 @@ namespace MphRead::Mods::Update
         }
 
 #ifdef _WIN32
-        bool IsDotNetWhiteSpace(wchar_t value) noexcept
-        {
-            if (value >= L'\t' && value <= L'\r')
-            {
-                return true;
-            }
-            switch (value)
-            {
-            case 0x0020:
-            case 0x0085:
-            case 0x00A0:
-            case 0x1680:
-            case 0x2028:
-            case 0x2029:
-            case 0x202F:
-            case 0x205F:
-            case 0x3000:
-                return true;
-            default:
-                return value >= 0x2000 && value <= 0x200A;
-            }
-        }
-
         std::wstring QuoteWindowsArgument(std::wstring_view value)
         {
             bool simple = !value.empty();
@@ -572,7 +552,7 @@ namespace MphRead::Mods::Update
             {
                 for (wchar_t ch : value)
                 {
-                    if (IsDotNetWhiteSpace(ch) || ch == L'"')
+                    if (CharIsWhiteSpace(ch) || ch == L'"')
                     {
                         simple = false;
                         break;

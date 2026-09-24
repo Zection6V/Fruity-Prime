@@ -9,6 +9,7 @@
 #include "Branding.hpp"
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "Launcher/Portable/LauncherPrefs.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -27,7 +28,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::Int32TryParseInvariant;
 using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::StringTrimView;
 
 namespace MphRead::Mods
 {
@@ -222,111 +226,9 @@ namespace MphRead::Mods
             {1 << 15, "RightTrigger"}
         }};
 
-        std::size_t DotNetWhitespacePrefixLength(std::string_view value)
-        {
-            if (value.empty())
-            {
-                return 0;
-            }
-            const auto byte = [](char ch) { return static_cast<unsigned char>(ch); };
-            const unsigned char c0 = byte(value[0]);
-            if ((c0 >= 0x09 && c0 <= 0x0D) || c0 == 0x20)
-            {
-                return 1;
-            }
-            if (value.size() >= 2 && c0 == 0xC2)
-            {
-                const unsigned char c1 = byte(value[1]);
-                if (c1 == 0x85 || c1 == 0xA0)
-                {
-                    return 2;
-                }
-            }
-            if (value.size() >= 3)
-            {
-                const unsigned char c1 = byte(value[1]);
-                const unsigned char c2 = byte(value[2]);
-                if (c0 == 0xE1 && c1 == 0x9A && c2 == 0x80)
-                {
-                    return 3;
-                }
-                if (c0 == 0xE2 && c1 == 0x80
-                    && ((c2 >= 0x80 && c2 <= 0x8A)
-                        || c2 == 0xA8 || c2 == 0xA9 || c2 == 0xAF))
-                {
-                    return 3;
-                }
-                if (c0 == 0xE2 && c1 == 0x81 && c2 == 0x9F)
-                {
-                    return 3;
-                }
-                if (c0 == 0xE3 && c1 == 0x80 && c2 == 0x80)
-                {
-                    return 3;
-                }
-            }
-            return 0;
-        }
-
-        std::size_t DotNetWhitespaceSuffixLength(std::string_view value)
-        {
-            if (value.empty())
-            {
-                return 0;
-            }
-            const auto byte = [](char ch) { return static_cast<unsigned char>(ch); };
-            const unsigned char last = byte(value.back());
-            if ((last >= 0x09 && last <= 0x0D) || last == 0x20)
-            {
-                return 1;
-            }
-            if (value.size() >= 2 && byte(value[value.size() - 2]) == 0xC2
-                && (last == 0x85 || last == 0xA0))
-            {
-                return 2;
-            }
-            if (value.size() >= 3)
-            {
-                const unsigned char c0 = byte(value[value.size() - 3]);
-                const unsigned char c1 = byte(value[value.size() - 2]);
-                if (c0 == 0xE1 && c1 == 0x9A && last == 0x80)
-                {
-                    return 3;
-                }
-                if (c0 == 0xE2 && c1 == 0x80
-                    && ((last >= 0x80 && last <= 0x8A)
-                        || last == 0xA8 || last == 0xA9 || last == 0xAF))
-                {
-                    return 3;
-                }
-                if (c0 == 0xE2 && c1 == 0x81 && last == 0x9F)
-                {
-                    return 3;
-                }
-                if (c0 == 0xE3 && c1 == 0x80 && last == 0x80)
-                {
-                    return 3;
-                }
-            }
-            return 0;
-        }
-
-        std::string_view TrimDotNetWhitespace(std::string_view value)
-        {
-            while (const std::size_t count = DotNetWhitespacePrefixLength(value))
-            {
-                value.remove_prefix(count);
-            }
-            while (const std::size_t count = DotNetWhitespaceSuffixLength(value))
-            {
-                value.remove_suffix(count);
-            }
-            return value;
-        }
-
         std::string TrimCopy(std::string_view value)
         {
-            const std::string_view trimmed = TrimDotNetWhitespace(value);
+            const std::string_view trimmed = StringTrimView(value);
             return std::string(trimmed);
         }
 
@@ -337,31 +239,15 @@ namespace MphRead::Mods
                 : value;
         }
 
-        bool EqualsIgnoreCase(std::string_view left, std::string_view right)
-        {
-            if (left.size() != right.size())
-            {
-                return false;
-            }
-            for (std::size_t i = 0; i < left.size(); ++i)
-            {
-                if (AsciiLower(left[i]) != AsciiLower(right[i]))
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         bool TryParseBoolean(std::string_view value, bool& parsed)
         {
-            value = TrimDotNetWhitespace(value);
-            if (EqualsIgnoreCase(value, "true"))
+            value = StringTrimView(value);
+            if (StringEqualsOrdinalIgnoreCase(value, "true"))
             {
                 parsed = true;
                 return true;
             }
-            if (EqualsIgnoreCase(value, "false"))
+            if (StringEqualsOrdinalIgnoreCase(value, "false"))
             {
                 parsed = false;
                 return true;
@@ -369,62 +255,26 @@ namespace MphRead::Mods
             return false;
         }
 
-        bool TryParseInt32(std::string_view value, std::int32_t& parsed)
-        {
-            value = TrimDotNetWhitespace(value);
-            if (value.empty())
-            {
-                return false;
-            }
-
-            bool positiveSign = false;
-            if (value.front() == '+')
-            {
-                positiveSign = true;
-                value.remove_prefix(1);
-                if (value.empty())
-                {
-                    return false;
-                }
-            }
-
-            std::int64_t wide = 0;
-            const char* const end = value.data() + value.size();
-            const auto [ptr, error] = std::from_chars(value.data(), end, wide, 10);
-            if (error != std::errc{} || ptr != end
-                || wide < std::numeric_limits<std::int32_t>::min()
-                || wide > std::numeric_limits<std::int32_t>::max())
-            {
-                return false;
-            }
-            if (positiveSign && wide < 0)
-            {
-                return false;
-            }
-            parsed = static_cast<std::int32_t>(wide);
-            return true;
-        }
-
         bool TryParseSingle(std::string_view value, float& parsed)
         {
-            value = TrimDotNetWhitespace(value);
+            value = StringTrimView(value);
             if (value.empty())
             {
                 return false;
             }
 
-            if (EqualsIgnoreCase(value, "NaN"))
+            if (StringEqualsOrdinalIgnoreCase(value, "NaN"))
             {
                 parsed = std::numeric_limits<float>::quiet_NaN();
                 return true;
             }
-            if (EqualsIgnoreCase(value, "Infinity")
-                || EqualsIgnoreCase(value, "+Infinity"))
+            if (StringEqualsOrdinalIgnoreCase(value, "Infinity")
+                || StringEqualsOrdinalIgnoreCase(value, "+Infinity"))
             {
                 parsed = std::numeric_limits<float>::infinity();
                 return true;
             }
-            if (EqualsIgnoreCase(value, "-Infinity"))
+            if (StringEqualsOrdinalIgnoreCase(value, "-Infinity"))
             {
                 parsed = -std::numeric_limits<float>::infinity();
                 return true;
@@ -595,7 +445,7 @@ namespace MphRead::Mods
             const EnumName* aliases, std::size_t aliasCount,
             std::int32_t& parsed)
         {
-            value = TrimDotNetWhitespace(value);
+            value = StringTrimView(value);
             if (value.empty())
             {
                 return false;
@@ -604,7 +454,7 @@ namespace MphRead::Mods
             const char first = value.front();
             if ((first >= '0' && first <= '9') || first == '+' || first == '-')
             {
-                return TryParseInt32(value, parsed);
+                return Int32TryParseInvariant(value, parsed);
             }
 
             std::uint32_t combined = 0;
@@ -616,7 +466,7 @@ namespace MphRead::Mods
                     ? std::string_view::npos
                     : comma - start;
                 const std::string_view part =
-                    TrimDotNetWhitespace(value.substr(start, length));
+                    StringTrimView(value.substr(start, length));
                 if (part.empty())
                 {
                     return false;
@@ -1520,7 +1370,7 @@ namespace MphRead::Mods
                 }
                 if (key == "clip_key")
                 {
-                    if (EqualsIgnoreCase(value, "none"))
+                    if (StringEqualsOrdinalIgnoreCase(value, "none"))
                     {
                         _clipKey = KeyUnknown;
                     }
@@ -1537,7 +1387,7 @@ namespace MphRead::Mods
                 if (key == "clip_seconds")
                 {
                     std::int32_t seconds = 0;
-                    if (TryParseInt32(value, seconds))
+                    if (Int32TryParseInvariant(value, seconds))
                     {
                         Network::DemoClip::Seconds(seconds);
                         continue;
@@ -1573,7 +1423,7 @@ namespace MphRead::Mods
                 }
                 if (key == "chat_key")
                 {
-                    if (EqualsIgnoreCase(value, "none"))
+                    if (StringEqualsOrdinalIgnoreCase(value, "none"))
                     {
                         ChatKey(KeyUnknown);
                     }

@@ -5,6 +5,7 @@
 #include "../Renderer.hpp"
 
 #include "Chat/ChatBox.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
@@ -14,6 +15,9 @@
 #include <string_view>
 #include <utility>
 
+using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::StringTrimView;
 using ::MphRead::NativeRuntime::UncheckedDecrement;
 
 namespace MphRead::Mods::Detail
@@ -130,97 +134,6 @@ namespace
             return std::nullopt;
         }
         return std::make_pair(*decoded, start);
-    }
-
-    [[nodiscard]] bool IsDotNetWhitespace(std::uint32_t value) noexcept
-    {
-        if (value >= 0x0009U && value <= 0x000DU)
-        {
-            return true;
-        }
-
-        switch (value)
-        {
-        case 0x0020U:
-        case 0x0085U:
-        case 0x00A0U:
-        case 0x1680U:
-        case 0x2000U:
-        case 0x2001U:
-        case 0x2002U:
-        case 0x2003U:
-        case 0x2004U:
-        case 0x2005U:
-        case 0x2006U:
-        case 0x2007U:
-        case 0x2008U:
-        case 0x2009U:
-        case 0x200AU:
-        case 0x2028U:
-        case 0x2029U:
-        case 0x202FU:
-        case 0x205FU:
-        case 0x3000U:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    [[nodiscard]] std::string_view TrimDotNetWhitespace(
-        std::string_view value) noexcept
-    {
-        std::size_t first = 0;
-        std::size_t last = value.size();
-
-        while (first < last)
-        {
-            const std::optional<Utf8CodePoint> decoded
-                = DecodeUtf8Forward(value.substr(0, last), first);
-            if (!decoded.has_value() || !IsDotNetWhitespace(decoded->Value))
-            {
-                break;
-            }
-            first += decoded->Length;
-        }
-
-        while (last > first)
-        {
-            const auto decoded = DecodeUtf8Backward(value, last);
-            if (!decoded.has_value()
-                || !IsDotNetWhitespace(decoded->first.Value))
-            {
-                break;
-            }
-            last = decoded->second;
-        }
-
-        return value.substr(first, last - first);
-    }
-
-    [[nodiscard]] bool EqualsAsciiIgnoreCase(
-        std::string_view value, std::string_view expected) noexcept
-    {
-        if (value.size() != expected.size())
-        {
-            return false;
-        }
-
-        for (std::size_t index = 0; index < value.size(); ++index)
-        {
-            auto current = static_cast<unsigned char>(value[index]);
-            if (current >= static_cast<unsigned char>('A')
-                && current <= static_cast<unsigned char>('Z'))
-            {
-                current = static_cast<unsigned char>(
-                    current + ('a' - 'A'));
-            }
-            if (current != static_cast<unsigned char>(expected[index]))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
 }
@@ -415,19 +328,19 @@ namespace MphRead::Mods
             return fallback;
         }
 
-        const std::string_view text = TrimDotNetWhitespace(*value);
-        if (EqualsAsciiIgnoreCase(text, "borderless")
-            || EqualsAsciiIgnoreCase(text, "fullscreen")
-            || EqualsAsciiIgnoreCase(text, "borderless fullscreen")
+        const std::string_view text = StringTrimView(*value);
+        if (StringEqualsOrdinalIgnoreCase(text, "borderless")
+            || StringEqualsOrdinalIgnoreCase(text, "fullscreen")
+            || StringEqualsOrdinalIgnoreCase(text, "borderless fullscreen")
             || text == "1"
-            || EqualsAsciiIgnoreCase(text, "true"))
+            || StringEqualsOrdinalIgnoreCase(text, "true"))
         {
             return WindowStartMode::BorderlessFullscreen;
         }
-        if (EqualsAsciiIgnoreCase(text, "windowed")
-            || EqualsAsciiIgnoreCase(text, "window")
+        if (StringEqualsOrdinalIgnoreCase(text, "windowed")
+            || StringEqualsOrdinalIgnoreCase(text, "window")
             || text == "0"
-            || EqualsAsciiIgnoreCase(text, "false"))
+            || StringEqualsOrdinalIgnoreCase(text, "false"))
         {
             return WindowStartMode::Windowed;
         }

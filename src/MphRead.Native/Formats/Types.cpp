@@ -118,7 +118,7 @@ namespace
         return std::bit_cast<std::int32_t>(MixFinal(hash));
     }
 
-    [[nodiscard]] constexpr bool IsNumberWhitespace(char ch) noexcept
+    [[nodiscard]] constexpr bool IsNumberWhiteSpace(char ch) noexcept
     {
         const auto value = static_cast<unsigned char>(ch);
         return value == 0x20 || (value >= 0x09 && value <= 0x0D);
@@ -144,7 +144,7 @@ namespace
     [[nodiscard]] std::int32_t ParseHexInt32(std::string_view value)
     {
         std::size_t index = 0;
-        while (index < value.size() && IsNumberWhitespace(value[index]))
+        while (index < value.size() && IsNumberWhiteSpace(value[index]))
         {
             index++;
         }
@@ -185,7 +185,7 @@ namespace
 
         const bool overflow = significantDigits > 8;
 
-        while (index < value.size() && IsNumberWhitespace(value[index]))
+        while (index < value.size() && IsNumberWhiteSpace(value[index]))
         {
             index++;
         }

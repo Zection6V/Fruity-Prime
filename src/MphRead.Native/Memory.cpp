@@ -5,6 +5,7 @@
 #include "Program.hpp"
 #include "Scene.hpp"
 #include "Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -48,8 +49,11 @@
 #endif
 #endif
 
+using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
 
@@ -154,12 +158,6 @@ namespace
         return static_cast<std::intptr_t>(value);
     }
 
-    [[nodiscard]] constexpr bool IsNumberWhiteSpace(char value) noexcept
-    {
-        const unsigned char ch = static_cast<unsigned char>(value);
-        return ch == 0x20U || (ch >= 0x09U && ch <= 0x0DU);
-    }
-
     [[nodiscard]] constexpr std::int32_t HexDigitValue(char value) noexcept
     {
         if (value >= '0' && value <= '9')
@@ -189,29 +187,6 @@ namespace
             ++index;
         }
         return index == text.size();
-    }
-
-    [[nodiscard]] bool EqualsAsciiIgnoreCase(
-        std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i)
-        {
-            const unsigned char a = static_cast<unsigned char>(left[i]);
-            const unsigned char b = static_cast<unsigned char>(right[i]);
-            const unsigned char foldedA = a >= 'A' && a <= 'Z'
-                ? static_cast<unsigned char>(a + ('a' - 'A')) : a;
-            const unsigned char foldedB = b >= 'A' && b <= 'Z'
-                ? static_cast<unsigned char>(b + ('a' - 'A')) : b;
-            if (foldedA != foldedB)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     [[nodiscard]] bool TryParseInt64Decimal(std::string_view text, std::int64_t& value)
@@ -298,23 +273,9 @@ namespace
         return true;
     }
 
-    void ReplaceAll(std::string& value, std::string_view from, std::string_view to)
-    {
-        if (from.empty())
-        {
-            return;
-        }
-        std::size_t position = 0;
-        while ((position = value.find(from, position)) != std::string::npos)
-        {
-            value.replace(position, from.size(), to);
-            position += to.size();
-        }
-    }
-
     [[nodiscard]] bool TryParseInt64Hex(std::string text, std::int64_t& value)
     {
-        ReplaceAll(text, "0x", "");
+        text = StringReplace(std::move(text), "0x", "");
         value = 0;
         if (text.empty())
         {
@@ -996,7 +957,7 @@ namespace
         std::string_view value, std::string_view prefix) noexcept
     {
         return value.size() >= prefix.size()
-            && EqualsAsciiIgnoreCase(value.substr(0, prefix.size()), prefix);
+            && StringEqualsOrdinalIgnoreCase(value.substr(0, prefix.size()), prefix);
     }
 
     [[nodiscard]] std::string LinuxProcessName(
@@ -1160,7 +1121,7 @@ namespace
                 continue;
             }
             const std::string name = LinuxProcessName(processId, *stat);
-            if (!EqualsAsciiIgnoreCase(name, "NO$GBA"))
+            if (!StringEqualsOrdinalIgnoreCase(name, "NO$GBA"))
             {
                 continue;
             }
@@ -1293,7 +1254,7 @@ namespace
             }
             const std::int32_t processId = static_cast<std::int32_t>(pid);
             const std::optional<std::string> name = AppleProcessName(processId);
-            if (!name || !EqualsAsciiIgnoreCase(*name, "NO$GBA"))
+            if (!name || !StringEqualsOrdinalIgnoreCase(*name, "NO$GBA"))
             {
                 continue;
             }
@@ -1319,6 +1280,7 @@ namespace
 #endif
 
 }
+
 
 namespace MphRead::Memory
 {

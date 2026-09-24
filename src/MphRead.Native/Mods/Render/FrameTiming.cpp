@@ -1,4 +1,5 @@
 #include "FrameTiming.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <locale>
 #include <string_view>
 
+using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead::Mods
@@ -84,90 +86,6 @@ namespace
             {
                 return false;
             }
-        }
-        return true;
-    }
-
-    [[nodiscard]] constexpr bool IsNumberWhiteSpace(char value) noexcept
-    {
-        const unsigned char unit = static_cast<unsigned char>(value);
-        return unit == 0x20U || (unit >= 0x09U && unit <= 0x0DU);
-    }
-
-    [[nodiscard]] bool TryParseInt32(std::string_view value, std::int32_t& parsed) noexcept
-    {
-        if (value.empty())
-        {
-            return false;
-        }
-
-        std::size_t index = 0;
-        while (index < value.size() && IsNumberWhiteSpace(value[index]))
-        {
-            index++;
-        }
-        if (index == value.size())
-        {
-            return false;
-        }
-
-        bool negative = false;
-        if (value[index] == '+' || value[index] == '-')
-        {
-            negative = value[index] == '-';
-            index++;
-        }
-
-        const std::size_t digitsStart = index;
-        constexpr std::uint64_t PositiveLimit =
-            static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
-        constexpr std::uint64_t NegativeLimit = PositiveLimit + 1U;
-        const std::uint64_t limit = negative ? NegativeLimit : PositiveLimit;
-        std::uint64_t magnitude = 0;
-        while (index < value.size())
-        {
-            const char unit = value[index];
-            if (unit < '0' || unit > '9')
-            {
-                break;
-            }
-            const std::uint64_t digit = static_cast<std::uint64_t>(unit - '0');
-            if (magnitude > (limit - digit) / 10U)
-            {
-                return false;
-            }
-            magnitude = magnitude * 10U + digit;
-            index++;
-        }
-        if (index == digitsStart)
-        {
-            return false;
-        }
-
-        while (index < value.size() && IsNumberWhiteSpace(value[index]))
-        {
-            index++;
-        }
-        while (index < value.size() && value[index] == '\0')
-        {
-            index++;
-        }
-        if (index != value.size())
-        {
-            return false;
-        }
-
-        if (!negative)
-        {
-            parsed = static_cast<std::int32_t>(magnitude);
-        }
-        else if (magnitude == NegativeLimit)
-        {
-            parsed = std::numeric_limits<std::int32_t>::min();
-        }
-        else
-        {
-            parsed = -static_cast<std::int32_t>(magnitude);
         }
         return true;
     }
@@ -542,7 +460,7 @@ namespace MphRead::Mods::Render
             return MaxCap;
         }
         std::int32_t parsed = 0;
-        if (TryParseInt32(trimmed, parsed))
+        if (Int32TryParseCurrentCulture(trimmed, parsed))
         {
             return parsed <= 0 ? DisplayRate : std::clamp(parsed, MinCap, MaxCap);
         }

@@ -4,6 +4,7 @@
 #include "../InputSettings.hpp"
 #include "../Network/NetProtocol.hpp"
 #include "../Network/NetSession.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -18,6 +19,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
 
@@ -36,98 +38,6 @@ namespace
     {
         using namespace std::chrono;
         return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
-    }
-
-    [[nodiscard]] bool IsWhiteSpaceCodePoint(std::uint32_t value) noexcept
-    {
-        return (value >= 0x0009U && value <= 0x000DU)
-            || value == 0x0020U
-            || value == 0x0085U
-            || value == 0x00A0U
-            || value == 0x1680U
-            || (value >= 0x2000U && value <= 0x200AU)
-            || value == 0x2028U
-            || value == 0x2029U
-            || value == 0x202FU
-            || value == 0x205FU
-            || value == 0x3000U;
-    }
-
-    [[nodiscard]] bool NextUtf8CodePoint(
-        std::string_view text, std::size_t& offset, std::uint32_t& value) noexcept
-    {
-        const auto first = static_cast<std::uint8_t>(text[offset]);
-        if (first < 0x80U)
-        {
-            value = first;
-            offset++;
-            return true;
-        }
-
-        std::size_t count = 0;
-        std::uint32_t codePoint = 0;
-        std::uint32_t minimum = 0;
-        if ((first & 0xE0U) == 0xC0U)
-        {
-            count = 2;
-            codePoint = first & 0x1FU;
-            minimum = 0x80U;
-        }
-        else if ((first & 0xF0U) == 0xE0U)
-        {
-            count = 3;
-            codePoint = first & 0x0FU;
-            minimum = 0x800U;
-        }
-        else if ((first & 0xF8U) == 0xF0U)
-        {
-            count = 4;
-            codePoint = first & 0x07U;
-            minimum = 0x10000U;
-        }
-        else
-        {
-            return false;
-        }
-        if (offset + count > text.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 1; i < count; i++)
-        {
-            const auto next = static_cast<std::uint8_t>(text[offset + i]);
-            if ((next & 0xC0U) != 0x80U)
-            {
-                return false;
-            }
-            codePoint = (codePoint << 6U) | (next & 0x3FU);
-        }
-        if (codePoint < minimum || codePoint > 0x10FFFFU
-            || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
-        {
-            return false;
-        }
-        value = codePoint;
-        offset += count;
-        return true;
-    }
-
-    [[nodiscard]] bool IsNullOrWhiteSpace(std::string_view text) noexcept
-    {
-        if (text.empty())
-        {
-            return true;
-        }
-        std::size_t offset = 0;
-        while (offset < text.size())
-        {
-            std::uint32_t value = 0;
-            if (!NextUtf8CodePoint(text, offset, value) || !IsWhiteSpaceCodePoint(value))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     [[nodiscard]] std::string TrimCompose(std::string_view text)
@@ -309,7 +219,7 @@ namespace MphRead::Mods::Chat
     void ChatBox::Add(const std::optional<std::string>& name,
         const std::optional<std::string>& text, std::uint8_t kind)
     {
-        if (!text.has_value() || IsNullOrWhiteSpace(*text))
+        if (!text.has_value() || StringIsNullOrWhiteSpace(*text))
         {
             return;
         }

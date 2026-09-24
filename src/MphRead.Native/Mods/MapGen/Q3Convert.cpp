@@ -8,6 +8,7 @@
 #include "MapTextureBake.hpp"
 #include "Q3Bsp.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -54,6 +55,7 @@ using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
@@ -196,33 +198,6 @@ namespace
             value.remove_suffix(count);
         }
         return value;
-    }
-
-    [[nodiscard]] bool EqualsIgnoreCaseAscii(
-        std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i)
-        {
-            unsigned char a = static_cast<unsigned char>(left[i]);
-            unsigned char b = static_cast<unsigned char>(right[i]);
-            if (a >= 'a' && a <= 'z')
-            {
-                a = static_cast<unsigned char>(a - ('a' - 'A'));
-            }
-            if (b >= 'a' && b <= 'z')
-            {
-                b = static_cast<unsigned char>(b - ('a' - 'A'));
-            }
-            if (a != b)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     [[nodiscard]] bool IsFloatNumber(
@@ -509,20 +484,20 @@ namespace
         }
 
         const std::string_view value = TrimUnicodeWhitespace(text);
-        if (EqualsIgnoreCaseAscii(value, "Infinity")
-            || EqualsIgnoreCaseAscii(value, "+Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(value, "Infinity")
+            || StringEqualsOrdinalIgnoreCase(value, "+Infinity"))
         {
             result = std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsIgnoreCaseAscii(value, "-Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(value, "-Infinity"))
         {
             result = -std::numeric_limits<float>::infinity();
             return true;
         }
-        if (EqualsIgnoreCaseAscii(value, "NaN")
-            || EqualsIgnoreCaseAscii(value, "+NaN")
-            || EqualsIgnoreCaseAscii(value, "-NaN"))
+        if (StringEqualsOrdinalIgnoreCase(value, "NaN")
+            || StringEqualsOrdinalIgnoreCase(value, "+NaN")
+            || StringEqualsOrdinalIgnoreCase(value, "-NaN"))
         {
             result = ManagedNaN();
             return true;
@@ -1019,13 +994,6 @@ namespace
             }
         }
         return nullptr;
-    }
-
-    [[nodiscard]] bool EqualsOrdinalIgnoreCase(
-        const std::string& left,
-        const std::string& right) noexcept
-    {
-        return Q3StringEqual{}(left, right);
     }
 
     [[nodiscard]] bool StartsWithOrdinalIgnoreCase(
@@ -2152,7 +2120,7 @@ namespace MphRead::Mods::MapGen
             if (StartsWithOrdinalIgnoreCase(
                     *classname,
                     "info_player_deathmatch")
-                || EqualsOrdinalIgnoreCase(
+                || StringEqualsOrdinalIgnoreCase(
                     *classname,
                     "info_player_start"))
             {
@@ -2161,7 +2129,7 @@ namespace MphRead::Mods::MapGen
             else if (StartsWithOrdinalIgnoreCase(
                     *classname,
                     "target_")
-                || EqualsOrdinalIgnoreCase(
+                || StringEqualsOrdinalIgnoreCase(
                     *classname,
                     "info_player_intermission"))
             {

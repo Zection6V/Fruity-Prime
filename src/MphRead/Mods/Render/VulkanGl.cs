@@ -627,6 +627,31 @@ namespace MphRead.Mods.Render
             }
         }
 
+        private static void SubmitOffscreenPassForSampling()
+        {
+            if (_gd == null || !_commandsOpen)
+            {
+                return;
+            }
+
+            // End() closes the active offscreen render pass and asks Veldrid
+            // to transition sampled color attachments to
+            // ShaderReadOnlyOptimal. Submit without the frame fence: the
+            // following default-framebuffer work is recorded into a fresh
+            // command buffer from the same CommandList and submitted to the
+            // same graphics queue. The frame fence is attached to that later
+            // submission at Present(), and queue order means waiting that
+            // fence next frame also covers this earlier scene submission.
+            //
+            // Do not reset the per-draw slot indices here. Both command
+            // buffers belong to one logical frame, so geometry and uniform
+            // storage used by the first half must remain reserved until the
+            // final frame fence completes.
+            _commands!.End();
+            _gd.SubmitCommands(_commands);
+            _commandsOpen = false;
+        }
+
         // Veldrid's Vulkan resources are ref-counted, but once the last
         // reference is released their Vk objects are destroyed immediately.
         // Any cached framebuffer, descriptor set, image view, image, sampler,
@@ -1971,9 +1996,12 @@ namespace MphRead.Mods.Render
                 // sampled by the RTT shader.
                 //
                 // This is intentionally Vulkan-only and never falls back to
-                // OpenGL. It is a correctness barrier at Fruity's single
-                // scene/composite boundary, not a device-wide WaitForIdle.
-                SynchronizeResourceMutation();
+                // OpenGL. Split the command stream here instead of waiting on
+                // the CPU: both submissions use the same Vulkan graphics queue,
+                // so the later composite submission cannot execute before this
+                // scene submission has completed its attachment store and
+                // final image-layout transition.
+                SubmitOffscreenPassForSampling();
             }
 
             if (target == FramebufferTarget.ReadFramebuffer) _readFramebuffer = framebuffer;

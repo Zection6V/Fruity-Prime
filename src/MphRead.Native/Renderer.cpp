@@ -2946,8 +2946,22 @@ namespace MphRead
     {
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(_activeElements.size()); ++i)
         {
-            UnlinkEffectElement(_activeElements[static_cast<std::size_t>(i)]);
+            const auto element = _activeElements[static_cast<std::size_t>(i)];
+            ReleaseFromOwner(element);
+            UnlinkEffectElement(element);
             --i;
+        }
+    }
+
+    void Scene::ReleaseFromOwner(const std::shared_ptr<EffectElementEntry>& element)
+    {
+        // C# Scene.ReleaseFromOwner: a bulk release takes the element out of
+        // the entry that still holds it, so the owner's own release later does
+        // not release it a second time.
+        if (element->EffectEntry)
+        {
+            RemoveFirst(*element->EffectEntry->Elements, element);
+            element->EffectEntry.reset();
         }
     }
 
@@ -2959,6 +2973,7 @@ namespace MphRead
             const auto effect = Read::GetEffect(element->EffectId);
             if (!effect || !effect->Persistent)
             {
+                ReleaseFromOwner(element);
                 UnlinkEffectElement(element);
                 --i;
             }

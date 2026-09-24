@@ -3153,8 +3153,25 @@ namespace MphRead
             for (int i = 0; i < _activeElements.Count; i++)
             {
                 EffectElementEntry element = _activeElements[i];
+                ReleaseFromOwner(element);
                 UnlinkEffectElement(element);
                 i--;
+            }
+        }
+
+        // A bulk release frees elements whose EffectEntry is still held by its
+        // owner (the player's muzzle and charge effects survive a room reload
+        // after a movie). Left in the entry, the owner's next UnlinkEffectEntry
+        // releases them a second time: the free queue then holds one element
+        // twice, or releases an element already lent to another effect, and
+        // ProcessEffects later spawns from an element whose ParticleDefinitions
+        // were cleared under it.
+        private static void ReleaseFromOwner(EffectElementEntry element)
+        {
+            if (element.EffectEntry != null)
+            {
+                element.EffectEntry.Elements.Remove(element);
+                element.EffectEntry = null;
             }
         }
 
@@ -3166,6 +3183,7 @@ namespace MphRead
                 Effect? effect = Read.GetEffect(element.EffectId);
                 if (effect == null || !effect.Persistent)
                 {
+                    ReleaseFromOwner(element);
                     UnlinkEffectElement(element);
                     i--;
                 }

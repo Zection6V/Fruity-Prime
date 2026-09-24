@@ -871,6 +871,7 @@ private: \
     std::shared_ptr<MphRead::Effects::EffectElementEntry> InitEffectElement(const std::shared_ptr<MphRead::Effect>& effect, \
         const std::shared_ptr<MphRead::EffectElement>& element, std::shared_ptr<MphRead::Formats::Collision::EntityCollision> entCol, bool child); \
     void UnlinkEffectElement(std::shared_ptr<MphRead::Effects::EffectElementEntry> element); \
+    static void ReleaseFromOwner(const std::shared_ptr<MphRead::Effects::EffectElementEntry>& element); \
     std::shared_ptr<MphRead::Effects::EffectParticle> InitEffectParticle(); \
     void UnlinkEffectParticle(const std::shared_ptr<MphRead::Effects::EffectParticle>& particle); \
     void SpawnEffect(std::int32_t effectId, OpenTK::Mathematics::Matrix4 transform, bool child, \

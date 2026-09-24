@@ -6786,7 +6786,11 @@ namespace MphRead
             UpdateFrequency = 0
         };
 
-        private static readonly NativeWindowSettings _nativeWindowSettings = Mods.Render.DesktopRenderWindow.Settings();
+        // Evaluated for every native window, not cached. If a selected
+        // NoAPI backend fails during startup the shell can switch this
+        // process to OpenGL and the retry must request an OpenGL context.
+        private static NativeWindowSettings NativeWindowSettings()
+            => Mods.Render.DesktopRenderWindow.Settings();
 
         /// <summary>
         /// The match, while there is one.
@@ -6850,6 +6854,10 @@ namespace MphRead
         /// </summary>
         private bool _sceneReady;
 
+#if !ANDROID
+        private bool _backendInitialized;
+#endif
+
         /// <summary>
         /// Say that the window is about to be created, before it is.
         ///
@@ -6879,7 +6887,7 @@ namespace MphRead
                 + (Mods.WindowMode.StartupForced ? ", from the command line" : "") + ")");
         }
 
-        public RenderWindow(bool shell = false) : base(_gameWindowSettings, _nativeWindowSettings)
+        public RenderWindow(bool shell = false) : base(_gameWindowSettings, NativeWindowSettings())
         {
             _shell = shell;
             // First, before anything asks GLFW a question it may not be able
@@ -6895,7 +6903,26 @@ namespace MphRead
             // Lockstep with the native window lifetime: every backend is usable
             // as soon as RenderWindow construction completes. This matters to
             // the shell, which uploads its first UI frame before Run()/OnLoad().
-            Mods.Render.RenderApi.Initialize(this);
+            try
+            {
+                Mods.Render.RenderApi.Initialize(this);
+                _backendInitialized = true;
+            }
+            catch
+            {
+                // Vulkan can fail after the NoAPI window exists (surface,
+                // device or shader creation). Release any partial device state
+                // and this native window before the shell retries with OpenGL.
+                try
+                {
+                    Mods.Render.RenderApi.Shutdown();
+                }
+                finally
+                {
+                    Dispose();
+                }
+                throw;
+            }
 #endif
             // The mark, on this window: it is the only one the program has
             // now, so it is the only one that can carry it. Set here rather
@@ -7252,7 +7279,11 @@ namespace MphRead
         protected override void OnLoad()
         {
 #if !ANDROID
-            Mods.Render.RenderApi.Initialize(this);
+            if (!_backendInitialized)
+            {
+                Mods.Render.RenderApi.Initialize(this);
+                _backendInitialized = true;
+            }
 #endif
             Mods.Input.WindowsPenInput.Attach(this);
             // Not in the shell, which opens with no match in it: the scene is
@@ -7270,7 +7301,11 @@ namespace MphRead
         protected override void OnUnload()
         {
 #if !ANDROID
-            Mods.Render.RenderApi.Shutdown();
+            if (_backendInitialized)
+            {
+                Mods.Render.RenderApi.Shutdown();
+                _backendInitialized = false;
+            }
 #endif
             base.OnUnload();
         }

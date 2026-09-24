@@ -125,6 +125,45 @@ namespace MphRead.Mods.Render
             return Active;
         }
 
+        internal static bool TryFallbackToOpenGlAfterStartupFailure(Exception failure)
+        {
+            // Forced renderer diagnostics must prove the requested backend
+            // actually starts; silently falling back would make their success
+            // meaningless. Ordinary player startup gets one safe recovery.
+            if (_forced.HasValue || !WindowCreated || Active == RendererBackendKind.OpenGL)
+            {
+                return false;
+            }
+
+            RenderBackendRegistration openGl = RenderBackendRegistry.OpenGl;
+            if (!RenderBackendRegistry.CanActivate(openGl) || openGl.Implementation == null)
+            {
+                return false;
+            }
+
+            RendererBackendKind failed = Active;
+            try
+            {
+                _activeImplementation?.Shutdown();
+            }
+            catch (Exception cleanup)
+            {
+                DebugLog.Line("render",
+                    $"cleanup after {failed} startup failure also failed: {cleanup.Message}");
+            }
+
+            Active = RendererBackendKind.OpenGL;
+            _activeImplementation = openGl.Implementation;
+            // Requested deliberately stays on the player's choice. The
+            // fallback is for this process only; opening settings still shows
+            // Vulkan and RestartRequired remains true instead of silently
+            // rewriting their preference.
+            DebugLog.Line("render",
+                $"{failed} failed during window/device initialization "
+                + $"({failure.GetType().Name}: {failure.Message}); retrying with OpenGL");
+            return true;
+        }
+
         internal static RenderWindowApi WindowApi
         {
             get

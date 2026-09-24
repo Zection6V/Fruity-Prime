@@ -124,36 +124,50 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 Mods.WindowMode.Startup = LauncherPrefs.WindowMode;
             }
-            RenderWindow.LogCreatingWindow();
-            RenderWindow? window = null;
-            try
+            bool backendFallbackTried = false;
+            while (true)
             {
-                window = new RenderWindow(shell: true);
-                PublishNativeHandle(window);
-                _window = window;
-                Active = true;
-                ShowFrontScreen();
-                window.Run();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"The window could not be opened: {ex}");
-                Mods.DebugLog.Exception("launcher", ex);
-                return false;
-            }
-            finally
-            {
-                Active = false;
-                _window = null;
-                _pending = null;
-                _endMatch = false;
-                _quit = false;
-                // Both own a worker thread and a bound socket; leaving the
-                // program must not leave either behind.
-                NetSession.Stop();
-                NetHostSession.Stop();
-                window?.Dispose();
+                RenderWindow.LogCreatingWindow();
+                RenderWindow? window = null;
+                try
+                {
+                    window = new RenderWindow(shell: true);
+                    PublishNativeHandle(window);
+                    _window = window;
+                    Active = true;
+                    ShowFrontScreen();
+                    window.Run();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+#if !ANDROID
+                    if (!backendFallbackTried
+                        && Mods.Render.RendererBackend.TryFallbackToOpenGlAfterStartupFailure(ex))
+                    {
+                        backendFallbackTried = true;
+                        Console.WriteLine(
+                            $"The selected renderer could not start ({ex.Message}); retrying with OpenGL.");
+                        continue;
+                    }
+#endif
+                    Console.WriteLine($"The window could not be opened: {ex}");
+                    Mods.DebugLog.Exception("launcher", ex);
+                    return false;
+                }
+                finally
+                {
+                    Active = false;
+                    _window = null;
+                    _pending = null;
+                    _endMatch = false;
+                    _quit = false;
+                    // Both own a worker thread and a bound socket; leaving the
+                    // program must not leave either behind.
+                    NetSession.Stop();
+                    NetHostSession.Stop();
+                    window?.Dispose();
+                }
             }
         }
 

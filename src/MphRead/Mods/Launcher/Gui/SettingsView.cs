@@ -1208,10 +1208,12 @@ namespace MphRead.Mods.Launcher.Gui
             // during a match as well as before one, since this same window
             // opens from the pause menu.
             Mods.GameSettings.Apply(_settings);
+#if !ANDROID
             if (rendererRestart)
             {
                 Shell.RequestRendererRestart();
             }
+#endif
             Saved = true;
             Close();
         }

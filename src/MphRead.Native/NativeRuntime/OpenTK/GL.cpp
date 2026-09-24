@@ -57,6 +57,7 @@ namespace
     using PFN_Uniform3f = void(APIENTRY*)(GLint, GLfloat, GLfloat, GLfloat);
     using PFN_Uniform3fv = void(APIENTRY*)(GLint, GLsizei, const GLfloat*);
     using PFN_Uniform4f = void(APIENTRY*)(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
+    using PFN_Uniform4i = void(APIENTRY*)(GLint, GLint, GLint, GLint, GLint);
     using PFN_UniformMatrix4fv = void(APIENTRY*)(GLint, GLsizei, GLboolean, const GLfloat*);
     using PFN_UseProgram = void(APIENTRY*)(GLuint);
     using PFN_DebugMessageCallback = void(APIENTRY*)(void*, const void*);
@@ -142,6 +143,7 @@ namespace
     MPHREAD_GL_ENTRY(PFN_Uniform3f, Uniform3f)
     MPHREAD_GL_ENTRY(PFN_Uniform3fv, Uniform3fv)
     MPHREAD_GL_ENTRY(PFN_Uniform4f, Uniform4f)
+    MPHREAD_GL_ENTRY(PFN_Uniform4i, Uniform4i)
     MPHREAD_GL_ENTRY(PFN_UniformMatrix4fv, UniformMatrix4fv)
     MPHREAD_GL_ENTRY(PFN_UseProgram, UseProgram)
     MPHREAD_GL_ENTRY(PFN_DebugMessageCallback, DebugMessageCallback)
@@ -663,6 +665,17 @@ namespace OpenTK::Graphics::OpenGL::GL
     void Uniform4(std::int32_t location, float v0, float v1, float v2, float v3)
     {
         if (const auto fn = GetUniform4f())
+        {
+            fn(location, v0, v1, v2, v3);
+        }
+    }
+
+    // OpenTK's GL.Uniform4(int, int, int, int, int): glUniform4i. On a float
+    // uniform that is GL_INVALID_OPERATION and sets nothing, which callers
+    // passing integer literals rely on exactly as the C# build does.
+    void Uniform4(std::int32_t location, std::int32_t v0, std::int32_t v1, std::int32_t v2, std::int32_t v3)
+    {
+        if (const auto fn = GetUniform4i())
         {
             fn(location, v0, v1, v2, v3);
         }

@@ -221,6 +221,7 @@ namespace OpenTK::Graphics::OpenGL
         void Uniform3(std::int32_t location, std::int32_t count, const float* value);
         void Uniform4(std::int32_t location, ::OpenTK::Mathematics::Vector4 data);
         void Uniform4(std::int32_t location, float v0, float v1, float v2, float v3);
+        void Uniform4(std::int32_t location, std::int32_t v0, std::int32_t v1, std::int32_t v2, std::int32_t v3);
         void UniformMatrix4(std::int32_t location, bool transpose, const ::OpenTK::Mathematics::Matrix4& matrix);
         void UniformMatrix4(std::int32_t location, std::int32_t count, bool transpose, const float* value);
         void UseProgram(std::int32_t program);

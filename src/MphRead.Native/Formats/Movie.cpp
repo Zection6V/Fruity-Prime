@@ -4837,15 +4837,9 @@ namespace MphRead
         }
         {
             const std::stop_token token = _decoderCts.load()->get_token();
-            std::fprintf(stderr, "[probe] spawning image task
-");
             NativeRuntime::TaskRun([this]()
             {
-                std::fprintf(stderr, "[probe] image task body
-");
                 (void)UpdateMovieImage(_decoderCts.load()->get_token());
-                std::fprintf(stderr, "[probe] image task returned
-");
             }, token);
         }
     }
@@ -5024,9 +5018,6 @@ namespace MphRead
         Duration nextFrameElapsed = frameTime;
         const Duration tolerance = std::chrono::milliseconds(15);
         const auto start = std::chrono::steady_clock::now();
-        std::fprintf(stderr, "[probe] UpdateMovieImage entered stop=%d count=%d
-",
-            (int)token.stop_requested(), (int)_movieFrameCount);
         while (!token.stop_requested() && _movieFrameCount != Int32MaxValue)
         {
             const Duration elapsed = std::chrono::steady_clock::now() - start;
@@ -5095,7 +5086,11 @@ namespace MphRead
             GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         };
 
-        GL::Uniform4(_shaderLocations->FadeColor, 0.0F, 0.0F, 0.0F, 1.0F);
+        // GL.Uniform4(FadeColor, 0, 0, 0, 1) in C#: the int overload, glUniform4i.
+        // fade_color is a vec4, so the call is rejected and the fade colour set
+        // earlier in the frame (alpha 0) stays; sending 1.0F instead paints the
+        // whole movie with the rtt shader's solid fade colour.
+        GL::Uniform4(_shaderLocations->FadeColor, 0, 0, 0, 1);
         GL::Begin(GL::PrimitiveType::TriangleStrip);
         GL::TexCoord3(1.0F, 1.0F, 0.0F);
         GL::Vertex3(1.0F, 1.0F, 0.0F);

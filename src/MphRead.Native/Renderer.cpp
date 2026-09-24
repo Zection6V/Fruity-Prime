@@ -1782,9 +1782,9 @@ namespace MphRead
             if (!GameState::DialogPause() && !GameState::MenuPause())
             {
                 ++_frameCount;
-                GameState::UpdateTime(this);
-                if (_movieFrameIndex != -1) UpdateMovie();
             }
+            GameState::UpdateTime(this);
+            if (_movieFrameIndex != -1) UpdateMovie();
         }
         _frameAdvanceLastFrame = _frameAdvanceOn;
         _pendingEffectSteps = std::min(_pendingEffectSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);

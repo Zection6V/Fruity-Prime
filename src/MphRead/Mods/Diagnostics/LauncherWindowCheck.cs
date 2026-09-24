@@ -193,6 +193,63 @@ namespace MphRead.Mods.Diagnostics
                         "Vulkan depth-only clear destroyed the stencil attachment.");
                 }
                 Console.WriteLine("[windowcheck] Vulkan scissor/depth-stencil clear semantics passed.");
+
+                // The renderer inherits OpenGL's default CCW front-face rule.
+                // Veldrid maps the enum directly to Vulkan, while Vulkan's
+                // viewport Y handling can change winding if the backend is not
+                // configured consistently. Prove the actual pipeline rather
+                // than relying on that interaction being obvious.
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.Enable(EnableCap.CullFace);
+                GL.CullFace(TriangleFace.Back);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(true);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+
+                GL.Color4(1f, 0f, 0f, 1f);
+                GL.Begin(PrimitiveType.Triangles);
+                GL.Vertex3(-0.75f, -0.75f, 0f);
+                GL.Vertex3(0.75f, -0.75f, 0f);
+                GL.Vertex3(0f, 0.75f, 0f);
+                GL.End();
+
+                Array.Clear(pixels, 0, pixels.Length);
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, 8, 8, 255, 0, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan culled the OpenGL CCW front face.");
+                }
+
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Color4(0f, 1f, 0f, 1f);
+                GL.Begin(PrimitiveType.Triangles);
+                GL.Vertex3(-0.75f, -0.75f, 0f);
+                GL.Vertex3(0f, 0.75f, 0f);
+                GL.Vertex3(0.75f, -0.75f, 0f);
+                GL.End();
+
+                Array.Clear(pixels, 0, pixels.Length);
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, 8, 8, 0, 0, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan failed to cull the OpenGL CW back face.");
+                }
+                GL.Disable(EnableCap.CullFace);
+                Console.WriteLine("[windowcheck] Vulkan OpenGL-compatible face winding passed.");
             }
             finally
             {
@@ -202,6 +259,7 @@ namespace MphRead.Mods.Diagnostics
                 GL.BindTexture(TextureTarget.Texture2D, 0);
                 GL.Disable(EnableCap.ScissorTest);
                 GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
                 GL.ColorMask(true, true, true, true);
                 GL.DepthMask(true);
                 GL.StencilMask(0xFF);

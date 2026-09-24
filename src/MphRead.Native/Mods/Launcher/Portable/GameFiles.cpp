@@ -1748,7 +1748,7 @@ namespace
         std::thread _thread;
     };
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__ANDROID__)
     class PosixWaitThread final
     {
     public:
@@ -1997,6 +1997,8 @@ namespace MphRead::Mods::Launcher
             }
             outputThread.Join();
             errorThread.Join();
+#elif defined(__ANDROID__)
+            return RunSetupHere(romPath, report);
 #else
             PosixChild child = StartChildPosix(*executable, romPath, _root);
             const int outputFd = child.Output.Get();

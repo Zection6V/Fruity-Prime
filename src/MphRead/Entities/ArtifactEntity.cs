@@ -211,6 +211,8 @@ namespace MphRead.Entities
                         _soundSource.PlayFreeSfx(SfxId.ARTIFACT1);
                     }
                     GameState.StorySave.UpdateFoundArtifact(_data.ArtifactId, _data.ModelId);
+                    Mods.DebugLog.Line("save", $"artifact {_data.ArtifactId} of set {_data.ModelId} picked up "
+                        + $"in room {_scene.RoomId}: artifacts=0x{GameState.StorySave.Artifacts:X}");
                     // ARTIFACT DISCOVERED you retrieved an ALIMBIC ARTIFACT!
                     PlayerEntity.Main.ShowDialog(DialogType.Event, messageId: 6, param1: (int)EventType.Artifact);
                     if (collected >= 2)

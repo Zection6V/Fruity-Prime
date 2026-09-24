@@ -1572,6 +1572,8 @@ namespace MphRead
                     save = JsonSerializer.Deserialize<StorySave>(File.ReadAllText(path), _jsonOpt);
                 }
             }
+            Mods.DebugLog.Line("save", $"read slot {Menu.SaveSlot}: "
+                + (save == null ? "no file, new game" : $"artifacts=0x{save.Artifacts:X} checkpoint room={save.CheckpointRoomId}"));
             return save ?? new StorySave();
         }
 
@@ -1632,6 +1634,8 @@ namespace MphRead
                 }
             }
             File.WriteAllText(GetSavePath(Menu.SaveSlot), JsonSerializer.Serialize(StorySave, _jsonOpt));
+            Mods.DebugLog.Line("save", $"wrote slot {Menu.SaveSlot}: artifacts=0x{StorySave.Artifacts:X} "
+                + $"checkpoint room={StorySave.CheckpointRoomId}");
         }
 
         internal sealed class ByteArrayConverter : JsonConverter<byte[]>

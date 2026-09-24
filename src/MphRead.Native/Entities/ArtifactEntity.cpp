@@ -1,6 +1,7 @@
 #include "ArtifactEntity.hpp"
 
 #include "../GameState.hpp"
+#include "../Mods/DebugLog.hpp"
 #include "../MemoryArrays.hpp"
 #include "../Messaging.hpp"
 #include "../Metadata/Metadata.hpp"
@@ -9,6 +10,8 @@
 #include "../Sound/Sfx.hpp"
 #include "CamSeq/CameraSequence.hpp"
 #include "EnemySpawnEntity.hpp"
+
+#include <sstream>
 #include "Players/PlayerEntity.hpp"
 
 #include <any>
@@ -452,6 +455,14 @@ namespace MphRead::Entities
                 }
 
                 StorySave().UpdateFoundArtifact(_data.ArtifactId, _data.ModelId);
+                {
+                    std::ostringstream line;
+                    line << "artifact " << static_cast<std::int32_t>(_data.ArtifactId) << " of set "
+                        << static_cast<std::int32_t>(_data.ModelId) << " picked up in room "
+                        << RoomId(_scene) << ": artifacts=0x" << std::hex << std::uppercase
+                        << StorySave().Artifacts;
+                    Mods::DebugLog::Line("save", line.str());
+                }
                 auto&& dialogMain = PlayerEntity::Main();
                 RequireReference(dialogMain).ShowDialog(
                     DialogType::Event, 6, static_cast<std::int32_t>(EventType::Artifact));

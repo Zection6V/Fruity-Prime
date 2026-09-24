@@ -2,6 +2,7 @@
 
 #include "Menu.hpp"
 #include "NativeRuntime/System/Json.hpp"
+#include "Mods/DebugLog.hpp"
 #include "Mods/Headless.hpp"
 #include "Mods/Network/NetMatchEnd.hpp"
 #include "Mods/Network/NetSession.hpp"
@@ -134,6 +135,19 @@ namespace
         {
             (*destinationArray)[i] = (*sourceArray)[i];
         }
+    }
+
+    // {value:X}: uppercase hexadecimal, no leading zeros.
+    [[nodiscard]] std::string HexUpper(std::uint32_t value)
+    {
+        constexpr char digits[] = "0123456789ABCDEF";
+        std::string text;
+        do
+        {
+            text.insert(text.begin(), digits[value & 15U]);
+            value >>= 4;
+        } while (value != 0);
+        return text;
     }
 
     [[nodiscard]] std::int32_t WrapAdd(
@@ -2481,6 +2495,10 @@ namespace MphRead
                     NativeRuntime::FileReadAllText(path));
             }
         }
+        Mods::DebugLog::Line("save", "read slot " + std::to_string(::MphRead::Menu::SaveSlot) + ": "
+            + (save == nullptr ? std::string("no file, new game")
+                : "artifacts=0x" + HexUpper(save->Artifacts)
+                    + " checkpoint room=" + std::to_string(save->CheckpointRoomId)));
         return save ? std::move(save) : std::make_shared<StorySaveValue>();
     }
 
@@ -2539,6 +2557,9 @@ namespace MphRead
         NativeRuntime::FileWriteAllText(
             GetSavePath(::MphRead::Menu::SaveSlot),
             MphRead::GameStateDetail::SerializeStorySave(storySave));
+        Mods::DebugLog::Line("save", "wrote slot " + std::to_string(::MphRead::Menu::SaveSlot)
+            + ": artifacts=0x" + HexUpper(storySave->Artifacts)
+            + " checkpoint room=" + std::to_string(storySave->CheckpointRoomId));
     }
 
     std::shared_ptr<MenuSettings> GameState::LoadSettings()

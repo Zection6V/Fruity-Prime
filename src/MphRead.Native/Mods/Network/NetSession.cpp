@@ -205,6 +205,19 @@ namespace
             LOCALE_SNEGINFINITY, symbols.Negative + "\xE2\x88\x9E");
 #endif
 #else
+#if defined(__ANDROID__)
+        if (const lconv* locale = ::localeconv(); locale != nullptr)
+        {
+            if (locale->decimal_point != nullptr && locale->decimal_point[0] != '\0')
+            {
+                symbols.Decimal = locale->decimal_point;
+            }
+            if (locale->negative_sign != nullptr && locale->negative_sign[0] != '\0')
+            {
+                symbols.Negative = locale->negative_sign;
+            }
+        }
+#else
         locale_t numericLocale = newlocale(LC_NUMERIC_MASK, "", nullptr);
         if (numericLocale != static_cast<locale_t>(0))
         {
@@ -227,6 +240,7 @@ namespace
 #endif
             freelocale(monetaryLocale);
         }
+#endif
         symbols.NegativeInfinity = symbols.Negative + symbols.PositiveInfinity;
 #endif
         return symbols;

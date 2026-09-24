@@ -172,6 +172,11 @@ namespace
 #if defined(_WIN32)
         return LocaleInfoUtf8(LOCALE_SDECIMAL, ".");
 #else
+#if defined(__ANDROID__)
+        const lconv* locale = ::localeconv();
+        const char* value = locale != nullptr ? locale->decimal_point : nullptr;
+        return value != nullptr && value[0] != '\0' ? value : ".";
+#else
         locale_t locale = newlocale(LC_NUMERIC_MASK, "", nullptr);
         if (locale == static_cast<locale_t>(0))
         {
@@ -182,12 +187,18 @@ namespace
         freelocale(locale);
         return result;
 #endif
+#endif
     }
 
     [[nodiscard]] std::string NegativeSign()
     {
 #if defined(_WIN32)
         return LocaleInfoUtf8(LOCALE_SNEGATIVESIGN, "-");
+#else
+#if defined(__ANDROID__)
+        const lconv* locale = ::localeconv();
+        const char* value = locale != nullptr ? locale->negative_sign : nullptr;
+        return value != nullptr && value[0] != '\0' ? value : "-";
 #else
         locale_t locale = newlocale(LC_MONETARY_MASK, "", nullptr);
         if (locale == static_cast<locale_t>(0))
@@ -202,6 +213,7 @@ namespace
 #endif
         freelocale(locale);
         return result;
+#endif
 #endif
     }
 

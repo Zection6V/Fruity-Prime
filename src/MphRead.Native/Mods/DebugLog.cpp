@@ -53,6 +53,7 @@
 #elif defined(__APPLE__)
 #include <execinfo.h>
 #include <fcntl.h>
+#include <crt_externs.h>
 #include <mach-o/dyld.h>
 #include <sys/types.h>
 #include <sys/utsname.h>

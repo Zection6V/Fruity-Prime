@@ -33,8 +33,7 @@ namespace MphRead::Entities
 {
     class PlayerEntity;
 
-    class HalfturretEntity : public DynamicLightEntityBase,
-                             public std::enable_shared_from_this<HalfturretEntity>
+    class HalfturretEntity : public DynamicLightEntityBase
     {
     public:
         HalfturretEntity(std::shared_ptr<PlayerEntity> owner, Scene* scene);

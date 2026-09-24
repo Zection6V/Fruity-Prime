@@ -319,14 +319,32 @@ C++ で対応する配列・メンバは `{}` で初期化する。「C# は未�
 ヘルパーが各所にある。`Spawn` は `SpawnIceWave`（→ `TakeDamage(source = ビーム)`）を
 **`AddEntity` の前に**呼ぶ（C# も同じ順序）ので、ビームはまだシーンにいない。
 
-**修正**: `PlayerEntity.cpp` の `ResolveSceneEntity` は、見つからなければ非所有の
-`shared_ptr`（エイリアシングコンストラクタ）を返す。受け手（`PlayerAiData::OnTakeDamage`）は
-呼び出し中に `Type` を読むだけで保持しない。
+**根本原因**: ファイル単位で移植したため、`shared_ptr` が必要になった場所ごとに
+「シーンから探して `shared_ptr` を取り戻す」ヘルパーが作られた（`ResolveSceneEntity`・
+`SharedEntity`・`FindDoorShared`・`FindRoomShared`・`GetManagedReference`・Quadtroid の
+インラインループ、計 18 箇所）。見つからないときの挙動も throw・null 返し・
+非所有ポインタとばらばらだった。
 
-**注意点**: この種のヘルパー（`ResolveSceneEntity`・`SharedEntity`）を足すとき、
-「シーンにいない」は C# ではエラーではない。生成途中・削除済みのエンティティが渡る経路を
-確認する。`this` を渡す呼び出し（処理中のエンティティは必ずシーンにいる）は安全。
-結果を保持する場合は非所有ポインタを返してはいけない。
+**修正（構造）**:
+- `EntityBase` が `std::enable_shared_from_this<EntityBase>` を継承する。エンティティは
+  必ず `shared_ptr` で所有されている（`make_shared` のみ。値・`unique_ptr` で持つ場所はない）
+  ので、どのエンティティも自分の所有ポインタを返せる。`SharedFrom(p)`（`EntityBase.hpp`）が
+  型付きで返す。null は null のまま。
+- 呼び出し中しか使わない引数は生ポインタか参照で受ける（C++ Core Guidelines F.7）。
+  `PlayerAiData::OnTakeDamage` の `source` は `EntityBase&`（C# の非 null 参照そのもの）。
+- 保持する場所（ターゲット・`SetAttachedEnemy`・`_lastJumpPad`・ビームの所有者など）は
+  `SharedFrom` を使う。シーンを走査して探すヘルパーはすべて削除した。
+
+**注意点**:
+- 派生クラスで `enable_shared_from_this` を**もう一度継承しない**。基底が2つになると
+  `shared_ptr` の構築時にどちらも有効にならず、`shared_from_this` が実行時に
+  `bad_weak_ptr` を投げる（コンパイルは通る）。以前は Player・Halfturret・OctolithFlag が
+  個別に継承していたが、`EntityBase` 1つにまとめた。
+- `EntityBase` は `public` で継承する（非公開継承でも有効にならない）。
+- エンティティを `shared_ptr` 以外で作らない。
+- `tools/native-audit/scene_lookup.py` がこの形（`.get() == ポインタ` で一致した要素を
+  返す・保持する）を検出する。残る 2 件（`RoomEntity` のドアのループ内 keep-alive、
+  GUI のハンドル表）は C# のループそのもので、対象外。
 
 ---
 
@@ -388,6 +406,7 @@ tools/native-audit/run_all.sh
 | `name_shadow.py` | 項目2: ヘルパー関数の呼び出しがクラスに解決される |
 | `slot_alias.py` | 項目3: コンテナ要素の参照を渡した先・保持中にそのコンテナを変更 |
 | `thread_local_dtor.py` | 項目4: `thread_local` の一覧（型を見て判断） |
+| `scene_lookup.py` | 項目12c: シーンを走査して `.get() == ポインタ` の要素を返す・保持する |
 
 どれも文字列ベースの近似で、ヒットは「読むべき場所」、ゼロは「知っている形はない」
 という意味でしかない。2026-09-24 時点の既知の無害なヒット:

@@ -3,7 +3,7 @@
 # See docs/MphRead-Native-CSharp-to-Cpp-Pitfalls.md.
 set -u
 cd "$(dirname "$0")"
-for scan in eval_order name_shadow slot_alias thread_local_dtor; do
+for scan in eval_order name_shadow slot_alias thread_local_dtor scene_lookup; do
     echo "== $scan"
     python3 "$scan.py"
 done

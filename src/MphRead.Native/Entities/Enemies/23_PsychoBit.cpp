@@ -129,26 +129,6 @@ namespace MphRead::Entities::Enemies
                 static_cast<std::uint32_t>(values.MinShots) + random);
         }
 
-        [[nodiscard]] std::shared_ptr<EntityBase> SharedEntity(
-            Scene* scene, EntityBase* entity)
-        {
-            Scene& sceneRef = RequireReference(scene);
-            auto enumerator = sceneRef.Entities().GetEnumerator();
-            while (enumerator.MoveNext())
-            {
-                std::shared_ptr<EntityBase> current = enumerator.Current();
-                if (!current)
-                {
-                    throw System::NullReferenceException();
-                }
-                if (current.get() == entity)
-                {
-                    return current;
-                }
-            }
-            throw SceneDetail::InvalidOperationException();
-        }
-
         template <typename T>
         [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
         {
@@ -513,7 +493,7 @@ namespace MphRead::Entities::Enemies
             equip.SplashDamage(_values.SplashDamage);
             equip.HeadshotDamage(_values.BeamDamage);
             (void)BeamProjectileEntity::Spawn(
-                SharedEntity(_scene, this),
+                SharedFrom<EntityBase>(this),
                 _equipInfo,
                 spawnPos,
                 _aimVec,

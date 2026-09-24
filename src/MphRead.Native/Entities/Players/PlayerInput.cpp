@@ -1562,7 +1562,7 @@ namespace MphRead::Entities
         }
         Mods::Network::NetUnlagged::BeginShot(*this);
         const BeamResultFlags result = BeamProjectileEntity::Spawn(
-            shared_from_this(), _equipInfo, shotOrigin, shotVec, flags, NodeRef, _scene);
+            SharedFrom<EntityBase>(this), _equipInfo, shotOrigin, shotVec, flags, NodeRef, _scene);
         Mods::Network::NetUnlagged::EndShot(*this);
         Mods::Network::NetDamage::NoteFired(*this, shotVec, _gunVec1);
         if (result == BeamResultFlags::NoSpawn)

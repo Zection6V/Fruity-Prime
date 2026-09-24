@@ -343,26 +343,6 @@ namespace
         return meta.AnimationIds[static_cast<std::size_t>(index)];
     }
 
-    [[nodiscard]] std::shared_ptr<EntityBase> SharedEntity(
-        MphRead::Scene* scene, EntityBase* entity)
-    {
-        MphRead::Scene& sceneRef = RequireReference(scene);
-        auto enumerator = sceneRef.Entities().GetEnumerator();
-        while (enumerator.MoveNext())
-        {
-            std::shared_ptr<EntityBase> current = enumerator.Current();
-            if (!current)
-            {
-                throw System::NullReferenceException();
-            }
-            if (current.get() == entity)
-            {
-                return current;
-            }
-        }
-        throw MphRead::SceneDetail::InvalidOperationException();
-    }
-
     [[nodiscard]] MphRead::Entities::BeamProjectileEntity* CastBeam(EntityBase* entity)
     {
         if (entity == nullptr)
@@ -1185,7 +1165,7 @@ namespace MphRead::Entities
                 }
 
                 (void)BeamProjectileEntity::Spawn(
-                    SharedEntity(_scene, this), _equipInfo,
+                    SharedFrom<EntityBase>(this), _equipInfo,
                     spawnPos, spawnDir, spawnFlags, NodeRef, _scene);
 
                 const BeamSfxInfo& sfxInfo = ArrayAt(_beamSfx, _data.BeamId);

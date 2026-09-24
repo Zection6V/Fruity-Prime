@@ -320,36 +320,6 @@ namespace
         return static_cast<TEnum>(static_cast<U>(value) & ~static_cast<U>(flag));
     }
 
-    [[nodiscard]] std::shared_ptr<MphRead::Entities::DoorEntity> FindDoorShared(
-        MphRead::Scene& scene, MphRead::Entities::DoorEntity* target)
-    {
-        auto enumerator = scene.GetDoorEntities().GetEnumerator();
-        while (enumerator.MoveNext())
-        {
-            std::shared_ptr<MphRead::Entities::DoorEntity> door = enumerator.Current();
-            if (door.get() == target)
-            {
-                return door;
-            }
-        }
-        return nullptr;
-    }
-
-    [[nodiscard]] std::shared_ptr<MphRead::Entities::RoomEntity> FindRoomShared(
-        MphRead::Scene& scene, MphRead::Entities::RoomEntity* target)
-    {
-        auto enumerator = scene.Entities().GetEnumerator();
-        while (enumerator.MoveNext())
-        {
-            std::shared_ptr<MphRead::Entities::EntityBase> entity = enumerator.Current();
-            if (entity.get() == target)
-            {
-                return std::shared_ptr<MphRead::Entities::RoomEntity>(entity, target);
-            }
-        }
-        return nullptr;
-    }
-
     [[nodiscard]] MphRead::StorySave& RequireStorySave()
     {
         if (MphRead::GameState::StorySave == nullptr)
@@ -823,7 +793,7 @@ namespace MphRead::Entities
         scene.AddEntity(newDoor);
         newDoor->SetConnectorInactive(true);
         door.SetLoaderDoor(newDoor);
-        newDoor->SetConnectorDoor(FindDoorShared(scene, doorValue));
+        newDoor->SetConnectorDoor(SharedFrom(doorValue));
         if (!GameState::InRoomTransition())
         {
             newDoor->NodeRef = AddDoorPortal(doorValue);
@@ -909,7 +879,7 @@ namespace MphRead::Entities
                 PlayerEntity::SetPlayerCount(UncheckedIncrement(PlayerEntity::PlayerCount()));
             }
         }
-        const std::shared_ptr<RoomEntity> self = FindRoomShared(scene, this);
+        const std::shared_ptr<RoomEntity> self = SharedFrom(this);
         assert(self != nullptr);
         ProcessTransition(std::shared_ptr<const std::atomic_bool>{}, self);
         EndTransition();
@@ -1025,7 +995,7 @@ namespace MphRead::Entities
             {
                 return;
             }
-            const std::shared_ptr<RoomEntity> self = FindRoomShared(scene, this);
+            const std::shared_ptr<RoomEntity> self = SharedFrom(this);
             assert(self != nullptr);
             std::packaged_task<void()> task([self, token]()
             {

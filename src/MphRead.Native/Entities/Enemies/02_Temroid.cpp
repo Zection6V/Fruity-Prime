@@ -72,22 +72,6 @@ namespace MphRead::Entities::Enemies
             return *player;
         }
 
-        [[nodiscard]] std::shared_ptr<EnemyInstanceEntity> GetManagedReference(
-            Enemy02Entity* enemy, Scene* scene)
-        {
-            Scene& sceneRef = RequireReference(scene);
-            auto enumerator = sceneRef.GetEnemyInstanceEntities().GetEnumerator();
-            while (enumerator.MoveNext())
-            {
-                std::shared_ptr<EnemyInstanceEntity> current = enumerator.Current();
-                if (current.get() == enemy)
-                {
-                    return current;
-                }
-            }
-            throw SceneDetail::InvalidOperationException();
-        }
-
         [[nodiscard]] Enemy02Entity& RequireEnemy(Enemy02Entity* enemy)
         {
             if (enemy == nullptr)
@@ -760,7 +744,7 @@ namespace MphRead::Entities::Enemies
         {
             return false;
         }
-        MainPlayer().SetAttachedEnemy(GetManagedReference(this, _scene));
+        MainPlayer().SetAttachedEnemy(SharedFrom<EnemyInstanceEntity>(this));
         return true;
     }
 

@@ -574,7 +574,7 @@ namespace MphRead::Entities
             std::uint16_t altAttackDamage, std::int16_t altAttackCooldown) noexcept;
     };
 
-    class PlayerEntity : public DynamicLightEntityBase, public std::enable_shared_from_this<PlayerEntity>
+    class PlayerEntity : public DynamicLightEntityBase
     {
     public:
         static constexpr std::int32_t SlotCapacity = 8;

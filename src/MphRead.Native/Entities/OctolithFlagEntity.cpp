@@ -352,7 +352,7 @@ namespace MphRead::Entities
         {
             _carrier->SetOctolithFlag(nullptr);
         }
-        player.SetOctolithFlag(shared_from_this());
+        player.SetOctolithFlag(SharedFrom(this));
         _carrier = playerValue;
         _lastCarrier = playerValue;
         _atBase = false;

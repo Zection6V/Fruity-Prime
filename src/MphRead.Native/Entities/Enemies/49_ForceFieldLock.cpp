@@ -94,26 +94,6 @@ namespace MphRead::Entities::Enemies
             return ManagedArrayAt(animInfo.Frame, 0);
         }
 
-        [[nodiscard]] std::shared_ptr<EntityBase> SharedEntity(
-            Scene* scene, EntityBase* entity)
-        {
-            Scene& sceneRef = RequireReference(scene);
-            auto enumerator = sceneRef.Entities().GetEnumerator();
-            while (enumerator.MoveNext())
-            {
-                std::shared_ptr<EntityBase> current = enumerator.Current();
-                if (!current)
-                {
-                    throw System::NullReferenceException();
-                }
-                if (current.get() == entity)
-                {
-                    return current;
-                }
-            }
-            throw SceneDetail::InvalidOperationException();
-        }
-
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)
         {
             return std::make_shared<const std::any>(value);
@@ -267,7 +247,7 @@ namespace MphRead::Entities::Enemies
                 const Vector3 spawnPos
                     = static_cast<Vector3>(Position) + ScaleVector(spawnDir, 0.1F);
                 (void)BeamProjectileEntity::Spawn(
-                    SharedEntity(_scene, this),
+                    SharedFrom<EntityBase>(this),
                     _equipInfo,
                     spawnPos,
                     spawnDir,

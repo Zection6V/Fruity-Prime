@@ -1073,22 +1073,7 @@ namespace MphRead::Entities::Enemies
     {
         assert(_target != nullptr);
         PlayerEntity& target = RequireReference(_target);
-        std::shared_ptr<EnemyInstanceEntity> attachedEnemy{};
-        auto enumerator = RequireReference(_scene).GetEnemyInstanceEntities().GetEnumerator();
-        while (enumerator.MoveNext())
-        {
-            std::shared_ptr<EnemyInstanceEntity> current = enumerator.Current();
-            if (current.get() == this)
-            {
-                attachedEnemy = current;
-                break;
-            }
-        }
-        if (!attachedEnemy)
-        {
-            throw SceneDetail::InvalidOperationException();
-        }
-        target.SetAttachedEnemy(std::move(attachedEnemy));
+        target.SetAttachedEnemy(SharedFrom<EnemyInstanceEntity>(this));
         _models[0].SetAnimation(1, 0,
             SetFlags::Texture | SetFlags::Material | SetFlags::Node);
         _state1 = _state2 = 13;
@@ -1101,22 +1086,7 @@ namespace MphRead::Entities::Enemies
     {
         assert(_target != nullptr);
         PlayerEntity& target = RequireReference(_target);
-        std::shared_ptr<EnemyInstanceEntity> attachedEnemy{};
-        auto enumerator = RequireReference(_scene).GetEnemyInstanceEntities().GetEnumerator();
-        while (enumerator.MoveNext())
-        {
-            std::shared_ptr<EnemyInstanceEntity> current = enumerator.Current();
-            if (current.get() == this)
-            {
-                attachedEnemy = current;
-                break;
-            }
-        }
-        if (!attachedEnemy)
-        {
-            throw SceneDetail::InvalidOperationException();
-        }
-        target.SetAttachedEnemy(std::move(attachedEnemy));
+        target.SetAttachedEnemy(SharedFrom<EnemyInstanceEntity>(this));
         _flags |= QuadtroidFlags::Bit7;
         _flags |= QuadtroidFlags::Bit0;
         _models[0].SetAnimation(0, 0,

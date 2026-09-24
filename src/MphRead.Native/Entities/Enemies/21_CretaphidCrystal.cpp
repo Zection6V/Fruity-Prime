@@ -55,26 +55,6 @@ namespace MphRead::Entities::Enemies
             return RequireReference(PlayerEntity::Main());
         }
 
-        [[nodiscard]] std::shared_ptr<EntityBase> SharedEntity(
-            Scene* scene, EntityBase* entity)
-        {
-            Scene& sceneRef = RequireReference(scene);
-            auto enumerator = sceneRef.Entities().GetEnumerator();
-            while (enumerator.MoveNext())
-            {
-                std::shared_ptr<EntityBase> current = enumerator.Current();
-                if (!current)
-                {
-                    throw System::NullReferenceException();
-                }
-                if (current.get() == entity)
-                {
-                    return current;
-                }
-            }
-            throw SceneDetail::InvalidOperationException();
-        }
-
         template <typename T>
         [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
         {
@@ -172,7 +152,7 @@ namespace MphRead::Entities::Enemies
 
         const Vector3 spawnDir
             = (AddY(MainPlayer().Position, 0.5F) - Position).Normalized();
-        const std::shared_ptr<EntityBase> owner = SharedEntity(_scene, this);
+        const std::shared_ptr<EntityBase> owner = SharedFrom<EntityBase>(this);
         const Formats::Culling::NodeRef nodeRef
             = RequireReference(_cretaphid).NodeRef;
         (void)BeamProjectileEntity::Spawn(

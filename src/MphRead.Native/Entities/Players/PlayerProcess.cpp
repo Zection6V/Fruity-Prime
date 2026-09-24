@@ -153,32 +153,7 @@ namespace
         return std::make_shared<const std::any>(value);
     }
 
-    template <typename T>
-    [[nodiscard]] std::shared_ptr<T> ResolveSceneEntity(MphRead::Scene& scene, T* value)
-    {
-        if (value == nullptr)
-        {
-            return nullptr;
-        }
-        auto enumerator = scene.Entities().GetEnumerator();
-        while (enumerator.MoveNext())
-        {
-            std::shared_ptr<EntityBase> entity = enumerator.Current();
-            if (entity.get() == value)
-            {
-                std::shared_ptr<T> typed = std::dynamic_pointer_cast<T>(entity);
-                if (!typed)
-                {
-                    throw MphRead::SceneDetail::InvalidCastException();
-                }
-                return typed;
-            }
-        }
-        throw System::NullReferenceException();
-    }
-
-    [[nodiscard]] std::shared_ptr<EntityBase> TryUnboxEntity(
-        MphRead::Scene* scene, const MessageObject& value)
+    [[nodiscard]] std::shared_ptr<EntityBase> TryUnboxEntity(const MessageObject& value)
     {
         if (!value || !value->has_value())
         {
@@ -194,7 +169,7 @@ namespace
             {
                 return nullptr;
             }
-            return ResolveSceneEntity(RequireReference(scene), *raw);
+            return SharedFrom(*raw);
         }
         return nullptr;
     }
@@ -1780,7 +1755,7 @@ namespace MphRead::Entities
         }
         else
         {
-            _lastJumpPad = ResolveSceneEntity(RequireReference(_scene), jumpPad);
+            _lastJumpPad = SharedFrom(jumpPad);
         }
         _flags1 |= PlayerFlags1::UsedJumpPad;
         lockTime = ManagedUInt16Multiply(lockTime, 2);
@@ -2854,7 +2829,7 @@ namespace MphRead::Entities
         else if (info.Message == Message::Impact)
         {
             std::shared_ptr<EntityBase> targetRef
-                = TryUnboxEntity(_scene, info.Param1);
+                = TryUnboxEntity(info.Param1);
             EntityBase* target = targetRef.get();
             if (target != nullptr && target != this
                 && (target->Type == EntityType::EnemyInstance

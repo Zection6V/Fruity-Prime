@@ -19,29 +19,6 @@ namespace
         return *value;
     }
 
-    template <typename T>
-    [[nodiscard]] std::shared_ptr<T> ResolveSceneEntity(MphRead::Scene& scene, T* value)
-    {
-        if (value == nullptr)
-        {
-            return nullptr;
-        }
-        auto enumerator = scene.Entities().GetEnumerator();
-        while (enumerator.MoveNext())
-        {
-            std::shared_ptr<MphRead::Entities::EntityBase> entity = enumerator.Current();
-            if (entity.get() == value)
-            {
-                std::shared_ptr<T> typed = std::dynamic_pointer_cast<T>(entity);
-                if (!typed)
-                {
-                    throw MphRead::SceneDetail::InvalidCastException();
-                }
-                return typed;
-            }
-        }
-        throw System::NullReferenceException();
-    }
 }
 
 namespace MphRead::Entities
@@ -91,7 +68,7 @@ namespace MphRead::Entities
                     if (Formats::CollisionDetection::CheckVolumesOverlap(
                         &_volume, &playerVolume, discard))
                     {
-                        player.SetMorphCamera(ResolveSceneEntity(*_scene, this));
+                        player.SetMorphCamera(SharedFrom(this));
                         RequireReference(player.CameraInfo()).NodeRef = NodeRef;
                         player.RefreshExternalCamera();
                     }

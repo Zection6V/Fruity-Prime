@@ -111,7 +111,8 @@ namespace MphRead.Mods.Render
             public uint Width;
             public uint Height;
             public bool Depth;
-            public bool Linear;
+            public bool MinLinear;
+            public bool MagLinear;
             // OpenGL RGB internal formats have no alpha component. Sampling
             // them returns alpha 1 even if the compatibility storage has to be
             // RGBA on Vulkan. Keep that semantic separate from the physical
@@ -1314,8 +1315,8 @@ namespace MphRead.Mods.Render
             TextureInfo t1 = _boundTextures[1] == 0 ? _white! : GetTexture(_boundTextures[1]);
             if (t0.View == null) t0 = _white!;
             if (t1.View == null) t1 = _white!;
-            string key = $"{_boundTextures[0]}:{t0.Version}:{t0.Linear}:{t0.AddressU}:{t0.AddressV}"
-                + $"|{_boundTextures[1]}:{t1.Version}:{t1.Linear}:{t1.AddressU}:{t1.AddressV}";
+            string key = $"{_boundTextures[0]}:{t0.Version}:{t0.MinLinear}:{t0.MagLinear}:{t0.AddressU}:{t0.AddressV}"
+                + $"|{_boundTextures[1]}:{t1.Version}:{t1.MinLinear}:{t1.MagLinear}:{t1.AddressU}:{t1.AddressV}";
             if (slot.Set != null && slot.SetKey == key)
             {
                 return slot.Set;
@@ -1332,18 +1333,36 @@ namespace MphRead.Mods.Render
 
         private static Sampler GetSampler(TextureInfo texture)
         {
-            if (texture.AddressU == SamplerAddressMode.Wrap && texture.AddressV == SamplerAddressMode.Wrap)
-            {
-                return texture.Linear ? _gd!.LinearSampler : _gd!.PointSampler;
-            }
-            string key = $"{texture.Linear}:{texture.AddressU}:{texture.AddressV}";
+            string key = $"{texture.MinLinear}:{texture.MagLinear}:{texture.AddressU}:{texture.AddressV}";
             if (_samplers.TryGetValue(key, out Sampler? sampler))
             {
                 return sampler;
             }
-            var description = texture.Linear ? SamplerDescription.Linear : SamplerDescription.Point;
-            description.AddressModeU = texture.AddressU;
-            description.AddressModeV = texture.AddressV;
+
+            // Fruity's OpenGL path uses the non-mipmapped GL_NEAREST and
+            // GL_LINEAR filters. Do not inherit Veldrid's stock Linear/Point
+            // sampler descriptions here: they enable mip-level selection up to
+            // uint.MaxValue and also collapse minification and magnification
+            // into one choice. This compatibility image has exactly level 0,
+            // so make the OpenGL state explicit and keep LOD fixed there.
+            SamplerFilter filter = texture.MinLinear
+                ? (texture.MagLinear
+                    ? SamplerFilter.MinLinear_MagLinear_MipPoint
+                    : SamplerFilter.MinLinear_MagPoint_MipPoint)
+                : (texture.MagLinear
+                    ? SamplerFilter.MinPoint_MagLinear_MipPoint
+                    : SamplerFilter.MinPoint_MagPoint_MipPoint);
+            var description = new SamplerDescription(
+                texture.AddressU,
+                texture.AddressV,
+                SamplerAddressMode.Wrap,
+                filter,
+                comparisonKind: null,
+                maximumAnisotropy: 0,
+                minimumLod: 0,
+                maximumLod: 0,
+                lodBias: 0,
+                borderColor: SamplerBorderColor.TransparentBlack);
             sampler = _factory!.CreateSampler(description);
             _samplers[key] = sampler;
             return sampler;
@@ -1626,16 +1645,17 @@ namespace MphRead.Mods.Render
             int name = _boundTextures[_activeTextureUnit];
             if (name == 0) return;
             TextureInfo info = GetTexture(name);
-            if (pname == TextureParameterName.TextureMinFilter || pname == TextureParameterName.TextureMagFilter)
+            if (pname == TextureParameterName.TextureMinFilter)
             {
-                bool linear = param == (int)TextureMinFilter.Linear || param == (int)TextureMagFilter.Linear;
-                if (linear != info.Linear)
-                {
-                    // Resource-set keys include the filter state, so changing
-                    // it selects a different sampler/set without invalidating
-                    // descriptors that may still be referenced by GPU work.
-                    info.Linear = linear;
-                }
+                bool linear = param == (int)TextureMinFilter.Linear
+                    || param == (int)TextureMinFilter.LinearMipmapNearest
+                    || param == (int)TextureMinFilter.LinearMipmapLinear;
+                info.MinLinear = linear;
+                return;
+            }
+            if (pname == TextureParameterName.TextureMagFilter)
+            {
+                info.MagLinear = param == (int)TextureMagFilter.Linear;
                 return;
             }
             if (pname == TextureParameterName.TextureWrapS || pname == TextureParameterName.TextureWrapT)

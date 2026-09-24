@@ -1,4 +1,5 @@
 #include "SettingsView.hpp"
+#include "NativeRuntime/System/Charconv.hpp"
 
 #include "CrosshairPreview.hpp"
 #include "../../../Features.hpp"
@@ -285,7 +286,7 @@ namespace
         float value = 0.0F;
         const char* first = text.data();
         const char* last = text.data() + text.size();
-        const auto parsed = std::from_chars(first, last, value, std::chars_format::general);
+        const auto parsed = ::MphRead::NativeRuntime::FromChars(first, last, value, std::chars_format::general);
         if (parsed.ec == std::errc{} && parsed.ptr == last)
         {
             result = value;

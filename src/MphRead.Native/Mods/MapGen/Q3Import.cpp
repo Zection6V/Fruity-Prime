@@ -1,4 +1,5 @@
 #include "Q3Import.hpp"
+#include "NativeRuntime/System/Charconv.hpp"
 
 #include "../../Formats/Formats.hpp"
 #include "../../Program.hpp"
@@ -501,7 +502,7 @@ namespace
         float parsed = 0.0F;
         const char* first = magnitude.data();
         const char* last = first + magnitude.size();
-        const auto conversion = std::from_chars(
+        const auto conversion = ::MphRead::NativeRuntime::FromChars(
             first, last, parsed, std::chars_format::general);
         if (conversion.ptr == last && conversion.ec == std::errc{})
         {
@@ -515,7 +516,7 @@ namespace
         }
 
         long double wide = 0.0L;
-        const auto wideConversion = std::from_chars(
+        const auto wideConversion = ::MphRead::NativeRuntime::FromChars(
             first, last, wide, std::chars_format::general);
         if (wideConversion.ptr == last && wideConversion.ec == std::errc{})
         {

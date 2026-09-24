@@ -516,7 +516,7 @@ namespace MphRead::Entities
                             else if (GameState::TransitionRoomId() == -1)
                             {
                                 Scene& currentScene = RequireReference(_scene);
-                                assert(currentScene.Room != nullptr);
+                                assert(currentScene.Room() != nullptr);
                                 if (_soundSource.CountPlayingSfx(
                                         SfxId::TELEPORT_OUT) == 0)
                                 {

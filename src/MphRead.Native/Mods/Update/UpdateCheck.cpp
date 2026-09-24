@@ -1,4 +1,5 @@
 #include "UpdateCheck.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "../Branding.hpp"
 
@@ -47,7 +48,7 @@ namespace MphRead::Mods::Update
         constexpr std::string_view Api =
             "https://api.github.com/repos/liveteklol/Fruity-Prime/releases/latest";
 
-        std::atomic<std::shared_ptr<const std::string>> LastReasonValue{nullptr};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const std::string> LastReasonValue{nullptr};
 
         class NamedException : public std::runtime_error
         {

@@ -1,4 +1,5 @@
 #include "NetLag.hpp"
+#include "NativeRuntime/System/Charconv.hpp"
 
 #include <array>
 #include <bit>
@@ -409,7 +410,7 @@ namespace
             }
 
             double magnitude = 0.0;
-            const auto conversion = std::from_chars(
+            const auto conversion = ::MphRead::NativeRuntime::FromChars(
                 numeric.data(), numeric.data() + numeric.size(), magnitude, std::chars_format::general);
             if (conversion.ec == std::errc{} && conversion.ptr == numeric.data() + numeric.size())
             {

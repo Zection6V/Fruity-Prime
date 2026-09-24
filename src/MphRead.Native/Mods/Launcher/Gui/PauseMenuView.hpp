@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "MenuEntry.hpp"
 #include "Rows.hpp"
@@ -122,7 +123,7 @@ namespace MphRead::Mods::Launcher::Gui
     private:
         using Invocation = PauseMenuViewEventHandler::Invocation;
         using InvocationList = std::vector<Invocation>;
-        std::atomic<std::shared_ptr<const InvocationList>> _handlers{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const InvocationList> _handlers{};
     };
 
     using PauseMenuViewControlHandle = std::shared_ptr<void>;

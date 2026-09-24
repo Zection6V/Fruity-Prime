@@ -1,4 +1,5 @@
 #include "Features.hpp"
+#include "NativeRuntime/System/Charconv.hpp"
 
 #include <iterator>
 #include <span>
@@ -386,7 +387,7 @@ namespace MphRead
 
             float direct = 0.0F;
             const char* const end = numeric.data() + numeric.size();
-            const auto [ptr, error] = std::from_chars(
+            const auto [ptr, error] = ::MphRead::NativeRuntime::FromChars(
                 numeric.data(), end, direct, std::chars_format::general);
             if (error == std::errc::result_out_of_range)
             {

@@ -1,4 +1,5 @@
 #include "MapDefinition.hpp"
+#include "NativeRuntime/System/Charconv.hpp"
 
 #include "CustomRooms.hpp"
 #include "MapBundle.hpp"
@@ -995,7 +996,7 @@ namespace
         float parsed = 0.0F;
         const char* const first = value.Text.data();
         const char* const last = first + value.Text.size();
-        const auto result = std::from_chars(first, last, parsed, std::chars_format::general);
+        const auto result = ::MphRead::NativeRuntime::FromChars(first, last, parsed, std::chars_format::general);
         if (result.ptr != last)
         {
             ConversionError();
@@ -1010,7 +1011,7 @@ namespace
         }
 
         double wide = 0.0;
-        const auto wideResult = std::from_chars(first, last, wide, std::chars_format::general);
+        const auto wideResult = ::MphRead::NativeRuntime::FromChars(first, last, wide, std::chars_format::general);
         if (wideResult.ptr != last)
         {
             ConversionError();

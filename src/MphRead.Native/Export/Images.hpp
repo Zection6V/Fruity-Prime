@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "../Formats/Types.hpp"
 
 #include <atomic>
@@ -46,8 +47,8 @@ namespace MphRead::Export
         class TaskState;
         class QueueState;
 
-        static std::atomic<std::shared_ptr<TaskState>> _task;
-        static bool _recording;
+        static ::MphRead::NativeRuntime::AtomicSharedPtr<TaskState> _task;
+        static std::atomic<bool> _recording;
         static QueueState _queue;
 
         static void ProcessQueue();

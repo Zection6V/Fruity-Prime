@@ -147,7 +147,7 @@ namespace MphRead::Entities
         _volume = CollisionVolume::Move(data.Volume, Position);
         AddPlaceholderModel();
 
-        assert(GameState::Mode == GameMode::SinglePlayer);
+        assert(GameState::Mode() == GameMode::SinglePlayer);
         StorySave* storySave = GameState::StorySave.get();
         const std::int32_t roomId = GetRoomId(_scene);
         if (storySave == nullptr)

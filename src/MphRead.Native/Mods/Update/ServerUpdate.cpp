@@ -1,4 +1,5 @@
 #include "ServerUpdate.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "BuildVersion.hpp"
 #include "DesktopUpdate.hpp"
 
@@ -72,7 +73,7 @@ namespace MphRead::Mods::Update
             std::atomic_bool Enabled{true};
             std::atomic<std::int64_t> IntervalTicks{DefaultIntervalTicks};
             std::mutex Gate;
-            std::atomic<std::shared_ptr<const std::vector<std::string>>> Relaunch{
+            ::MphRead::NativeRuntime::AtomicSharedPtr<const std::vector<std::string>> Relaunch{
                 std::make_shared<const std::vector<std::string>>()};
             std::atomic<std::int64_t> NextCheckTicks{0}; // DateTime.MinValue
             bool Working = false;

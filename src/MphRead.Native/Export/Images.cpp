@@ -1,4 +1,5 @@
 #include "Images.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "../NativeRuntime/OpenTK/GL.hpp"
 #include "../NativeRuntime/Stb/Image.hpp"
@@ -308,8 +309,8 @@ namespace MphRead::Export
         std::exception_ptr _exception{};
     };
 
-    std::atomic<std::shared_ptr<Images::TaskState>> Images::_task{};
-    alignas(std::atomic_ref<bool>::required_alignment) bool Images::_recording = false;
+    ::MphRead::NativeRuntime::AtomicSharedPtr<Images::TaskState> Images::_task{};
+    std::atomic<bool> Images::_recording{false};
     Images::QueueState Images::_queue{};
 
     void Images::Screenshot(
@@ -339,7 +340,7 @@ namespace MphRead::Export
         std::int32_t height,
         const std::string& name)
     {
-        std::atomic_ref<bool>(_recording).store(true, std::memory_order_relaxed);
+        _recording.store(true, std::memory_order_relaxed);
         if (!_task.load(std::memory_order_relaxed))
         {
             std::shared_ptr<TaskState> task = std::make_shared<TaskState>();
@@ -357,12 +358,12 @@ namespace MphRead::Export
 
     void Images::StopRecording()
     {
-        std::atomic_ref<bool>(_recording).store(false, std::memory_order_relaxed);
+        _recording.store(false, std::memory_order_relaxed);
     }
 
     void Images::ProcessQueue()
     {
-        while (std::atomic_ref<bool>(_recording).load(std::memory_order_relaxed)
+        while (_recording.load(std::memory_order_relaxed)
             || _queue.Count() > 0)
         {
             QueueState::Item result;

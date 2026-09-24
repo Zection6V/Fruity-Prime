@@ -1,4 +1,5 @@
 #include "DemoPickerView.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -10,7 +11,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
         DemoPickerViewAdapter* Adapter = nullptr;
         DemoPickerView* Sender = nullptr;
-        std::atomic<std::shared_ptr<const std::string>> Path{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const std::string> Path{};
         std::atomic<bool> ImportRequested{false};
         DemoPickerViewAdapter::ControlHandle First;
         DemoPickerViewEvent Closed;

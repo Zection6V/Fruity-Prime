@@ -1,4 +1,5 @@
 #include "ShutdownSignals.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -32,7 +33,7 @@ namespace MphRead::Mods
         struct ShutdownState final
         {
             std::atomic<int> Fired{0};
-            std::atomic<std::shared_ptr<std::function<void()>>> Action;
+            ::MphRead::NativeRuntime::AtomicSharedPtr<std::function<void()>> Action;
 
             void SetAction(std::function<void()> action)
             {

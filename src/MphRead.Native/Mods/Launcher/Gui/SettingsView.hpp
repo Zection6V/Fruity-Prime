@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "KeyRow.hpp"
 #include "MenuEntry.hpp"
@@ -137,7 +138,7 @@ namespace MphRead::Mods::Launcher::Gui
     private:
         using Invocation = SettingsViewEventHandler::Invocation;
         using InvocationList = std::vector<Invocation>;
-        std::atomic<std::shared_ptr<const InvocationList>> _handlers{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const InvocationList> _handlers{};
     };
 
     using SettingsViewControlHandle = std::shared_ptr<void>;

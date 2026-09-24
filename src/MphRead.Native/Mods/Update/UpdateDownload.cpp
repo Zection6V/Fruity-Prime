@@ -1,4 +1,5 @@
 #include "UpdateDownload.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "../Branding.hpp"
 #include "BuildVersion.hpp"
@@ -40,7 +41,7 @@ namespace MphRead::Mods::Update
 {
     namespace
     {
-        std::atomic<std::shared_ptr<const std::string>> LastErrorValue{nullptr};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const std::string> LastErrorValue{nullptr};
 
         class OperationCanceledException final : public std::runtime_error
         {

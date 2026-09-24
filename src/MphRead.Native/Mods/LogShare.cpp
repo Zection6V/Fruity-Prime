@@ -1,4 +1,5 @@
 #include "LogShare.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "Branding.hpp"
 #include "Launcher/Portable/LauncherPrefs.hpp"
@@ -1876,7 +1877,7 @@ namespace MphRead::Mods
         return Utf8ToUtf16(product + "-logs-" + std::string(timestamp) + ".zip");
     }
 
-    std::atomic<std::shared_ptr<ILogShare>> LogShare::_current{};
+    ::MphRead::NativeRuntime::AtomicSharedPtr<ILogShare> LogShare::_current{};
 
     std::shared_ptr<ILogShare> LogShare::Current()
     {

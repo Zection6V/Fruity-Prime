@@ -1,4 +1,5 @@
 #include "Console.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include <atomic>
 #include <clocale>
@@ -332,7 +333,7 @@ namespace
 
     struct ConsoleSetupState final
     {
-        std::atomic<std::shared_ptr<const std::string>> LaunchDirectory;
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const std::string> LaunchDirectory;
 
         explicit ConsoleSetupState(std::string launchDirectory)
             : LaunchDirectory(std::make_shared<const std::string>(std::move(launchDirectory)))

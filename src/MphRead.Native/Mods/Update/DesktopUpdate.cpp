@@ -1,4 +1,5 @@
 #include "DesktopUpdate.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "BuildVersion.hpp"
 #include "UpdateDownload.hpp"
@@ -62,7 +63,7 @@ namespace MphRead::Mods::Update
         namespace fs = std::filesystem;
         using namespace std::chrono_literals;
 
-        std::atomic<std::shared_ptr<const std::string>> LastErrorValue{nullptr};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const std::string> LastErrorValue{nullptr};
 
         class IOException final : public std::runtime_error
         {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "TrackedText.hpp"
 
@@ -133,7 +134,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         using Invocation = UpdateBadgeEventHandler::Invocation;
         using InvocationList = std::vector<Invocation>;
-        std::atomic<std::shared_ptr<const InvocationList>> _handlers{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const InvocationList> _handlers{};
     };
 
     struct UpdateBadgePen final

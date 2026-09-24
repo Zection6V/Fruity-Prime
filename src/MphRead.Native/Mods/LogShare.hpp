@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -72,6 +73,6 @@ namespace MphRead::Mods
         [[nodiscard]] static bool Available();
 
     private:
-        static std::atomic<std::shared_ptr<ILogShare>> _current;
+        static ::MphRead::NativeRuntime::AtomicSharedPtr<ILogShare> _current;
     };
 }

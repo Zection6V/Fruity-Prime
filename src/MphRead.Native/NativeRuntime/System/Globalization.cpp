@@ -1,4 +1,5 @@
 #include "Globalization.hpp"
+#include "NativeRuntime/System/Charconv.hpp"
 
 #include "Exceptions.hpp"
 
@@ -1350,7 +1351,7 @@ namespace MphRead::NativeRuntime
                 ++first; // floating from_chars intentionally has no leading '+'
             }
             float parsed = 0.0F;
-            const auto result = std::from_chars(first, last, parsed, std::chars_format::general);
+            const auto result = ::MphRead::NativeRuntime::FromChars(first, last, parsed, std::chars_format::general);
             if (result.ec == std::errc{} && result.ptr == last)
             {
                 value = parsed;
@@ -1363,7 +1364,7 @@ namespace MphRead::NativeRuntime
             }
 
             double wide = 0.0;
-            const auto wideResult = std::from_chars(first, last, wide, std::chars_format::general);
+            const auto wideResult = ::MphRead::NativeRuntime::FromChars(first, last, wide, std::chars_format::general);
             const bool negative = !normalized.empty() && normalized.front() == '-';
             if (wideResult.ec == std::errc{} && wideResult.ptr == last)
             {

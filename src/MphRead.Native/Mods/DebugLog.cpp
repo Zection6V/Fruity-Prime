@@ -1,4 +1,5 @@
 #include "DebugLog.hpp"
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "../Program.hpp"
 #include "Branding.hpp"
@@ -412,10 +413,10 @@ namespace
 
     struct State final
     {
-        std::atomic<std::shared_ptr<Utf8Writer>> Writer{};
-        std::atomic<std::shared_ptr<const std::string>> Path{};
-        std::atomic<std::shared_ptr<const std::string>> NativePath{};
-        std::atomic<std::shared_ptr<FileSink>> NativeStream{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<Utf8Writer> Writer{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const std::string> Path{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const std::string> NativePath{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<FileSink> NativeStream{};
         std::recursive_mutex Lock;
         std::atomic<bool> Hooked{false};
         std::atomic<bool> Forced{false};

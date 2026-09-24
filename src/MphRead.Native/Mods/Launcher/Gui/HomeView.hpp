@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "../Portable/LaunchPlan.hpp"
 #include "../../../Formats/Formats.hpp"
 #include "GuiTheme.hpp"
@@ -522,7 +523,7 @@ namespace MphRead::Mods::Launcher::Gui
     private:
         using Invocation = HomeViewEventHandler::Invocation;
         using InvocationList = std::vector<Invocation>;
-        std::atomic<std::shared_ptr<const InvocationList>> _handlers{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const InvocationList> _handlers{};
     };
 
     class HomeView final

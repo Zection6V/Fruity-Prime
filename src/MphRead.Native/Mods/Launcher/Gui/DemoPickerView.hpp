@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "../../Network/DemoLibrary.hpp"
 
@@ -142,7 +143,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         using Invocation = DemoPickerViewEventHandler::Invocation;
         using InvocationList = std::vector<Invocation>;
-        std::atomic<std::shared_ptr<const InvocationList>> _handlers{};
+        ::MphRead::NativeRuntime::AtomicSharedPtr<const InvocationList> _handlers{};
     };
 
     class DemoPickerViewDemoEnumerator

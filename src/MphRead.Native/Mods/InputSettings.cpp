@@ -1,4 +1,5 @@
 #include "InputSettings.hpp"
+#include "NativeRuntime/System/Charconv.hpp"
 
 #include "Input/PadBindings.hpp"
 #include "Input/PointerInput.hpp"
@@ -439,7 +440,7 @@ namespace MphRead::Mods
 
             float result = 0.0F;
             const char* const end = value.data() + value.size();
-            const auto [ptr, error] = std::from_chars(
+            const auto [ptr, error] = ::MphRead::NativeRuntime::FromChars(
                 value.data(), end, result, std::chars_format::general);
             if (ptr != end)
             {
@@ -451,7 +452,7 @@ namespace MphRead::Mods
                 // underflows toward signed zero. A double parse separates the
                 // two ranges without introducing locale-sensitive strtof.
                 double wide = 0.0;
-                const auto [widePtr, wideError] = std::from_chars(
+                const auto [widePtr, wideError] = ::MphRead::NativeRuntime::FromChars(
                     value.data(), end, wide, std::chars_format::general);
                 if (widePtr != end)
                 {

@@ -1,4 +1,5 @@
 #include "GameSettings.hpp"
+#include "NativeRuntime/System/Charconv.hpp"
 
 #include "Render/FrameTiming.hpp"
 #include "RenderOptions.hpp"
@@ -473,7 +474,7 @@ namespace
         const char* first = normalized.data();
         const char* last = normalized.data() + normalized.size();
         float parsed = 0.0F;
-        const auto parsedResult = std::from_chars(
+        const auto parsedResult = ::MphRead::NativeRuntime::FromChars(
             first, last, parsed, std::chars_format::general);
         if (parsedResult.ec == std::errc{} && parsedResult.ptr == last)
         {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "Formats.hpp"
 #include "Sound.hpp"
 #include "Types.hpp"
@@ -155,7 +156,7 @@ private: \
         = std::make_shared<::MphRead::Formats::ClrArray<std::uint8_t>>(_frameWidth * _frameHeight * 3); \
     const std::shared_ptr<::MphRead::Formats::ClrArray<std::uint8_t>> _botImageBuffer \
         = std::make_shared<::MphRead::Formats::ClrArray<std::uint8_t>>(_frameWidth * _frameHeight * 3); \
-    std::atomic<std::shared_ptr<std::stop_source>> _decoderCts{}; \
+    ::MphRead::NativeRuntime::AtomicSharedPtr<std::stop_source> _decoderCts{}; \
 public: \
     void StartMovies(::MphRead::Movie movieId, ::MphRead::Movie afterMovieId, ::MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
         ::MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, ::MphRead::AfterMovie afterMovieAction = ::MphRead::AfterMovie::LoadRoom); \

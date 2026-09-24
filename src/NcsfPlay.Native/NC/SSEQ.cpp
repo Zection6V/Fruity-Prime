@@ -514,7 +514,7 @@ namespace NCSFCommon::NC
         try
         {
 #ifndef NDEBUG
-            const std::span<const std::uint8_t> actualHeader = Slice(span, 0U, 0x04U);
+            const std::span<const std::uint8_t> actualHeader = Slice(span, 0U, std::size_t{0x04U});
             const std::span<const std::uint8_t> expectedHeader = Header();
             DebugAssert(Common::VerifyHeader(actualHeader, expectedHeader));
 
@@ -539,7 +539,7 @@ namespace NCSFCommon::NC
         }
 
 #ifndef NDEBUG
-        const std::span<const std::uint8_t> dataHeader = Slice(span, 0x10U, 0x04U);
+        const std::span<const std::uint8_t> dataHeader = Slice(span, 0x10U, std::size_t{0x04U});
         DebugAssert(Common::VerifyHeader(dataHeader, Common::DataBytes.Span()));
 #endif
 

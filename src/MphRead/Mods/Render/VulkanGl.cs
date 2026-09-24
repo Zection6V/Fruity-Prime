@@ -1950,6 +1950,33 @@ namespace MphRead.Mods.Render
 
         public static void BindFramebuffer(FramebufferTarget target, int framebuffer)
         {
+            bool changesDraw = target != FramebufferTarget.ReadFramebuffer;
+            if (changesDraw && _drawFramebuffer != 0 && framebuffer == 0)
+            {
+                // Fruity renders the whole 3D frame (world + weapon) into an
+                // offscreen color texture, then immediately samples that
+                // texture while compositing to the swapchain. The HUD is drawn
+                // afterwards, directly to the swapchain. On real Vulkan
+                // hardware the scene-only stipple/tearing therefore points at
+                // this exact render-target -> sampled-image boundary.
+                //
+                // Veldrid 4.9 ends a render pass with an empty
+                // BottomOfPipe -> TopOfPipe pipeline barrier and relies on the
+                // following image-layout transition for visibility. Lavapipe
+                // tolerates that path, while the hardware reports show that
+                // the scene image can still be consumed incompletely. End and
+                // fence the offscreen command list before the first default-FB
+                // pass. Besides making the attachment store complete, End()
+                // runs Veldrid's ColorAttachmentOptimal ->
+                // ShaderReadOnlyOptimal transition before the texture is
+                // sampled by the RTT shader.
+                //
+                // This is intentionally Vulkan-only and never falls back to
+                // OpenGL. It is a correctness barrier at Fruity's single
+                // scene/composite boundary, not a device-wide WaitForIdle.
+                SynchronizeResourceMutation();
+            }
+
             if (target == FramebufferTarget.ReadFramebuffer) _readFramebuffer = framebuffer;
             else if (target == FramebufferTarget.DrawFramebuffer) _drawFramebuffer = framebuffer;
             else { _drawFramebuffer = framebuffer; _readFramebuffer = framebuffer; }

@@ -736,9 +736,17 @@ namespace MphRead.Mods.Render
             }
             if (!_textures.TryGetValue(name, out TextureInfo? info))
             {
+                // OpenGL permits an application to create a texture object by
+                // binding any otherwise-unused nonzero name. That must not
+                // perturb the allocator used by glGenTextures. Fruity relies
+                // on this: its engine counts low texture names itself while
+                // UiOverlay/LauncherPhoto/LauncherNoise deliberately occupy
+                // 1,000,000+ names. Advancing _nextTexture to a manually-bound
+                // high name made the next GenTexture land directly in those
+                // reserved launcher names and allowed the scene render target
+                // to be overwritten by UI/backdrop uploads.
                 info = new TextureInfo();
                 _textures[name] = info;
-                if (name >= _nextTexture) _nextTexture = name + 1;
             }
             return info;
         }
@@ -1632,6 +1640,14 @@ namespace MphRead.Mods.Render
 
         public static int GenTexture()
         {
+            // Return an unused name without treating manually-bound high names
+            // as the start of the generated namespace. This mirrors the only
+            // guarantee glGenTextures makes and keeps Fruity's low engine
+            // names disjoint from its fixed 1,000,000+ overlay names.
+            while (_nextTexture == 0 || _textures.ContainsKey(_nextTexture))
+            {
+                _nextTexture++;
+            }
             int name = _nextTexture++;
             _textures[name] = new TextureInfo();
             return name;

@@ -11,6 +11,8 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../ItemSpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -20,6 +22,15 @@
 #include <optional>
 #include <type_traits>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::CreateTranslation;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::IdentityMatrix;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Multiply;
 
 namespace MphRead::Entities::Enemies
 {
@@ -34,26 +45,6 @@ namespace MphRead::Entities::Enemies
             Enemy19Entity* owner = dynamic_cast<Enemy19Entity*>(spawner);
             assert(owner != nullptr);
             return owner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] PlayerEntity& MainPlayer()
@@ -85,36 +76,6 @@ namespace MphRead::Entities::Enemies
             return array[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] Vector3 Divide(Vector3 value, float amount) noexcept
-        {
-            return Vector3(value.X / amount, value.Y / amount, value.Z / amount);
-        }
-
-        [[nodiscard]] Matrix4 IdentityMatrix() noexcept
-        {
-            return Matrix4(
-                Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] Matrix4 CreateScale(
-            float x, float y, float z) noexcept
-        {
-            return Matrix4(
-                Vector4(x, 0.0F, 0.0F, 0.0F),
-                Vector4(0.0F, y, 0.0F, 0.0F),
-                Vector4(0.0F, 0.0F, z, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
         [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
         {
             const float cos = std::cos(angle);
@@ -124,61 +85,6 @@ namespace MphRead::Entities::Enemies
                 Vector4(0.0F, cos, sin, 0.0F),
                 Vector4(0.0F, -sin, cos, 0.0F),
                 Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] Matrix4 CreateTranslation(Vector3 position) noexcept
-        {
-            Matrix4 result = IdentityMatrix();
-            result.M41 = position.X;
-            result.M42 = position.Y;
-            result.M43 = position.Z;
-            return result;
-        }
-
-        [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
-        {
-            Matrix4 result{};
-            result.M11 = left.M11 * right.M11 + left.M12 * right.M21
-                + left.M13 * right.M31 + left.M14 * right.M41;
-            result.M12 = left.M11 * right.M12 + left.M12 * right.M22
-                + left.M13 * right.M32 + left.M14 * right.M42;
-            result.M13 = left.M11 * right.M13 + left.M12 * right.M23
-                + left.M13 * right.M33 + left.M14 * right.M43;
-            result.M14 = left.M11 * right.M14 + left.M12 * right.M24
-                + left.M13 * right.M34 + left.M14 * right.M44;
-
-            result.M21 = left.M21 * right.M11 + left.M22 * right.M21
-                + left.M23 * right.M31 + left.M24 * right.M41;
-            result.M22 = left.M21 * right.M12 + left.M22 * right.M22
-                + left.M23 * right.M32 + left.M24 * right.M42;
-            result.M23 = left.M21 * right.M13 + left.M22 * right.M23
-                + left.M23 * right.M33 + left.M24 * right.M43;
-            result.M24 = left.M21 * right.M14 + left.M22 * right.M24
-                + left.M23 * right.M34 + left.M24 * right.M44;
-
-            result.M31 = left.M31 * right.M11 + left.M32 * right.M21
-                + left.M33 * right.M31 + left.M34 * right.M41;
-            result.M32 = left.M31 * right.M12 + left.M32 * right.M22
-                + left.M33 * right.M32 + left.M34 * right.M42;
-            result.M33 = left.M31 * right.M13 + left.M32 * right.M23
-                + left.M33 * right.M33 + left.M34 * right.M43;
-            result.M34 = left.M31 * right.M14 + left.M32 * right.M24
-                + left.M33 * right.M34 + left.M34 * right.M44;
-
-            result.M41 = left.M41 * right.M11 + left.M42 * right.M21
-                + left.M43 * right.M31 + left.M44 * right.M41;
-            result.M42 = left.M41 * right.M12 + left.M42 * right.M22
-                + left.M43 * right.M32 + left.M44 * right.M42;
-            result.M43 = left.M41 * right.M13 + left.M42 * right.M23
-                + left.M43 * right.M33 + left.M44 * right.M43;
-            result.M44 = left.M41 * right.M14 + left.M42 * right.M24
-                + left.M43 * right.M34 + left.M44 * right.M44;
-            return result;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] bool AnimationEnded(ModelInstance& model)

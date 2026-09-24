@@ -3,10 +3,15 @@
 #include "39_FireSpawn.hpp"
 #include "../../MemoryArrays.hpp"
 #include "../../Messaging.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <any>
 #include <cassert>
 #include <cstdint>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::ClearScale;
 
 namespace MphRead::Entities::Enemies
 {
@@ -14,16 +19,6 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw Memory::Detail::NullReferenceException();
-            }
-            return *value;
-        }
 
         [[nodiscard]] EnemyInstanceEntity* CastOwner(EntityBase* spawner) noexcept
         {
@@ -42,26 +37,6 @@ namespace MphRead::Entities::Enemies
             return *fireSpawn;
         }
 
-        [[nodiscard]] Matrix4 ClearScale(Matrix4 transform)
-        {
-            const Vector3 row0
-                = Vector3(transform.M11, transform.M12, transform.M13).Normalized();
-            const Vector3 row1
-                = Vector3(transform.M21, transform.M22, transform.M23).Normalized();
-            const Vector3 row2
-                = Vector3(transform.M31, transform.M32, transform.M33).Normalized();
-
-            transform.M11 = row0.X;
-            transform.M12 = row0.Y;
-            transform.M13 = row0.Z;
-            transform.M21 = row1.X;
-            transform.M22 = row1.Y;
-            transform.M23 = row1.Z;
-            transform.M31 = row2.X;
-            transform.M32 = row2.Y;
-            transform.M33 = row2.Z;
-            return transform;
-        }
     }
 
     Enemy50Entity::Enemy50Entity(EnemyInstanceEntityData data,

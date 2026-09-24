@@ -25,6 +25,8 @@
 #include "PlatformEntity.hpp"
 #include "Players/HalfturretEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -38,6 +40,21 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::ClearScale;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::IsZero;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Negate;
+using ::OpenTK::Mathematics::Normalize;
+using ::OpenTK::Mathematics::Scale;
+using ::OpenTK::Mathematics::SetRow3;
+using ::OpenTK::Mathematics::WithY;
+
 namespace
 {
     using MphRead::Entities::EntityBase;
@@ -45,84 +62,9 @@ namespace
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
 
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) != 0;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 v) noexcept
-    {
-        return v.X * v.X + v.Y * v.Y + v.Z * v.Z;
-    }
-
-    [[nodiscard]] float Length(Vector3 v) noexcept
-    {
-        return std::sqrt(LengthSquared(v));
-    }
-
-    [[nodiscard]] bool IsZero(Vector3 v) noexcept
-    {
-        return v.X == 0.0F && v.Y == 0.0F && v.Z == 0.0F;
-    }
-
-    [[nodiscard]] Vector3 Negate(Vector3 v) noexcept
-    {
-        return Vector3(-v.X, -v.Y, -v.Z);
-    }
-
-    [[nodiscard]] Vector3 Scale(Vector3 v, float s) noexcept
-    {
-        return Vector3(v.X * s, v.Y * s, v.Z * s);
-    }
-
-    [[nodiscard]] Vector3 Divide(Vector3 v, float s) noexcept
-    {
-        return Vector3(v.X / s, v.Y / s, v.Z / s);
-    }
-
     [[nodiscard]] Vector3 ComponentMultiply(Vector3 a, Vector3 b) noexcept
     {
         return Vector3(a.X * b.X, a.Y * b.Y, a.Z * b.Z);
-    }
-
-    [[nodiscard]] Vector3 Normalize(Vector3 v)
-    {
-        const float length = Length(v);
-        return Vector3(v.X / length, v.Y / length, v.Z / length);
-    }
-
-    [[nodiscard]] Vector3 AddY(Vector3 v, float y) noexcept
-    {
-        v.Y += y;
-        return v;
-    }
-
-    [[nodiscard]] Vector3 WithY(Vector3 v, float y) noexcept
-    {
-        v.Y = y;
-        return v;
     }
 
     [[nodiscard]] Vector4 NegatePlane(Vector3 direction) noexcept
@@ -144,25 +86,9 @@ namespace
             Vector4(0, 0, s, 0), Vector4(0, 0, 0, 1));
     }
 
-    void SetRow3(Matrix4& m, Vector3 v) noexcept
-    {
-        m.M41 = v.X; m.M42 = v.Y; m.M43 = v.Z;
-    }
-
     void ScaleRow2(Matrix4& m, float s) noexcept
     {
         m.M31 *= s; m.M32 *= s; m.M33 *= s;
-    }
-
-    [[nodiscard]] Matrix4 ClearScale(Matrix4 value) noexcept
-    {
-        const float x = Length(Vector3(value.M11, value.M12, value.M13));
-        const float y = Length(Vector3(value.M21, value.M22, value.M23));
-        const float z = Length(Vector3(value.M31, value.M32, value.M33));
-        value.M11 /= x; value.M12 /= x; value.M13 /= x;
-        value.M21 /= y; value.M22 /= y; value.M23 /= y;
-        value.M31 /= z; value.M32 /= z; value.M33 /= z;
-        return value;
     }
 
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
@@ -321,10 +247,6 @@ namespace
         return container[static_cast<std::size_t>(index)];
     }
 
-    [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (3.14159265358979323846F / 180.0F);
-    }
 }
 
 namespace MphRead::Entities

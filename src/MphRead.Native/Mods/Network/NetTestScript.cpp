@@ -7,6 +7,8 @@
 #include "NetSession.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -20,18 +22,12 @@
 #include <string_view>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
+
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] std::int32_t AddInt32Unchecked(
         std::int32_t left, std::int32_t right) noexcept
     {
@@ -54,18 +50,6 @@ namespace
     void DecrementInt32Unchecked(std::int32_t& value) noexcept
     {
         value = SubtractInt32Unchecked(value, 1);
-    }
-
-    [[nodiscard]] float Length(OpenTK::Mathematics::Vector3 value)
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
-    }
-
-    [[nodiscard]] bool TestFlag(
-        MphRead::Entities::LoadFlags value,
-        MphRead::Entities::LoadFlags flag) noexcept
-    {
-        return (value & flag) == flag;
     }
 
     [[nodiscard]] std::size_t CheckedIndex(std::int32_t index, std::size_t length)

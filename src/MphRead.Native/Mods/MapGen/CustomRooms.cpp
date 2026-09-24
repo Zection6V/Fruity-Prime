@@ -6,6 +6,7 @@
 #include "../../Formats/Types.hpp"
 #include "../../Metadata/Rooms.hpp"
 #include "../../Read.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -37,6 +38,12 @@
 #else
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::DirectoryExists;
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace
 {
@@ -727,7 +734,6 @@ namespace
         {0x01E941, 0x01E91F}, {0x01E942, 0x01E920}, {0x01E943, 0x01E921}
     }};
 
-
     template <std::size_t Size>
     char16_t ApplyMap(char16_t value, const std::array<CodeUnitMap, Size>& mapping)
     {
@@ -936,38 +942,6 @@ namespace
         return result;
     }
 
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-
     void AppendUtf16Scalar(std::u16string& output, std::uint32_t value)
     {
         if (value <= 0xFFFFU)
@@ -1168,23 +1142,6 @@ namespace
         return PathToUtf8(ExecutablePath().parent_path());
     }
 
-    [[nodiscard]] bool DirectoryExists(const std::string& path) noexcept
-    {
-        std::error_code error;
-        const bool exists = std::filesystem::is_directory(PathFromUtf8(path), error);
-        return !error && exists;
-    }
-
-    [[nodiscard]] bool FileExists(const std::string& path) noexcept
-    {
-        std::error_code error;
-        const std::filesystem::file_status status =
-            std::filesystem::status(PathFromUtf8(path), error);
-        return !error
-            && std::filesystem::exists(status)
-            && !std::filesystem::is_directory(status);
-    }
-
     [[nodiscard]] std::filesystem::file_time_type GetLastWriteTimeUtc(
         const std::string& path)
     {
@@ -1206,12 +1163,6 @@ namespace
         }
         throw std::filesystem::filesystem_error(
             "last_write_time", nativePath, error);
-    }
-
-    [[nodiscard]] std::string CombinePath(
-        const std::string& left, const std::string& right)
-    {
-        return PathToUtf8(PathFromUtf8(left) / PathFromUtf8(right));
     }
 
     [[nodiscard]] std::string GetFileName(const std::string& path)
@@ -1335,7 +1286,7 @@ namespace
         std::string MapDirectory;
 
         CustomRoomsState()
-            : MapDirectory(CombinePath(ExecutableBaseDirectory(), "maps"))
+            : MapDirectory(PathCombine(ExecutableBaseDirectory(), "maps"))
         {
         }
     };
@@ -1776,7 +1727,7 @@ namespace MphRead::Mods::MapGen
 
         const std::string archiveDirectory = ArchiveDirectory(def);
         const std::string modelName = prefix + "_Model.bin";
-        const std::string model = CombinePath(archiveDirectory, modelName);
+        const std::string model = PathCombine(archiveDirectory, modelName);
         if (!FileExists(model))
         {
             return true;
@@ -1784,7 +1735,7 @@ namespace MphRead::Mods::MapGen
 
         const std::string entityDirectory = EntityDirectory();
         const std::string entityName = prefix + "_Ent.bin";
-        const std::string entity = CombinePath(entityDirectory, entityName);
+        const std::string entity = PathCombine(entityDirectory, entityName);
         if (!FileExists(entity))
         {
             return true;
@@ -1792,7 +1743,7 @@ namespace MphRead::Mods::MapGen
 
         const std::string nodeDirectory = NodeDirectory();
         const std::string nodeName = prefix + "_Node.bin";
-        const std::string node = CombinePath(nodeDirectory, nodeName);
+        const std::string node = PathCombine(nodeDirectory, nodeName);
         if (!FileExists(node))
         {
             return true;

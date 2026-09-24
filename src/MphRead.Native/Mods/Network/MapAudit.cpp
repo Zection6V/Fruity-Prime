@@ -13,7 +13,8 @@
 #include "../../Formats/Entity.hpp"
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
-
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -31,6 +32,15 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::IsZero;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Negate;
+using ::OpenTK::Mathematics::Scale;
+
 namespace MphRead::Mods::Network
 {
     using Entities::LoadFlags;
@@ -39,45 +49,6 @@ namespace MphRead::Mods::Network
 
     namespace
     {
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(LengthSquared(value));
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float y) noexcept
-        {
-            value.Y += y;
-            return value;
-        }
-
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
-        [[nodiscard]] Vector3 Negate(Vector3 value) noexcept
-        {
-            return Vector3(-value.X, -value.Y, -value.Z);
-        }
-
-        [[nodiscard]] bool IsZero(Vector3 value) noexcept
-        {
-            return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
-        }
-
-        template <typename TEnum>
-        [[nodiscard]] bool TestFlag(TEnum value, TEnum flag) noexcept
-        {
-            using Underlying = std::underlying_type_t<TEnum>;
-            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag))
-                == static_cast<Underlying>(flag);
-        }
-
         template <typename TEnum>
         [[nodiscard]] TEnum RemoveFlag(TEnum value, TEnum flag) noexcept
         {
@@ -197,12 +168,6 @@ namespace MphRead::Mods::Network
                 append(std::to_string(bits));
             }
             return result;
-        }
-
-        [[nodiscard]] std::string PathCombine(
-            const std::string& directory, const std::string& fileName)
-        {
-            return (std::filesystem::path(directory) / fileName).string();
         }
 
         [[nodiscard]] std::string ExceptionTypeName(const std::exception& ex)
@@ -1728,7 +1693,7 @@ namespace MphRead::Mods::Network
 
             if (shotDirectory.has_value())
             {
-                std::filesystem::create_directories(*shotDirectory);
+                MphRead::NativeRuntime::DirectoryCreateDirectory(*shotDirectory);
                 window->_shotDirectory = *shotDirectory;
             }
 

@@ -4,6 +4,7 @@
 #include "../NativeRuntime/System/Exceptions.hpp"
 
 #include <any>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -122,6 +123,71 @@ namespace OpenTK::Mathematics
 
         static const Vector4 Zero;
     };
+
+    // OpenTK 4.9.4's MathHelper and the Vector3/Vector4 members the port calls
+    // as free functions (Length(v), Normalize(v)), written once. Each file
+    // used to carry its own copy, and some computed a different answer:
+    // RadiansToDegrees from the literal 57.29577951F is one ULP above
+    // OpenTK's 180f / MathF.PI, and Normalize by dividing each component is
+    // not OpenTK's multiply by 1 / Length. Unqualified calls with a vector
+    // argument find these by argument-dependent lookup.
+    namespace MathHelper
+    {
+        inline constexpr float Pi = 3.1415927F;
+        inline constexpr float RadToDeg = 180.0F / Pi;
+        inline constexpr float DegToRad = Pi / 180.0F;
+
+        [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
+        {
+            return degrees * DegToRad;
+        }
+
+        [[nodiscard]] constexpr float RadiansToDegrees(float radians) noexcept
+        {
+            return radians * RadToDeg;
+        }
+    }
+
+    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
+    {
+        return value.LengthSquared();
+    }
+
+    [[nodiscard]] inline float Length(Vector3 value) noexcept
+    {
+        return std::sqrt(value.LengthSquared());
+    }
+
+    // Vector3.Normalize(vec).
+    [[nodiscard]] inline Vector3 Normalize(Vector3 value) noexcept
+    {
+        const float scale = 1.0F / Length(value);
+        value.X *= scale;
+        value.Y *= scale;
+        value.Z *= scale;
+        return value;
+    }
+
+    [[nodiscard]] constexpr float LengthSquared(Vector4 value) noexcept
+    {
+        return (value.X * value.X) + (value.Y * value.Y) + (value.Z * value.Z) + (value.W * value.W);
+    }
+
+    [[nodiscard]] inline float Length(Vector4 value) noexcept
+    {
+        return std::sqrt(LengthSquared(value));
+    }
+
+    // Vector4.Normalize(vec).
+    [[nodiscard]] inline Vector4 Normalize(Vector4 value) noexcept
+    {
+        const float scale = 1.0F / Length(value);
+        value.X *= scale;
+        value.Y *= scale;
+        value.Z *= scale;
+        value.W *= scale;
+        return value;
+    }
 
     struct Matrix3
     {
@@ -270,6 +336,229 @@ namespace OpenTK::Mathematics
 
         static const Matrix4 Zero;
     };
+
+    // The OpenTK members and operators, and MphRead's own Vector3 extensions
+    // (Formats/Types.cs), that the port spells as free functions:
+    // Multiply(v, s) for v * s, CreateRotationY(a) for Matrix4.CreateRotationY,
+    // AddY(v, y) for v.AddY(y). Written once, as OpenTK 4.9.4 and the C#
+    // write them; every file used to carry its own, and ClearScale in three
+    // of them divided each row by its length where OpenTK's Normalized
+    // multiplies by 1 / Length. The vector and matrix ones are found by
+    // argument-dependent lookup; the ones taking only floats need a using.
+    [[nodiscard]] constexpr Vector2 Add(Vector2 left, Vector2 right) noexcept
+    {
+        return Vector2(left.X + right.X, left.Y + right.Y);
+    }
+
+    [[nodiscard]] constexpr Vector2 Subtract(Vector2 left, Vector2 right) noexcept
+    {
+        return Vector2(left.X - right.X, left.Y - right.Y);
+    }
+
+    [[nodiscard]] constexpr Vector2 Multiply(Vector2 value, float scale) noexcept
+    {
+        return Vector2(value.X * scale, value.Y * scale);
+    }
+
+    [[nodiscard]] constexpr Vector3 Add(Vector3 left, Vector3 right) noexcept
+    {
+        return left + right;
+    }
+
+    [[nodiscard]] constexpr Vector3 Subtract(Vector3 left, Vector3 right) noexcept
+    {
+        return left - right;
+    }
+
+    [[nodiscard]] constexpr Vector3 Negate(Vector3 value) noexcept
+    {
+        return -value;
+    }
+
+    // Vector3 * float, float * Vector3.
+    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scale) noexcept
+    {
+        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
+    }
+
+    [[nodiscard]] constexpr Vector3 Multiply(float scale, Vector3 value) noexcept
+    {
+        return Multiply(value, scale);
+    }
+
+    [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scale) noexcept
+    {
+        return Multiply(value, scale);
+    }
+
+    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
+    {
+        return Multiply(value, scale);
+    }
+
+    [[nodiscard]] constexpr Vector4 ScaleVector(Vector4 value, float scale) noexcept
+    {
+        return Vector4(value.X * scale, value.Y * scale, value.Z * scale, value.W * scale);
+    }
+
+    // Vector3 / float: OpenTK divides each component, it does not multiply
+    // by the reciprocal.
+    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scale) noexcept
+    {
+        return Vector3(value.X / scale, value.Y / scale, value.Z / scale);
+    }
+
+    // Vector3 == Vector3.
+    [[nodiscard]] constexpr bool Equal(Vector3 left, Vector3 right) noexcept
+    {
+        return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
+    }
+
+    // value == Vector3.Zero, so -0 is zero.
+    [[nodiscard]] constexpr bool IsZero(Vector3 value) noexcept
+    {
+        return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
+    }
+
+    [[nodiscard]] constexpr Vector3 WithX(Vector3 value, float x) noexcept
+    {
+        return Vector3(x, value.Y, value.Z);
+    }
+
+    [[nodiscard]] constexpr Vector3 WithY(Vector3 value, float y) noexcept
+    {
+        return Vector3(value.X, y, value.Z);
+    }
+
+    [[nodiscard]] constexpr Vector3 WithZ(Vector3 value, float z) noexcept
+    {
+        return Vector3(value.X, value.Y, z);
+    }
+
+    [[nodiscard]] constexpr Vector3 AddX(Vector3 value, float x) noexcept
+    {
+        return Vector3(value.X + x, value.Y, value.Z);
+    }
+
+    [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float y) noexcept
+    {
+        return Vector3(value.X, value.Y + y, value.Z);
+    }
+
+    [[nodiscard]] constexpr Vector3 AddZ(Vector3 value, float z) noexcept
+    {
+        return Vector3(value.X, value.Y, value.Z + z);
+    }
+
+    // Vector3 * Matrix3 (Vector3.TransformRow).
+    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, Matrix3 matrix) noexcept
+    {
+        return Vector3(
+            value.X * matrix.M11 + value.Y * matrix.M21 + value.Z * matrix.M31,
+            value.X * matrix.M12 + value.Y * matrix.M22 + value.Z * matrix.M32,
+            value.X * matrix.M13 + value.Y * matrix.M23 + value.Z * matrix.M33);
+    }
+
+    [[nodiscard]] constexpr Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
+    {
+        return left * right;
+    }
+
+    // Matrix4.Mult(matrix, scale): every element.
+    [[nodiscard]] constexpr Matrix4 Multiply(Matrix4 value, float scale) noexcept
+    {
+        value.M11 *= scale; value.M12 *= scale; value.M13 *= scale; value.M14 *= scale;
+        value.M21 *= scale; value.M22 *= scale; value.M23 *= scale; value.M24 *= scale;
+        value.M31 *= scale; value.M32 *= scale; value.M33 *= scale; value.M34 *= scale;
+        value.M41 *= scale; value.M42 *= scale; value.M43 *= scale; value.M44 *= scale;
+        return value;
+    }
+
+    [[nodiscard]] constexpr bool Equal(const Matrix4& left, const Matrix4& right) noexcept
+    {
+        return left.M11 == right.M11 && left.M12 == right.M12 && left.M13 == right.M13 && left.M14 == right.M14
+            && left.M21 == right.M21 && left.M22 == right.M22 && left.M23 == right.M23 && left.M24 == right.M24
+            && left.M31 == right.M31 && left.M32 == right.M32 && left.M33 == right.M33 && left.M34 == right.M34
+            && left.M41 == right.M41 && left.M42 == right.M42 && left.M43 == right.M43 && left.M44 == right.M44;
+    }
+
+    // Matrix4.Identity.
+    [[nodiscard]] constexpr Matrix4 IdentityMatrix() noexcept
+    {
+        return Matrix4(
+            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
+            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
+            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
+            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
+    }
+
+    // Matrix4.CreateScale(x, y, z), (Vector3), (float).
+    [[nodiscard]] constexpr Matrix4 CreateScale(float x, float y, float z) noexcept
+    {
+        Matrix4 result = IdentityMatrix();
+        result.M11 = x;
+        result.M22 = y;
+        result.M33 = z;
+        return result;
+    }
+
+    [[nodiscard]] constexpr Matrix4 CreateScale(Vector3 scale) noexcept
+    {
+        return CreateScale(scale.X, scale.Y, scale.Z);
+    }
+
+    [[nodiscard]] constexpr Matrix4 CreateScale(float scale) noexcept
+    {
+        return CreateScale(scale, scale, scale);
+    }
+
+    // Matrix4.CreateTranslation(x, y, z), (Vector3).
+    [[nodiscard]] constexpr Matrix4 CreateTranslation(float x, float y, float z) noexcept
+    {
+        Matrix4 result = IdentityMatrix();
+        result.M41 = x;
+        result.M42 = y;
+        result.M43 = z;
+        return result;
+    }
+
+    [[nodiscard]] constexpr Matrix4 CreateTranslation(Vector3 position) noexcept
+    {
+        return CreateTranslation(position.X, position.Y, position.Z);
+    }
+
+    // Matrix4.CreateRotationY(angle).
+    [[nodiscard]] inline Matrix4 CreateRotationY(float angle) noexcept
+    {
+        const float cos = std::cos(angle);
+        const float sin = std::sin(angle);
+        Matrix4 result = IdentityMatrix();
+        result.M11 = cos;
+        result.M13 = -sin;
+        result.M31 = sin;
+        result.M33 = cos;
+        return result;
+    }
+
+    // matrix.ClearScale(): the upper three rows' xyz, each Normalized().
+    [[nodiscard]] inline Matrix4 ClearScale(Matrix4 value) noexcept
+    {
+        const Vector3 row0 = Normalize(Vector3(value.M11, value.M12, value.M13));
+        const Vector3 row1 = Normalize(Vector3(value.M21, value.M22, value.M23));
+        const Vector3 row2 = Normalize(Vector3(value.M31, value.M32, value.M33));
+        value.M11 = row0.X; value.M12 = row0.Y; value.M13 = row0.Z;
+        value.M21 = row1.X; value.M22 = row1.Y; value.M23 = row1.Z;
+        value.M31 = row2.X; value.M32 = row2.Y; value.M33 = row2.Z;
+        return value;
+    }
+
+    // matrix.Row3.Xyz = value.
+    constexpr void SetRow3(Matrix4& matrix, Vector3 value) noexcept
+    {
+        matrix.M41 = value.X;
+        matrix.M42 = value.Y;
+        matrix.M43 = value.Z;
+    }
 
     static_assert(std::is_standard_layout_v<Vector2> && sizeof(Vector2) == 8);
     static_assert(std::is_standard_layout_v<Vector3> && sizeof(Vector3) == 12);
@@ -677,6 +966,33 @@ namespace MphRead
             return (valueBits & flagBits) != 0;
         }
     };
+
+    // The C# calls value.TestFlag(flags) and value.TestAny(flags) as
+    // extension methods, and value.HasFlag(flag) on the enum itself. These
+    // are the one spelling of each for code outside TypeExtensions: TestFlag
+    // and HasFlag are true when every bit of flags is set, TestAny when any
+    // is. Files used to carry their own TestFlag, and a third of them
+    // computed TestAny under that name.
+    template <typename T>
+    requires std::is_enum_v<T>
+    [[nodiscard]] constexpr bool TestFlag(T value, T flags) noexcept
+    {
+        return TypeExtensions::TestFlag(value, flags);
+    }
+
+    template <typename T>
+    requires std::is_enum_v<T>
+    [[nodiscard]] constexpr bool TestAny(T value, T flags) noexcept
+    {
+        return TypeExtensions::TestAny(value, flags);
+    }
+
+    template <typename T>
+    requires std::is_enum_v<T>
+    [[nodiscard]] constexpr bool HasFlag(T value, T flag) noexcept
+    {
+        return TypeExtensions::TestFlag(value, flag);
+    }
 
     class MarshalExtensions final
     {

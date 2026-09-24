@@ -5,6 +5,7 @@
 
 #include "Q3Bsp.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -24,6 +25,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::PathFromUtf8;
 
 namespace MphRead::Mods::MapGen::MapTextureBakeInterop
 {
@@ -71,7 +74,6 @@ namespace MphRead::Mods::MapGen::MapTextureBakeInterop
         return result;
     }
 }
-
 
 namespace
 {
@@ -144,39 +146,10 @@ namespace
         return static_cast<std::size_t>(value);
     }
 
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
     [[nodiscard]] bool FileExists(
         const std::optional<std::string>& path) noexcept
     {
-        if (!path.has_value() || path->empty())
-        {
-            return false;
-        }
-        try
-        {
-            std::error_code error;
-            const bool regular = std::filesystem::is_regular_file(
-                PathFromUtf8(*path), error);
-            return regular && !error;
-        }
-        catch (...)
-        {
-            return false;
-        }
+        return path.has_value() && MphRead::NativeRuntime::FileExists(*path);
     }
 
     [[nodiscard]] bool IsDirectorySeparator(char value) noexcept

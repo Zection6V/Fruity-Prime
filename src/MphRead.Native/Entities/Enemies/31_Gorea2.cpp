@@ -10,6 +10,8 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../TriggerVolumeEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -24,6 +26,16 @@
 #include <optional>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestAny;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -31,26 +43,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
         {
@@ -80,16 +72,6 @@ namespace MphRead::Entities::Enemies
             return RequireReference(PlayerEntity::Main());
         }
 
-        [[nodiscard]] bool TestFlag(Gorea2Flags value, Gorea2Flags flag) noexcept
-        {
-            return (value & flag) == flag;
-        }
-
-        [[nodiscard]] bool TestAny(Gorea2Flags value, Gorea2Flags flags) noexcept
-        {
-            return (value & flags) != Gorea2Flags::None;
-        }
-
         [[nodiscard]] std::int32_t GetFlagValue(
             Gorea2Flags value, Gorea2Flags mask, std::uint32_t shift) noexcept
         {
@@ -97,41 +79,9 @@ namespace MphRead::Entities::Enemies
                 static_cast<std::uint32_t>(value & mask) >> shift);
         }
 
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value) noexcept
-        {
-            return std::sqrt(LengthSquared(value));
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
         {
             return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept

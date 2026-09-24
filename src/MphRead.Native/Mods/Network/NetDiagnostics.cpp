@@ -7,6 +7,7 @@
 #include "NetPlayerBridge.hpp"
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <charconv>
@@ -31,14 +32,10 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::HasFlag;
+
 namespace
 {
-    [[nodiscard]] bool HasFlag(MphRead::Entities::LoadFlags value,
-        MphRead::Entities::LoadFlags flag) noexcept
-    {
-        return (value & flag) != MphRead::Entities::LoadFlags::None;
-    }
-
     [[nodiscard]] std::string CurrentCultureDecimalSeparator()
     {
 #if defined(_WIN32)

@@ -4,6 +4,7 @@
 #include "DemoPlayback.hpp"
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -23,6 +24,8 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::FileExists;
 
 namespace MphRead::Mods::Network
 {
@@ -121,19 +124,10 @@ namespace MphRead::Mods::Network
             return std::bit_cast<std::int64_t>(result);
         }
 
-        [[nodiscard]] bool FileExists(const std::string& path)
-        {
-            std::error_code error;
-            const std::filesystem::file_status status
-                = std::filesystem::status(std::filesystem::path(path), error);
-            return !error && std::filesystem::exists(status)
-                && !std::filesystem::is_directory(status);
-        }
-
         [[nodiscard]] std::int64_t FileLength(const std::string& path)
         {
             const std::uintmax_t length
-                = std::filesystem::file_size(std::filesystem::path(path));
+                = std::filesystem::file_size(MphRead::NativeRuntime::PathFromUtf8(path));
             if (length > static_cast<std::uintmax_t>(std::numeric_limits<std::int64_t>::max()))
             {
                 throw std::overflow_error("File length does not fit in System.Int64.");

@@ -12,6 +12,7 @@
 #include "../Metadata/SoundMeta.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -44,6 +45,12 @@
 #include <termios.h>
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace MphRead::ExtractDependency
 {
@@ -303,79 +310,6 @@ namespace
         return *value;
     }
 
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-
-    [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(PathFromUtf8(path), std::ios::binary | std::ios::ate);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file: " + path);
-        }
-        const std::streampos end = stream.tellg();
-        if (end < 0)
-        {
-            throw std::ios_base::failure("Could not determine file length: " + path);
-        }
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-        stream.seekg(0, std::ios::beg);
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not read file: " + path);
-            }
-        }
-        return bytes;
-    }
-
-    void FileWriteAllBytes(const std::string& path, std::span<const std::uint8_t> bytes)
-    {
-        std::ofstream stream(PathFromUtf8(path), std::ios::binary | std::ios::trunc);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file for writing: " + path);
-        }
-        if (!bytes.empty())
-        {
-            stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-        }
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not write file: " + path);
-        }
-    }
-
     void FileWriteAllText(const std::string& path, std::string_view text)
     {
         std::ofstream stream(PathFromUtf8(path), std::ios::binary | std::ios::trunc);
@@ -387,20 +321,6 @@ namespace
         if (!stream)
         {
             throw std::ios_base::failure("Could not write file: " + path);
-        }
-    }
-
-    [[nodiscard]] bool FileExists(const std::string& path) noexcept
-    {
-        try
-        {
-            std::error_code error;
-            const bool exists = std::filesystem::is_regular_file(PathFromUtf8(path), error);
-            return !error && exists;
-        }
-        catch (...)
-        {
-            return false;
         }
     }
 

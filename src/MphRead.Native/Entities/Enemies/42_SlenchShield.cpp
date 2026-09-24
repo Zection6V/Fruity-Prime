@@ -1,9 +1,14 @@
 #include "42_SlenchShield.hpp"
 
 #include "41_Slench.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cstdint>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace MphRead::Entities::Enemies
 {
@@ -18,23 +23,6 @@ namespace MphRead::Entities::Enemies
             return typedSpawner;
         }
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(
-                value.X * scale,
-                value.Y * scale,
-                value.Z * scale);
-        }
     }
 
     Enemy42Entity::Enemy42Entity(EnemyInstanceEntityData data,

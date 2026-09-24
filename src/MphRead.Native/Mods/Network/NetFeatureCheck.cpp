@@ -14,6 +14,7 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -39,6 +40,9 @@
 #include <langinfo.h>
 #include <locale.h>
 #endif
+
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
 
 namespace
 {
@@ -107,18 +111,6 @@ namespace
     {
         ConsoleWrite(value);
         ConsoleWrite(ManagedNewLine());
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
-    }
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
     }
 
     [[nodiscard]] float ManagedMin(float left, float right) noexcept

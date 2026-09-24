@@ -9,6 +9,8 @@
 #include "../../Scene.hpp"
 #include "../../Utility/Rng.hpp"
 #include "PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -20,6 +22,16 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::IsZero;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+using ::OpenTK::Mathematics::Negate;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace
 {
@@ -36,61 +48,9 @@ namespace
     constexpr Vector3 UnitZ(0.0F, 0.0F, 1.0F);
     constexpr float Pi = 3.14159265358979323846F;
 
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
-    }
-
-    [[nodiscard]] constexpr bool IsZero(Vector3 value) noexcept
-    {
-        return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
-    }
-
-    [[nodiscard]] constexpr Vector3 Negate(Vector3 value) noexcept
-    {
-        return Vector3(-value.X, -value.Y, -value.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
-    {
-        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float divisor) noexcept
-    {
-        return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-    }
-
     [[nodiscard]] constexpr Vector3 ComponentMultiply(Vector3 left, Vector3 right) noexcept
     {
         return Vector3(left.X * right.X, left.Y * right.Y, left.Z * right.Z);
-    }
-
-    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
     }
 
     [[nodiscard]] Vector3 Clamp(Vector3 value, Vector3 min, Vector3 max) noexcept
@@ -111,16 +71,6 @@ namespace
             clamp(value.X, min.X, max.X),
             clamp(value.Y, min.Y, max.Y),
             clamp(value.Z, min.Z, max.Z));
-    }
-
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (Pi / 180.0F);
-    }
-
-    [[nodiscard]] constexpr float RadiansToDegrees(float radians) noexcept
-    {
-        return radians * (180.0F / Pi);
     }
 
     [[nodiscard]] Matrix4 LookAt(Vector3 eye, Vector3 target, Vector3 up)

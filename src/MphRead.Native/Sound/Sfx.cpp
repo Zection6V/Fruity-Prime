@@ -8,6 +8,7 @@
 #include "../Mods/Headless.hpp"
 #include "../Mods/ThumbnailMode.hpp"
 #include "Music.hpp"
+#include "../Formats/Types.hpp"
 
 #if defined(__ANDROID__)
 #include "../Mods/Sound/AlEs.hpp"
@@ -64,6 +65,8 @@ extern "C"
 }
 #endif
 
+using ::OpenTK::Mathematics::Scale;
+
 namespace MphRead::Sound
 {
     using OpenTK::Mathematics::Vector3;
@@ -116,11 +119,6 @@ namespace MphRead::Sound
                 NullReference();
             }
             return instance;
-        }
-
-        Vector3 Scale(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
 
         float DistanceSquared(Vector3 a, Vector3 b) noexcept

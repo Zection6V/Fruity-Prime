@@ -11,6 +11,8 @@
 #include "../../Scene.hpp"
 #include "../../Strings.hpp"
 #include "PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,6 +28,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::IsZero;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
@@ -35,26 +41,6 @@ namespace
     constexpr Vector3 UnitX(1.0F, 0.0F, 0.0F);
     constexpr Vector3 UnitY(0.0F, 1.0F, 0.0F);
     constexpr Vector3 One(1.0F, 1.0F, 1.0F);
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] constexpr Matrix4 Identity() noexcept
     {
@@ -72,15 +58,6 @@ namespace
             Vector4(0.0F, 1.0F, 0.0F, 0.0F),
             Vector4(0.0F, 0.0F, 1.0F, 0.0F),
             Vector4(position, 1.0F));
-    }
-
-    [[nodiscard]] constexpr Matrix4 CreateScale(Vector3 scale) noexcept
-    {
-        return Matrix4(
-            Vector4(scale.X, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, scale.Y, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, scale.Z, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     [[nodiscard]] Matrix4 RotationZ(float radians)
@@ -103,11 +80,6 @@ namespace
             Vector4(0.0F, 1.0F, 0.0F, 0.0F),
             Vector4(s, 0.0F, c, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr bool IsZero(Vector3 value) noexcept
-    {
-        return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
     }
 
     [[nodiscard]] constexpr std::int32_t UncheckedInt32(std::uint64_t value) noexcept

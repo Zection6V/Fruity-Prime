@@ -7,6 +7,7 @@
 #include "NetLog.hpp"
 #include "NetRoomChange.hpp"
 #include "NetSession.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -32,6 +33,10 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::HasFlag;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+
 namespace
 {
     enum class Control : std::int32_t
@@ -54,37 +59,6 @@ namespace
         RollUp,
         RollDown
     };
-
-    [[nodiscard]] constexpr bool HasFlag(
-        MphRead::Mods::Network::IntentButtons value,
-        MphRead::Mods::Network::IntentButtons flag) noexcept
-    {
-        return (value & flag) != MphRead::Mods::Network::IntentButtons::None;
-    }
-
-    [[nodiscard]] constexpr bool HasFlag(
-        MphRead::Entities::LoadFlags value,
-        MphRead::Entities::LoadFlags flag) noexcept
-    {
-        return (value & flag) != MphRead::Entities::LoadFlags::None;
-    }
-
-    [[nodiscard]] constexpr bool HasFlag(
-        MphRead::Entities::PlayerFlags2 value,
-        MphRead::Entities::PlayerFlags2 flag) noexcept
-    {
-        return (value & flag) != MphRead::Entities::PlayerFlags2::None;
-    }
-
-    [[nodiscard]] float LengthSquared(OpenTK::Mathematics::Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
-    [[nodiscard]] float Length(OpenTK::Mathematics::Vector3 value)
-    {
-        return std::sqrt(LengthSquared(value));
-    }
 
     [[nodiscard]] bool VectorEquals(
         OpenTK::Mathematics::Vector3 left,

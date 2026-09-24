@@ -236,11 +236,11 @@ namespace MphRead::Entities
 
         [[nodiscard]] static constexpr float DegreesToRadians(float degrees) noexcept
         {
-            return degrees * (3.14159265358979323846F / 180.0F);
+            return ::OpenTK::Mathematics::MathHelper::DegreesToRadians(degrees);
         }
         [[nodiscard]] static constexpr float RadiansToDegrees(float radians) noexcept
         {
-            return radians * (180.0F / 3.14159265358979323846F);
+            return ::OpenTK::Mathematics::MathHelper::RadiansToDegrees(radians);
         }
 
         template <typename T>

@@ -10,6 +10,8 @@
 #include "../PlatformEntity.hpp"
 #include "HalfturretEntity.hpp"
 #include "PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -24,6 +26,19 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestAny;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::IsZero;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
+
 namespace
 {
     using MphRead::Formats::CollisionCandidate;
@@ -33,40 +48,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestAny(TEnum value, TEnum flags) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flags)) != 0;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     template <typename TValue>
     [[nodiscard]] auto ObjectPointer(TValue&& value) noexcept
@@ -164,81 +145,11 @@ namespace
         return x > y ? x : y;
     }
 
-    [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
-    [[nodiscard]] constexpr bool IsZero(Vector3 value) noexcept
-    {
-        return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
-    }
-
-    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
-    {
-        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-    }
-
-    [[nodiscard]] constexpr Vector4 ScaleVector(Vector4 value, float scale) noexcept
-    {
-        return Vector4(value.X * scale, value.Y * scale, value.Z * scale, value.W * scale);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float divisor) noexcept
-    {
-        return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-    }
-
-    [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float amount) noexcept
-    {
-        value.Y += amount;
-        return value;
-    }
-
-    [[nodiscard]] constexpr Vector3 WithY(Vector3 value, float y) noexcept
-    {
-        value.Y = y;
-        return value;
-    }
-
-    [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
-    {
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        const double wide = static_cast<double>(value);
-        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        return static_cast<std::int32_t>(std::trunc(wide));
-    }
-
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
     {
         return std::make_shared<const std::any>(value);
     }
 
-    [[nodiscard]] Matrix4 CreateRotationY(float angle)
-    {
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
-        return Matrix4(
-            Vector4(c, 0.0F, -s, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(s, 0.0F, c, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (3.14159265358979323846F / 180.0F);
-    }
 }
 
 namespace MphRead::Entities

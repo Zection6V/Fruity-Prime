@@ -9,6 +9,8 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <any>
 #include <bit>
@@ -19,6 +21,9 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::AddY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -31,26 +36,6 @@ namespace MphRead::Entities::Enemies
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         [[nodiscard]] Enemy45Entity& RequireEnemy(Enemy45Entity* enemy)
@@ -111,12 +96,6 @@ namespace MphRead::Entities::Enemies
                 = std::bit_cast<std::uint32_t>(left)
                 * std::bit_cast<std::uint32_t>(right);
             return std::bit_cast<std::int32_t>(result);
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
         }
 
         [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)

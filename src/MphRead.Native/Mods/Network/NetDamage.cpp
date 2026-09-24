@@ -5,6 +5,7 @@
 #include "NetHooks.hpp"
 #include "NetLog.hpp"
 #include "NetSession.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +29,11 @@
 #include <locale.h>
 #endif
 
+using ::OpenTK::Mathematics::IsZero;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Multiply;
+
 namespace
 {
     [[nodiscard]] std::int32_t UncheckedAddInt32(
@@ -49,28 +55,6 @@ namespace
     void UncheckedIncrement(std::int32_t& value) noexcept
     {
         value = UncheckedAddInt32(value, 1);
-    }
-
-    [[nodiscard]] float LengthSquared(OpenTK::Mathematics::Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
-    [[nodiscard]] float Length(OpenTK::Mathematics::Vector3 value)
-    {
-        return std::sqrt(LengthSquared(value));
-    }
-
-    [[nodiscard]] bool IsZero(OpenTK::Mathematics::Vector3 value) noexcept
-    {
-        return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
-    }
-
-    [[nodiscard]] OpenTK::Mathematics::Vector3 Multiply(
-        OpenTK::Mathematics::Vector3 value, float scale) noexcept
-    {
-        return OpenTK::Mathematics::Vector3(
-            value.X * scale, value.Y * scale, value.Z * scale);
     }
 
     [[nodiscard]] float ManagedClamp(float value, float minimum, float maximum) noexcept

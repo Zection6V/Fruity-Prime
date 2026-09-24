@@ -9,6 +9,7 @@
 #include "../Metadata/Rooms.hpp"
 #include "Network/NetLaunch.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -23,6 +24,9 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace
 {
@@ -1048,17 +1052,6 @@ namespace
         return result;
     }
 
-    std::filesystem::path Utf8Path(std::string_view value)
-    {
-        return std::filesystem::u8path(value.begin(), value.end());
-    }
-
-    std::string Utf8String(const std::filesystem::path& value)
-    {
-        const auto text = value.u8string();
-        return std::string(reinterpret_cast<const char*>(text.data()), text.size());
-    }
-
     int CompareOrdinalIgnoreCase(std::string_view left, std::string_view right)
     {
         const std::u16string left16 = Utf8ToUtf16(left);
@@ -1142,7 +1135,7 @@ namespace MphRead::Mods
 
     std::string ThumbnailGenerator::CacheDirectory()
     {
-        return Utf8String(Utf8Path(Launcher::GameFiles::Root()) / "thumbnails");
+        return PathToUtf8(PathFromUtf8(Launcher::GameFiles::Root()) / "thumbnails");
     }
 
     std::string ThumbnailGenerator::PathFor(const std::string& roomKey)
@@ -1157,12 +1150,12 @@ namespace MphRead::Mods
         }
 
         const std::string filename = Utf16ToUtf8(safe) + ".png";
-        return Utf8String(Utf8Path(CacheDirectory()) / Utf8Path(filename));
+        return PathToUtf8(PathFromUtf8(CacheDirectory()) / PathFromUtf8(filename));
     }
 
     bool ThumbnailGenerator::Exists(const std::string& roomKey)
     {
-        const std::filesystem::path path = Utf8Path(PathFor(roomKey));
+        const std::filesystem::path path = PathFromUtf8(PathFor(roomKey));
         std::error_code error;
         const bool exists = std::filesystem::is_regular_file(path, error);
         if (error || !exists)
@@ -1268,7 +1261,7 @@ namespace MphRead::Mods
                 return false;
             }
             std::error_code error;
-            const bool exists = std::filesystem::is_directory(Utf8Path(path), error);
+            const bool exists = std::filesystem::is_directory(PathFromUtf8(path), error);
             return !error && exists;
         }
         catch (...)
@@ -1351,6 +1344,6 @@ namespace MphRead::Mods
 
     void ThumbnailGenerator::EnsureCacheDirectory()
     {
-        std::filesystem::create_directories(Utf8Path(CacheDirectory()));
+        std::filesystem::create_directories(PathFromUtf8(CacheDirectory()));
     }
 }

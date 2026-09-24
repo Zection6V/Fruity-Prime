@@ -7,6 +7,7 @@
 #include "../../Scene.hpp"
 #include "../../Strings.hpp"
 #include "SmoothHudIcon.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -16,28 +17,10 @@
 #include <stdexcept>
 #include <string>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     template <typename TContainer>
     [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
     {

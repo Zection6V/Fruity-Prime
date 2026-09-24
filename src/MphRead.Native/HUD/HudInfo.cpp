@@ -3,6 +3,8 @@
 #include "../Export/Images.hpp"
 #include "../Read.hpp"
 #include "../Scene.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -25,6 +27,11 @@
 #include <unordered_map>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::RoundToEven;
+
 namespace
 {
     using MphRead::ColorRgba;
@@ -33,47 +40,6 @@ namespace
     std::shared_ptr<const std::vector<T>> MakeReadOnlyList(std::vector<T> values)
     {
         return std::make_shared<const std::vector<T>>(std::move(values));
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(PathFromUtf8(path), std::ios::binary);
-        if (!stream)
-        {
-            throw std::runtime_error("Could not find file '" + path + "'.");
-        }
-        stream.seekg(0, std::ios::end);
-        const std::streamoff length = stream.tellg();
-        stream.seekg(0, std::ios::beg);
-        if (length < 0)
-        {
-            throw std::runtime_error("Unable to read beyond the end of the stream.");
-        }
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
-        if (length != 0)
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()), length);
-            if (!stream)
-            {
-                throw std::runtime_error("Unable to read beyond the end of the stream.");
-            }
-        }
-        return bytes;
     }
 
     template <typename>
@@ -212,30 +178,6 @@ namespace
             throw std::overflow_error("Arithmetic operation resulted in an overflow.");
         }
         return static_cast<std::size_t>(length);
-    }
-
-    [[nodiscard]] std::int32_t RoundToEven(float value)
-    {
-        if (!std::isfinite(value))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        const float lower = std::floor(value);
-        const float fraction = value - lower;
-        float rounded = lower;
-        if (fraction > 0.5F)
-        {
-            rounded = lower + 1.0F;
-        }
-        else if (fraction == 0.5F)
-        {
-            rounded = std::fmod(std::fabs(lower), 2.0F) == 0.0F ? lower : lower + 1.0F;
-        }
-        if (rounded < -2147483648.0F || rounded >= 2147483648.0F)
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        return static_cast<std::int32_t>(rounded);
     }
 
     [[nodiscard]] std::string LastPathPartWithoutExtension(const std::string& path)
@@ -632,7 +574,7 @@ namespace MphRead::Hud
             else if (Loop == HudObjectLoopType::Offset)
             {
                 const float elapsedTime = Time - Timer;
-                const std::int32_t elapsedFrames = RoundToEven(elapsedTime * 30.0F);
+                const std::int32_t elapsedFrames = ConvertToInt32Net9(RoundToEven(elapsedTime * 30.0F));
                 const std::int32_t frame = WrappedAdd(StartFrame, elapsedFrames);
                 assert(AnimFrames);
                 if (!AnimFrames)
@@ -644,8 +586,8 @@ namespace MphRead::Hud
             }
             else
             {
-                const std::int32_t frame = WrappedAdd(StartFrame, RoundToEven(
-                    static_cast<float>(WrappedSubtract(TargetFrame, StartFrame)) * (1.0F - Timer / Time)));
+                const std::int32_t frame = WrappedAdd(StartFrame, ConvertToInt32Net9(RoundToEven(
+                    static_cast<float>(WrappedSubtract(TargetFrame, StartFrame)) * (1.0F - Timer / Time))));
                 CurrentFrame = !AnimFrames
                     ? frame : AnimFrames->at(static_cast<std::size_t>(frame));
             }
@@ -669,7 +611,7 @@ namespace MphRead::Hud
         ReadOnlyList<std::uint16_t> paletteOverride, std::int32_t paletteId)
     {
         const std::vector<std::uint8_t> bytes
-            = ReadAllBytes(Paths::Combine(Paths::FileSystem(), path));
+            = FileReadAllBytes(Paths::Combine(Paths::FileSystem(), path));
         return CharMapToTexture(bytes, 0, 0, 0, 0, scene,
             std::move(paletteOverride), paletteId);
     }
@@ -680,7 +622,7 @@ namespace MphRead::Hud
         ReadOnlyList<std::uint16_t> paletteOverride, std::int32_t paletteId)
     {
         const std::vector<std::uint8_t> bytes
-            = ReadAllBytes(Paths::Combine(Paths::FileSystem(), path));
+            = FileReadAllBytes(Paths::Combine(Paths::FileSystem(), path));
         return CharMapToTexture(bytes, startX, startY, tilesX, tilesY, scene,
             std::move(paletteOverride), paletteId);
     }
@@ -905,7 +847,7 @@ namespace MphRead::Hud
     std::shared_ptr<HudObject> HudInfo::GetHudObject(const std::string& file)
     {
         const std::vector<std::uint8_t> bytes
-            = ReadAllBytes(Paths::Combine(Paths::FileSystem(), file));
+            = FileReadAllBytes(Paths::Combine(Paths::FileSystem(), file));
         const UiObjectHeader header = ReadAt<UiObjectHeader>(bytes, 0);
         std::int32_t offset = _objHeaderSize;
         assert(header.ParamDataSize % _animParamSize == 0);
@@ -1026,7 +968,6 @@ namespace MphRead::Hud
         Nop();
     }
 
-
     void HudInfo::TestObjects(const std::optional<std::string>& filename,
         std::int32_t pInitial, std::int32_t pStart, std::int32_t pTimer,
         std::int32_t pTarget, bool exportImages)
@@ -1129,7 +1070,7 @@ namespace MphRead::Hud
         {
             const std::string name = LastPathPartWithoutExtension(file);
             const std::vector<std::uint8_t> bytes
-                = ReadAllBytes(Paths::Combine(Paths::FileSystem(), file));
+                = FileReadAllBytes(Paths::Combine(Paths::FileSystem(), file));
             const UiObjectHeader header = ReadAt<UiObjectHeader>(bytes, 0);
             std::int32_t offset = _objHeaderSize;
             assert(header.ParamDataSize % _animParamSize == 0);
@@ -1337,7 +1278,7 @@ namespace MphRead::Hud
         for (const std::string& file : files)
         {
             const std::vector<std::uint8_t> bytes
-                = ReadAllBytes(Paths::Combine(Paths::FileSystem(), file));
+                = FileReadAllBytes(Paths::Combine(Paths::FileSystem(), file));
             const UiPartHeader header = ReadAt<UiPartHeader>(bytes, 0);
             assert(header.Magic == 0);
             std::int32_t offset = _layerHeaderSize;

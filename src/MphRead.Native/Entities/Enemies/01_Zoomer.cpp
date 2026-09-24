@@ -4,6 +4,8 @@
 #include "../../Metadata/Enemies.hpp"
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cassert>
@@ -11,6 +13,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -23,26 +31,6 @@ namespace MphRead::Entities::Enemies
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            return Vector3(value.X, y, value.Z);
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept
@@ -83,27 +71,9 @@ namespace MphRead::Entities::Enemies
             return WrapInt32(shifted);
         }
 
-        [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
-        {
-            if (std::isnan(value))
-            {
-                return 0;
-            }
-            const double wide = static_cast<double>(value);
-            if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-            {
-                return std::numeric_limits<std::int32_t>::max();
-            }
-            return static_cast<std::int32_t>(std::trunc(wide));
-        }
-
         [[nodiscard]] float CollisionCorrection(float value, std::int32_t rmd) noexcept
         {
-            std::int32_t n = FloatToInt32(value * 4096.0F);
+            std::int32_t n = ConvertToInt32Net9(value * 4096.0F);
             std::int32_t v20 = MultiplyInt32(n, rmd);
             std::int64_t product = static_cast<std::int64_t>(n) * static_cast<std::int64_t>(rmd);
             std::uint64_t productBits = std::bit_cast<std::uint64_t>(product);
@@ -226,7 +196,7 @@ namespace MphRead::Entities::Enemies
                     && Vector3::Dot(result.Plane.Xyz(), _speed) < 0.0F)
                 {
                     // sktodo: convert this to float math
-                    std::int32_t rmd = FloatToInt32(radMinusDot * 4096.0F);
+                    std::int32_t rmd = ConvertToInt32Net9(radMinusDot * 4096.0F);
                     Vector3 b(
                         CollisionCorrection(result.Plane.X, rmd),
                         CollisionCorrection(result.Plane.Y, rmd),

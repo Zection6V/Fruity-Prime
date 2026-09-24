@@ -13,6 +13,8 @@
 
 #include <sstream>
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <any>
 #include <cassert>
@@ -24,6 +26,11 @@
 #include <stdexcept>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::ScaleVector;
+
 namespace
 {
     using MessageInvalidCastException = MphRead::Memory::Detail::InvalidCastException;
@@ -31,24 +38,6 @@ namespace
     using OpenTK::Mathematics::Matrix3;
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] Vector3 AddY(Vector3 value, float y) noexcept
-    {
-        return Vector3(value.X, value.Y + y, value.Z);
-    }
-
-    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-    {
-        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-    }
-
-    [[nodiscard]] Vector3 Multiply(Vector3 value, Matrix3 matrix) noexcept
-    {
-        return Vector3(
-            value.X * matrix.M11 + value.Y * matrix.M21 + value.Z * matrix.M31,
-            value.X * matrix.M12 + value.Y * matrix.M22 + value.Z * matrix.M32,
-            value.X * matrix.M13 + value.Y * matrix.M23 + value.Z * matrix.M33);
-    }
 
     [[nodiscard]] Matrix4 Invert(Matrix4 value)
     {
@@ -154,42 +143,6 @@ namespace
         {
             throw MessageInvalidCastException();
         }
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T& value) noexcept
-    {
-        return value;
     }
 
     [[nodiscard]] MphRead::StorySave& RequireStorySave()

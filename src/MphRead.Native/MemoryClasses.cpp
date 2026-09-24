@@ -2,12 +2,15 @@
 
 #include "Memory.hpp"
 #include "MemoryArrays.hpp"
+#include "NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
+
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 
 namespace MphRead::Memory
 {
@@ -86,23 +89,6 @@ namespace
             [](Memory& m, std::int32_t a) { return std::make_shared<T>(m, a); });
     }
 
-    [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
-    {
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        if (value >= 2147483648.0F)
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        if (value <= -2147483648.0F)
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        return static_cast<std::int32_t>(value);
-    }
-
     [[nodiscard]] std::shared_ptr<MphRead::ManagedArray<std::uint8_t>> Bytes(std::size_t count)
     {
         return std::make_shared<MphRead::ManagedArray<std::uint8_t>>(count);
@@ -153,7 +139,7 @@ namespace
 
     void CopyFixed(float value, MphRead::ManagedArray<std::uint8_t>& dest, std::int32_t index)
     {
-        CopyInt(FloatToInt32(value * 4096.0F), dest, index);
+        CopyInt(ConvertToInt32Net9(value * 4096.0F), dest, index);
     }
 
     void CheckBitConverterRange(

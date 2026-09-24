@@ -11,6 +11,8 @@
 #include "../../Sound/Music.hpp"
 #include "../../Sound/Sfx.hpp"
 #include "../../Utility/Rng.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <any>
 #include <array>
@@ -22,28 +24,11 @@
 #include <type_traits>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     template <typename T>
     [[nodiscard]] T& ManagedAt(MphRead::ManagedArray<T>& values, std::int32_t index)
     {
@@ -160,12 +145,6 @@ namespace
             static_cast<std::int32_t>(sfx));
     }
 
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
 }
 
 namespace MphRead::Entities

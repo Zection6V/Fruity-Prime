@@ -348,6 +348,56 @@ C++ で対応する配列・メンバは `{}` で初期化する。「C# は未�
 
 ---
 
+## 12d. ファイルごとに書き直された共通ヘルパー
+
+**症状**: 個別には目立たない差。Windows で日本語を含むパスのファイルが開けない、
+角度・正規化・丸めが C# と最下位ビットで違う、NaN を整数にしたときの値が違う、など。
+
+**原因**: 移植を1ファイルずつ行ったため、パス変換・`File.Exists`・`Path.Combine`・
+フラグ判定・ベクトル長・`MathHelper`・`Math.Round`・`(int)float` のような共通処理を、
+使うファイルがそれぞれ自前で書いた（同じ名前で数十個）。コピーは少しずつずれていた。
+
+| ずれ | 例 |
+|---|---|
+| UTF-8 の `std::string` をそのまま `std::filesystem::path`・`ifstream` に渡す（Windows では ANSI コードページとして読まれる） | `Sound`・`FhSound` の効果音読み込み、`ServerSim` のゲームファイル確認、`Q3Bsp`、`DemoInfo`、`MapAudit`、`NetCheckClient` |
+| `RadiansToDegrees` を `57.2957795F` で計算（OpenTK の `180f / MathF.PI` と 1 ULP 違う） | `PlayerInput`・`PlayerPause`・`PlayerCamera`・`PlayerEntityNetAim`・敵数体 |
+| `Normalize`・`ClearScale` を「長さで割る」（OpenTK は `1 / Length` を掛ける） | `EnemyInstanceEntity`・`BeamProjectileEntity`・`BeamEffectEntity`・`WeaponDps`・`PlatformEntity`・`CollisionDetection` |
+| `TestFlag` が 26 ファイルで「全ビット」（C# の拡張メソッド）、15 ファイルで「どれか1ビット」 | 呼び出しは全て1ビットなので結果は同じだったが、同名で意味が2つ |
+| `Math.Round` の自作版が `-0.4` を `+0` にする | 10 ファイル |
+| `(int)float` が NaN・範囲外で `int.MinValue`（.NET 9 は NaN→0、範囲外は飽和） | `Petrasyl1`・`GoreaMeteor`・`BarbedWarWasp`・`Shriekbat`・`HudInfo` |
+
+**修正**: 共通の定義を1か所に置き、コピーを削除して呼び出しをそちらに向けた。
+
+| 置き場所 | 中身 |
+|---|---|
+| `NativeRuntime/System/IO.hpp` | `PathFromUtf8`・`PathToUtf8`・`PathCombine`（.NET の `Path.Combine`）・`PathIsPathRooted`・`FileExists`・`DirectoryExists`・`FileReadAllBytes`・`FileWriteAllBytes` |
+| `NativeRuntime/System/Managed.hpp` | `RequireReference`・`RoundToEven`（`std::nearbyint`）・`ConvertToInt32Net9` |
+| `Formats/Types.hpp`（`OpenTK::Mathematics`） | `MathHelper::DegreesToRadians/RadiansToDegrees`・`Length`・`Normalize`・`Multiply`・`Divide`・`Add`・`Subtract`・`Negate`・`Scale`・`Equal`・`IsZero`・`AddY`/`WithY` など・`IdentityMatrix`・`CreateScale`・`CreateTranslation`・`CreateRotationY`・`ClearScale`・`SetRow3` |
+| `Formats/Types.hpp`（`MphRead`） | `TestFlag`・`TestAny`・`HasFlag`（C# と同じく `TestFlag`/`HasFlag` は全ビット） |
+
+ベクトル・行列を引数に取るものは実引数依存の名前探索（ADL）で見つかるので、呼び出し側は
+変更不要。`float` だけを取るもの（`DegreesToRadians`・`CreateRotationY` など）と
+`NativeRuntime` のものはファイル先頭の `using` で見える。
+
+**注意点**:
+- 共通処理が欲しくなったら、まず上の表の場所を探す。無ければそこに足す（ファイル内に書かない）。
+- パスは必ず `PathFromUtf8`/`PathToUtf8` を通す。`std::filesystem::path(str)`・`path.string()`・
+  `std::ifstream(str)` は禁止（Linux では動くので気づけない）。
+- 共通関数を `MphRead` 名前空間に置くと、グローバル無名名前空間にある同名のファイル内関数を
+  `MphRead::...` の中から**隠す**（項目2と同じ名前探索）。`ModEntry` の `HasFlag(args, name)` と
+  `PlayerEntityNetAim` の `HasFlag(uint32, uint32)` は `::HasFlag` で呼ぶようにした。
+- メンバー（例: `EntityBase::Scale` プロパティ）と同名の共通関数は、メンバー関数の中からは
+  修飾して呼ぶ（`::OpenTK::Mathematics::Scale(...)`）。
+- `tools/native-audit/helper_copies.py` が、共通化済みの名前をファイル内で再定義している箇所を出す。
+  残る 12 件は引数が別物（`Matrix4x3`、WTF-8 パス、`std::istream`、コマンドライン引数など）で対象外。
+
+**未整理（共通化していない重複）**: UTF-8/UTF-16 変換（`AppendUtf8`・`DecodeUtf8`・`Utf8ToUtf16`）は
+サロゲートの扱いがファイルごとに違うが、WTF-8 を意図的に扱うファイル（ランチャー）があるため、
+呼び出し元ごとの判断が要る。ほかに `TrimDotNetWhitespace`・`IsNullOrWhiteSpace`・`TryParseInt32`・
+`ManagedAt`/`VectorAt`（例外の型）・`MainPlayer`・`CastSpawner` などが複数ファイルにある。
+
+---
+
 ## 13. 調べたが問題がなかった項目（再調査の手間を省くため）
 
 2026-09-24 に機械的に全体を調べ、実害のある箇所がなかったもの。
@@ -407,6 +457,7 @@ tools/native-audit/run_all.sh
 | `slot_alias.py` | 項目3: コンテナ要素の参照を渡した先・保持中にそのコンテナを変更 |
 | `thread_local_dtor.py` | 項目4: `thread_local` の一覧（型を見て判断） |
 | `scene_lookup.py` | 項目12c: シーンを走査して `.get() == ポインタ` の要素を返す・保持する |
+| `helper_copies.py` | 項目12d: 共通化済みのヘルパーをファイル内で再定義している |
 
 どれも文字列ベースの近似で、ヒットは「読むべき場所」、ゼロは「知っている形はない」
 という意味でしかない。2026-09-24 時点の既知の無害なヒット:

@@ -10,6 +10,7 @@
 #include "../Sound/Music.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "RoomEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <cassert>
 #include <cstddef>
@@ -18,30 +19,12 @@
 #include <tuple>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] std::size_t CheckedSlotIndex(std::int32_t index)
     {

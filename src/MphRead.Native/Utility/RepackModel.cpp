@@ -6,6 +6,8 @@
 #include "../Read.hpp"
 #include "../SceneSetup.hpp"
 #include "../Formats/Model.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -36,6 +38,10 @@
 #else
 #define REPACK_MODEL_DEBUG_ASSERT(condition) do { } while (false)
 #endif
+
+using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
 {
@@ -112,31 +118,6 @@ namespace
         return (bits & 0x200U) != 0
             ? std::bit_cast<std::int32_t>(bits | 0xFFFFFC00U)
             : static_cast<std::int32_t>(bits);
-    }
-
-    [[nodiscard]] double RoundToEven(double value) noexcept
-    {
-        if (!std::isfinite(value))
-        {
-            return value;
-        }
-        double integral = 0.0;
-        const double fraction = std::modf(value, &integral);
-        const double absolute = std::fabs(fraction);
-        if (absolute < 0.5)
-        {
-            return integral;
-        }
-        const double direction = fraction < 0.0 ? -1.0 : 1.0;
-        if (absolute > 0.5)
-        {
-            return integral + direction;
-        }
-        if (std::fmod(std::fabs(integral), 2.0) == 0.0)
-        {
-            return integral;
-        }
-        return integral + direction;
     }
 
     template <typename T>
@@ -271,46 +252,6 @@ namespace
             MphRead::Fixed::ToInt(vector.X),
             MphRead::Fixed::ToInt(vector.Y),
             MphRead::Fixed::ToInt(vector.Z));
-    }
-
-    [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(path, std::ios::binary);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file: " + path);
-        }
-        stream.seekg(0, std::ios::end);
-        const std::streamoff length = stream.tellg();
-        stream.seekg(0, std::ios::beg);
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()), length);
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not read file: " + path);
-            }
-        }
-        return bytes;
-    }
-
-    void WriteAllBytes(const std::string& path, const std::vector<std::uint8_t>& bytes)
-    {
-        std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file: " + path);
-        }
-        if (!bytes.empty())
-        {
-            stream.write(reinterpret_cast<const char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not write file: " + path);
-            }
-        }
     }
 
     [[nodiscard]] bool EndsWith(const std::string& value, std::string_view suffix) noexcept
@@ -2161,13 +2102,13 @@ namespace MphRead::Utility
             std::const_pointer_cast<const std::vector<std::shared_ptr<TextureAnimationGroup>>>(tex),
             fhPad);
 
-        const std::vector<std::uint8_t> fileBytes = ReadAllBytes(
+        const std::vector<std::uint8_t> fileBytes = FileReadAllBytes(
             Paths::Combine(firstHunt ? Paths::FhFileSystem() : Paths::FileSystem(), animPath));
         CompareAnims(modelValue.Name, bytes, fileBytes);
 
         if (writeFile)
         {
-            WriteAllBytes(
+            FileWriteAllBytes(
                 Paths::Combine(
                     Paths::Export(), "_pack",
                     "out_" + modelValue.Name + "_Anim.bin"),
@@ -2231,7 +2172,7 @@ namespace MphRead::Utility
             modelValue.DisplayLists,
             options);
 
-        const std::vector<std::uint8_t> fileBytes = ReadAllBytes(
+        const std::vector<std::uint8_t> fileBytes = FileReadAllBytes(
             Paths::Combine(firstHunt ? Paths::FhFileSystem() : Paths::FileSystem(), modelPath));
 
         if (optionValues.Compare)
@@ -2244,7 +2185,7 @@ namespace MphRead::Utility
                 {
                     throw System::NullReferenceException();
                 }
-                const std::vector<std::uint8_t> texFile = ReadAllBytes(
+                const std::vector<std::uint8_t> texFile = FileReadAllBytes(
                     Paths::Combine(
                         firstHunt ? Paths::FhFileSystem() : Paths::FileSystem(), *texPath));
                 REPACK_MODEL_DEBUG_ASSERT(packed.second.size() == texFile.size());
@@ -2254,14 +2195,14 @@ namespace MphRead::Utility
 
         if (optionValues.WriteFile)
         {
-            WriteAllBytes(
+            FileWriteAllBytes(
                 Paths::Combine(
                     Paths::Export(), "_pack",
                     "out_" + modelValue.Name + "_" + recolorValue.Name + ".bin"),
                 packed.first);
             if (optionValues.Texture == RepackTexture::Separate)
             {
-                WriteAllBytes(
+                FileWriteAllBytes(
                     Paths::Combine(
                         Paths::Export(), "_pack",
                         "out_" + modelValue.Name + "_Tex.bin"),
@@ -2415,7 +2356,7 @@ namespace MphRead::Utility
         }
 
         const std::string parent
-            = std::filesystem::path(Paths::FileSystem()).parent_path().string();
+            = ::MphRead::NativeRuntime::PathToUtf8(::MphRead::NativeRuntime::PathFromUtf8(Paths::FileSystem()).parent_path());
         const std::string path1
             = Paths::Combine(parent, game1, first->second.ModelPath);
         const std::string path2
@@ -2424,7 +2365,7 @@ namespace MphRead::Utility
         auto options = std::make_shared<RepackOptions>();
         options->Texture = RepackTexture::Separate;
         CompareModels(
-            model1, ReadAllBytes(path1), ReadAllBytes(path2), options);
+            model1, FileReadAllBytes(path1), FileReadAllBytes(path2), options);
         Nop();
     }
 
@@ -2445,13 +2386,13 @@ namespace MphRead::Utility
         if (meta1.AnimationPath.has_value() && meta2.AnimationPath.has_value())
         {
             const std::string parent
-                = std::filesystem::path(Paths::FileSystem()).parent_path().string();
+                = ::MphRead::NativeRuntime::PathToUtf8(::MphRead::NativeRuntime::PathFromUtf8(Paths::FileSystem()).parent_path());
             const std::string path1
                 = Paths::Combine(parent, game1, *meta1.AnimationPath);
             const std::string path2
                 = Paths::Combine(parent, game2, *meta2.AnimationPath);
             CompareAnims(
-                model1, ReadAllBytes(path1), ReadAllBytes(path2));
+                model1, FileReadAllBytes(path1), FileReadAllBytes(path2));
         }
         Nop();
     }

@@ -1,4 +1,5 @@
 #include "Frontend.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <bit>
 #include <cassert>
@@ -12,27 +13,13 @@
 #include <type_traits>
 #include <vector>
 
+using ::MphRead::NativeRuntime::FileReadAllBytes;
+
 namespace MphRead::Formats
 {
     namespace
     {
         using ByteSpan = std::span<const std::uint8_t>;
-
-        std::vector<std::uint8_t> ReadAllBytes(const char* path)
-        {
-            std::ifstream file;
-            file.exceptions(std::ios::badbit | std::ios::failbit);
-            file.open(path, std::ios::binary);
-            file.seekg(0, std::ios::end);
-            std::streampos end = file.tellg();
-            std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-            file.seekg(0, std::ios::beg);
-            if (!bytes.empty())
-            {
-                file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            }
-            return bytes;
-        }
 
         std::int32_t UncheckedInt32(std::uint32_t value) noexcept
         {
@@ -120,7 +107,7 @@ namespace MphRead::Formats
         // todo: parse DP version (different header)
         // const char* path = R"(D:\Cdrv\MPH\_FS\amhe1\frontend\single_metroidhunters.bin)";
         const char* path = R"(D:\Cdrv\MPH\_FS\amhe1\frontend\metroidhunters.bin)";
-        std::vector<std::uint8_t> storage = ReadAllBytes(path);
+        std::vector<std::uint8_t> storage = FileReadAllBytes(path);
         ByteSpan bytes(storage.data(), storage.size());
         FrontendHeader header = ReadStruct<FrontendHeader>(bytes);
         assert(IsMarm(header));

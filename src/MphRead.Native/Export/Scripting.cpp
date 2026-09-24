@@ -6,6 +6,7 @@
 #include "../Formats/RawFormats.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -22,6 +23,9 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace
 {
@@ -232,37 +236,6 @@ namespace
             end = candidate;
         }
         return text.substr(start, end - start);
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path &value)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string converted = value.u8string();
-        std::string result;
-        result.reserve(converted.size());
-        for (char8_t ch : converted)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return value.u8string();
-#endif
     }
 
     [[nodiscard]] std::string GetFullPath(std::string_view value)

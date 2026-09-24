@@ -8,6 +8,8 @@
 #include "../CamSeq/CameraSequence.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -19,6 +21,15 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace MphRead::Entities::Enemies
 {
@@ -35,26 +46,6 @@ namespace MphRead::Entities::Enemies
             return typedSpawner;
         }
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy23Entity& RequireEnemy(Enemy23Entity* enemy)
         {
             return RequireReference(enemy);
@@ -63,48 +54,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] float RadiansToDegrees(float radians) noexcept
-        {
-            return radians * (180.0F / 3.14159265358979323846F);
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
-        }
-
-        [[nodiscard]] Matrix4 CreateRotationY(float angle) noexcept
-        {
-            const float cosine = std::cos(angle);
-            const float sine = std::sin(angle);
-            return Matrix4(
-                Vector4(cosine, 0.0F, -sine, 0.0F),
-                Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-                Vector4(sine, 0.0F, cosine, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
         }
 
         [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept

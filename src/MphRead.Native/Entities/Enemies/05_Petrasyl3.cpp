@@ -6,6 +6,7 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -15,6 +16,13 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Scale;
+using ::OpenTK::Mathematics::WithY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -48,37 +56,6 @@ namespace MphRead::Entities::Enemies
             return *player;
         }
 
-        [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] constexpr Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-        }
-
-        [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-        }
-
-        [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
-        }
     }
 }
 
@@ -158,7 +135,7 @@ namespace MphRead::Entities::Enemies
             {
                 _field184 = _field184.Normalized();
             }
-            _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
+            _speed = Divide(::OpenTK::Mathematics::Scale(_field184, 0.05F), 2.0F);
         }
     }
 
@@ -304,7 +281,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 currentUp = UpVector();
         const Vector3 transformPosition = static_cast<Vector3>(Position);
         SetTransform(newFacing, currentUp, transformPosition);
-        _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
+        _speed = Divide(::OpenTK::Mathematics::Scale(_field184, 0.05F), 2.0F);
         _targetY += _speed.Y / 2.0F;
         _speed.Y += ySpeedInc / 2.0F;
     }

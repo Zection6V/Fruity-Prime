@@ -4,6 +4,7 @@
 #include "Formats/EntityEnemy.hpp"
 #include "Metadata/Rooms.hpp"
 #include "Read.hpp"
+#include "NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -31,6 +32,8 @@
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
+
+using ::MphRead::NativeRuntime::FileReadAllBytes;
 
 namespace MphRead
 {
@@ -475,7 +478,7 @@ namespace
 
     [[nodiscard]] std::string GetFileName(const std::string& path)
     {
-        return std::filesystem::path(path).filename().string();
+        return ::MphRead::NativeRuntime::PathGetFileName(path);
     }
 
     [[nodiscard]] std::string ReplaceAll(
@@ -510,47 +513,6 @@ namespace
         return value;
     }
 
-    [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(path, std::ios::binary | std::ios::ate);
-        if (!stream)
-        {
-            std::error_code error;
-            if (!std::filesystem::exists(path, error) && !error)
-            {
-                throw System::IO::FileNotFoundException("Could not find file '" + path + "'.");
-            }
-            throw System::IO::IOException("I/O error occurred.");
-        }
-
-        const std::streampos end = stream.tellg();
-        if (end < std::streampos(0))
-        {
-            throw System::IO::IOException("I/O error occurred.");
-        }
-
-        const auto size = static_cast<std::uintmax_t>(end);
-        if (size > static_cast<std::uintmax_t>(
-                std::numeric_limits<std::size_t>::max()))
-        {
-            throw System::OutOfMemoryException();
-        }
-
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
-        stream.seekg(0, std::ios::beg);
-        if (!bytes.empty())
-        {
-            stream.read(
-                reinterpret_cast<char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-        }
-        if (!stream)
-        {
-            throw System::IO::IOException("I/O error occurred.");
-        }
-        return bytes;
-    }
-
     [[nodiscard]] std::vector<std::string> EnumerateFiles(
         const std::string& path, bool recursive)
     {
@@ -574,7 +536,7 @@ namespace
                 std::error_code typeError;
                 if (iterator->is_regular_file(typeError))
                 {
-                    result.push_back(iterator->path().string());
+                    result.push_back(::MphRead::NativeRuntime::PathToUtf8(iterator->path()));
                 }
                 else if (typeError)
                 {
@@ -599,7 +561,7 @@ namespace
                 std::error_code typeError;
                 if (iterator->is_regular_file(typeError))
                 {
-                    result.push_back(iterator->path().string());
+                    result.push_back(::MphRead::NativeRuntime::PathToUtf8(iterator->path()));
                 }
                 else if (typeError)
                 {
@@ -613,7 +575,7 @@ namespace
     void FileWriteAllLines(
         const std::string& path, const std::vector<std::string>& lines)
     {
-        std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+        std::ofstream stream(::MphRead::NativeRuntime::PathFromUtf8(path), std::ios::binary | std::ios::trunc);
         if (!stream)
         {
             throw System::IO::IOException("I/O error occurred.");

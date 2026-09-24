@@ -7,6 +7,8 @@
 #include "../../Utility/Rng.hpp"
 #include "../ItemInstanceEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -21,6 +23,14 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -29,50 +39,14 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy33Entity& RequireEnemy(Enemy33Entity* enemy)
         {
             return RequireReference(enemy);
         }
 
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value) noexcept
-        {
-            return std::sqrt(LengthSquared(value));
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
         {
             return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
@@ -110,17 +84,6 @@ namespace MphRead::Entities::Enemies
             const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
                 + std::bit_cast<std::uint32_t>(right);
             return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
-        {
-            if (!std::isfinite(value)
-                || value >= 2147483648.0F
-                || value < -2147483648.0F)
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] bool HitPlayerAt(
@@ -428,11 +391,11 @@ namespace MphRead::Entities::Enemies
         {
             const float factor
                 = std::clamp(distance / _field1A0, 0.0F, 1.0F);
-            damage = FloatToInt32(
+            damage = ConvertToInt32Net9(
                 static_cast<float>(damage)
                 - static_cast<float>(damage) * factor);
             dirMag = static_cast<float>(
-                FloatToInt32(dirMag - dirMag * factor));
+                ConvertToInt32Net9(dirMag - dirMag * factor));
         }
         if (distance > 1.0F / 128.0F)
         {

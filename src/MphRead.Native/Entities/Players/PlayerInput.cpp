@@ -24,6 +24,9 @@
 #include "../../Mods/Network/NetUnlagged.hpp"
 #include "../../Mods/SpectatorMode.hpp"
 #include "../../Utility/Rng.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -40,6 +43,25 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::TestAny;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::AddX;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::AddZ;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::IdentityMatrix;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Subtract;
+using ::OpenTK::Mathematics::WithX;
+using ::OpenTK::Mathematics::WithY;
+using ::OpenTK::Mathematics::WithZ;
+
 namespace
 {
     using MphRead::Fixed;
@@ -55,128 +77,9 @@ namespace
     using OpenTK::Windowing::GraphicsLibraryFramework::MouseButton;
     using OpenTK::Windowing::GraphicsLibraryFramework::MouseState;
 
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestAny(TEnum value, TEnum flags) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flags)) != 0;
-    }
-
-    [[nodiscard]] constexpr Vector3 Add(Vector3 a, Vector3 b) noexcept
-    {
-        return Vector3(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Subtract(Vector3 a, Vector3 b) noexcept
-    {
-        return Vector3(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 v, float s) noexcept
-    {
-        return Vector3(v.X * s, v.Y * s, v.Z * s);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 v, float s) noexcept
-    {
-        return Vector3(v.X / s, v.Y / s, v.Z / s);
-    }
-
-    [[nodiscard]] constexpr Vector3 WithX(Vector3 v, float x) noexcept
-    {
-        v.X = x;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 WithY(Vector3 v, float y) noexcept
-    {
-        v.Y = y;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 WithZ(Vector3 v, float z) noexcept
-    {
-        v.Z = z;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 AddX(Vector3 v, float x) noexcept
-    {
-        v.X += x;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 AddY(Vector3 v, float y) noexcept
-    {
-        v.Y += y;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 AddZ(Vector3 v, float z) noexcept
-    {
-        v.Z += z;
-        return v;
-    }
-
     [[nodiscard]] constexpr bool VectorEquals(Vector3 a, Vector3 b) noexcept
     {
         return a.X == b.X && a.Y == b.Y && a.Z == b.Z;
-    }
-
-    [[nodiscard]] float Length(Vector3 v) noexcept
-    {
-        return std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z);
-    }
-
-    [[nodiscard]] float DegreesToRadians(float value) noexcept
-    {
-        return value * 0.01745329251994329576923690768489F;
-    }
-
-    [[nodiscard]] float RadiansToDegrees(float value) noexcept
-    {
-        return value * 57.295779513082320876798154814105F;
-    }
-
-    [[nodiscard]] float DotNetRound(float value) noexcept
-    {
-        if (!std::isfinite(value) || value == 0.0F)
-        {
-            return value;
-        }
-        const float floorValue = std::floor(value);
-        const float fraction = value - floorValue;
-        float rounded;
-        if (fraction < 0.5F)
-        {
-            rounded = floorValue;
-        }
-        else if (fraction > 0.5F)
-        {
-            rounded = floorValue + 1.0F;
-        }
-        else
-        {
-            const float half = floorValue * 0.5F;
-            rounded = half == std::floor(half) ? floorValue : floorValue + 1.0F;
-        }
-        return std::copysign(rounded, value);
-    }
-
-    [[nodiscard]] Matrix4 IdentityMatrix() noexcept
-    {
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     constexpr std::uint32_t Prime2 = 2246822519U;
@@ -219,26 +122,6 @@ namespace
         hash = QueueRound(hash, static_cast<std::uint32_t>(value2));
         hash = QueueRound(hash, static_cast<std::uint32_t>(value3));
         return std::bit_cast<std::int32_t>(MixFinal(hash));
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
     }
 
     template <typename T, std::size_t Size>
@@ -947,7 +830,7 @@ namespace MphRead::Entities
             if (Features::HudSway() && !Features::FixedWeapon())
             {
                 const float average = (sum + amount) / 8.0F;
-                _hudShiftY = std::clamp(-DotNetRound(average), -8.0F, 8.0F);
+                _hudShiftY = std::clamp(-RoundToEven(average), -8.0F, 8.0F);
             }
             else
             {
@@ -972,7 +855,7 @@ namespace MphRead::Entities
             if (Features::HudSway() && !Features::FixedWeapon())
             {
                 const float average = (sum + amount) / 8.0F;
-                _hudShiftX = std::clamp(DotNetRound(average), -8.0F, 8.0F);
+                _hudShiftX = std::clamp(RoundToEven(average), -8.0F, 8.0F);
             }
             else
             {

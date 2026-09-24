@@ -8,6 +8,7 @@
 #include "../Metadata/Rooms.hpp"
 #include "../Read.hpp"
 #include "../Utility/Rng.hpp"
+#include "../Formats/Types.hpp"
 
 #include <bit>
 #include <cassert>
@@ -25,6 +26,9 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
@@ -90,11 +94,6 @@ namespace
         return values[static_cast<std::size_t>(index)];
     }
 
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (std::numbers::pi_v<float> / 180.0F);
-    }
-
     [[nodiscard]] std::string FormatSingle(float value)
     {
         if (std::isnan(value))
@@ -120,13 +119,6 @@ namespace
             result[exponent] = 'E';
         }
         return result;
-    }
-
-    [[nodiscard]] constexpr bool TestFlag(
-        MphRead::Entities::ObjEffFlags value,
-        MphRead::Entities::ObjEffFlags flag) noexcept
-    {
-        return (static_cast<std::uint32_t>(value) & static_cast<std::uint32_t>(flag)) != 0U;
     }
 
     [[nodiscard]] const char* VecsName(std::int32_t id) noexcept

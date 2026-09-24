@@ -6,6 +6,8 @@
 
 #include "../Read.hpp"
 #include "../Scene.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -35,6 +37,9 @@
 #else
 #define MPHREAD_COLLISION_DEBUG_ASSERT(condition) ((void)0)
 #endif
+
+using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 
 namespace
 {
@@ -102,16 +107,6 @@ namespace MphRead::Formats::Collision
                 throw System::NullReferenceException();
             }
             return values->size();
-        }
-
-        bool HasFlag(
-            CollisionFlags value,
-            CollisionFlags flag) noexcept
-        {
-            return (
-                static_cast<std::uint16_t>(value)
-                & static_cast<std::uint16_t>(flag)
-            ) != 0;
         }
 
         std::shared_ptr<
@@ -245,34 +240,6 @@ namespace MphRead::Formats::Collision
             }
 
             return numerator / denominator;
-        }
-
-        std::int32_t ConvertToInt32Net9(
-            float value) noexcept
-        {
-            if (std::isnan(value))
-            {
-                return 0;
-            }
-
-            const double wide = static_cast<double>(value);
-
-            if (wide
-                < static_cast<double>(
-                    std::numeric_limits<std::int32_t>::min()))
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-
-            if (wide
-                > static_cast<double>(
-                    std::numeric_limits<std::int32_t>::max()))
-            {
-                return std::numeric_limits<std::int32_t>::max();
-            }
-
-            return static_cast<std::int32_t>(
-                std::trunc(wide));
         }
 
         MphRead::Scene& RequireScene(

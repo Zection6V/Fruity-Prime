@@ -19,7 +19,8 @@
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Scene.hpp"
-
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -37,6 +38,10 @@
 #include <typeinfo>
 #include <utility>
 
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Length;
+
 namespace
 {
     using MphRead::GameMode;
@@ -45,19 +50,6 @@ namespace
     using MphRead::Entities::PlayerFlags2;
     using MphRead::Mods::Network::TestPhase;
     using OpenTK::Mathematics::Vector3;
-
-    template <typename TEnum>
-    [[nodiscard]] bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
-    }
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(
-            value.X * value.X + value.Y * value.Y + value.Z * value.Z);
-    }
 
     [[nodiscard]] std::string FormatFixed(double value, std::int32_t digits)
     {
@@ -71,12 +63,6 @@ namespace
         std::ostringstream stream;
         stream << std::setw(2) << std::setfill('0') << value;
         return stream.str();
-    }
-
-    [[nodiscard]] std::string PathCombine(
-        const std::string& directory, const std::string& filename)
-    {
-        return (std::filesystem::path(directory) / std::filesystem::path(filename)).string();
     }
 
     [[nodiscard]] const char* BoolText(bool value) noexcept

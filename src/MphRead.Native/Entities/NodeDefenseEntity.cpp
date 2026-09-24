@@ -10,6 +10,8 @@
 #include "../Sound/Sfx.hpp"
 #include "../Strings.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -22,31 +24,16 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] std::size_t CheckedSlotIndex(std::int32_t index)
     {
@@ -65,26 +52,6 @@ namespace
             throw MphRead::Memory::Detail::IndexOutOfRangeException();
         }
         return MphRead::Metadata::TeamColors[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] Matrix4 CreateScale(float scale) noexcept
-    {
-        return Matrix4(
-            Vector4(scale, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, scale, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, scale, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationY(float radians) noexcept
-    {
-        const float cosine = std::cos(radians);
-        const float sine = std::sin(radians);
-        return Matrix4(
-            Vector4(cosine, 0.0F, -sine, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(sine, 0.0F, cosine, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     [[nodiscard]] Matrix4 MultiplyMatrix4(Matrix4 left, Matrix4 right) noexcept
@@ -157,11 +124,6 @@ namespace
         result.M44 = (leftM41 * rightM14) + (leftM42 * rightM24)
             + (leftM43 * rightM34) + (leftM44 * rightM44);
         return result;
-    }
-
-    [[nodiscard]] constexpr float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * 0.01745329251994329576923690768489F;
     }
 
     [[nodiscard]] std::shared_ptr<MphRead::Material> FirstMaterial(

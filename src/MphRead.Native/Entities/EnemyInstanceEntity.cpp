@@ -11,6 +11,8 @@
 #include "EnemySpawnEntity.hpp"
 #include "ItemSpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <any>
 #include <cassert>
@@ -22,38 +24,23 @@
 #include <type_traits>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::ClearScale;
+using ::OpenTK::Mathematics::IsZero;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Normalize;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::SetRow3;
+
 namespace
 {
     using MphRead::Entities::EntityBase;
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     template <typename T>
     [[nodiscard]] const T& ArrayBackedReadOnlyListAt(
@@ -91,67 +78,6 @@ namespace
             throw MphRead::SceneDetail::InvalidCastException();
         }
         return result;
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
-    [[nodiscard]] float Length(Vector3 value)
-    {
-        return std::sqrt(LengthSquared(value));
-    }
-
-    [[nodiscard]] bool IsZero(Vector3 value) noexcept
-    {
-        return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
-    }
-
-    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-    {
-        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-    }
-
-    [[nodiscard]] Vector3 Normalize(Vector3 value)
-    {
-        const float length = Length(value);
-        return Vector3(value.X / length, value.Y / length, value.Z / length);
-    }
-
-    [[nodiscard]] Vector3 AddY(Vector3 value, float y) noexcept
-    {
-        value.Y += y;
-        return value;
-    }
-
-    [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-    {
-        return degrees * (3.14159265358979323846F / 180.0F);
-    }
-
-    void SetRow3(Matrix4& matrix, Vector3 value) noexcept
-    {
-        matrix.M41 = value.X;
-        matrix.M42 = value.Y;
-        matrix.M43 = value.Z;
-    }
-
-    [[nodiscard]] Matrix4 ClearScale(Matrix4 value)
-    {
-        const float row0 = Length(Vector3(value.M11, value.M12, value.M13));
-        const float row1 = Length(Vector3(value.M21, value.M22, value.M23));
-        const float row2 = Length(Vector3(value.M31, value.M32, value.M33));
-        value.M11 /= row0;
-        value.M12 /= row0;
-        value.M13 /= row0;
-        value.M21 /= row1;
-        value.M22 /= row1;
-        value.M23 /= row1;
-        value.M31 /= row2;
-        value.M32 /= row2;
-        value.M33 /= row2;
-        return value;
     }
 
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)

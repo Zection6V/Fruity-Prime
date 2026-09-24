@@ -12,6 +12,7 @@
 #include "../NativeRuntime/System/Tasks.hpp"
 #include "../Sound/Music.hpp"
 #include "../Sound/Sfx.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -34,6 +35,9 @@
 #include <stdexcept>
 #include <string_view>
 #include <utility>
+
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathFromUtf8;
 
 namespace System
 {
@@ -1791,21 +1795,6 @@ namespace MphRead::Formats
             }
         };
 
-        [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-        {
-#if defined(__cpp_char8_t)
-            std::u8string converted;
-            converted.reserve(value.size());
-            for (unsigned char ch : value)
-            {
-                converted.push_back(static_cast<char8_t>(ch));
-            }
-            return std::filesystem::path(converted);
-#else
-            return std::filesystem::u8path(value.begin(), value.end());
-#endif
-        }
-
         [[nodiscard]] std::string Extension(const std::filesystem::path& path)
         {
 #if defined(__cpp_char8_t)
@@ -1844,18 +1833,6 @@ namespace MphRead::Formats
 #else
             return path.stem().u8string();
 #endif
-        }
-
-        [[nodiscard]] bool FileExists(const std::string& path) noexcept
-        {
-            try
-            {
-                return std::filesystem::is_regular_file(PathFromUtf8(path));
-            }
-            catch (...)
-            {
-                return false;
-            }
         }
 
         extern "C"
@@ -1916,7 +1893,6 @@ namespace MphRead::Formats
             }
             return *value;
         }
-
 
         template <typename T>
         void ClearClrArray(ClrArray<T>& array)

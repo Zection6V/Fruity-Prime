@@ -30,6 +30,8 @@
 #include "DoorEntity.hpp"
 #include "EnemySpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -52,6 +54,18 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::IdentityMatrix;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::Negate;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::Subtract;
+
 namespace
 {
     using MphRead::Formats::Culling::FrustumInfo;
@@ -64,36 +78,6 @@ namespace
     [[noreturn]] void ThrowNullReference()
     {
         throw System::NullReferenceException();
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            ThrowNullReference();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            ThrowNullReference();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& RequireReference(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            ThrowNullReference();
-        }
-        return *value;
     }
 
     [[nodiscard]] MphRead::Model& RequireModel(MphRead::ModelInstance& instance)
@@ -220,54 +204,6 @@ namespace
         return result;
     }
 
-    [[nodiscard]] constexpr Matrix4 IdentityMatrix() noexcept
-    {
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr Matrix4 CreateScale(Vector3 scale) noexcept
-    {
-        return Matrix4(
-            Vector4(scale.X, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, scale.Y, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, scale.Z, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr Vector3 Add(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Subtract(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
-    {
-        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float divisor) noexcept
-    {
-        return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-    }
-
-    [[nodiscard]] constexpr Vector3 Negate(Vector3 value) noexcept
-    {
-        return Vector3(-value.X, -value.Y, -value.Z);
-    }
-
-    [[nodiscard]] constexpr bool Equal(Vector3 left, Vector3 right) noexcept
-    {
-        return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-    }
-
     [[nodiscard]] Vector3 ComponentMin(Vector3 left, Vector3 right) noexcept
     {
         return Vector3(MathFMin(left.X, right.X), MathFMin(left.Y, right.Y), MathFMin(left.Z, right.Z));
@@ -276,11 +212,6 @@ namespace
     [[nodiscard]] Vector3 ComponentMax(Vector3 left, Vector3 right) noexcept
     {
         return Vector3(MathFMax(left.X, right.X), MathFMax(left.Y, right.Y), MathFMax(left.Z, right.Z));
-    }
-
-    [[nodiscard]] float Length(Vector3 value)
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
     }
 
     template <std::size_t Size>
@@ -297,13 +228,6 @@ namespace
     [[nodiscard]] bool StartsWith(std::string_view value, std::string_view prefix) noexcept
     {
         return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) != 0;
     }
 
     template <typename TEnum>

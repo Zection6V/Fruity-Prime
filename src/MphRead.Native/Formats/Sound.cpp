@@ -7,6 +7,7 @@
 
 #include "../Metadata/Metadata.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -23,6 +24,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+
+using ::MphRead::NativeRuntime::FileReadAllBytes;
 
 namespace MphRead::Formats::Sound
 {
@@ -112,31 +115,6 @@ namespace MphRead::Formats::Sound
                 MphRead::ReadDetail::ThrowRange();
             }
             return bytes[index];
-        }
-        [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
-        {
-            std::ifstream stream(path, std::ios::binary | std::ios::ate);
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not open file: " + path);
-            }
-            const std::streampos end = stream.tellg();
-            if (end < 0)
-            {
-                throw std::ios_base::failure("Could not determine file length: " + path);
-            }
-            std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-            stream.seekg(0, std::ios::beg);
-            if (!bytes.empty())
-            {
-                stream.read(reinterpret_cast<char*>(bytes.data()),
-                    static_cast<std::streamsize>(bytes.size()));
-                if (!stream)
-                {
-                    throw std::ios_base::failure("Could not read file: " + path);
-                }
-            }
-            return bytes;
         }
         [[nodiscard]] std::string PadId(std::uint32_t id)
         {
@@ -1224,9 +1202,9 @@ namespace MphRead::Formats::Sound
             throw WaveExportException("Format " + WaveFormatString(format) + " is unsupported.");
         }
         std::string path = MphRead::Paths::Combine(MphRead::Paths::Export(), "_SFX");
-        std::filesystem::create_directories(path);
+        std::filesystem::create_directories(::MphRead::NativeRuntime::PathFromUtf8(path));
         path = MphRead::Paths::Combine(path, prefix.value_or("") + name + ".wav");
-        std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+        std::ofstream stream(::MphRead::NativeRuntime::PathFromUtf8(path), std::ios::binary | std::ios::trunc);
         if (!stream)
         {
             throw std::ios_base::failure("Could not create file: " + path);

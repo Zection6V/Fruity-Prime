@@ -1,7 +1,6 @@
 #include "MapNodePacker.hpp"
 
 #include "../../Formats/NodeData.hpp"
-#include "../../Formats/Types.hpp"
 #include "BuiltMap.hpp"
 
 #include <algorithm>
@@ -16,7 +15,15 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
+using ::MphRead::NativeRuntime::RoundToEven;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Subtract;
 
 namespace MphRead::Mods::MapGen
 {
@@ -101,26 +108,6 @@ namespace MphRead::Mods::MapGen
                 left.Z > right.Z ? left.Z : right.Z);
         }
 
-        [[nodiscard]] Vector3 Add(Vector3 left, Vector3 right) noexcept
-        {
-            return Vector3(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
-        }
-
-        [[nodiscard]] Vector3 Subtract(Vector3 left, Vector3 right) noexcept
-        {
-            return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-        }
-
-        [[nodiscard]] Vector3 Multiply(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-        }
-
-        [[nodiscard]] float Length(Vector3 value) noexcept
-        {
-            return std::sqrt((value.X * value.X) + (value.Y * value.Y) + (value.Z * value.Z));
-        }
-
         [[nodiscard]] std::int32_t UncheckedInt32(float value) noexcept
         {
             if (std::isnan(value))
@@ -149,26 +136,6 @@ namespace MphRead::Mods::MapGen
         {
             return std::bit_cast<std::int32_t>(
                 static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] float RoundToEven(float value) noexcept
-        {
-            if (!std::isfinite(value))
-            {
-                return value;
-            }
-            const float floor = std::floor(value);
-            const float fraction = value - floor;
-            if (fraction < 0.5F)
-            {
-                return floor;
-            }
-            if (fraction > 0.5F)
-            {
-                return floor + 1.0F;
-            }
-            const float half = floor * 0.5F;
-            return half == std::floor(half) ? floor : floor + 1.0F;
         }
 
         void SwapFloats(std::vector<float>& values, std::int32_t left, std::int32_t right) noexcept

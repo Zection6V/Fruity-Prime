@@ -8,6 +8,8 @@
 #include "../EnemyInstanceEntity.hpp"
 #include "PlayerEntity.hpp"
 #include "PlayerHud.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -23,6 +25,10 @@
 #include <string>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+
 namespace
 {
     using MphRead::Entities::EntityBase;
@@ -30,26 +36,6 @@ namespace
     using MphRead::Entities::EnemyInstanceEntity;
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     template <typename T>
     [[nodiscard]] T& RequireOptional(std::optional<T>& value)
@@ -108,13 +94,6 @@ namespace
         return *cast;
     }
 
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using U = std::underlying_type_t<TEnum>;
-        return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-    }
-
     [[nodiscard]] constexpr std::int32_t ManagedAdd(
         std::int32_t left, std::int32_t right) noexcept
     {
@@ -129,24 +108,6 @@ namespace
         const std::uint32_t value
             = static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right);
         return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
-    {
-        if (value != value)
-        {
-            return 0;
-        }
-        const double wide = static_cast<double>(value);
-        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        return static_cast<std::int32_t>(wide);
     }
 
     [[nodiscard]] constexpr float ClampFloat(float value, float minimum, float maximum) noexcept

@@ -2,21 +2,14 @@
 
 #include "../../Metadata/Enemies.hpp"
 #include "../EnemySpawnEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace MphRead::Entities::Enemies
 {
     namespace
     {
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy47Entity& RequireEnemy(Enemy47Entity* enemy)
         {
             return RequireReference(enemy);

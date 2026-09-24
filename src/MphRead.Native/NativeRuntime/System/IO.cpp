@@ -1,6 +1,6 @@
-#include "IO.hpp"
 
 #include "Exceptions.hpp"
+#include "IO.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -227,6 +227,72 @@ namespace MphRead::NativeRuntime
 #else
         return !path.empty() && path[0] == '/' ? 1 : 0;
 #endif
+    }
+
+    std::filesystem::path PathFromUtf8(std::string_view value)
+    {
+        std::u8string converted;
+        converted.reserve(value.size());
+        for (const unsigned char byte : value)
+        {
+            converted.push_back(static_cast<char8_t>(byte));
+        }
+        return std::filesystem::path(converted);
+    }
+
+    std::string PathToUtf8(const std::filesystem::path& value)
+    {
+        const std::u8string converted = value.u8string();
+        return std::string(reinterpret_cast<const char*>(converted.data()), converted.size());
+    }
+
+    bool PathIsPathRooted(std::string_view path) noexcept
+    {
+#if defined(_WIN32)
+        if (!path.empty() && IsDirectorySeparator(path[0]))
+        {
+            return true;
+        }
+        const auto driveLetter = [](char c) noexcept
+        {
+            return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+        };
+        return path.size() >= 2 && driveLetter(path[0]) && path[1] == ':';
+#else
+        return !path.empty() && path[0] == '/';
+#endif
+    }
+
+    std::string PathCombine(std::string_view first, std::string_view second)
+    {
+        if (first.find('\0') != std::string_view::npos || second.find('\0') != std::string_view::npos)
+        {
+            throw System::ArgumentException("Null character in path.");
+        }
+        if (second.empty())
+        {
+            return std::string(first);
+        }
+        if (first.empty() || PathIsPathRooted(second))
+        {
+            return std::string(second);
+        }
+        std::string result(first);
+        if (!IsDirectorySeparator(first.back()) && !IsDirectorySeparator(second.front()))
+        {
+#if defined(_WIN32)
+            result.push_back('\\');
+#else
+            result.push_back('/');
+#endif
+        }
+        result.append(second);
+        return result;
+    }
+
+    std::string PathCombine(std::string_view first, std::string_view second, std::string_view third)
+    {
+        return PathCombine(PathCombine(first, second), third);
     }
 
     std::string PathGetFileName(const std::string& path)
@@ -460,46 +526,66 @@ namespace MphRead::NativeRuntime
 #endif
     }
 
-    bool FileExists(const std::string& path) noexcept
+    bool FileExists(std::string_view path) noexcept
     {
-        if (path.empty())
+        // File.Exists: false for an empty path, one with a NUL in it, one
+        // ending in a separator, a directory, and anything that cannot be
+        // looked at. On Unix a dangling symbolic link is an existing file.
+        if (path.empty() || path.find('\0') != std::string_view::npos
+            || IsDirectorySeparator(path.back()))
         {
             return false;
         }
+        try
+        {
+            const std::string value(path);
 #if defined(_WIN32)
-        const std::wstring wide = Widen(path);
-        const DWORD attributes = GetFileAttributesW(wide.c_str());
-        return attributes != INVALID_FILE_ATTRIBUTES
-            && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+            const std::wstring wide = Widen(value);
+            const DWORD attributes = GetFileAttributesW(wide.c_str());
+            return attributes != INVALID_FILE_ATTRIBUTES
+                && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
 #else
-        struct stat info{};
-        if (::stat(path.c_str(), &info) != 0)
+            struct stat info{};
+            if (::stat(value.c_str(), &info) != 0)
+            {
+                return ::lstat(value.c_str(), &info) == 0;
+            }
+            return !S_ISDIR(info.st_mode);
+#endif
+        }
+        catch (...)
         {
             return false;
         }
-        return !S_ISDIR(info.st_mode);
-#endif
     }
 
-    bool DirectoryExists(const std::string& path) noexcept
+    bool DirectoryExists(std::string_view path) noexcept
     {
-        if (path.empty())
+        if (path.empty() || path.find('\0') != std::string_view::npos)
         {
             return false;
         }
+        try
+        {
+            const std::string value(path);
 #if defined(_WIN32)
-        const std::wstring wide = Widen(path);
-        const DWORD attributes = GetFileAttributesW(wide.c_str());
-        return attributes != INVALID_FILE_ATTRIBUTES
-            && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            const std::wstring wide = Widen(value);
+            const DWORD attributes = GetFileAttributesW(wide.c_str());
+            return attributes != INVALID_FILE_ATTRIBUTES
+                && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 #else
-        struct stat info{};
-        if (::stat(path.c_str(), &info) != 0)
+            struct stat info{};
+            if (::stat(value.c_str(), &info) != 0)
+            {
+                return false;
+            }
+            return S_ISDIR(info.st_mode);
+#endif
+        }
+        catch (...)
         {
             return false;
         }
-        return S_ISDIR(info.st_mode);
-#endif
     }
 
     std::vector<char> PathGetInvalidFileNameChars()
@@ -522,7 +608,6 @@ namespace MphRead::NativeRuntime
         return std::vector<char>{'\0', '/'};
 #endif
     }
-
 
     std::vector<std::string> FileReadAllLines(const std::string& path)
     {
@@ -572,7 +657,7 @@ namespace MphRead::NativeRuntime
 
     namespace
     {
-        void WriteAllBytes(const std::string& path, const std::string& text)
+        void WriteAllBytes(const std::string& path, std::string_view text)
         {
             const std::string fullPath = PathGetFullPath(path);
 #if defined(_WIN32)
@@ -652,7 +737,12 @@ namespace MphRead::NativeRuntime
 
     void FileWriteAllText(const std::string& path, std::string_view text)
     {
-        WriteAllBytes(path, std::string(text));
+        WriteAllBytes(path, text);
+    }
+
+    void FileWriteAllBytes(const std::string& path, std::span<const std::uint8_t> bytes)
+    {
+        WriteAllBytes(path, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
     }
 
     void DirectoryCreateDirectory(const std::string& path)
@@ -698,7 +788,6 @@ namespace MphRead::NativeRuntime
 #endif
         }
     }
-
 
     FileInfo CreateFileInfo(const std::string& path)
     {
@@ -777,54 +866,6 @@ namespace MphRead::NativeRuntime
             }
             result.append(part);
         }
-    }
-
-    std::string PathCombine(std::string_view path1, std::string_view path2)
-    {
-        if (path1.empty())
-        {
-            return std::string(path2);
-        }
-        if (path2.empty())
-        {
-            return std::string(path1);
-        }
-        if (IsPathRooted(path2))
-        {
-            return std::string(path2);
-        }
-        std::string result(path1);
-        AppendJoined(result, path2);
-        return result;
-    }
-
-    std::string PathCombine(
-        std::string_view path1, std::string_view path2, std::string_view path3)
-    {
-        if (path1.empty())
-        {
-            return PathCombine(path2, path3);
-        }
-        if (path2.empty())
-        {
-            return PathCombine(path1, path3);
-        }
-        if (path3.empty())
-        {
-            return PathCombine(path1, path2);
-        }
-        if (IsPathRooted(path3))
-        {
-            return std::string(path3);
-        }
-        if (IsPathRooted(path2))
-        {
-            return PathCombine(path2, path3);
-        }
-        std::string result(path1);
-        AppendJoined(result, path2);
-        AppendJoined(result, path3);
-        return result;
     }
 
     std::string PathCombine(std::string_view path1, std::string_view path2,

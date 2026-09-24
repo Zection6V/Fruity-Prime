@@ -7,6 +7,7 @@
 #include "../Formats/Model.hpp"
 #include "../HUD/HudInfo.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -29,6 +30,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::PathFromUtf8;
 
 namespace MphRead::Export::ImagesInterop
 {
@@ -139,21 +142,6 @@ namespace
                 "(Parameter 'minimumLength')");
         }
         return static_cast<std::size_t>(length);
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
     }
 
     [[nodiscard]] std::ofstream CreateFile(const std::string& path)

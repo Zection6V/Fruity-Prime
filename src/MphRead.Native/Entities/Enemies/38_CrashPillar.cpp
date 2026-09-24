@@ -4,6 +4,8 @@
 #include "../../Scene.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -13,6 +15,11 @@
 #include <functional>
 #include <memory>
 #include <utility>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+using ::OpenTK::Mathematics::WithY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -27,16 +34,6 @@ namespace MphRead::Entities::Enemies
             return typedSpawner;
         }
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy38Entity& RequireEnemy(Enemy38Entity* enemy)
         {
             return RequireReference(enemy);
@@ -45,22 +42,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main().get());
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float RadiansToDegrees(float radians) noexcept
-        {
-            return radians * (180.0F / 3.14159265358979323846F);
         }
 
     }

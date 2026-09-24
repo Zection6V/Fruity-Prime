@@ -16,6 +16,8 @@
 #include "../Players/HalfturretEntity.hpp"
 #include "../ItemInstanceEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -35,6 +37,15 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::IdentityMatrix;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::ScaleVector;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -42,36 +53,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& RequireReference(const std::shared_ptr<const T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
         {
@@ -130,58 +111,9 @@ namespace MphRead::Entities::Enemies
             return values[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
         {
             return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
-
-        [[nodiscard]] Matrix4 CreateScale(Vector3 scale) noexcept
-        {
-            return Matrix4(
-                Vector4(scale.X, 0.0F, 0.0F, 0.0F),
-                Vector4(0.0F, scale.Y, 0.0F, 0.0F),
-                Vector4(0.0F, 0.0F, scale.Z, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] Matrix4 IdentityMatrix() noexcept
-        {
-            return Matrix4(
-                Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] Matrix4 CreateRotationY(float angle) noexcept
-        {
-            const float cosine = std::cos(angle);
-            const float sine = std::sin(angle);
-            return Matrix4(
-                Vector4(cosine, 0.0F, -sine, 0.0F),
-                Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-                Vector4(sine, 0.0F, cosine, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] std::int32_t AddInt32Unchecked(

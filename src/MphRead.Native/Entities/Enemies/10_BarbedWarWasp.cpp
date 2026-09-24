@@ -9,6 +9,8 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -21,6 +23,14 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Scale;
 
 namespace MphRead::Entities::Enemies
 {
@@ -35,26 +45,6 @@ namespace MphRead::Entities::Enemies
             return typedSpawner;
         }
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] Enemy10Entity& RequireEnemy(Enemy10Entity* enemy)
         {
             return RequireReference(enemy);
@@ -63,33 +53,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(
-                value.X * value.X + value.Y * value.Y + value.Z * value.Z);
-        }
-
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept
@@ -109,17 +72,6 @@ namespace MphRead::Entities::Enemies
         {
             return WrapInt32(
                 static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
-        {
-            if (!std::isfinite(value)
-                || value >= 2147483648.0F
-                || value < -2147483648.0F)
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept
@@ -287,14 +239,14 @@ namespace MphRead::Entities::Enemies
         const Vector3 travel = target - static_cast<Vector3>(Position);
         _stepDistance = step;
         const float distance = Length(travel);
-        _stepCount = AddInt32(FloatToInt32(distance / _stepDistance), 1);
+        _stepCount = AddInt32(ConvertToInt32Net9(distance / _stepDistance), 1);
         if (distance == 0.0F)
         {
             _speed = Vector3::Zero;
         }
         else
         {
-            _speed = MphRead::Entities::Enemies::Scale(
+            _speed = ::OpenTK::Mathematics::Scale(
                 travel, _stepDistance / distance);
             // todo: FPS stuff
             _speed.X /= 2.0F;

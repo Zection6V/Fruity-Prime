@@ -11,6 +11,7 @@
 #include "Network/NetProtocol.hpp"
 #include "RenderOptions.hpp"
 #include "Update/BuildVersion.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -80,6 +81,8 @@
 #include <cxxabi.h>
 #endif
 
+using ::MphRead::NativeRuntime::PathCombine;
+
 namespace
 {
 #if defined(_WIN32)
@@ -97,41 +100,6 @@ namespace
 #else
         return value == '/';
 #endif
-    }
-
-    [[nodiscard]] std::string CombinePath(
-        std::string_view first, std::string_view second)
-    {
-        if (first.find('\0') != std::string_view::npos
-            || second.find('\0') != std::string_view::npos)
-        {
-            throw std::invalid_argument("Path contains a null character.");
-        }
-        if (first.empty())
-        {
-            return std::string(second);
-        }
-        if (second.empty())
-        {
-            return std::string(first);
-        }
-
-        std::string result(first);
-        const char last = result.back();
-        if (!IsDirectorySeparator(last)
-#if defined(_WIN32)
-            && last != ':'
-#endif
-        )
-        {
-#if defined(_WIN32)
-            result.push_back('\\');
-#else
-            result.push_back('/');
-#endif
-        }
-        result.append(second);
-        return result;
     }
 
 #if defined(_WIN32)
@@ -1909,7 +1877,7 @@ namespace
                     "file is around 110 MB, which zips well):");
                 MphRead::Mods::DebugLog::Line("crash",
                     "  DOTNET_DbgEnableMiniDump=1 DOTNET_DbgMiniDumpType=4 "
-                    "DOTNET_DbgMiniDumpName=" + CombinePath(directory, "crash-%p.dmp"));
+                    "DOTNET_DbgMiniDumpName=" + PathCombine(directory, "crash-%p.dmp"));
             }
         }
         catch (const std::exception& ex)
@@ -2019,7 +1987,7 @@ namespace MphRead::Mods
 
         try
         {
-            const std::string directory = CombinePath(
+            const std::string directory = PathCombine(
                 Launcher::LauncherPrefs::Directory(), "logs");
             std::filesystem::create_directories(PathFromManagedString(directory));
             Prune(directory);
@@ -2031,7 +1999,7 @@ namespace MphRead::Mods
             const std::string name = ReplaceSpaces(Branding::Name) + "-"
                 + FileTimestamp() + "-"
                 + std::to_string(::MphRead::NativeRuntime::EnvironmentProcessId()) + ".log";
-            const std::string path = CombinePath(directory, name);
+            const std::string path = PathCombine(directory, name);
             state.Path.store(std::make_shared<const std::string>(path));
             state.Writer.store(std::make_shared<Utf8Writer>(path));
         }

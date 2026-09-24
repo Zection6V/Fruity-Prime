@@ -2,9 +2,14 @@
 
 #include "../../Formats/Effects.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cstdint>
 #include <memory>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace MphRead::Entities::Enemies
 {
@@ -13,33 +18,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(
-                value.X * scale,
-                value.Y * scale,
-                value.Z * scale);
-        }
     }
 
     Enemy25Entity::Enemy25Entity(EnemyInstanceEntityData data,

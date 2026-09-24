@@ -15,6 +15,13 @@
 #include <limits>
 #include <string>
 #include <memory>
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
+
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::RoundToEven;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
@@ -59,11 +66,6 @@ namespace
     constexpr std::int32_t FrontAndBack = 0x0408;
     constexpr std::int32_t Fill = 0x1B02;
 
-    [[nodiscard]] constexpr float DegreesToRadians(float value) noexcept
-    {
-        return value * (Pi / 180.0F);
-    }
-
     [[nodiscard]] Matrix4 CreatePerspectiveFieldOfView(
         float fov, float aspect, float nearClip, float farClip)
     {
@@ -96,49 +98,9 @@ namespace
             Vector4(-Vector3::Dot(x, eye), -Vector3::Dot(y, eye), -Vector3::Dot(z, eye), 1.0F));
     }
 
-    [[nodiscard]] float RoundToEven(float value) noexcept
-    {
-        if (!std::isfinite(value) || std::fabs(value) >= 8388608.0F)
-        {
-            return value;
-        }
-        const float floorValue = std::floor(value);
-        const float fraction = value - floorValue;
-        if (fraction < 0.5F)
-        {
-            return floorValue;
-        }
-        if (fraction > 0.5F)
-        {
-            return floorValue + 1.0F;
-        }
-        return std::fmod(floorValue, 2.0F) == 0.0F
-            ? floorValue
-            : floorValue + 1.0F;
-    }
-
-    [[nodiscard]] std::int32_t FloatToInt32Unchecked(float value) noexcept
-    {
-        constexpr float Int32UpperExclusive = 2147483648.0F;
-        constexpr float Int32LowerInclusive = -2147483648.0F;
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        if (value >= Int32UpperExclusive)
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        if (value < Int32LowerInclusive)
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        return static_cast<std::int32_t>(value);
-    }
-
     [[nodiscard]] std::int32_t RoundPixel(float value) noexcept
     {
-        return FloatToInt32Unchecked(RoundToEven(value));
+        return ConvertToInt32Net9(RoundToEven(value));
     }
 
     class PreviewCollectFinally final

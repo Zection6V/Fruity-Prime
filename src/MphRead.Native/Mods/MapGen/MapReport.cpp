@@ -5,6 +5,7 @@
 #include "../../Formats/Model.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../Read.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -18,6 +19,8 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
 
 namespace
 {
@@ -41,16 +44,6 @@ namespace
             ThrowListIndex();
         }
         return values[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
     }
 
     [[nodiscard]] std::int32_t ManagedAdd(

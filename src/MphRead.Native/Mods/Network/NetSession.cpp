@@ -20,6 +20,7 @@
 #include "NetSlotManager.hpp"
 #include "NetUnlagged.hpp"
 #include "PlayerColors.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -57,16 +58,11 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::HasFlag;
+
 namespace
 {
     using MphRead::Mods::Network::NetRole;
-
-    template <typename TEnum>
-    [[nodiscard]] bool HasFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
-    }
 
     [[nodiscard]] std::int32_t AddInt32Unchecked(
         std::int32_t left, std::int32_t right) noexcept

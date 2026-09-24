@@ -11,6 +11,9 @@
 #include "MapTextureBake.hpp"
 #include "MapTexturePack.hpp"
 #include "Q3Bsp.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -32,6 +35,15 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Subtract;
 
 namespace
 {
@@ -207,64 +219,6 @@ namespace
         a.Y = a.Y > b.Y ? a.Y : b.Y;
         a.Z = a.Z > b.Z ? a.Z : b.Z;
         return a;
-    }
-
-    [[nodiscard]] constexpr Vector3 Add(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Subtract(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-    }
-
-    [[nodiscard]] constexpr Vector2 Add(Vector2 left, Vector2 right) noexcept
-    {
-        return Vector2(left.X + right.X, left.Y + right.Y);
-    }
-
-    [[nodiscard]] constexpr Vector2 Subtract(Vector2 left, Vector2 right) noexcept
-    {
-        return Vector2(left.X - right.X, left.Y - right.Y);
-    }
-
-    [[nodiscard]] constexpr Vector2 Multiply(Vector2 value, float scalar) noexcept
-    {
-        return Vector2(value.X * scalar, value.Y * scalar);
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-    {
-        return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-    }
-
-    [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
-    {
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        const double wide = static_cast<double>(value);
-        if (wide < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        if (wide > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        return static_cast<std::int32_t>(std::trunc(wide));
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
@@ -626,43 +580,6 @@ namespace
         }
         return Q3StringEqual{}(
             value.substr(0, prefix.size()), prefix);
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-
-    [[nodiscard]] std::string CombinePath(
-        const std::string& first, const std::string& second)
-    {
-        return PathToUtf8(PathFromUtf8(first) / PathFromUtf8(second));
     }
 
     [[nodiscard]] std::string FileName(const std::string& path)
@@ -1571,7 +1488,7 @@ namespace MphRead::Mods::MapGen
         const std::string& baseDirectory = baseDirectoryValue.has_value()
             ? *baseDirectoryValue
             : CustomRooms::MapDirectory();
-        const std::string target = CombinePath(baseDirectory, *textures);
+        const std::string target = PathCombine(baseDirectory, *textures);
 
         try
         {

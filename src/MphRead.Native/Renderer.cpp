@@ -60,6 +60,7 @@
 #include "Mods/Network/MapVote.hpp"
 #include "Mods/PauseMenu.hpp"
 #include "Mods/WindowMode.hpp"
+#include "Formats/Types.hpp"
 
 #include <algorithm>
 #include <unordered_set>
@@ -81,6 +82,13 @@
 #include <thread>
 #include <type_traits>
 
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::CreateTranslation;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Negate;
 
 using OpenTK::Mathematics::Matrix4;
 using OpenTK::Mathematics::Vector2;
@@ -100,11 +108,6 @@ namespace
 {
     constexpr float Pi = 3.14159265358979323846F;
     constexpr float TwoPi = Pi * 2.0F;
-
-    [[nodiscard]] constexpr float DegreesToRadians(float value) noexcept
-    {
-        return value * (Pi / 180.0F);
-    }
 
     template <typename T>
     void RemoveFirst(std::vector<std::shared_ptr<T>>& values, const std::shared_ptr<T>& value)
@@ -131,25 +134,10 @@ namespace
         return trace;
     }
 
-    [[nodiscard]] Vector3 Negate(Vector3 v) noexcept
-    {
-        return Vector3(-v.X, -v.Y, -v.Z);
-    }
-
-    [[nodiscard]] float LengthSquared(Vector3 v) noexcept
-    {
-        return v.X * v.X + v.Y * v.Y + v.Z * v.Z;
-    }
-
     [[nodiscard]] std::string BoolOnOff(bool v) { return v ? "on" : "off"; }
 
     namespace GLMath
     {
-        [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
-        {
-            return left * right;
-        }
-
         [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
         {
             const float c = std::cos(angle);
@@ -158,35 +146,12 @@ namespace
                 Vector4(0,-s,c,0), Vector4(0,0,0,1));
         }
 
-        [[nodiscard]] Matrix4 CreateRotationY(float angle) noexcept
-        {
-            const float c = std::cos(angle);
-            const float s = std::sin(angle);
-            return Matrix4(Vector4(c,0,-s,0), Vector4(0,1,0,0),
-                Vector4(s,0,c,0), Vector4(0,0,0,1));
-        }
-
         [[nodiscard]] Matrix4 CreateRotationZ(float angle) noexcept
         {
             const float c = std::cos(angle);
             const float s = std::sin(angle);
             return Matrix4(Vector4(c,s,0,0), Vector4(-s,c,0,0),
                 Vector4(0,0,1,0), Vector4(0,0,0,1));
-        }
-
-        [[nodiscard]] Matrix4 CreateScale(float x, float y, float z) noexcept
-        {
-            return Matrix4(Vector4(x,0,0,0), Vector4(0,y,0,0),
-                Vector4(0,0,z,0), Vector4(0,0,0,1));
-        }
-
-        [[nodiscard]] Matrix4 CreateTranslation(Vector3 value) noexcept
-        {
-            Matrix4 result = MphRead::RendererDetail::IdentityMatrix();
-            result.M41 = value.X;
-            result.M42 = value.Y;
-            result.M43 = value.Z;
-            return result;
         }
 
         [[nodiscard]] Matrix4 Transpose(Matrix4 value) noexcept
@@ -672,7 +637,6 @@ namespace MphRead
         Entities::PlayerEntity::Construct(this);
         Music::Init();
     }
-
 
     Vector2i Scene::Size() const noexcept { return _rendererSize; }
     void Scene::Size(Vector2i value) noexcept { _rendererSize = value; }
@@ -2399,10 +2363,10 @@ namespace MphRead
         if (_cameraMode == MphRead::CameraMode::Pivot)
         {
             _viewMatrix.M43 = -_pivotDistance;
-            _viewMatrix = GLMath::Multiply(GLMath::CreateRotationX(DegreesToRadians(_pivotAngleX)), _viewMatrix);
-            _viewMatrix = GLMath::Multiply(GLMath::CreateRotationY(DegreesToRadians(_pivotAngleY)), _viewMatrix);
-            _viewInvRotMatrix = _viewInvRotYMatrix = GLMath::CreateRotationY(DegreesToRadians(-_pivotAngleY));
-            _viewInvRotMatrix = GLMath::Multiply(GLMath::CreateRotationX(DegreesToRadians(-_pivotAngleX)), _viewInvRotMatrix);
+            _viewMatrix = Multiply(GLMath::CreateRotationX(DegreesToRadians(_pivotAngleX)), _viewMatrix);
+            _viewMatrix = Multiply(CreateRotationY(DegreesToRadians(_pivotAngleY)), _viewMatrix);
+            _viewInvRotMatrix = _viewInvRotYMatrix = CreateRotationY(DegreesToRadians(-_pivotAngleY));
+            _viewInvRotMatrix = Multiply(GLMath::CreateRotationX(DegreesToRadians(-_pivotAngleX)), _viewInvRotMatrix);
         }
         else if (_cameraMode == MphRead::CameraMode::Roam || _cameraMode == MphRead::CameraMode::Player)
         {
@@ -3019,7 +2983,7 @@ namespace MphRead
                     element->ExpirationTime += element->BufferTime - element->DrainTime;
                 }
                 element->Transform = element->EntityCollision
-                    ? GLMath::Multiply(element->OwnTransform, element->EntityCollision->Transform)
+                    ? Multiply(element->OwnTransform, element->EntityCollision->Transform)
                     : element->OwnTransform;
                 TimeValues times(_elapsedTime, _elapsedTime - element->CreationTime, element->Lifespan);
                 auto action = element->Actions()->find(FuncAction::IncreaseParticleAmount);
@@ -4358,7 +4322,7 @@ namespace MphRead
         const Vector3 position3d(position.X * _rendererSize.X - _rendererSize.X / 2.0F,
             (1.0F - position.Y) * _rendererSize.Y - _rendererSize.Y / 2.0F, -1.0F);
         Matrix4 transform = GLMath::CreateRotationZ(DegreesToRadians(angle))
-            * GLMath::CreateScale(scale, scale, 1.0F) * GLMath::CreateTranslation(position3d);
+            * CreateScale(scale, scale, 1.0F) * CreateTranslation(position3d);
         GL::UniformMatrix4(_shaderLocations->MatrixStack, false, transform);
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
@@ -4433,7 +4397,7 @@ namespace MphRead
                 float newHeight = height / 192.0F * viewHeight;
                 newWidth *= model->Scale.X;
                 newHeight *= model->Scale.Y;
-                Matrix4 transform = GLMath::CreateScale(newWidth / width, newHeight / height, 1.0F);
+                Matrix4 transform = CreateScale(newWidth / width, newHeight / height, 1.0F);
                 transform.M41 = xOffset;
                 transform.M42 = yOffset;
                 transform.M43 = -1.0F;
@@ -5021,7 +4985,6 @@ namespace MphRead
         (void)e;
 #endif
     }
-
 
     void Scene::OutputStart()
     {
@@ -6126,7 +6089,6 @@ namespace MphRead
     {
         SetItem(GetKey(textureId, paletteId, recolorId), TextureMapValue{bindingId, onlyOpaque});
     }
-
 
 #undef MPHREAD_DEBUG_ASSERT
 

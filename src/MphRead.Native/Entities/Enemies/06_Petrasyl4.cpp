@@ -6,6 +6,8 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -17,39 +19,21 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Scale;
+using ::OpenTK::Mathematics::WithY;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
     {
         using OpenTK::Mathematics::Vector3;
-
-        template <typename TEnum>
-        [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-        {
-            using Underlying = std::underlying_type_t<TEnum>;
-            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag))
-                == static_cast<Underlying>(flag);
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
         {
@@ -75,43 +59,6 @@ namespace MphRead::Entities::Enemies
                 throw System::NullReferenceException();
             }
             return *player;
-        }
-
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] constexpr Vector3 Scale(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-        }
-
-        [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
         }
 
         [[nodiscard]] AnimationInfo& RequireAnimInfo(ModelInstance& model)
@@ -248,7 +195,7 @@ namespace MphRead::Entities::Enemies
             static_cast<void>(Rng::GetRandomInt2(0x1000));
 
             Vector3 facing = FacingVector();
-            _field184 = MphRead::Entities::Enemies::Scale(facing, 0.05F);
+            _field184 = ::OpenTK::Mathematics::Scale(facing, 0.05F);
             if (_field184.X == 0.0F && _field184.Y == 0.0F)
             {
                 _field184 = facing;
@@ -257,7 +204,7 @@ namespace MphRead::Entities::Enemies
             {
                 _field184 = _field184.Normalized();
             }
-            _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
+            _speed = Divide(::OpenTK::Mathematics::Scale(_field184, 0.05F), 2.0F);
         }
     }
 
@@ -395,7 +342,7 @@ namespace MphRead::Entities::Enemies
         }
 
         SetTransform(newFacing, UpVector(), static_cast<Vector3>(Position));
-        _speed = Divide(MphRead::Entities::Enemies::Scale(_field184, 0.05F), 2.0F);
+        _speed = Divide(::OpenTK::Mathematics::Scale(_field184, 0.05F), 2.0F);
         _targetY += _speed.Y / 2.0F;
         _speed.Y += ySpeedInc / 2.0F;
     }

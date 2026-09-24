@@ -8,6 +8,7 @@
 #include "../SceneSetup.hpp"
 #include "BeamProjectileEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../Formats/Types.hpp"
 
 #include <any>
 #include <bit>
@@ -16,6 +17,8 @@
 #include <cstdint>
 #include <memory>
 #include <type_traits>
+
+using ::MphRead::TestFlag;
 
 namespace
 {
@@ -38,13 +41,6 @@ namespace
         {
             throw MphRead::Memory::Detail::InvalidCastException();
         }
-    }
-
-    template <typename TEnum>
-    [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-    {
-        using Underlying = std::underlying_type_t<TEnum>;
-        return (static_cast<Underlying>(value) & static_cast<Underlying>(flag)) != 0;
     }
 
     // C# masks Int32 shift counts to five bits. The unsigned shift plus bit_cast

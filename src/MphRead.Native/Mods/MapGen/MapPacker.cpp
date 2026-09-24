@@ -12,6 +12,8 @@
 #include "MapTexturePack.hpp"
 #include "Q3Import.hpp"
 #include "RawStructs.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -47,6 +49,12 @@
 #include <locale.h>
 #include <wchar.h>
 #endif
+
+using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace MphRead::Utility
 {
@@ -287,27 +295,6 @@ namespace
             return std::numeric_limits<std::int32_t>::max();
         }
         return static_cast<std::int32_t>(std::trunc(wide));
-    }
-
-    [[nodiscard]] float RoundToEven(float value) noexcept
-    {
-        if (!std::isfinite(value) || value == 0.0F)
-        {
-            return value;
-        }
-        const float lower = std::floor(value);
-        const float fraction = value - lower;
-        if (fraction < 0.5F)
-        {
-            return lower;
-        }
-        if (fraction > 0.5F)
-        {
-            return lower + 1.0F;
-        }
-        const float magnitude = std::fabs(lower);
-        const bool even = std::fmod(magnitude, 2.0F) == 0.0F;
-        return even ? lower : lower + 1.0F;
     }
 
     [[nodiscard]] std::int32_t RoundedInt32(float value) noexcept
@@ -935,44 +922,6 @@ namespace
         return result;
     }
 
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-
-    [[nodiscard]] std::string CombinePath(
-        const std::string& left,
-        const std::string& right)
-    {
-        return PathToUtf8(PathFromUtf8(left) / PathFromUtf8(right));
-    }
-
     void CreateDirectory(const std::string& path)
     {
         if (path.empty())
@@ -981,34 +930,6 @@ namespace
                 "The value cannot be an empty string. (Parameter 'path')");
         }
         std::filesystem::create_directories(PathFromUtf8(path));
-    }
-
-    void WriteAllBytes(
-        const std::string& path,
-        const std::vector<std::uint8_t>& bytes)
-    {
-        std::ofstream stream(
-            PathFromUtf8(path),
-            std::ios::binary | std::ios::out | std::ios::trunc);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file for writing: " + path);
-        }
-        if (!bytes.empty())
-        {
-            stream.write(
-                reinterpret_cast<const char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-        }
-        if (!stream)
-        {
-            throw std::ios_base::failure("I/O error while writing file: " + path);
-        }
-        stream.close();
-        if (!stream)
-        {
-            throw std::ios_base::failure("I/O error while closing file: " + path);
-        }
     }
 
     [[nodiscard]] std::string FormatN0(std::size_t value)
@@ -1704,18 +1625,18 @@ namespace MphRead::Mods::MapGen
                 entityList.data(), entityList.size()));
         auto [nodes, nodeCount, edges] = MapNodePacker::Pack(&map->Solid());
 
-        const std::string modelPath = CombinePath(archiveDir, prefix + "_Model.bin");
-        WriteAllBytes(modelPath, model);
-        const std::string animPath = CombinePath(archiveDir, prefix + "_Anim.bin");
+        const std::string modelPath = PathCombine(archiveDir, prefix + "_Model.bin");
+        FileWriteAllBytes(modelPath, model);
+        const std::string animPath = PathCombine(archiveDir, prefix + "_Anim.bin");
         const std::vector<std::uint8_t> emptyAnim(24U);
-        WriteAllBytes(animPath, emptyAnim);
-        const std::string collisionPath = CombinePath(archiveDir, prefix + "_Collision.bin");
-        WriteAllBytes(collisionPath, collision);
-        const std::string entityPath = CombinePath(entityDir, prefix + "_Ent.bin");
-        WriteAllBytes(entityPath, entities);
+        FileWriteAllBytes(animPath, emptyAnim);
+        const std::string collisionPath = PathCombine(archiveDir, prefix + "_Collision.bin");
+        FileWriteAllBytes(collisionPath, collision);
+        const std::string entityPath = PathCombine(entityDir, prefix + "_Ent.bin");
+        FileWriteAllBytes(entityPath, entities);
         CreateDirectory(nodeDir);
-        const std::string nodePath = CombinePath(nodeDir, prefix + "_Node.bin");
-        WriteAllBytes(nodePath, nodes);
+        const std::string nodePath = PathCombine(nodeDir, prefix + "_Node.bin");
+        FileWriteAllBytes(nodePath, nodes);
 
         if (verbose)
         {

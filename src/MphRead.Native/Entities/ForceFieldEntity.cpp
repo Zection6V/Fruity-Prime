@@ -9,6 +9,7 @@
 #include "Enemies/49_ForceFieldLock.hpp"
 #include "EnemySpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <array>
 #include <cassert>
@@ -17,28 +18,10 @@
 #include <memory>
 #include <utility>
 
+using ::MphRead::NativeRuntime::RequireReference;
+
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& RequireReference(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     template <typename T, std::size_t Size>
     [[nodiscard]] const T& GetChecked(
         const std::array<T, Size>& values, std::uint32_t index)

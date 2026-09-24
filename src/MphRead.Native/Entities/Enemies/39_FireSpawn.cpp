@@ -8,6 +8,9 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -21,6 +24,14 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::RoundToEven;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::ClearScale;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::WithY;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -28,36 +39,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] const T& RequireReference(const std::shared_ptr<const T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         template <typename T, std::size_t N>
         [[nodiscard]] T& ArrayAt(std::array<T, N>& values, std::int32_t index)
@@ -151,79 +132,11 @@ namespace MphRead::Entities::Enemies
             return std::bit_cast<std::int32_t>(bits);
         }
 
-        [[nodiscard]] constexpr Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float y) noexcept
-        {
-            value.Y += y;
-            return value;
-        }
-
         void SetTranslation(Matrix4& transform, Vector3 position) noexcept
         {
             transform.M41 = position.X;
             transform.M42 = position.Y;
             transform.M43 = position.Z;
-        }
-
-        [[nodiscard]] Matrix4 ClearScale(Matrix4 transform)
-        {
-            const Vector3 row0
-                = Vector3(transform.M11, transform.M12, transform.M13).Normalized();
-            const Vector3 row1
-                = Vector3(transform.M21, transform.M22, transform.M23).Normalized();
-            const Vector3 row2
-                = Vector3(transform.M31, transform.M32, transform.M33).Normalized();
-
-            transform.M11 = row0.X;
-            transform.M12 = row0.Y;
-            transform.M13 = row0.Z;
-            transform.M21 = row1.X;
-            transform.M22 = row1.Y;
-            transform.M23 = row1.Z;
-            transform.M31 = row2.X;
-            transform.M32 = row2.Y;
-            transform.M33 = row2.Z;
-            return transform;
-        }
-
-        [[nodiscard]] Matrix4 CreateRotationY(float angle) noexcept
-        {
-            const float cosine = std::cos(angle);
-            const float sine = std::sin(angle);
-            return Matrix4(
-                Vector4(cosine, 0.0F, -sine, 0.0F),
-                Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-                Vector4(sine, 0.0F, cosine, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
-        }
-
-        [[nodiscard]] float RoundToEven(float value) noexcept
-        {
-            if (!std::isfinite(value))
-            {
-                return value;
-            }
-            const float lower = std::floor(value);
-            const float fraction = value - lower;
-            if (fraction < 0.5F)
-            {
-                return lower;
-            }
-            if (fraction > 0.5F)
-            {
-                return lower + 1.0F;
-            }
-            return std::fmod(lower, 2.0F) == 0.0F ? lower : lower + 1.0F;
         }
 
         [[nodiscard]] std::uint32_t RoundRadiusToUInt32(float radius) noexcept

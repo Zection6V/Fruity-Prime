@@ -17,6 +17,8 @@
 #include "EnemyInstanceEntity.hpp"
 #include "Players/HalfturretEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <any>
@@ -31,6 +33,16 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateTranslation;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
+
 namespace MphRead::Entities
 {
     namespace
@@ -38,34 +50,6 @@ namespace MphRead::Entities
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename TEnum>
-        [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-        {
-            using Underlying = std::underlying_type_t<TEnum>;
-            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag))
-                == static_cast<Underlying>(flag);
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
 
         template <typename T>
         [[nodiscard]] T* RawPointer(T* value) noexcept
@@ -157,47 +141,6 @@ namespace MphRead::Entities
                 throw SceneDetail::IndexOutOfRangeException();
             }
             return (*values)[static_cast<std::size_t>(index)];
-        }
-
-        [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-        }
-
-        [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-        }
-
-        [[nodiscard]] constexpr float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(LengthSquared(value));
-        }
-
-        [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] constexpr Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] Matrix4 CreateTranslation(Vector3 position) noexcept
-        {
-            return Matrix4(
-                Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-                Vector4(position, 1.0F));
         }
 
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)

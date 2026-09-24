@@ -7,6 +7,8 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -24,6 +26,9 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+
 namespace
 {
     template <typename T>
@@ -39,21 +44,6 @@ namespace
     using MphRead::Export::Collada;
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
 
     void WriteAllText(std::string_view path, std::string_view text)
     {
@@ -199,11 +189,6 @@ namespace
         return std::min(std::max(value, 0.0F), 1.0F);
     }
 
-    [[nodiscard]] float RadiansToDegrees(float radians) noexcept
-    {
-        constexpr float RadiansToDegreesFactor = 57.295779513082320876798154814105F;
-        return radians * RadiansToDegreesFactor;
-    }
 }
 
 namespace MphRead::Export

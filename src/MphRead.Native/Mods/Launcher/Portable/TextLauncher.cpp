@@ -38,6 +38,7 @@
 #include "../../Network/NetStatus.hpp"
 #include "../../Update/Updater.hpp"
 #include "../../WindowMode.hpp"
+#include "../../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -79,6 +80,8 @@
 #endif
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::FileExists;
 
 namespace MphRead::GameStateDetail
 {
@@ -644,45 +647,6 @@ namespace
     [[nodiscard]] bool OutputRedirected() noexcept
     {
         return ConsoleIsOutputRedirected();
-    }
-
-    [[nodiscard]] bool FileExists(const std::string& path) noexcept
-    {
-        if (path.empty() || path.find('\0') != std::string::npos)
-        {
-            return false;
-        }
-
-        try
-        {
-            const std::filesystem::path nativePath
-                = std::filesystem::absolute(PathFromManagedString(path)).lexically_normal();
-#if defined(_WIN32)
-            const DWORD attributes = ::GetFileAttributesW(nativePath.c_str());
-            return attributes != INVALID_FILE_ATTRIBUTES
-                && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-#else
-            struct stat info{};
-            if (::lstat(nativePath.c_str(), &info) != 0)
-            {
-                return false;
-            }
-            if (S_ISLNK(info.st_mode))
-            {
-                struct stat target{};
-                if (::stat(nativePath.c_str(), &target) != 0)
-                {
-                    return true;
-                }
-                return !S_ISDIR(target.st_mode);
-            }
-            return !S_ISDIR(info.st_mode);
-#endif
-        }
-        catch (...)
-        {
-            return false;
-        }
     }
 
     void WriteExceptionStackTrace(const std::exception& exception)

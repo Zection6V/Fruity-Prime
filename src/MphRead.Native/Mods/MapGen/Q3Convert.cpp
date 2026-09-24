@@ -8,6 +8,8 @@
 #include "MapDefinition.hpp"
 #include "MapTextureBake.hpp"
 #include "Q3Bsp.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -43,6 +45,11 @@
 #include <dlfcn.h>
 #endif
 
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
 {
@@ -166,41 +173,6 @@ namespace
             return std::signbit(left) && std::signbit(right) ? -0.0F : 0.0F;
         }
         return left > right ? left : right;
-    }
-
-    [[nodiscard]] float RoundToEven(float value) noexcept
-    {
-        if (!std::isfinite(value) || value == 0.0F)
-        {
-            return value;
-        }
-        if (std::fabs(value) >= 8388608.0F)
-        {
-            return value;
-        }
-
-        const float lower = std::floor(value);
-        const float difference = value - lower;
-        float rounded;
-        if (difference < 0.5F)
-        {
-            rounded = lower;
-        }
-        else if (difference > 0.5F)
-        {
-            rounded = lower + 1.0F;
-        }
-        else
-        {
-            rounded = std::fmod(std::fabs(lower), 2.0F) == 0.0F
-                ? lower
-                : lower + 1.0F;
-        }
-        if (rounded == 0.0F)
-        {
-            return std::copysign(0.0F, value);
-        }
-        return rounded;
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
@@ -1014,55 +986,6 @@ namespace
         return result;
     }
 
-    [[nodiscard]] std::filesystem::path PathFromUtf8(
-        std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(
-        const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-
-    [[nodiscard]] std::string CombinePath(
-        const std::string& first,
-        const std::string& second)
-    {
-        if (first.empty())
-        {
-            return second;
-        }
-        if (second.empty())
-        {
-            return first;
-        }
-        return PathToUtf8(
-            PathFromUtf8(first) / PathFromUtf8(second));
-    }
-
     [[nodiscard]] std::string FileName(
         const std::string& path)
     {
@@ -1106,31 +1029,6 @@ namespace
         return PathToUtf8(
             std::filesystem::absolute(
                 PathFromUtf8(path)).lexically_normal());
-    }
-
-    [[nodiscard]] bool FileExists(
-        const std::string& path)
-    {
-        if (path.empty())
-        {
-            return false;
-        }
-        try
-        {
-            const std::string fullPath = FullPath(path);
-            std::error_code error;
-            const bool exists = std::filesystem::is_regular_file(
-                PathFromUtf8(fullPath), error);
-            return !error && exists;
-        }
-        catch (const std::invalid_argument&)
-        {
-            return false;
-        }
-        catch (const std::filesystem::filesystem_error&)
-        {
-            return false;
-        }
     }
 
     void CreateDirectory(const std::string& path)
@@ -1990,7 +1888,7 @@ namespace MphRead::Mods::MapGen
             room, false);
         const std::string directory = outputDir.has_value()
             ? *outputDir
-            : CombinePath(CustomRooms::MapDirectory(), prefix);
+            : PathCombine(CustomRooms::MapDirectory(), prefix);
         CreateDirectory(directory);
 
         std::shared_ptr<std::vector<float>> min;
@@ -2027,7 +1925,7 @@ namespace MphRead::Mods::MapGen
 
         const std::string levelName = FileName(sourceValue);
         const std::string beside
-            = CombinePath(directory, levelName);
+            = PathCombine(directory, levelName);
         const std::string besideFullPath = FullPath(beside);
         const std::string sourceFullPath = FullPath(sourceValue);
         if (besideFullPath != sourceFullPath)
@@ -2036,7 +1934,7 @@ namespace MphRead::Mods::MapGen
         }
 
         const std::string texturePath
-            = CombinePath(directory, prefix + ".tex");
+            = PathCombine(directory, prefix + ".tex");
         auto archivePaths = std::make_shared<
             std::vector<std::optional<std::string>>>();
         archivePaths->push_back(sourceValue);
@@ -2131,7 +2029,7 @@ namespace MphRead::Mods::MapGen
             unit);
 
         const std::string path
-            = CombinePath(directory, prefix + ".json");
+            = PathCombine(directory, prefix + ".json");
         definition->Save(path);
 
         MapDefinition::SpawnList* outputSpawns

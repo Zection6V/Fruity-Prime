@@ -10,6 +10,10 @@
 #include <limits>
 #include <system_error>
 #include <utility>
+#include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
+
+using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
 {
@@ -82,27 +86,6 @@ namespace
             return max;
         }
         return value;
-    }
-
-    [[nodiscard]] double RoundToEven(double value) noexcept
-    {
-        if (!std::isfinite(value))
-        {
-            return value;
-        }
-        const double lower = std::floor(value);
-        const double fraction = value - lower;
-        if (fraction < 0.5)
-        {
-            return lower;
-        }
-        if (fraction > 0.5)
-        {
-            return lower + 1.0;
-        }
-        return std::fmod(std::fabs(lower), 2.0) == 0.0
-            ? lower
-            : lower + 1.0;
     }
 
     [[nodiscard]] std::int32_t DoubleToInt32Unchecked(double value) noexcept

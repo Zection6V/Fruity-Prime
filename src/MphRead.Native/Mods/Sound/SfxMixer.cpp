@@ -1,4 +1,5 @@
 #include "SfxMixer.hpp"
+#include "../../Formats/Types.hpp"
 
 #if defined(__ANDROID__)
 #include "../../Sound/Music.hpp"
@@ -13,6 +14,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+
 
 namespace MphRead::Mods::Sound
 {
@@ -148,16 +150,6 @@ namespace MphRead::Mods::Sound
             return static_cast<std::int32_t>(value);
         }
 
-        Vector3 Subtract(const Vector3& left, const Vector3& right)
-        {
-            return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-        }
-
-        Vector3 Divide(const Vector3& value, float divisor)
-        {
-            return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
-
         float Dot(const Vector3& left, const Vector3& right)
         {
             return left.X * right.X + left.Y * right.Y + left.Z * right.Z;
@@ -169,16 +161,6 @@ namespace MphRead::Mods::Sound
                 left.Y * right.Z - left.Z * right.Y,
                 left.Z * right.X - left.X * right.Z,
                 left.X * right.Y - left.Y * right.X);
-        }
-
-        float LengthSquared(const Vector3& value)
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        float Length(const Vector3& value)
-        {
-            return std::sqrt(LengthSquared(value));
         }
 
         Vector3 Normalized(const Vector3& value)
@@ -905,3 +887,9 @@ namespace MphRead::Mods::Sound
     }
 }
 #endif
+
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Subtract;
+

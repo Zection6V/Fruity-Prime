@@ -7,6 +7,7 @@
 #include "Formats.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "Types.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -15,6 +16,7 @@
 #include <unordered_set>
 #include <utility>
 
+using ::OpenTK::Mathematics::CreateTranslation;
 
 namespace
 {
@@ -47,15 +49,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    [[nodiscard]] Matrix4 CreateTranslation(Vector3 position) noexcept
-    {
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(position, 1.0F));
     }
 
     [[nodiscard]] constexpr float DistanceSquared(Vector3 left, Vector3 right) noexcept

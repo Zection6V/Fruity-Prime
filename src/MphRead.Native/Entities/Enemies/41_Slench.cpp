@@ -15,6 +15,8 @@
 #include "../DoorEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <array>
 #include <bit>
@@ -30,6 +32,18 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::SetRow3;
+using ::OpenTK::Mathematics::WithY;
+
 namespace MphRead::Entities::Enemies
 {
     namespace
@@ -38,34 +52,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename TEnum>
-        [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
-        {
-            using Underlying = std::underlying_type_t<TEnum>;
-            return (static_cast<Underlying>(value) & static_cast<Underlying>(flag))
-                == static_cast<Underlying>(flag);
-        }
 
         [[nodiscard]] EnemySpawnEntity* CastSpawner(EntityBase* spawner) noexcept
         {
@@ -121,49 +107,6 @@ namespace MphRead::Entities::Enemies
             return values[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float Length(Vector3 value)
-        {
-            return std::sqrt(LengthSquared(value));
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float factor) noexcept
-        {
-            return Vector3(
-                value.X * factor, value.Y * factor, value.Z * factor);
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
-        }
-
-        [[nodiscard]] float RadiansToDegrees(float radians) noexcept
-        {
-            return radians * (180.0F / 3.14159265358979323846F);
-        }
-
         [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
         {
             axis = axis.Normalized();
@@ -206,13 +149,6 @@ namespace MphRead::Entities::Enemies
                 value.X * matrix.M11 + value.Y * matrix.M21 + value.Z * matrix.M31,
                 value.X * matrix.M12 + value.Y * matrix.M22 + value.Z * matrix.M32,
                 value.X * matrix.M13 + value.Y * matrix.M23 + value.Z * matrix.M33);
-        }
-
-        void SetRow3(Matrix4& matrix, Vector3 value) noexcept
-        {
-            matrix.M41 = value.X;
-            matrix.M42 = value.Y;
-            matrix.M43 = value.Z;
         }
 
         [[nodiscard]] std::int32_t AddInt32Unchecked(

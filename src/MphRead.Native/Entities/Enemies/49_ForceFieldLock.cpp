@@ -6,6 +6,8 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../ForceFieldEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <any>
 #include <bit>
@@ -15,6 +17,9 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace MphRead::Entities::Enemies
 {
@@ -29,26 +34,6 @@ namespace MphRead::Entities::Enemies
             return typedSpawner;
         }
 
-        template <typename T>
-        [[nodiscard]] T& RequireReference(T* value)
-        {
-            if (value == nullptr)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& RequireReference(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
-        }
-
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
@@ -57,11 +42,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] float Dot(Vector3 left, Vector3 right) noexcept
         {
             return left.X * right.X + left.Y * right.Y + left.Z * right.Z;
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float factor) noexcept
-        {
-            return Vector3(value.X * factor, value.Y * factor, value.Z * factor);
         }
 
         template <typename T>

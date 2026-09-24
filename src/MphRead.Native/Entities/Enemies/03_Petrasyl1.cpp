@@ -5,6 +5,8 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <bit>
 #include <cassert>
@@ -16,6 +18,14 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Negate;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -49,36 +59,6 @@ namespace MphRead::Entities::Enemies
             return *player;
         }
 
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
-        [[nodiscard]] Vector3 Negate(Vector3 value) noexcept
-        {
-            return Vector3(-value.X, -value.Y, -value.Z);
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            return Vector3(value.X, y, value.Z);
-        }
-
-        [[nodiscard]] float LengthSquared(Vector3 value) noexcept
-        {
-            return value.X * value.X + value.Y * value.Y + value.Z * value.Z;
-        }
-
-        [[nodiscard]] float DegreesToRadians(float degrees) noexcept
-        {
-            return degrees * (3.14159265358979323846F / 180.0F);
-        }
-
         [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept
         {
             return std::bit_cast<std::int32_t>(value);
@@ -95,16 +75,6 @@ namespace MphRead::Entities::Enemies
             return WrapInt32(static_cast<std::uint32_t>(value) - 1U);
         }
 
-        [[nodiscard]] std::int32_t FloatToInt32(float value) noexcept
-        {
-            if (!std::isfinite(value)
-                || value >= 2147483648.0F
-                || value < -2147483648.0F)
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(value);
-        }
     }
 }
 
@@ -189,7 +159,7 @@ namespace MphRead::Entities::Enemies
                 0, 0, SetFlags::Texture | SetFlags::Material | SetFlags::Node);
             Flags &= ~EnemyFlags::NoHomingNc;
             Flags &= ~EnemyFlags::Invincible;
-            _field18C = MultiplyInt32(FloatToInt32(_idleRangeZ / 0.7F), 2);
+            _field18C = MultiplyInt32(ConvertToInt32Net9(_idleRangeZ / 0.7F), 2);
             _speed = WithY(ScaleVector(_field194, 0.7F), 0.0F);
             _speed.X /= 2.0F;
             _speed.Y /= 2.0F;

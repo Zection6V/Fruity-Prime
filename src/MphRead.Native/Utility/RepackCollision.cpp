@@ -6,6 +6,8 @@
 #include "../Read.hpp"
 #include "../Scene.hpp"
 #include "../SceneSetup.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -34,6 +36,9 @@
 #define REPACK_COLLISION_DEBUG_ASSERT(condition) do { } while (false)
 #endif
 
+using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::Length;
 
 namespace
 {
@@ -125,16 +130,6 @@ namespace
     {
         return left.X == right.X && left.Y == right.Y
             && left.Z == right.Z && left.W == right.W;
-    }
-
-    [[nodiscard]] Vector3 Divide(Vector3 value, float divisor) noexcept
-    {
-        return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-    }
-
-    [[nodiscard]] float Length(Vector3 value) noexcept
-    {
-        return std::sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
     }
 
     [[nodiscard]] float FloatMin(float left, float right) noexcept
@@ -271,24 +266,6 @@ namespace
         const std::vector<std::uint8_t>& bytes) noexcept
     {
         return std::span<const std::uint8_t>(bytes.data(), bytes.size());
-    }
-
-    void WriteAllBytes(const std::string& path, const std::vector<std::uint8_t>& bytes)
-    {
-        std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file: " + path);
-        }
-        if (!bytes.empty())
-        {
-            stream.write(reinterpret_cast<const char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not write file: " + path);
-            }
-        }
     }
 
     [[nodiscard]] RoomMetadata& GetRoomMetadata(const std::string& room)
@@ -1605,8 +1582,8 @@ namespace MphRead::Utility
                 = RepackMphCollision(editors, info.Portals);
             const std::string outPath = Paths::Combine(
                 Paths::Export(), "_pack",
-                "out_" + std::filesystem::path(path).filename().string());
-            WriteAllBytes(outPath, bytes);
+                "out_" + ::MphRead::NativeRuntime::PathGetFileName(path));
+            FileWriteAllBytes(outPath, bytes);
         }
         Nop();
     }

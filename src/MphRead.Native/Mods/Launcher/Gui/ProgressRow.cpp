@@ -4,6 +4,10 @@
 #include <cmath>
 #include <limits>
 #include <string>
+#include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
+
+using ::MphRead::NativeRuntime::RoundToEven;
 
 namespace
 {
@@ -18,28 +22,6 @@ namespace
             return 1.0;
         }
         return value;
-    }
-
-    [[nodiscard]] double RoundToEven(double value) noexcept
-    {
-        if (!std::isfinite(value) || std::abs(value) >= 4503599627370496.0)
-        {
-            return value;
-        }
-
-        const double lower = std::floor(value);
-        const double difference = value - lower;
-        if (difference < 0.5)
-        {
-            return lower;
-        }
-        if (difference > 0.5)
-        {
-            return lower + 1.0;
-        }
-
-        const double half = lower / 2.0;
-        return half == std::floor(half) ? lower : lower + 1.0;
     }
 
     [[nodiscard]] std::int32_t DoubleToInt32(double value) noexcept

@@ -387,6 +387,7 @@ namespace MphRead.Mods.Diagnostics
                 }
 
                 CheckVulkanSceneDepthPreservation(framebuffer, size);
+                CheckVulkanPolygonOffsetIsolation(framebuffer, size);
                 CheckVulkanUniformIsolation(framebuffer, size);
                 CheckVulkanGeometryIsolation(framebuffer, size);
                 CheckVulkanAlphaTestReference(framebuffer, size);
@@ -472,6 +473,72 @@ namespace MphRead.Mods.Diagnostics
             }
             finally
             {
+                GL.Disable(EnableCap.DepthTest);
+                GL.DepthMask(true);
+                GL.UseProgram(0);
+                GL.Enable(EnableCap.Texture2D);
+                GL.DeleteProgram(program);
+            }
+        }
+
+        private static void CheckVulkanPolygonOffsetIsolation(
+            int framebuffer, int size)
+        {
+            int program = CreateSceneProgram();
+            try
+            {
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(program);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Texture2D);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(true);
+                GL.Enable(EnableCap.DepthTest);
+                GL.DepthFunc(DepthFunction.Less);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
+                GL.Uniform1(GL.GetUniformLocation(program, "use_texture"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_light"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "show_colors"), 1);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_override"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "mat_mode"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "mat_alpha"), 1f);
+
+                // Same coplanar depth twice. The second draw can win a strict
+                // LESS test only if GL_POLYGON_OFFSET_FILL selects the
+                // depth-writing scene shader and applies the negative bias.
+                GL.Disable(EnableCap.PolygonOffsetFill);
+                DrawDepthTestQuad(0f, 1f, 0f, 0f);
+                GL.PolygonOffset(-1f, -1f);
+                GL.Enable(EnableCap.PolygonOffsetFill);
+                DrawDepthTestQuad(0f, 0f, 1f, 0f);
+                GL.Disable(EnableCap.PolygonOffsetFill);
+                GL.PolygonOffset(0f, 0f);
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 2, size / 2, 0, 255, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan polygon-offset shader isolation did not reproduce OpenGL negative depth bias.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan isolated OpenGL polygon-offset depth bias passed.");
+            }
+            finally
+            {
+                GL.Disable(EnableCap.PolygonOffsetFill);
+                GL.PolygonOffset(0f, 0f);
                 GL.Disable(EnableCap.DepthTest);
                 GL.DepthMask(true);
                 GL.UseProgram(0);

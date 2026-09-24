@@ -116,18 +116,6 @@ namespace MphRead.Mods.Render
             return Active;
         }
 
-        /// <summary>
-        /// Release the renderer/window pairing after that native window has
-        /// shut down. The next window may then lock the currently requested
-        /// backend, which is how a settings change takes effect without
-        /// restarting the process.
-        /// </summary>
-        internal static void ReleaseWindow()
-        {
-            WindowCreated = false;
-            _activeImplementation = null;
-        }
-
         internal static RenderWindowApi WindowApi
         {
             get
@@ -142,6 +130,20 @@ namespace MphRead.Mods.Render
             }
         }
 #endif
+
+        /// <summary>
+        /// Release the renderer/window pairing after that native window has
+        /// shut down. The next window may then lock the currently requested
+        /// backend, which is how a settings change takes effect without
+        /// restarting the process.
+        /// </summary>
+        internal static void ReleaseWindow()
+        {
+            WindowCreated = false;
+#if !ANDROID
+            _activeImplementation = null;
+#endif
+        }
 
         public static string SaveName
         {

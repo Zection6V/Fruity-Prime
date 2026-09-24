@@ -28,6 +28,7 @@
 #include <csignal>
 #include <fstream>
 #include <string>
+#include <sys/utsname.h>
 #endif
 
 namespace MphRead::NativeRuntime
@@ -158,6 +159,163 @@ namespace MphRead::NativeRuntime
 #else
         return false;
 #endif
+    }
+
+    std::string EnvironmentCurrentDirectory()
+    {
+        std::error_code error;
+        const std::filesystem::path directory = std::filesystem::current_path(error);
+        if (error)
+        {
+            return std::string();
+        }
+        const std::u8string text = directory.u8string();
+        return std::string(text.begin(), text.end());
+    }
+
+    std::string RuntimeInformationProcessArchitecture()
+    {
+#if defined(__x86_64__) || defined(_M_X64)
+        return "X64";
+#elif defined(__i386__) || defined(_M_IX86)
+        return "X86";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+        return "Arm64";
+#elif defined(__arm__) || defined(_M_ARM)
+#if defined(__ARM_ARCH_6__)
+        return "Armv6";
+#else
+        return "Arm";
+#endif
+#elif defined(__wasm__)
+        return "Wasm";
+#elif defined(__s390x__)
+        return "S390x";
+#elif defined(__loongarch64)
+        return "LoongArch64";
+#elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__)
+        return "Ppc64le";
+#else
+        return "Unknown";
+#endif
+    }
+
+    std::string RuntimeInformationOSArchitecture()
+    {
+#if defined(_WIN32)
+        SYSTEM_INFO info{};
+        ::GetNativeSystemInfo(&info);
+        switch (info.wProcessorArchitecture)
+        {
+        case PROCESSOR_ARCHITECTURE_AMD64:
+            return "X64";
+        case PROCESSOR_ARCHITECTURE_INTEL:
+            return "X86";
+        case PROCESSOR_ARCHITECTURE_ARM:
+            return "Arm";
+        case PROCESSOR_ARCHITECTURE_ARM64:
+            return "Arm64";
+        default:
+            return RuntimeInformationProcessArchitecture();
+        }
+#else
+        struct utsname info{};
+        if (::uname(&info) != 0)
+        {
+            return RuntimeInformationProcessArchitecture();
+        }
+        const std::string machine(info.machine);
+        if (machine == "x86_64" || machine == "amd64")
+        {
+            return "X64";
+        }
+        if (machine == "i386" || machine == "i486"
+            || machine == "i586" || machine == "i686")
+        {
+            return "X86";
+        }
+        if (machine == "aarch64" || machine == "arm64")
+        {
+            return "Arm64";
+        }
+        if (machine.rfind("armv6", 0) == 0)
+        {
+            return "Armv6";
+        }
+        if (machine.rfind("arm", 0) == 0)
+        {
+            return "Arm";
+        }
+        if (machine == "s390x")
+        {
+            return "S390x";
+        }
+        if (machine == "loongarch64")
+        {
+            return "LoongArch64";
+        }
+        if (machine == "ppc64le")
+        {
+            return "Ppc64le";
+        }
+        return RuntimeInformationProcessArchitecture();
+#endif
+    }
+
+    std::string RuntimeInformationOSDescription()
+    {
+#if defined(_WIN32)
+        // "Microsoft Windows <major>.<minor>.<build>", as .NET spells it.
+        using RtlGetVersionFn = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
+        RTL_OSVERSIONINFOW version{};
+        version.dwOSVersionInfoSize = sizeof(version);
+        const HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+        if (ntdll != nullptr)
+        {
+            const auto getVersion = reinterpret_cast<RtlGetVersionFn>(
+                reinterpret_cast<void*>(::GetProcAddress(ntdll, "RtlGetVersion")));
+            if (getVersion != nullptr && getVersion(&version) == 0)
+            {
+                return "Microsoft Windows " + std::to_string(version.dwMajorVersion) + "."
+                    + std::to_string(version.dwMinorVersion) + "."
+                    + std::to_string(version.dwBuildNumber);
+            }
+        }
+        return "Microsoft Windows";
+#else
+        // "<sysname> <release> <version>", which is what .NET builds from uname.
+        struct utsname info{};
+        if (::uname(&info) != 0)
+        {
+            return std::string();
+        }
+        return std::string(info.sysname) + " " + info.release + " " + info.version;
+#endif
+    }
+
+    std::string RuntimeInformationRuntimeIdentifier()
+    {
+        std::string architecture = RuntimeInformationProcessArchitecture();
+        for (char& value : architecture)
+        {
+            value = static_cast<char>(
+                value >= 'A' && value <= 'Z' ? value - 'A' + 'a' : value);
+        }
+#if defined(__ANDROID__)
+        const std::string platform = "android";
+#elif defined(_WIN32)
+        const std::string platform = "win";
+#elif defined(__APPLE__)
+        const std::string platform = "osx";
+#else
+        const std::string platform = "linux";
+#endif
+        return platform + "-" + architecture;
+    }
+
+    std::string RuntimeInformationFrameworkDescription()
+    {
+        return ".NET native";
     }
 
     std::string EnvironmentUserProfile()

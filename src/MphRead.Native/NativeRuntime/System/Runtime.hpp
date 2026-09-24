@@ -29,6 +29,20 @@ namespace MphRead::NativeRuntime
     // Environment.GetFolderPath(Environment.SpecialFolder.UserProfile): the
     // home directory, or an empty string where there is none, as .NET returns.
     [[nodiscard]] std::string EnvironmentUserProfile();
+    // Environment.CurrentDirectory.
+    [[nodiscard]] std::string EnvironmentCurrentDirectory();
+
+    // System.Runtime.InteropServices.RuntimeInformation. The architecture
+    // names are the Architecture enum's own spellings, which is what the game
+    // prints.
+    [[nodiscard]] std::string RuntimeInformationProcessArchitecture();
+    [[nodiscard]] std::string RuntimeInformationOSArchitecture();
+    [[nodiscard]] std::string RuntimeInformationOSDescription();
+    [[nodiscard]] std::string RuntimeInformationRuntimeIdentifier();
+    // FrameworkDescription names the runtime the process is actually on. This
+    // build is not on .NET, and says so where the C# prints its version -- the
+    // same answer DebugLog's system line already gives.
+    [[nodiscard]] std::string RuntimeInformationFrameworkDescription();
 
     // AppContext.BaseDirectory: the directory the executable is in, UTF-8,
     // ending in a separator.

@@ -1,6 +1,7 @@
 #include "DebugLog.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "NativeRuntime/System/Heartbeat.hpp"
+#include "NativeRuntime/System/Runtime.hpp"
 
 #include "../Program.hpp"
 #include "Branding.hpp"
@@ -808,93 +809,16 @@ namespace
         return std::to_string(raw);
     }
 
+    // System.Runtime.InteropServices.RuntimeInformation, reproduced once in
+    // NativeRuntime/System/Runtime.
     [[nodiscard]] std::string ProcessArchitecture()
     {
-#if defined(__x86_64__) || defined(_M_X64)
-        return "X64";
-#elif defined(__i386__) || defined(_M_IX86)
-        return "X86";
-#elif defined(__aarch64__) || defined(_M_ARM64)
-        return "Arm64";
-#elif defined(__arm__) || defined(_M_ARM)
-#if defined(__ARM_ARCH_6__)
-        return "Armv6";
-#else
-        return "Arm";
-#endif
-#elif defined(__wasm__)
-        return "Wasm";
-#elif defined(__s390x__)
-        return "S390x";
-#elif defined(__loongarch64)
-        return "LoongArch64";
-#elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__)
-        return "Ppc64le";
-#else
-        return "Unknown";
-#endif
+        return ::MphRead::NativeRuntime::RuntimeInformationProcessArchitecture();
     }
 
     [[nodiscard]] std::string OsArchitecture()
     {
-#if defined(_WIN32)
-        SYSTEM_INFO info{};
-        GetNativeSystemInfo(&info);
-        switch (info.wProcessorArchitecture)
-        {
-        case PROCESSOR_ARCHITECTURE_AMD64:
-            return "X64";
-        case PROCESSOR_ARCHITECTURE_INTEL:
-            return "X86";
-        case PROCESSOR_ARCHITECTURE_ARM:
-            return "Arm";
-        case PROCESSOR_ARCHITECTURE_ARM64:
-            return "Arm64";
-        default:
-            return ProcessArchitecture();
-        }
-#else
-        struct utsname info{};
-        if (::uname(&info) != 0)
-        {
-            return ProcessArchitecture();
-        }
-        const std::string machine(info.machine);
-        if (machine == "x86_64" || machine == "amd64")
-        {
-            return "X64";
-        }
-        if (machine == "i386" || machine == "i486"
-            || machine == "i586" || machine == "i686")
-        {
-            return "X86";
-        }
-        if (machine == "aarch64" || machine == "arm64")
-        {
-            return "Arm64";
-        }
-        if (machine.rfind("armv6", 0) == 0)
-        {
-            return "Armv6";
-        }
-        if (machine.rfind("arm", 0) == 0)
-        {
-            return "Arm";
-        }
-        if (machine == "s390x")
-        {
-            return "S390x";
-        }
-        if (machine == "loongarch64")
-        {
-            return "LoongArch64";
-        }
-        if (machine == "ppc64le")
-        {
-            return "Ppc64le";
-        }
-        return ProcessArchitecture();
-#endif
+        return ::MphRead::NativeRuntime::RuntimeInformationOSArchitecture();
     }
 
     [[nodiscard]] std::string RuntimeArchitecture()

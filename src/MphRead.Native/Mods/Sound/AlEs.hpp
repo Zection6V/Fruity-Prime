@@ -1,6 +1,8 @@
 #pragma once
 
 #if defined(__ANDROID__)
+#include "../../Formats/Types.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -16,22 +18,6 @@ namespace System
     public:
         explicit DllNotFoundException(const char* message)
             : std::runtime_error(message)
-        {
-        }
-    };
-}
-
-namespace OpenTK::Mathematics
-{
-    struct Vector3
-    {
-        float X = 0.0F;
-        float Y = 0.0F;
-        float Z = 0.0F;
-
-        Vector3() = default;
-        Vector3(float x, float y, float z)
-            : X(x), Y(y), Z(z)
         {
         }
     };
@@ -78,6 +64,14 @@ namespace OpenTK::Audio::OpenAL
         SourceState = 0x1010,
         BuffersQueued = 0x1015,
         BuffersProcessed = 0x1016
+    };
+
+    enum class ALSourceState : std::int32_t
+    {
+        Initial = 0x1011,
+        Playing = 0x1012,
+        Paused = 0x1013,
+        Stopped = 0x1014
     };
 
     enum class ALListener3f : std::int32_t

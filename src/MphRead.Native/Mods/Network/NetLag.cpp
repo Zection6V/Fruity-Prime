@@ -29,6 +29,9 @@
 #include <fcntl.h>
 #include <langinfo.h>
 #include <locale.h>
+#if defined(__APPLE__)
+#include <xlocale.h>
+#endif
 #include <unistd.h>
 #endif
 

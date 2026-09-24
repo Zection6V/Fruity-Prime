@@ -4657,7 +4657,11 @@ namespace MphRead
     namespace
     {
         namespace GL = ::OpenTK::Graphics::OpenGL::GL;
+#if defined(__ANDROID__)
+        using AL = ::OpenTK::Audio::OpenAL::AL;
+#else
         namespace AL = ::OpenTK::Audio::OpenAL::AL;
+#endif
         using ::OpenTK::Audio::OpenAL::ALFormat;
         using ::OpenTK::Audio::OpenAL::ALGetSourcei;
         using ::OpenTK::Audio::OpenAL::ALSourcef;

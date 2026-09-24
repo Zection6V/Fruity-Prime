@@ -8,12 +8,43 @@ namespace MphRead.Mods.Render
 {
     internal static class DesktopGlContext
     {
+        private static bool _vulkanLoaderPrepared;
+
         public static void PreserveWorkingDirectory()
         {
             // GLFW otherwise changes a bundled Mac app to Contents/Resources,
             // separating launcher validation/settings from the extraction child.
             if (OperatingSystem.IsMacOS())
                 GLFW.InitHint(InitHintBool.CocoaChdirResources, false);
+        }
+
+        private static void PrepareVulkanLoader()
+        {
+            if (_vulkanLoaderPrepared || !OperatingSystem.IsLinux())
+            {
+                return;
+            }
+            _vulkanLoaderPrepared = true;
+            try
+            {
+                System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(
+                    typeof(Vulkan.VulkanNative).Assembly,
+                    (libraryName, _, _) =>
+                    {
+                        if (libraryName == "libdl"
+                            && System.Runtime.InteropServices.NativeLibrary.TryLoad(
+                                "libdl.so.2", out IntPtr handle))
+                        {
+                            return handle;
+                        }
+                        return IntPtr.Zero;
+                    });
+            }
+            catch (InvalidOperationException)
+            {
+                // A resolver was installed before the first renderer window.
+                // Leave it in charge rather than replacing another component's policy.
+            }
         }
 
         public static NativeWindowSettings Settings(bool background = false)
@@ -37,6 +68,7 @@ namespace MphRead.Mods.Render
             bool shaderCompilerSupported = !(OperatingSystem.IsMacOS()
                 && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
                     == System.Runtime.InteropServices.Architecture.Arm64);
+            PrepareVulkanLoader();
             bool vulkanAvailable = shaderCompilerSupported
                 && Veldrid.GraphicsDevice.IsBackendSupported(Veldrid.GraphicsBackend.Vulkan);
             RendererBackendKind backend = RendererBackend.LockForWindow(vulkanAvailable);

@@ -21,6 +21,7 @@
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace MphRead::Entities::Enemies
 {
@@ -55,11 +56,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::IndexOutOfRangeException();
             }
             return enemy.HitPlayers[static_cast<std::size_t>(slotIndex)];
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
 
         [[nodiscard]] float Clamp(float value, float min, float max) noexcept

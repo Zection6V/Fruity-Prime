@@ -23,9 +23,15 @@
 #include <utility>
 
 using ::MphRead::HasFlag;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Negate;
 using ::OpenTK::Mathematics::Normalize;
+using ::OpenTK::Mathematics::Subtract;
 
 namespace
 {
@@ -47,50 +53,6 @@ namespace
     using MphRead::Formats::Collision::Portal;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    [[nodiscard]] constexpr bool Equal(Vector3 left, Vector3 right) noexcept
-    {
-        return left.X == right.X
-            && left.Y == right.Y
-            && left.Z == right.Z;
-    }
-
-    [[nodiscard]] constexpr Vector3 Add(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(
-            left.X + right.X,
-            left.Y + right.Y,
-            left.Z + right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Subtract(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(
-            left.X - right.X,
-            left.Y - right.Y,
-            left.Z - right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(
-            value.X * scalar,
-            value.Y * scalar,
-            value.Z * scalar);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(
-            value.X / scalar,
-            value.Y / scalar,
-            value.Z / scalar);
-    }
-
-    [[nodiscard]] constexpr Vector3 Negate(Vector3 value) noexcept
-    {
-        return Vector3(-value.X, -value.Y, -value.Z);
-    }
 
     [[nodiscard]] constexpr Vector4 AddW(Vector4 value, float amount) noexcept
     {

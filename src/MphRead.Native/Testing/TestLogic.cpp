@@ -90,7 +90,7 @@ namespace
         return *value;
     }
 
-    [[nodiscard]] OpenTK::Mathematics::Matrix4x3 CreateScale(float scale) noexcept
+    [[nodiscard]] OpenTK::Mathematics::Matrix4x3 Matrix4x3CreateScale(float scale) noexcept
     {
         return OpenTK::Mathematics::Matrix4x3(
             OpenTK::Mathematics::Vector3(scale, 0.0F, 0.0F),
@@ -99,7 +99,7 @@ namespace
             OpenTK::Mathematics::Vector3());
     }
 
-    [[nodiscard]] OpenTK::Mathematics::Matrix4x3 CreateTranslation(
+    [[nodiscard]] OpenTK::Mathematics::Matrix4x3 Matrix4x3CreateTranslation(
         OpenTK::Mathematics::Vector3 position) noexcept
     {
         return OpenTK::Mathematics::Matrix4x3(
@@ -438,7 +438,7 @@ namespace MphRead::Testing
             }
             else
             {
-                const OpenTK::Mathematics::Matrix4x3 scaleMatrix = CreateScale(value.Scale());
+                const OpenTK::Mathematics::Matrix4x3 scaleMatrix = Matrix4x3CreateScale(value.Scale());
                 currentTextureMatrix = Matrix::Concat43(scaleMatrix, texMatrix);
                 currentTextureMatrix = Matrix::Concat43(currentTextureMatrix, _viewMatrix);
             }
@@ -451,7 +451,7 @@ namespace MphRead::Testing
             }
             else
             {
-                const OpenTK::Mathematics::Matrix4x3 scaleMatrix = CreateScale(value.Scale());
+                const OpenTK::Mathematics::Matrix4x3 scaleMatrix = Matrix4x3CreateScale(value.Scale());
                 currentTextureMatrix = Matrix::Concat43(scaleMatrix, texMatrix);
             }
         }
@@ -544,7 +544,7 @@ namespace MphRead::Testing
                                 CNodeAnimationSetData(innerModel, 0);
                             }
                             const OpenTK::Mathematics::Matrix4x3 matrix =
-                                CreateTranslation(value.Position());
+                                Matrix4x3CreateTranslation(value.Position());
                             const std::shared_ptr<CModel> playerModel = value.Model();
                             const std::int16_t someFlag = Require(playerModel).SomeFlag();
                             DrawAnimatedModel(
@@ -566,7 +566,7 @@ namespace MphRead::Testing
                     {
                         const std::int32_t v55 = 1;
                         const OpenTK::Mathematics::Matrix4x3 scaleMatrix =
-                            CreateScale(static_cast<float>(v55));
+                            Matrix4x3CreateScale(static_cast<float>(v55));
                         const OpenTK::Mathematics::Matrix4x3 matrix =
                             Matrix::Concat43(scaleMatrix, value.SomeMatrix());
                         CModelDraw(value.Field1A4(), matrix);

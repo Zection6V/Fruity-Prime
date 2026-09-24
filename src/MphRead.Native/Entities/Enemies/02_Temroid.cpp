@@ -25,7 +25,11 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -57,28 +61,6 @@ namespace MphRead::Entities::Enemies
                 throw System::NullReferenceException();
             }
             return *enemy;
-        }
-
-        [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-        }
-
-        [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-        }
-
-        [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] constexpr Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
         }
 
         [[nodiscard]] std::int32_t UncheckedAddInt32(

@@ -34,8 +34,12 @@
 
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::IsZero;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Negate;
+using ::OpenTK::Mathematics::Scale;
 
 namespace MphRead::Mods::Network
 {
@@ -45,27 +49,6 @@ namespace MphRead::Mods::Network
 
     namespace
     {
-        [[nodiscard]] Vector3 AddY(Vector3 value, float y) noexcept
-        {
-            value.Y += y;
-            return value;
-        }
-
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
-        [[nodiscard]] Vector3 Negate(Vector3 value) noexcept
-        {
-            return Vector3(-value.X, -value.Y, -value.Z);
-        }
-
-        [[nodiscard]] bool IsZero(Vector3 value) noexcept
-        {
-            return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
-        }
-
         template <typename TEnum>
         [[nodiscard]] TEnum RemoveFlag(TEnum value, TEnum flag) noexcept
         {

@@ -8,6 +8,7 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <any>
 #include <cassert>
@@ -18,6 +19,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::AddY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -57,12 +59,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::IndexOutOfRangeException();
             }
             return values[static_cast<std::size_t>(index)];
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
         }
 
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)

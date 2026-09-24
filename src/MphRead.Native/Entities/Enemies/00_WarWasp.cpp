@@ -16,7 +16,9 @@
 #include <utility>
 #include <vector>
 
+using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::Scale;
 
 namespace MphRead::Entities::Enemies
 {
@@ -29,16 +31,6 @@ namespace MphRead::Entities::Enemies
             EnemySpawnEntity* typedSpawner = dynamic_cast<EnemySpawnEntity*>(spawner);
             assert(typedSpawner != nullptr);
             return typedSpawner;
-        }
-
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
         }
 
         [[nodiscard]] PlayerEntity& MainPlayer()
@@ -154,7 +146,7 @@ namespace MphRead::Entities::Enemies
         }
         else
         {
-            _speed = ::MphRead::Entities::Enemies::Scale(travel, _stepDistance / distance);
+            _speed = ::OpenTK::Mathematics::Scale(travel, _stepDistance / distance);
             // todo: FPS stuff
             _speed.X /= 2.0F;
             _speed.Y /= 2.0F;

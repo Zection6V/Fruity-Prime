@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <vector>
 
+
 namespace MphRead::Mods::Sound
 {
     using OpenTK::Audio::OpenAL::ALFormat;
@@ -147,16 +148,6 @@ namespace MphRead::Mods::Sound
                 return std::numeric_limits<std::int32_t>::min();
             }
             return static_cast<std::int32_t>(value);
-        }
-
-        Vector3 Subtract(const Vector3& left, const Vector3& right)
-        {
-            return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-        }
-
-        Vector3 Divide(const Vector3& value, float divisor)
-        {
-            return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
         }
 
         float Dot(const Vector3& left, const Vector3& right)
@@ -897,6 +888,8 @@ namespace MphRead::Mods::Sound
 }
 #endif
 
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Subtract;
 

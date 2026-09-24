@@ -35,8 +35,13 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateTranslation;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
 
 namespace MphRead::Entities
 {
@@ -136,37 +141,6 @@ namespace MphRead::Entities
                 throw SceneDetail::IndexOutOfRangeException();
             }
             return (*values)[static_cast<std::size_t>(index)];
-        }
-
-        [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-        }
-
-        [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-        }
-
-        [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] constexpr Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] Matrix4 CreateTranslation(Vector3 position) noexcept
-        {
-            return Matrix4(
-                Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-                Vector4(position, 1.0F));
         }
 
         [[nodiscard]] MessageObject BoxInt32(std::int32_t value)

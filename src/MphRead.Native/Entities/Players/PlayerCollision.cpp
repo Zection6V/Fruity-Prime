@@ -29,8 +29,14 @@
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::IsZero;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
 
 namespace
 {
@@ -138,38 +144,6 @@ namespace
         return x > y ? x : y;
     }
 
-    [[nodiscard]] constexpr bool IsZero(Vector3 value) noexcept
-    {
-        return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
-    }
-
-    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scale) noexcept
-    {
-        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-    }
-
-    [[nodiscard]] constexpr Vector4 ScaleVector(Vector4 value, float scale) noexcept
-    {
-        return Vector4(value.X * scale, value.Y * scale, value.Z * scale, value.W * scale);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float divisor) noexcept
-    {
-        return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-    }
-
-    [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float amount) noexcept
-    {
-        value.Y += amount;
-        return value;
-    }
-
-    [[nodiscard]] constexpr Vector3 WithY(Vector3 value, float y) noexcept
-    {
-        value.Y = y;
-        return value;
-    }
-
     [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept
     {
         if (std::isnan(value))
@@ -191,17 +165,6 @@ namespace
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
     {
         return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationY(float angle)
-    {
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
-        return Matrix4(
-            Vector4(c, 0.0F, -s, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(s, 0.0F, c, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
 }

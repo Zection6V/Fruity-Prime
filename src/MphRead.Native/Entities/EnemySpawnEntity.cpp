@@ -62,6 +62,7 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Multiply;
 
 namespace MphRead::Entities
 {
@@ -90,44 +91,6 @@ namespace MphRead::Entities
                 throw System::NullReferenceException();
             }
             return *GameState::StorySave;
-        }
-
-        [[nodiscard]] Matrix4 Multiply(Matrix4 first, Matrix4 second) noexcept
-        {
-            Matrix4 result{};
-            result.M11 = first.M11 * second.M11 + first.M12 * second.M21
-                + first.M13 * second.M31 + first.M14 * second.M41;
-            result.M12 = first.M11 * second.M12 + first.M12 * second.M22
-                + first.M13 * second.M32 + first.M14 * second.M42;
-            result.M13 = first.M11 * second.M13 + first.M12 * second.M23
-                + first.M13 * second.M33 + first.M14 * second.M43;
-            result.M14 = first.M11 * second.M14 + first.M12 * second.M24
-                + first.M13 * second.M34 + first.M14 * second.M44;
-            result.M21 = first.M21 * second.M11 + first.M22 * second.M21
-                + first.M23 * second.M31 + first.M24 * second.M41;
-            result.M22 = first.M21 * second.M12 + first.M22 * second.M22
-                + first.M23 * second.M32 + first.M24 * second.M42;
-            result.M23 = first.M21 * second.M13 + first.M22 * second.M23
-                + first.M23 * second.M33 + first.M24 * second.M43;
-            result.M24 = first.M21 * second.M14 + first.M22 * second.M24
-                + first.M23 * second.M34 + first.M24 * second.M44;
-            result.M31 = first.M31 * second.M11 + first.M32 * second.M21
-                + first.M33 * second.M31 + first.M34 * second.M41;
-            result.M32 = first.M31 * second.M12 + first.M32 * second.M22
-                + first.M33 * second.M32 + first.M34 * second.M42;
-            result.M33 = first.M31 * second.M13 + first.M32 * second.M23
-                + first.M33 * second.M33 + first.M34 * second.M43;
-            result.M34 = first.M31 * second.M14 + first.M32 * second.M24
-                + first.M33 * second.M34 + first.M34 * second.M44;
-            result.M41 = first.M41 * second.M11 + first.M42 * second.M21
-                + first.M43 * second.M31 + first.M44 * second.M41;
-            result.M42 = first.M41 * second.M12 + first.M42 * second.M22
-                + first.M43 * second.M32 + first.M44 * second.M42;
-            result.M43 = first.M41 * second.M13 + first.M42 * second.M23
-                + first.M43 * second.M33 + first.M44 * second.M43;
-            result.M44 = first.M41 * second.M14 + first.M42 * second.M24
-                + first.M43 * second.M34 + first.M44 * second.M44;
-            return result;
         }
 
         [[nodiscard]] float DistanceSquared(Vector3 left, Vector3 right) noexcept

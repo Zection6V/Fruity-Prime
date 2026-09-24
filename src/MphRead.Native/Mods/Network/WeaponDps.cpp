@@ -28,9 +28,14 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Negate;
 using ::OpenTK::Mathematics::Normalize;
+using ::OpenTK::Mathematics::Scale;
+using ::OpenTK::Mathematics::Subtract;
 
 namespace
 {
@@ -53,32 +58,6 @@ namespace
     void IncrementInt32Unchecked(std::int32_t& value) noexcept
     {
         value = AddInt32Unchecked(value, 1);
-    }
-
-    [[nodiscard]] Vector3 Add(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
-    }
-
-    [[nodiscard]] Vector3 Subtract(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-    }
-
-    [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
-    {
-        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-    }
-
-    [[nodiscard]] Vector3 Negate(Vector3 value) noexcept
-    {
-        return Vector3(-value.X, -value.Y, -value.Z);
-    }
-
-    [[nodiscard]] Vector3 AddY(Vector3 value, float y) noexcept
-    {
-        value.Y += y;
-        return value;
     }
 
     [[nodiscard]] std::string HunterName(MphRead::Hunter value)

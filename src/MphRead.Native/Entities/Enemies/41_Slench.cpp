@@ -34,10 +34,15 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::SetRow3;
+using ::OpenTK::Mathematics::WithY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -102,29 +107,6 @@ namespace MphRead::Entities::Enemies
             return values[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float factor) noexcept
-        {
-            return Vector3(
-                value.X * factor, value.Y * factor, value.Z * factor);
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
         [[nodiscard]] Matrix4 CreateFromAxisAngle(Vector3 axis, float angle) noexcept
         {
             axis = axis.Normalized();
@@ -167,13 +149,6 @@ namespace MphRead::Entities::Enemies
                 value.X * matrix.M11 + value.Y * matrix.M21 + value.Z * matrix.M31,
                 value.X * matrix.M12 + value.Y * matrix.M22 + value.Z * matrix.M32,
                 value.X * matrix.M13 + value.Y * matrix.M23 + value.Z * matrix.M33);
-        }
-
-        void SetRow3(Matrix4& matrix, Vector3 value) noexcept
-        {
-            matrix.M41 = value.X;
-            matrix.M42 = value.Y;
-            matrix.M43 = value.Z;
         }
 
         [[nodiscard]] std::int32_t AddInt32Unchecked(

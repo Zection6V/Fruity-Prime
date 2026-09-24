@@ -37,6 +37,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 
 namespace
@@ -129,11 +130,6 @@ namespace
     {
         return left.X == right.X && left.Y == right.Y
             && left.Z == right.Z && left.W == right.W;
-    }
-
-    [[nodiscard]] Vector3 Divide(Vector3 value, float divisor) noexcept
-    {
-        return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
     }
 
     [[nodiscard]] float FloatMin(float left, float right) noexcept

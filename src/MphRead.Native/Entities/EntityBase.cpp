@@ -20,7 +20,16 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::ClearScale;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::CreateTranslation;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::IdentityMatrix;
 using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::Multiply;
 
 namespace
 {
@@ -74,83 +83,6 @@ namespace
         return result;
     }
 
-    [[nodiscard]] constexpr Matrix4 IdentityMatrix() noexcept
-    {
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr bool Equal(Vector3 left, Vector3 right) noexcept
-    {
-        return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-    }
-
-    [[nodiscard]] constexpr bool Equal(Matrix4 left, Matrix4 right) noexcept
-    {
-        return left.M11 == right.M11 && left.M12 == right.M12
-            && left.M13 == right.M13 && left.M14 == right.M14
-            && left.M21 == right.M21 && left.M22 == right.M22
-            && left.M23 == right.M23 && left.M24 == right.M24
-            && left.M31 == right.M31 && left.M32 == right.M32
-            && left.M33 == right.M33 && left.M34 == right.M34
-            && left.M41 == right.M41 && left.M42 == right.M42
-            && left.M43 == right.M43 && left.M44 == right.M44;
-    }
-
-    [[nodiscard]] constexpr Vector3 Add(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-    }
-
-    [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
-    {
-        Matrix4 result{};
-        result.M11 = left.M11 * right.M11 + left.M12 * right.M21 + left.M13 * right.M31 + left.M14 * right.M41;
-        result.M12 = left.M11 * right.M12 + left.M12 * right.M22 + left.M13 * right.M32 + left.M14 * right.M42;
-        result.M13 = left.M11 * right.M13 + left.M12 * right.M23 + left.M13 * right.M33 + left.M14 * right.M43;
-        result.M14 = left.M11 * right.M14 + left.M12 * right.M24 + left.M13 * right.M34 + left.M14 * right.M44;
-        result.M21 = left.M21 * right.M11 + left.M22 * right.M21 + left.M23 * right.M31 + left.M24 * right.M41;
-        result.M22 = left.M21 * right.M12 + left.M22 * right.M22 + left.M23 * right.M32 + left.M24 * right.M42;
-        result.M23 = left.M21 * right.M13 + left.M22 * right.M23 + left.M23 * right.M33 + left.M24 * right.M43;
-        result.M24 = left.M21 * right.M14 + left.M22 * right.M24 + left.M23 * right.M34 + left.M24 * right.M44;
-        result.M31 = left.M31 * right.M11 + left.M32 * right.M21 + left.M33 * right.M31 + left.M34 * right.M41;
-        result.M32 = left.M31 * right.M12 + left.M32 * right.M22 + left.M33 * right.M32 + left.M34 * right.M42;
-        result.M33 = left.M31 * right.M13 + left.M32 * right.M23 + left.M33 * right.M33 + left.M34 * right.M43;
-        result.M34 = left.M31 * right.M14 + left.M32 * right.M24 + left.M33 * right.M34 + left.M34 * right.M44;
-        result.M41 = left.M41 * right.M11 + left.M42 * right.M21 + left.M43 * right.M31 + left.M44 * right.M41;
-        result.M42 = left.M41 * right.M12 + left.M42 * right.M22 + left.M43 * right.M32 + left.M44 * right.M42;
-        result.M43 = left.M41 * right.M13 + left.M42 * right.M23 + left.M43 * right.M33 + left.M44 * right.M43;
-        result.M44 = left.M41 * right.M14 + left.M42 * right.M24 + left.M43 * right.M34 + left.M44 * right.M44;
-        return result;
-    }
-
-    [[nodiscard]] constexpr Matrix4 CreateScale(Vector3 scale) noexcept
-    {
-        return Matrix4(
-            Vector4(scale.X, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, scale.Y, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, scale.Z, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr Matrix4 CreateScale(float x, float y, float z) noexcept
-    {
-        return CreateScale(Vector3(x, y, z));
-    }
-
     [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
     {
         const float sin = std::sin(angle);
@@ -159,17 +91,6 @@ namespace
             Vector4(1.0F, 0.0F, 0.0F, 0.0F),
             Vector4(0.0F, cos, sin, 0.0F),
             Vector4(0.0F, -sin, cos, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationY(float angle) noexcept
-    {
-        const float sin = std::sin(angle);
-        const float cos = std::cos(angle);
-        return Matrix4(
-            Vector4(cos, 0.0F, -sin, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(sin, 0.0F, cos, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
@@ -182,15 +103,6 @@ namespace
             Vector4(-sin, cos, 0.0F, 0.0F),
             Vector4(0.0F, 0.0F, 1.0F, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr Matrix4 CreateTranslation(float x, float y, float z) noexcept
-    {
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(x, y, z, 1.0F));
     }
 
     [[nodiscard]] Vector3 ExtractScale(Matrix4 value) noexcept
@@ -296,25 +208,6 @@ namespace
                 sqw - sqx - sqy + sqz);
         }
         return angles;
-    }
-
-    [[nodiscard]] Matrix4 ClearScale(Matrix4 value) noexcept
-    {
-        const Vector3 row0 = Vector3(value.M11, value.M12, value.M13).Normalized();
-        value.M11 = row0.X;
-        value.M12 = row0.Y;
-        value.M13 = row0.Z;
-
-        const Vector3 row1 = Vector3(value.M21, value.M22, value.M23).Normalized();
-        value.M21 = row1.X;
-        value.M22 = row1.Y;
-        value.M23 = row1.Z;
-
-        const Vector3 row2 = Vector3(value.M31, value.M32, value.M33).Normalized();
-        value.M31 = row2.X;
-        value.M32 = row2.Y;
-        value.M33 = row2.Z;
-        return value;
     }
 
     [[nodiscard]] float Determinant(Matrix4 value) noexcept
@@ -423,35 +316,6 @@ namespace
         result.M43 = -(a * flHj - b * elHi + d * ejFi) * invDet;
         result.M44 = +(a * fkGj - b * ekGi + c * ejFi) * invDet;
         return result;
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, Matrix3 matrix) noexcept
-    {
-        return Vector3(
-            value.X * matrix.M11 + value.Y * matrix.M21 + value.Z * matrix.M31,
-            value.X * matrix.M12 + value.Y * matrix.M22 + value.Z * matrix.M32,
-            value.X * matrix.M13 + value.Y * matrix.M23 + value.Z * matrix.M33);
-    }
-
-    [[nodiscard]] Matrix4 Multiply(Matrix4 value, float scalar) noexcept
-    {
-        value.M11 *= scalar;
-        value.M12 *= scalar;
-        value.M13 *= scalar;
-        value.M14 *= scalar;
-        value.M21 *= scalar;
-        value.M22 *= scalar;
-        value.M23 *= scalar;
-        value.M24 *= scalar;
-        value.M31 *= scalar;
-        value.M32 *= scalar;
-        value.M33 *= scalar;
-        value.M34 *= scalar;
-        value.M41 *= scalar;
-        value.M42 *= scalar;
-        value.M43 *= scalar;
-        value.M44 *= scalar;
-        return value;
     }
 
     [[nodiscard]] float Clamp(float value, float minimum, float maximum)

@@ -20,10 +20,15 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -50,40 +55,6 @@ namespace MphRead::Entities::Enemies
             return RequireReference(PlayerEntity::Main());
         }
 
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float factor) noexcept
-        {
-            return Vector3(
-                value.X * factor, value.Y * factor, value.Z * factor);
-        }
-
-        [[nodiscard]] Vector3 Divide(Vector3 value, float divisor) noexcept
-        {
-            return Vector3(
-                value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] Matrix4 CreateRotationY(float angle) noexcept
-        {
-            const float cosine = std::cos(angle);
-            const float sine = std::sin(angle);
-            return Matrix4(
-                Vector4(cosine, 0.0F, -sine, 0.0F),
-                Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-                Vector4(sine, 0.0F, cosine, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
     }
 
     Enemy46Entity::Enemy46Entity(EnemyInstanceEntityData data,

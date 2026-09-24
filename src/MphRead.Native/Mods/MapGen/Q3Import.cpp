@@ -37,7 +37,11 @@
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Subtract;
 
 namespace
 {
@@ -213,41 +217,6 @@ namespace
         a.Y = a.Y > b.Y ? a.Y : b.Y;
         a.Z = a.Z > b.Z ? a.Z : b.Z;
         return a;
-    }
-
-    [[nodiscard]] constexpr Vector3 Add(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Subtract(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
-    }
-
-    [[nodiscard]] constexpr Vector2 Add(Vector2 left, Vector2 right) noexcept
-    {
-        return Vector2(left.X + right.X, left.Y + right.Y);
-    }
-
-    [[nodiscard]] constexpr Vector2 Subtract(Vector2 left, Vector2 right) noexcept
-    {
-        return Vector2(left.X - right.X, left.Y - right.Y);
-    }
-
-    [[nodiscard]] constexpr Vector2 Multiply(Vector2 value, float scalar) noexcept
-    {
-        return Vector2(value.X * scalar, value.Y * scalar);
     }
 
     [[nodiscard]] std::int32_t ConvertToInt32Net9(float value) noexcept

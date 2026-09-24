@@ -20,7 +20,6 @@
 #include "Read.hpp"
 #include "Formats/Entity.hpp"
 #include "Formats/Formats.hpp"
-#include "Formats/Types.hpp"
 #include "Metadata/Metadata.hpp"
 #include "Metadata/Rooms.hpp"
 #include "Entities/AreaVolumeEntity.hpp"
@@ -46,6 +45,7 @@
 #include "Entities/RoomEntity.hpp"
 #include "Entities/TeleporterEntity.hpp"
 #include "Entities/TriggerVolumeEntity.hpp"
+#include "Formats/Types.hpp"
 
 #include <algorithm>
 #include <array>
@@ -62,6 +62,9 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::WithY;
 
 namespace
 {
@@ -142,20 +145,6 @@ namespace MphRead
             case EntityType::All: return "All";
             }
             return std::to_string(static_cast<std::uint16_t>(value));
-        }
-
-        [[nodiscard]] OpenTK::Mathematics::Vector3 AddY(
-            OpenTK::Mathematics::Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
-        }
-
-        [[nodiscard]] OpenTK::Mathematics::Vector3 WithY(
-            OpenTK::Mathematics::Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
         }
 
         [[nodiscard]] constexpr OpenTK::Mathematics::Vector3 UnitX() noexcept

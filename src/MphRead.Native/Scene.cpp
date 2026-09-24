@@ -7,6 +7,7 @@
 #include "Metadata/Metadata.hpp"
 #include "Read.hpp"
 #include "Strings.hpp"
+#include "Formats/Types.hpp"
 
 #include <bit>
 #include <cctype>
@@ -17,6 +18,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::WithY;
 
 namespace
 {
@@ -51,16 +55,6 @@ namespace
             bits |= ~std::uint32_t{0} << (32U - shift);
         }
         return std::bit_cast<std::int32_t>(bits);
-    }
-
-    [[nodiscard]] Vector3 Multiply(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-    }
-
-    [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-    {
-        return Vector3(value.X, y, value.Z);
     }
 
     [[nodiscard]] std::string ToUpperInvariant(std::string value)

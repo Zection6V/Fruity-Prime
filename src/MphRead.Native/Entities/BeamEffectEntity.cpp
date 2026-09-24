@@ -13,35 +13,13 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::ClearScale;
 using ::OpenTK::Mathematics::Length;
 
 namespace
 {
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] Vector3 ExtractScale(Matrix4 value) noexcept
-    {
-        return Vector3(
-            Length(Vector3(value.M11, value.M12, value.M13)),
-            Length(Vector3(value.M21, value.M22, value.M23)),
-            Length(Vector3(value.M31, value.M32, value.M33)));
-    }
-
-    [[nodiscard]] Matrix4 ClearScale(Matrix4 value) noexcept
-    {
-        const Vector3 scale = ExtractScale(value);
-        value.M11 /= scale.X;
-        value.M12 /= scale.X;
-        value.M13 /= scale.X;
-        value.M21 /= scale.Y;
-        value.M22 /= scale.Y;
-        value.M23 /= scale.Y;
-        value.M31 /= scale.Z;
-        value.M32 /= scale.Z;
-        value.M33 /= scale.Z;
-        return value;
-    }
 
     [[nodiscard]] std::int32_t ManagedFrameLifespan(std::int32_t frameCount) noexcept
     {

@@ -49,7 +49,11 @@
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::IdentityMatrix;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Negate;
+using ::OpenTK::Mathematics::WithY;
 
 namespace
 {
@@ -76,32 +80,6 @@ namespace
     [[nodiscard]] MphRead::MessageObject BoxEntity(MphRead::Entities::EntityBase* value)
     {
         return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] constexpr Vector3 Negate(Vector3 value) noexcept
-    {
-        return Vector3(-value.X, -value.Y, -value.Z);
-    }
-
-    [[nodiscard]] Matrix4 IdentityMatrix() noexcept
-    {
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Vector3 AddY(Vector3 value, float y) noexcept
-    {
-        value.Y += y;
-        return value;
-    }
-
-    [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-    {
-        value.Y = y;
-        return value;
     }
 
     [[nodiscard]] bool VectorEquals(Vector3 left, Vector3 right) noexcept

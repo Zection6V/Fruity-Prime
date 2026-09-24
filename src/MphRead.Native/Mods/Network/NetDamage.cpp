@@ -29,8 +29,10 @@
 #include <locale.h>
 #endif
 
+using ::OpenTK::Mathematics::IsZero;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Multiply;
 
 namespace
 {
@@ -53,18 +55,6 @@ namespace
     void UncheckedIncrement(std::int32_t& value) noexcept
     {
         value = UncheckedAddInt32(value, 1);
-    }
-
-    [[nodiscard]] bool IsZero(OpenTK::Mathematics::Vector3 value) noexcept
-    {
-        return value.X == 0.0F && value.Y == 0.0F && value.Z == 0.0F;
-    }
-
-    [[nodiscard]] OpenTK::Mathematics::Vector3 Multiply(
-        OpenTK::Mathematics::Vector3 value, float scale) noexcept
-    {
-        return OpenTK::Mathematics::Vector3(
-            value.X * scale, value.Y * scale, value.Z * scale);
     }
 
     [[nodiscard]] float ManagedClamp(float value, float minimum, float maximum) noexcept

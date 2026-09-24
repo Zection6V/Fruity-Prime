@@ -42,10 +42,18 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::ClearScale;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::IsZero;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Negate;
 using ::OpenTK::Mathematics::Normalize;
+using ::OpenTK::Mathematics::Scale;
+using ::OpenTK::Mathematics::SetRow3;
+using ::OpenTK::Mathematics::WithY;
 
 namespace
 {
@@ -54,41 +62,9 @@ namespace
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
 
-    [[nodiscard]] bool IsZero(Vector3 v) noexcept
-    {
-        return v.X == 0.0F && v.Y == 0.0F && v.Z == 0.0F;
-    }
-
-    [[nodiscard]] Vector3 Negate(Vector3 v) noexcept
-    {
-        return Vector3(-v.X, -v.Y, -v.Z);
-    }
-
-    [[nodiscard]] Vector3 Scale(Vector3 v, float s) noexcept
-    {
-        return Vector3(v.X * s, v.Y * s, v.Z * s);
-    }
-
-    [[nodiscard]] Vector3 Divide(Vector3 v, float s) noexcept
-    {
-        return Vector3(v.X / s, v.Y / s, v.Z / s);
-    }
-
     [[nodiscard]] Vector3 ComponentMultiply(Vector3 a, Vector3 b) noexcept
     {
         return Vector3(a.X * b.X, a.Y * b.Y, a.Z * b.Z);
-    }
-
-    [[nodiscard]] Vector3 AddY(Vector3 v, float y) noexcept
-    {
-        v.Y += y;
-        return v;
-    }
-
-    [[nodiscard]] Vector3 WithY(Vector3 v, float y) noexcept
-    {
-        v.Y = y;
-        return v;
     }
 
     [[nodiscard]] Vector4 NegatePlane(Vector3 direction) noexcept
@@ -110,25 +86,9 @@ namespace
             Vector4(0, 0, s, 0), Vector4(0, 0, 0, 1));
     }
 
-    void SetRow3(Matrix4& m, Vector3 v) noexcept
-    {
-        m.M41 = v.X; m.M42 = v.Y; m.M43 = v.Z;
-    }
-
     void ScaleRow2(Matrix4& m, float s) noexcept
     {
         m.M31 *= s; m.M32 *= s; m.M33 *= s;
-    }
-
-    [[nodiscard]] Matrix4 ClearScale(Matrix4 value) noexcept
-    {
-        const float x = Length(Vector3(value.M11, value.M12, value.M13));
-        const float y = Length(Vector3(value.M21, value.M22, value.M23));
-        const float z = Length(Vector3(value.M31, value.M32, value.M33));
-        value.M11 /= x; value.M12 /= x; value.M13 /= x;
-        value.M21 /= y; value.M22 /= y; value.M23 /= y;
-        value.M31 /= z; value.M32 /= z; value.M33 /= z;
-        return value;
     }
 
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)

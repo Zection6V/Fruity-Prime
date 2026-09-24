@@ -20,7 +20,10 @@
 #include "../../Formats/Types.hpp"
 
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Subtract;
 
 namespace MphRead::Mods::MapGen
 {
@@ -103,21 +106,6 @@ namespace MphRead::Mods::MapGen
                 left.X > right.X ? left.X : right.X,
                 left.Y > right.Y ? left.Y : right.Y,
                 left.Z > right.Z ? left.Z : right.Z);
-        }
-
-        [[nodiscard]] Vector3 Add(Vector3 left, Vector3 right) noexcept
-        {
-            return Vector3(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
-        }
-
-        [[nodiscard]] Vector3 Subtract(Vector3 left, Vector3 right) noexcept
-        {
-            return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-        }
-
-        [[nodiscard]] Vector3 Multiply(Vector3 value, float scalar) noexcept
-        {
-            return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
         }
 
         [[nodiscard]] std::int32_t UncheckedInt32(float value) noexcept

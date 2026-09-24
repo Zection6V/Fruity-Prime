@@ -3,11 +3,13 @@
 #include "../../Formats/Effects.hpp"
 #include "../../Scene.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <cstdint>
 #include <memory>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace MphRead::Entities::Enemies
 {
@@ -16,13 +18,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
 
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(
-                value.X * scale,
-                value.Y * scale,
-                value.Z * scale);
-        }
     }
 
     Enemy25Entity::Enemy25Entity(EnemyInstanceEntityData data,

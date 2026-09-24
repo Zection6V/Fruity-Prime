@@ -7,6 +7,7 @@
 #include "../ForceFieldEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <any>
 #include <bit>
@@ -18,6 +19,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace MphRead::Entities::Enemies
 {
@@ -40,11 +42,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] float Dot(Vector3 left, Vector3 right) noexcept
         {
             return left.X * right.X + left.Y * right.Y + left.Z * right.Z;
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float factor) noexcept
-        {
-            return Vector3(value.X * factor, value.Y * factor, value.Z * factor);
         }
 
         template <typename T>

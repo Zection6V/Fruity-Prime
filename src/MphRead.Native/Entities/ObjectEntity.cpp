@@ -21,6 +21,7 @@
 #include <utility>
 
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::ClearScale;
 using ::OpenTK::Mathematics::Length;
 
 namespace
@@ -140,28 +141,6 @@ namespace
         result.M44 = left.M41 * right.M14 + left.M42 * right.M24
             + left.M43 * right.M34 + left.M44 * right.M44;
         return result;
-    }
-
-    [[nodiscard]] Matrix4 ClearScale(Matrix4 value) noexcept
-    {
-        const float row0Scale
-            = 1.0F / Length(Vector3(value.M11, value.M12, value.M13));
-        value.M11 *= row0Scale;
-        value.M12 *= row0Scale;
-        value.M13 *= row0Scale;
-
-        const float row1Scale
-            = 1.0F / Length(Vector3(value.M21, value.M22, value.M23));
-        value.M21 *= row1Scale;
-        value.M22 *= row1Scale;
-        value.M23 *= row1Scale;
-
-        const float row2Scale
-            = 1.0F / Length(Vector3(value.M31, value.M32, value.M33));
-        value.M31 *= row2Scale;
-        value.M32 *= row2Scale;
-        value.M33 *= row2Scale;
-        return value;
     }
 
     [[nodiscard]] std::int32_t AnimationIdAt(

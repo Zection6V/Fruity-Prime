@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 
 namespace
@@ -84,11 +85,6 @@ namespace
             return std::signbit(left) && std::signbit(right) ? -0.0F : 0.0F;
         }
         return left > right ? left : right;
-    }
-
-    [[nodiscard]] Vector3 Divide(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
     }
 
     [[nodiscard]] float ManagedAbs(float value) noexcept

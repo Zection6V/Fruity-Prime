@@ -29,8 +29,15 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::IdentityMatrix;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Negate;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::SetRow3;
 
 namespace
 {
@@ -125,70 +132,6 @@ namespace
         }
     }
 
-    [[nodiscard]] constexpr Vector3 ScaleVector(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-    }
-
-    [[nodiscard]] constexpr Vector4 ScaleVector(Vector4 value, float scalar) noexcept
-    {
-        return Vector4(value.X * scalar, value.Y * scalar, value.Z * scalar, value.W * scalar);
-    }
-
-    [[nodiscard]] constexpr Vector3 Negate(Vector3 value) noexcept
-    {
-        return Vector3(-value.X, -value.Y, -value.Z);
-    }
-
-    [[nodiscard]] Matrix4 IdentityMatrix() noexcept
-    {
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
-    {
-        Matrix4 result{};
-        result.M11 = left.M11 * right.M11 + left.M12 * right.M21 + left.M13 * right.M31 + left.M14 * right.M41;
-        result.M12 = left.M11 * right.M12 + left.M12 * right.M22 + left.M13 * right.M32 + left.M14 * right.M42;
-        result.M13 = left.M11 * right.M13 + left.M12 * right.M23 + left.M13 * right.M33 + left.M14 * right.M43;
-        result.M14 = left.M11 * right.M14 + left.M12 * right.M24 + left.M13 * right.M34 + left.M14 * right.M44;
-        result.M21 = left.M21 * right.M11 + left.M22 * right.M21 + left.M23 * right.M31 + left.M24 * right.M41;
-        result.M22 = left.M21 * right.M12 + left.M22 * right.M22 + left.M23 * right.M32 + left.M24 * right.M42;
-        result.M23 = left.M21 * right.M13 + left.M22 * right.M23 + left.M23 * right.M33 + left.M24 * right.M43;
-        result.M24 = left.M21 * right.M14 + left.M22 * right.M24 + left.M23 * right.M34 + left.M24 * right.M44;
-        result.M31 = left.M31 * right.M11 + left.M32 * right.M21 + left.M33 * right.M31 + left.M34 * right.M41;
-        result.M32 = left.M31 * right.M12 + left.M32 * right.M22 + left.M33 * right.M32 + left.M34 * right.M42;
-        result.M33 = left.M31 * right.M13 + left.M32 * right.M23 + left.M33 * right.M33 + left.M34 * right.M43;
-        result.M34 = left.M31 * right.M14 + left.M32 * right.M24 + left.M33 * right.M34 + left.M34 * right.M44;
-        result.M41 = left.M41 * right.M11 + left.M42 * right.M21 + left.M43 * right.M31 + left.M44 * right.M41;
-        result.M42 = left.M41 * right.M12 + left.M42 * right.M22 + left.M43 * right.M32 + left.M44 * right.M42;
-        result.M43 = left.M41 * right.M13 + left.M42 * right.M23 + left.M43 * right.M33 + left.M44 * right.M43;
-        result.M44 = left.M41 * right.M14 + left.M42 * right.M24 + left.M43 * right.M34 + left.M44 * right.M44;
-        return result;
-    }
-
-    [[nodiscard]] Matrix4 CreateScale(float scale) noexcept
-    {
-        return Matrix4(
-            Vector4(scale, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, scale, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, scale, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateScale(Vector3 scale) noexcept
-    {
-        return Matrix4(
-            Vector4(scale.X, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, scale.Y, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, scale.Z, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
     [[nodiscard]] Matrix4 CreateRotationZ(float angle)
     {
         const float c = std::cos(angle);
@@ -197,17 +140,6 @@ namespace
             Vector4(c, s, 0.0F, 0.0F),
             Vector4(-s, c, 0.0F, 0.0F),
             Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationY(float angle)
-    {
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
-        return Matrix4(
-            Vector4(c, 0.0F, -s, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(s, 0.0F, c, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
@@ -229,11 +161,6 @@ namespace
     void SetRow2(Matrix4& matrix, Vector3 value) noexcept
     {
         matrix.M31 = value.X; matrix.M32 = value.Y; matrix.M33 = value.Z;
-    }
-
-    void SetRow3(Matrix4& matrix, Vector3 value) noexcept
-    {
-        matrix.M41 = value.X; matrix.M42 = value.Y; matrix.M43 = value.Z;
     }
 
     [[nodiscard]] Vector3 GetRow0(const Matrix4& matrix) noexcept

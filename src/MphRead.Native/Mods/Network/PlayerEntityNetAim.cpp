@@ -27,7 +27,9 @@
 #include <type_traits>
 #include <utility>
 
+using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Multiply;
 
 namespace
 {
@@ -46,16 +48,6 @@ namespace
     constexpr std::uint32_t WeaponFlagCanZoom = 0x800U;
 
     constexpr std::uint16_t AnimFlagEnded = 0x10U;
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scale) noexcept
-    {
-        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-    }
-
-    [[nodiscard]] constexpr Vector3 AddY(Vector3 value, float y) noexcept
-    {
-        return Vector3(value.X, value.Y + y, value.Z);
-    }
 
     [[nodiscard]] constexpr Vector3 NegativeUnitZ() noexcept
     {

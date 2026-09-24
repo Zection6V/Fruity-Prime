@@ -10,6 +10,7 @@
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
 
 #include <any>
 #include <bit>
@@ -22,6 +23,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::AddY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -94,12 +96,6 @@ namespace MphRead::Entities::Enemies
                 = std::bit_cast<std::uint32_t>(left)
                 * std::bit_cast<std::uint32_t>(right);
             return std::bit_cast<std::int32_t>(result);
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
         }
 
         [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)

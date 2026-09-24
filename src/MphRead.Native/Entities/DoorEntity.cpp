@@ -27,7 +27,12 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::CreateTranslation;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Negate;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace
 {
@@ -48,72 +53,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *MphRead::GameState::StorySave;
-    }
-
-    [[nodiscard]] Matrix4 CreateTranslation(float x, float y, float z) noexcept
-    {
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(x, y, z, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateScale(Vector3 scale) noexcept
-    {
-        return Matrix4(
-            Vector4(scale.X, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, scale.Y, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, scale.Z, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 Multiply(Matrix4 first, Matrix4 second) noexcept
-    {
-        Matrix4 result{};
-        result.M11 = first.M11 * second.M11 + first.M12 * second.M21
-            + first.M13 * second.M31 + first.M14 * second.M41;
-        result.M12 = first.M11 * second.M12 + first.M12 * second.M22
-            + first.M13 * second.M32 + first.M14 * second.M42;
-        result.M13 = first.M11 * second.M13 + first.M12 * second.M23
-            + first.M13 * second.M33 + first.M14 * second.M43;
-        result.M14 = first.M11 * second.M14 + first.M12 * second.M24
-            + first.M13 * second.M34 + first.M14 * second.M44;
-        result.M21 = first.M21 * second.M11 + first.M22 * second.M21
-            + first.M23 * second.M31 + first.M24 * second.M41;
-        result.M22 = first.M21 * second.M12 + first.M22 * second.M22
-            + first.M23 * second.M32 + first.M24 * second.M42;
-        result.M23 = first.M21 * second.M13 + first.M22 * second.M23
-            + first.M23 * second.M33 + first.M24 * second.M43;
-        result.M24 = first.M21 * second.M14 + first.M22 * second.M24
-            + first.M23 * second.M34 + first.M24 * second.M44;
-        result.M31 = first.M31 * second.M11 + first.M32 * second.M21
-            + first.M33 * second.M31 + first.M34 * second.M41;
-        result.M32 = first.M31 * second.M12 + first.M32 * second.M22
-            + first.M33 * second.M32 + first.M34 * second.M42;
-        result.M33 = first.M31 * second.M13 + first.M32 * second.M23
-            + first.M33 * second.M33 + first.M34 * second.M43;
-        result.M34 = first.M31 * second.M14 + first.M32 * second.M24
-            + first.M33 * second.M34 + first.M34 * second.M44;
-        result.M41 = first.M41 * second.M11 + first.M42 * second.M21
-            + first.M43 * second.M31 + first.M44 * second.M41;
-        result.M42 = first.M41 * second.M12 + first.M42 * second.M22
-            + first.M43 * second.M32 + first.M44 * second.M42;
-        result.M43 = first.M41 * second.M13 + first.M42 * second.M23
-            + first.M43 * second.M33 + first.M44 * second.M43;
-        result.M44 = first.M41 * second.M14 + first.M42 * second.M24
-            + first.M43 * second.M34 + first.M44 * second.M44;
-        return result;
-    }
-
-    [[nodiscard]] Vector3 Negate(Vector3 value) noexcept
-    {
-        return Vector3(-value.X, -value.Y, -value.Z);
-    }
-
-    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-    {
-        return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
     }
 
     template <std::size_t Size>

@@ -25,8 +25,11 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Scale;
 
 namespace MphRead::Entities::Enemies
 {
@@ -49,22 +52,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
-        [[nodiscard]] Vector3 Scale(Vector3 value, float scale) noexcept
-        {
-            return Vector3(value.X * scale, value.Y * scale, value.Z * scale);
-        }
-
-        [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-        {
-            value.Y += amount;
-            return value;
         }
 
         [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept
@@ -269,7 +256,7 @@ namespace MphRead::Entities::Enemies
         }
         else
         {
-            _speed = MphRead::Entities::Enemies::Scale(
+            _speed = ::OpenTK::Mathematics::Scale(
                 travel, _stepDistance / distance);
             // todo: FPS stuff
             _speed.X /= 2.0F;

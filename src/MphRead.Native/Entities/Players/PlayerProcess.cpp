@@ -48,10 +48,21 @@
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::AddX;
+using ::OpenTK::Mathematics::AddZ;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Negate;
 using ::OpenTK::Mathematics::Normalize;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::SetRow3;
+using ::OpenTK::Mathematics::Subtract;
+using ::OpenTK::Mathematics::WithY;
 
 namespace
 {
@@ -188,49 +199,6 @@ namespace
         return std::bit_cast<std::int32_t>(value);
     }
 
-    [[nodiscard]] Vector3 Add(Vector3 a, Vector3 b) noexcept
-    {
-        return Vector3(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
-    }
-
-    [[nodiscard]] Vector3 Subtract(Vector3 a, Vector3 b) noexcept
-    {
-        return Vector3(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
-    }
-
-    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float amount) noexcept
-    {
-        return Vector3(value.X * amount, value.Y * amount, value.Z * amount);
-    }
-
-    [[nodiscard]] Vector3 Divide(Vector3 value, float amount) noexcept
-    {
-        return Vector3(value.X / amount, value.Y / amount, value.Z / amount);
-    }
-
-    [[nodiscard]] Vector3 Negate(Vector3 value) noexcept
-    {
-        return Vector3(-value.X, -value.Y, -value.Z);
-    }
-
-    [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-    {
-        value.Y = y;
-        return value;
-    }
-
-    [[nodiscard]] Vector3 AddX(Vector3 value, float x) noexcept
-    {
-        value.X += x;
-        return value;
-    }
-
-    [[nodiscard]] Vector3 AddZ(Vector3 value, float z) noexcept
-    {
-        value.Z += z;
-        return value;
-    }
-
     [[nodiscard]] float DistanceSquared(Vector3 left, Vector3 right) noexcept
     {
         return LengthSquared(Subtract(left, right));
@@ -328,35 +296,6 @@ namespace
         value.M33 = row.Z;
     }
 
-    void SetRow3(Matrix4& value, Vector3 row) noexcept
-    {
-        value.M41 = row.X;
-        value.M42 = row.Y;
-        value.M43 = row.Z;
-    }
-
-    [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
-    {
-        Matrix4 result{};
-        result.M11 = left.M11 * right.M11 + left.M12 * right.M21 + left.M13 * right.M31 + left.M14 * right.M41;
-        result.M12 = left.M11 * right.M12 + left.M12 * right.M22 + left.M13 * right.M32 + left.M14 * right.M42;
-        result.M13 = left.M11 * right.M13 + left.M12 * right.M23 + left.M13 * right.M33 + left.M14 * right.M43;
-        result.M14 = left.M11 * right.M14 + left.M12 * right.M24 + left.M13 * right.M34 + left.M14 * right.M44;
-        result.M21 = left.M21 * right.M11 + left.M22 * right.M21 + left.M23 * right.M31 + left.M24 * right.M41;
-        result.M22 = left.M21 * right.M12 + left.M22 * right.M22 + left.M23 * right.M32 + left.M24 * right.M42;
-        result.M23 = left.M21 * right.M13 + left.M22 * right.M23 + left.M23 * right.M33 + left.M24 * right.M43;
-        result.M24 = left.M21 * right.M14 + left.M22 * right.M24 + left.M23 * right.M34 + left.M24 * right.M44;
-        result.M31 = left.M31 * right.M11 + left.M32 * right.M21 + left.M33 * right.M31 + left.M34 * right.M41;
-        result.M32 = left.M31 * right.M12 + left.M32 * right.M22 + left.M33 * right.M32 + left.M34 * right.M42;
-        result.M33 = left.M31 * right.M13 + left.M32 * right.M23 + left.M33 * right.M33 + left.M34 * right.M43;
-        result.M34 = left.M31 * right.M14 + left.M32 * right.M24 + left.M33 * right.M34 + left.M34 * right.M44;
-        result.M41 = left.M41 * right.M11 + left.M42 * right.M21 + left.M43 * right.M31 + left.M44 * right.M41;
-        result.M42 = left.M41 * right.M12 + left.M42 * right.M22 + left.M43 * right.M32 + left.M44 * right.M42;
-        result.M43 = left.M41 * right.M13 + left.M42 * right.M23 + left.M43 * right.M33 + left.M44 * right.M43;
-        result.M44 = left.M41 * right.M14 + left.M42 * right.M24 + left.M43 * right.M34 + left.M44 * right.M44;
-        return result;
-    }
-
     [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
     {
         const float c = std::cos(angle);
@@ -365,17 +304,6 @@ namespace
             Vector4(1.0F, 0.0F, 0.0F, 0.0F),
             Vector4(0.0F, c, s, 0.0F),
             Vector4(0.0F, -s, c, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationY(float angle) noexcept
-    {
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
-        return Matrix4(
-            Vector4(c, 0.0F, -s, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(s, 0.0F, c, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 

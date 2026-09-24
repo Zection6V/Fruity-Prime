@@ -47,9 +47,20 @@ using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::AddX;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::AddZ;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::IdentityMatrix;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Subtract;
+using ::OpenTK::Mathematics::WithX;
+using ::OpenTK::Mathematics::WithY;
+using ::OpenTK::Mathematics::WithZ;
 
 namespace
 {
@@ -66,74 +77,9 @@ namespace
     using OpenTK::Windowing::GraphicsLibraryFramework::MouseButton;
     using OpenTK::Windowing::GraphicsLibraryFramework::MouseState;
 
-    [[nodiscard]] constexpr Vector3 Add(Vector3 a, Vector3 b) noexcept
-    {
-        return Vector3(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Subtract(Vector3 a, Vector3 b) noexcept
-    {
-        return Vector3(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 v, float s) noexcept
-    {
-        return Vector3(v.X * s, v.Y * s, v.Z * s);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 v, float s) noexcept
-    {
-        return Vector3(v.X / s, v.Y / s, v.Z / s);
-    }
-
-    [[nodiscard]] constexpr Vector3 WithX(Vector3 v, float x) noexcept
-    {
-        v.X = x;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 WithY(Vector3 v, float y) noexcept
-    {
-        v.Y = y;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 WithZ(Vector3 v, float z) noexcept
-    {
-        v.Z = z;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 AddX(Vector3 v, float x) noexcept
-    {
-        v.X += x;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 AddY(Vector3 v, float y) noexcept
-    {
-        v.Y += y;
-        return v;
-    }
-
-    [[nodiscard]] constexpr Vector3 AddZ(Vector3 v, float z) noexcept
-    {
-        v.Z += z;
-        return v;
-    }
-
     [[nodiscard]] constexpr bool VectorEquals(Vector3 a, Vector3 b) noexcept
     {
         return a.X == b.X && a.Y == b.Y && a.Z == b.Z;
-    }
-
-    [[nodiscard]] Matrix4 IdentityMatrix() noexcept
-    {
-        return Matrix4(
-            Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     constexpr std::uint32_t Prime2 = 2246822519U;

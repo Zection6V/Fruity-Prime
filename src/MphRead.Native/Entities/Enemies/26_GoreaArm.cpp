@@ -20,6 +20,7 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::ScaleVector;
 
 namespace MphRead::Entities::Enemies
 {
@@ -48,14 +49,6 @@ namespace MphRead::Entities::Enemies
                 throw Memory::Detail::ArgumentOutOfRangeException();
             }
             return values[static_cast<std::size_t>(index)];
-        }
-
-        [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale) noexcept
-        {
-            return Vector3(
-                value.X * scale,
-                value.Y * scale,
-                value.Z * scale);
         }
 
         [[nodiscard]] std::int32_t ManagedAdd(

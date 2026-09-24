@@ -29,7 +29,12 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::CreateTranslation;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::IdentityMatrix;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::WithY;
 
 namespace MphRead::Entities::Enemies
 {
@@ -56,57 +61,12 @@ namespace MphRead::Entities::Enemies
             return RequireReference(PlayerEntity::Main());
         }
 
-        [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-        }
-
         [[nodiscard]] float DistanceSquared(Vector3 left, Vector3 right) noexcept
         {
             const float x = left.X - right.X;
             const float y = left.Y - right.Y;
             const float z = left.Z - right.Z;
             return x * x + y * y + z * z;
-        }
-
-        [[nodiscard]] Vector3 WithY(Vector3 value, float y) noexcept
-        {
-            value.Y = y;
-            return value;
-        }
-
-        [[nodiscard]] Matrix4 IdentityMatrix() noexcept
-        {
-            return Matrix4(
-                Vector4(1.0F, 0.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-                Vector4(0.0F, 0.0F, 1.0F, 0.0F),
-                Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
-        {
-            return Matrix4(
-                Vector4(
-                    left.M11 * right.M11 + left.M12 * right.M21 + left.M13 * right.M31 + left.M14 * right.M41,
-                    left.M11 * right.M12 + left.M12 * right.M22 + left.M13 * right.M32 + left.M14 * right.M42,
-                    left.M11 * right.M13 + left.M12 * right.M23 + left.M13 * right.M33 + left.M14 * right.M43,
-                    left.M11 * right.M14 + left.M12 * right.M24 + left.M13 * right.M34 + left.M14 * right.M44),
-                Vector4(
-                    left.M21 * right.M11 + left.M22 * right.M21 + left.M23 * right.M31 + left.M24 * right.M41,
-                    left.M21 * right.M12 + left.M22 * right.M22 + left.M23 * right.M32 + left.M24 * right.M42,
-                    left.M21 * right.M13 + left.M22 * right.M23 + left.M23 * right.M33 + left.M24 * right.M43,
-                    left.M21 * right.M14 + left.M22 * right.M24 + left.M23 * right.M34 + left.M24 * right.M44),
-                Vector4(
-                    left.M31 * right.M11 + left.M32 * right.M21 + left.M33 * right.M31 + left.M34 * right.M41,
-                    left.M31 * right.M12 + left.M32 * right.M22 + left.M33 * right.M32 + left.M34 * right.M42,
-                    left.M31 * right.M13 + left.M32 * right.M23 + left.M33 * right.M33 + left.M34 * right.M43,
-                    left.M31 * right.M14 + left.M32 * right.M24 + left.M33 * right.M34 + left.M34 * right.M44),
-                Vector4(
-                    left.M41 * right.M11 + left.M42 * right.M21 + left.M43 * right.M31 + left.M44 * right.M41,
-                    left.M41 * right.M12 + left.M42 * right.M22 + left.M43 * right.M32 + left.M44 * right.M42,
-                    left.M41 * right.M13 + left.M42 * right.M23 + left.M43 * right.M33 + left.M44 * right.M43,
-                    left.M41 * right.M14 + left.M42 * right.M24 + left.M43 * right.M34 + left.M44 * right.M44));
         }
 
         [[nodiscard]] Matrix4 CreateRotationX(float angle) noexcept
@@ -118,15 +78,6 @@ namespace MphRead::Entities::Enemies
                 Vector4(0.0F, cosine, sine, 0.0F),
                 Vector4(0.0F, -sine, cosine, 0.0F),
                 Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-        }
-
-        [[nodiscard]] Matrix4 CreateTranslation(Vector3 position) noexcept
-        {
-            Matrix4 result = IdentityMatrix();
-            result.M41 = position.X;
-            result.M42 = position.Y;
-            result.M43 = position.Z;
-            return result;
         }
 
         void SetRow3Xyz(Matrix4& matrix, Vector3 value) noexcept

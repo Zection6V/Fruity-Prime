@@ -50,7 +50,11 @@
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::Add;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
+using ::OpenTK::Mathematics::Multiply;
+using ::OpenTK::Mathematics::Subtract;
 
 namespace
 {
@@ -77,26 +81,6 @@ namespace
     [[nodiscard]] MphRead::MessageObject BoxInt32(std::int32_t value)
     {
         return std::make_shared<const std::any>(value);
-    }
-
-    [[nodiscard]] constexpr Vector3 Add(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Subtract(Vector3 left, Vector3 right) noexcept
-    {
-        return Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-    }
-
-    [[nodiscard]] constexpr Vector3 Divide(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X / scalar, value.Y / scalar, value.Z / scalar);
     }
 
     [[nodiscard]] constexpr Vector3 Vec4MultMtx4x3(

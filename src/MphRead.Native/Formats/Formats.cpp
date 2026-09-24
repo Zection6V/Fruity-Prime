@@ -27,6 +27,7 @@ using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::Multiply;
 
 namespace
 {
@@ -75,16 +76,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-    }
-
-    [[nodiscard]] constexpr Vector3 Multiply(float scalar, Vector3 value) noexcept
-    {
-        return Multiply(value, scalar);
     }
 
     [[nodiscard]] constexpr std::int32_t ManagedInt32(std::uint32_t value) noexcept

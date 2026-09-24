@@ -25,6 +25,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
@@ -50,26 +52,6 @@ namespace
             throw MphRead::Memory::Detail::IndexOutOfRangeException();
         }
         return MphRead::Metadata::TeamColors[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] Matrix4 CreateScale(float scale) noexcept
-    {
-        return Matrix4(
-            Vector4(scale, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, scale, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, scale, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 CreateRotationY(float radians) noexcept
-    {
-        const float cosine = std::cos(radians);
-        const float sine = std::sin(radians);
-        return Matrix4(
-            Vector4(cosine, 0.0F, -sine, 0.0F),
-            Vector4(0.0F, 1.0F, 0.0F, 0.0F),
-            Vector4(sine, 0.0F, cosine, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     [[nodiscard]] Matrix4 MultiplyMatrix4(Matrix4 left, Matrix4 right) noexcept

@@ -32,8 +32,14 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
+using ::OpenTK::Mathematics::AddY;
+using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::Multiply;
 using ::OpenTK::Mathematics::Normalize;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::SetRow3;
 
 namespace
 {
@@ -137,22 +143,6 @@ namespace
         return static_cast<std::uint16_t>(static_cast<std::uint32_t>(value) + 1U);
     }
 
-    [[nodiscard]] bool Equal(Vector3 left, Vector3 right) noexcept
-    {
-        return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
-    }
-
-    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scalar) noexcept
-    {
-        return Vector3(value.X * scalar, value.Y * scalar, value.Z * scalar);
-    }
-
-    [[nodiscard]] Vector3 AddY(Vector3 value, float amount) noexcept
-    {
-        value.Y += amount;
-        return value;
-    }
-
     [[nodiscard]] float Dot(Vector4 left, Vector4 right) noexcept
     {
         return left.X * right.X + left.Y * right.Y
@@ -162,63 +152,6 @@ namespace
     [[nodiscard]] Vector3 Row3(Matrix4 value) noexcept
     {
         return Vector3(value.M41, value.M42, value.M43);
-    }
-
-    void SetRow3(Matrix4& value, Vector3 row) noexcept
-    {
-        value.M41 = row.X;
-        value.M42 = row.Y;
-        value.M43 = row.Z;
-    }
-
-    [[nodiscard]] Matrix4 Multiply(Matrix4 left, Matrix4 right) noexcept
-    {
-        Matrix4 result{};
-        result.M11 = left.M11 * right.M11 + left.M12 * right.M21
-            + left.M13 * right.M31 + left.M14 * right.M41;
-        result.M12 = left.M11 * right.M12 + left.M12 * right.M22
-            + left.M13 * right.M32 + left.M14 * right.M42;
-        result.M13 = left.M11 * right.M13 + left.M12 * right.M23
-            + left.M13 * right.M33 + left.M14 * right.M43;
-        result.M14 = left.M11 * right.M14 + left.M12 * right.M24
-            + left.M13 * right.M34 + left.M14 * right.M44;
-
-        result.M21 = left.M21 * right.M11 + left.M22 * right.M21
-            + left.M23 * right.M31 + left.M24 * right.M41;
-        result.M22 = left.M21 * right.M12 + left.M22 * right.M22
-            + left.M23 * right.M32 + left.M24 * right.M42;
-        result.M23 = left.M21 * right.M13 + left.M22 * right.M23
-            + left.M23 * right.M33 + left.M24 * right.M43;
-        result.M24 = left.M21 * right.M14 + left.M22 * right.M24
-            + left.M23 * right.M34 + left.M24 * right.M44;
-
-        result.M31 = left.M31 * right.M11 + left.M32 * right.M21
-            + left.M33 * right.M31 + left.M34 * right.M41;
-        result.M32 = left.M31 * right.M12 + left.M32 * right.M22
-            + left.M33 * right.M32 + left.M34 * right.M42;
-        result.M33 = left.M31 * right.M13 + left.M32 * right.M23
-            + left.M33 * right.M33 + left.M34 * right.M43;
-        result.M34 = left.M31 * right.M14 + left.M32 * right.M24
-            + left.M33 * right.M34 + left.M34 * right.M44;
-
-        result.M41 = left.M41 * right.M11 + left.M42 * right.M21
-            + left.M43 * right.M31 + left.M44 * right.M41;
-        result.M42 = left.M41 * right.M12 + left.M42 * right.M22
-            + left.M43 * right.M32 + left.M44 * right.M42;
-        result.M43 = left.M41 * right.M13 + left.M42 * right.M23
-            + left.M43 * right.M33 + left.M44 * right.M43;
-        result.M44 = left.M41 * right.M14 + left.M42 * right.M24
-            + left.M43 * right.M34 + left.M44 * right.M44;
-        return result;
-    }
-
-    [[nodiscard]] Matrix4 CreateScale(Vector3 scale) noexcept
-    {
-        return Matrix4(
-            Vector4(scale.X, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, scale.Y, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, scale.Z, 0.0F),
-            Vector4(0.0F, 0.0F, 0.0F, 1.0F));
     }
 
     template <typename T>

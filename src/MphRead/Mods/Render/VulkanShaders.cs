@@ -38,6 +38,21 @@ layout(set=0,binding=0,std140) uniform CompatUniforms {
     vec4 shift_values[16];
     vec4 white_values[48];
 } u;
+
+bool compat_alpha_pass(float alpha)
+{
+    int mode = int(u.params1.x + 0.5);
+    float reference = u.scene2.w;
+    if (mode == 0 || mode == 8) return true;
+    if (mode == 1) return false;
+    if (mode == 2) return alpha < reference;
+    if (mode == 3) return alpha == reference;
+    if (mode == 4) return alpha <= reference;
+    if (mode == 5) return alpha > reference;
+    if (mode == 6) return alpha != reference;
+    if (mode == 7) return alpha >= reference;
+    return true;
+}
 ";
 
         private const string FragmentResources = @"
@@ -219,9 +234,7 @@ void main()
         col = vec4((col * (1.0 - density) + u.fog_color * density).xyz, col.a);
     }
 
-    int alpha_mode = int(u.params1.x + 0.5);
-    if (alpha_mode == 1 && col.a < 0.9999) discard;
-    if (alpha_mode == 2 && col.a >= 0.9999) discard;
+    if (!compat_alpha_pass(col.a)) discard;
 
     if (u.params2.z > 0.5) {
         float slope = max(abs(dFdx(gl_FragCoord.z)), abs(dFdy(gl_FragCoord.z)));
@@ -259,9 +272,7 @@ void main()
     }
     if (u.fade_color.a > 0.0) c = u.fade_color;
     c.a *= u.params0.x;
-    int alpha_mode = int(u.params1.x + 0.5);
-    if (alpha_mode == 1 && c.a < 0.9999) discard;
-    if (alpha_mode == 2 && c.a >= 0.9999) discard;
+    if (!compat_alpha_pass(c.a)) discard;
     out_color = c;
 }";
 
@@ -294,6 +305,7 @@ void main()
         }
         c.a *= u.rtt0.x;
     }
+    if (!compat_alpha_pass(c.a)) discard;
     out_color = c;
 }";
 
@@ -309,7 +321,9 @@ void main()
     vec3 lo = 2.0 * b * s;
     vec3 hi = 1.0 - 2.0 * (1.0 - b) * (1.0 - s);
     vec3 over = mix(lo, hi, step(vec3(0.5), b));
-    out_color = vec4(mix(b, over, u.scene2.y), 1.0);
+    vec4 c = vec4(mix(b, over, u.scene2.y), 1.0);
+    if (!compat_alpha_pass(c.a)) discard;
+    out_color = c;
 }";
 
         public static string ShiftFragment { get; } = Common + FragmentResources + @"
@@ -366,6 +380,7 @@ void main()
             }
         }
     }
+    if (!compat_alpha_pass(c.a)) discard;
     out_color = c;
 }";
 
@@ -418,16 +433,22 @@ void main()
         if (probe == 1) {
             float shown = clamp(log2(max(kink_abs(d, 2.0), 1e-10)) / 32.0 + 1.0,
                 0.004, 1.0);
-            out_color = vec4(shown, shown, shown, 1.0);
+            vec4 probe_color = vec4(shown, shown, shown, 1.0);
+            if (!compat_alpha_pass(probe_color.a)) discard;
+            out_color = probe_color;
             return;
         }
         ink = max(edge_at(d, 2.0, unit), edge_at(d, 3.0, unit)) * u.cel0.z;
     }
     else if (probe == 1) {
-        out_color = vec4(0.0, 0.0, 0.0, 1.0);
+        vec4 probe_color = vec4(0.0, 0.0, 0.0, 1.0);
+        if (!compat_alpha_pass(probe_color.a)) discard;
+        out_color = probe_color;
         return;
     }
-    out_color = vec4(base * (1.0 - ink), 1.0);
+    vec4 c = vec4(base * (1.0 - ink), 1.0);
+    if (!compat_alpha_pass(c.a)) discard;
+    out_color = c;
 }";
         public static string ClearVertex { get; } = @"#version 450
 void main()

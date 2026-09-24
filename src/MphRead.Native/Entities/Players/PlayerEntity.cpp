@@ -112,7 +112,17 @@ namespace
                 return typed;
             }
         }
-        throw System::NullReferenceException();
+        // Not in the scene yet is not an error: BeamProjectileEntity.Spawn
+        // runs SpawnIceWave, and so TakeDamage with the ice wave as its
+        // source, before it calls AddEntity -- the C# passes the reference
+        // regardless. The callers here only read the entity for the length of
+        // the call, so a non-owning pointer is the same thing.
+        T* typed = dynamic_cast<T*>(value);
+        if (typed == nullptr)
+        {
+            throw MphRead::SceneDetail::InvalidCastException();
+        }
+        return std::shared_ptr<T>(std::shared_ptr<T>(), typed);
     }
 
     template <typename TEnum>

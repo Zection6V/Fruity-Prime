@@ -308,6 +308,28 @@ C++ で対応する配列・メンバは `{}` で初期化する。「C# は未�
 
 ---
 
+## 12c. 生ポインタ → `shared_ptr` の「シーンから探す」変換
+
+**症状**: 対戦中、ボットにジュディケーターのチャージ（アイスウェーブ）が当たった瞬間に
+`NullReferenceException`。スタックは `TryFireWeapon` → `BeamProjectileEntity::Spawn` →
+`SpawnIceWave` → `PlayerEntity::TakeDamage` → `ResolveSceneEntity`。
+
+**原因**: C# は `EntityBase` 参照をそのまま渡すが、C++ で `shared_ptr` を要求する関数に
+渡すため、`scene.Entities()` を走査して同じアドレスを探し、見つからなければ throw する
+ヘルパーが各所にある。`Spawn` は `SpawnIceWave`（→ `TakeDamage(source = ビーム)`）を
+**`AddEntity` の前に**呼ぶ（C# も同じ順序）ので、ビームはまだシーンにいない。
+
+**修正**: `PlayerEntity.cpp` の `ResolveSceneEntity` は、見つからなければ非所有の
+`shared_ptr`（エイリアシングコンストラクタ）を返す。受け手（`PlayerAiData::OnTakeDamage`）は
+呼び出し中に `Type` を読むだけで保持しない。
+
+**注意点**: この種のヘルパー（`ResolveSceneEntity`・`SharedEntity`）を足すとき、
+「シーンにいない」は C# ではエラーではない。生成途中・削除済みのエンティティが渡る経路を
+確認する。`this` を渡す呼び出し（処理中のエンティティは必ずシーンにいる）は安全。
+結果を保持する場合は非所有ポインタを返してはいけない。
+
+---
+
 ## 13. 調べたが問題がなかった項目（再調査の手間を省くため）
 
 2026-09-24 に機械的に全体を調べ、実害のある箇所がなかったもの。

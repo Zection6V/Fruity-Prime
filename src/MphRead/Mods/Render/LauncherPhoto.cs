@@ -290,6 +290,32 @@ namespace MphRead.Mods.Render
         /// launcher then looks the way it does over a match: the washes on
         /// black, which is a screen rather than a crash.
         /// </summary>
+        /// <summary>
+        /// Release graphics objects owned by the launcher backdrop before a
+        /// renderer/window recreation. The decoded source remains embedded, so
+        /// the next backend simply rebuilds these objects on first draw.
+        /// </summary>
+        public static void Release()
+        {
+            if (_program != 0)
+            {
+                GL.DeleteProgram(_program);
+                _program = 0;
+            }
+            if (_texture != 0)
+            {
+                GL.DeleteTexture(_texture);
+                _texture = 0;
+            }
+            _width = 0;
+            _height = 0;
+            _tried = false;
+            _programTried = false;
+            _photoUniform = -1;
+            _noiseUniform = -1;
+            _strengthUniform = -1;
+        }
+
         private static bool Ensure()
         {
             if (_tried)

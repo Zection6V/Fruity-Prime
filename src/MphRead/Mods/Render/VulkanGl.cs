@@ -192,6 +192,42 @@ namespace MphRead.Mods.Render
             }
         }
 
+        private sealed class GeometrySlot : IDisposable
+        {
+            public DeviceBuffer? VertexBuffer { get; private set; }
+            public DeviceBuffer? IndexBuffer { get; private set; }
+            private uint _vertexBytes;
+            private uint _indexBytes;
+
+            public void Ensure(ResourceFactory factory, uint vertexBytes, uint indexBytes)
+            {
+                if (VertexBuffer == null || vertexBytes > _vertexBytes)
+                {
+                    VertexBuffer?.Dispose();
+                    _vertexBytes = Math.Max(vertexBytes, Math.Max(_vertexBytes * 2, 65536u));
+                    VertexBuffer = factory.CreateBuffer(new BufferDescription(
+                        _vertexBytes, BufferUsage.VertexBuffer | BufferUsage.Dynamic));
+                }
+                if (IndexBuffer == null || indexBytes > _indexBytes)
+                {
+                    IndexBuffer?.Dispose();
+                    _indexBytes = Math.Max(indexBytes, Math.Max(_indexBytes * 2, 32768u));
+                    IndexBuffer = factory.CreateBuffer(new BufferDescription(
+                        _indexBytes, BufferUsage.IndexBuffer | BufferUsage.Dynamic));
+                }
+            }
+
+            public void Dispose()
+            {
+                VertexBuffer?.Dispose();
+                IndexBuffer?.Dispose();
+                VertexBuffer = null;
+                IndexBuffer = null;
+                _vertexBytes = 0;
+                _indexBytes = 0;
+            }
+        }
+
         private static GraphicsDevice? _gd;
         private static ResourceFactory? _factory;
         private static CommandList? _commands;
@@ -200,10 +236,6 @@ namespace MphRead.Mods.Render
         private static bool _frameInFlight;
         private static ResourceLayout? _layout;
         private static ResourceLayout? _clearLayout;
-        private static DeviceBuffer? _vertexBuffer;
-        private static DeviceBuffer? _indexBuffer;
-        private static uint _vertexBufferBytes;
-        private static uint _indexBufferBytes;
         private static Shader[]? _sceneShaders;
         private static Shader[]? _screenShaders;
         private static Shader[]? _rttShaders;
@@ -217,6 +249,8 @@ namespace MphRead.Mods.Render
         private static int _uniformSlotIndex;
         private static readonly List<ClearUniformSlot> _clearUniformSlots = new();
         private static int _clearUniformSlotIndex;
+        private static readonly List<GeometrySlot> _geometrySlots = new();
+        private static int _geometrySlotIndex;
 
         private static readonly Dictionary<int, TextureInfo> _textures = new();
         private static readonly Dictionary<int, FramebufferInfo> _framebuffers = new();
@@ -414,8 +448,7 @@ namespace MphRead.Mods.Render
             if (_celShaders != null) foreach (Shader shader in _celShaders) shader.Dispose();
             if (_backdropShaders != null) foreach (Shader shader in _backdropShaders) shader.Dispose();
             if (_clearShaders != null) foreach (Shader shader in _clearShaders) shader.Dispose();
-            _vertexBuffer?.Dispose();
-            _indexBuffer?.Dispose();
+            foreach (GeometrySlot slot in _geometrySlots) slot.Dispose();
             _clearLayout?.Dispose();
             _layout?.Dispose();
             _commands?.Dispose();
@@ -427,6 +460,8 @@ namespace MphRead.Mods.Render
             _uniformSlotIndex = 0;
             _clearUniformSlots.Clear();
             _clearUniformSlotIndex = 0;
+            _geometrySlots.Clear();
+            _geometrySlotIndex = 0;
             _samplers.Clear();
             _textures.Clear();
             _framebuffers.Clear();
@@ -511,6 +546,7 @@ namespace MphRead.Mods.Render
                 _frameInFlight = false;
                 _uniformSlotIndex = 0;
                 _clearUniformSlotIndex = 0;
+                _geometrySlotIndex = 0;
                 return;
             }
             if (_frameInFlight)
@@ -523,6 +559,7 @@ namespace MphRead.Mods.Render
                 _frameInFlight = false;
                 _uniformSlotIndex = 0;
                 _clearUniformSlotIndex = 0;
+                _geometrySlotIndex = 0;
             }
         }
 
@@ -538,6 +575,8 @@ namespace MphRead.Mods.Render
                 _frameFence!.Reset();
                 _frameInFlight = false;
                 _uniformSlotIndex = 0;
+                _clearUniformSlotIndex = 0;
+                _geometrySlotIndex = 0;
             }
             _commands!.Begin();
             _commandsOpen = true;
@@ -808,24 +847,20 @@ namespace MphRead.Mods.Render
             for (int i = 0; i < range; i++) _lists.Remove(list + i);
         }
 
-        private static void EnsureBuffers(uint vertexBytes, uint indexBytes)
+        private static GeometrySlot AcquireGeometrySlot(uint vertexBytes, uint indexBytes)
         {
-            if (_vertexBuffer == null || vertexBytes > _vertexBufferBytes)
+            if (_geometrySlotIndex == _geometrySlots.Count)
             {
-                SynchronizeResourceMutation();
-                _vertexBuffer?.Dispose();
-                _vertexBufferBytes = Math.Max(vertexBytes, Math.Max(_vertexBufferBytes * 2, 65536u));
-                _vertexBuffer = _factory!.CreateBuffer(new BufferDescription(_vertexBufferBytes,
-                    BufferUsage.VertexBuffer | BufferUsage.Dynamic));
+                _geometrySlots.Add(new GeometrySlot());
             }
-            if (_indexBuffer == null || indexBytes > _indexBufferBytes)
-            {
-                SynchronizeResourceMutation();
-                _indexBuffer?.Dispose();
-                _indexBufferBytes = Math.Max(indexBytes, Math.Max(_indexBufferBytes * 2, 32768u));
-                _indexBuffer = _factory!.CreateBuffer(new BufferDescription(_indexBufferBytes,
-                    BufferUsage.IndexBuffer | BufferUsage.Dynamic));
-            }
+            GeometrySlot slot = _geometrySlots[_geometrySlotIndex++];
+            // A slot is used once per open command list and is not reused until
+            // the frame fence has completed. Repeatedly uploading unrelated
+            // draws into offset zero of one vertex/index pair makes correctness
+            // depend on transfer-to-vertex barriers emitted by the abstraction
+            // layer and has produced torn geometry on real Vulkan drivers.
+            slot.Ensure(_factory!, vertexBytes, indexBytes);
+            return slot;
         }
 
         private static void DrawData(float[] vertices, uint[] triangles, uint[] lines)
@@ -836,17 +871,17 @@ namespace MphRead.Mods.Render
             }
             uint vertexBytes = (uint)(vertices.Length * sizeof(float));
             uint indexBytes = (uint)((triangles.Length + lines.Length) * sizeof(uint));
-            EnsureBuffers(vertexBytes, indexBytes);
+            GeometrySlot geometry = AcquireGeometrySlot(vertexBytes, indexBytes);
             uint[] indices = new uint[triangles.Length + lines.Length];
             Array.Copy(triangles, indices, triangles.Length);
             Array.Copy(lines, 0, indices, triangles.Length, lines.Length);
 
             BindCurrentFramebuffer();
-            _commands!.UpdateBuffer(_vertexBuffer!, 0, vertices);
-            _commands.UpdateBuffer(_indexBuffer!, 0, indices);
+            _commands!.UpdateBuffer(geometry.VertexBuffer!, 0, vertices);
+            _commands.UpdateBuffer(geometry.IndexBuffer!, 0, indices);
             Veldrid.Framebuffer fb = CurrentFramebuffer(_drawFramebuffer);
-            _commands!.SetVertexBuffer(0, _vertexBuffer);
-            _commands.SetIndexBuffer(_indexBuffer!, IndexFormat.UInt32);
+            _commands!.SetVertexBuffer(0, geometry.VertexBuffer);
+            _commands.SetIndexBuffer(geometry.IndexBuffer!, IndexFormat.UInt32);
             if (_scissor)
             {
                 int scissorWidth = Math.Max(_scissorW, 1);
@@ -1597,6 +1632,7 @@ namespace MphRead.Mods.Render
             _frameInFlight = false;
             _uniformSlotIndex = 0;
             _clearUniformSlotIndex = 0;
+            _geometrySlotIndex = 0;
 
             int outputBpp = format == GLPixelFormat.Rgb ? 3 : 4;
             byte[] output = new byte[width * height * outputBpp];

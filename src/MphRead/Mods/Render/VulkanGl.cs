@@ -197,6 +197,12 @@ namespace MphRead.Mods.Render
         private static bool _vertexColorSet;
         private static int _activeTextureUnit;
         private static readonly int[] _boundTextures = new int[2];
+        private static readonly bool[] _texture2DEnabled = new bool[2];
+        private static readonly TextureEnvMode[] _textureEnvModes =
+        {
+            TextureEnvMode.Modulate,
+            TextureEnvMode.Modulate
+        };
 
         private static int _currentProgram;
         private static int _drawFramebuffer;
@@ -1111,9 +1117,22 @@ namespace MphRead.Mods.Render
             WriteVector4(data, FadeOffset, GetVector4(p, "fade_color", Vector4.Zero));
 
             float matAlpha = GetFloat(p, "mat_alpha", 1f);
-            float useTexture = p.Kind == ProgramKind.Scene
-                ? GetFloat(p, "use_texture", _boundTextures[0] != 0 ? 1f : 0f)
-                : (_boundTextures[0] != 0 ? 1f : 0f);
+            float useTexture;
+            if (p.Kind == ProgramKind.Scene)
+            {
+                useTexture = GetFloat(p, "use_texture", _boundTextures[0] != 0 ? 1f : 0f);
+            }
+            else if (_currentProgram == 0)
+            {
+                // In the compatibility pipeline, binding a texture and enabling
+                // GL_TEXTURE_2D are distinct pieces of state. Shader programs do
+                // not use this fixed-function enable, matching desktop OpenGL.
+                useTexture = _texture2DEnabled[0] && _boundTextures[0] != 0 ? 1f : 0f;
+            }
+            else
+            {
+                useTexture = _boundTextures[0] != 0 ? 1f : 0f;
+            }
             float showColors = GetFloat(p, "show_colors", 1f);
             float useOverride = GetFloat(p, "use_override", 0f);
             WriteVector4(data, Params0Offset, new Vector4(matAlpha, useTexture, showColors, useOverride));
@@ -1123,7 +1142,10 @@ namespace MphRead.Mods.Render
                 : _alphaFunction == AlphaFunction.Less ? 2 : 0;
             float flipTex0 = BoundTextureNeedsOpenGlVFlip(0) ? 1f : 0f;
             float flipTex1 = BoundTextureNeedsOpenGlVFlip(1) ? 1f : 0f;
-            WriteVector4(data, Params1Offset, new Vector4(alphaMode, flipTex0, flipTex1, 0));
+            float fixedReplace = _currentProgram == 0
+                && _textureEnvModes[0] == TextureEnvMode.Replace ? 1f : 0f;
+            WriteVector4(data, Params1Offset,
+                new Vector4(alphaMode, flipTex0, flipTex1, fixedReplace));
             WriteVector4(data, Params2Offset, new Vector4(
                 _polygonOffsetFactor, _polygonOffsetUnits, _polygonOffsetFill ? 1f : 0f, 0f));
 
@@ -1878,6 +1900,7 @@ namespace MphRead.Mods.Render
                 case EnableCap.AlphaTest: _alphaTest = true; break;
                 case EnableCap.StencilTest: _stencilTest = true; break;
                 case EnableCap.PolygonOffsetFill: _polygonOffsetFill = true; break;
+                case EnableCap.Texture2D: _texture2DEnabled[_activeTextureUnit] = true; break;
             }
         }
 
@@ -1892,6 +1915,7 @@ namespace MphRead.Mods.Render
                 case EnableCap.AlphaTest: _alphaTest = false; break;
                 case EnableCap.StencilTest: _stencilTest = false; break;
                 case EnableCap.PolygonOffsetFill: _polygonOffsetFill = false; break;
+                case EnableCap.Texture2D: _texture2DEnabled[_activeTextureUnit] = false; break;
             }
         }
 
@@ -2029,7 +2053,14 @@ namespace MphRead.Mods.Render
         public static void PushMatrix() { }
         public static void PopMatrix() { }
         public static void LoadIdentity() { }
-        public static void TexEnv(TextureEnvTarget target, TextureEnvParameter pname, int param) { }
+        public static void TexEnv(TextureEnvTarget target, TextureEnvParameter pname, int param)
+        {
+            if (target == TextureEnvTarget.TextureEnv
+                && pname == TextureEnvParameter.TextureEnvMode)
+            {
+                _textureEnvModes[_activeTextureUnit] = (TextureEnvMode)param;
+            }
+        }
     }
 }
 #endif

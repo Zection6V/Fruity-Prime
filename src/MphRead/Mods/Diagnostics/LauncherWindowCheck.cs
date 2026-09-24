@@ -381,6 +381,7 @@ namespace MphRead.Mods.Diagnostics
                     GL.DeleteProgram(sceneProgram);
                 }
 
+                CheckVulkanFixedFunctionTextureState(framebuffer, size);
                 CheckVulkanFramebufferSamplingOrientation(texture, framebuffer, size);
                 CheckVulkanRttMaskOrientation(texture, framebuffer, size);
             }
@@ -399,6 +400,85 @@ namespace MphRead.Mods.Diagnostics
                 GL.DeleteRenderbuffer(depth);
                 GL.DeleteFramebuffer(framebuffer);
                 GL.DeleteTexture(texture);
+            }
+        }
+
+        private static void CheckVulkanFixedFunctionTextureState(
+            int framebuffer, int size)
+        {
+            int sample = GL.GenTexture();
+            try
+            {
+                byte[] red = { 255, 0, 0, 255 };
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, sample);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba,
+                    1, 1, 0, PixelFormat.Rgba, PixelType.UnsignedByte, red);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(0);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(false);
+
+                GL.Enable(EnableCap.Texture2D);
+                GL.TexEnv(TextureEnvTarget.TextureEnv, TextureEnvParameter.TextureEnvMode,
+                    (int)TextureEnvMode.Replace);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Color4(0f, 1f, 0f, 1f);
+                DrawTestQuad();
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 2, size / 2, 255, 0, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan fixed-function TextureEnv Replace did not replace vertex color.");
+                }
+
+                // Keep the texture bound. In compatibility OpenGL, disabling
+                // GL_TEXTURE_2D is independent from the texture binding.
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Disable(EnableCap.Texture2D);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Color4(0f, 1f, 0f, 1f);
+                DrawTestQuad();
+
+                Array.Clear(pixels, 0, pixels.Length);
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 2, size / 2, 0, 255, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan ignored GL_TEXTURE_2D disable with a texture still bound.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan fixed-function texture enable/TexEnv semantics passed.");
+            }
+            finally
+            {
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.TexEnv(TextureEnvTarget.TextureEnv, TextureEnvParameter.TextureEnvMode,
+                    (int)TextureEnvMode.Modulate);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Enable(EnableCap.Texture2D);
+                GL.DepthMask(true);
+                GL.DeleteTexture(sample);
             }
         }
 

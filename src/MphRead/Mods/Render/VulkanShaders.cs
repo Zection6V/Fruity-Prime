@@ -245,7 +245,10 @@ layout(location=0) out vec4 out_color;
 void main()
 {
     vec4 c = fs_color;
-    if (u.params0.y > 0.5) c *= texture(sampler2D(Tex0, Samp0), fs_tex);
+    if (u.params0.y > 0.5) {
+        vec4 sampled = texture(sampler2D(Tex0, Samp0), fs_tex);
+        c = u.params1.w > 0.5 ? sampled : c * sampled;
+    }
     if (u.fade_color.a > 0.0) c = u.fade_color;
     c.a *= u.params0.x;
     int alpha_mode = int(u.params1.x + 0.5);

@@ -1468,8 +1468,13 @@ namespace MphRead.Mods.Render
             TextureInfo dst = GetTexture(name);
             if (dst.Texture == null) return;
             Veldrid.Texture src = CurrentFramebuffer(_readFramebuffer).ColorTargets[0].Target;
+            int sourceY = y;
+            if (_gd.IsUvOriginTopLeft)
+            {
+                sourceY = Math.Max((int)src.Height - y - height, 0);
+            }
             EnsureFrame();
-            _commands!.CopyTexture(src, (uint)x, (uint)y, 0, 0, 0,
+            _commands!.CopyTexture(src, (uint)x, (uint)sourceY, 0, 0, 0,
                 dst.Texture, (uint)xoffset, (uint)yoffset, 0, 0, 0,
                 (uint)width, (uint)height, 1, 1);
             dst.FlipVWhenSampledAsOpenGl = _gd.IsUvOriginTopLeft;

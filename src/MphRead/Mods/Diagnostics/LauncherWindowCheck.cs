@@ -387,6 +387,7 @@ namespace MphRead.Mods.Diagnostics
                 }
 
                 CheckVulkanUniformIsolation(framebuffer, size);
+                CheckVulkanSceneTextureUniformIsolation(framebuffer, size);
                 CheckVulkanFixedFunctionTextureState(framebuffer, size);
                 CheckVulkanCopyTexSubImageOrientation(framebuffer, size);
                 CheckVulkanFramebufferSamplingOrientation(texture, framebuffer, size);
@@ -468,6 +469,89 @@ namespace MphRead.Mods.Diagnostics
                 GL.Enable(EnableCap.Texture2D);
                 GL.DepthMask(true);
                 GL.DeleteProgram(program);
+            }
+        }
+
+        private static void CheckVulkanSceneTextureUniformIsolation(
+            int framebuffer, int size)
+        {
+            int texture = GL.GenTexture();
+            int program = CreateSceneProgram();
+            try
+            {
+                byte[] blue = { 0, 0, 255, 255 };
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, texture);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba,
+                    1, 1, 0, PixelFormat.Rgba, PixelType.UnsignedByte, blue);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(program);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(false);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+
+                GL.Uniform1(GL.GetUniformLocation(program, "use_texture"), 1);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_light"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "show_colors"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_override"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_pal_override"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "mat_mode"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "mat_alpha"), 1f);
+                GL.Uniform1(GL.GetUniformLocation(program, "cel_bands"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "texgen_mode"), 0);
+                Matrix4 identity = Matrix4.Identity;
+                GL.UniformMatrix4(GL.GetUniformLocation(program, "tex_mtx"),
+                    false, ref identity);
+
+                int useFlat = GL.GetUniformLocation(program, "use_flat");
+                int flatColor = GL.GetUniformLocation(program, "flat_color");
+
+                GL.Uniform1(useFlat, 0);
+                DrawTexturedTestQuad(-1f, -0.05f);
+
+                GL.Uniform1(useFlat, 1);
+                GL.Uniform3(flatColor, new Vector3(1f, 1f, 0f));
+                DrawTexturedTestQuad(0.05f, 1f);
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 4, size / 2, 0, 0, 255)
+                    || !PixelIs(pixels, size, size * 3 / 4, size / 2, 255, 255, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan Scene texture/flat-color state leaked between draws.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan Scene texture/flat-color uniform isolation passed.");
+            }
+            finally
+            {
+                GL.UseProgram(0);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Enable(EnableCap.Texture2D);
+                GL.DepthMask(true);
+                GL.DeleteProgram(program);
+                GL.DeleteTexture(texture);
             }
         }
 
@@ -878,6 +962,20 @@ namespace MphRead.Mods.Diagnostics
             GL.Vertex3(left, -1f, 0f);
             GL.Vertex3(right, -1f, 0f);
             GL.Vertex3(right, 1f, 0f);
+            GL.Vertex3(left, 1f, 0f);
+            GL.End();
+        }
+
+        private static void DrawTexturedTestQuad(float left, float right)
+        {
+            GL.Begin(PrimitiveType.Quads);
+            GL.TexCoord3(0f, 0f, 0f);
+            GL.Vertex3(left, -1f, 0f);
+            GL.TexCoord3(1f, 0f, 0f);
+            GL.Vertex3(right, -1f, 0f);
+            GL.TexCoord3(1f, 1f, 0f);
+            GL.Vertex3(right, 1f, 0f);
+            GL.TexCoord3(0f, 1f, 0f);
             GL.Vertex3(left, 1f, 0f);
             GL.End();
         }

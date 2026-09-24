@@ -63,9 +63,9 @@ namespace MphRead.Mods.Render
 
         /// <summary>
         /// The texture name, chosen rather than asked for, and one above
-        /// <see cref="UiOverlay"/>'s. See the long note there: the engine
-        /// counts its own texture names up from one, so a name from
-        /// GenTextures is a name the next match will draw a hunter into.
+        /// <see cref="UiOverlay"/>'s. Scene/model textures now use the backend
+        /// allocator, so this fixed high launcher name is kept only as a
+        /// reserved, easily identifiable UI resource.
         /// </summary>
         private const int Name = 1_000_001;
 

@@ -1273,6 +1273,17 @@ namespace MphRead.Mods.Render
 
         public static void DeleteTexture(int name)
         {
+            if (name == 0)
+            {
+                return;
+            }
+            for (int unit = 0; unit < _boundTextures.Length; unit++)
+            {
+                if (_boundTextures[unit] == name)
+                {
+                    _boundTextures[unit] = 0;
+                }
+            }
             if (_textures.Remove(name, out TextureInfo? info))
             {
                 InvalidateSets();
@@ -1644,9 +1655,15 @@ namespace MphRead.Mods.Render
 
         public static void DeleteFramebuffer(int framebuffer)
         {
+            if (framebuffer == 0)
+            {
+                return;
+            }
             if (_framebuffers.Remove(framebuffer, out FramebufferInfo? fb))
             {
                 SynchronizeResourceMutation();
+                if (_drawFramebuffer == framebuffer) _drawFramebuffer = 0;
+                if (_readFramebuffer == framebuffer) _readFramebuffer = 0;
                 fb.Dispose();
                 DisposePipelineCache();
             }
@@ -1654,9 +1671,14 @@ namespace MphRead.Mods.Render
 
         public static void DeleteRenderbuffer(int renderbuffer)
         {
+            if (renderbuffer == 0)
+            {
+                return;
+            }
             if (_renderbuffers.Remove(renderbuffer, out RenderbufferInfo? rb))
             {
                 SynchronizeResourceMutation();
+                if (_boundRenderbuffer == renderbuffer) _boundRenderbuffer = 0;
                 rb.Dispose();
                 InvalidateFramebuffers();
             }

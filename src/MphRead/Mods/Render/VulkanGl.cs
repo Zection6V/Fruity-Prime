@@ -458,12 +458,16 @@ namespace MphRead.Mods.Render
             {
                 // EnsureFrame never begins a new list until the previous
                 // fenced frame has completed, so an open list is the only
-                // outstanding work here. Submit the partial frame and wait
-                // before destroying anything it recorded.
+                // outstanding work here. Submit that list with the reusable
+                // frame fence and wait only for this submission before
+                // destroying resources it referenced.
                 _commands!.End();
-                _gd.SubmitCommands(_commands);
+                _gd.SubmitCommands(_commands, _frameFence!);
                 _commandsOpen = false;
-                _gd.WaitForIdle();
+                _frameInFlight = true;
+                _gd.WaitForFence(_frameFence!);
+                _frameFence!.Reset();
+                _frameInFlight = false;
                 return;
             }
             if (_frameInFlight)

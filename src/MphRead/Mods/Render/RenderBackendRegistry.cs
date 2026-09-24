@@ -83,9 +83,7 @@ namespace MphRead.Mods.Render
             _all.First(entry => entry.Kind == RendererBackendKind.OpenGL);
 
         public static IEnumerable<RenderBackendRegistration> Selectable =>
-            _all.Where(entry => entry.Implemented
-                && entry.SupportsCurrentPlatform()
-                && entry.Implementation!.IsSupportedOnCurrentPlatform());
+            _all.Where(CanActivate);
 
         public static string[] SelectableNames =>
             Selectable.Select(entry => entry.DisplayName).ToArray();

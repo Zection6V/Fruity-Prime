@@ -6910,15 +6910,17 @@ namespace MphRead
             }
             catch
             {
-                // Vulkan can fail after the NoAPI window exists (surface,
-                // device or shader creation). Release any partial device state
-                // and this native window before the shell retries with OpenGL.
+                // A backend can fail after its native window exists (surface,
+                // device or shader creation). Release partial backend state and
+                // the renderer lock before reporting that selected-backend
+                // failure. There is deliberately no fallback to another API.
                 try
                 {
                     Mods.Render.RenderApi.Shutdown();
                 }
                 finally
                 {
+                    Mods.Render.RendererBackend.ReleaseWindow();
                     Dispose();
                 }
                 throw;
@@ -7301,10 +7303,20 @@ namespace MphRead
         protected override void OnUnload()
         {
 #if !ANDROID
-            if (_backendInitialized)
+            try
             {
-                Mods.Render.RenderApi.Shutdown();
-                _backendInitialized = false;
+                if (_backendInitialized)
+                {
+                    Mods.Render.RenderApi.Shutdown();
+                    _backendInitialized = false;
+                }
+            }
+            finally
+            {
+                // A graphics API is locked to one native window. Releasing the
+                // pairing here lets the shell recreate that window against a
+                // newly selected backend without restarting the application.
+                Mods.Render.RendererBackend.ReleaseWindow();
             }
 #endif
             base.OnUnload();
